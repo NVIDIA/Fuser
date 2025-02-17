@@ -116,15 +116,19 @@ class Communication : public Expr {
   void validate();
 };
 
+enum class P2PCommunicationType { SEND, RECV };
+
+std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type);
+
 class P2PCommunication : public Expr {
  public:
   using Expr::Expr;
 
   P2PCommunication(
       IrBuilderPasskey passkey,
+      P2PCommunicationType type,
       TensorView* buffer,
-      Val* dst,
-      Val* src,
+      Val* peer,
       CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   P2PCommunication(const P2PCommunication& other) = delete;
@@ -140,15 +144,15 @@ class P2PCommunication : public Expr {
     return "P2PCommunication";
   }
 
+  P2PCommunicationType type() const {
+    return attribute<P2PCommunicationType>(0);
+  }
+
   TensorView* buffer() const {
     return input(0)->as<TensorView>();
   }
 
-  Val* dst() const {
-    return attributeVal(0);
-  }
-
-  Val* src() const {
+  Val* peer() const {
     return attributeVal(1);
   }
 
@@ -226,8 +230,7 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     P2PCommunication* communication,
     DeviceIdxType my_device_index,
-    DeviceIdxType dst,
-    DeviceIdxType src,
+    DeviceIdxType peer,
     c10d::Backend* backend,
     at::Tensor buffer);
 

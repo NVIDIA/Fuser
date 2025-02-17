@@ -213,16 +213,30 @@ std::string Communication::toInlineString(int indent_size) const {
   return toString(indent_size);
 }
 
+std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
+  switch (type) {
+    case P2PCommunicationType::SEND:
+      os << "send";
+      break;
+    case P2PCommunicationType::RECV:
+      os << "recv";
+      break;
+    default:
+      NVF_THROW("unrecognized P2PCommunicationType: ", type);
+  }
+  return os;
+}
+
 P2PCommunication::P2PCommunication(
     IrBuilderPasskey passkey,
+    P2PCommunicationType type,
     TensorView* buffer,
-    Val* dst,
-    Val* src,
+    Val* peer,
     CommunicatorBackend backend)
     : Expr(passkey) {
   addInput(buffer);
-  addAttribute(dst);
-  addAttribute(src);
+  addDataAttribute(type);
+  addAttribute(peer);
   addDataAttribute(backend);
 }
 
@@ -231,9 +245,9 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(P2PCommunication)
 std::string P2PCommunication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "P2PCommunication " << name() << " ("
+                          << "type=" << type() << ", "
                           << "buffer=" << buffer() << ", "
-                          << "dst=" << dst() << ", "
-                          << "src=" << src() << ", "
+                          << "peer=" << peer() << ", "
                           << "backend=" << backend() << ")";
   return ss.str();
 }
@@ -573,18 +587,19 @@ c10::intrusive_ptr<c10d::Work> postRecv(
 c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     P2PCommunication* communication,
     DeviceIdxType my_device_index,
-    DeviceIdxType dst,
-    DeviceIdxType src,
+    DeviceIdxType peer,
     c10d::Backend* backend,
     at::Tensor buffer) {
   NVF_ERROR(backend != nullptr);
 
-  if (my_device_index == src) {
-    return postSend(communication, my_device_index, dst, backend, buffer);
-  } else if (my_device_index == dst) {
-    return postRecv(communication, my_device_index, src, backend, buffer);
-  } else {
-    return nullptr;
+  switch (communication->type()) {
+    case P2PCommunicationType::SEND:
+      return postSend(communication, my_device_index, peer, backend, buffer);
+    case P2PCommunicationType::RECV:
+      return postRecv(communication, my_device_index, peer, backend, buffer);
+    default:
+      NVF_THROW("Wrong communication type: ", communication->type());
+      return nullptr;
   }
 }
 
