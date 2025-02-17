@@ -105,9 +105,9 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto aten_rstd = std::get<2>(aten_results);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> aten_inputs = {
+  KernelArgumentHolder args = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   auto aten_gradients = at::native_layer_norm_backward(
       aten_grad_out,
@@ -122,7 +122,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   testValidate(
       executor_cache.fusion(),
       {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
-      aten_inputs,
+      args.toC10Array(),
       {std::get<0>(aten_gradients),
        std::get<1>(aten_gradients),
        std::get<2>(aten_gradients)},
@@ -262,15 +262,14 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     auto aten_rstd = std::get<2>(aten_results);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    std::vector<c10::IValue> aten_inputs = {
+    KernelArgumentHolder args = {
         aten_grad_out,
         aten_input,
         aten_mean,
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
     auto aten_gradients = at::native_layer_norm_backward(
         aten_grad_out.to(at::kDouble),
@@ -295,7 +294,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     testValidate(
         &fusion,
         cg_outputs,
-        aten_inputs,
+        args.toC10Array(),
         {aten_out_linked,
          std::get<0>(aten_gradients),
          std::get<1>(aten_gradients),
@@ -446,15 +445,14 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     auto aten_rstd = std::get<2>(aten_results);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    std::vector<c10::IValue> aten_inputs = {
+    KernelArgumentHolder args = {
         aten_grad_out,
         aten_input,
         aten_mean,
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     switch (case_id) {
@@ -481,7 +479,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     testValidate(
         &fusion,
         cg_outputs,
-        aten_inputs,
+        args.toC10Array(),
         __LINE__,
         __FILE__,
         "",

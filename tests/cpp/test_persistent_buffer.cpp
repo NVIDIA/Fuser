@@ -1508,8 +1508,8 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
 
   // check segmentation and smem usage
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
-      {aten_input, aten_weight, aten_bias});
+  auto cg_outputs =
+      executor_cache.runFusionWithInputs({aten_input, aten_weight, aten_bias});
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   if (has_enough_regs_smem) {
     EXPECT_THAT(

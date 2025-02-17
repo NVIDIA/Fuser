@@ -189,8 +189,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               int64_t start_ = (int64_t)start;
               int64_t step_ = (int64_t)step;
-              auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
-                  {length, start_, step_});
+              auto cg_outputs =
+                  executor_cache.runFusionWithInputs({length, start_, step_});
 
               testValidate(
                   executor_cache.fusion(),
@@ -210,8 +210,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               double start_ = (double)start;
               double step_ = (double)step;
-              auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
-                  {length, start_, step_});
+              auto cg_outputs =
+                  executor_cache.runFusionWithInputs({length, start_, step_});
 
               testValidate(
                   executor_cache.fusion(),
@@ -312,7 +312,7 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
             continue;
           }
 
-          auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
+          auto cg_outputs = executor_cache.runFusionWithInputs(
               {(int64_t)start,
                (int64_t)end,
                (int64_t)step,

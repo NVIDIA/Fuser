@@ -576,7 +576,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   tref = tref.sin().to(at::kHalf);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
 
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();

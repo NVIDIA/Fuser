@@ -29,8 +29,8 @@ namespace nvfuser {
 // using expr evaluator.
 //
 // `fusion_outputs` is the return value of
-// `FusionExecutorCache::runFusionWithInputs_deprecated(aten_inputs)`. It's not
-// always `fusion->outputs().size()` because `runFusionWithInputs_deprecated`
+// `FusionExecutorCache::runFusionWithInputs(aten_inputs)`. It's not
+// always `fusion->outputs().size()` because `runFusionWithInputs`
 // hides outputs that are inputs in-place updated.
 void testValidate(
     Fusion* fusion,

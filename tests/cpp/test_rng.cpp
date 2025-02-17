@@ -469,8 +469,8 @@ TEST_F(RNGTest, FunctionalUniform) {
       auto ref1 = generate_uniform(size, at::kDouble) * 2 - 1;
 
       at::manual_seed(0);
-      auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
-          {size, -1.0, 1.0, 0, 0});
+      auto cg_outputs =
+          executor_cache.runFusionWithInputs({size, -1.0, 1.0, 0, 0});
 
       std::vector<at::Tensor> aten_outputs;
       if (do_stochastic) {

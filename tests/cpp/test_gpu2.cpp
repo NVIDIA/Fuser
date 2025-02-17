@@ -5299,8 +5299,8 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
   at::Tensor t7 = at::randn_like(t0);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(
-      {t0, t1, t2, t3, t4, t5, t6, t7});
+  KernelArgumentHolder args = {t0, t1, t2, t3, t4, t5, t6, t7};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 }
 
 // TODO: We only changed inputs, merge this with the test above.
@@ -5366,8 +5366,8 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro2_CUDA) {
   at::Tensor t7 = at::randn_like(t0);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(
-      {t0, t1, t2, t3, t4, t5, t6, t7});
+  KernelArgumentHolder args = {t0, t1, t2, t3, t4, t5, t6, t7};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 }
 
 TEST_F(NVFuserTest, FusionBNRepro_CUDA) {

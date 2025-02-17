@@ -236,8 +236,8 @@ TEST_F(ScatterGatherTest, AddGatherSumAdd) {
             at::randint(0, input_dims[dim] / 2, index_dims, options_i);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
-        auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
-            {t_lookup, t_idx_1, t_idx_2});
+        auto cg_outputs =
+            executor_cache.runFusionWithInputs({t_lookup, t_idx_1, t_idx_2});
         testValidate(
             &fusion,
             cg_outputs,

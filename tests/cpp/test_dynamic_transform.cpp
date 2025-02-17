@@ -821,20 +821,20 @@ void reductionDynamicViewAddFusion(
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+    KernelArgumentHolder args = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(output_dims)) {
-      aten_inputs.push_back(output_shape[i]);
+      args.push(output_shape[i]);
     }
 
-    auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+    auto outputs = executor_cache.runFusionWithInputs(args);
     checkCache(expect_miss);
 
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
   }
 }
 
@@ -934,20 +934,20 @@ void reductionDynamicPadAddFusion(
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x};
+    KernelArgumentHolder args = {at_x};
     // Add input scalars describing the reshape size for concretization
     for (size_t i : c10::irange(pad_widths.size())) {
-      aten_inputs.push_back(pad_widths[i]);
+      args.push(pad_widths[i]);
     }
 
-    auto outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+    auto outputs = executor_cache.runFusionWithInputs(args);
     CHECK_CACHE(
         expect_miss, "Input shape=", input_shape, " pad_widths=", pad_widths);
 
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE
@@ -1191,18 +1191,18 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 2}, options);
-  std::vector<c10::IValue> valid_inputs = {t0, 6, 1};
+  KernelArgumentHolder valid_args = {t0, 6, 1};
   // An invalid input has a second dimension that cannot be squeezed
-  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3};
+  KernelArgumentHolder invalid_args = {t0, 2, 3};
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(valid_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(valid_args);
 
-  testValidate(fusion, outputs, valid_inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, valid_args.toC10Array(), __LINE__, __FILE__);
 
   // An informative error message should be given by
   // SqueezeOp::checkConcretization
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs_deprecated(invalid_inputs); },
+      [&]() { executor_cache.runFusionWithInputs(invalid_args); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           " must concretize to IterType::Broadcast but found")));
 }
@@ -1235,18 +1235,22 @@ TEST_F(NVFuserTest, SymbolicExpand) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 2}, options);
-  std::vector<c10::IValue> valid_inputs = {t0, 6, 1, 6, 5};
+  KernelArgumentHolder valid_args = {t0, 6, 1, 6, 5};
   // An invalid input has a second dimension that cannot be expanded
-  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3, 2, 5};
+  KernelArgumentHolder invalid_args = {t0, 2, 3, 2, 5};
 
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(valid_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(valid_args);
 
   testValidate(
-      executor_cache.fusion(), outputs, valid_inputs, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      valid_args.toC10Array(),
+      __LINE__,
+      __FILE__);
 
   // An informative error message should be given during concretization
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs_deprecated(invalid_inputs); },
+      [&]() { executor_cache.runFusionWithInputs(invalid_args); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Mismatch in sizes when concretizing expand.")));
 }

@@ -1309,8 +1309,7 @@ TEST_F(ResizeTest, SliceInputShmooFusionExecutorCache) {
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
     std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
     testValidate(
         executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
@@ -1419,7 +1418,7 @@ TEST_F(ResizeTest, PadReduceScheduler1) {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
@@ -1459,7 +1458,7 @@ TEST_F(ResizeTest, SliceReduceScheduler1) {
       std::back_inserter(aten_inputs));
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
@@ -1503,7 +1502,7 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
       std::back_inserter(aten_inputs));
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
@@ -1543,7 +1542,7 @@ TEST_F(ResizeTest, FusionSliceReduceScheduler3) {
       std::back_inserter(aten_inputs));
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   testValidate(
       executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
@@ -2450,7 +2449,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   auto concretized_fusion = runtime->fusionSegments()->completeFusion();

@@ -98,12 +98,17 @@ TEST_P(MultiDeviceReductionTest, ShardedInput_ReplicatedOutput) {
   }
 
   auto x1 = at::randn(unsharded_input_shape, tensor_options);
-  std::vector<c10::IValue> inputs = {shardTensor(x1, tv0)};
+  KernelArgumentHolder args = {shardTensor(x1, tv0)};
   auto x2 = x1 * 2;
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      args.toC10Array(),
+      {x1, x2},
+      __LINE__,
+      __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -173,14 +178,14 @@ TEST_F(MultiDeviceTest, Slice) {
   const auto options = at::TensorOptions().device(communicator_->device());
   auto aten_x = at::randn(input_shape, options);
   auto expected_out = aten_x.split(4, 2);
-  std::vector<c10::IValue> inputs = {{shardTensor(aten_x, x)}};
+  KernelArgumentHolder args = {shardTensor(aten_x, x)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs_deprecated(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args.toC10Array(),
       {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
       __LINE__,
       __FILE__);
@@ -607,11 +612,14 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({b, s, h / d}, tensor_options);
   at::Tensor bias_tensor = at::randn({h / d}, tensor_options);
-  std::vector<c10::IValue> in_tensors({in_tensor, bias_tensor});
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs_deprecated(in_tensors)[0];
+  KernelArgumentHolder args = {in_tensor, bias_tensor};
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs(args)[0];
   testValidate(
-      executor_cache.fusion(), {out_tensor}, in_tensors, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      {out_tensor},
+      args.toC10Array(),
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(MultiDeviceTest, ViewWithSplit) {

@@ -499,7 +499,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
       grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out = executor_cache.runFusionWithInputs_deprecated(sdpa_bwd_inputs);
+  auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -608,7 +608,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
       grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out = executor_cache.runFusionWithInputs_deprecated(sdpa_bwd_inputs);
+  auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -827,7 +827,7 @@ TEST_F(SDPATest, Sharded_SdpaFwd) {
       scale);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto nvf_out = executor_cache.runFusionWithInputs_deprecated(
+  auto nvf_out = executor_cache.runFusionWithInputs(
       {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
@@ -931,7 +931,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
       philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out = executor_cache.runFusionWithInputs_deprecated(sdpa_bwd_inputs);
+  auto out = executor_cache.runFusionWithInputs(sdpa_bwd_inputs);
 
   auto [ref_grad_query, ref_grad_key, ref_grad_value] =
       at::_scaled_dot_product_flash_attention_backward(
@@ -1019,7 +1019,7 @@ TEST_F(SDPATest, ComputeAt) {
       scale);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto nvf_out = executor_cache.runFusionWithInputs_deprecated(
+  auto nvf_out = executor_cache.runFusionWithInputs(
       {q.unsqueeze(0), k.unsqueeze(0), v.unsqueeze(0)});
   validateSdpaFwdOutputs(nvf_out, aten_out);
 }
