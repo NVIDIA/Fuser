@@ -2720,8 +2720,8 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
       ->schedule(fusion.get(), &mparams);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), matmul_cparams);
-  auto outputs = ke.run({t0, t1});
+  ke.compile(fusion.get(), {t0, t1, c}, LaunchParams(), matmul_cparams);
+  auto outputs = ke.run({t0, t1, c});
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
