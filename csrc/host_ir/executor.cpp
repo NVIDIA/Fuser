@@ -436,15 +436,6 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
-  const int64_t my_rank = communicator_->deviceId();
-  const auto dst = expr_evaluator_.evaluate(communication->dst()).as<int64_t>();
-  const auto src = expr_evaluator_.evaluate(communication->src()).as<int64_t>();
-  const bool is_sender = my_rank == src;
-  const bool is_receiver = my_rank == dst;
-  if (!(is_sender ^ is_receiver)) {
-    return;
-  }
-
   CommunicatorBackend backend_type = communication->backend();
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
@@ -454,18 +445,17 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
         ipc_handle_cache_.get(communication, expr_evaluator_);
     const auto current_stream = static_cast<CUstream>(
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
-    if (is_receiver) {
+    if (communication->type() == P2PCommunicationType::RECV) {
       getZcopy::RecvPost(
           ipc_handles, buffer.numel() * buffer.element_size(), current_stream);
-    } else /*sender*/ {
+    } else {
       getZcopy::SendPost(ipc_handles, current_stream);
     }
   } else {
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
-        dst,
-        src,
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
         communicator_->getWorld(),
         buffer);
   }
@@ -475,10 +465,7 @@ void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
   auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
   if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
-    const auto src = expr_evaluator_.evaluate(p2p_comm->src()).as<int64_t>();
-    const auto dst = expr_evaluator_.evaluate(p2p_comm->dst()).as<int64_t>();
-    const int64_t my_rank = communicator_->deviceId();
-    if (my_rank == src && src != dst) {
+    if (p2p_comm->type() == P2PCommunicationType::SEND) {
       const auto current_stream = static_cast<CUstream>(
           c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
       const P2pIpcHandle& ipc_handles =
