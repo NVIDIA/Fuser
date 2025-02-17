@@ -35,37 +35,43 @@ def get_cpp_test_executables(build_dir):
 def get_python_tests(python_test_dir):
     """Find all Python test files"""
     all_tests = glob.glob(os.path.join(python_test_dir, "test_*.py"))
-    
+
     # Separate multidevice tests
     multidevice_tests = [
-        test for test in all_tests 
-        if "multidevice" in os.path.basename(test).lower()
+        test for test in all_tests if "multidevice" in os.path.basename(test).lower()
     ]
-    
+
     # Get non-multidevice tests
     single_device_tests = [
-        test for test in all_tests 
+        test
+        for test in all_tests
         if "multidevice" not in os.path.basename(test).lower()
     ]
-    
+
     # Separate test_ops.py and other single device tests
     test_ops = [
-        test for test in single_device_tests 
-        if os.path.basename(test) == "test_ops.py"
+        test for test in single_device_tests if os.path.basename(test) == "test_ops.py"
     ]
     other_tests = [
-        test for test in single_device_tests 
-        if os.path.basename(test) != "test_ops.py"
+        test for test in single_device_tests if os.path.basename(test) != "test_ops.py"
     ]
-    
+
     # Return multidevice tests and ordered single device tests separately
     return multidevice_tests, test_ops + other_tests
+
+
+def get_test_timeout(test_name):
+    """Return timeout in seconds for a given test"""
+    if test_name in ["nvfuser_tests", "test_matmul"]:
+        return 1800  # 30 minutes
+    return 600  # 10 minutes
 
 
 def run_multidevice_test(test_path, log_dir, dry_run=False):
     """Run a multidevice test using mpirun"""
     test_name = os.path.basename(test_path)
     log_base = log_dir / test_name
+    timeout = get_test_timeout(test_name)
 
     cmd = [
         "mpirun",
@@ -78,21 +84,20 @@ def run_multidevice_test(test_path, log_dir, dry_run=False):
     ]
 
     if dry_run:
-        print(f"Would run: {' '.join(cmd)}")
+        print(f"Would run: {' '.join(cmd)} (timeout: {timeout/60} minutes)")
         return True
 
     print(f"Running multidevice test: {test_name}")
     try:
-        # Redirect output to /dev/null to suppress console output
         with open(os.devnull, "w") as devnull:
             result = subprocess.run(
-                cmd, timeout=1200, stdout=devnull, stderr=subprocess.STDOUT
+                cmd, timeout=timeout, stdout=devnull, stderr=subprocess.STDOUT
             )
         return result.returncode == 0
     except subprocess.TimeoutExpired:
         with open(f"{log_base}.log", "w") as f:
             f.write(f"Test: {test_name}\n")
-            f.write("ERROR: Test timed out after 20 minutes\n")
+            f.write(f"ERROR: Test timed out after {timeout/60} minutes\n")
         return False
     except Exception as e:
         with open(f"{log_base}.log", "w") as f:
@@ -130,7 +135,7 @@ def run_python_multidevice_test(test_path, log_dir, dry_run=False):
     """Run a Python multidevice test using mpirun"""
     test_name = os.path.basename(test_path)
     log_base = log_dir / f"python_{test_name}"
-    
+
     cmd = [
         "mpirun",
         "-np",
@@ -142,11 +147,11 @@ def run_python_multidevice_test(test_path, log_dir, dry_run=False):
         test_path,
         "-v",
     ]
-    
+
     if dry_run:
         print(f"Would run: {' '.join(cmd)}")
         return True
-        
+
     print(f"Running Python multidevice test: {test_name}")
     try:
         # Redirect output to /dev/null to suppress console output
@@ -193,7 +198,7 @@ def run_python_test(test_path, log_dir, gpu_id, dry_run=False):
 
 
 def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
-    """Run tests in parallel across GPUs, running each test exactly once"""
+    """Run tests in parallel across GPUs"""
     if dry_run:
         current_tests = {0: None, 1: None}  # Simulate GPU allocation
         test_queue = tests.copy()
@@ -251,10 +256,14 @@ def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
                 free_gpus.append(gpu_id)
                 continue
 
+            # Get timeout for current test
+            test_name = os.path.basename(current_tests[gpu_id])
+            timeout = get_test_timeout(test_name)
+
             # Check for timeout
-            if time.time() - start_times[gpu_id] > 1200:  # 20 minutes
+            if time.time() - start_times[gpu_id] > timeout:
                 print(
-                    f"Test {os.path.basename(current_tests[gpu_id])} on GPU {gpu_id} timed out"
+                    f"Test {test_name} on GPU {gpu_id} timed out after {timeout/60} minutes"
                 )
                 current_processes[gpu_id].kill()
                 test = current_tests[gpu_id]
@@ -264,7 +273,7 @@ def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
                 if not log_file.exists():
                     log_file = log_dir / f"python_{os.path.basename(test)}.log"
                 with open(log_file, "a") as f:
-                    f.write("\nERROR: Test timed out after 20 minutes\n")
+                    f.write(f"\nERROR: Test timed out after {timeout/60} minutes\n")
 
                 failed_tests.append(os.path.basename(test))
                 current_processes[gpu_id] = None
@@ -356,15 +365,17 @@ def collect_test_failures(log_dir, dry_run=False):
         for i, line in enumerate(lines):
             # Look for GTest failures between square brackets
             if "[" in line and "]" in line:
-                result_part = line[line.find("["): line.find("]")+1]
+                result_part = line[line.find("[") : line.find("]") + 1]
                 if "FAILED" in result_part or "TIMEOUT" in result_part:
-                    failure_summary.append(f"\n=== GTest Failure in {log_file.name} ===")
+                    failure_summary.append(
+                        f"\n=== GTest Failure in {log_file.name} ==="
+                    )
                     # Collect 5 lines before and 20 lines after the failure
                     start = max(0, i - 5)
                     end = min(len(lines), i + 21)
                     failure_summary.extend(lines[start:end])
                 continue  # Skip other checks for this line if it was a bracketed result
-            
+
             # Look for pytest failures
             if "FAILED" in line and "test" in line.lower():
                 failure_summary.append(f"\n=== Pytest Failure in {log_file.name} ===")
@@ -401,9 +412,13 @@ def main():
 
         log_dir = setup_logging_dir()
         multidevice_tests, single_device_tests = get_cpp_test_executables(build_dir)
-        python_multidevice_tests, python_single_tests = get_python_tests(python_test_dir)
+        python_multidevice_tests, python_single_tests = get_python_tests(
+            python_test_dir
+        )
 
-        if not (multidevice_tests or single_device_tests) and not (python_multidevice_tests or python_single_tests):
+        if not (multidevice_tests or single_device_tests) and not (
+            python_multidevice_tests or python_single_tests
+        ):
             print("No tests found!")
             return 0
 
@@ -416,9 +431,9 @@ def main():
         success_count = 0
         failed_tests = []
         total_tests = (
-            len(multidevice_tests) 
-            + len(single_device_tests) 
-            + len(python_multidevice_tests) 
+            len(multidevice_tests)
+            + len(single_device_tests)
+            + len(python_multidevice_tests)
             + len(python_single_tests)
         )
 
@@ -463,7 +478,9 @@ def main():
             success_count += len(completed)
             failed_tests.extend([f"python_{test}" for test in failed])
         else:
-            run_parallel_tests(python_single_tests, run_python_test, log_dir, dry_run=True)
+            run_parallel_tests(
+                python_single_tests, run_python_test, log_dir, dry_run=True
+            )
 
         if dry_run:
             # Show what would be written to summary.txt
@@ -507,12 +524,6 @@ def main():
         print(f"Logs available in: {log_dir}")
 
         return 0 if not failed_tests else 1
-    except KeyboardInterrupt:
-        print("\nTest run interrupted by user")
-        return 1
-    except Exception as e:
-        print(f"\nError running tests: {e}")
-        return 1
 
 
 if __name__ == "__main__":
