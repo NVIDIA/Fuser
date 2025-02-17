@@ -145,7 +145,8 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis)
+    int64_t scattered_axis,
+    CommunicatorBackend backend)
     : Expr(passkey) {
   NVF_ERROR(
       in->getDeviceMesh().size() > 0,
@@ -161,6 +162,7 @@ Communication::Communication(
   addDataAttribute(root);
   addDataAttribute(red_op);
   addDataAttribute(scattered_axis);
+  addDataAttribute(backend);
 
   validate();
 }
