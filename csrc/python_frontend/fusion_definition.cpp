@@ -358,7 +358,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
-
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(selected_device);
   NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -387,25 +388,24 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       return nullptr;
     }
 
-    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, args.toC10Array());
     if (!user_sched_id.has_value()) {
       return nullptr;
     }
 
-    auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
-        inputs.empty() || device > -1,
+        args.empty() || args.getDeviceIndex() > -1,
         "Inputs are not all on the same device or don't match selection!");
     const UserSchedule& user_sched =
-        fusionCache()->queryUserSchedule(scheds, user_sched_id.value(), device);
+        fusionCache()->queryUserSchedule(scheds, user_sched_id.value(), args.getDeviceIndex());
     return &user_sched;
   };
   const auto* user_sched = find_user_schedule();
 
   std::vector<at::Tensor> out_tensors;
   if (user_sched == nullptr) {
-    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs_deprecated(
-        inputs, std::nullopt, selected_device);
+    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
+        args.toC10Array(), std::nullopt, args.getDeviceIndex());
   } else {
     if (isProfilerEnabledWithCupti()) {
       FusionProfiler::start();
@@ -418,22 +418,22 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       // Manual schedule
       if (!user_sched->executor->isCompiled()) {
         user_sched->executor->compile(
-            user_sched->scheduled_fusion.get(), inputs);
+            user_sched->scheduled_fusion.get(), args.toC10Array());
       }
-      out_tensors = user_sched->executor->run(inputs);
+      out_tensors = user_sched->executor->run(args.toC10Array());
     } else {
       // Automatic scheduler was used for UserSchedule.
       // Pass launch and compile params to compileFusion and runFusion.
       if (!user_sched->executor->isCompiled()) {
         user_sched->executor->compile(
             user_sched->scheduled_fusion.get(),
-            KernelArgumentHolder(inputs),
+            args,
             user_sched->heuristic_params->lparams,
             user_sched->heuristic_params->cparams,
             user_sched->heuristic_params->scheduler_type);
       }
       out_tensors = user_sched->executor->run(
-          inputs,
+          args.toC10Array(),
           user_sched->heuristic_params->lparams,
           user_sched->heuristic_params->cparams);
     }
