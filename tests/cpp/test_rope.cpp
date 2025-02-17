@@ -162,6 +162,15 @@ TEST_P(MistralRopeTest, Fwd1) {
   fusion.addOutput(tv26);
   fusion.addOutput(tv46);
 
+  fusion.printMath();
+
+  std::stringstream file_name;
+  file_name << "mistral1.dot";
+  IrGraphGenerator::print(
+      &fusion,
+      file_name.str().c_str(),
+      IrGraphGenerator::DetailLevel::ComputeOnly);
+
   auto options_float =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_bf16 =
@@ -428,6 +437,13 @@ TEST_P(MistralRopeTest, Fwd2) {
   fusion.addOutput(tv90);
   fusion.addOutput(tv166);
 
+  std::stringstream file_name;
+  file_name << "mistral.dot";
+  IrGraphGenerator::print(
+      &fusion,
+      file_name.str().c_str(),
+      IrGraphGenerator::DetailLevel::ComputeOnly);
+
   auto options_fp32 =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_bf16 =
@@ -575,13 +591,22 @@ TEST_P(MistralRopeTest, Bwd) {
   auto T13 = permute(T1, {0, 2, 1});
   auto T14 = castOp(DataType::BFloat16, T12);
   auto T15 = cat({T13, T13}, -1);
+#if 0
   auto T22 = broadcast(T14, {true, false, true, false, false});
   auto T23 = sin(T15);
   auto T24 = castOp(DataType::Float, T22);
   auto T25 = castOp(DataType::BFloat16, T23);
   auto T26 = sum(T24, {0, 2});
+#else
+  auto T23 = sin(T15);
+  auto T25 = castOp(DataType::BFloat16, T23);
+  auto T33 = set(T14);
+#endif
   auto T32 = broadcast(T25, {false, true, false, false});
-  auto T33 = castOp(DataType::BFloat16, T26);
+  if (getenv("SEGMENT_SET")) {
+    T32 = segment_set(T32);
+  }
+  // auto T33 = castOp(DataType::BFloat16, T26);
   auto T39 = expand(
       T32,
       std::vector<Val*>{
@@ -655,6 +680,9 @@ TEST_P(MistralRopeTest, Bwd) {
         IrBuilder::create<Val>(head_dim)}});
   auto T146 = castOp(DataType::BFloat16, T105);
   auto T147 = castOp(DataType::BFloat16, T106);
+  if (getenv("SEGMENT_SET")) {
+    T112 = segment_set(T112);
+  }
   auto T153 = expand(
       T112,
       std::vector<Val*>{
@@ -677,22 +705,23 @@ TEST_P(MistralRopeTest, Bwd) {
       T145, {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(head_dim / 2)});
   auto T203 = pad(
       T146, {IrBuilder::create<Val>(head_dim / 2), IrBuilder::create<Val>(0L)});
-  auto T210 = broadcast(T147, {true, false, true, false, false});
+  // auto T210 = broadcast(T147, {true, false, true, false, false});
   auto T211 = castOp(DataType::Float, T153);
   auto T212 = castOp(DataType::Float, T164);
   auto T213 = castOp(DataType::Float, T175);
   auto T214 = castOp(DataType::Float, T181);
   auto T215 = castOp(DataType::Float, T192);
   auto T216 = castOp(DataType::Float, T203);
-  auto T217 = castOp(DataType::Float, T210);
+  // auto T217 = castOp(DataType::Float, T210);
   auto T218 = mul(T211, T52);
   auto T219 = add(T213, T212);
   auto T220 = mul(T214, T54);
   auto T221 = add(T216, T215);
-  auto T222 = sum(T217, {0, 2});
+  // auto T222 = sum(T217, {0, 2});
   auto T223 = add(T219, T218);
   auto T224 = add(T221, T220);
-  auto T225 = castOp(DataType::BFloat16, T222);
+  // auto T225 = castOp(DataType::BFloat16, T222);
+  auto T225 = set(T147);
   auto T226 = castOp(DataType::BFloat16, T223);
   auto T227 = castOp(DataType::BFloat16, T224);
   auto T233 = broadcast(T225, {true, false, false, false});
@@ -720,6 +749,15 @@ TEST_P(MistralRopeTest, Bwd) {
   fusion.addOutput(T251);
   fusion.addOutput(T246);
   fusion.addOutput(T241);
+
+  fusion.printMath();
+
+  std::stringstream file_name;
+  file_name << "mistral_bwd.dot";
+  IrGraphGenerator::print(
+      &fusion,
+      file_name.str().c_str(),
+      IrGraphGenerator::DetailLevel::ComputeOnly);
 
   auto options_fp32 =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
