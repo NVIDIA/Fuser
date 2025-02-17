@@ -231,8 +231,7 @@ int64_t runBenchmarkIterations(
   int64_t io_bytes = getSizeOfInputs(args);
   {
     // Warm-up run
-    auto cg_outputs =
-        ke->run(args.toC10Array(), launch_constraints, compile_params);
+    auto cg_outputs = ke->run(args, launch_constraints, compile_params);
     io_bytes += getSizeOfOutputs(cg_outputs);
   }
 
@@ -247,8 +246,7 @@ int64_t runBenchmarkIterations(
     clearL2Cache();
     FusionProfiler::start();
     FusionProfiler::createSegments(1);
-    auto cg_outputs =
-        ke->run(args.toC10Array(), launch_constraints, compile_params);
+    auto cg_outputs = ke->run(args, launch_constraints, compile_params);
     FusionProfiler::stop();
     benchmark_state.SetIterationTime(
         FusionProfiler::profile().kernel_time_ms / 1000.0);
