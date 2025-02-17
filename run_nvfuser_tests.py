@@ -274,6 +274,51 @@ def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
                 process.kill()
 
 
+def collect_test_failures(log_dir, dry_run=False):
+    """Scan log files for test failures and collect context"""
+    if dry_run:
+        print("\nWould scan log files for failures and create failure_summary.txt with:")
+        print("- 5 lines of context before each failure")
+        print("- 20 lines of context after each failure")
+        print("- Coverage for both GTest and Pytest failures")
+        print("- Timeout failure information")
+        return False
+        
+    failure_summary = []
+    
+    for log_file in log_dir.glob("*.log"):
+        with open(log_file, 'r') as f:
+            lines = f.readlines()
+        
+        for i, line in enumerate(lines):
+            # Look for GTest or pytest failures
+            if ("Failure" in line and "test" in line.lower()) or ("FAILED" in line and "test" in line.lower()):
+                # Add header based on failure type
+                if "Failure" in line:
+                    failure_summary.append(f"\n=== GTest Failure in {log_file.name} ===")
+                else:
+                    failure_summary.append(f"\n=== Pytest Failure in {log_file.name} ===")
+                
+                # Collect 5 lines before and 20 lines after the failure
+                start = max(0, i - 5)
+                end = min(len(lines), i + 21)
+                failure_summary.extend(lines[start:end])
+            
+            # Look for timeout failures
+            if "ERROR: Test timed out" in line:
+                failure_summary.append(f"\n=== Timeout in {log_file.name} ===")
+                failure_summary.append(line)
+    
+    # Write failure summary if there were any failures
+    if failure_summary:
+        with open(log_dir / "failure_summary.txt", 'w') as f:
+            f.write("=== Test Failure Summary ===\n")
+            f.write("".join(failure_summary))
+            
+        return True
+    return False
+
+
 def main():
     try:
         # Add argument parsing for dry run
@@ -350,6 +395,16 @@ def main():
             run_parallel_tests(python_tests, run_python_test, log_dir, dry_run=True)
 
         if dry_run:
+            # Show what would be written to summary.txt
+            print("\nWould create summary.txt with:")
+            print(f"Total tests: {total_tests}")
+            print(f"Multidevice tests: {len(multidevice_tests)}")
+            print(f"Single device tests: {len(single_device_tests)}")
+            print(f"Python tests: {len(python_tests)}")
+            
+            # Show failure collection simulation
+            collect_test_failures(log_dir, dry_run=True)
+            
             print("\nThis was a dry run. No tests were actually executed.")
             return 0
 
@@ -365,6 +420,11 @@ def main():
                 f.write("\nFailed tests:\n")
                 for test in failed_tests:
                     f.write(f"- {test}\n")
+
+        # Collect and summarize failures
+        if failed_tests:
+            if collect_test_failures(log_dir):
+                print(f"Detailed failure information available in: {log_dir}/failure_summary.txt")
 
         print(f"\nTest run complete. {success_count}/{total_tests} tests passed.")
         if failed_tests:
