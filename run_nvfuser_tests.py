@@ -281,9 +281,7 @@ def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
 def collect_test_failures(log_dir, dry_run=False):
     """Scan log files for test failures and collect context"""
     if dry_run:
-        print(
-            "\nWould scan log files for failures and create failure_summary.txt with:"
-        )
+        print("\nWould scan log files for failures and create failure_summary.txt with:")
         print("- 5 lines of context before each failure")
         print("- 20 lines of context after each failure")
         print("- Coverage for both GTest and Pytest failures")
@@ -297,20 +295,20 @@ def collect_test_failures(log_dir, dry_run=False):
             lines = f.readlines()
 
         for i, line in enumerate(lines):
-            # Look for GTest or pytest failures
-            if ("Failure" in line and "test" in line.lower()) or (
-                "FAILED" in line and "test" in line.lower()
-            ):
-                # Add header based on failure type
-                if "Failure" in line:
-                    failure_summary.append(
-                        f"\n=== GTest Failure in {log_file.name} ==="
-                    )
-                else:
-                    failure_summary.append(
-                        f"\n=== Pytest Failure in {log_file.name} ==="
-                    )
-
+            # Look for GTest failures between square brackets
+            if "[" in line and "]" in line:
+                result_part = line[line.find("["): line.find("]")+1]
+                if "FAILED" in result_part or "TIMEOUT" in result_part:
+                    failure_summary.append(f"\n=== GTest Failure in {log_file.name} ===")
+                    # Collect 5 lines before and 20 lines after the failure
+                    start = max(0, i - 5)
+                    end = min(len(lines), i + 21)
+                    failure_summary.extend(lines[start:end])
+                continue  # Skip other checks for this line if it was a bracketed result
+            
+            # Look for pytest failures
+            if "FAILED" in line and "test" in line.lower():
+                failure_summary.append(f"\n=== Pytest Failure in {log_file.name} ===")
                 # Collect 5 lines before and 20 lines after the failure
                 start = max(0, i - 5)
                 end = min(len(lines), i + 21)
