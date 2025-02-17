@@ -22,34 +22,36 @@
 
 namespace nvfuser {
 
-class UblkTmaFinder : kir::ConstIrVisitor {
- public:
-  static Expr* get(const Expr* expr) {
-    NVF_CHECK(expr->container()->isA<kir::Kernel>());
-    UblkTmaFinder finder;
-    finder.handle(std::vector<const Expr*>{expr});
-    return finder.ublk_tma_load_;
-  }
+// class UblkTmaFinder : kir::ConstIrVisitor {
+//  public:
+//   static Expr* get(const Expr* expr) {
+//     NVF_CHECK(expr->container()->isA<kir::Kernel>());
+//     UblkTmaFinder finder;
+//     finder.handle(std::vector<const Expr*>{expr});
+//     return finder.ublk_tma_load_;
+//   }
 
- private:
-  using kir::ConstIrVisitor::handle;
+//  private:
+//   using kir::ConstIrVisitor::handle;
 
-  void dispatch(const Expr* expr) final {
-    if (expr->isA<kir::MBarrierArriveExpectTx>()) {
-      found_arrive_expect_ = true;
-    }
-    if (found_arrive_expect_ && ir_utils::isCpAsyncUblk(expr)) {
-      ublk_tma_load_ = const_cast<Expr*>(expr);
-      return;
-    }
-    kir::ConstIrVisitor::dispatch(expr);
-  }
+//   void dispatch(const Expr* expr) final {
+//     if (expr->isA<kir::MBarrierArriveExpectTx>()) {
+//       found_arrive_expect_ = true;
+//     }
+//     if (found_arrive_expect_ && ir_utils::isCpAsyncUblk(expr)) {
+//       ublk_tma_load_ = const_cast<Expr*>(expr);
+//       return;
+//     }
+//     kir::ConstIrVisitor::dispatch(expr);
+//   }
 
- private:
-  bool found_arrive_expect_ = false;
-  Expr* ublk_tma_load_ = nullptr;
-};
-
+//  private:
+//   bool found_arrive_expect_ = false;
+//   Expr* ublk_tma_load_ = nullptr;
+// };
+// Expr* getUblkTmaLoad(const Expr* expr) {
+//   return UblkTmaFinder::get(expr);
+// }
 // return the ublk tma load expr if the input expr is a ite with both arrive
 // expect and tma load. For example, when the input expr is:
 // IF ElectSync():
@@ -57,8 +59,38 @@ class UblkTmaFinder : kir::ConstIrVisitor {
 //   IF ElectSync():
 //     CpAsyncUblk()
 // This function will return the CpAsyncUblk() expr.
-Expr* getUblkTmaLoad(const Expr* expr) {
-  return UblkTmaFinder::get(expr);
+// Extra inline predicate may be further added to this ublk tma load to avoid
+// out-of-bound access. This ite code is then modified to:
+// IF ElectSync() && inline predicate:
+//   MBarrierArriveExpectTx()
+//   CpAsyncUblk()
+
+Expr* getUblkTmaLoad(Expr* ite_expr) {
+  if(auto ite = dynamic_cast<kir::IfThenElse*>(ite_expr)){
+    const auto& flattened_exprs = ir_utils::flattenScopedExprs(ite->thenBody().exprs());
+    bool found_arrive_expect_ = false;
+    for(auto expr : flattened_exprs) {
+      if (expr->isA<kir::MBarrierArriveExpectTx>()) {
+        found_arrive_expect_ = true;
+      }
+      if (found_arrive_expect_ && ir_utils::isCpAsyncUblk(expr)) {
+        return expr;
+      }
+    }
+  }
+  return nullptr;
+}
+
+Expr* getUblkTmaLoadFromIte(Expr* ite_expr) {
+  if(auto ite = dynamic_cast<kir::IfThenElse*>(ite_expr)){
+    const auto& flattened_exprs = ir_utils::flattenScopedExprs(ite->thenBody().exprs());
+    for(auto expr : flattened_exprs) {
+      if (ir_utils::isCpAsyncUblk(expr)) {
+        return expr;
+      }
+    }
+  }
+  return nullptr;
 }
 
 namespace {
@@ -82,6 +114,18 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   void dispatch(Expr* expr) final {
+
+    std::cout << "\n======================= dispatch:\n" << expr->toString() << std::endl;
+    if(auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+      if (Expr* ublk_tma_load = getUblkTmaLoad(ite)) {
+        // auto output = ir_utils::getTvOutput(ublk_tma_load);
+        auto ldst = dynamic_cast<LoadStoreOp*>(ublk_tma_load);
+        ublk_load_to_arrive_expect_ite.insert({ldst, ite});
+        std::cout << "Add ublk tma load:\n" << ublk_tma_load->as<LoadStoreOp>()->toString()
+                  << std::endl;
+      }
+    }
+
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
@@ -161,9 +205,18 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   // This function combines the original elect sync predicate with the inline
   // predicate to avoid out-of-bound access for the ublk tma load.
   void predicateCpAsyncUblk(Expr* ite_tma_expr, Val* elect_sync_pred) {
-    auto ublk_tma_expr = ite_tma_expr->predicate()->expr();
-    auto tma_tv = ir_utils::getTvOutput(ublk_tma_expr);
-    kir::IfThenElse* ite = ublk_load_ite_extra_predicate_.at(tma_tv);
+    auto ublk_tma_expr = getUblkTmaLoadFromIte(ite_tma_expr);
+    auto ldst = dynamic_cast<LoadStoreOp*>(const_cast<Expr*>(ublk_tma_expr));
+    if(ublk_load_to_arrive_expect_ite.find(ldst) == ublk_load_to_arrive_expect_ite.end()) {
+      std::cout << "Cannot find ublk tma load for: " << ublk_tma_expr->toString() << std::endl;
+      for(auto[tv, ite] : ublk_load_to_arrive_expect_ite) {
+        std::cout << "\nublk tma load: " << tv->toString() << std::endl;
+        std::cout << "ublk tma itte: " << ite->toString() << std::endl;
+      }
+      return;
+    }
+    std::cout << "Find ublk tma load for: " << ublk_tma_expr->toString() << std::endl;
+    kir::IfThenElse* ite = ublk_load_to_arrive_expect_ite.at(ldst);
     // inline predicate to void out-of-bound access
     auto inline_pred_val = PredicateCompute::getInlinePredicate(
         ublk_tma_expr,
@@ -171,6 +224,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         rotated_loop_,
         ite_tma_expr->predicate()->thread_pred(),
         ite_tma_expr->predicate()->predicate_type());
+    std::cout << "inline pred:" << inline_pred_val->toString() << std::endl;
     inline_pred_val = GpuLower::current()->commonScalarMap().hoistScalar(
         inline_pred_val, for_loops_);
     // combine inline predicate with the original elect sync predicate
@@ -183,8 +237,12 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     kir::TensorIndex* mbarrier =
         GpuLower::current()->tmaCircularBufferInfo().getTensorIndex(
             ublk_tma_expr->as<LoadStoreOp>());
-    mbarrier_inline_predicate_.insert({mbarrier, inline_pred_val});
-
+    if(mbarrier){
+      std::cout << "insert mbarrier:" << mbarrier->toString() << std::endl;
+      mbarrier_inline_predicate_.insert({mbarrier, inline_pred_val});
+    }else{
+      std::cout << "Cannot find mbarrier for: " << ublk_tma_expr->toString() << std::endl;
+    }
     // Since tma load expr is nested in the ite, we only need to predicate the
     // ite with the combined predicate and remove the tma load predicate by set
     // it to true.
@@ -193,7 +251,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         IrBuilder::create<Val>(true, DataType::Bool));
 
     // remove this tma load from map
-    ublk_load_ite_extra_predicate_.erase(tma_tv);
+    ublk_load_to_arrive_expect_ite.erase(ldst);
+    std::cout << "erase:\n" << ublk_tma_expr->toString()
+              << std::endl;
   }
 
   // This function addes the inline predicate to the mbarrier wait parity to
@@ -206,6 +266,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     kir::TensorIndex* tensor_index = nullptr;
     auto current_def = mbarrier->definition();
     while (current_def && current_def->isA<UnaryOp>()) {
+      std::cout << "current def:\n" << current_def->toString() << std::endl;
       auto input = current_def->as<UnaryOp>()->in();
       if (input->isA<kir::TensorIndex>()) {
         tensor_index = input->as<kir::TensorIndex>();
@@ -252,11 +313,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     // rotated, and we need to use `i+1` instead of `i` as loop index.
     if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
       rotated_loop_.insert(for_loops_.back());
-    }
-
-    if (Expr* ublk_tma_load = getUblkTmaLoad(ite)) {
-      auto output = ir_utils::getTvOutput(ublk_tma_load);
-      ublk_load_ite_extra_predicate_.insert({output, ite});
     }
 
     // If ite already has Bool conditional, handle internal expressions
@@ -335,8 +391,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // map from ublk tma load tensor view to the ite that contains arrive expt and
   // ublk tma load
-  std::unordered_map<TensorView*, kir::IfThenElse*>
-      ublk_load_ite_extra_predicate_;
+  std::unordered_map<LoadStoreOp*, kir::IfThenElse*>
+      ublk_load_to_arrive_expect_ite;
 
   struct TensorIndexHash {
     size_t operator()(const kir::TensorIndex* ti) const {

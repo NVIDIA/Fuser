@@ -3246,7 +3246,7 @@ TEST_F(TMATest, CpAsyncBulkPredicateCircularBuffer) {
 
   const int64_t dim0 = 8192;
   const int64_t dim1 = 512;
-  const int64_t number_of_stages = 2;
+  const int64_t number_of_stages = 3;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
@@ -3287,5 +3287,59 @@ TEST_F(TMATest, CpAsyncBulkPredicateCircularBuffer) {
   auto at_output = at_tv0 + at_tv0;
   testValidate(
       fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+TEST_F(TMATest, CpAsyncBulkPredicateCircularBuffer2) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  const int64_t dim0 = 8191;
+  const int64_t dim1 = 512;
+  const int64_t number_of_stages = 2;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = add(tv0, tv1);
+  fusion->addOutput(tv2);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv1a = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv2b = tv2->cacheBefore();
+  tv0a->setMemoryType(MemoryType::Shared);
+  tv1a->setMemoryType(MemoryType::Shared);
+
+  tv2->split(0, number_of_stages);
+  tv2->split(0, 148, false);
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  /// TIDx for computation, Bulk for load
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2b->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1a->axis(-1)->parallelize(ParallelType::Bulk);
+  inlineMost();
+
+  if (number_of_stages > 1) {
+    tv0a->circularBuffer(
+        number_of_stages, 1, Pipelined(true));
+  }
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
+  auto at_output = at_tv0 + at_tv1;
+  testValidate(
+      fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 } // namespace nvfuser
