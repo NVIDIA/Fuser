@@ -171,8 +171,7 @@ TEST_P(MistralRopeTest, Fwd1) {
   auto t2 = at::randn(shape3, options_float).to(at::kLong);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -437,8 +436,7 @@ TEST_P(MistralRopeTest, Fwd2) {
   auto t2 = at::randn(shape3, options_fp32);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -991,8 +989,7 @@ TEST_P(Phi3RopeTest, Fwd) {
   auto t2 = at::arange(seq_len, options_int).unsqueeze(0);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
       executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
@@ -1221,8 +1218,7 @@ TEST_P(Phi3RopeTest, Bwd) {
   auto t4 = at::randn(shape, options_bf16);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
   testValidate(
       executor_cache.fusion(),
       out_tensors,
@@ -1625,8 +1621,7 @@ TEST_P(LitgptRopeTest, Bwd) {
   auto t3 = at::randn({seq_len, head_dim}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
   testValidate(&fusion, outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
 }
 

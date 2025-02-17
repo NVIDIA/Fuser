@@ -5268,8 +5268,7 @@ TEST_F(IndexingTest, Issue3374) {
   auto t3 = at::randn(shape3, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);

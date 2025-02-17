@@ -256,8 +256,7 @@ TEST_F(SegmentationTest, InputForwardingUntilBinary) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor, in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor, in_tensor});
   testValidate(
       executor_cache.fusion(),
       out_tensors,
@@ -291,8 +290,7 @@ TEST_F(SegmentationTest, InputForwardingUntilOutput) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({2, 3}, options);
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor, in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor, in_tensor});
   testValidate(
       executor_cache.fusion(),
       out_tensors,
@@ -660,8 +658,7 @@ TEST_F(SegmentationTest, MultipleSegmentSetsInOneSegment) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({10}, options);
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
 
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);

@@ -443,8 +443,7 @@ void persistentViewAddFusion(
     at::Tensor at_bias = at::randn(bias_shape, options);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto outputs =
-        executor_cache.runFusionWithInputs({at_x, at_bias});
+    auto outputs = executor_cache.runFusionWithInputs({at_x, at_bias});
 
     testValidate(&fusion, outputs, {at_x, at_bias}, __LINE__, __FILE__);
   }
@@ -701,8 +700,7 @@ TEST_F(GpuViewTest, FusionReshapeConcreteDomain3) {
   at::Tensor at_z = at::randn(other_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs =
-      executor_cache.runFusionWithInputs({at_x, at_y, at_z});
+  auto outputs = executor_cache.runFusionWithInputs({at_x, at_y, at_z});
 
   testValidate(&fusion, outputs, {at_x, at_y, at_z}, __LINE__, __FILE__);
 }
@@ -1834,8 +1832,7 @@ TEST_F(GpuViewTest, FusionReshapeMagicSchedule9) {
   auto t4 = at::randn({2, 512, 128}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
 
   testValidate(&fusion, cg_outputs, {t0, t1, t2, t3, t4}, __LINE__, __FILE__);
 }

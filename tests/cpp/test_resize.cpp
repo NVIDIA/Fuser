@@ -3052,8 +3052,7 @@ TEST_F(ResizeTest, ReshapeToPad) {
   at::Tensor t0 = at::randn({4, 3}, options);
   auto at_y = at::pad(t0.reshape({3, 4}), {0, 1, 0, 1});
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, 1, 1, 3, 4});
+  auto outputs = executor_cache.runFusionWithInputs({t0, 1, 1, 3, 4});
 
   auto seg_fusion =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments();
@@ -3095,8 +3094,7 @@ TEST_F(ResizeTest, ReshapeToSlice) {
   at::Tensor at_x = at::randn({4, 3}, options);
   auto at_y = at::slice(at::slice(at_x.reshape({3, 4}), 0, 0, 3), 1, 0, 2);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({at_x, 3, 2, 3, 4});
+  auto outputs = executor_cache.runFusionWithInputs({at_x, 3, 2, 3, 4});
 
   // Assert that we segmented into two segments
   auto seg_fusion =
@@ -3537,8 +3535,7 @@ TEST_F(ResizeTest, Issue2552) {
   auto options = at::dtype(at::kFloat).device(at::kCUDA);
   at::Tensor x_tensor = at::randn({1, 3}, options);
   at::Tensor y_tensor = at::randn({1, 3}, options);
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({x_tensor, y_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({x_tensor, y_tensor});
   testValidate(
       executor_cache.fusion(),
       out_tensors,

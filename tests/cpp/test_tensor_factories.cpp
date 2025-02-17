@@ -62,8 +62,7 @@ TEST_F(TensorFactoryTest, StandaloneFull) {
   FusionExecutorCache executor_cache(std::move(fusion));
 
   for (auto size : sizes) {
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs({size, 11, 12, 13});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 11, 12, 13});
 
     testValidate(
         executor_cache.fusion(),

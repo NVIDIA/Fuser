@@ -747,8 +747,7 @@ TEST_F(SDPATest, AttnFwdBwd) {
   at::Tensor grad_out = at::randn(attn_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto nvf_out =
-      executor_cache.runFusionWithInputs({q, k, v, grad_out});
+  auto nvf_out = executor_cache.runFusionWithInputs({q, k, v, grad_out});
 
   auto attn = at::scaled_dot_product_attention(
       q,

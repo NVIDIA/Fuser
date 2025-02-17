@@ -1044,8 +1044,7 @@ TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({x_ref, y_ref});
+  auto out_tensors = executor_cache.runFusionWithInputs({x_ref, y_ref});
 
   checkUnsegmentedVectorization(executor_cache, 8l, 8l, 4l);
 
@@ -1432,8 +1431,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
   auto t4 = at::mul(t2, beta).to(at::kFloat);
   auto t5 = at::add(t3, t4);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, beta});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1509,8 +1507,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
   auto t5 = at::mul(t2, beta).to(at::kFloat);
   auto t6 = at::add(t4, t5);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1593,8 +1590,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
   auto t7 = at::gelu(t6);
   auto t8 = t7.to(at::kHalf);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
@@ -1809,8 +1805,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaBeta) {
   auto t5 = at::mul(t2, beta).to(at::kFloat);
   auto t6 = at::add(t4, t5);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -1892,8 +1887,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaSingleBeta) {
   auto t6 = at::unsqueeze(t5, 0);
   auto t7 = at::add(t4, t5);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, alpha, beta});
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 

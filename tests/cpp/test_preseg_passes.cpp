@@ -635,8 +635,7 @@ TEST_F(PresegTest, ReplaceOutput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({10}, at::device(at::kCUDA));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
 
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);

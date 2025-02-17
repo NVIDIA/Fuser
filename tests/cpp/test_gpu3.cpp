@@ -2731,8 +2731,7 @@ TEST_F(NVFuserTest, FusionExpand_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto cg_outputs =
-      executor_cache.runFusionWithInputs({t0, t3, t6, w});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t3, t6, w});
   auto cg_out = cg_outputs[1];
 
   NVF_ERROR(cg_out.size(0) == w);
@@ -3469,8 +3468,7 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   at::Tensor t4 = at::randn({1, 1, 1}, options).expand({1, 2, 3});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs =
-      executor_cache.runFusionWithInputs({t1, t2, t3, t4});
+  auto outputs = executor_cache.runFusionWithInputs({t1, t2, t3, t4});
 }
 
 TEST_F(NVFuserTest, FusionExpandReduce_CUDA) {
@@ -4302,8 +4300,7 @@ TEST_F(NVFuserTest, FusionIssue2068_CUDA) {
   auto t4 = at::randn({w, x, y, z}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
 
   testValidate(
       executor_cache.fusion(),
@@ -5251,8 +5248,7 @@ TEST_F(NVFuserTest, FusionRepro2241_CUDA) {
   at::Tensor t20 =
       at::tensor({12}, options.dtype(at::kLong)).expand({1, 1, 1, 1});
 
-  auto cg_outputs =
-      executor_cache.runFusionWithInputs({t6, t15, t20});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t6, t15, t20});
 
   auto sample_total = at::sum(t15, {0, 1, 2, 3}, true);
   auto sample_mean = at::div(sample_total, t20);
@@ -6129,8 +6125,7 @@ TEST_F(NVFuserTest, FusionAvoidRedundantWriteDifferentConcretizedDomains_CUDA) {
               "Producer is required to be in Global Memory based on parallelization strategy.")));
     } else {
       FusionExecutorCache executor_cache(std::move(fusion_ptr));
-      auto cg_outputs =
-          executor_cache.runFusionWithInputs({t0, t1, t2});
+      auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
       auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
       NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
@@ -6858,8 +6853,7 @@ TEST_F(NVFuserTest, FusionMinMaxNanPropagation_CUDA) {
         auto at_x = at::eye(size, options);
         at_x = (1 - at_x) / (1 - at_x);
 
-        auto nvf_outputs =
-            executor_cache.runFusionWithInputs({at_x});
+        auto nvf_outputs = executor_cache.runFusionWithInputs({at_x});
 
         testValidate(
             executor_cache.fusion(), nvf_outputs, {at_x}, __LINE__, __FILE__);

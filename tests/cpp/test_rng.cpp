@@ -324,8 +324,7 @@ TEST_F(RNGTest, Uniform) {
 
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs({size, -1.0, 1.0});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, -1.0, 1.0});
 
     at::manual_seed(0);
     auto ref0 = generate_uniform(size, at::kFloat) * 2 - 1;
@@ -365,8 +364,7 @@ TEST_F(RNGTest, Normal) {
 
   for (int64_t size : {16, 1024, 10001, 10002, 10003, 100000, 10000001}) {
     at::manual_seed(0);
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs({size, 1.0, 0.5});
+    auto cg_outputs = executor_cache.runFusionWithInputs({size, 1.0, 0.5});
 
     at::manual_seed(0);
     auto ref0 = generate_normal(size, at::kFloat) * 0.5f + 1.0f;

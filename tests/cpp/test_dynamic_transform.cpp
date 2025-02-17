@@ -1157,12 +1157,10 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
   // Dynamic reshape sizes that are not constant at definition must be explicit:
   // no -1 allowed
   EXPECT_THROW(
-      executor_cache.runFusionWithInputs({at_x, 2, 4, -1}),
-      std::exception);
+      executor_cache.runFusionWithInputs({at_x, 2, 4, -1}), std::exception);
 
   // Passing explicit sizes works fine
-  auto outputs =
-      executor_cache.runFusionWithInputs({at_x, 2, 4, 15});
+  auto outputs = executor_cache.runFusionWithInputs({at_x, 2, 4, 15});
 
   testValidate(
       executor_cache.fusion(), outputs, {at_x, 2, 4, 15}, __LINE__, __FILE__);

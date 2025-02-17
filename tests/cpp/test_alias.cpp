@@ -221,8 +221,7 @@ TEST_F(AliasTest, SliceToSizeOne_Issue1353) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({4, 6, 7}).cuda();
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
   EXPECT_THAT(out_tensor.strides(), ElementsAre(42, 7, _));
 
@@ -245,8 +244,7 @@ TEST_F(AliasTest, SliceRightOfBroadcast) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({4, 1, 7}).cuda();
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
   EXPECT_THAT(out_tensor.strides(), ElementsAre(7, _, 1));
 
@@ -826,8 +824,7 @@ TEST_F(AliasTest, Broadcast) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
@@ -850,8 +847,7 @@ TEST_F(AliasTest, Expand) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
@@ -874,8 +870,7 @@ TEST_F(AliasTest, MergeTwoExpandedBroadcasts) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({1}).cuda().as_strided({4, 5, 6}, {0, 0, 0});
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 
@@ -901,8 +896,7 @@ TEST_F(AliasTest, MergeBroadcastsBetweenConcretes) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2 * 7}).cuda().as_strided({2, 3, 5, 7}, {7, 0, 0, 1});
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
@@ -918,8 +912,7 @@ TEST_F(AliasTest, Squeeze) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 1, 3}).cuda();
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 

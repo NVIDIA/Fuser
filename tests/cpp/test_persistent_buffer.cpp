@@ -606,8 +606,7 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
       "Persistent buffer size is not correct!");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
   testValidate(
       fusion, cg_outputs, {t0, t1, t2, t3, t4}, {t33}, __LINE__, __FILE__);
 }

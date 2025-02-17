@@ -148,9 +148,9 @@ std::vector<c10::IValue> KernelArgumentHolder::toC10Array() const {
 }
 
 void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
-  if(index.has_value()){
+  if (index.has_value()) {
     device_index_ = index.value();
-  }else{
+  } else {
     device_index_ = getCommonDeviceCUDA(*this);
   }
 }
@@ -420,3 +420,4 @@ int64_t computeBytes(const std::vector<at::Tensor>& outputs) {
 }
 
 } // namespace nvfuser
+ 

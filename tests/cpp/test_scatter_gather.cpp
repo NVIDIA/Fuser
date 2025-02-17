@@ -157,8 +157,7 @@ TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
         at::Tensor output = at::zeros(index_dims, options);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
-        auto cg_outputs =
-            executor_cache.runFusionWithInputs({t0, idx});
+        auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
         testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
       }
     }
@@ -194,8 +193,7 @@ TEST_F(ScatterGatherTest, TorchGatherAddMul) {
         at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
-        auto cg_outputs =
-            executor_cache.runFusionWithInputs({t0, idx});
+        auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
         testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
       }
     }
@@ -290,8 +288,7 @@ TEST_F(ScatterGatherTest, TorchGatherSumAdd) {
         at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
-        auto cg_outputs =
-            executor_cache.runFusionWithInputs({t0, idx, t1});
+        auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx, t1});
         testValidate(&fusion, cg_outputs, {t0, idx, t1}, __LINE__, __FILE__);
       }
     }
@@ -328,8 +325,7 @@ TEST_F(ScatterGatherTest, TorchGatherAddMulHugeSize) {
         at::Tensor idx = at::randint(0, input_dims[dim], index_dims, options_i);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
-        auto cg_outputs =
-            executor_cache.runFusionWithInputs({t0, idx});
+        auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx});
         testValidate(&fusion, cg_outputs, {t0, idx}, __LINE__, __FILE__);
       }
     }
@@ -398,8 +394,7 @@ TEST_F(ScatterGatherTest, TorchGatherIndexTvExtentIsOne) {
   auto tv_out_ref = at::mul(t1, t_add);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs =
-      executor_cache.runFusionWithInputs({t0, idx, t1});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, idx, t1});
   testValidate(
       &fusion, cg_outputs, {t0, idx, t1}, {tv_out_ref}, __LINE__, __FILE__);
 }
@@ -436,8 +431,7 @@ TEST_F(ScatterGatherTest, TakeAlongBroadcastIndex) {
     at::Tensor t2 = at::randn(out_dims, options);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs({t0, t1, t2});
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
     testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
   }
@@ -494,8 +488,7 @@ TEST_F(ScatterGatherTest, GatherBroadcastInput) {
         at::Tensor t2 = at::randn(out_dims, options);
 
         FusionExecutorCache executor_cache(std::move(fusion_ptr));
-        auto cg_outputs =
-            executor_cache.runFusionWithInputs({t0, t1, t2});
+        auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
         testValidate(&fusion, cg_outputs, {t0, t1, t2}, __LINE__, __FILE__);
       }
     }

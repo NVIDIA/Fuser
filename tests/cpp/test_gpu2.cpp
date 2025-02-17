@@ -5084,8 +5084,8 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  auto segmented_fusion = SegmentCandidateFinder::segment(
-      fusion.get(), {t0}, segment_options);
+  auto segmented_fusion =
+      SegmentCandidateFinder::segment(fusion.get(), {t0}, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5124,8 +5124,8 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  auto segmented_fusion = SegmentCandidateFinder::segment(
-      fusion.get(), {t0, 1.0}, segment_options);
+  auto segmented_fusion =
+      SegmentCandidateFinder::segment(fusion.get(), {t0, 1.0}, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5163,8 +5163,8 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  auto segmented_fusion = SegmentCandidateFinder::segment(
-      fusion.get(), {t0}, segment_options);
+  auto segmented_fusion =
+      SegmentCandidateFinder::segment(fusion.get(), {t0}, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() <= 2);
 }
@@ -5427,8 +5427,7 @@ TEST_F(NVFuserTest, FusionBNRepro_CUDA) {
   auto t5_ref = t5.clone();
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs =
-      executor_cache.runFusionWithInputs({t1, t2, t3, t4, t5});
+  auto cg_outputs = executor_cache.runFusionWithInputs({t1, t2, t3, t4, t5});
 
   auto at_results = at::native_batch_norm(
       t1_ref, t2_ref, t3_ref, t4_ref, t5_ref, kTraining, kMomentum, kEps);

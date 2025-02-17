@@ -71,8 +71,7 @@ TEST_F(MovePadTest, BinaryCat) {
   at::Tensor t2 = at::randn({2, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
@@ -106,8 +105,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   at::Tensor t2 = at::randn({4, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   // ensure that we propagate the pad across binary operation and the first
   // segment is no-op
@@ -146,8 +144,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnCatDim) {
   at::Tensor t2 = at::randn({2, 10}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 2);
@@ -417,8 +414,7 @@ TEST_F(MovePadTest, BooleanCat) {
   at::Tensor t2 = at::randn({2, 10}, options) > 0.5;
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto out_tensors =
-      executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 1);
