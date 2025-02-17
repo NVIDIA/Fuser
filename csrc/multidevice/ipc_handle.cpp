@@ -85,21 +85,9 @@ void IpcHandleCache::exchangeHandles(
 
   std::vector<P2PCommunication*> non_cached_communications;
   for (auto communication : communications) {
-    const auto dst =
-        expr_evaluator.evaluate(communication->dst()).as<int64_t>();
-    const auto src =
-        expr_evaluator.evaluate(communication->src()).as<int64_t>();
-    const bool is_sender = my_rank == src;
-    const bool is_receiver = my_rank == dst;
     NVF_ERROR(
-        is_sender || is_receiver,
-        "RANK ",
-        my_rank,
-        " is not involved in the p2p comm ",
-        communication);
-    if (is_sender && is_receiver) {
-      continue;
-    }
+        expr_evaluator.evaluate(communication->peer()).as<int64_t>() != my_rank,
+        "send to self not supported");
     if (find(communication, expr_evaluator) != nullptr) {
       continue;
     }
@@ -107,16 +95,18 @@ void IpcHandleCache::exchangeHandles(
   }
 
   // put memhandles to TCP store
-  auto get_tcp_store_key = [&expr_evaluator](
+  auto get_tcp_store_key = [my_rank, &expr_evaluator](
                                P2PCommunication* communication,
                                int64_t rank) -> std::string {
-    return "nvfuser_ipc_handle_info_P2PComm_dst=" +
-        std::to_string(
-               expr_evaluator.evaluate(communication->dst()).as<int64_t>()) +
-        "_src=" +
-        std::to_string(
-               expr_evaluator.evaluate(communication->src()).as<int64_t>()) +
-        "_rank=" + std::to_string(rank);
+    const int64_t peer =
+        expr_evaluator.evaluate(communication->peer()).as<int64_t>();
+    const int64_t src =
+        communication->type() == P2PCommunicationType::SEND ? my_rank : peer;
+    const int64_t dst =
+        communication->type() == P2PCommunicationType::SEND ? peer : my_rank;
+
+    return "nvfuser_ipc_handle_info_P2PComm_dst=" + std::to_string(dst) +
+        "_src=" + std::to_string(src) + "_rank=" + std::to_string(rank);
   };
   std::unordered_map<P2PCommunication*, std::unique_ptr<IpcHandle>>
       local_ipc_handles;
@@ -136,12 +126,8 @@ void IpcHandleCache::exchangeHandles(
 
   // get memhandles from TCP store
   for (P2PCommunication* communication : non_cached_communications) {
-    const auto dst =
-        expr_evaluator.evaluate(communication->dst()).as<int64_t>();
-    const auto src =
-        expr_evaluator.evaluate(communication->src()).as<int64_t>();
-    int64_t peer = (my_rank == dst) ? src : dst;
-
+    const int64_t peer =
+        expr_evaluator.evaluate(communication->peer()).as<int64_t>();
     std::string key = get_tcp_store_key(communication, peer);
     NVF_ERROR(
         store->check({key}),

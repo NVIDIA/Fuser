@@ -66,7 +66,7 @@ class P2pIpcHandle {
 };
 
 // IpcHandleCache manages and cache the IpcHandles.
-// Caching is done on the runtime values of (dst, src, tensor) and the
+// Caching is done on the runtime values of (peer, tensor) and the
 // P2PCommunication* pointer.
 class IpcHandleCache {
  public:
@@ -95,16 +95,15 @@ class IpcHandleCache {
   }
 
  private:
-  using KeyType = std::tuple<int64_t, int64_t, at::Tensor, P2PCommunication*>;
+  using KeyType = std::tuple<int64_t, at::Tensor, P2PCommunication*>;
 
   KeyType getKey(
       P2PCommunication* comm,
       const ExpressionEvaluator& expr_evaluator) const {
-    int64_t dst = expr_evaluator.evaluate(comm->dst()).as<int64_t>();
-    int64_t src = expr_evaluator.evaluate(comm->src()).as<int64_t>();
+    int64_t peer = expr_evaluator.evaluate(comm->peer()).as<int64_t>();
     at::Tensor buffer =
         expr_evaluator.evaluate(comm->buffer()).as<at::Tensor>();
-    return std::make_tuple(dst, src, buffer, comm);
+    return std::make_tuple(peer, buffer, comm);
   }
 
   void insert(
@@ -143,18 +142,16 @@ class IpcHandleCache {
   struct KeyHash {
     std::size_t operator()(const KeyType& key) const {
       return (std::hash<int64_t>()(std::get<0>(key))) ^
-          (std::hash<int64_t>()(std::get<1>(key))) ^
-          (TensorHash{}(std::get<2>(key))) ^
-          (std::hash<P2PCommunication*>()(std::get<3>(key)));
+          (TensorHash{}(std::get<1>(key))) ^
+          (std::hash<P2PCommunication*>()(std::get<2>(key)));
     }
   };
 
   struct KeyEqual {
     bool operator()(const KeyType& lhs, const KeyType& rhs) const {
       return std::get<0>(lhs) == std::get<0>(rhs) &&
-          std::get<1>(lhs) == std::get<1>(rhs) &&
-          TensorEqual{}(std::get<2>(lhs), std::get<2>(rhs)) &&
-          std::get<3>(lhs) == std::get<3>(rhs);
+          TensorEqual{}(std::get<1>(lhs), std::get<1>(rhs)) &&
+          std::get<2>(lhs) == std::get<2>(rhs);
     }
   };
 
