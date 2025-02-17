@@ -63,11 +63,17 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+
+  if (isProfilerEnabled()) {
+    FusionProfiler::start(!isProfilerEnabledWithCupti());
+  }
+
   args.setDeviceIndex(selected_device);
   setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (isProfilerEnabled()) {
+    FusionProfiler::start(!isProfilerEnabledWithCupti());
     FusionProfiler::createSegments(kernel_runtime->executors().size());
   }
 
