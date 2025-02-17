@@ -79,7 +79,7 @@ def get_test_timeout(test_name):
     return 600  # 10 minutes
 
 
-def run_multidevice_test(test_path, log_dir, dry_run=False):
+def run_multidevice_test(test_path, log_dir, num_gpus, dry_run=False):
     """Run a multidevice test using mpirun"""
     test_name = os.path.basename(test_path)
     log_base = log_dir / test_name
@@ -88,7 +88,7 @@ def run_multidevice_test(test_path, log_dir, dry_run=False):
     cmd = [
         "mpirun",
         "-np",
-        "2",
+        str(num_gpus),  # Use available GPU count
         "--output-filename",
         f"{log_base}",
         "--merge-stderr-to-stdout",
@@ -144,7 +144,7 @@ def run_single_device_test(test_path, log_dir, gpu_id, dry_run=False):
         return None
 
 
-def run_python_multidevice_test(test_path, log_dir, dry_run=False):
+def run_python_multidevice_test(test_path, log_dir, num_gpus, dry_run=False):
     """Run a Python multidevice test using mpirun"""
     test_name = os.path.basename(test_path)
     log_base = log_dir / f"python_{test_name}"
@@ -152,7 +152,7 @@ def run_python_multidevice_test(test_path, log_dir, dry_run=False):
     cmd = [
         "mpirun",
         "-np",
-        "2",
+        str(num_gpus),  # Use available GPU count
         "--output-filename",
         f"{log_base}",
         "--merge-stderr-to-stdout",
@@ -210,42 +210,40 @@ def run_python_test(test_path, log_dir, gpu_id, dry_run=False):
         return None
 
 
-def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
-    """Run tests in parallel across GPUs"""
+def run_parallel_tests(log_dir, num_gpus, tests, run_func, dry_run=False):
+    """Run tests in parallel across available GPUs"""
     if dry_run:
-        current_tests = {0: None, 1: None}  # Simulate GPU allocation
+        current_tests = {i: None for i in range(num_gpus)}  # Simulate GPU allocation
         test_queue = tests.copy()
 
-        print("\nSimulating parallel execution across 2 GPUs:")
+        print(f"\nSimulating parallel execution across {num_gpus} GPUs:")
 
         # Initial allocation
-        for gpu_id in [0, 1]:
+        for gpu_id in range(num_gpus):
             if test_queue:
                 current_tests[gpu_id] = test_queue.pop(0)
                 run_func(current_tests[gpu_id], log_dir, gpu_id, dry_run=True)
 
         # Simulate rest of queue
         while test_queue:
-            # Simulate alternating GPU completion
-            gpu_id = len(test_queue) % 2
+            # Simulate round-robin GPU completion
+            gpu_id = len(test_queue) % num_gpus
             print(f"\nGPU {gpu_id} finished {os.path.basename(current_tests[gpu_id])}")
             current_tests[gpu_id] = test_queue.pop(0)
             run_func(current_tests[gpu_id], log_dir, gpu_id, dry_run=True)
 
         # Show final tests completing
-        for gpu_id in [0, 1]:
+        for gpu_id in range(num_gpus):
             if current_tests[gpu_id]:
-                print(
-                    f"\nGPU {gpu_id} finished {os.path.basename(current_tests[gpu_id])}"
-                )
+                print(f"\nGPU {gpu_id} finished {os.path.basename(current_tests[gpu_id])}")
 
         return [], []
 
     # Initialize test queue and tracking variables
-    test_queue = tests.copy()  # Create a queue of tests to run
-    current_processes = {0: None, 1: None}  # GPU ID -> current process
-    current_tests = {0: None, 1: None}  # GPU ID -> current test
-    start_times = {0: time.time(), 1: time.time()}
+    test_queue = tests.copy()
+    current_processes = {i: None for i in range(num_gpus)}
+    current_tests = {i: None for i in range(num_gpus)}
+    start_times = {i: time.time() for i in range(num_gpus)}
     completed_tests = []
     failed_tests = []
 
@@ -264,7 +262,7 @@ def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
     def check_completion():
         """Check if any running tests have completed and return list of free GPUs"""
         free_gpus = []
-        for gpu_id in [0, 1]:
+        for gpu_id in range(num_gpus):
             if current_processes[gpu_id] is None:
                 free_gpus.append(gpu_id)
                 continue
@@ -324,7 +322,7 @@ def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
         return free_gpus
 
     # Initial test distribution
-    for gpu_id in [0, 1]:
+    for gpu_id in range(num_gpus):
         if test_queue and current_processes[gpu_id] is None:
             start_test(test_queue.pop(0), gpu_id)
 
@@ -412,12 +410,38 @@ def collect_test_failures(log_dir, dry_run=False):
     return False
 
 
+def get_available_gpus():
+    """Check how many NVIDIA GPUs are available"""
+    try:
+        # Run nvidia-smi to get GPU count
+        result = subprocess.run(
+            ["nvidia-smi", "--query-gpu=gpu_name", "--format=csv,noheader"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        # Count non-empty lines in output
+        gpus = [line.strip() for line in result.stdout.split('\n') if line.strip()]
+        return len(gpus)
+    except (subprocess.SubprocessError, FileNotFoundError):
+        print("Warning: Could not query GPU count using nvidia-smi")
+        return 0
+
+
 def main():
     # Add argument parsing for dry run
     if len(sys.argv) > 1 and sys.argv[1] == "--dry-run":
         dry_run = True
     else:
         dry_run = False
+
+    # Check GPU availability
+    gpu_count = get_available_gpus()
+    if gpu_count < 1:
+        print("Error: No GPUs found for testing")
+        return 1
+    
+    print(f"Found {gpu_count} GPUs available for testing")
 
     # Hardcode paths relative to current directory
     build_dir = "bin"
@@ -451,7 +475,7 @@ def main():
     # Run all multidevice tests first
     print("\nC++ multidevice tests:")
     for test in multidevice_tests:
-        if run_multidevice_test(test, log_dir, dry_run=dry_run):
+        if run_multidevice_test(test, log_dir, gpu_count, dry_run=dry_run):
             if not dry_run:
                 success_count += 1
         else:
@@ -460,36 +484,38 @@ def main():
 
     print("\nPython multidevice tests:")
     for test in python_multidevice_tests:
-        if run_python_multidevice_test(test, log_dir, dry_run=dry_run):
+        if run_python_multidevice_test(test, log_dir, gpu_count, dry_run=dry_run):
             if not dry_run:
                 success_count += 1
         else:
             if not dry_run:
                 failed_tests.append(f"python_{os.path.basename(test)}")
 
-    # Run single device tests in parallel
+    # Run single device tests in parallel using all available GPUs
     print("\nC++ single device tests:")
     if not dry_run:
         completed, failed = run_parallel_tests(
-            single_device_tests, run_single_device_test, log_dir
+            log_dir, gpu_count, single_device_tests, run_single_device_test
         )
         success_count += len(completed)
         failed_tests.extend(failed)
     else:
         run_parallel_tests(
-            single_device_tests, run_single_device_test, log_dir, dry_run=True
+            log_dir, gpu_count, single_device_tests, run_single_device_test, dry_run=True
         )
 
     # Run Python single device tests in parallel
     print("\nPython single device tests:")
     if not dry_run:
         completed, failed = run_parallel_tests(
-            python_single_tests, run_python_test, log_dir
+            log_dir, gpu_count, python_single_tests, run_python_test
         )
         success_count += len(completed)
         failed_tests.extend([f"python_{test}" for test in failed])
     else:
-        run_parallel_tests(python_single_tests, run_python_test, log_dir, dry_run=True)
+        run_parallel_tests(
+            log_dir, gpu_count, python_single_tests, run_python_test, dry_run=True
+        )
 
     if dry_run:
         # Show what would be written to summary.txt
