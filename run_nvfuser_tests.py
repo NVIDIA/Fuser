@@ -9,10 +9,24 @@ import sys
 
 
 def setup_logging_dir():
-    """Create a timestamped directory for test logs"""
+    """Create a timestamped directory for test logs and update latest symlink"""
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = Path(f"test_log_{timestamp}")
     log_dir.mkdir(exist_ok=True)
+    
+    # Check and handle the 'latest' symlink
+    latest_link = Path("test_log_latest")
+    if latest_link.exists():
+        if not latest_link.is_symlink():
+            raise RuntimeError(
+                "test_log_latest exists but is not a symlink. "
+                "Please remove it manually to proceed."
+            )
+        latest_link.unlink()  # Remove existing symlink
+        
+    # Create new symlink pointing to the new log directory
+    latest_link.symlink_to(log_dir, target_is_directory=True)
+    
     return log_dir
 
 
