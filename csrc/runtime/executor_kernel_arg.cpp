@@ -148,8 +148,11 @@ std::vector<c10::IValue> KernelArgumentHolder::toC10Array() const {
 }
 
 void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
-  // Validate provided device index
-  device_index_ = getCommonDeviceCUDA(*this, index);
+  if(index.has_value()){
+    device_index_ = index.value();
+  }else{
+    device_index_ = getCommonDeviceCUDA(*this);
+  }
 }
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
