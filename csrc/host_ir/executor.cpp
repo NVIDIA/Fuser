@@ -453,7 +453,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
     const P2pIpcHandle& ipc_handles =
         ipc_handle_cache_.get(communication, expr_evaluator_);
     const auto current_stream = static_cast<CUstream>(
-        c10::cuda::getCurrentCUDAStream(communicator_->local_rank()).stream());
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     if (is_receiver) {
       getZcopy::RecvPost(
           ipc_handles, buffer.numel() * buffer.element_size(), current_stream);
