@@ -161,7 +161,7 @@ void UnrollPass::dispatch(Expr* expr) {
     }
 
     // short-circuit: wrap nd tma expressions with elect sync predicate
-    if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
+    if (ir_utils::isCpAsyncBulk(expr)) {
       // If we need a predicate, put expr inside an if then else
       auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
           PredicateType::ElectSync, expr, thread_pred);

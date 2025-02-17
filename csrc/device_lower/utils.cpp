@@ -253,6 +253,24 @@ bool isCpAsyncBulkTensorTile(const Expr* expr) {
   return false;
 }
 
+bool isCpAsyncUblk(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    auto op_type = ldst->opType();
+    if (op_type == LoadStoreOpType::CpAsyncBulk) {
+      auto in_mem = getTv(ldst->in())->getMemoryType();
+      auto out_mem = getTv(ldst->out())->getMemoryType();
+      if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
+          (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
+        return true;
+      } else {
+        NVF_THROW("Invalid memory types for CpAsyncBulk");
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
 bool isCpAsyncBulk(const Expr* expr) {
   return getCpAsyncBulkMode(expr) != CpAsyncBulkMode::NotACpAsyncBulk;
 }

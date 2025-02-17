@@ -568,7 +568,7 @@ Val* PredicateCompute::getInlinePredicate(
   const auto gpu_lower = GpuLower::current();
 
   // If outputs are registers, no need to predicate for threads
-  if (isOutputLocal(expr)) {
+  if (isOutputLocal(expr) || ir_utils::isCpAsyncBulk(expr)) {
     thread_pred = gpu_lower->kernel()->trueVal();
     // If it is a initilization op, return immediately.
     if (ir_utils::isTensorScalarFillOp(expr)) {
