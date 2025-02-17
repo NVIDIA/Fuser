@@ -20,16 +20,28 @@ def get_cpp_test_executables(build_dir):
     """Find all test executables in the build directory"""
     all_tests = glob.glob(os.path.join(build_dir, "*test*"))
 
-    # Separate nvfuser_tests and other tests
-    nvfuser_tests = [
-        test for test in all_tests if os.path.basename(test) == "nvfuser_tests"
-    ]
-    other_tests = [
-        test for test in all_tests if os.path.basename(test) != "nvfuser_tests"
+    # Separate multidevice tests
+    multidevice_tests = [
+        test for test in all_tests if "multidevice" in os.path.basename(test).lower()
     ]
 
-    # Return nvfuser_tests first, followed by other tests
-    return nvfuser_tests + other_tests
+    # Get non-multidevice tests
+    single_device_tests = [
+        test
+        for test in all_tests
+        if "multidevice" not in os.path.basename(test).lower()
+    ]
+
+    # Separate long running tests and others
+    priority_tests = ["nvfuser_tests", "test_matmul"]
+    other_tests = [
+        test
+        for test in single_device_tests
+        if os.path.basename(test) not in priority_tests
+    ]
+
+    # Return multidevice tests separately, and ordered single device tests prioritizing long running tests first
+    return multidevice_tests, priority_tests + other_tests
 
 
 def get_python_tests(python_test_dir):
@@ -89,6 +101,7 @@ def run_multidevice_test(test_path, log_dir, dry_run=False):
 
     print(f"Running multidevice test: {test_name}")
     try:
+        # Redirect output to /dev/null to suppress console output
         with open(os.devnull, "w") as devnull:
             result = subprocess.run(
                 cmd, timeout=timeout, stdout=devnull, stderr=subprocess.STDOUT
@@ -406,124 +419,120 @@ def main():
     else:
         dry_run = False
 
-        # Hardcode paths relative to current directory
-        build_dir = "bin"
-        python_test_dir = "tests/python"
+    # Hardcode paths relative to current directory
+    build_dir = "bin"
+    python_test_dir = "tests/python"
 
-        log_dir = setup_logging_dir()
-        multidevice_tests, single_device_tests = get_cpp_test_executables(build_dir)
-        python_multidevice_tests, python_single_tests = get_python_tests(
-            python_test_dir
+    log_dir = setup_logging_dir()
+    multidevice_tests, single_device_tests = get_cpp_test_executables(build_dir)
+    python_multidevice_tests, python_single_tests = get_python_tests(python_test_dir)
+
+    if not (multidevice_tests or single_device_tests) and not (
+        python_multidevice_tests or python_single_tests
+    ):
+        print("No tests found!")
+        return 0
+
+    print(f"Found {len(multidevice_tests)} C++ multidevice tests")
+    print(f"Found {len(single_device_tests)} C++ single device tests")
+    print(f"Found {len(python_multidevice_tests)} Python multidevice tests")
+    print(f"Found {len(python_single_tests)} Python single device tests")
+    print(f"Logs will be written to: {log_dir}")
+
+    success_count = 0
+    failed_tests = []
+    total_tests = (
+        len(multidevice_tests)
+        + len(single_device_tests)
+        + len(python_multidevice_tests)
+        + len(python_single_tests)
+    )
+
+    # Run all multidevice tests first
+    print("\nC++ multidevice tests:")
+    for test in multidevice_tests:
+        if run_multidevice_test(test, log_dir, dry_run=dry_run):
+            if not dry_run:
+                success_count += 1
+        else:
+            if not dry_run:
+                failed_tests.append(os.path.basename(test))
+
+    print("\nPython multidevice tests:")
+    for test in python_multidevice_tests:
+        if run_python_multidevice_test(test, log_dir, dry_run=dry_run):
+            if not dry_run:
+                success_count += 1
+        else:
+            if not dry_run:
+                failed_tests.append(f"python_{os.path.basename(test)}")
+
+    # Run single device tests in parallel
+    print("\nC++ single device tests:")
+    if not dry_run:
+        completed, failed = run_parallel_tests(
+            single_device_tests, run_single_device_test, log_dir
+        )
+        success_count += len(completed)
+        failed_tests.extend(failed)
+    else:
+        run_parallel_tests(
+            single_device_tests, run_single_device_test, log_dir, dry_run=True
         )
 
-        if not (multidevice_tests or single_device_tests) and not (
-            python_multidevice_tests or python_single_tests
-        ):
-            print("No tests found!")
-            return 0
-
-        print(f"Found {len(multidevice_tests)} C++ multidevice tests")
-        print(f"Found {len(single_device_tests)} C++ single device tests")
-        print(f"Found {len(python_multidevice_tests)} Python multidevice tests")
-        print(f"Found {len(python_single_tests)} Python single device tests")
-        print(f"Logs will be written to: {log_dir}")
-
-        success_count = 0
-        failed_tests = []
-        total_tests = (
-            len(multidevice_tests)
-            + len(single_device_tests)
-            + len(python_multidevice_tests)
-            + len(python_single_tests)
+    # Run Python single device tests in parallel
+    print("\nPython single device tests:")
+    if not dry_run:
+        completed, failed = run_parallel_tests(
+            python_single_tests, run_python_test, log_dir
         )
+        success_count += len(completed)
+        failed_tests.extend([f"python_{test}" for test in failed])
+    else:
+        run_parallel_tests(python_single_tests, run_python_test, log_dir, dry_run=True)
 
-        # Run all multidevice tests first
-        print("\nC++ multidevice tests:")
-        for test in multidevice_tests:
-            if run_multidevice_test(test, log_dir, dry_run=dry_run):
-                if not dry_run:
-                    success_count += 1
-            else:
-                if not dry_run:
-                    failed_tests.append(os.path.basename(test))
+    if dry_run:
+        # Show what would be written to summary.txt
+        print("\nWould create summary.txt with:")
+        print(f"Total tests: {total_tests}")
+        print(f"Multidevice tests: {len(multidevice_tests)}")
+        print(f"Single device tests: {len(single_device_tests)}")
+        print(f"Python tests: {len(python_multidevice_tests)}")
 
-        print("\nPython multidevice tests:")
-        for test in python_multidevice_tests:
-            if run_python_multidevice_test(test, log_dir, dry_run=dry_run):
-                if not dry_run:
-                    success_count += 1
-            else:
-                if not dry_run:
-                    failed_tests.append(f"python_{os.path.basename(test)}")
+        # Show failure collection simulation
+        collect_test_failures(log_dir, dry_run=True)
 
-        # Run single device tests in parallel
-        print("\nC++ single device tests:")
-        if not dry_run:
-            completed, failed = run_parallel_tests(
-                single_device_tests, run_single_device_test, log_dir
-            )
-            success_count += len(completed)
-            failed_tests.extend(failed)
-        else:
-            run_parallel_tests(
-                single_device_tests, run_single_device_test, log_dir, dry_run=True
-            )
+        print("\nThis was a dry run. No tests were actually executed.")
+        return 0
 
-        # Run Python single device tests in parallel
-        print("\nPython single device tests:")
-        if not dry_run:
-            completed, failed = run_parallel_tests(
-                python_single_tests, run_python_test, log_dir
-            )
-            success_count += len(completed)
-            failed_tests.extend([f"python_{test}" for test in failed])
-        else:
-            run_parallel_tests(
-                python_single_tests, run_python_test, log_dir, dry_run=True
-            )
-
-        if dry_run:
-            # Show what would be written to summary.txt
-            print("\nWould create summary.txt with:")
-            print(f"Total tests: {total_tests}")
-            print(f"Multidevice tests: {len(multidevice_tests)}")
-            print(f"Single device tests: {len(single_device_tests)}")
-            print(f"Python tests: {len(python_multidevice_tests)}")
-
-            # Show failure collection simulation
-            collect_test_failures(log_dir, dry_run=True)
-
-            print("\nThis was a dry run. No tests were actually executed.")
-            return 0
-
-        # Write summary
-        with open(log_dir / "summary.txt", "w") as f:
-            f.write(f"Total tests: {total_tests}\n")
-            f.write(f"Multidevice tests: {len(multidevice_tests)}\n")
-            f.write(f"Single device tests: {len(single_device_tests)}\n")
-            f.write(f"Python tests: {len(python_multidevice_tests)}\n")
-            f.write(f"Successful: {success_count}\n")
-            f.write(f"Failed: {len(failed_tests)}\n")
-            if failed_tests:
-                f.write("\nFailed tests:\n")
-                for test in failed_tests:
-                    f.write(f"- {test}\n")
-
-        # Collect and summarize failures
+    # Write summary
+    with open(log_dir / "summary.txt", "w") as f:
+        f.write(f"Total tests: {total_tests}\n")
+        f.write(f"Multidevice tests: {len(multidevice_tests)}\n")
+        f.write(f"Single device tests: {len(single_device_tests)}\n")
+        f.write(f"Python tests: {len(python_multidevice_tests)}\n")
+        f.write(f"Successful: {success_count}\n")
+        f.write(f"Failed: {len(failed_tests)}\n")
         if failed_tests:
-            if collect_test_failures(log_dir):
-                print(
-                    f"Detailed failure information available in: {log_dir}/failure_summary.txt"
-                )
-
-        print(f"\nTest run complete. {success_count}/{total_tests} tests passed.")
-        if failed_tests:
-            print("Failed tests:")
+            f.write("\nFailed tests:\n")
             for test in failed_tests:
-                print(f"- {test}")
-        print(f"Logs available in: {log_dir}")
+                f.write(f"- {test}\n")
 
-        return 0 if not failed_tests else 1
+    # Collect and summarize failures
+    if failed_tests:
+        if collect_test_failures(log_dir):
+            print(
+                f"Detailed failure information available in: {log_dir}/failure_summary.txt"
+            )
+
+    print(f"\nTest run complete. {success_count}/{total_tests} tests passed.")
+    if failed_tests:
+        print("Failed tests:")
+        for test in failed_tests:
+            print(f"- {test}")
+    print(f"Logs available in: {log_dir}")
+
+    return 0 if not failed_tests else 1
 
 
 if __name__ == "__main__":
