@@ -50,6 +50,13 @@ class UblkTmaFinder : kir::ConstIrVisitor {
   Expr* ublk_tma_load_ = nullptr;
 };
 
+// return the ublk tma load expr if the input expr is a ite with both arrive
+// expect and tma load. For example, when the input expr is:
+// IF ElectSync():
+//   MBarrierArriveExpectTx()
+//   IF ElectSync():
+//     CpAsyncUblk()
+// This function will return the CpAsyncUblk() expr.
 Expr* getUblkTmaLoad(const Expr* expr) {
   return UblkTmaFinder::get(expr);
 }
@@ -75,38 +82,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   void dispatch(Expr* expr) final {
-      std::cout << "\n================== dispatch:\n"
-                << expr->toString() << std::endl;    
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
-      kir::IfThenElse* ite = nullptr;
-      if (ir_utils::isCpAsyncUblk(expr->predicate()->expr())) {
-        const auto tma_expr = expr->predicate()->expr();
-        std::cout << "-----------tma_expr " << tma_expr->toString()
-                  << std::endl;
-        auto tma_tv = ir_utils::getTvOutput(tma_expr);
-        ite = ublk_load_ite_extra_predicate_.at(tma_tv);
-        ublk_load_ite_extra_predicate_.erase(tma_tv);
-        auto inline_pred_val = PredicateCompute::getInlinePredicate(
-            tma_expr,
-            for_loops_,
-            rotated_loop_,
-            expr->predicate()->thread_pred(),
-            expr->predicate()->predicate_type());
-        inline_pred_val = GpuLower::current()->commonScalarMap().hoistScalar(
-            inline_pred_val, for_loops_);
-        kir::TensorIndex* mbarrier =
-            GpuLower::current()->tmaCircularBufferInfo().getTensorIndex(
-                tma_expr->as<LoadStoreOp>());
-        insertPredicate(mbarrier, inline_pred_val);
-        std::cout << "------------mbarrier " << mbarrier->toString()
-                  << std::endl;
-        std::cout << "------------expr inline_pred_val "
-                  << inline_pred_val->toInlineString() << std::endl;
-        conditional =
-            SimplifyingIrBuilder::logicalAndExpr(conditional, inline_pred_val);
-      }
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
@@ -145,53 +123,21 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         }
       }
 
-      NVF_ERROR(conditional != nullptr);
-      conditional = GpuLower::current()->commonScalarMap().hoistScalar(
-          conditional, for_loops_);
-
-      if (ite) {
-        ite->predicate()->setValue(conditional);
-        expr->predicate()->setValue(
-            IrBuilder::create<Val>(true, DataType::Bool));
+      if (ir_utils::isCpAsyncUblk(expr->predicate()->expr())) {
+        predicateCpAsyncUblk(expr, conditional);
       } else {
+        NVF_ERROR(conditional != nullptr);
+        conditional = GpuLower::current()->commonScalarMap().hoistScalar(
+            conditional, for_loops_);
         expr->predicate()->setValue(conditional);
         NVF_ERROR(expr->predicate()->value() != nullptr);
         setWritePredicate(expr);
       }
     }
 
-    // mbarrier
-    if (auto wait_parity = dynamic_cast<kir::MBarrierWaitParity*>(expr)) {
-      auto mbarrier = wait_parity->mbarrier();
-      kir::TensorIndex* tensor_index = nullptr;
-      auto current_def = mbarrier->definition();
-      while (current_def && current_def->isA<UnaryOp>()) {
-        auto input = current_def->as<UnaryOp>()->in();
-        if (input->isA<kir::TensorIndex>()) {
-          tensor_index = input->as<kir::TensorIndex>();
-          break;
-        }
-        current_def = input->definition();
-      }
-      if (tensor_index) {
-        std::cout << "------------wait_parity mbarrier " << tensor_index->toString() << std::endl;
-        if (auto pred_val = findPredicate(tensor_index)) {
-          std::cout << "------------wait_parity mbarrier found "
-                    << tensor_index->toString() << std::endl;
-          kir::Predicate * pred = IrBuilder::create<kir::Predicate>(pred_val);
-          kir::IfThenElse* inline_ite =
-              IrBuilder::create<kir::IfThenElse>(pred);
-          kir::ExprMutator::registerReplace(expr, inline_ite);
-          inline_ite->thenBody().push_back(expr);
-        } else {
-          std::cout << "------------wait_parity mbarrier not found "
-                    << tensor_index->toString() << std::endl;
-          for(auto iter : mbarrier_inline_predicate_) {
-            std::cout << "------------mbarrier_inline_predicate_ "
-                      << iter.first->toString() << std::endl;
-          }
-        }
-      }
+    // may add extra predicate for wait parity to avoid deadlock
+    if (expr->isA<kir::MBarrierWaitParity>()) {
+      predicateUblkWaitParity(expr);
     }
 
     kir::ExprMutator::dispatch(expr);
@@ -209,6 +155,78 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         // predicate needs to be used.
         registerReplace(expr, expr->withWritePredicate(nullptr));
       }
+    }
+  }
+
+  // This function combines the original elect sync predicate with the inline
+  // predicate to avoid out-of-bound access for the ublk tma load.
+  void predicateCpAsyncUblk(Expr* ite_tma_expr, Val* elect_sync_pred) {
+    auto ublk_tma_expr = ite_tma_expr->predicate()->expr();
+    auto tma_tv = ir_utils::getTvOutput(ublk_tma_expr);
+    kir::IfThenElse* ite = ublk_load_ite_extra_predicate_.at(tma_tv);
+    // inline predicate to void out-of-bound access
+    auto inline_pred_val = PredicateCompute::getInlinePredicate(
+        ublk_tma_expr,
+        for_loops_,
+        rotated_loop_,
+        ite_tma_expr->predicate()->thread_pred(),
+        ite_tma_expr->predicate()->predicate_type());
+    inline_pred_val = GpuLower::current()->commonScalarMap().hoistScalar(
+        inline_pred_val, for_loops_);
+    // combine inline predicate with the original elect sync predicate
+    auto combined_pred_val =
+        SimplifyingIrBuilder::logicalAndExpr(elect_sync_pred, inline_pred_val);
+    combined_pred_val = GpuLower::current()->commonScalarMap().hoistScalar(
+        combined_pred_val, for_loops_);
+    // map the mbarrier used in this tma load to the extra inline predicate,
+    // this is then used to predicate the mbarrier wait parity.
+    kir::TensorIndex* mbarrier =
+        GpuLower::current()->tmaCircularBufferInfo().getTensorIndex(
+            ublk_tma_expr->as<LoadStoreOp>());
+    mbarrier_inline_predicate_.insert({mbarrier, inline_pred_val});
+
+    // Since tma load expr is nested in the ite, we only need to predicate the
+    // ite with the combined predicate and remove the tma load predicate by set
+    // it to true.
+    ite->predicate()->setValue(combined_pred_val);
+    ite_tma_expr->predicate()->setValue(
+        IrBuilder::create<Val>(true, DataType::Bool));
+
+    // remove this tma load from map
+    ublk_load_ite_extra_predicate_.erase(tma_tv);
+  }
+
+  // This function addes the inline predicate to the mbarrier wait parity to
+  // avoid deadlock since its corresponding ublk tma load may be predicated with
+  // an inline predicate to avoid out-of-bound access.
+  void predicateUblkWaitParity(Expr* expr) {
+    // find the tensor index used in the mbarrier
+    auto wait_parity = dynamic_cast<kir::MBarrierWaitParity*>(expr);
+    auto mbarrier = wait_parity->mbarrier();
+    kir::TensorIndex* tensor_index = nullptr;
+    auto current_def = mbarrier->definition();
+    while (current_def && current_def->isA<UnaryOp>()) {
+      auto input = current_def->as<UnaryOp>()->in();
+      if (input->isA<kir::TensorIndex>()) {
+        tensor_index = input->as<kir::TensorIndex>();
+        break;
+      }
+      current_def = input->definition();
+    }
+    NVF_CHECK(
+        tensor_index,
+        "Cannot find tensor index for mbarrier: ",
+        mbarrier->toInlineString());
+
+    // predicate this wait parity with the inline predicate used to predicate
+    // the corresponding ublk tma load.
+    if (mbarrier_inline_predicate_.find(tensor_index) !=
+        mbarrier_inline_predicate_.end()) {
+      auto pred_val = mbarrier_inline_predicate_.at(tensor_index);
+      kir::Predicate* pred = IrBuilder::create<kir::Predicate>(pred_val);
+      kir::IfThenElse* inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
+      kir::ExprMutator::registerReplace(expr, inline_ite);
+      inline_ite->thenBody().push_back(expr);
     }
   }
 
@@ -237,25 +255,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     }
 
     if (Expr* ublk_tma_load = getUblkTmaLoad(ite)) {
-      // ublk_load_ite_extra_predicate_.insert({ublk_tma_load, ite});
       auto output = ir_utils::getTvOutput(ublk_tma_load);
       ublk_load_ite_extra_predicate_.insert({output, ite});
-      std::cout << "------------expr isUblkTmaLoad "
-                << ublk_tma_load->toString() << std::endl;
-      // for (auto fl : for_loops_) {
-      //   std::cout << "\nfor_loops_:\n"
-      //             << fl->toString() << std::endl
-      //             << std::endl;
-      // }
-      // auto pred = ublk_tma_load->predicate();
-      // auto inline_pred_val = PredicateCompute::getInlinePredicate(
-      //     ublk_tma_load,
-      //     for_loops_,
-      //     rotated_loop_,
-      //     pred->thread_pred(),
-      //     pred->predicate_type());
-      // std::cout << "------------expr inline_pred_val " <<
-      // inline_pred_val->toInlineString() << std::endl;
     }
 
     // If ite already has Bool conditional, handle internal expressions
@@ -321,26 +322,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        // std::cout << "\n\nPredicateType::ElectSync "<< std::endl;
-
-        auto elect_pred_val =
-            PredicateCompute::getElectSyncPredicate(pred, for_loops_);
-        bool is_1d_tma = !ir_utils::isCpAsyncBulkTensorTile(pred->expr()) &&
-            ir_utils::isCpAsyncBulk(pred->expr());
-        bool is_arrive_expect_tx =
-            pred->expr()->isA<kir::MBarrierArriveExpectTx>();
-        if (false && (is_1d_tma || is_arrive_expect_tx)) {
-          auto inline_pred_val = PredicateCompute::getInlinePredicate(
-              pred->expr(),
-              for_loops_,
-              rotated_loop_,
-              pred->thread_pred(),
-              pred->predicate_type());
-          return SimplifyingIrBuilder::logicalAndExpr(
-              elect_pred_val, inline_pred_val);
-        } else {
-          return elect_pred_val;
-        }
+        return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
       }
       default:
         break;
@@ -350,68 +332,32 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
   std::unordered_set<ForLoop*> rotated_loop_;
+
+  // map from ublk tma load tensor view to the ite that contains arrive expt and
+  // ublk tma load
   std::unordered_map<TensorView*, kir::IfThenElse*>
       ublk_load_ite_extra_predicate_;
 
-  // // Hash function for kir::TensorIndex*
-  // struct TensorIndexHash {
-  //   size_t operator()(const kir::TensorIndex* ti) const {
-  //     if (!ti)
-  //       return 0;
-  //     return std::hash<const TensorView*>()(ti->view()) ^
-  //         std::hash<Val*>()(ti->index());
-  //   }
-  // };
-  // // Equality function for kir::TensorIndex*
-  // struct TensorIndexEqual {
-  //   bool operator()(const kir::TensorIndex* lhs, const kir::TensorIndex* rhs)
-  //       const {
-  //     if (lhs == rhs)
-  //       return true;
-  //     if (!lhs || !rhs)
-  //       return false;
-  //     std::cout << "lhs->view() " << lhs->view() << " rhs->view() " << rhs->view() << std::endl;
-  //     std::cout << "lhs->index() " << lhs->index() << " rhs->index() " << rhs->index() << std::endl;
-  //     std::cout << (lhs->view() == rhs->view() && lhs->index() == rhs->index()) << std::endl;
-  //     return lhs->view() == rhs->view() && lhs->index() == rhs->index();
-  //   }
-  // };
-  // // Define the unordered_map using custom hash and equality functions
-  // std::unordered_map<kir::TensorIndex*, Val*, TensorIndexHash, TensorIndexEqual>
-  //     mbarrier_inline_predicate_;
-
-  // Define a vector to store pairs of TensorIndex* and Val*
-  std::vector<std::pair<kir::TensorIndex*, Val*>> mbarrier_inline_predicate_;
-
-  // Helper function to find the corresponding Val* for a given TensorIndex*
-  Val* findPredicate(const kir::TensorIndex* ti) {
-      for (const auto& pair : mbarrier_inline_predicate_) {
-          const auto& lhs = pair.first;
-          if (lhs == ti) {
-              return pair.second;
-          }
-          int64_t index_self = lhs->index()->value().as<int64_t>();
-          int64_t index_other = ti->index()->value().as<int64_t>();
-          if (lhs->view()->name() == ti->view()->name() && index_self == index_other) {
-              return pair.second;
-          }
+  struct TensorIndexHash {
+    size_t operator()(const kir::TensorIndex* ti) const {
+      return std::hash<const TensorView*>()(ti->view()) ^
+          std::hash<int64_t>()(ti->index()->value().as<int64_t>());
+    }
+  };
+  struct TensorIndexEqual {
+    bool operator()(const kir::TensorIndex* lhs, const kir::TensorIndex* rhs)
+        const {
+      if (lhs == rhs) {
+        return true;
       }
-      return nullptr;
-  }
-
-  // Helper function to insert a TensorIndex*-Val* pair
-  void insertPredicate(kir::TensorIndex* ti, Val* val) {
-      // Check if the TensorIndex* already exists
-      for (auto& pair : mbarrier_inline_predicate_) {
-          if (pair.first == ti || (pair.first && ti && pair.first->view()->name() == ti->view()->name() && pair.first->index() == ti->index())) {
-              pair.second = val;
-              return;
-          }
-      }
-      // If not found, add a new pair
-      mbarrier_inline_predicate_.emplace_back(ti, val);
-  }
-
+      return lhs->view() == rhs->view() &&
+          lhs->index()->value().as<int64_t>() ==
+          rhs->index()->value().as<int64_t>();
+    }
+  };
+  // map from mbarrier (tensor index) to inline predicate val
+  std::unordered_map<kir::TensorIndex*, Val*, TensorIndexHash, TensorIndexEqual>
+      mbarrier_inline_predicate_;
 };
 
 } // namespace
