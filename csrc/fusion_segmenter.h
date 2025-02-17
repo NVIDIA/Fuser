@@ -535,18 +535,19 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      bool multi_device = false);
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
@@ -559,8 +560,9 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options);
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options,
+      bool multi_device = false);
 
   void resetTraversal();
 
@@ -612,10 +614,7 @@ class SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
-  SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_.value();
-  }
+  SchedulerRuntimeInfo& runtimeInfo();
 
   ExpressionEvaluator& expressionEvaluator() {
     return runtimeInfo().expressionEvaluator();
@@ -760,7 +759,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder* runtime_inputs_;
+  const KernelArgumentHolder runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

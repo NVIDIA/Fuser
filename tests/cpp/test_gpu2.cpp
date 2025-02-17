@@ -5144,7 +5144,7 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
   args.push(t0);
 
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), &args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5190,7 +5190,7 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   args.push(scalar);
 
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), &args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5233,7 +5233,7 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
   args.push(t0);
 
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), &args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() <= 2);
 }
@@ -7142,7 +7142,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
   for (auto i : c10::irange(5)) {
     (void)i; // Suppress unused variable warning
     auto segmented_fusion =
-        SegmentCandidateFinder::segment(fusion_ptr.get(), &args);
+        SegmentCandidateFinder::segment(fusion_ptr.get(), args);
   }
 }
 
