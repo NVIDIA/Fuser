@@ -44,20 +44,6 @@ FusionExecutorCache::FusionExecutorCache(
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
-std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs_deprecated(
-    const at::ArrayRef<c10::IValue>& inputs,
-    std::optional<PrimDataType> forced_index_type,
-    std::optional<int8_t> selected_device) {
-  FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs_deprecated");
-  // NOTE: This should be the first code in the method to capture all host time
-  if (isProfilerEnabled()) {
-    FusionProfiler::start(!isProfilerEnabledWithCupti());
-  }
-  KernelArgumentHolder args(inputs);
-  args.setDeviceIndex(selected_device);
-  return runFusionWithInputs(args, forced_index_type);
-}
-
 std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,

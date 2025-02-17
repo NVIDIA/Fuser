@@ -44,8 +44,8 @@ enum class PrimDataType;
 //! The primary interface to post-definition caching is the
 //! `FusionExecutorCache`. This class holds an unsegmented, unscheduled Fusion
 //! object that might contain symbolic operations. This Fusion is then evaluated
-//! using `FusionExecutorCache::runFusionWithInputs_deprecated` to produce
-//! outputs in the form of ATen Tensors.
+//! using `FusionExecutorCache::runFusionWithInputs` to produce outputs in the
+//! form of ATen Tensors.
 //!
 //! FusionKernelRuntime is responsible for segmentation and execution of a
 //! single concretized Fusion object with a given set of inputs. Each
@@ -137,11 +137,6 @@ class FusionExecutorCache {
   //! value.
   NVF_API std::vector<at::Tensor> runFusionWithInputs(
       KernelArgumentHolder args,
-      std::optional<PrimDataType> forced_index_type = std::nullopt,
-      std::optional<int8_t> selected_device = std::nullopt);
-
-  NVF_API std::vector<at::Tensor> runFusionWithInputs_deprecated(
-      const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
 

@@ -105,7 +105,9 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   ASSERT_EQ(unsharded_args.size(), fusion->inputs().size());
   for (int i : c10::irange(fusion->inputs().size())) {
     ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
-    args.push(shardTensor(unsharded_args[i].as<at::Tensor>(), fusion->inputs().at(i)->as<TensorView>()));
+    args.push(shardTensor(
+        unsharded_args[i].as<at::Tensor>(),
+        fusion->inputs().at(i)->as<TensorView>()));
   }
 
   if (debug_print) {
