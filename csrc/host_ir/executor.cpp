@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
+#include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -189,7 +190,7 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -280,13 +281,13 @@ void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
   streams_.insert(
       {get_current_stream->stream(),
        c10::cuda::getCurrentCUDAStream(
-           static_cast<c10::DeviceIndex>(my_device_index_))});
+           static_cast<c10::DeviceIndex>(my_local_device_index_))});
 }
 
 void HostIrEvaluator::handle(Synchronize* synchronize) {
   cudaStream_t current_stream =
       c10::cuda::getCurrentCUDAStream(
-          static_cast<c10::DeviceIndex>(my_device_index_))
+          static_cast<c10::DeviceIndex>(my_local_device_index_))
           .stream();
   cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
 
@@ -435,25 +436,53 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
+  CommunicatorBackend backend_type = communication->backend();
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(),
-      buffer);
+  if (backend_type == CommunicatorBackend::kCuda) {
+    const P2pIpcHandle& ipc_handles =
+        ipc_handle_cache_.get(communication, expr_evaluator_);
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    if (communication->type() == P2PCommunicationType::RECV) {
+      getZcopy::RecvPost(
+          ipc_handles, buffer.numel() * buffer.element_size(), current_stream);
+    } else {
+      getZcopy::SendPost(ipc_handles, current_stream);
+    }
+  } else {
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+        communicator_->getWorld(),
+        buffer);
+  }
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
-  auto& work = works_.at(communication);
-  if (work != nullptr) {
-    work->wait();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
+    if (p2p_comm->type() == P2PCommunicationType::SEND) {
+      const auto current_stream = static_cast<CUstream>(
+          c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+      const P2pIpcHandle& ipc_handles =
+          ipc_handle_cache_.get(p2p_comm, expr_evaluator_);
+      getZcopy::SendWait(ipc_handles, current_stream);
+    }
+  } else {
+    auto it = works_.find(communication);
+    if (it == works_.end()) {
+      return;
+    }
+    auto& work = it->second;
+    if (work != nullptr) {
+      work->wait();
+    }
+    works_.erase(communication);
   }
-  works_.erase(communication);
 }
 
 namespace {
