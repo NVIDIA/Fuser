@@ -498,9 +498,6 @@ void GpuLower::analysis(Fusion* fusion) {
         /*allow_self_mapping=*/false,
         /*validate=*/false);
     id_model_->validateAndPropagatePType();
-
-    id_model_->idGraph(IdMappingMode::ALMOSTEXACT).dumpGraphvizDotGraph("almost_exact.dot");
-    fusion->print();
   }
 
   resolveComputeWith(fusion_);
