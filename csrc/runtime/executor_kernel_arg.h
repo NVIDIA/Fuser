@@ -22,20 +22,48 @@
 
 namespace nvfuser {
 
+namespace detail {
+template <typename T>
+struct is_kernel_argument_holder : std::false_type {};
+
+template <>
+struct is_kernel_argument_holder<KernelArgumentHolder> : std::true_type {};
+
+template <typename T>
+inline constexpr bool is_kernel_argument_holder_v = is_kernel_argument_holder<
+    std::remove_cv_t<std::remove_reference_t<T>>>::value;
+
+template <typename... Args>
+inline constexpr bool no_kernel_argument_holder =
+    !(is_kernel_argument_holder_v<Args> || ...);
+} // namespace detail
+
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
-//! for both compilation as well as kernel execution. The important thing is to
-//! strip ownership of tensor from KernelArgumentHolder, so that during async
-//! compilation, we are not unnecessarily holding memory that is not needed.
+//! for both compilation as well as kernel execution. It takes ownership of
+//! at::Tensors so care should be taken when using it relative to tensor.
 class KernelArgumentHolder {
  public:
   KernelArgumentHolder() = default;
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
 
-  NVF_API KernelArgumentHolder(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      std::optional<int8_t> device = std::nullopt);
+  // Constructor using std::enable_if_t for C++17 compatibility to prevent
+  // implicit conversion to KernelArgumentHolder which can cause a recursive
+  // call to the constructor.
+  //
+  // Previously this constructor took in an optional device but I couldn't
+  // figure out how to get that to work with the variadic template.
+  template <
+      typename... Args,
+      typename = std::enable_if_t<detail::no_kernel_argument_holder<Args...>>>
+  NVF_API KernelArgumentHolder(Args&&... args) {
+    (push(std::forward<Args>(args)), ...);
+    if (arguments_.empty()) {
+      return;
+    }
+    device_index_ = getCommonDeviceCUDA(*this, std::nullopt);
+  }
 
   //! Computes the smallest index type for the currently held
   //! arguments. It does not consider any other tensors used in a kernel.
@@ -47,32 +75,91 @@ class KernelArgumentHolder {
       const std::vector<int64_t>& strides,
       at::ScalarType dtype);
 
-  NVF_API void push(const c10::ArrayRef<c10::IValue>& args);
-
-  NVF_API void push(const std::vector<at::Tensor>& tensors);
-
-  c10::ArrayRef<c10::IValue> toArrayRef() const;
-
-  void erase(const PolymorphicValue* arg_to_delete);
-
-  void push(PolymorphicValue val) {
-    arguments_.push_back(std::make_shared<PolymorphicValue>(std::move(val)));
+  void push(const std::vector<at::Tensor>& tensors);
+  void push(const std::optional<at::Tensor>& opt_tensor);
+  void push(const c10::ArrayRef<c10::IValue>& args);
+  void push(std::initializer_list<c10::IValue> args) {
+    push(c10::ArrayRef<c10::IValue>(args));
   }
 
-  PolymorphicValue* back() {
-    return arguments_.back().get();
+  void push(std::initializer_list<at::Tensor> args) {
+    push(std::vector<at::Tensor>(args));
+  }
+  void push(std::vector<PolymorphicValue> args) {
+    for (const auto& arg : args) {
+      push(arg);
+    }
+  }
+  // void push(const KernelArgumentHolder& args);
+  void push(const std::vector<c10::IValue>& args);
+  void push(const at::Tensor& tensor);
+  void push(const PolymorphicValue& val);
+  void push(const int64_t& val);
+  void push(const int& val);
+  void push(const double& val);
+  void push(const bool& val);
+  void push(const std::complex<double>& val);
+  void push(const ArrayType& vals);
+
+  template <typename T>
+  void push(T* ptr) {
+    arguments_.push_back(PolymorphicValue(ptr));
   }
 
-  PolymorphicValue* operator[](size_t ind) const {
-    return arguments_.at(ind).get();
-  };
+  void erase(const PolymorphicValue& arg_to_delete);
 
+  std::vector<c10::IValue> toC10Array() const;
+
+  PolymorphicValue& back() {
+    return arguments_.back();
+  }
+
+  const PolymorphicValue& back() const {
+    return arguments_.back();
+  }
+
+  PolymorphicValue& operator[](size_t ind) {
+    return arguments_.at(ind);
+  }
+
+  const PolymorphicValue& operator[](size_t ind) const {
+    return arguments_.at(ind);
+  }
+
+  // Returns iterator pointing to the beginning of vector container
   auto begin() const {
     return arguments_.begin();
   }
 
+  // Returns iterator pointing to the end of vector container
   auto end() const {
     return arguments_.end();
+  }
+
+  // Returns iterator pointing to the beginning of vector container
+  auto begin() {
+    return arguments_.begin();
+  }
+
+  // Returns iterator pointing to the end of vector container
+  auto end() {
+    return arguments_.end();
+  }
+
+  auto rbegin() const {
+    return arguments_.rbegin();
+  }
+
+  auto rend() const {
+    return arguments_.rend();
+  }
+
+  auto rbegin() {
+    return arguments_.rbegin();
+  }
+
+  auto rend() {
+    return arguments_.rend();
   }
 
   auto cbegin() const {
@@ -80,6 +167,14 @@ class KernelArgumentHolder {
   }
 
   auto cend() const {
+    return arguments_.cend();
+  }
+
+  auto cbegin() {
+    return arguments_.cbegin();
+  }
+
+  auto cend() {
     return arguments_.cend();
   }
 
@@ -95,9 +190,7 @@ class KernelArgumentHolder {
     return arguments_.empty();
   }
 
-  void setDeviceIndex(int8_t index) {
-    device_index_ = index;
-  }
+  void setDeviceIndex(std::optional<int8_t> index = std::nullopt);
 
   int8_t getDeviceIndex() const {
     return device_index_;
@@ -121,7 +214,10 @@ class KernelArgumentHolder {
   void deserialize(const serde::KernelArgumentHolder* buffer);
 
  private:
-  std::vector<std::shared_ptr<PolymorphicValue>> arguments_;
+  void setCommonDevice();
+
+ private:
+  std::vector<PolymorphicValue> arguments_;
 
   int8_t device_index_ = 0;
   std::optional<size_t> cache_id_ = std::nullopt;

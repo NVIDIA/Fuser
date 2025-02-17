@@ -165,8 +165,7 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, mparams);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder({inputs.first, inputs.second});
+  KernelArgumentHolder args({inputs.first, inputs.second});
 
   // Disable magic zero
   CompileParams cparams;
@@ -463,7 +462,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   heuristic_params->cparams.index_type =
       computeIndexType(M, N * splitk_factor, 1);
 
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args(aten_inputs);
 
   // Compile kernel
   KernelExecutor ke;

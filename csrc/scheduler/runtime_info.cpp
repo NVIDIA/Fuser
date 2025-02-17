@@ -16,6 +16,7 @@ namespace nvfuser {
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
+    // TODO: I think this can be a const ref
     KernelArgumentHolder args,
     PrecomputedValues* precomputed_values,
     const std::vector<TensorView*>& all_tvs,

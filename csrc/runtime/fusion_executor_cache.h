@@ -44,8 +44,8 @@ enum class PrimDataType;
 //! The primary interface to post-definition caching is the
 //! `FusionExecutorCache`. This class holds an unsegmented, unscheduled Fusion
 //! object that might contain symbolic operations. This Fusion is then evaluated
-//! using `FusionExecutorCache::runFusionWithInputs` to produce outputs in the
-//! form of ATen Tensors.
+//! using `FusionExecutorCache::runFusionWithInputs_deprecated` to produce
+//! outputs in the form of ATen Tensors.
 //!
 //! FusionKernelRuntime is responsible for segmentation and execution of a
 //! single concretized Fusion object with a given set of inputs. Each
@@ -136,7 +136,12 @@ class FusionExecutorCache {
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
   NVF_API std::vector<at::Tensor> runFusionWithInputs(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      KernelArgumentHolder args,
+      std::optional<PrimDataType> forced_index_type = std::nullopt,
+      std::optional<int8_t> selected_device = std::nullopt);
+
+  NVF_API std::vector<at::Tensor> runFusionWithInputs_deprecated(
+      const at::ArrayRef<c10::IValue>& inputs,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
 
@@ -235,11 +240,8 @@ class FusionExecutorCache {
   void deserialize(const serde::FusionExecutorCache* buffer, int64_t fusion_id);
 
  private:
-  //! Converts inputs from IValue to KernelArgumentHolder, also handles cache
-  //! lookup
-  KernelArgumentHolder prepareInputs(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      std::optional<int8_t> selected_device = std::nullopt);
+  //! Adds cache lookup information to provided argument holder
+  void setCacheId(KernelArgumentHolder& args);
 
   //! evict cached short cut entry in `code_to_fe_lookup_` as well as cached
   //! entry in `KernelExecutor`

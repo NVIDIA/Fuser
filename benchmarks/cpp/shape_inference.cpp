@@ -40,20 +40,20 @@ void LayerNormBackward_ShapeInference_Base(
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args(aten_inputs);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   executor_cache->profile(true);
   executor_cache->disableKernelLaunch();
-  executor_cache->runFusionWithInputs(aten_inputs);
+  executor_cache->runFusionWithInputs_deprecated(aten_inputs);
   if (disable_launch_parameter_cache) {
     executor_cache->disableLaunchParamCache();
   }
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    executor_cache->runFusionWithInputs(aten_inputs);
+    executor_cache->runFusionWithInputs_deprecated(aten_inputs);
   }
 }
 
@@ -83,13 +83,13 @@ void LayerNormForward_ShapeInferenceBase(
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args(aten_inputs);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
   executor_cache->profile(true);
   executor_cache->disableKernelLaunch();
-  executor_cache->runFusionWithInputs(aten_inputs);
+  executor_cache->runFusionWithInputs_deprecated(aten_inputs);
 
   if (disable_launch_param_cache) {
     executor_cache->disableLaunchParamCache();
@@ -97,7 +97,7 @@ void LayerNormForward_ShapeInferenceBase(
 
   for (auto _ : benchmark_state) {
     // Setup (not included in the measurement)
-    executor_cache->runFusionWithInputs(aten_inputs);
+    executor_cache->runFusionWithInputs_deprecated(aten_inputs);
   }
 }
 

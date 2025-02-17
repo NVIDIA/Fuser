@@ -67,7 +67,8 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     unshard(fusion_copy.get());
     FusionExecutorCache unsharded_fec(std::move(fusion_copy));
-    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
+    ref_unsharded_outputs =
+        unsharded_fec.runFusionWithInputs_deprecated(unsharded_inputs);
   }
 
   if (debug_print) {

@@ -189,8 +189,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               int64_t start_ = (int64_t)start;
               int64_t step_ = (int64_t)step;
-              auto cg_outputs =
-                  executor_cache.runFusionWithInputs({length, start_, step_});
+              auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
+                  {length, start_, step_});
 
               testValidate(
                   executor_cache.fusion(),
@@ -210,8 +210,8 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
             for (auto step : steps) {
               double start_ = (double)start;
               double step_ = (double)step;
-              auto cg_outputs =
-                  executor_cache.runFusionWithInputs({length, start_, step_});
+              auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
+                  {length, start_, step_});
 
               testValidate(
                   executor_cache.fusion(),
@@ -312,7 +312,7 @@ TEST_F(TensorFactoryTest, StandaloneARange) {
             continue;
           }
 
-          auto cg_outputs = executor_cache.runFusionWithInputs(
+          auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(
               {(int64_t)start,
                (int64_t)end,
                (int64_t)step,
@@ -519,11 +519,10 @@ TEST_F(TensorFactoryTest, FactoryBroadcast) {
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto in = at::randn({100}, options);
-  std::vector<c10::IValue> inputs{1, in};
+  auto t0 = at::randn({100}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({1, t0});
 
   at::manual_seed(0);
   at::Tensor randn_sample = at::randn({1}, options);
@@ -533,13 +532,13 @@ TEST_F(TensorFactoryTest, FactoryBroadcast) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      inputs,
-      {in,
-       in + 1,
-       in + randn_sample,
-       in + randn_sample,
-       in + rand_sample,
-       in + rand_sample},
+      {1, t0},
+      {t0,
+       t0 + 1,
+       t0 + randn_sample,
+       t0 + randn_sample,
+       t0 + rand_sample,
+       t0 + rand_sample},
       __LINE__,
       __FILE__);
 }

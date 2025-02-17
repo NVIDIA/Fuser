@@ -179,7 +179,8 @@ int64_t runBenchmarkIterations(
 
   // Segment and compile the fusion
   {
-    auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
+    auto cg_outputs =
+        executor_cache->runFusionWithInputs_deprecated(aten_inputs);
     io_bytes += getSizeOfOutputs(cg_outputs);
   }
 
@@ -209,7 +210,8 @@ int64_t runBenchmarkIterations(
 
   for (auto _ : benchmark_state) {
     clearL2Cache();
-    auto cg_outputs = executor_cache->runFusionWithInputs(aten_inputs);
+    auto cg_outputs =
+        executor_cache->runFusionWithInputs_deprecated(aten_inputs);
     benchmark_state.SetIterationTime(
         FusionProfiler::profile().kernel_time_ms / 1000.0);
   }

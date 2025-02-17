@@ -44,17 +44,27 @@ FusionExecutorCache::FusionExecutorCache(
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
-std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
-    const c10::ArrayRef<c10::IValue>& inputs,
+std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs_deprecated(
+    const at::ArrayRef<c10::IValue>& inputs,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
-  FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+  FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs_deprecated");
   // NOTE: This should be the first code in the method to capture all host time
   if (isProfilerEnabled()) {
     FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(selected_device);
+  return runFusionWithInputs(args, forced_index_type);
+}
 
-  KernelArgumentHolder args = prepareInputs(inputs, selected_device);
+std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
+    KernelArgumentHolder args,
+    std::optional<PrimDataType> forced_index_type,
+    std::optional<int8_t> selected_device) {
+  FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
+  args.setDeviceIndex(selected_device);
+  setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (isProfilerEnabled()) {
@@ -108,13 +118,8 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   return outputs;
 }
 
-KernelArgumentHolder FusionExecutorCache::prepareInputs(
-    const c10::ArrayRef<c10::IValue>& inputs,
-    std::optional<int8_t> selected_device) {
-  FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
-
-  KernelArgumentHolder args = KernelArgumentHolder(inputs, selected_device);
-
+void FusionExecutorCache::setCacheId(KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionExecutorCache::setCacheId");
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
   // may contain transformations that depend on input scalars, not just on the
@@ -124,15 +129,12 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret = inputs_id_lookup_.lookupId(
-      inputs,
-      initialInfo().scalarInputsAffectingConcretization(),
-      args.getDeviceIndex());
+      args, initialInfo().scalarInputsAffectingConcretization());
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
 
   args.setCacheId(id_lookup_ret.id);
-  return args;
 }
 
 bool FusionExecutorCache::isCompiled(
@@ -141,9 +143,8 @@ bool FusionExecutorCache::isCompiled(
   FUSER_PERF_SCOPE("FusionExecutorCache::isCompiled");
 
   // Access kernels associated with the common device id
-  KernelArgumentHolder args = prepareInputs(inputs);
-  args.setDeviceIndex(device);
-
+  KernelArgumentHolder args(inputs);
+  setCacheId(args);
   return getKernelRuntimeFor(args)->isCompiled();
 }
 
@@ -221,7 +222,9 @@ std::string FusionExecutorCache::getMostRecentCode(bool intrinsic_code) const {
 std::string FusionExecutorCache::getCodeFor(
     const c10::ArrayRef<c10::IValue>& inputs,
     bool intrinsic_code) {
-  KernelArgumentHolder args = prepareInputs(inputs);
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex();
+  setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args);
   return getCode(kernel_runtime, intrinsic_code);
 }
@@ -256,7 +259,9 @@ std::string FusionExecutorCache::getMostRecentScheduledIr(
 std::string FusionExecutorCache::getScheduledIrFor(
     const c10::ArrayRef<c10::IValue>& inputs,
     bool tensor_transforms) {
-  KernelArgumentHolder args = prepareInputs(inputs);
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex();
+  setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args);
   return getScheduledIr(kernel_runtime, tensor_transforms);
 }

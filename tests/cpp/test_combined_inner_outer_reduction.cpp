@@ -107,7 +107,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   FusionExecutorCache executor_cache(std::move(fusion));
   std::vector<c10::IValue> aten_inputs = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
   auto aten_gradients = at::native_layer_norm_backward(
       aten_grad_out,
@@ -269,7 +269,8 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto cg_outputs =
+        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
     auto aten_gradients = at::native_layer_norm_backward(
         aten_grad_out.to(at::kDouble),
@@ -452,7 +453,8 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto cg_outputs =
+        executor_cache.runFusionWithInputs_deprecated(aten_inputs);
 
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     switch (case_id) {
@@ -849,10 +851,9 @@ TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn({x, y, z}, options);
-    std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
     bool is_segmented =
         executor_cache.getMostRecentKernelRuntime()->isSegmented();
@@ -866,8 +867,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
     auto t2 = t1.unsqueeze(-1);
     auto t3 = t0 + t2;
     auto t4 = t0.sum(outer_reduction_axis);
-    testValidate(
-        &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, {t3, t4}, __LINE__, __FILE__);
   };
 
   // inner reduction is [I, I, R]
@@ -904,10 +904,9 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dim0, dim1}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, {t0});
 
   auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
   NVF_CHECK(
@@ -921,7 +920,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   testValidate(
       &fusion,
       cg_results.outputs,
-      aten_inputs,
+      {t0},
       {t3, t4},
       __LINE__,
       __FILE__,
@@ -961,9 +960,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dim0, dim1}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
-  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0});
   ASSERT_TRUE(Schedule::canSchedule(
       SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeSchedulerInstance(
@@ -983,7 +981,7 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
       std::vector<TensorView*>{tv1};
   scheduler->schedule(&fusion, heuristic_params.get());
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+  ke.compile(&fusion, {t0});
 
   for (auto tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
@@ -993,8 +991,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
     }
   }
   auto cg_outputs =
-      ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
-  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+      ke.run({t0}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 using InnerOuterReshapeTest = NVFuserFixtureParamTest<bool>;
@@ -1033,13 +1031,11 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dim0, dim1, dim2}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
   auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, {t0});
   auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
   ASSERT_FALSE(persistent_params->project_persistent_buffers);
-  testValidate(
-      &fusion_copy, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion_copy, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

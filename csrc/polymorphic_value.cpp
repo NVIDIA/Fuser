@@ -101,7 +101,7 @@ c10::IValue toIValue(const PolymorphicValue& x) {
   } else if (isScalar(x)) {
     return c10::IValue(toScalar(x));
   }
-  NVF_THROW("Cannot convert provided PolymorphicValue to a C10:L:IValue.");
+  NVF_THROW("Cannot convert provided PolymorphicValue to a c10::IValue.");
 }
 
 } // namespace PolymorphicValue_functions

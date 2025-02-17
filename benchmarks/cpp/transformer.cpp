@@ -96,7 +96,7 @@ void forward_transformer(
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("FwdIteration" + std::to_string(i)).c_str());
     }
-    auto outputs = fec->runFusionWithInputs(at_inputs);
+    auto outputs = fec->runFusionWithInputs_deprecated(at_inputs);
 
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
@@ -191,7 +191,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("BwdIteration" + std::to_string(i)).c_str());
     }
-    outputs = fec->runFusionWithInputs(at_inputs);
+    outputs = fec->runFusionWithInputs_deprecated(at_inputs);
 
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
