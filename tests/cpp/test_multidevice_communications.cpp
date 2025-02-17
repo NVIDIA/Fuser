@@ -440,9 +440,15 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   container->addInput(recv_tv);
 
   auto send = IrBuilder::create<P2PCommunication>(
-    P2PCommunicationType::SEND, send_tv, send_peer_val, CommunicatorBackend::kCuda);
+      P2PCommunicationType::SEND,
+      send_tv,
+      send_peer_val,
+      CommunicatorBackend::kCuda);
   auto recv = IrBuilder::create<P2PCommunication>(
-    P2PCommunicationType::RECV, recv_tv, recv_peer_val, CommunicatorBackend::kCuda);
+      P2PCommunicationType::RECV,
+      recv_tv,
+      recv_peer_val,
+      CommunicatorBackend::kCuda);
   std::vector<P2PCommunication*> grouped_communications = {send, recv};
   auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
       std::move(grouped_communications));
