@@ -38,8 +38,8 @@ class IpcHandle {
   void* ptr_;
   int64_t storage_offset_;
   int64_t element_size_;
-  cudaIpcMemHandle_t ipc_handle_;
-  cudaIpcMemHandle_t semaphore_ipc_handle_;
+  cudaIpcMemHandle_t ipc_handle_ = {};
+  cudaIpcMemHandle_t semaphore_ipc_handle_ = {};
   IpcSemaphore* semaphore_;
   int64_t rank_;
 };
@@ -130,7 +130,7 @@ class IpcHandleCache {
       auto offset = tensor.storage_offset();
       auto element_size = tensor.element_size();
       return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
-          std::hash<int>()(element_size);
+          std::hash<int64_t>()(element_size);
     }
   };
 
