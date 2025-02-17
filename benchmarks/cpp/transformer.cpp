@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <cuda_profiler_api.h>
-#include <nvToolsExt.h>
+#include <nvtx3/nvToolsExt.h>
 
 #include <benchmarks/cpp/utils.h>
 #include <fusion.h>
