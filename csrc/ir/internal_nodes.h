@@ -2572,6 +2572,9 @@ class ForLoop final : public Expr {
   //! True if loop is grouped reduction/welford
   bool isGroup() const;
 
+  //! True if loop needs to call a runtime reduction function
+  bool hasRuntimeReductionFunctions() const;
+
   //! Returns the stage of a circular buffered iterdomain
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
