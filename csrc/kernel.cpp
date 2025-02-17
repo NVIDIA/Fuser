@@ -12,6 +12,7 @@
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
+#include <type.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -70,6 +71,10 @@ class KernelIrScanner : private IrVisitor {
     // Do we have any elect sync predicates?
     if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
       summary_.has_elect_sync_predicate = true;
+    } else if (
+        uop->getUnaryOpType() == UnaryOpType::Cast &&
+        uop->in()->dtype() == DataType::Index) {
+      summary_.has_index_casts = true;
     }
   }
 

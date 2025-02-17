@@ -233,5 +233,14 @@ void validateCircularBuffering(
     kir::Kernel* kernel,
     ExpressionEvaluator& expr_eval);
 
+//! Check that any narrowing casts from DataType::Index do not overflow.
+//! In particular, if TMA expressions are present in the kernel, compute bounds
+//! for integer expressions in order to validate that the 32-bit coordinates
+//! passed to the TMA PTX instructions do not overflow.
+void validateIndexCasts(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval,
+    const LaunchParams& launch_params);
+
 } // namespace executor_utils
 } // namespace nvfuser
