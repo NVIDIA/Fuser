@@ -480,7 +480,7 @@ void HostIrEvaluator::handle(Wait* wait) {
     const int64_t my_rank = communicator_->deviceId();
     if (my_rank == src && src != dst) {
       const auto current_stream = static_cast<CUstream>(
-          c10::cuda::getCurrentCUDAStream(communicator_->local_rank()).stream());
+          c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
       const P2pIpcHandle& ipc_handles =
           ipc_handle_cache_.get(p2p_comm, expr_evaluator_);
       getZcopy::SendWait(ipc_handles, current_stream);
