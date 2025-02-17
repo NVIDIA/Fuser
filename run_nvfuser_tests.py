@@ -5,6 +5,7 @@ import glob
 import datetime
 from pathlib import Path
 import time
+import sys
 
 
 def setup_logging_dir():
@@ -25,25 +26,28 @@ def get_python_tests(python_test_dir):
     return glob.glob(os.path.join(python_test_dir, "test_*.py"))
 
 
-def run_multidevice_test(test_path, log_dir):
+def run_multidevice_test(test_path, log_dir, dry_run=False):
     """Run a multidevice test using mpirun"""
     test_name = os.path.basename(test_path)
     log_base = log_dir / test_name
 
+    cmd = [
+        "mpirun",
+        "-np",
+        "2",
+        "--output-filename",
+        f"{log_base}",
+        "--merge-stderr-to-stdout",
+        test_path,
+    ]
+
+    if dry_run:
+        print(f"Would run: {' '.join(cmd)}")
+        return True
+
     print(f"Running multidevice test: {test_name}")
     try:
-        result = subprocess.run(
-            [
-                "mpirun",
-                "-np",
-                "2",
-                "--output-filename",
-                f"{log_base}",
-                "--merge-stderr-to-stdout",
-                test_path,
-            ],
-            timeout=1200,  # 20 minute timeout
-        )
+        result = subprocess.run(cmd, timeout=1200)
         return result.returncode == 0
     except subprocess.TimeoutExpired:
         with open(f"{log_base}.log", "w") as f:
@@ -57,21 +61,23 @@ def run_multidevice_test(test_path, log_dir):
         return False
 
 
-def run_single_device_test(test_path, log_dir, gpu_id):
+def run_single_device_test(test_path, log_dir, gpu_id, dry_run=False):
     """Run a single device test on specified GPU"""
     test_name = os.path.basename(test_path)
     log_file = log_dir / f"{test_name}.log"
+
+    cmd = [test_path]
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
+
+    if dry_run:
+        print(f"Would run: CUDA_VISIBLE_DEVICES={gpu_id} {' '.join(cmd)} > {log_file}")
+        return "dry_run_process"
 
     print(f"Running test: {test_name} on GPU {gpu_id}")
     try:
         with open(log_file, "w") as f:
             f.write(f"Test: {test_name} on GPU {gpu_id}\n")
-            process = subprocess.Popen(
-                [test_path],
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                env={**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)},
-            )
+            process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env)
         return process
     except Exception as e:
         with open(log_file, "w") as f:
@@ -80,21 +86,23 @@ def run_single_device_test(test_path, log_dir, gpu_id):
         return None
 
 
-def run_python_test(test_path, log_dir, gpu_id):
+def run_python_test(test_path, log_dir, gpu_id, dry_run=False):
     """Run a Python test using pytest on specified GPU"""
     test_name = os.path.basename(test_path)
     log_file = log_dir / f"python_{test_name}.log"
+
+    cmd = ["pytest", test_path, "-v"]
+    env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
+
+    if dry_run:
+        print(f"Would run: CUDA_VISIBLE_DEVICES={gpu_id} {' '.join(cmd)} > {log_file}")
+        return "dry_run_process"
 
     print(f"Running Python test: {test_name} on GPU {gpu_id}")
     try:
         with open(log_file, "w") as f:
             f.write(f"Test: {test_name} on GPU {gpu_id}\n")
-            process = subprocess.Popen(
-                ["pytest", test_path, "-v"],
-                stdout=f,
-                stderr=subprocess.STDOUT,
-                env={**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)},
-            )
+            process = subprocess.Popen(cmd, stdout=f, stderr=subprocess.STDOUT, env=env)
         return process
     except Exception as e:
         with open(log_file, "w") as f:
@@ -103,8 +111,13 @@ def run_python_test(test_path, log_dir, gpu_id):
         return None
 
 
-def run_parallel_tests(tests, run_func, log_dir):
+def run_parallel_tests(tests, run_func, log_dir, dry_run=False):
     """Run tests in parallel across two GPUs"""
+    if dry_run:
+        for test in tests:
+            run_func(test, log_dir, 0, dry_run=True)
+            run_func(test, log_dir, 1, dry_run=True)
+        return [], []
     current_processes = {0: None, 1: None}  # GPU ID -> current process
     current_tests = {0: None, 1: None}  # GPU ID -> current test
     completed_tests = []
@@ -220,6 +233,12 @@ def run_parallel_tests(tests, run_func, log_dir):
 
 def main():
     try:
+        # Add argument parsing for dry run
+        if len(sys.argv) > 1 and sys.argv[1] == "--dry-run":
+            dry_run = True
+        else:
+            dry_run = False
+
         # Hardcode paths relative to current directory
         build_dir = "bin"
         python_test_dir = "tests/python"
@@ -253,27 +272,43 @@ def main():
         failed_tests = []
         total_tests = len(cpp_tests) + len(python_tests)
 
-        # Run multidevice tests first (they manage their own GPUs)
-        print("\nRunning multidevice tests...")
+        # Run multidevice tests first
+        print("\nMultidevice tests that would run:")
         for test in multidevice_tests:
-            if run_multidevice_test(test, log_dir):
-                success_count += 1
+            if run_multidevice_test(test, log_dir, dry_run=dry_run):
+                if not dry_run:
+                    success_count += 1
             else:
-                failed_tests.append(os.path.basename(test))
+                if not dry_run:
+                    failed_tests.append(os.path.basename(test))
 
         # Run single device tests in parallel
-        print("\nRunning single device tests...")
-        completed, failed = run_parallel_tests(
-            single_device_tests, run_single_device_test, log_dir
-        )
-        success_count += len(completed)
-        failed_tests.extend(failed)
+        print("\nSingle device tests that would run:")
+        if not dry_run:
+            completed, failed = run_parallel_tests(
+                single_device_tests, run_single_device_test, log_dir
+            )
+            success_count += len(completed)
+            failed_tests.extend(failed)
+        else:
+            run_parallel_tests(
+                single_device_tests, run_single_device_test, log_dir, dry_run=True
+            )
 
         # Run Python tests in parallel
-        print("\nRunning Python tests...")
-        completed, failed = run_parallel_tests(python_tests, run_python_test, log_dir)
-        success_count += len(completed)
-        failed_tests.extend([f"python_{test}" for test in failed])
+        print("\nPython tests that would run:")
+        if not dry_run:
+            completed, failed = run_parallel_tests(
+                python_tests, run_python_test, log_dir
+            )
+            success_count += len(completed)
+            failed_tests.extend([f"python_{test}" for test in failed])
+        else:
+            run_parallel_tests(python_tests, run_python_test, log_dir, dry_run=True)
+
+        if dry_run:
+            print("\nThis was a dry run. No tests were actually executed.")
+            return 0
 
         # Write summary
         with open(log_dir / "summary.txt", "w") as f:
