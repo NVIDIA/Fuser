@@ -9,6 +9,7 @@
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -708,6 +709,9 @@ class DynamicTransformConcretizer : public OptOutMutator {
 };
 
 void DynamicTransformConcretizer::concretize() {
+  // Registers replacement of all empty extents with zeroVal()
+  concretizeEmptyExtents();
+
   // Concretize all dynamic reshape ops
   concretizeReshape();
 
@@ -716,9 +720,6 @@ void DynamicTransformConcretizer::concretize() {
 
   // Overwrite expanded IterDomains for dynamic expand ops
   concretizeExpand();
-
-  // Registers replacement of all empty extents with zeroVal()
-  concretizeEmptyExtents();
 
   // Set IterTypes for factory op outputs
   concretizeFactoryOutputs();
@@ -940,12 +941,29 @@ void DynamicTransformConcretizer::concretizeResize() {
         id->definition() && id->definition()->isA<Resize>(),
         "Resized IterDomain must have a Resize definition");
     auto def = id->definition()->as<Resize>();
+    auto def_in = maybeMutated(def->in())->as<IterDomain>();
     auto new_id = IterDomain::resize(
-        def->in(),
-        def->leftExpand(),
-        def->rightExpand(),
+        def_in,
+        maybeMutated(def->leftExpand()),
+        maybeMutated(def->rightExpand()),
         id->isRFactorProduct(),
         iter_type);
+
+    if (maybeMutated(def_in->extent()) != def_in->extent()) {
+      // Note: if the extent of id is mutated, for example by the
+      // concretizeEmptyExtents pass, we should also use the mutated extent to
+      // compute the output extent.
+      Val* new_extent = SimplifyingIrBuilder::addExpr(
+          maybeMutated(def->leftExpand()),
+          SimplifyingIrBuilder::addExpr(
+              maybeMutated(def_in->extent()),
+              maybeMutated(def->rightExpand())));
+      IterDomain* replacement =
+          IterDomainBuilder(new_id).extent(new_extent).build();
+      ir_utils::transferDefinitionToNewOutputs(
+          new_id->definition(), {replacement});
+      new_id = replacement;
+    }
 
     registerConcretization(id, new_id);
   }
@@ -988,11 +1006,12 @@ void DynamicTransformConcretizer::concretizeExpand() {
       // expandedExtent.
       IterDomain* symbolic_id = out_logical[i];
       Val* one = FusionGuard::getCurFusion()->oneVal(DataType::Index);
-      IterDomain* concretized_id = IterDomainBuilder(symbolic_id)
-                                       .iter_type(IterType::Broadcast)
-                                       .extent(one)
-                                       .expanded_extent(symbolic_id->extent())
-                                       .build();
+      IterDomain* concretized_id =
+          IterDomainBuilder(symbolic_id)
+              .iter_type(IterType::Broadcast)
+              .extent(one)
+              .expanded_extent(maybeMutated(symbolic_id->extent()))
+              .build();
       registerConcretization(symbolic_id, concretized_id);
     }
   }
