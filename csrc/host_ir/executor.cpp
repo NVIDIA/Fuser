@@ -417,10 +417,6 @@ void HostIrEvaluator::handle(Communication* communication) {
       getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
 
   CommunicatorBackend backend_type = communication->backend();
-  if (backend_type != CommunicatorBackend::kCuda) {
-    NVF_ERROR(communication->type() == CommunicationType::Allgather);
-  }
-
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), backend_type);
   works_[communication] = postSingleCommunication(
