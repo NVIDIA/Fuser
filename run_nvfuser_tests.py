@@ -16,7 +16,7 @@ def setup_logging_dir():
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     log_dir = Path(f"test_log_{timestamp}")
     log_dir.mkdir(exist_ok=True)
-    
+
     # Check and handle the 'latest' symlink
     latest_link = Path("test_log_latest")
     if latest_link.exists():
@@ -26,10 +26,10 @@ def setup_logging_dir():
                 "Please remove it manually to proceed."
             )
         latest_link.unlink()  # Remove existing symlink
-        
+
     # Create new symlink pointing to the new log directory
     latest_link.symlink_to(log_dir, target_is_directory=True)
-    
+
     return log_dir
 
 
@@ -50,7 +50,10 @@ def get_cpp_test_executables(build_dir):
     ]
 
     # Separate long running tests and others
-    priority_tests = ["nvfuser_tests", "test_matmul"]
+    priority_tests = [
+        os.path.join(build_dir, "nvfuser_tests"),
+        os.path.join(build_dir, "test_matmul"),
+    ]
     other_tests = [
         test
         for test in single_device_tests
@@ -252,7 +255,9 @@ def run_parallel_tests(log_dir, num_gpus, tests, run_func, dry_run=False):
         # Show final tests completing
         for gpu_id in range(num_gpus):
             if current_tests[gpu_id]:
-                print(f"\nGPU {gpu_id} finished {os.path.basename(current_tests[gpu_id])}")
+                print(
+                    f"\nGPU {gpu_id} finished {os.path.basename(current_tests[gpu_id])}"
+                )
 
         return [], []
 
@@ -435,10 +440,10 @@ def get_available_gpus():
             ["nvidia-smi", "--query-gpu=gpu_name", "--format=csv,noheader"],
             capture_output=True,
             text=True,
-            check=True
+            check=True,
         )
         # Count non-empty lines in output
-        gpus = [line.strip() for line in result.stdout.split('\n') if line.strip()]
+        gpus = [line.strip() for line in result.stdout.split("\n") if line.strip()]
         return len(gpus)
     except (subprocess.SubprocessError, FileNotFoundError):
         print("Warning: Could not query GPU count using nvidia-smi")
@@ -457,7 +462,7 @@ def main():
     if gpu_count < 1:
         print("Error: No GPUs found for testing")
         return 1
-    
+
     print(f"Found {gpu_count} GPUs available for testing")
 
     # Hardcode paths relative to current directory
@@ -518,7 +523,11 @@ def main():
         failed_tests.extend(failed)
     else:
         run_parallel_tests(
-            log_dir, gpu_count, single_device_tests, run_single_device_test, dry_run=True
+            log_dir,
+            gpu_count,
+            single_device_tests,
+            run_single_device_test,
+            dry_run=True,
         )
 
     # Run Python single device tests in parallel
