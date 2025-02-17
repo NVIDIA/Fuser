@@ -46,13 +46,7 @@ struct RopeConfig {
   }
 };
 
-class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserTest::SetUp();
-  }
-};
+using RopeTest = NVFuserFixtureParamTest<RopeConfig>;
 
 using MistralRopeTest = RopeTest;
 
@@ -1203,8 +1197,6 @@ TEST_P(Phi3RopeTest, Bwd) {
   auto T188 = add(T187, T186);
   auto T189 = castOp(DataType::BFloat16, T188);
   fusion.addOutput(T189);
-
-  fusion.print();
 
   auto options_bf16 =
       at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);

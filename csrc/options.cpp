@@ -163,7 +163,6 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"kernel_profile", EnableOption::KernelProfile},
           {"memory_promotion", EnableOption::MemoryPromotion},
           {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
-          {"resize_scheduler", EnableOption::ResizeScheduler},
           {"static_fusion_count", EnableOption::StaticFusionCount},
           {"wait_debugger", EnableOption::WaitDebugger},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
@@ -211,6 +210,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"kernel_reuse", DisableOption::KernelReuse},
           {"var_name_remapping", DisableOption::VarNameRemapping},
           {"welford_vectorization", DisableOption::WelfordVectorization},
+          {"resize_scheduler", DisableOption::ResizeScheduler},
           {"reuse_mismatched_type_registers",
            DisableOption::ReuseMismatchedTypeRegisters},
           {"multidevice", DisableOption::Multidevice}};
