@@ -741,7 +741,7 @@ namespace {
 //!   b \in [0, (n-1) * 2]
 //!   c \in [0, 7]  (assuming 7 is not in the range of n)
 //!
-//! These bounds are correct even though we could use a tighter bound for d of
+//! These bounds are correct even though we could use a tighter bound for c of
 //! [0, 6] since we know that b must be a multiple of 2, so c must be 0, 2, 4,
 //! or 6 only. This kind of analysis is not provided by the simplistic
 //! propagation using a BoundedInt interval at each stage.
