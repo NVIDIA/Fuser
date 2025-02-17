@@ -177,7 +177,7 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   executors_fb.reserve(executors_.size());
   for (auto& ea : executors_) {
     if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
-      executors_fb.push_back(ke->serialize(builder));
+      executors_fb.emplace_back(ke->serialize(builder));
     }
   }
 
@@ -323,7 +323,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
         "Segmented fusion output ",
         output->toString(),
         " does not exist in `tensor_map`.");
-    fusion_outputs.push_back(tensor_map.at(output)->as<at::Tensor>());
+    fusion_outputs.emplace_back(tensor_map.at(output)->as<at::Tensor>());
   }
   return fusion_outputs;
 }
@@ -425,7 +425,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
+    num_live_args_after_segment_runs_.emplace_back((int64_t)args.size());
   }
 
   // add all expressions and compiled kernels to the host ir container
@@ -663,14 +663,14 @@ std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> FusionKernelRuntime:
     ivalues.reserve(group_runtime_outputs
                         .size()); // Optional but recommended for performance
     for (const auto& tensor : group_runtime_outputs) {
-      ivalues.push_back(c10::IValue(tensor));
+      ivalues.emplace_back(c10::IValue(tensor));
     }
 
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(),
         KernelArgumentHolder(c10::ArrayRef<c10::IValue>(ivalues)),
         run_order_id);
-    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
+    num_live_args_after_segment_runs_.emplace_back((int64_t)args.size());
   }
 
   if (isProfilerEnabled()) {
