@@ -114,7 +114,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
     }
     std::stringstream ss;
     std::string indent = "  ";
-    ss << "Device " << communicator_->deviceId() << "'s inputs:{\n";
+    ss << "Device " << communicator_->deviceId() << "'s args:{\n";
     for (auto& t : args) {
       ss << indent << t;
     }
@@ -130,7 +130,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  auto outputs = runtime->runWithInput(args.toC10Array());
+  outputs = runtime->runWithInput(args.toC10Array());
 
   if (debug_print) {
     if (!communicator_->deviceId()) {
