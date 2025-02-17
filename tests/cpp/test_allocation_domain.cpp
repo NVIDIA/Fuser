@@ -1067,7 +1067,7 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
   at::Tensor t0 = at::randn(in_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
+  auto outputs = executor_cache.runFusionWithInputs({t0});
   at::Tensor t1 = outputs[0];
 
   auto get_data = [](const at::Tensor& t) -> std::vector<float> {

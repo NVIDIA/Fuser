@@ -133,10 +133,10 @@ TEST_P(HostIrTest, SingleFusion) {
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  c10::IValue input = at::randn(input_sizes, options);
-  auto ref_output = at::sum(input.toTensor() * 2, {0});
+  auto t0 = at::randn(input_sizes, options);
+  auto ref_output = at::sum(t0 * 2, {0});
 
-  auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), input}});
+  auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), t0}});
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
@@ -230,11 +230,10 @@ TEST_P(HostIrTest, TwoFusions) {
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  c10::IValue input = at::randn(input_sizes_0, options);
-  auto ref_output =
-      at::sum(at::relu(input.toTensor()), at::OptionalIntArrayRef({0, 1})) * 2;
+  auto t0 = at::randn(input_sizes_0, options);
+  auto ref_output = at::sum(at::relu(t0), at::OptionalIntArrayRef({0, 1})) * 2;
 
-  auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), input}});
+  auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0}});
 
   // validate the obtained results
   GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
@@ -354,21 +353,19 @@ TEST_P(HostIrTest, ThreeFusions) {
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  c10::IValue tv0_0_ref_ivalue = at::randn(input_sizes_0, options);
-  at::Tensor tv0_0_ref = tv0_0_ref_ivalue.toTensor();
-  auto tv1_0_ref = tv0_0_ref + tv0_0_ref;
-  auto tv2_0_ref = at::sum(tv1_0_ref, {0});
-  auto tv0_1_ref = tv1_0_ref;
-  auto tv2_1_ref = at::sum(tv0_1_ref * tv0_1_ref, {0});
-  auto tv0_2_ref = tv2_0_ref;
-  auto tv1_2_ref = tv2_1_ref;
-  auto tv2_2_ref = tv0_2_ref + tv1_2_ref;
+  auto t0_0 = at::randn(input_sizes_0, options);
+  auto t1_0 = t0_0 + t0_0;
+  auto t2_0 = at::sum(t1_0, {0});
+  auto t0_1 = t1_0;
+  auto t2_1 = at::sum(t0_1 * t0_1, {0});
+  auto t0_2 = t2_0;
+  auto t1_2 = t2_1;
+  auto t2_2 = t0_2 + t1_2;
 
-  auto outputs =
-      hie.runWithInput({{post_on_stream_0->inputs().at(0), tv0_0_ref_ivalue}});
+  auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0_0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(tv2_2_ref, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(t2_2, outputs.at(0)));
 }
 
 // This unit test the for-loop IR by implementing a program that could be
@@ -659,11 +656,11 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  c10::IValue input = at::randn(input_sizes, options);
-  auto ref_output = at::sum(input.toTensor() * 2, {0});
+  auto t0 = at::randn(input_sizes, options);
+  auto ref_output = at::sum(t0 * 2, {0});
 
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {post_on_stream_inputs.at(0), input}};
+      {post_on_stream_inputs.at(0), t0}};
 
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
 
@@ -740,18 +737,17 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  c10::IValue input = at::randn(input_sizes, options);
+  auto t0 = at::randn(input_sizes, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {hie.inputs().at(0), input}};
+      {hie.inputs().at(0), t0}};
 
   auto output = hie.runWithInput(concrete_input_buffers).at(0);
 
   // validate
-  at::Tensor input_aten = input.toTensor();
   std::vector<at::indexing::TensorIndex> ranges_aten(
-      input_aten.dim(), at::indexing::Slice());
+      t0.dim(), at::indexing::Slice());
   ranges_aten.at(axis) = at::indexing::Slice(start, stop, step);
-  auto ref_output = input_aten.index(ranges_aten);
+  auto ref_output = t0.index(ranges_aten);
   if (put_slice_op_in_top_level_expr) {
     EXPECT_TRUE(ref_output.equal(output));
   } else {
@@ -785,28 +781,28 @@ TEST_F(MatmulHostIrTest, HostIr) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  TensorView* a = makeContigTensor(3);
-  TensorView* b = makeContigTensor(3);
-  TensorView* c = matmul(a, b);
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = makeContigTensor(3);
+  TensorView* tv2 = matmul(tv0, tv1);
 
-  hic->addInput(a);
-  hic->addInput(b);
-  hic->addOutput(c);
+  hic->addInput(tv0);
+  hic->addInput(tv1);
+  hic->addOutput(tv2);
 
-  hic->pushBackTopLevelExprs(c->definition());
+  hic->pushBackTopLevelExprs(tv2->definition());
 
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  at::Tensor a_tensor = at::randn({H, M, K}, options);
-  at::Tensor b_tensor = at::randn({H, K, N}, options);
+  auto t0 = at::randn({H, M, K}, options);
+  auto t1 = at::randn({H, K, N}, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {hie.inputs().at(0), a_tensor}, {hie.inputs().at(1), b_tensor}};
+      {hie.inputs().at(0), t0}, {hie.inputs().at(1), t1}};
 
   auto output = hie.runWithInput(concrete_input_buffers).at(0);
 
   // validate
-  auto ref_output = at::matmul(a_tensor, b_tensor);
+  auto ref_output = at::matmul(t0, t1);
 
   EXPECT_TRUE(ref_output.allclose(output));
 }
@@ -820,33 +816,33 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  TensorView* a = makeContigTensor(3);
-  TensorView* b = makeContigTensor(3);
-  TensorView* c = makeContigTensor(3);
-  auto* matmul = IrBuilder::create<MatmulOp>(c, a, b);
+  TensorView* tv0 = makeContigTensor(3);
+  TensorView* tv1 = makeContigTensor(3);
+  TensorView* tv2 = makeContigTensor(3);
+  auto* matmul = IrBuilder::create<MatmulOp>(tv2, tv0, tv1);
 
-  hic->addInput(a);
-  hic->addInput(b);
-  hic->addInput(c);
-  hic->addOutput(c);
+  hic->addInput(tv0);
+  hic->addInput(tv1);
+  hic->addInput(tv2);
+  hic->addOutput(tv2);
 
   hic->pushBackTopLevelExprs(matmul);
 
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  at::Tensor a_tensor = at::randn({H, M, K}, options);
-  at::Tensor b_tensor = at::randn({H, K, N}, options);
-  at::Tensor c_tensor = at::randn({H, M, N}, options);
+  at::Tensor t0 = at::randn({H, M, K}, options);
+  at::Tensor t1 = at::randn({H, K, N}, options);
+  at::Tensor t2 = at::randn({H, M, N}, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {a, a_tensor}, {b, b_tensor}, {c, c_tensor}};
+      {tv0, t0}, {tv1, t1}, {tv2, t2}};
 
   hie.runWithInput(concrete_input_buffers);
 
   // validate
-  auto ref_output = at::matmul(a_tensor, b_tensor);
+  auto ref_output = at::matmul(t0, t1);
 
-  EXPECT_TRUE(ref_output.allclose(c_tensor));
+  EXPECT_TRUE(ref_output.allclose(t2));
 }
 
 using LinearHostIrTest = NVFuserTest;
@@ -875,9 +871,9 @@ TEST_F(LinearHostIrTest, HostIr) {
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  at::Tensor in_at = at::randn({B, M, K}, options);
-  at::Tensor weight_at = at::randn({N, K}, options);
-  at::Tensor bias_at = at::randn({N}, options);
+  auto in_at = at::randn({B, M, K}, options);
+  auto weight_at = at::randn({N, K}, options);
+  auto bias_at = at::randn({N}, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
       {hie.inputs().at(0), in_at},
       {hie.inputs().at(1), weight_at},
@@ -917,10 +913,10 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  at::Tensor in_at = at::randn({B, M, K}, options);
-  at::Tensor weight_at = at::randn({N, K}, options);
-  at::Tensor bias_at = at::randn({N}, options);
-  at::Tensor out_at = at::empty({B, M, N}, options);
+  auto in_at = at::randn({B, M, K}, options);
+  auto weight_at = at::randn({N, K}, options);
+  auto bias_at = at::randn({N}, options);
+  auto out_at = at::empty({B, M, N}, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
       {hie.inputs().at(0), in_at},
       {hie.inputs().at(1), weight_at},
@@ -967,15 +963,14 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  c10::IValue input = at::randn(input_sizes, options);
+  auto t0 = at::randn(input_sizes, options);
   std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {hie.inputs().at(0), input}};
+      {hie.inputs().at(0), t0}};
 
   auto output = hie.runWithInput(concrete_input_buffers).at(0);
 
   // validate
-  at::Tensor input_aten = input.toTensor();
-  auto ref_output = input_aten.select(dim, index);
+  auto ref_output = t0.select(dim, index);
   if (put_select_op_in_top_level_expr) {
     EXPECT_TRUE(ref_output.equal(output));
   } else {
@@ -1022,15 +1017,14 @@ TEST_F(ViewTest, SimpleReshape) {
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   constexpr int64_t kX = 32;
   constexpr int64_t kY = 64;
-  auto input_aten = at::randn({kX, kY}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
-      {input, input_aten}};
+  auto t0 = at::randn({kX, kY}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {{input, t0}};
 
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate
-  EXPECT_TRUE(outputs[0].equal(at::reshape(input_aten, {kX * kY})));
-  EXPECT_TRUE(outputs[1].equal(at::reshape(input_aten, {kY, kX})));
+  EXPECT_TRUE(outputs[0].equal(at::reshape(t0, {kX * kY})));
+  EXPECT_TRUE(outputs[1].equal(at::reshape(t0, {kY, kX})));
 }
 
 using ReductionHostIrTest = NVFuserTest;
@@ -1041,23 +1035,23 @@ TEST_F(ReductionHostIrTest, Sum) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  TensorView* a = makeContigTensor(1);
-  TensorView* b = sum(a, {0});
+  TensorView* tv0 = makeContigTensor(1);
+  TensorView* tv1 = sum(tv0, {0});
 
-  hic->addInput(a);
-  hic->addOutput(b);
-  hic->pushBackTopLevelExprs(b->definition());
+  hic->addInput(tv0);
+  hic->addOutput(tv1);
+  hic->pushBackTopLevelExprs(tv1->definition());
 
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  auto a_aten = at::randn({kTensorSize}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {{a, a_aten}};
+  auto t0 = at::randn({kTensorSize}, options);
+  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {{tv0, t0}};
 
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate
-  EXPECT_TRUE(outputs[0].equal(at::sum(a_aten, 0)));
+  EXPECT_TRUE(outputs[0].equal(at::sum(t0, 0)));
 }
 
 using IfThenElseTest = NVFuserTest;
