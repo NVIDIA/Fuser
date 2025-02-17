@@ -40,7 +40,7 @@ class IpcHandle {
   int64_t element_size_;
   cudaIpcMemHandle_t ipc_handle_ = {};
   cudaIpcMemHandle_t semaphore_ipc_handle_ = {};
-  IpcSemaphore* semaphore_;
+  IpcSemaphore* semaphore_ = nullptr;
   int64_t rank_;
 };
 
