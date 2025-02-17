@@ -215,6 +215,11 @@ bool fillDefaultHopperHeuristic(
     const size_t num_problems) {
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
 
+  // Data-Parallel with WarpSpecialization is default
+  mparams->circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
   const GemmTile instruction_tile = getMmaOpShape(mparams->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
