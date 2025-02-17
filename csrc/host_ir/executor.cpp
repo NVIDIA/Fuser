@@ -437,7 +437,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communication,
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(),
+      communicator_->getWorld(communication->backend()),
       buffer);
 }
 
