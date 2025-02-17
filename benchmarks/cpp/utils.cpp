@@ -352,6 +352,7 @@ FusionKernelRuntime* getLayerBackwardNormRuntime(
   executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   args = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
+
   auto cg_outputs = executor_cache->runFusionWithInputs(args);
 
   return executor_cache->getMostRecentKernelRuntime();
@@ -360,7 +361,7 @@ FusionKernelRuntime* getLayerBackwardNormRuntime(
 FusionKernelRuntime* getLayerForwardNormRuntime(
     std::unique_ptr<Fusion> fusion_ptr,
     std::unique_ptr<FusionExecutorCache>& executor_cache,
-    const KernelArgumentHolder& args,
+    KernelArgumentHolder& args,
     const std::vector<int64_t>& shape,
     const std::vector<int64_t>& norm_shape) {
   Fusion& fusion = *fusion_ptr.get();
@@ -378,7 +379,7 @@ FusionKernelRuntime* getLayerForwardNormRuntime(
   fusion.addOutput(result.invstd);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(shape, options);
+  args.push(at::randn(shape, options));
 
   executor_cache = std::make_unique<FusionExecutorCache>(std::move(fusion_ptr));
   auto cg_outputs = executor_cache->runFusionWithInputs(args);

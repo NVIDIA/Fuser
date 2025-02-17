@@ -220,6 +220,6 @@ FusionKernelRuntime* getLayerBackwardNormRuntime(
 FusionKernelRuntime* getLayerForwardNormRuntime(
     std::unique_ptr<Fusion> fusion_ptr,
     std::unique_ptr<FusionExecutorCache>& executor_cache,
-    const KernelArgumentHolder& args,
+    KernelArgumentHolder& args,
     const std::vector<int64_t>& shape,
     const std::vector<int64_t>& norm_shape);
