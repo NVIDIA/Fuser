@@ -1439,6 +1439,15 @@ void TensorView::commitLeafToLogical() {
           true)));
 }
 
+void TensorView::setTMemDimSepPos(int64_t pos) {
+  int64_t ndims = (int64_t)getMaybeAllocationDomain().size();
+  pos = nvfuser::wrapDim(pos, ndims + 1);
+  NVF_CHECK(
+      pos >= 0 && pos <= ndims,
+      "Invalid position for tensor memory dimension separator");
+  tmem_dim_sep_pos_ = pos;
+}
+
 TensorViewBuilder& TensorViewBuilder::ndims(int64_t ndims) {
   NVF_CHECK(ndims >= 0);
   NVF_CHECK(shape_.empty() || (int64_t)shape_.size() == ndims);
