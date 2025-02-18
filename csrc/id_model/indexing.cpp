@@ -923,13 +923,15 @@ Val* TensorIndexer::getLinearIndex(
   // at the cost of several useless loads in the last iteration.
   if (ir_utils::isCpAsyncUblk(expr)) {
     auto gmem_tv = expr->input(0)->as<TensorView>();
-    auto logical_size = gmem_tv->fusion()->oneVal();
-    const auto& logical_domain = gmem_tv->getLogicalDomain();
-    for (const auto i : c10::irange(contig_indices.size())) {
-      logical_size = SimplifyingIrBuilder::mulExpr(
-          logical_size, logical_domain.at(i)->extent());
+    if(gmem_tv == tv){
+      auto logical_size = gmem_tv->fusion()->oneVal();
+      const auto& logical_domain = gmem_tv->getLogicalDomain();
+      for (const auto i : c10::irange(logical_domain.size())) {
+        logical_size = SimplifyingIrBuilder::mulExpr(
+            logical_size, logical_domain.at(i)->extent());
+      }
+      linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
     }
-    linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
   }
 
   return linear_index;
