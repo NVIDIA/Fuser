@@ -105,6 +105,7 @@ def custom_matmul_scheduler(fd, config):
             )
             schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
             schedule_params.splitk_factor = splitk_factor
+            print(schedule_params)
 
         # Schedule fusion
         fd.sched.schedule()
@@ -132,19 +133,13 @@ def test_matmul_nvf(
     if layout == "TN" or layout == "NN":
         b = b.as_strided(size=[k, n], stride=[1, k])
 
-    kwargs = dict(
-        _enable_options=["fuse_matmul"],
-        _disable_options=["matmul_expr_eval"],
-        profile=True,
-    )
-
     with FusionDefinition() as presched_fd:
         matmul_fusion(presched_fd, [a, b])
 
     scheduled_fd = custom_matmul_scheduler(presched_fd, schedule_config)
 
     try:
-        nvf_outputs = scheduled_fd.execute([a, b], **kwargs)
+        nvf_outputs = scheduled_fd.execute([a, b], profile=True)
     except Exception as e:
         print(e)
         return -1
@@ -158,7 +153,37 @@ def test_matmul_nvf(
     return prof.kernel_profiles[0].time_ms * 1e-3
 
 
+def baseline(problem_config):
+    m, n, k, layout = problem_config
+    dtype = torch.bfloat16
+
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
+
+    a = torch.randn(m, k, device="cuda", dtype=dtype)
+    b = torch.randn(k, n, device="cuda", dtype=dtype)
+
+    if layout == "NT" or layout == "NN":
+        a = a.as_strided(size=[m, k], stride=[1, m])
+    if layout == "TN" or layout == "NN":
+        b = b.as_strided(size=[k, n], stride=[1, k])
+
+    kwargs = dict(
+        _enable_options=["fuse_matmul"],
+        _disable_options=["matmul_expr_eval"],
+    )
+
+    with FusionDefinition() as presched_fd:
+        matmul_fusion(presched_fd, [a, b])
+
+    nvf_outputs = presched_fd.execute([a, b], **kwargs)
+    eager_output = torch.matmul(a, b)
+    assert torch.allclose(nvf_outputs[0], eager_output, atol=1e-2, rtol=1e-2)
+    print("baseline", problem_config)
+
+
 def main():
+    # nvjet_tst_128x256_64x4_1x1_h_bz_coopA_TTN
     problem_config = (1752, 4720, 584, "NN")
 
     device_properties = torch.cuda.get_device_properties(0)
