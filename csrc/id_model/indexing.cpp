@@ -925,7 +925,7 @@ Val* TensorIndexer::getLinearIndex(
     auto gmem_tv = expr->input(0)->as<TensorView>();
     auto logical_size = gmem_tv->fusion()->oneVal();
     const auto& logical_domain = gmem_tv->getLogicalDomain();
-    for (const auto i : c10::irange(contig_indices.size())) {
+    for (const auto i : c10::irange(logical_domain.size())) {
       logical_size = SimplifyingIrBuilder::mulExpr(
           logical_size, logical_domain.at(i)->extent());
     }

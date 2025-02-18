@@ -2101,78 +2101,6 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST_P(TmaCircularBufferingTest, UblkPredicate) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  if (testEnablesRegisterSharing()) {
-    GTEST_SKIP()
-        << "Register Sharing is not supported for Ublk cp with persistent CTA.";
-    return;
-  }
-  // This test uses a fixd tensor size to test out of bound access in Ublk copy.
-  // The tensor size is dim0 = 8191, dim1 = 512. tensor_outer_dim and
-  // tensor_inner_dim are just place holders for the test.
-  if (tensor_outer_dim != 128 || tensor_inner_dim != 128 ||
-      tma_load_type != LoadStoreOpType::CpAsyncBulk) {
-    GTEST_SKIP();
-    return;
-  }
-  constexpr at::ScalarType dtype = at::ScalarType::Float;
-  CompileParams index32bit{DataType::Int32, 255, false};
-  // dim0 is a prime number to test predicate for non-divisible split
-  const int64_t dim0 = 8191;
-  const int64_t dim1 = 512;
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
-  fusion->addInput(tv0);
-  auto tv1 = add(tv0, tv0);
-  fusion->addOutput(tv1);
-
-  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
-  auto tv1c = tv1->cacheBefore();
-  tv0a->setMemoryType(MemoryType::Shared);
-
-  // dim0 is a prime number, not divisible by number_of_stages or number_of_cta
-  // when stages is 1. When stages > 1, increase number_of_cta to make sure the
-  // 2nd split i also not divisible by number_of_cta.
-  int64_t number_of_cta =
-      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  if (number_of_stages > 1) {
-    int64_t after_stages = (dim0 + number_of_stages - 1) / number_of_stages;
-    while (after_stages % number_of_cta == 0) {
-      number_of_cta++;
-    }
-  }
-  tv1->split(0, number_of_stages);
-  tv1->split(0, number_of_cta, false);
-  TransformPropagator propagator(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
-
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
-  scheduler_utils::parallelizeAllLike(tv1);
-
-  /// TIDx for computation, Bulk for load
-  tv1->axis(-1)->parallelize(ParallelType::TIDx);
-  tv1c->axis(-1)->parallelize(ParallelType::TIDx);
-  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
-  inlineMost();
-
-  if (number_of_stages > 1) {
-    tv0a->circularBuffer(
-        number_of_stages, prefetch_distance, circular_buffer_type);
-  }
-
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
-
-  KernelExecutor ke;
-  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
-  auto outputs = ke.run({at_tv0});
-  auto at_output = at_tv0 + at_tv0;
-  testValidate(
-      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
-}
-
 auto tmaCircularBufferingParams() {
   // A very simple PRNG:
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
@@ -2230,6 +2158,101 @@ INSTANTIATE_TEST_SUITE_P(
     Hopper,
     TmaCircularBufferingTest,
     tmaCircularBufferingParams(),
+    tmaName);
+
+// Similar to TmaCircularBufferingTest, but only test 1D TMA (UBLK) with one
+// tensor size. Outer dim is a prime number to test predicate due to
+// non-divisble split.
+class TmaCircularBufferingTestUblk : public TmaCircularBufferingTest {};
+TEST_P(TmaCircularBufferingTestUblk, Predicate) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+
+  if (testEnablesRegisterSharing()) {
+    GTEST_SKIP();
+    return;
+  }
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(tma_load_type);
+  auto tv1c = tv1->cacheBefore();
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  // tensor_outer_dim is a prime number, not divisible by number_of_stages or
+  // number_of_cta when stages is 1. When stages > 1, increase number_of_cta to
+  // make sure the 2nd split i also not divisible by number_of_cta.
+  int64_t number_of_cta =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  if (number_of_stages > 1) {
+    int64_t after_stages =
+        (tensor_outer_dim + number_of_stages - 1) / number_of_stages;
+    while (after_stages % number_of_cta == 0) {
+      number_of_cta++;
+    }
+  }
+  tv1->split(0, number_of_stages);
+  tv1->split(0, number_of_cta, false);
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1c->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  inlineMost();
+
+  if (number_of_stages > 1) {
+    tv0a->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0 + at_tv0;
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
+}
+auto tmaUblkPredicateParams() {
+  // When using register sharing with warp-specialized circular buffering, the
+  // circular buffer loop must be the outer-most for-loop
+  const std::vector<CircularBufferType> all_types{
+      Pipelined(false),
+      Pipelined(true),
+      WarpSpecialized(ParallelType::TIDx),
+      WarpSpecialized(ParallelType::TIDy),
+      WarpSpecialized(ParallelType::TIDz)};
+  int64_t dim0 = 8191, dim1 = 256;
+  const std::vector<LoadStoreOpType> tma_types{LoadStoreOpType::CpAsyncBulk};
+  std::vector<TmaCircularBufferingParams> values;
+  for (int64_t i : {2, 4}) {
+    for (int64_t j : c10::irange(-i, i)) {
+      for (auto circular_buffer_type : all_types) {
+        for (auto tma_load_type : tma_types) {
+          values.emplace_back(
+              i, j, dim0, dim1, circular_buffer_type, tma_load_type);
+        }
+      }
+    }
+  }
+  return testing::ValuesIn(values);
+}
+INSTANTIATE_TEST_SUITE_P(
+    UblkTma,
+    TmaCircularBufferingTestUblk,
+    tmaUblkPredicateParams(),
     tmaName);
 
 } // namespace nvfuser
