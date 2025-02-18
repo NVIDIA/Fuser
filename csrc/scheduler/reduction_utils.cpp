@@ -695,36 +695,29 @@ int idPos(const IterDomain* id) {
   return 0;
 }
 
-struct id_lt {
-  // Return if id0 should be before id1
-  inline bool operator()(const IterDomain* id0, const IterDomain* id1) {
-    return idPos(id0) < idPos(id1);
-  }
-};
+// Return if id0 should be before id1
+bool placedBefore(const IterDomain* id0, const IterDomain* id1) {
+  return idPos(id0) < idPos(id1);
+}
 } // namespace
 
 TensorView* sortAndRFactor(TensorView* reference_tv) {
   auto domain = reference_tv->getLoopDomain();
-  std::sort(domain.begin(), domain.end(), id_lt());
+  std::sort(domain.begin(), domain.end(), placedBefore);
   std::unordered_map<int64_t, int64_t> reorder_map;
   std::unordered_map<IterDomain*, int64_t> domain_pos;
-  for (int64_t axis_i = 0; axis_i < (int64_t)domain.size(); axis_i++) {
+  for (auto axis_i : c10::irange(static_cast<int64_t>(domain.size()))) {
     domain_pos[domain[axis_i]] = axis_i;
   }
-  for (int64_t old_i = 0; old_i < reference_tv->nDims(); old_i++) {
-    auto new_i_it = domain_pos.find(reference_tv->axis(old_i));
-    NVF_ERROR(
-        new_i_it != domain_pos.end(),
-        "Error in schedule reorder, didn't reorder all axes in provided tv.");
-    auto new_i = new_i_it->second;
-    reorder_map[old_i] = new_i;
+  for (int64_t old_i : c10::irange(reference_tv->nDims())) {
+    reorder_map[old_i] = domain_pos.at(reference_tv->axis(old_i));
   }
   reference_tv->reorder(reorder_map);
 
   std::vector<int64_t> rfactor_axes;
   std::vector<int64_t> rfactor_axes_no_unswitch;
   size_t reduction_dims = 0;
-  for (int64_t axis_i = 0; axis_i < reference_tv->nDims(); axis_i++) {
+  for (int64_t axis_i : c10::irange(reference_tv->nDims())) {
     auto id = reference_tv->axis(axis_i);
     if (!id->isReduction()) {
       continue;
@@ -740,9 +733,9 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
     // unswitch dim.
     if (!(id->getParallelType() == ParallelType::Unswitch &&
           id->extent()->isOneInt())) {
-      rfactor_axes_no_unswitch.emplace_back(axis_i);
+      rfactor_axes_no_unswitch.push_back(axis_i);
     }
-    rfactor_axes.emplace_back(axis_i);
+    rfactor_axes.push_back(axis_i);
   }
 
   if (reduction_dims == rfactor_axes.size()) {

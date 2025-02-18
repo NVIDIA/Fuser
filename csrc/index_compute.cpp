@@ -2144,13 +2144,15 @@ kir::TensorIndex* Index::getProducerIndex(
   Val* index = nullptr;
   bool is_producer_tma_op = producer->definition() != nullptr &&
       producer->definition()->isA<LoadStoreOp>() &&
-      producer->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile;
+      ir_utils::isCpAsyncBulkLoad(producer->definition());
+  bool is_consumer_tma_op = consumer->definition() != nullptr &&
+      consumer->definition()->isA<LoadStoreOp>() &&
+      ir_utils::isCpAsyncBulkLoad(consumer->definition());
 
   if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
-      is_producer_tma_op ||
+      is_producer_tma_op || is_consumer_tma_op ||
       GpuLower::current()->idModelOptions().producerIndex()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);
@@ -2678,7 +2680,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-    NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
