@@ -70,6 +70,40 @@ std::string toString(const PolymorphicValue& v) {
   return ss.str();
 }
 
+PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
+  if (val.isTensor()) {
+    return val.toTensor();
+  }
+
+  auto scalar_val = val.toScalar();
+  switch (scalar_val.type()) {
+    case c10::ScalarType::ComplexDouble:
+      return (std::complex<double>)scalar_val.toComplexDouble();
+    case c10::ScalarType::Double:
+      return scalar_val.toDouble();
+    case c10::ScalarType::Long:
+      return scalar_val.toLong();
+    case c10::ScalarType::Bool:
+      return scalar_val.toBool();
+    default:
+      NVF_THROW("Can not convert IValue to PolymorphicValue");
+  }
+}
+
+inline bool isScalar(const PolymorphicValue& x) {
+  return x.is<int64_t>() || x.is<double>() || x.is<bool>() ||
+      x.is<std::complex<double>>();
+}
+
+c10::IValue toIValue(const PolymorphicValue& x) {
+  if (x.is<at::Tensor>()) {
+    return c10::IValue(x.as<at::Tensor>());
+  } else if (isScalar(x)) {
+    return c10::IValue(toScalar(x));
+  }
+  NVF_THROW("Cannot convert provided PolymorphicValue to a C10:L:IValue.");
+}
+
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser

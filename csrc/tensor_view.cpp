@@ -790,12 +790,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
 
   // Split tensor view into 2 parts
-  auto domain_pair = domain()->rFactor(axes);
-
-  // Producer in the pair
-  auto producer_domain = domain_pair.first;
-  // Consumer in the pair
-  auto consumer_domain = domain_pair.second;
+  auto [producer_domain, consumer_domain] = domain()->rFactor(axes);
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
@@ -1442,6 +1437,15 @@ void TensorView::commitLeafToLogical() {
       TensorDomain::getContiguityFilledWith(
           (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
           true)));
+}
+
+void TensorView::setTMemDimSepPos(int64_t pos) {
+  int64_t ndims = (int64_t)getMaybeAllocationDomain().size();
+  pos = nvfuser::wrapDim(pos, ndims + 1);
+  NVF_CHECK(
+      pos >= 0 && pos <= ndims,
+      "Invalid position for tensor memory dimension separator");
+  tmem_dim_sep_pos_ = pos;
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(int64_t ndims) {
