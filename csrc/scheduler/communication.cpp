@@ -37,7 +37,9 @@ std::unique_ptr<HeuristicParams> CommunicationScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
-  return std::make_unique<HeuristicParams>(SchedulerType::Communication);
+  auto params = std::make_unique<HeuristicParams>(SchedulerType::Communication);
+  params->cparams.index_type = runtime_info.getIndexType();
+  return params;
 }
 
 void CommunicationScheduler::schedule(
