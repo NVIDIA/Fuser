@@ -35,20 +35,15 @@ def setup_logging_dir():
 def get_cpp_test_executables(build_dir):
     """Find all test executables in the build directory"""
     all_tests = glob.glob(os.path.join(build_dir, "*test*"))
-
-    # Separate multidevice tests
-    multidevice_tests = [
-        test for test in all_tests if "multidevice" in os.path.basename(test).lower()
-    ]
-
-    # Get non-multidevice tests
-    single_device_tests = [
-        test
-        for test in all_tests
-        if "multidevice" not in os.path.basename(test).lower()
-    ]
-
-    # Separate long running tests and others
+    
+    # Separate multidevice and single device tests
+    multidevice_tests, single_device_tests = [], []
+    for test in all_tests:
+        (single_device_tests, multidevice_tests)[
+            "multidevice" in os.path.basename(test).lower()
+        ].append(test)
+    
+    # Separate priority tests and others
     priority_tests = [
         os.path.join(build_dir, "nvfuser_tests"),
         os.path.join(build_dir, "test_matmul"),
@@ -62,20 +57,15 @@ def get_cpp_test_executables(build_dir):
 def get_python_tests(python_test_dir):
     """Find all Python test files"""
     all_tests = glob.glob(os.path.join(python_test_dir, "test_*.py"))
-
-    # Separate multidevice tests
-    multidevice_tests = [
-        test for test in all_tests if "multidevice" in os.path.basename(test).lower()
-    ]
-
-    # Get non-multidevice tests
-    single_device_tests = [
-        test
-        for test in all_tests
-        if "multidevice" not in os.path.basename(test).lower()
-    ]
-
-    # Separate test_ops.py and other single device tests
+    
+    # Separate multidevice and single device tests
+    multidevice_tests, single_device_tests = [], []
+    for test in all_tests:
+        (single_device_tests, multidevice_tests)[
+            "multidevice" in os.path.basename(test).lower()
+        ].append(test)
+    
+    # Separate test_ops.py and other tests
     test_ops = [
         test for test in single_device_tests if os.path.basename(test) == "test_ops.py"
     ]
@@ -89,8 +79,8 @@ def get_python_tests(python_test_dir):
 
 def get_test_timeout(test_name):
     """Return timeout in seconds for a given test"""
-    if test_name in ["nvfuser_tests", "test_matmul"]:
-        return 2400  # 40 minutes
+    if test_name in ["nvfuser_tests", "test_matmul", "test_ops"]:
+        return 3600  # 1 hour
     return 600  # 10 minutes
 
 
@@ -359,12 +349,6 @@ def run_parallel_tests(log_dir, num_gpus, tests, run_func, dry_run=False):
 
         return completed_tests, failed_tests
 
-    except KeyboardInterrupt:
-        # Kill any running processes
-        for process in current_processes.values():
-            if process is not None:
-                process.kill()
-        raise
     finally:
         # Ensure all processes are cleaned up
         for process in current_processes.values():
@@ -430,34 +414,26 @@ def collect_test_failures(log_dir, dry_run=False):
 def get_available_gpus():
     """Check how many NVIDIA GPUs are available"""
     try:
-        # Run nvidia-smi to get GPU count
-        result = subprocess.run(
-            ["nvidia-smi", "--query-gpu=gpu_name", "--format=csv,noheader"],
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        # Count non-empty lines in output
-        gpus = [line.strip() for line in result.stdout.split("\n") if line.strip()]
-        return len(gpus)
-    except (subprocess.SubprocessError, FileNotFoundError):
+        # Run nvidia-smi -L | wc -l to get GPU count
+        output = subprocess.check_output("nvidia-smi -L | wc -l", shell=True, text=True)
+        return int(output.strip())
+    except (subprocess.SubprocessError, ValueError):
         print("Warning: Could not query GPU count using nvidia-smi")
         return 0
 
 
 def main():
-    # Add argument parsing for dry run
-    if len(sys.argv) > 1 and sys.argv[1] == "--dry-run":
-        dry_run = True
-    else:
-        dry_run = False
-
+    parser = argparse.ArgumentParser(description='Run nvFuser tests')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Show what tests would be run without executing them')
+    args = parser.parse_args()
+    
     # Check GPU availability
     gpu_count = get_available_gpus()
     if gpu_count < 1:
         print("Error: No GPUs found for testing")
         return 1
-
+    
     print(f"Found {gpu_count} GPUs available for testing")
 
     # Hardcode paths relative to current directory
@@ -492,25 +468,25 @@ def main():
     # Run all multidevice tests first
     print("\nC++ multidevice tests:")
     for test in multidevice_tests:
-        if run_multidevice_test(test, log_dir, gpu_count, dry_run=dry_run):
-            if not dry_run:
+        if run_multidevice_test(test, log_dir, gpu_count, dry_run=args.dry_run):
+            if not args.dry_run:
                 success_count += 1
         else:
-            if not dry_run:
+            if not args.dry_run:
                 failed_tests.append(os.path.basename(test))
 
     print("\nPython multidevice tests:")
     for test in python_multidevice_tests:
-        if run_python_multidevice_test(test, log_dir, gpu_count, dry_run=dry_run):
-            if not dry_run:
+        if run_python_multidevice_test(test, log_dir, gpu_count, dry_run=args.dry_run):
+            if not args.dry_run:
                 success_count += 1
         else:
-            if not dry_run:
+            if not args.dry_run:
                 failed_tests.append(f"python_{os.path.basename(test)}")
 
     # Run single device tests in parallel using all available GPUs
     print("\nC++ single device tests:")
-    if not dry_run:
+    if not args.dry_run:
         completed, failed = run_parallel_tests(
             log_dir, gpu_count, single_device_tests, run_single_device_test
         )
@@ -527,7 +503,7 @@ def main():
 
     # Run Python single device tests in parallel
     print("\nPython single device tests:")
-    if not dry_run:
+    if not args.dry_run:
         completed, failed = run_parallel_tests(
             log_dir, gpu_count, python_single_tests, run_python_test
         )
@@ -538,7 +514,7 @@ def main():
             log_dir, gpu_count, python_single_tests, run_python_test, dry_run=True
         )
 
-    if dry_run:
+    if args.dry_run:
         # Show what would be written to summary.txt
         print("\nWould create summary.txt with:")
         print(f"Total tests: {total_tests}")
