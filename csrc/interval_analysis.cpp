@@ -27,7 +27,7 @@ BoundedInt BoundedInt::operator+(const int64_t other) const {
 }
 
 BoundedInt BoundedInt::operator-(const BoundedInt& other) const {
-  return BoundedInt{min - other.min, max - other.max};
+  return BoundedInt{min - other.max, max - other.min};
 }
 
 BoundedInt BoundedInt::operator-(const int64_t other) const {
@@ -61,7 +61,7 @@ BoundedInt BoundedInt::operator/(const BoundedInt& other) const {
       ranges.push_back({b.min, std::min(b.max, -1L)});
     }
     if (b.max > 0L) {
-      ranges.push_back({b.max, std::max(b.min, 1L)});
+      ranges.push_back({std::max(b.min, 1L), b.max});
     }
     return ranges;
   };
