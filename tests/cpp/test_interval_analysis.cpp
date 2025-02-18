@@ -15,16 +15,8 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <cctype>
-#include <deque>
-#include <memory>
-#include <optional>
-#include <random>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <variant>
-#include <vector>
+#include <algorithm>
+#include <unordered_map>
 
 namespace nvfuser {
 
@@ -45,7 +37,7 @@ class RangeChecker {
  public:
   static void check(
       Val* output_val,
-      const std::vector<BoundedInt>& input_bounds,
+      const std::unordered_map<Val*, BoundedInt>& input_bounds,
       const BoundedInt& expected_range,
       const bool bound_is_tight = true,
       const LaunchParams& launch_params = LaunchParams()) {
@@ -55,32 +47,27 @@ class RangeChecker {
         expected_range,
         bound_is_tight,
         launch_params);
-    if (input_bounds.size() == 1) {
-      checker.checkOneInput();
-    } else {
-      NVF_THROW("Unhandled number of inputs: ", input_bounds.size());
-    }
+    checker.checkAllInputs();
   }
 
  private:
   RangeChecker(
       Val* output_val,
-      const std::vector<BoundedInt>& input_bounds,
+      const std::unordered_map<Val*, BoundedInt>& input_bounds,
       const BoundedInt& expected_range,
       const bool bound_is_tight,
       const LaunchParams& launch_params)
       : output_val_(output_val),
-        input_vals_(InputsOf::output(output_val)),
         input_bounds_(input_bounds),
         expected_range_(expected_range),
         bound_is_tight_(bound_is_tight) {
-    NVF_ERROR(input_vals_.size() == input_bounds_.size());
-
     ExpressionEvaluator expr_eval;
     // Compute the range using ScalarBoundsCalculator and check that it matches
     // expected
     ScalarBoundsCalculator calc(/*kernel=*/nullptr, expr_eval, launch_params);
-    calc.setBounds(input_vals_.at(0), input_bounds_.at(0));
+    for (auto& [v, b] : input_bounds_) {
+      calc.setBounds(v, b);
+    }
     // Check that the computed range is correct
     calc.dispatch(output_val_);
     auto bound_opt = calc.maybeGetBounds(output_val_);
@@ -91,13 +78,45 @@ class RangeChecker {
     EXPECT_EQ(bound_opt.value(), expected_range);
   }
 
-  void checkOneInput() {
-    ASSERT_EQ(input_bounds_.size(), 1);
-    for (int64_t i0 = input_bounds_.at(0).min; i0 <= input_bounds_.at(0).max;
-         i0++) {
+  // Evaluate output_val_ exhaustively for every possible combination of inputs
+  void checkAllInputs() {
+    std::vector<Val*> inputs;
+    inputs.reserve(input_bounds_.size());
+    // Number of valid combinations of input values
+    int64_t num_combos = 1;
+    for (auto& [v, b] : input_bounds_) {
+      inputs.push_back(v);
+      NVF_ERROR(b.max >= b.min);
+      num_combos *= b.max - b.min + 1;
+    }
+    // Sort inputs by name so that test deterministically traverses inputs
+    std::stable_sort(inputs.begin(), inputs.end(), [](Val* v1, Val* v2) {
+      return v1->name() < v2->name();
+    });
+
+    // Iterate over all input combinations
+    for (size_t i : c10::irange(num_combos)) {
       ExpressionEvaluator expr_eval;
-      // bind input vals
-      expr_eval.bind(input_vals_.at(0), i0);
+
+      // All the input combinations are enumerated
+      // For example if there are three inputs with the following bounds:
+      //  x: [min_x, max_x]
+      //  y: [min_y, max_y]
+      //  z: [min_z, max_z]
+      // Then there are nx*ny*nz=(max_x-min_x+1)*(max_y-min_y+1)*(max_z-min_z+1)
+      // combinations of valid inputs. The jth input is determined by
+      //  x = j / (ny*nz) + min_x
+      //  y = (j % (ny*nz)) / nz + min_y
+      //  z = j % nz + min_z
+      int64_t num_inner_combos = num_combos;
+      for (size_t inp_num : c10::irange(inputs.size())) {
+        const BoundedInt& inp_bound = input_bounds_.at(inputs.at(inp_num));
+        int64_t next_offset = i % num_inner_combos;
+        num_inner_combos /= inp_bound.max - inp_bound.min + 1L;
+        int64_t this_input_value =
+            inp_bound.min + (next_offset / num_inner_combos);
+        expr_eval.bind(inputs.at(inp_num), this_input_value);
+      }
 
       PolymorphicValue pv = expr_eval.evaluate(output_val_);
       ASSERT_TRUE(pv.hasValue());
@@ -118,8 +137,7 @@ class RangeChecker {
 
  private:
   Val* output_val_;
-  const std::vector<Val*> input_vals_;
-  const std::vector<BoundedInt>& input_bounds_;
+  const std::unordered_map<Val*, BoundedInt>& input_bounds_;
   const BoundedInt& expected_range_;
   bool bound_is_tight_;
 
@@ -132,11 +150,42 @@ class RangeChecker {
 TEST_F(IntervalAnalysisTest, UnaryOps) {
   Val* x = IrBuilder::create<Val>(DataType::Index);
   RangeChecker::check(
-      x, /*input_bounds=*/{{-1, 5}}, /*expected_range=*/{-1, 5});
+      x, /*input_bounds=*/{{x, {-1, 5}}}, /*expected_range=*/{-1, 5});
   RangeChecker::check(
-      neg(x), /*input_bounds=*/{{-1, 5}}, /*expected_range=*/{-5, 1});
+      neg(x), /*input_bounds=*/{{x, {-1, 5}}}, /*expected_range=*/{-5, 1});
   // TODO: fix evaluate function for BitwiseNot. Currently it returns uint64_t
   // RangeChecker::check(bitwise_not(x), /*input_bounds=*/{{-1, 5}}, {-5, 1});
+}
+
+TEST_F(IntervalAnalysisTest, BinaryOps) {
+  Val* x = IrBuilder::create<Val>(DataType::Index);
+  Val* y = IrBuilder::create<Val>(DataType::Index);
+  RangeChecker::check(
+      x,
+      /*input_bounds=*/{{x, {-1, 5}}, {y, {-3, 2}}},
+      /*expected_range=*/{-1, 5});
+  RangeChecker::check(
+      y,
+      /*input_bounds=*/{{x, {-1, 5}}, {y, {-3, 2}}},
+      /*expected_range=*/{-3, 2});
+  RangeChecker::check(
+      add(x, y),
+      /*input_bounds=*/{{x, {-1, 5}}, {y, {-3, 2}}},
+      /*expected_range=*/{-4, 7});
+  RangeChecker::check(
+      sub(x, y),
+      /*input_bounds=*/{{x, {-1, 5}}, {y, {-3, 2}}},
+      /*expected_range=*/{-3, 8});
+
+  // Check multiple scenarios for mul
+  RangeChecker::check(
+      mul(x, y),
+      /*input_bounds=*/{{x, {-1, 5}}, {y, {-3, 2}}},
+      /*expected_range=*/{-15, 10});
+  RangeChecker::check(
+      mul(x, y),
+      /*input_bounds=*/{{x, {0, 1}}, {y, {-2, 1}}},
+      /*expected_range=*/{-2, 1});
 }
 
 } // namespace nvfuser
