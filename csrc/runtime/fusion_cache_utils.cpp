@@ -40,7 +40,7 @@ ArgumentManager::ArgumentManager(
   setLastUsedSegmentID(runtime_workspace.group_run_order);
 }
 
-std::unique_ptr<PolymorphicValue>& ArgumentManager::checkTensorMap(Val* v) {
+const PolymorphicValue& ArgumentManager::checkTensorMap(Val* v) const {
   return tensor_map_.at(v);
 }
 
@@ -56,7 +56,7 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
         "Could not find value ",
         val->toString(),
         " in tensor map");
-    arg_values.push_back(*it->second);
+    arg_values.push_back(it->second);
   }
   // TODO:
   //  return KernelArgumentHolder(std::move(arg_values));
@@ -77,8 +77,7 @@ void ArgumentManager::updateWithSegmentOutputs(
       "Output size does not match.");
   for (const size_t group_out_i : c10::irange(group_outputs.size())) {
     tensor_map_.emplace(
-        group_outputs[group_out_i],
-        std::make_unique<PolymorphicValue>(group_runtime_outputs[group_out_i]));
+        group_outputs[group_out_i], group_runtime_outputs[group_out_i]);
   }
 
   // Delete args corresponding to vals lastly used in this segment
@@ -97,8 +96,7 @@ void ArgumentManager::mapFusionInputsToArgs(
   auto original_args_size = args.size();
   // Bind args in the tensor_map
   for (const auto i : c10::irange(original_args_size)) {
-    tensor_map_.emplace(
-        fusion_inputs[i], std::make_unique<PolymorphicValue>(args[i]));
+    tensor_map_.emplace(fusion_inputs[i], args[i]);
     // Bind tensorview inputs values in case some segmented group
     //  needs it down the road.
     if (args[i].is<at::Tensor>()) {
@@ -106,8 +104,7 @@ void ArgumentManager::mapFusionInputsToArgs(
       for (const auto dim : c10::irange(rank)) {
         tensor_map_.emplace(
             group_extent_binding_order[extent_index++],
-            std::make_unique<PolymorphicValue>(
-                args[i].as<at::Tensor>().size(dim)));
+            args[i].as<at::Tensor>().size(dim));
       }
     }
   }

@@ -100,16 +100,11 @@ class ArgumentManager {
 
   // This map is only taken on destruction. It might be good to steal the tensor
   // map instead of make a copy.
-  std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> getTensorMap()
-      const {
-    std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> map_copy;
-    for (const auto& [key, value] : tensor_map_) {
-      map_copy.emplace(key, std::make_unique<PolymorphicValue>(*value));
-    }
-    return map_copy;
+  std::unordered_map<Val*, PolymorphicValue> getTensorMap() const {
+    return tensor_map_;
   }
 
-  std::unique_ptr<PolymorphicValue>& checkTensorMap(Val* v);
+  const PolymorphicValue& checkTensorMap(Val* v) const;
 
   // Translate a vector of Vals to their corresponding entries in tensor_map_
   KernelArgumentHolder translateValsToArgs(const std::vector<Val*>& vals) const;
@@ -125,14 +120,14 @@ class ArgumentManager {
     ss << "ArgumentManager {";
     for (const auto& [key, value] : tensor_map_) {
       ss << "  " << key->toString() << " : "
-         << PolymorphicValue_functions::toString(*value) << std::endl;
+         << PolymorphicValue_functions::toString(value) << std::endl;
     }
     ss << "}" << std::endl;
     return ss.str();
   }
 
  private:
-  std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> tensor_map_;
+  std::unordered_map<Val*, PolymorphicValue> tensor_map_;
   // map segment_id to vector of fusion vals lastly used at this segment
   std::unordered_map<int64_t, std::vector<Val*>> vals_last_used_at_segment_;
 

@@ -323,7 +323,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
         "Segmented fusion output ",
         output->toString(),
         " does not exist in `tensor_map`.");
-    fusion_outputs.push_back(tensor_map.at(output)->as<at::Tensor>());
+    fusion_outputs.push_back(tensor_map.at(output).as<at::Tensor>());
   }
   return fusion_outputs;
 }
@@ -623,7 +623,7 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
   return executors_;
 }
 
-std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> FusionKernelRuntime::
+std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
   NVF_ERROR(
@@ -677,7 +677,7 @@ std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> FusionKernelRuntime:
     int64_t input_bytes = 0;
     for (auto* inp : fusionSegments()->inputs()) {
       if (inp->isA<TensorView>()) {
-        const auto& tensor = args_manager.checkTensorMap(inp)->as<at::Tensor>();
+        const auto& tensor = args_manager.checkTensorMap(inp).as<at::Tensor>();
         input_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
@@ -686,8 +686,7 @@ std::unordered_map<Val*, std::unique_ptr<PolymorphicValue>> FusionKernelRuntime:
     int64_t output_bytes = 0;
     for (auto* outp : fusionSegments()->outputs()) {
       if (outp->isA<TensorView>()) {
-        const auto& tensor =
-            args_manager.checkTensorMap(outp)->as<at::Tensor>();
+        const auto& tensor = args_manager.checkTensorMap(outp).as<at::Tensor>();
         output_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
