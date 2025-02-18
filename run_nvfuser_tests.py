@@ -1,7 +1,6 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-#!/usr/bin/env python3
 import subprocess
 import os
 import glob
@@ -54,11 +53,7 @@ def get_cpp_test_executables(build_dir):
         os.path.join(build_dir, "nvfuser_tests"),
         os.path.join(build_dir, "test_matmul"),
     ]
-    other_tests = [
-        test
-        for test in single_device_tests
-        if test not in priority_tests
-    ]
+    other_tests = [test for test in single_device_tests if test not in priority_tests]
 
     # Return multidevice tests separately, and ordered single device tests prioritizing long running tests first
     return multidevice_tests, priority_tests + other_tests
