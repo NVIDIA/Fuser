@@ -1447,7 +1447,9 @@ TensorView* scheduleReductionGeneral(
 
   TensorView* result = reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
-  // result->axis(1)->parallelize(ParallelType::TIDz);
+  if(std::getenv("WARPTIDZ")){
+    result->axis(1)->parallelize(ParallelType::TIDz);
+  }
   std::cout << result->toString() << std::endl;
   return result;
 

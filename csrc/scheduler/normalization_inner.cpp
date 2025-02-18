@@ -692,9 +692,9 @@ void innerPersistentHeuristic2D(
     // false};
     CircularBufferType circular_buffer_type{Pipelined(true)};
     circular_buffer_options.type = circular_buffer_type;
-    if (std::getenv("WARPTIDX")) {
+    if (std::getenv("WARPTIDZ")) {
       CircularBufferType circular_buffer_type{
-          WarpSpecialized(ParallelType::TIDx)};
+          WarpSpecialized(ParallelType::TIDz)};
       circular_buffer_options.type = circular_buffer_type;
     }
     rparams->circular_buffer_options = circular_buffer_options;

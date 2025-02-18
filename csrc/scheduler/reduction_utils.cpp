@@ -269,8 +269,8 @@ TensorView* scheduleReductionTV(
     // [iter]  --> [iter/stages, stages [Serial]]
     // [number-of-sms [BIDx], iter/stages/number-of-sms, stages [Serial]]
     if (rparams->circular_buffer_options.isEnable()) {
-      auto dev_prop = at::cuda::getCurrentDeviceProperties();
-      int64_t sm_count = dev_prop->multiProcessorCount;
+      // auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      int64_t sm_count = 128;//dev_prop->multiProcessorCount;
       reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
       reduction_tv->split(iter_axis, sm_count, false);
     }
