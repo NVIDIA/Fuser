@@ -120,6 +120,7 @@ class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
   //! These public methods are useful for processing an individual statement to
   //! get bounds of all its producers
   NVF_API void dispatch(Statement* statement) final;
+  NVF_API void dispatch(Expr* expr) final;
   NVF_API void dispatch(Val* val) final;
 
   NVF_API void setBounds(Val* val, const BoundedInt& bounds);
@@ -133,8 +134,6 @@ class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
   NVF_API std::optional<BoundedInt> maybeGetBounds(Val* val);
 
  private:
-  NVF_API void dispatch(Expr* expr) final;
-
   //! Evaluate val using our ExpressionEvaluator
   int64_t evalInt(Val* val);
 

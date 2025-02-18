@@ -169,7 +169,7 @@ TEST_F(IntervalAnalysisTest, UnaryOps) {
       x, /*input_bounds=*/{{x, {-1, 5}}}, /*expected_range=*/{-1, 5});
   RangeChecker::check(
       neg(x), /*input_bounds=*/{{x, {-1, 5}}}, /*expected_range=*/{-5, 1});
-  // TODO: fix evaluate function for BitwiseNot. Currently it returns uint64_t
+  // TODO: fix evaluate function for BitwiseNot
   // RangeChecker::check(bitwise_not(x), /*input_bounds=*/{{-1, 5}}, {-5, 1});
 }
 
@@ -296,6 +296,39 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       bitwise_right_shift(x, y),
       /*input_bounds=*/{{x, {0b100100, 0b101100}}, {y, {1, 5}}},
       /*expected_range=*/{0b1, 0b10110});
+}
+
+// Test that loop indices are properly bounded, as are expressions derived from
+// them
+TEST_F(IntervalAnalysisTest, Loops) {
+  kir::Kernel kernel(FusionGuard::getCurFusion());
+  FusionGuard fg(&kernel);
+
+  Val* ext = IrBuilder::create<Val>(DataType::Index);
+  Val* start = kernel.zeroVal();
+  auto* id = IterDomainBuilder(start, ext).extent(ext).build();
+  Val* index = IrBuilder::create<Val>(DataType::Index);
+  auto* loop = IrBuilder::create<ForLoop>(
+      id,
+      index,
+      /*circular_buffer_loop_stage=*/CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+  Val* offset = IrBuilder::create<Val>(DataType::Index);
+  Val* index_plus_offset = add(index, offset);
+  // Compute index + offset inside the "for index in id" loop
+  loop->body().push_back(index_plus_offset->definition());
+
+  ExpressionEvaluator expr_eval;
+  LaunchParams launch_params;
+  ScalarBoundsCalculator calc(/*kernel=*/nullptr, expr_eval, launch_params);
+  calc.setBounds(ext, {4, 7});
+  calc.setBounds(offset, {2, 5});
+  calc.dispatch(loop);
+  calc.dispatch(index_plus_offset);
+  auto bound_opt = calc.maybeGetBounds(index_plus_offset);
+  NVF_ERROR(bound_opt.has_value());
+  BoundedInt true_bound{2, 11};
+  EXPECT_EQ(bound_opt.value(), true_bound);
 }
 
 } // namespace nvfuser
