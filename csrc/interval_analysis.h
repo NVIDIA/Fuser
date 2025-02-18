@@ -44,7 +44,7 @@ namespace nvfuser {
 //! [0, 6] since we know that b must be a multiple of 2, so c must be 0, 2, 4,
 //! or 6 only. This kind of analysis is not provided by the simplistic
 //! propagation using a BoundedInt interval at each stage.
-struct BoundedInt {
+struct NVF_API BoundedInt {
   int64_t min;
   int64_t max;
 
@@ -58,75 +58,91 @@ struct BoundedInt {
   //!   All numbers in this range are of the form 0b10101XXX
   //!     different_bits = 0b110
   //!     num_common_bits = 61
-  int64_t countCommonHighBits() const;
+  NVF_API int64_t countCommonHighBits() const;
 
-  BoundedInt operator+(const BoundedInt& other) const;
-  BoundedInt operator+(const int64_t other) const;
-  BoundedInt operator-(const BoundedInt& other) const;
-  BoundedInt operator-(const int64_t other) const;
-  BoundedInt operator*(const BoundedInt& other) const;
-  BoundedInt operator*(const int64_t other) const;
-  BoundedInt operator/(const BoundedInt& other) const;
-  BoundedInt operator/(const int64_t other) const;
-  BoundedInt operator%(const BoundedInt& other) const;
-  BoundedInt operator%(const int64_t other) const;
+  NVF_API BoundedInt operator+(const BoundedInt& other) const;
+  NVF_API BoundedInt operator+(const int64_t other) const;
+  NVF_API BoundedInt operator-(const BoundedInt& other) const;
+  NVF_API BoundedInt operator-(const int64_t other) const;
+  NVF_API BoundedInt operator*(const BoundedInt& other) const;
+  NVF_API BoundedInt operator*(const int64_t other) const;
+  NVF_API BoundedInt operator/(const BoundedInt& other) const;
+  NVF_API BoundedInt operator/(const int64_t other) const;
+  NVF_API BoundedInt operator%(const BoundedInt& other) const;
+  NVF_API BoundedInt operator%(const int64_t other) const;
 
-  BoundedInt operator^(const BoundedInt& other) const;
-  BoundedInt operator&(const BoundedInt& other) const;
-  BoundedInt operator|(const BoundedInt& other) const;
-  BoundedInt operator~() const;
-  BoundedInt operator>>(const BoundedInt& other) const;
-  BoundedInt operator<<(const BoundedInt& other) const;
+  NVF_API BoundedInt operator^(const BoundedInt& other) const;
+  NVF_API BoundedInt operator&(const BoundedInt& other) const;
+  NVF_API BoundedInt operator|(const BoundedInt& other) const;
+  NVF_API BoundedInt operator~() const;
+  NVF_API BoundedInt operator>>(const BoundedInt& other) const;
+  NVF_API BoundedInt operator<<(const BoundedInt& other) const;
+
+  NVF_API bool operator==(const BoundedInt& other) const {
+    return min == other.min && max == other.max;
+  }
+  NVF_API bool operator!=(const BoundedInt& other) const {
+    return !(*this == other);
+  }
 };
+
+NVF_API std::ostream& operator<<(std::ostream& out, const BoundedInt& b);
 
 //! This class traverses the expressions in a kir::Kernel and defines a
 //! BoundedInt for each integer scalar encountered. The range is determined by
 //! the scalar's definition along with the rules defined in BoundedInt.
-class ScalarBoundsCalculator : kir::IrVisitor {
+class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
  public:
-  ScalarBoundsCalculator(
+  NVF_API ScalarBoundsCalculator(
       kir::Kernel* kernel,
       ExpressionEvaluator& expr_eval,
       const LaunchParams& launch_params);
 
+  NVF_API virtual ~ScalarBoundsCalculator();
+
   //! Return the bounds, computed over all scalars in the fusion with the given
   //! data type
-  BoundedInt boundByDataType(DataType dtype = DataType::Index);
+  NVF_API BoundedInt boundByDataType(DataType dtype = DataType::Index);
 
   //! Look at all casts (T)x where x is of type nvfuser_index_t, to ensure that
   //! these casts are safe i.e. that the bounds of x do not overflow those
   //! representable by T.
-  bool castsFromIndexAreSafe() const;
-
- private:
-  void setBounds(Val* val, const BoundedInt& bounds);
-  void setBounds(Val* val, int64_t min, int64_t max);
-  void setAsUnbounded(Val* val);
+  NVF_API bool castsFromIndexAreSafe() const;
 
   //! NamedScalar bounds are set using the launch_params_. For example
   //! `blockDim.x` is set to the [blockDim.x, blockDim.x] and `threadIdx.x` is
   //! set to [0, blockDim.x - 1].
-  void boundNamedScalar(NamedScalar* scalar);
+  NVF_API void boundNamedScalar(NamedScalar* scalar);
+
+  using kir::IrVisitor::dispatch;
+  //! These public methods are useful for processing an individual statement to
+  //! get bounds of all its producers
+  NVF_API void dispatch(Statement* statement) final;
+  NVF_API void dispatch(Val* val) final;
+
+  NVF_API void setBounds(Val* val, const BoundedInt& bounds);
+  NVF_API void setBounds(Val* val, int64_t min, int64_t max);
+  NVF_API void setAsUnbounded(Val* val);
 
   //! Non-recursive function to look up bounds if they have been recorded
   //! already. For NamedScalars, also look in parallel dimension map and bound
   //! if it has not already been bounded. Finally, try and evaluate constants.
   //! If all this fails, return nullopt.
-  std::optional<BoundedInt> maybeGetBounds(Val* val);
+  NVF_API std::optional<BoundedInt> maybeGetBounds(Val* val);
 
-  using kir::IrVisitor::dispatch;
-  using kir::IrVisitor::handle;
-
-  void dispatch(Expr* expr) final;
+ private:
+  NVF_API void dispatch(Expr* expr) final;
 
   //! Evaluate val using our ExpressionEvaluator
   int64_t evalInt(Val* val);
 
-  void handle(ForLoop* loop) final;
-  void handle(LoadStoreOp* lsop) final;
-  void handle(UnaryOp* uop) final;
-  void handle(BinaryOp* bop) final;
-  void handle(TernaryOp* top) final;
+  using kir::IrVisitor::handle;
+
+  NVF_API void handle(ForLoop* loop) final;
+  NVF_API void handle(LoadStoreOp* lsop) final;
+  NVF_API void handle(UnaryOp* uop) final;
+  NVF_API void handle(BinaryOp* bop) final;
+  NVF_API void handle(TernaryOp* top) final;
 
  private:
   ExpressionEvaluator& expr_eval_;

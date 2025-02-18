@@ -12,13 +12,13 @@
 #include <interval_analysis.h>
 #include <iter_visitor.h>
 #include <ops/all_ops.h>
-#include <tests/cpp/simple_val_compiler.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
 #include <cctype>
 #include <deque>
 #include <memory>
+#include <optional>
 #include <random>
 #include <regex>
 #include <string>
@@ -27,8 +27,6 @@
 #include <vector>
 
 namespace nvfuser {
-
-using namespace stupid_simple_compiler::ops;
 
 class IntervalAnalysisTest : public NVFuserTest {
   std::unique_ptr<Fusion> fusion_ptr;
@@ -49,9 +47,14 @@ class RangeChecker {
       Val* output_val,
       const std::vector<BoundedInt>& input_bounds,
       const BoundedInt& expected_range,
-      const bool bound_is_tight = true) {
+      const bool bound_is_tight = true,
+      const LaunchParams& launch_params = LaunchParams()) {
     RangeChecker checker(
-        output_val, input_bounds, expected_range, bound_is_tight);
+        output_val,
+        input_bounds,
+        expected_range,
+        bound_is_tight,
+        launch_params);
     if (input_bounds.size() == 1) {
       checker.checkOneInput();
     } else {
@@ -64,13 +67,28 @@ class RangeChecker {
       Val* output_val,
       const std::vector<BoundedInt>& input_bounds,
       const BoundedInt& expected_range,
-      const bool bound_is_tight)
+      const bool bound_is_tight,
+      const LaunchParams& launch_params)
       : output_val_(output_val),
         input_vals_(InputsOf::output(output_val)),
         input_bounds_(input_bounds),
         expected_range_(expected_range),
         bound_is_tight_(bound_is_tight) {
     NVF_ERROR(input_vals_.size() == input_bounds_.size());
+
+    ExpressionEvaluator expr_eval;
+    // Compute the range using ScalarBoundsCalculator and check that it matches
+    // expected
+    ScalarBoundsCalculator calc(/*kernel=*/nullptr, expr_eval, launch_params);
+    calc.setBounds(input_vals_.at(0), input_bounds_.at(0));
+    // Check that the computed range is correct
+    calc.dispatch(output_val_);
+    auto bound_opt = calc.maybeGetBounds(output_val_);
+    // Cannot use ASSERT_* in constructor
+    NVF_ERROR(
+        bound_opt.has_value(),
+        "Expected bounds to be computed following call to dispatch");
+    EXPECT_EQ(bound_opt.value(), expected_range);
   }
 
   void checkOneInput() {
@@ -112,7 +130,13 @@ class RangeChecker {
 } // namespace
 
 TEST_F(IntervalAnalysisTest, UnaryOps) {
-  RangeChecker::check("i0"_, {{-1, 5}}, {-1, 5});
+  Val* x = IrBuilder::create<Val>(DataType::Index);
+  RangeChecker::check(
+      x, /*input_bounds=*/{{-1, 5}}, /*expected_range=*/{-1, 5});
+  RangeChecker::check(
+      neg(x), /*input_bounds=*/{{-1, 5}}, /*expected_range=*/{-5, 1});
+  // TODO: fix evaluate function for BitwiseNot. Currently it returns uint64_t
+  // RangeChecker::check(bitwise_not(x), /*input_bounds=*/{{-1, 5}}, {-5, 1});
 }
 
 } // namespace nvfuser

@@ -10,6 +10,7 @@
 
 #include <exceptions.h>
 #include <interval_analysis.h>
+#include <kernel_ir_dispatch.h>
 
 #include <algorithm>
 #include <limits>
@@ -244,8 +245,10 @@ ScalarBoundsCalculator::ScalarBoundsCalculator(
     ExpressionEvaluator& expr_eval,
     const LaunchParams& launch_params)
     : expr_eval_(expr_eval), launch_params_(launch_params) {
-  // Process all exprs
-  kir::IrVisitor::handle(kernel->topLevelExprs());
+  if (kernel != nullptr) {
+    // If kernel is given, process all exprs in it
+    kir::IrVisitor::handle(kernel->topLevelExprs());
+  }
 }
 
 //! Return the bounds, computed over all scalars in the fusion with the given
@@ -316,6 +319,11 @@ bool ScalarBoundsCalculator::castsFromIndexAreSafe() const {
       });
 }
 
+std::ostream& operator<<(std::ostream& out, const BoundedInt& b) {
+  out << "BoundedInt[" << b.min << ", " << b.max << "]";
+  return out;
+}
+
 void ScalarBoundsCalculator::setBounds(Val* val, const BoundedInt& bounds) {
   bounds_[val] = bounds;
 }
@@ -366,25 +374,37 @@ std::optional<BoundedInt> ScalarBoundsCalculator::maybeGetBounds(Val* val) {
   }
 }
 
-void ScalarBoundsCalculator::dispatch(Expr* expr) {
-  if (auto* uop = dynamic_cast<UnaryOp*>(expr);
-      uop && uop->getUnaryOpType() == UnaryOpType::ToUnsignedSmemAddr) {
-    // This is a workaround for a limitation in being able to evaluate
-    // metadata for tensors with swizzles.
-    // TODO: is there a better workaround?
-    int64_t max_smem_addr =
-        (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock - 1L;
-    known_scalars_[uop->out()] = max_smem_addr;
-    setBounds(uop->out(), 0L, max_smem_addr);
-    return;
+void ScalarBoundsCalculator::dispatch(Statement* stmt) {
+  kir::IrVisitor::dispatch(stmt);
+}
+void ScalarBoundsCalculator::dispatch(Val* val) {
+  if (val->isIntegralScalar() && val->definition() != nullptr) {
+    // This will kick off recursive dispatch
+    dispatch(val->definition());
   }
+  kir::IrVisitor::dispatch(val);
+}
 
-  if (auto* uop = dynamic_cast<UnaryOp*>(expr); uop &&
-      uop->getUnaryOpType() == UnaryOpType::Cast &&
-      uop->in()->dtype() == DataType::Index && uop->out()->isIntegralScalar()) {
-    // Collect casts _from_ Index scalars, so that we can check that these are
-    // safe.
-    casts_from_index_.push_back(uop);
+void ScalarBoundsCalculator::dispatch(Expr* expr) {
+  if (auto* uop = dynamic_cast<UnaryOp*>(expr)) {
+    if (uop->getUnaryOpType() == UnaryOpType::ToUnsignedSmemAddr) {
+      // This is a workaround for a limitation in being able to evaluate
+      // metadata for tensors with swizzles.
+      // TODO: is there a better workaround?
+      int64_t max_smem_addr =
+          (int64_t)at::cuda::getCurrentDeviceProperties()->sharedMemPerBlock -
+          1L;
+      known_scalars_[uop->out()] = max_smem_addr;
+      setBounds(uop->out(), 0L, max_smem_addr);
+      return;
+    }
+    if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+        uop->in()->dtype() == DataType::Index &&
+        uop->out()->isIntegralScalar()) {
+      // Collect casts _from_ Index scalars, so that we can check that these are
+      // safe.
+      casts_from_index_.push_back(uop);
+    }
   }
 
   if (!expr->isA<ForLoop>() &&
@@ -546,6 +566,8 @@ void ScalarBoundsCalculator::handle(TernaryOp* top) {
           top->toString());
   }
 }
+
+ScalarBoundsCalculator::~ScalarBoundsCalculator() {}
 
 // TODO: Use this to set index type
 PrimDataType getSmallestIndexTypeByBoundingExpressions(
