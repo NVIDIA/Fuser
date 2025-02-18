@@ -1,7 +1,17 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-from nvfuser import FusionDefinition, SchedulerType
+from nvfuser import (
+    FusionDefinition,
+    SchedulerType,
+    MatmulParams,
+    ClusterDims,
+    MatMulTileOptions,
+    GemmTile,
+    MmaMacroEncode,
+    MmaMacroArch,
+    MatmulTileRasterizationOrder,
+)
 import torch
 import math
 import itertools
@@ -80,10 +90,13 @@ def matmul_fusion(fd: FusionDefinition, inputs: list[torch.Tensor]) -> None:
 
 
 # These are the parameters we'll optimize
-parameter_configurations = [
-    splitk_factors := list(range(1, 8)),
-    load_stages := list(range(1, 4)),
-]
+parameter_configurations = {
+    "tile_sizes": [MatMulTileOptions(GemmTile(128, 256, 64), GemmTile(64, 256, 64))],
+    "mma_macro": [MmaMacroEncode(MmaMacroArch.hopper, 64, 256, 16)],
+    "tile_order": [MatmulTileRasterizationOrder.row_major],
+    "cluster_dims": [ClusterDims(1, 1, 1)],
+    "circular_buffer_stages": [4],
+}
 
 
 # Apply scheduler with custom parameters using decorator
@@ -99,12 +112,15 @@ def custom_matmul_scheduler(fd, config):
 
         # Modify original parameters
         if config is not None:
-            splitk_factor, stages = config
+            tile_sizes, macro, tile_order, cluster_dims, stages = config
+            schedule_params.tile_sizes = tile_sizes
+            schedule_params.mma_macro = macro.mma_macro()
+            schedule_params.cta_order = tile_order
+            schedule_params.cluster_dims = cluster_dims
             schedule_params.circular_buffer_options.circular_buffer_smem_write = (
                 stages > 1
             )
             schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
-            schedule_params.splitk_factor = splitk_factor
             print(schedule_params)
 
         # Schedule fusion
@@ -197,7 +213,7 @@ def main():
     eager_data = analyze_json("gh200_matmul_eager.json")
     eager_result = eager_data[get_layout_enum(problem_config[3])][problem_config[:3]]
 
-    for scheduler_config in itertools.product(splitk_factors, load_stages):
+    for scheduler_config in itertools.product(*parameter_configurations.values()):
         nvf_result = test_matmul_nvf(
             problem_config, scheduler_config, disable_validation=True
         )
