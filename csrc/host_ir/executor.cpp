@@ -69,7 +69,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications = HostIrLower::lower(cloner.clone(e));
+      HostIrLower lower;
+      std::vector<Expr*> communications = lower.lower(cloner.clone(e));
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -189,7 +190,7 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -294,13 +295,13 @@ void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
   streams_.insert(
       {get_current_stream->stream(),
        c10::cuda::getCurrentCUDAStream(
-           static_cast<c10::DeviceIndex>(my_device_index_))});
+           static_cast<c10::DeviceIndex>(my_local_device_index_))});
 }
 
 void HostIrEvaluator::handle(Synchronize* synchronize) {
   cudaStream_t current_stream =
       c10::cuda::getCurrentCUDAStream(
-          static_cast<c10::DeviceIndex>(my_device_index_))
+          static_cast<c10::DeviceIndex>(my_local_device_index_))
           .stream();
   cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
 
@@ -423,6 +424,57 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 }
 
+int64_t AllgatherThroughCudaMemcpyAsync::running_counter = 0;
+
+struct IpcTensorInfo {
+  cudaIpcMemHandle_t ipc_handle;
+  int64_t storage_offset;
+  int64_t element_size;
+};
+
+AllgatherThroughCudaMemcpyAsync::AllgatherThroughCudaMemcpyAsync(at::Tensor input, std::vector<at::Tensor> outputs, Communicator* communicator) : unique_id(running_counter++), communicator_(communicator) {
+
+
+  IpcTensorInfo ipc_tensor_info;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&ipc_tensor_info.ipc_handle, input.data_ptr()));
+  ipc_tensor_info.storage_offset = input.storage_offset();
+  ipc_tensor_info.element_size = input.element_size();
+
+  const int64_t my_rank = communicator->deviceId();
+  auto store = communicator->getTcpStore();
+  store->set(prefix() + std::to_string(my_rank), toBytes(ipc_tensor_info));
+
+  communicator_->barrier();
+
+  sizes_.resize(communicator_->size(), 0);
+  input_ptrs_.resize(communicator_->size(), nullptr);
+  output_ptrs_.resize(communicator_->size(), nullptr);
+  for (int64_t rank: c10::irange(communicator_->size())) {
+    auto output = outputs.at(rank);
+    sizes_.at(rank) = output.numel() * output.element_size();
+
+    output_ptrs_.at(rank) = output.data_ptr();
+    if (rank == my_rank) {
+      input_ptrs_.at(rank) = input.data_ptr();
+    } else {
+      ipc_tensor_info = fromBytes<IpcTensorInfo>(store->get(prefix() + std::to_string(rank)));
+      void*& ptr = input_ptrs_.at(rank);
+      NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(&ptr, ipc_tensor_info.ipc_handle, cudaIpcMemLazyEnablePeerAccess));
+      ptr = (void*)((uint8_t*)ptr + ipc_tensor_info.storage_offset * ipc_tensor_info.element_size);
+    }
+  }
+  // TODO: close ipc mem handle at shutdown
+}
+
+void AllgatherThroughCudaMemcpyAsync::post() const {
+  cudaStream_t stream = c10::cuda::getCurrentCUDAStream(static_cast<c10::DeviceIndex>(communicator_->local_rank())).stream();
+  // TODO: use multicast
+  for (size_t i = 0; i < sizes_.size(); i++) {
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(output_ptrs_.at(i), input_ptrs_.at(i), sizes_.at(i), cudaMemcpyDeviceToDevice, stream));
+  }
+}
+
+
 void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
@@ -433,14 +485,37 @@ void HostIrEvaluator::handle(Communication* communication) {
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
 
-  c10d::Backend* backend =
-      communicator_->getBackendForTeam(communication->team(), std::nullopt);
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      backend,
-      input_tensor,
-      output_tensor);
+  CommunicatorBackend backend_type = communication->backend();
+
+  if (backend_type != CommunicatorBackend::kCuda) {
+    c10d::Backend* backend =
+        communicator_->getBackendForTeam(communication->team(), backend_type);
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        backend,
+        input_tensor,
+        output_tensor);
+    return;
+  }
+
+  NVF_ERROR(communication->type() == CommunicationType::Allgather);
+  // TODO: fix registration cache
+  // if (allgather_backends_.find(communication) == allgather_backends_.end()) {
+  //   // TODO: retrieve sharded axis here
+  //   auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
+  //   allgather_backends_.try_emplace(
+  //       communication,
+  //       AllgatherThroughCudaMemcpyAsync(
+  //           input_tensor,
+  //           output_tensors,
+  //           communicator_));
+  // }
+  // allgather_backends_.at(communication).post();
+
+  auto output_tensors = at::tensor_split(output_tensor.squeeze(), communication->team_size(), 0);
+  AllgatherThroughCudaMemcpyAsync allgather_backend(input_tensor, output_tensors, communicator_);
+  allgather_backend.post();
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -451,18 +526,28 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(),
-      buffer);
+  CommunicatorBackend backend_type = communication->backend();
+
+  if (backend_type != CommunicatorBackend::kCuda) {
+
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+        communicator_->getWorld(),
+        buffer);
+    return;
+  }
+  NVF_ERROR(false, "CUDA backend not supported yet");
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
-  auto& work = works_.at(communication);
+  auto it = works_.find(communication);
+  if (it == works_.end()) {
+    return;
+  }
+  auto& work = it->second;
   if (work != nullptr) {
     work->wait();
   }
