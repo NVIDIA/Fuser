@@ -216,6 +216,22 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       ceilDiv(x, y),
       /*input_bounds=*/{{x, {1, 4}}, {y, {3, 3}}},
       /*expected_range=*/{1, 2});
+  RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {-3, 4}}, {y, {1, 3}}},
+      /*expected_range=*/{-3, 4});
+  RangeChecker::check(
+      ceilDiv(x, y),
+      /*input_bounds=*/{{x, {-3, 4}}, {y, {1, 3}}},
+      /*expected_range=*/{-3, 4});
+  RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {-3, -1}}, {y, {1, 3}}},
+      /*expected_range=*/{-3, 0});
+  RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {-3, -1}}, {y, {-3, -1}}},
+      /*expected_range=*/{0, 3});
 }
 
 } // namespace nvfuser
