@@ -8,6 +8,7 @@ import datetime
 from pathlib import Path
 import time
 import sys
+import argparse
 
 
 def setup_logging_dir():
@@ -35,14 +36,14 @@ def setup_logging_dir():
 def get_cpp_test_executables(build_dir):
     """Find all test executables in the build directory"""
     all_tests = glob.glob(os.path.join(build_dir, "*test*"))
-    
+
     # Separate multidevice and single device tests
     multidevice_tests, single_device_tests = [], []
     for test in all_tests:
         (single_device_tests, multidevice_tests)[
             "multidevice" in os.path.basename(test).lower()
         ].append(test)
-    
+
     # Separate priority tests and others
     priority_tests = [
         os.path.join(build_dir, "nvfuser_tests"),
@@ -57,14 +58,14 @@ def get_cpp_test_executables(build_dir):
 def get_python_tests(python_test_dir):
     """Find all Python test files"""
     all_tests = glob.glob(os.path.join(python_test_dir, "test_*.py"))
-    
+
     # Separate multidevice and single device tests
     multidevice_tests, single_device_tests = [], []
     for test in all_tests:
         (single_device_tests, multidevice_tests)[
             "multidevice" in os.path.basename(test).lower()
         ].append(test)
-    
+
     # Separate test_ops.py and other tests
     test_ops = [
         test for test in single_device_tests if os.path.basename(test) == "test_ops.py"
@@ -423,17 +424,20 @@ def get_available_gpus():
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Run nvFuser tests')
-    parser.add_argument('--dry-run', action='store_true',
-                       help='Show what tests would be run without executing them')
+    parser = argparse.ArgumentParser(description="Run nvFuser tests")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show what tests would be run without executing them",
+    )
     args = parser.parse_args()
-    
+
     # Check GPU availability
     gpu_count = get_available_gpus()
     if gpu_count < 1:
         print("Error: No GPUs found for testing")
         return 1
-    
+
     print(f"Found {gpu_count} GPUs available for testing")
 
     # Hardcode paths relative to current directory
