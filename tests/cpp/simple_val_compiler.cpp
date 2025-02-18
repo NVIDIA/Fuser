@@ -429,4 +429,3 @@ Val* operator""_(const char* str, size_t) {
 } // namespace stupid_simple_compiler
 
 } // namespace nvfuser
-
