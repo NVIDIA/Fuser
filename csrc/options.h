@@ -106,7 +106,10 @@ enum class EnableOption {
   ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
   ResizeScheduler, //! Enable the resize scheduler
   StaticFusionCount, //! Enable using single static count in kernel name
+  WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
+                // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
+  HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   EndOfOption //! Placeholder for counting the number of elements
 };
 

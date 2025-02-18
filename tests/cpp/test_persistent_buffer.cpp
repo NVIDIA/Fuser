@@ -472,8 +472,7 @@ TEST_F(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // welford translate
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder runtime_inputs = KernelArgumentHolder(aten_inputs);
   bool isTranslated =
       SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   NVF_ERROR(isTranslated);
@@ -1483,15 +1482,11 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   fusion.addInput(input);
   fusion.addInput(weight);
   fusion.addInput(bias);
-  if (dtype == DataType::BFloat16) {
-    input = castOp(DataType::Float, input);
-    weight = castOp(DataType::Float, weight);
-    bias = castOp(DataType::Float, bias);
-  }
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  bias = maybeCastOp(DataType::Float, bias);
   auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
-  if (dtype == DataType::BFloat16) {
-    result.output = castOp(DataType::BFloat16, result.output);
-  }
+  result.output = maybeCastOp(dtype, result.output);
   fusion.addOutput(result.output);
   fusion.addOutput(result.mean);
   fusion.addOutput(result.invstd);
@@ -1504,8 +1499,7 @@ TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
   std::vector<c10::IValue> aten_inputs = {aten_input, aten_weight, aten_bias};
 
   // try translate Welford in fusion
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder runtime_inputs = KernelArgumentHolder(aten_inputs);
   SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   auto fusion_copy = fusion;
 

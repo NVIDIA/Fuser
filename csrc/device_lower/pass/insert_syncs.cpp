@@ -884,6 +884,15 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   //! waiting at the end of loop 1 is sufficient and cheaper.
   std::unordered_set<Val*> async_inputs_in_current_scope_;
 
+  //! Warp Specialization creates an If-Then-Else to separate load and compute
+  //! operations. Therefore, the async_inputs_in_current_scope_ will not contain
+  //! the async inputs for the corresponding async expression. Track async
+  //! inputs separately when we encounter them in load warp.
+  std::unordered_set<Val*> warp_specialized_async_inputs_in_current_scope_;
+
+  //! Track async exprs separately when we encounter them in compute warp.
+  std::unordered_set<Expr*> warp_specialized_async_exprs_to_protect_;
+
   //! Async expressions that need to be protected by a wait expression, but we
   //! have not inserted the wait expression yet.
   //! Example 1:
@@ -942,6 +951,21 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       return;
     }
 
+    // Gather all async inputs in load warp
+    TensorView* out_tv = ir_utils::getTvOutput(expr);
+    NVF_ERROR(out_tv != nullptr);
+    auto circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+            out_tv, for_loops_);
+    if (circular_buffer_loop != nullptr &&
+        circular_buffer_loop->circularBufferLoopStage() ==
+            CircularBufferLoopStage::LoadWarp) {
+      auto use_async_ops = getUseAsyncOpTypes(out_tv);
+      if (!use_async_ops.empty()) {
+        warp_specialized_async_inputs_in_current_scope_.emplace(out_tv);
+      }
+    }
+
     // If the output of the current expression is used by an async op, then we
     // add the output to the async_inputs_in_current_scope_ so that we know we
     // need to protect it.
@@ -969,7 +993,16 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // async_exprs_to_protect_ so that we know we need to protect it.
     auto async_op_type = ir_utils::getAsyncOpType(expr);
     if (async_op_type != AsyncOpType::NotAsync) {
-      async_exprs_to_protect_.insert(expr);
+      bool within_compute_warp =
+          std::any_of(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
+            return fl->circularBufferLoopStage() ==
+                CircularBufferLoopStage::ComputeWarp;
+          });
+      if (within_compute_warp) {
+        warp_specialized_async_exprs_to_protect_.insert(expr);
+      } else {
+        async_exprs_to_protect_.insert(expr);
+      }
     }
   }
 
@@ -1036,7 +1069,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       auto tv = dynamic_cast<TensorView*>(inp);
       if (tv == nullptr) {
         continue;
-      };
+      }
       if (!tv->isCircularBuffered()) {
         return 0;
       }
@@ -1061,6 +1094,71 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     return pending_ops;
   }
 
+  // The for-loop for the k dimension in matmul expressions is circular
+  // buffered. TMA loads are launched to load mma operands into shared memory,
+  // which are consumed by mma expression. A WAR sync is necessary for the wgmma
+  // expession to avoid overwriting the circular buffer stage while it is being
+  // read.
+  //
+  // Special logic is required for warp specialized circular buffering because
+  // the TMA loads and wgmma ops are separated by an IfThenElse.
+  // kir::ExprMutator traverses the fusion in depth-wise order, so TMA loads in
+  // the LoadWarp are detected before the wgmma expressions in the ComputeWarp.
+  //
+  // This function inserts wgmma.commit_group and wgmma.wait_group expressions
+  // before the mbarrier::arrive, which allows load warp to launch next TMA
+  // load. First, we commit all the wgmma expressions issued in this iteration
+  // of the for-loop. Then, we wait for some number of wgmma expressions based
+  // on number of circular buffer stages and number of prefetch stages.
+  void handleComputeWarp(ForLoop* for_loop) {
+    NVF_ERROR(
+        for_loop->circularBufferLoopStage() ==
+            CircularBufferLoopStage::ComputeWarp,
+        "for_loop is not circular buffer compute warp");
+    NVF_ERROR(
+        warp_specialized_async_exprs_to_protect_.empty() ||
+            !warp_specialized_async_inputs_in_current_scope_.empty(),
+        "Expected TMA loads in LoadWarp for WgMma operations were detected in ComputeWarp.");
+
+    // short-circuit: no wgmma expressions to protect in computeWarp.
+    if (warp_specialized_async_exprs_to_protect_.empty()) {
+      warp_specialized_async_inputs_in_current_scope_.clear();
+      return;
+    }
+
+    // Establish all tma loads in LoadWarp are used by WgMma operations in
+    // ComputeWarp.
+    for (Expr* expr : warp_specialized_async_exprs_to_protect_) {
+      NVF_ERROR(std::all_of(
+          expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
+            return warp_specialized_async_inputs_in_current_scope_.count(val);
+          }));
+      NVF_ERROR(ir_utils::getAsyncOpType(expr) == AsyncOpType::WgMma);
+    }
+
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            for_loop->iter_domain());
+    int64_t pending_ops = opt.stage - opt.prefetch - 1;
+
+    auto sync_exprs =
+        lower_utils::getSyncExprs(AsyncOpType::WgMma, pending_ops);
+    size_t num_exprs = for_loop->body().exprs().size();
+    NVF_ERROR(num_exprs > 1);
+    NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
+    while (!sync_exprs.empty()) {
+      registerInsertAfter(
+          for_loop->body().exprs().at(num_exprs - 2),
+          sync_exprs.back(),
+          &for_loop->body());
+      sync_exprs.pop_back();
+    }
+
+    // Clear warp specialized async inputs and exprs
+    warp_specialized_async_inputs_in_current_scope_.clear();
+    warp_specialized_async_exprs_to_protect_.clear();
+  }
+
   void handle(ForLoop* for_loop) final {
     // Push loop scope information
     auto prev_within_iter_loop_ = within_iter_loop_;
@@ -1069,6 +1167,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Process the expressions in the for loop
     kir::ExprMutator::handle(for_loop);
+
+    // Short-circuit: special handling of ComputeWarp for-loop
+    if (for_loop->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp) {
+      return handleComputeWarp(for_loop);
+    }
 
     // Insert async wait at the end of this for loop
     if (within_iter_loop_) {
@@ -1105,11 +1209,28 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       // Actually insert these wait expressions.
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
         auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
+        NVF_ERROR(!for_loop->body().exprs().empty());
+
+        // Default position is last expression in for loop
+        size_t num_exprs = for_loop->body().exprs().size();
+        size_t pos = num_exprs - 1;
+
+        // The sync qualifier in the `wgmma.wait_group` ptx instruction only
+        // guarantees that a warp executes the instruction. The entire warp
+        // group must complete `wgmma` instruction before loading next circular
+        // buffer stage, so place the wgmma sync expressions before the
+        // kir::BlockSync to avoid incorrect results.
+        if (type == AsyncOpType::WgMma &&
+            for_loop->circularBufferLoopStage() ==
+                CircularBufferLoopStage::Main) {
+          NVF_ERROR(num_exprs > 1);
+          NVF_ERROR(for_loop->body().exprs().back()->isA<kir::BlockSync>());
+          --pos;
+        }
+
+        Expr* expr = for_loop->body().exprs().at(pos);
         while (!sync_exprs.empty()) {
-          registerInsertAfter(
-              for_loop->body().exprs().back(),
-              sync_exprs.back(),
-              &for_loop->body());
+          registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
           sync_exprs.pop_back();
         }
       }

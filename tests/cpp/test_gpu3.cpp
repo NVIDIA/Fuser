@@ -5778,11 +5778,11 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
     std::vector<c10::IValue> large_inputs = {t0_large};
 
     NVF_CHECK(
-        KernelArgumentHolder::createKernelArgumentHolder(large_inputs)
-            .getSmallestIndexTypeOfArguments() == PrimDataType::Int);
+        KernelArgumentHolder(large_inputs).getSmallestIndexTypeOfArguments() ==
+        PrimDataType::Int);
     NVF_CHECK(
-        KernelArgumentHolder::createKernelArgumentHolder(small_inputs)
-            .getSmallestIndexTypeOfArguments() == PrimDataType::Int32);
+        KernelArgumentHolder(small_inputs).getSmallestIndexTypeOfArguments() ==
+        PrimDataType::Int32);
 
     {
       KernelExecutor ke;
@@ -8598,8 +8598,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInNormalization) {
   // the loop domain, preventing uniform inlining. Check if the
   // outermost loop domains of all tensors are mapped and inlined.
   auto ref_outermost = tv7->getLoopDomain().at(0);
-  IdModel id_model(&fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -8659,8 +8659,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   // the loop domain, preventing uniform inlining. Check if the
   // outermost loop domains of all tensors are mapped and inlined.
   auto ref_outermost = tv5->getLoopDomain().at(0);
-  IdModel id_model(&fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -8719,8 +8719,8 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInReduction) {
   // the loop domain, preventing uniform inlining. Check if the
   // outermost loop domains of all tensors are mapped and inlined.
   auto ref_outermost = tv6->getLoopDomain().at(0);
-  IdModel id_model(&fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(&fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
   for (auto tv : fusion.allTvs()) {
     if (tv->isFusionInput()) {
       continue;

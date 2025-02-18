@@ -1014,6 +1014,14 @@ class TmaCircularBufferingTest
             .num_registers.has_value();
   }
 
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+  // the memory range [srcMem, srcMem + size - 1] must not overflow the source
+  // memory space. Otherwise, the behavior is undefined.
+  bool tma1dSrcAddressOverflow(int64_t bulk_inner_dim) {
+    return tensor_inner_dim % bulk_inner_dim != 0 &&
+        tma_load_type == LoadStoreOpType::CpAsyncBulk;
+  }
+
   template <typename data_type>
   void compare(int64_t tensor_dim, at::Tensor result, at::Tensor reference) {
     at::Tensor reference_cpu_data = reference.cpu();
@@ -1172,7 +1180,10 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
 
   // Constants
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1227,7 +1238,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
   // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
@@ -1292,7 +1306,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
   // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
@@ -1434,7 +1451,10 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1511,7 +1531,10 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1574,6 +1597,11 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
 
   constexpr int64_t examples_per_cta = 4;
   constexpr int64_t bulk_inner_dim = 256;
+
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
 
   // [M, N] -> [M/epc, epc, N]
   reference->split(0, examples_per_cta);
@@ -1638,6 +1666,10 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   TensorView* reference = tv1;
 
   constexpr int64_t tile_size = 256;
+  if (tma1dSrcAddressOverflow(tile_size)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(1, tile_size);
@@ -1729,7 +1761,11 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   constexpr int64_t vectorize = 4;
   int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
   constexpr int64_t examples_per_cta = 4;
-
+  constexpr int64_t tile_size = 256;
+  if (tma1dSrcAddressOverflow(tile_size)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // Since multi-dim CpAsyncBulk has a size limit of 256 per dimension,
   // we require multiple TMA operations to load the entire example in shared
   // memory for pointwise kernel.
@@ -1738,7 +1774,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   // logical domain: [I1, I2]
   x_cache_smem->split(0, examples_per_cta);
   // split: [I0 / 4, 4, I2]
-  x_cache_smem->split(-1, 256);
+  x_cache_smem->split(-1, tile_size);
   // split: [I0/4, 4, I2/256, 256]
 
   // Schedule reference_tv
@@ -2063,6 +2099,78 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
       tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaCircularBufferingTest, UblkPredicate) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  if (testEnablesRegisterSharing()) {
+    GTEST_SKIP()
+        << "Register Sharing is not supported for Ublk cp with persistent CTA.";
+    return;
+  }
+  // This test uses a fixd tensor size to test out of bound access in Ublk copy.
+  // The tensor size is dim0 = 8191, dim1 = 512. tensor_outer_dim and
+  // tensor_inner_dim are just place holders for the test.
+  if (tensor_outer_dim != 128 || tensor_inner_dim != 128 ||
+      tma_load_type != LoadStoreOpType::CpAsyncBulk) {
+    GTEST_SKIP();
+    return;
+  }
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+  // dim0 is a prime number to test predicate for non-divisible split
+  const int64_t dim0 = 8191;
+  const int64_t dim1 = 512;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  auto tv1c = tv1->cacheBefore();
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  // dim0 is a prime number, not divisible by number_of_stages or number_of_cta
+  // when stages is 1. When stages > 1, increase number_of_cta to make sure the
+  // 2nd split i also not divisible by number_of_cta.
+  int64_t number_of_cta =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  if (number_of_stages > 1) {
+    int64_t after_stages = (dim0 + number_of_stages - 1) / number_of_stages;
+    while (after_stages % number_of_cta == 0) {
+      number_of_cta++;
+    }
+  }
+  tv1->split(0, number_of_stages);
+  tv1->split(0, number_of_cta, false);
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  /// TIDx for computation, Bulk for load
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  tv1c->axis(-1)->parallelize(ParallelType::TIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  inlineMost();
+
+  if (number_of_stages > 1) {
+    tv0a->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  auto at_output = at_tv0 + at_tv0;
+  testValidate(
+      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
 }
 
 auto tmaCircularBufferingParams() {
