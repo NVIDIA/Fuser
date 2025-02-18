@@ -470,7 +470,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.run(args, heuristic_params->lparams);
+  auto outputs = ke.run(args, {}, heuristic_params->lparams);
 
   checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
 

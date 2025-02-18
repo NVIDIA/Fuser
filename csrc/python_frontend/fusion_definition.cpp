@@ -388,7 +388,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       return nullptr;
     }
 
-    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, args.toC10Array());
+    auto user_sched_id =
+        fusionCache()->queryUserScheduleId(scheds, args.toC10Array());
     if (!user_sched_id.has_value()) {
       return nullptr;
     }
@@ -396,8 +397,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     NVF_CHECK(
         args.empty() || args.getDeviceIndex() > -1,
         "Inputs are not all on the same device or don't match selection!");
-    const UserSchedule& user_sched =
-        fusionCache()->queryUserSchedule(scheds, user_sched_id.value(), args.getDeviceIndex());
+    const UserSchedule& user_sched = fusionCache()->queryUserSchedule(
+        scheds, user_sched_id.value(), args.getDeviceIndex());
     return &user_sched;
   };
   const auto* user_sched = find_user_schedule();
@@ -434,6 +435,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       }
       out_tensors = user_sched->executor->run(
           args.toC10Array(),
+          {},
           user_sched->heuristic_params->lparams,
           user_sched->heuristic_params->cparams);
     }

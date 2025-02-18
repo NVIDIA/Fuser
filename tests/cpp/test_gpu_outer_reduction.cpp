@@ -2190,7 +2190,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   scheduler->schedule(&fusion, rparams);
   KernelExecutor ke;
   ke.compile(&fusion, {t0}, heuristic_params->lparams);
-  auto cg_outputs = ke.run({t0}, heuristic_params->lparams);
+  auto cg_outputs = ke.run({t0}, {}, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
   NVF_CHECK(
@@ -2300,7 +2300,7 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
 
   KernelExecutor ke;
   ke.compile(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.run(aten_inputs, lparams);
+  auto cg_outputs = ke.run(aten_inputs, {}, lparams);
 
   testValidate(
       &fusion,
@@ -2562,7 +2562,7 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
   std::vector<c10::IValue> aten_inputs({t0, t1});
 
   ke.compile(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.run(aten_inputs, lparams);
+  auto cg_outputs = ke.run(aten_inputs, {}, lparams);
 
   testValidate(
       &fusion,

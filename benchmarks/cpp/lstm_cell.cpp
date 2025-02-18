@@ -187,7 +187,7 @@ static void NvFuserScheduler_LstmCell_RunFusion(
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs = ke.run(args, heuristic_params->lparams);
+    outputs = ke.run(args, {}, heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
   }
 }
@@ -261,7 +261,7 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
   ke.compile(&fusion, args);
 
   for (auto _ : benchmark_state) {
-    outputs = ke.run(args, heuristic_params->lparams);
+    outputs = ke.run(args, {}, heuristic_params->lparams);
   }
 }
 

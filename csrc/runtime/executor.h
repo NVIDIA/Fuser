@@ -95,13 +95,9 @@ class KernelExecutor : public ExecutorAbstract {
         compile_params,
         sceduler_type);
   }
-  // TODO: args shouldn't come in a reference here because we will append the
-  // outputs to be able to send it to the kernel. For now none of the users are
-  // reconsuming the args, so it is okay. It isn't done now because changing it
-  // from a reference makes a call as run({}) ambiguous, and that is used
-  // in some places in the codebase.
+
   NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
+      KernelArgumentHolder args,
       std::vector<at::Tensor> outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams());
