@@ -263,6 +263,30 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       mod(x, y),
       /*input_bounds=*/{{x, {2, 4}}, {y, {2, 5}}},
       /*expected_range=*/{0, 4});
+
+  // We do not generally place the tightest bounds on bitwise ops because it is
+  // difficult to do without exhaustively trying input combinations.
+  RangeChecker::check(
+      bitwise_and(x, y),
+      /*input_bounds=*/{{x, {0b1001, 0b1011}}, {y, {0b1010, 0b1100}}},
+      // NOTE: this bound is not tight because we assume all variable bits can
+      // take any combination of values, but since there is only one y value
+      // with high third bit, the highest we can actually get is 0b1011=11
+      /*expected_range=*/{0b1000, 0b1111},
+      /*bound_is_tight=*/false);
+  RangeChecker::check(
+      bitwise_or(x, y),
+      /*input_bounds=*/{{x, {0b1001, 0b1011}}, {y, {0b1010, 0b1100}}},
+      /*expected_range=*/{0b1000, 0b1111},
+      // NOTE: this bound is not tight because we assume all variable bits can
+      // take any combination of values, but since there is only one y value
+      // with high third bit, the lowest we can actually get is 0b1010=10, not
+      // 0b1000=8
+      /*bound_is_tight=*/false);
+  RangeChecker::check(
+      bitwise_xor(x, y),
+      /*input_bounds=*/{{x, {0b1001, 0b1011}}, {y, {0b1010, 0b1100}}},
+      /*expected_range=*/{0b0000, 0b0111});
 }
 
 } // namespace nvfuser
