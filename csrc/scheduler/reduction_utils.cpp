@@ -16,7 +16,7 @@
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
-
+#include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
 
 namespace reduction_scheduler_utils {
@@ -259,9 +259,13 @@ TensorView* scheduleReductionTV(
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
     // only used by inner persistent scheduler
-    // [iter]  --> [iter/stages [BIDx], stages [Serial]]
+    // [iter]  --> [iter/stages, stages [Serial]]
+    // [number-of-sms [BIDx], iter/stages/number-of-sms, stages [Serial]]
     if (rparams->circular_buffer_options.isEnable()) {
+      auto dev_prop = at::cuda::getCurrentDeviceProperties();
+      int64_t sm_count = dev_prop->multiProcessorCount;
       reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
+      reduction_tv->split(iter_axis, sm_count, false);
     }
 
     if (rparams->vectorize_iter_dom) {

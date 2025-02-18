@@ -729,7 +729,7 @@ int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
   int64_t max_vectorize_factor =
       SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
   int64_t dim_size = tv_buffer_size / data_type_size;
-  
+
   // always use the largest vectorize factor
   int64_t vectorize_factor = 1;
   while (dim_size % (vectorize_factor * 2) == 0 &&
@@ -737,7 +737,7 @@ int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
     vectorize_factor *= 2;
   }
 
-  // derive persistent batch size from 
+  // derive persistent batch size from
   int64_t after_vect = dim_size / vectorize_factor;
   int64_t persistent_batch = ceilDiv(after_vect, max_threads_per_block);
   int64_t threads_per_block = ceilDiv(after_vect, persistent_batch);
@@ -1445,8 +1445,14 @@ TensorView* scheduleReductionGeneral(
         "If all dims are reduction, should be sending it to fastest dim scheduler.");
   }
 
-  return reduction_scheduler_utils::scheduleReductionTV(
+  TensorView* result = reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
+  // result->axis(1)->parallelize(ParallelType::TIDz);
+  std::cout << result->toString() << std::endl;
+  return result;
+
+  //   return reduction_scheduler_utils::scheduleReductionTV(
+  //       rparams, reduction_tv, has_iter_axis);
 }
 
 // fusion is the input IR that will be modified by this function
