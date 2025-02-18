@@ -179,10 +179,10 @@ int64_t BoundedInt::countCommonHighBits() const {
 // positive values, we can apply the same algorithm regardless of signedness.
 BoundedInt BoundedInt::operator^(const BoundedInt& other) const {
   // New interval has this many fixed bits
-  int64_t fixed_bits =
-      std::min(countCommonHighBits(), other.countCommonHighBits());
+  int64_t var_bits =
+      64L - std::min(countCommonHighBits(), other.countCommonHighBits());
   // Mask everything below the higher fixed_bits
-  int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+  int64_t low_mask = (1 << var_bits) - 1; // 0b00111
   int64_t new_min = (min ^ other.min) & (~low_mask); // 0b01000
   int64_t new_max = new_min + low_mask; // 0b01111
   return {new_min, new_max};
@@ -190,10 +190,10 @@ BoundedInt BoundedInt::operator^(const BoundedInt& other) const {
 
 BoundedInt BoundedInt::operator&(const BoundedInt& other) const {
   // New interval has this many fixed bits
-  int64_t fixed_bits =
-      std::min(countCommonHighBits(), other.countCommonHighBits());
+  int64_t var_bits =
+      64L - std::min(countCommonHighBits(), other.countCommonHighBits());
   // Mask everything below the higher fixed_bits
-  int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+  int64_t low_mask = (1 << var_bits) - 1; // 0b00111
   int64_t new_min = (min & other.min) & (~low_mask); // 0b01000
   int64_t new_max = new_min + low_mask; // 0b01111
   return {new_min, new_max};
@@ -201,10 +201,10 @@ BoundedInt BoundedInt::operator&(const BoundedInt& other) const {
 
 BoundedInt BoundedInt::operator|(const BoundedInt& other) const {
   // New interval has this many fixed bits
-  int64_t fixed_bits =
-      std::min(countCommonHighBits(), other.countCommonHighBits());
+  int64_t var_bits =
+      64L - std::min(countCommonHighBits(), other.countCommonHighBits());
   // Mask everything below the higher fixed_bits
-  int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+  int64_t low_mask = (1 << var_bits) - 1; // 0b00111
   int64_t new_min = (min | other.min) & (~low_mask); // 0b01000
   int64_t new_max = new_min + low_mask; // 0b01111
   return {new_min, new_max};
@@ -212,9 +212,9 @@ BoundedInt BoundedInt::operator|(const BoundedInt& other) const {
 
 BoundedInt BoundedInt::operator~() const {
   // New interval has this many fixed bits
-  int64_t fixed_bits = countCommonHighBits();
+  int64_t var_bits = 64L - countCommonHighBits();
   // Mask everything below the higher fixed_bits
-  int64_t low_mask = (1 << fixed_bits) - 1; // 0b00111
+  int64_t low_mask = (1 << var_bits) - 1; // 0b00111
   int64_t new_min = (~min) & (~low_mask); // 0b01000
   int64_t new_max = new_min + low_mask; // 0b01111
   return {new_min, new_max};
@@ -228,7 +228,7 @@ BoundedInt BoundedInt::operator>>(const BoundedInt& other) const {
   // Note: arithmetic right shift makes negative values closer to zero, as it
   // does for positive values
   int64_t new_min = (min < 0L) ? (min >> other.min) : (min >> other.max);
-  int64_t new_max = (max < 0L) ? (max >> other.max) : (min >> other.min);
+  int64_t new_max = (max < 0L) ? (max >> other.max) : (max >> other.min);
   return {new_min, new_max};
 }
 

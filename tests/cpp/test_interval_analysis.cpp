@@ -287,6 +287,15 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       bitwise_xor(x, y),
       /*input_bounds=*/{{x, {0b1001, 0b1011}}, {y, {0b1010, 0b1100}}},
       /*expected_range=*/{0b0000, 0b0111});
+
+  RangeChecker::check(
+      bitwise_left_shift(x, y),
+      /*input_bounds=*/{{x, {0b1001, 0b1011}}, {y, {1, 5}}},
+      /*expected_range=*/{0b10010, 0b101100000});
+  RangeChecker::check(
+      bitwise_right_shift(x, y),
+      /*input_bounds=*/{{x, {0b100100, 0b101100}}, {y, {1, 5}}},
+      /*expected_range=*/{0b1, 0b10110});
 }
 
 } // namespace nvfuser
