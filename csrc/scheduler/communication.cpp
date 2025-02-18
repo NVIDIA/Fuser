@@ -10,9 +10,9 @@
 #include <host_ir/lower.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
+#include <scheduler/communication.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
-#include <scheduler/communication.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 
@@ -21,7 +21,8 @@ namespace nvfuser {
 //! Check if the given fusion is a single communication expression
 bool CommunicationScheduler::canScheduleCompileTime(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
-  return (exprs.size() == 1 && isResharding(exprs[0]) &&
+  return (
+      exprs.size() == 1 && isResharding(exprs[0]) &&
       HostIrLower::canLower(exprs[0]));
 }
 
@@ -39,7 +40,9 @@ std::unique_ptr<HeuristicParams> CommunicationScheduler::computeHeuristics(
   return std::make_unique<HeuristicParams>(SchedulerType::Communication);
 }
 
-void CommunicationScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
+void CommunicationScheduler::schedule(
+    Fusion* fusion,
+    const HeuristicParams* params) {
   NVF_ERROR(
       params->scheduler_type == schedulerType(),
       "Invalid heuristic sent to Communication scheduler: ",
