@@ -10,6 +10,10 @@
 #include <ATen/core/TensorBody.h>
 #include <ATen/core/ivalue.h>
 #include <c10/util/intrusive_ptr.h>
+// #include <cuda.h>
+#include <cuda_runtime.h>
+#include <cuda_utils.h>
+#include <driver_api.h>
 
 #include <exceptions.h>
 #include <multidevice/multidevice.h>
@@ -35,9 +39,6 @@ namespace nvfuser {
 // device.
 
 using RankType = DeviceIdxType;
-
-// Supported backends. TODO: gloo untested
-enum class CommunicatorBackend { kNccl, kUcc, kGloo };
 
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb);
 
@@ -121,6 +122,10 @@ class Communicator {
       return nccl_available_;
     }
     return false;
+  }
+
+  auto getTcpStore() {
+    return store_;
   }
 
  private:

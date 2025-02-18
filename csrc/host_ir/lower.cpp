@@ -304,6 +304,10 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
       lowerToBroadcastOrSendRecv(input_tv, output_tv, comms);
     }
   }
+
+  std::for_each(comms.begin(), comms.end(), [this](Expr* comm) {
+    comm->as<Communication>()->backend() = params_.communicator_backend;
+  });
   return comms;
 }
 
@@ -473,7 +477,11 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       CommunicationType::Allgather,
       /*out=*/tva_allgathered_j,
       /*in=*/tva_j,
-      /*team=*/tva->getDeviceMesh().vector());
+      /*team=*/tva->getDeviceMesh().vector(),
+      /*root=*/-1,
+      /*red_op=*/RedOpType::UNUSED,
+      /*scattered_axis=*/-1,
+      params_.communicator_backend);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   Expr* compute = nullptr;
