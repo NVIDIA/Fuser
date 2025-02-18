@@ -16,6 +16,7 @@
 #include <tests/cpp/validator.h>
 
 #include <algorithm>
+#include <exception>
 #include <unordered_map>
 
 namespace nvfuser {
@@ -126,9 +127,13 @@ class RangeChecker {
       PolymorphicValue pv;
       try {
         pv = expr_eval.evaluate(output_val_);
-      } catch (const char* err_msg) {
-        // Floating point exception
-        continue;
+      } catch (const std::exception& ex) {
+        // Floating point exception due to division or modulo by zero avoided
+        if (std::string(ex.what()).find("zero detected") != std::string::npos) {
+          continue;
+        } else {
+          throw;
+        }
       }
       ASSERT_TRUE(pv.hasValue());
       ASSERT_TRUE(pv.is<int64_t>());
@@ -232,6 +237,10 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       div(x, y),
       /*input_bounds=*/{{x, {-3, -1}}, {y, {-3, -1}}},
       /*expected_range=*/{0, 3});
+  RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {-3, -1}}, {y, {-3, 2}}},
+      /*expected_range=*/{-3, 3});
 }
 
 } // namespace nvfuser
