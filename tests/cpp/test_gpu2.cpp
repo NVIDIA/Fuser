@@ -5589,14 +5589,14 @@ TEST_F(NVFuserTest, FusionZeroSizeTensorNormalization_CUDA) {
 
   auto cg_results =
       scheduleAndRun(&fusion, SchedulerType::OuterPersistent, {t0, t1}, false);
-  auto aten_output2 = t0.sum({0}).add(t0);
-  at::Tensor aten_output3 = at::empty({0}, options);
+  auto t2 = t0.sum({0}).add(t0);
+  at::Tensor t3 = at::empty({0}, options);
 
   testValidate(
       &fusion,
       cg_results.outputs,
       {t0, t1},
-      {aten_output2, aten_output3},
+      {t2, t3},
       __LINE__,
       __FILE__,
       "",
