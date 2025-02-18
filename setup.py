@@ -78,6 +78,7 @@ NO_NINJA = False
 BUILD_WITH_UCC = False
 BUILD_WITH_ASAN = False
 BUILD_WITHOUT_DISTRIBUTED = False
+BUILD_WITH_SYSTEM_NVTX = True
 OVERWRITE_VERSION = False
 EXPLICIT_ERROR_CHECK = False
 VERSION_TAG = None
@@ -116,6 +117,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--build-without-distributed":
         BUILD_WITHOUT_DISTRIBUTED = True
+        continue
+    if arg == '--no-system-nvtx':
+        BUILD_WITH_SYSTEM_NVTX = False
         continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
@@ -350,6 +354,8 @@ def cmake():
         cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
     if BUILD_WITHOUT_DISTRIBUTED:
         cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
+    if BUILD_WITH_SYSTEM_NVTX:
+        cmd_str.append("-DUSE_SYSTEM_NVTX=ON")
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
