@@ -241,6 +241,28 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       div(x, y),
       /*input_bounds=*/{{x, {-3, -1}}, {y, {-3, 2}}},
       /*expected_range=*/{-3, 3});
+  RangeChecker::check(
+      ceilDiv(x, y),
+      /*input_bounds=*/{{x, {-3, -1}}, {y, {-3, 2}}},
+      /*expected_range=*/{-3, 5},
+      // NOTE: ceilDiv(-3, -1) = (-3 + (-1) - 1) / (-1) = 5 is what is computed
+      // in-kernel, but ExpressionEvaluator computes (numer + denom + 1) / denom
+      // when denom < 0. The bound above is actually tight for the in-kernel
+      // code but that does not currently match our ExpressionEvaluator
+      /*bound_is_tight=*/false);
+
+  RangeChecker::check(
+      mod(x, y),
+      /*input_bounds=*/{{x, {2, 3}}, {y, {3, 3}}},
+      /*expected_range=*/{0, 2});
+  RangeChecker::check(
+      mod(x, y),
+      /*input_bounds=*/{{x, {2, 4}}, {y, {7, 8}}},
+      /*expected_range=*/{2, 4});
+  RangeChecker::check(
+      mod(x, y),
+      /*input_bounds=*/{{x, {2, 4}}, {y, {2, 5}}},
+      /*expected_range=*/{0, 4});
 }
 
 } // namespace nvfuser
