@@ -895,10 +895,6 @@ Val* TensorIndexer::getLinearIndex(
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
 
-  bool is_ublk_load = ir_utils::isCpAsyncUblk(expr);
-
-
-
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(contig_indices.size())) {
@@ -906,9 +902,6 @@ Val* TensorIndexer::getLinearIndex(
     linear_index = SimplifyingIrBuilder::addExpr(
         linear_index,
         SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
-        if(is_ublk_load){
-          std::cout << "i= " << i << ", stride= " << stride->toInlineString() << std::endl;
-        }
   }
 
   // If a tensor is circular buffered, it also requires indexing of
@@ -919,26 +912,24 @@ Val* TensorIndexer::getLinearIndex(
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
-  if(is_ublk_load){
-    auto smem_tv = expr->output(0)->as<TensorView>();
-    auto gmem_tv = expr->input(0)->as<TensorView>();
-    std::cout << "gmem_tv: " << gmem_tv->toString() << std::endl;
-    gmem_tv->printTransforms();
-    std::cout << "\ntma_tv: " << smem_tv->toString() << std::endl;
-    smem_tv->printTransforms();
 
+  // Modulo the linear index if the expr is a UBLK copy to avoid out of bound
+  // access. For example, in test `UblkPredicate`, tensor [I0,I1] is split as:
+  // [sm_count, I0/stages/sm_count, stages, I1] and parallelized as:
+  // [BIDx, Serial, Serial, Bulk]. The TMA load is nested within two for-loops,
+  // one for [I0/stages/sm_count] and the other for [stages], since predicate is
+  // not generated for TMA load, out of bound access may happen if any of the
+  // split is not disvisible. The modulo operation is added to avoid this issue
+  // at the cost of several useless loads in the last iteration.
+  if (ir_utils::isCpAsyncUblk(expr)) {
+    auto gmem_tv = expr->input(0)->as<TensorView>();
     auto logical_size = gmem_tv->fusion()->oneVal();
     const auto& logical_domain = gmem_tv->getLogicalDomain();
     for (const auto i : c10::irange(contig_indices.size())) {
       logical_size = SimplifyingIrBuilder::mulExpr(
-          logical_size,
-          logical_domain.at(i)->extent());
+          logical_size, logical_domain.at(i)->extent());
     }
-    std::cout << "logical_size: " << logical_size->toInlineString() << std::endl;
-    linear_index =
-        SimplifyingIrBuilder::modExpr(linear_index, logical_size);
-
-    std::cout << "linear_index: " << linear_index->toInlineString() << std::endl;
+    linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
   }
 
   return linear_index;
