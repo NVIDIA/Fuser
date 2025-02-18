@@ -2550,7 +2550,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion), args);
   runtime.compileFusionParallel(args);
   auto cg_outputs = runtime.runWithInputs(args);
