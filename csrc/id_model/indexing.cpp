@@ -895,6 +895,10 @@ Val* TensorIndexer::getLinearIndex(
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
 
+  bool is_ublk_load = ir_utils::isCpAsyncUblk(expr);
+
+
+
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
   for (const auto i : c10::irange(contig_indices.size())) {
@@ -902,6 +906,9 @@ Val* TensorIndexer::getLinearIndex(
     linear_index = SimplifyingIrBuilder::addExpr(
         linear_index,
         SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
+        if(is_ublk_load){
+          std::cout << "i= " << i << ", stride= " << stride->toInlineString() << std::endl;
+        }
   }
 
   // If a tensor is circular buffered, it also requires indexing of
@@ -911,6 +918,27 @@ Val* TensorIndexer::getLinearIndex(
         getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
+  }
+  if(is_ublk_load){
+    auto smem_tv = expr->output(0)->as<TensorView>();
+    auto gmem_tv = expr->input(0)->as<TensorView>();
+    std::cout << "gmem_tv: " << gmem_tv->toString() << std::endl;
+    gmem_tv->printTransforms();
+    std::cout << "\ntma_tv: " << smem_tv->toString() << std::endl;
+    smem_tv->printTransforms();
+
+    auto logical_size = gmem_tv->fusion()->oneVal();
+    const auto& logical_domain = gmem_tv->getLogicalDomain();
+    for (const auto i : c10::irange(contig_indices.size())) {
+      logical_size = SimplifyingIrBuilder::mulExpr(
+          logical_size,
+          logical_domain.at(i)->extent());
+    }
+    std::cout << "logical_size: " << logical_size->toInlineString() << std::endl;
+    linear_index =
+        SimplifyingIrBuilder::modExpr(linear_index, logical_size);
+
+    std::cout << "linear_index: " << linear_index->toInlineString() << std::endl;
   }
 
   return linear_index;

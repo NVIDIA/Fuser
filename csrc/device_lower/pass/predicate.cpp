@@ -167,7 +167,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         }
       }
 
-      if (true && ir_utils::isCpAsyncUblk(expr->predicate()->expr())) {
+      if (false && ir_utils::isCpAsyncUblk(expr->predicate()->expr())) {
         predicateCpAsyncUblk(expr, conditional);
       } else {
         NVF_ERROR(conditional != nullptr);
@@ -180,7 +180,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     }
 
     // may add extra predicate for wait parity to avoid deadlock
-    if (is_circular_buffer_main_loop_ && expr->isA<kir::MBarrierWaitParity>()) {
+    if (false && is_circular_buffer_main_loop_ && expr->isA<kir::MBarrierWaitParity>()) {
       predicateUblkWaitParity(expr);
     }
 
