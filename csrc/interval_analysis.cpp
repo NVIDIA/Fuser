@@ -232,6 +232,61 @@ BoundedInt BoundedInt::operator>>(const BoundedInt& other) const {
   return {new_min, new_max};
 }
 
+BoundedInt ceilDiv(const BoundedInt& numer, const BoundedInt& denom) {
+  // NOTE: This is very similar to operator/
+  auto split_ranges_around_zero = [](const BoundedInt& b) {
+    std::vector<BoundedInt> ranges;
+    if (b.min < 0L) {
+      ranges.push_back({b.min, std::min(b.max, -1L)});
+    }
+    if (b.max > 0L) {
+      ranges.push_back({std::max(b.min, 1L), b.max});
+    }
+    return ranges;
+  };
+  const std::vector<BoundedInt> numer_ranges = split_ranges_around_zero(numer);
+  const std::vector<BoundedInt> denom_ranges = split_ranges_around_zero(denom);
+
+  BoundedInt result;
+  bool first = true;
+  for (const BoundedInt& numer : numer_ranges) {
+    for (const BoundedInt& denom : denom_ranges) {
+      BoundedInt simple_range;
+      // numer and denom are each either only negative or only positive
+      if (numer.min > 0) {
+        if (denom.min > 0) {
+          // positive over positive
+          simple_range = {
+              ceilDiv(numer.min, denom.max), ceilDiv(numer.max, denom.min)};
+        } else {
+          // positive over negative
+          simple_range = {
+              ceilDiv(numer.max, denom.max), ceilDiv(numer.min, denom.min)};
+        }
+      } else {
+        if (denom.min > 0) {
+          // negative over positive
+          simple_range = {
+              ceilDiv(numer.min, denom.min), ceilDiv(numer.max, denom.max)};
+        } else {
+          // negative over negative
+          simple_range = {
+              ceilDiv(numer.max, denom.min), ceilDiv(numer.min, denom.max)};
+        }
+      }
+      // Result is the union over all of the simple ranges
+      if (first) {
+        result = simple_range;
+      } else {
+        result.min = std::min(result.min, simple_range.min);
+        result.max = std::max(result.max, simple_range.max);
+      }
+      first = false;
+    }
+  }
+  return result;
+}
+
 BoundedInt BoundedInt::operator<<(const BoundedInt& other) const {
   NVF_ERROR(
       min >= 0,
@@ -521,16 +576,7 @@ void ScalarBoundsCalculator::handle(BinaryOp* bop) {
       result = a ^ b;
       break;
     case BinaryOpType::CeilDiv:
-      // ceilDiv(a, b) = (a + b - 1) / b
-      //
-      // If a >=0 and b > 0, then the result is at least ceilDiv(a.min, b.max)
-      // and at most ceilDiv(a.max, b.min). This is the most common case
-      if (a.min >= 0L && b.min > 0L) {
-        result = {ceilDiv(a.min, b.max), ceilDiv(a.max, b.min)};
-      } else {
-        // TODO: This doesn't seem quite right
-        result = (a + b - 1) / b;
-      }
+      result = ceilDiv(a, b);
       break;
     case BinaryOpType::Div:
       result = a / b;

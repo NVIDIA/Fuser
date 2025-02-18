@@ -86,6 +86,8 @@ struct NVF_API BoundedInt {
   }
 };
 
+NVF_API BoundedInt ceilDiv(const BoundedInt& numer, const BoundedInt& denom);
+
 NVF_API std::ostream& operator<<(std::ostream& out, const BoundedInt& b);
 
 //! This class traverses the expressions in a kir::Kernel and defines a
