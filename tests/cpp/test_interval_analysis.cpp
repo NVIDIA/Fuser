@@ -33,6 +33,11 @@ class IntervalAnalysisTest : public NVFuserTest {
 
 namespace {
 
+// This class lets us test that our computed ranges match our expectation and
+// that they are correct. We provide a val, a mapping from input vals to
+// bounds, and the expected range. Then the actual range is computed by
+// exhaustively checking all valid input combinations. This is checked against
+// the expected range, and the range computed by ScalarBoundsCalculator.
 class RangeChecker {
  public:
   static void check(
@@ -118,7 +123,13 @@ class RangeChecker {
         expr_eval.bind(inputs.at(inp_num), this_input_value);
       }
 
-      PolymorphicValue pv = expr_eval.evaluate(output_val_);
+      PolymorphicValue pv;
+      try {
+        pv = expr_eval.evaluate(output_val_);
+      } catch (const char* err_msg) {
+        // Floating point exception
+        continue;
+      }
       ASSERT_TRUE(pv.hasValue());
       ASSERT_TRUE(pv.is<int64_t>());
       int64_t eval = pv.as<int64_t>();
@@ -180,12 +191,31 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
   // Check multiple scenarios for mul
   RangeChecker::check(
       mul(x, y),
+      /*input_bounds=*/{{x, {3, 5}}, {y, {4, 6}}},
+      /*expected_range=*/{12, 30});
+  RangeChecker::check(
+      mul(x, y),
       /*input_bounds=*/{{x, {-1, 5}}, {y, {-3, 2}}},
       /*expected_range=*/{-15, 10});
   RangeChecker::check(
       mul(x, y),
       /*input_bounds=*/{{x, {0, 1}}, {y, {-2, 1}}},
       /*expected_range=*/{-2, 1});
+  RangeChecker::check(
+      mul(x, y),
+      /*input_bounds=*/{{x, {-2, 1}}, {y, {-2, 3}}},
+      /*expected_range=*/{-6, 4});
+
+  // Check scenarios for div and ceilDiv where each input contains zero, is
+  // only positive, or is only negative
+  RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {1, 4}}, {y, {3, 3}}},
+      /*expected_range=*/{0, 1});
+  RangeChecker::check(
+      ceilDiv(x, y),
+      /*input_bounds=*/{{x, {1, 4}}, {y, {3, 3}}},
+      /*expected_range=*/{1, 2});
 }
 
 } // namespace nvfuser
