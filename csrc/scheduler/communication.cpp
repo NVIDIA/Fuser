@@ -44,10 +44,6 @@ void CommunicationScheduler::schedule(Fusion* fusion, const HeuristicParams* par
       params->scheduler_type == schedulerType(),
       "Invalid heuristic sent to Communication scheduler: ",
       params);
-
-  NVF_ERROR(
-      scheduler_utils::isResharding(fusion),
-      "Fusion sent to Communication schedule must be resharding");
 }
 
 } // namespace nvfuser
