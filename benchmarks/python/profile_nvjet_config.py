@@ -206,7 +206,9 @@ def main():
 
     device_properties = torch.cuda.get_device_properties(0)
     dp, splitk = parse(sys.argv[1])
+
     eager_data = analyze_json("gh200_matmul_eager.json")
+    nvf_data = analyze_json("gh200_matmul_nvf.json")
 
     for problem_config, nvjet_config in dp.items():
         nvfuser_config = generate_nvfuser_config(nvjet_config)
@@ -241,9 +243,16 @@ def main():
         eager_result, nvf_result, normalized_result = profile_config(
             eager_data, problem_config, nvfuser_config
         )
-        print(
-            f"{problem_config} --- {eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}."
-        )
+
+        if nvf_result == -1:
+            continue
+
+        if problem_config[:3] in nvf_data[Layout[layout]]:
+            nvf_baseline = nvf_data[Layout[problem_config[3]]][problem_config[:3]]
+            nvf_normalized_result = nvf_baseline / nvf_result
+            print(
+                f"{problem_config} --- {eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}. relative improvement: {nvf_normalized_result :2f}"
+            )
 
 
 if __name__ == "__main__":
