@@ -16,6 +16,7 @@ namespace nvfuser {
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
+    // TODO: I think this can be a const ref
     KernelArgumentHolder args,
     PrecomputedValues* precomputed_values,
     const std::vector<TensorView*>& all_tvs,
@@ -95,10 +96,9 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
 
 SchedulerRuntimeInfo::SchedulerRuntimeInfo(
     Fusion* complete_fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs)
-    : SchedulerRuntimeInfo(
-          complete_fusion,
-          KernelArgumentHolder::createKernelArgumentHolder(aten_inputs)) {}
+    const c10::ArrayRef<c10::IValue>& aten_inputs)
+    : SchedulerRuntimeInfo(complete_fusion, KernelArgumentHolder(aten_inputs)) {
+}
 
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
