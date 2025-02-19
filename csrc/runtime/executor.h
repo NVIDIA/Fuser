@@ -76,67 +76,10 @@ class KernelExecutor : public ExecutorAbstract {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compile(
       Fusion* fusion,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      CompileParams compile_params,
+      const KernelArgumentHolder& args = {},
+      const LaunchParams& launch_constraints = LaunchParams(),
+      CompileParams compile_params = CompileParams(),
       SchedulerType sceduler_type = SchedulerType::None);
-
-  // Initializer list version that creates KernelArgumentHolder from tensors
-  NVF_API void compile(
-      Fusion* fusion,
-      std::initializer_list<at::Tensor> args,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      SchedulerType sceduler_type = SchedulerType::None) {
-    compile(
-        fusion,
-        KernelArgumentHolder(args),
-        launch_constraints,
-        compile_params,
-        sceduler_type);
-  }
-
-  // Initializer list version that creates KernelArgumentHolder from tensors
-  NVF_API void compile(
-      Fusion* fusion,
-      std::initializer_list<c10::IValue> args,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      SchedulerType sceduler_type = SchedulerType::None) {
-    compile(
-        fusion,
-        KernelArgumentHolder(args),
-        launch_constraints,
-        compile_params,
-        sceduler_type);
-  }
-
-  // Vector version that creates KernelArgumentHolder from IValues
-  NVF_API void compile(
-      Fusion* fusion,
-      const std::vector<c10::IValue>& args,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      SchedulerType sceduler_type = SchedulerType::None) {
-    compile(
-        fusion,
-        KernelArgumentHolder(args),
-        launch_constraints,
-        compile_params,
-        sceduler_type);
-  }
-
-  // TODO: merge it with the overload above.
-  //! This API is merely here so we don't have to go back and update all cpp
-  //! tests.
-  void compile(
-      Fusion* fusion,
-      const c10::ArrayRef<c10::IValue>& inputs = {},
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams()) {
-    KernelArgumentHolder args(inputs);
-    compile(fusion, args, launch_constraints, compile_params);
-  }
 
   // TODO: args shouldn't come in a reference here because we will append the
   // outputs to be able to send it to the kernel. For now none of the users are

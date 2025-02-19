@@ -3937,7 +3937,7 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
       "Can not find a scheduler to schedule fusion segment");
   return scheduler_type;
 }
-// Update the constructor implementation
+
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
     const KernelArgumentHolder& inputs,
