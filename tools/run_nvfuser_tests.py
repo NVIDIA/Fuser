@@ -7,7 +7,6 @@ import glob
 import datetime
 from pathlib import Path
 import time
-import sys
 import argparse
 
 
