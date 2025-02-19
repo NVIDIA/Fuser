@@ -111,6 +111,10 @@ class HostIrEvaluator final : public OptOutDispatch {
     return streams_;
   }
 
+  HostIrContainer* container() {
+    return container_.get();
+  }
+
   // check if the runtime is valid returns an error msg.
   // An empty message means that the runtime is valid
   std::string canRun() const;

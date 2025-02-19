@@ -97,6 +97,10 @@ class MultiDeviceExecutor {
     return host_ir_executor_->getFusionExecutorCaches();
   };
 
+  hir::HostIrEvaluator* hirEvaluator() {
+    return host_ir_executor_.get();
+  }
+
  private:
   // holds the Communicator to be used for execution
   Communicator& comm_;
