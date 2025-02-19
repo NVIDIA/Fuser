@@ -118,7 +118,7 @@ for i, arg in enumerate(sys.argv):
     if arg == "--build-without-distributed":
         BUILD_WITHOUT_DISTRIBUTED = True
         continue
-    if arg == '--no-system-nvtx':
+    if arg == "--no-system-nvtx":
         BUILD_WITH_SYSTEM_NVTX = False
         continue
     if arg == "--debug":
