@@ -17,6 +17,7 @@
 
 namespace nvfuser {
 
+// Returns the lane and column allocation domain that is actually allocated.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
     TensorView* tv) {
   NVF_ERROR(tv->getMemoryType() == MemoryType::Tensor);
