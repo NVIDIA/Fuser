@@ -1,9 +1,18 @@
 import sys
+import torch
 from enum import Enum
 from dataclasses import dataclass
 from typing import Tuple
+from single_matmul import (
+    profile_config,
+    estimate_matmul_size,
+    analyze_json,
+    NvFuserConfig,
+    Layout,
+)
 
 from nvfuser import (
+    FusionCache,
     FusionDefinition,
     SchedulerType,
     MatmulParams,
@@ -27,14 +36,6 @@ from nvfuser import (
 # 131824, 912, 16256, TN, 304x128_64x3_1x2_h_coopA_TNN --- HGMMA.64x152x16
 
 
-class Layout(Enum):
-    NN = 0
-    NT = 1
-    TN = 2
-    TT = 3
-    MAX = 4
-
-
 class Modifier(Enum):
     coopA = 0
     coopB = 1
@@ -51,15 +52,6 @@ class NvJetConfig:
     stages: int
     rasterization: str
     modifiers: Tuple[Modifier]
-
-
-@dataclass
-class NvFuserConfig:
-    tile_size: MatMulTileOptions
-    mma_macro: MmaMacroEncode
-    tile_order: MatmulTileRasterizationOrder
-    cluster_dims: ClusterDims
-    circular_buffer_stages: int
 
 
 def read_lines_from_file(file_path):
@@ -181,12 +173,14 @@ def generate_nvfuser_config(config: NvJetConfig):
         warp_m = cta_m // 2
         warp_tile = GemmTile(warp_m, cta_n, cta_k)
         mma_macro = MmaMacroEncode(MmaMacroArch.hopper, 64, cta_n, 16)
-    else:
+    elif config.modifiers[0] == Modifier.coopB:
         warp_n = cta_n // 2
         if warp_n > 256:
             return None
         warp_tile = GemmTile(cta_m, warp_n, cta_k)
         mma_macro = MmaMacroEncode(MmaMacroArch.hopper, 64, warp_n, 16)
+    else:
+        return None
 
     cta_tile = GemmTile(cta_m, cta_n, cta_k)
 
@@ -195,7 +189,9 @@ def generate_nvfuser_config(config: NvJetConfig):
     else:
         tile_order = MatmulTileRasterizationOrder.column_major
 
-    cluster_dims = ClusterDims(config.cga[0], config.cga[1], 1)
+    # Ignore cluster dim for data parallel
+    # cluster_dims = ClusterDims(config.cga[0], config.cga[1], 1)
+    cluster_dims = ClusterDims(1, 1, 1)
     return NvFuserConfig(
         MatMulTileOptions(cta_tile, warp_tile),
         mma_macro,
@@ -208,13 +204,46 @@ def generate_nvfuser_config(config: NvJetConfig):
 def main():
     import sys
 
+    device_properties = torch.cuda.get_device_properties(0)
     dp, splitk = parse(sys.argv[1])
+    eager_data = analyze_json("gh200_matmul_eager.json")
 
     for problem_config, nvjet_config in dp.items():
         nvfuser_config = generate_nvfuser_config(nvjet_config)
         if nvfuser_config is None:
             continue
-        print(problem_config, nvjet_config)
+
+        # short-circuit: problem does not fit on device
+        if (
+            estimate_matmul_size(problem_config, torch.bfloat16)
+            >= device_properties.total_memory
+        ):
+            continue
+
+        m, n, k, layout = problem_config
+        cta_m, cta_n, cta_k = nvjet_config.cta_tile
+
+        # stmatrix check
+        cond_a = m % 16 == 0
+        cond_b = n % 16 == 0
+        # k-dim check
+        cond_c = k % 64 == 0
+        # tma check
+        cond_d = cta_m <= 256
+        cond_e = cta_n <= 256
+        cond_f = layout == "NT"
+
+        # Skip all but NT because of CUDA error: cudaErrorMisalignedAddress
+        if layout != "NT":
+            continue
+
+        FusionCache.reset()
+        eager_result, nvf_result, normalized_result = profile_config(
+            eager_data, problem_config, nvfuser_config
+        )
+        print(
+            f"{problem_config} --- {eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}."
+        )
 
 
 if __name__ == "__main__":

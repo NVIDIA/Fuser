@@ -14,8 +14,18 @@ from nvfuser import (
 )
 import torch
 import math
+from dataclasses import dataclass
 import itertools
 from enum import Enum
+
+
+@dataclass
+class NvFuserConfig:
+    tile_sizes: MatMulTileOptions
+    mma_macro: MmaMacroEncode
+    tile_order: MatmulTileRasterizationOrder
+    cluster_dims: ClusterDims
+    stages: int
 
 
 class Layout(Enum):
@@ -112,16 +122,16 @@ def custom_matmul_scheduler(fd, config):
 
         # Modify original parameters
         if config is not None:
-            tile_sizes, macro, tile_order, cluster_dims, stages = config
-            schedule_params.tile_sizes = tile_sizes
-            schedule_params.mma_macro = macro.mma_macro()
-            schedule_params.cta_order = tile_order
-            schedule_params.cluster_dims = cluster_dims
+            schedule_params.tile_sizes = config.tile_sizes
+            schedule_params.mma_macro = config.mma_macro.mma_macro()
+            schedule_params.cta_order = config.tile_order
+            schedule_params.cluster_dims = config.cluster_dims
             schedule_params.circular_buffer_options.circular_buffer_smem_write = (
-                stages > 1
+                config.stages > 1
             )
-            schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
-            print(schedule_params)
+            schedule_params.circular_buffer_options.smem_circular_buffer_stage = (
+                config.stages
+            )
 
         # Schedule fusion
         fd.sched.schedule()
@@ -198,6 +208,17 @@ def baseline(problem_config):
     print("baseline", problem_config)
 
 
+def profile_config(baseline_data, problem_config, scheduler_config):
+    baseline_result = baseline_data[get_layout_enum(problem_config[3])][
+        problem_config[:3]
+    ]
+    nvf_result = test_matmul_nvf(
+        problem_config, scheduler_config, disable_validation=True
+    )
+    normalized_result = baseline_result / nvf_result
+    return baseline_result, nvf_result, normalized_result
+
+
 def main():
     # nvjet_tst_128x256_64x4_1x1_h_bz_coopA_TTN
     problem_config = (1752, 4720, 584, "NN")
@@ -211,13 +232,11 @@ def main():
         assert False
 
     eager_data = analyze_json("gh200_matmul_eager.json")
-    eager_result = eager_data[get_layout_enum(problem_config[3])][problem_config[:3]]
-
     for scheduler_config in itertools.product(*parameter_configurations.values()):
-        nvf_result = test_matmul_nvf(
-            problem_config, scheduler_config, disable_validation=True
+        FusionCache.reset()
+        eager_result, nvf_result, normalized_result = profile_config(
+            eager_data, problem_config, NvFuserConfig(*scheduler_config)
         )
-        normalized_result = eager_result / nvf_result
         print(
             f"{eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}."
         )
