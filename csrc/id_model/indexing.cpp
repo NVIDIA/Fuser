@@ -903,12 +903,18 @@ Val* TensorIndexer::getLinearIndex(
         linear_index,
         SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
   }
+  if(as_consumer && ir_utils::isCpAsyncUblk(expr)){
+    std::cout << "\n\nlinear_index: " << linear_index->toInlineString() << std::endl;
+  }
 
   // If a tensor is circular buffered, it also requires indexing of
   // the circular buffer itself
   if (tv->isCircularBuffered()) {
     auto circular_buffer_offset =
         getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
+    if(as_consumer && ir_utils::isCpAsyncUblk(expr)){
+      std::cout << "circular_buffer_offset: " << circular_buffer_offset->toInlineString() << std::endl;
+    }
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
@@ -921,19 +927,21 @@ Val* TensorIndexer::getLinearIndex(
   // not generated for TMA load, out of bound access may happen if any of the
   // split is not disvisible. The modulo operation is added to avoid this issue
   // at the cost of several useless loads in the last iteration.
-  if (ir_utils::isCpAsyncUblk(expr)) {
-    auto gmem_tv = expr->input(0)->as<TensorView>();
-    if(gmem_tv == tv){
-      auto logical_size = gmem_tv->fusion()->oneVal();
-      const auto& logical_domain = gmem_tv->getLogicalDomain();
-      for (const auto i : c10::irange(logical_domain.size())) {
-        logical_size = SimplifyingIrBuilder::mulExpr(
-            logical_size, logical_domain.at(i)->extent());
-      }
-      linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
-    }
+  // if (ir_utils::isCpAsyncUblk(expr)) {
+  //   auto gmem_tv = expr->input(0)->as<TensorView>();
+  //   if(gmem_tv == tv){
+  //     auto logical_size = gmem_tv->fusion()->oneVal();
+  //     const auto& logical_domain = gmem_tv->getLogicalDomain();
+  //     for (const auto i : c10::irange(logical_domain.size())) {
+  //       logical_size = SimplifyingIrBuilder::mulExpr(
+  //           logical_size, logical_domain.at(i)->extent());
+  //     }
+  //     linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
+  //   }
+  // }
+  if(as_consumer && ir_utils::isCpAsyncUblk(expr)){
+    std::cout << "\n\nfinal_linear_index: " << linear_index->toInlineString() << std::endl;
   }
-
   return linear_index;
 }
 

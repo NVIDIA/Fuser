@@ -2680,6 +2680,34 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+    // ND TMA with tensor map
+    ValGroups groups_to_index = tma_info.getTMADomain();
+    // TensorIndexer needs IterDomain instead of ValGroup to work around
+    // the resize indexing issue
+    std::vector<IterDomain*> ids_to_index;
+    ids_to_index.reserve(groups_to_index.size());
+    const auto tma_all_ids = is_load ? consumer_tv->domain()->allIDs()
+                                     : producer_tv->domain()->allIDs();
+    for (const auto& group : groups_to_index) {
+      auto it = std::find_if(
+          tma_all_ids.begin(), tma_all_ids.end(), [&](IterDomain* gmem_id) {
+            return group->has(gmem_id);
+          });
+      if (it != tma_all_ids.end()) {
+        ids_to_index.push_back(*it);
+      } else {
+        ids_to_index.push_back(group->front()->as<IterDomain>());
+      }
+    }
+
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    auto indices_inner_to_outer =
+        indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+    std::cout << "=========indices_inner_to_outer=============" << std::endl;
+    for(auto indice : indices_inner_to_outer){
+      std::cout << indice->toInlineString() << std::endl;
+    }
+
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
