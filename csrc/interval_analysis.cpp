@@ -322,9 +322,6 @@ BoundedInt ScalarBoundsCalculator::boundByDataType(DataType dtype) {
       ret.min = std::min(ret.min, b.min);
       ret.max = std::max(ret.max, b.max);
     }
-    if (b.min < std::numeric_limits<int32_t>::min() ||
-        b.max > std::numeric_limits<int32_t>::max()) {
-    }
   }
   return ret;
 }
@@ -612,8 +609,6 @@ void ScalarBoundsCalculator::handle(TernaryOp* top) {
           top->toString());
   }
 }
-
-ScalarBoundsCalculator::~ScalarBoundsCalculator() {}
 
 // TODO: Use this to set index type
 PrimDataType getSmallestIndexTypeByBoundingExpressions(

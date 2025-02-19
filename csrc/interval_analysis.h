@@ -45,8 +45,8 @@ namespace nvfuser {
 //! or 6 only. This kind of analysis is not provided by the simplistic
 //! propagation using a BoundedInt interval at each stage.
 struct NVF_API BoundedInt {
-  int64_t min;
-  int64_t max;
+  int64_t min = 0L;
+  int64_t max = 0L;
 
   //! Returns the number of high bits that must be common among all integers in
   //! this interval
@@ -100,7 +100,7 @@ class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
       ExpressionEvaluator& expr_eval,
       const LaunchParams& launch_params);
 
-  NVF_API virtual ~ScalarBoundsCalculator();
+  NVF_API ~ScalarBoundsCalculator() final = default;
 
   //! Return the bounds, computed over all scalars in the fusion with the given
   //! data type
