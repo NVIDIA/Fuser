@@ -649,6 +649,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   fusion.addOutput(tv3);
 
   IdModel id_model(&fusion);
+  id_model.buildExactGraph();
   ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   // As mentioned above, we don't know any relationship between tv0
