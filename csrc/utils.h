@@ -67,7 +67,7 @@ bool is_meta_scalar(const at::Tensor& tensor);
 //! selected_device will be returned. If tensor inputs are found their devices
 //! must match one another, and if selected_device is given they must match it
 //! as well, otherwise -1 is returned.
-int8_t getCommonDeviceCUDA(
+int8_t NVF_API getCommonDeviceCUDA(
     const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 

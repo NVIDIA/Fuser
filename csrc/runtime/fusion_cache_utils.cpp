@@ -60,7 +60,7 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
   }
 
   KernelArgumentHolder holder;
-  for (auto& arg : arg_values) {
+  for (auto arg : arg_values) {
     holder.push(std::move(arg));
   }
   return holder;
