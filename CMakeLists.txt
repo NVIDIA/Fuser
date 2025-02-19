@@ -664,8 +664,8 @@ endfunction()
 
 if(BUILD_TEST)
   set(TEST_BINARIES)
-  add_test(nvfuser_tests "${JIT_TEST_SRCS}" "")
-  list(APPEND TEST_BINARIES nvfuser_tests)
+  add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_nvfuser)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
