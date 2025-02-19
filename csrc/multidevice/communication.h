@@ -59,7 +59,8 @@ class Communication : public Expr {
                  // sharding.
       DeviceIdxType root = -1,
       RedOpType red_op = RedOpType::UNUSED,
-      int64_t scattered_axis = -1);
+      int64_t scattered_axis = -1,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   Communication(const Communication& other) = delete;
   Communication& operator=(const Communication& other) = delete;
@@ -105,6 +106,10 @@ class Communication : public Expr {
 
   int64_t scatteredAxis() const {
     return attribute<int64_t>(4);
+  }
+
+  CommunicatorBackend& backend() {
+    return attribute<CommunicatorBackend>(5);
   }
 
   // PyTorch's process group expects the root to be specified
