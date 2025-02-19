@@ -131,7 +131,8 @@ def run_single_device_test(test_path, log_dir, gpu_id, dry_run=False):
     log_file = log_dir / f"{test_name}.log"
 
     cmd = [test_path]
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     if dry_run:
         print(f"Would run: CUDA_VISIBLE_DEVICES={gpu_id} {' '.join(cmd)} > {log_file}")
@@ -197,7 +198,8 @@ def run_python_test(test_path, log_dir, gpu_id, dry_run=False):
     log_file = log_dir / f"python_{test_name}.log"
 
     cmd = ["pytest", test_path, "-v"]
-    env = {**os.environ, "CUDA_VISIBLE_DEVICES": str(gpu_id)}
+    env = os.environ.copy()
+    env["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
 
     if dry_run:
         print(f"Would run: CUDA_VISIBLE_DEVICES={gpu_id} {' '.join(cmd)} > {log_file}")
