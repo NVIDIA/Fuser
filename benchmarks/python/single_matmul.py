@@ -136,7 +136,8 @@ def custom_matmul_scheduler(fd, config):
         # Schedule fusion
         fd.sched.schedule()
 
-    fd.schedule = inner_fn
+    if config is not None:
+        fd.schedule = inner_fn
     return fd
 
 

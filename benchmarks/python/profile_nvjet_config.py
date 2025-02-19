@@ -256,7 +256,10 @@ def main():
             nvf_baseline = nvf_data[Layout[problem_config[3]]][problem_config[:3]]
             nvf_normalized_result = nvf_baseline / nvf_result
             print(
-                f"{idx} / {len(dp)} --- {problem_config} --- {eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}. relative improvement: {nvf_normalized_result :2f}"
+                f"{idx} / {len(dp)} --- {problem_config} --- "
+                f"{eager_result: .3e} out of {nvf_result: 3e} is "
+                f"{normalized_result: 2f}. relative improvement: "
+                f"{nvf_normalized_result :2f}"
             )
 
     plt.scatter(
