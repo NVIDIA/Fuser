@@ -818,7 +818,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("tma", ParallelType::Bulk)
       .value("unroll", ParallelType::Unroll)
       .value("unswitch", ParallelType::Unswitch)
-      .value("vectorize", ParallelType::Vectorize);
+      .value("vectorize", ParallelType::Vectorize)
+      .value("stream", ParallelType::Stream);
 
   //! LoadStoreOpType used for scheduling
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
