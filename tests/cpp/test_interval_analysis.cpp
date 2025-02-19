@@ -300,7 +300,7 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
 
 // Test that loop indices are properly bounded, as are expressions derived from
 // them
-TEST_F(IntervalAnalysisTest, Loops) {
+TEST_F(IntervalAnalysisTest, SerialLoops) {
   kir::Kernel kernel(FusionGuard::getCurFusion());
   FusionGuard fg(&kernel);
 
@@ -328,6 +328,42 @@ TEST_F(IntervalAnalysisTest, Loops) {
   auto bound_opt = calc.maybeGetBounds(index_plus_offset);
   NVF_ERROR(bound_opt.has_value());
   BoundedInt true_bound{2, 11};
+  EXPECT_EQ(bound_opt.value(), true_bound);
+}
+
+// Test that parallelized loop indices are properly bounded, as are expressions
+// derived from them
+TEST_F(IntervalAnalysisTest, ParallelLoops) {
+  kir::Kernel kernel(FusionGuard::getCurFusion());
+  FusionGuard fg(&kernel);
+
+  Val* ext = NamedScalar::getParallelDim(ParallelType::TIDx);
+  Val* start = kernel.zeroVal();
+  auto* id = IterDomainBuilder(start, ext)
+                 .extent(ext)
+                 .parallel_type(ParallelType::TIDx)
+                 .build();
+  Val* index = IrBuilder::create<Val>(DataType::Index);
+  auto* loop = IrBuilder::create<ForLoop>(
+      id,
+      index,
+      /*circular_buffer_loop_stage=*/CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
+  Val* offset = IrBuilder::create<Val>(DataType::Index);
+  Val* index_plus_offset = add(index, offset);
+  // Compute index + offset inside the "for index in id" loop
+  loop->body().push_back(index_plus_offset->definition());
+
+  ExpressionEvaluator expr_eval;
+  LaunchParams launch_params;
+  launch_params.bind(128, ParallelType::TIDx);
+  ScalarBoundsCalculator calc(/*kernel=*/nullptr, expr_eval, launch_params);
+  calc.setBounds(offset, {2, 5});
+  calc.dispatch(loop);
+  calc.dispatch(index_plus_offset);
+  auto bound_opt = calc.maybeGetBounds(index_plus_offset);
+  NVF_ERROR(bound_opt.has_value());
+  BoundedInt true_bound{2, 132};
   EXPECT_EQ(bound_opt.value(), true_bound);
 }
 
