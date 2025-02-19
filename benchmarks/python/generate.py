@@ -3,6 +3,18 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Tuple
 
+from nvfuser import (
+    FusionDefinition,
+    SchedulerType,
+    MatmulParams,
+    ClusterDims,
+    MatMulTileOptions,
+    GemmTile,
+    MmaMacroEncode,
+    MmaMacroArch,
+    MatmulTileRasterizationOrder,
+)
+
 # 139896, 808, 584, NT, 288x128_64x3_1x2_h_coopA_NTN --- HGMMA.64x96x16  -> (3, 2) -> flip cta tile (128, 288)
 # 2808, 30128, 4968, TN, 160x256_64x4_2x1_v_coopA_TNN --- HGMMA.64x160x16 -> (4, 1) -> file cta tile (256, 160)
 # 11528, 7960, 3784, TT, 192x208_64x4_2x1_v_coopB_NNT --- HGMMA.64x104x16 -> (3, 2) -> no flip
@@ -39,6 +51,15 @@ class NvJetConfig:
     stages: int
     rasterization: str
     modifiers: Tuple[Modifier]
+
+
+@dataclass
+class NvFuserConfig:
+    tile_size: MatMulTileOptions
+    mma_macro: MmaMacroEncode
+    tile_order: MatmulTileRasterizationOrder
+    cluster_dims: ClusterDims
+    circular_buffer_stages: int
 
 
 def read_lines_from_file(file_path):
@@ -146,11 +167,54 @@ def parse(file_name):
     return dp, splitk
 
 
+def generate_nvfuser_config(config: NvJetConfig):
+    # Skip Split-K and Alternate
+    if len(config.modifiers) != 1:
+        return None
+
+    cta_m, cta_n, cta_k = config.cta_tile
+
+    if config.modifiers[0] == Modifier.coopA:
+        if cta_n > 256:
+            return None
+
+        warp_m = cta_m // 2
+        warp_tile = GemmTile(warp_m, cta_n, cta_k)
+        mma_macro = MmaMacroEncode(MmaMacroArch.hopper, 64, cta_n, 16)
+    else:
+        warp_n = cta_n // 2
+        if warp_n > 256:
+            return None
+        warp_tile = GemmTile(cta_m, warp_n, cta_k)
+        mma_macro = MmaMacroEncode(MmaMacroArch.hopper, 64, warp_n, 16)
+
+    cta_tile = GemmTile(cta_m, cta_n, cta_k)
+
+    if config.rasterization == "h":
+        tile_order = MatmulTileRasterizationOrder.row_major
+    else:
+        tile_order = MatmulTileRasterizationOrder.column_major
+
+    cluster_dims = ClusterDims(config.cga[0], config.cga[1], 1)
+    return NvFuserConfig(
+        MatMulTileOptions(cta_tile, warp_tile),
+        mma_macro,
+        tile_order,
+        cluster_dims,
+        config.stages,
+    )
+
+
 def main():
     import sys
 
     dp, splitk = parse(sys.argv[1])
-    print(len(dp))
+
+    for problem_config, nvjet_config in dp.items():
+        nvfuser_config = generate_nvfuser_config(nvjet_config)
+        if nvfuser_config is None:
+            continue
+        print(problem_config, nvjet_config)
 
 
 if __name__ == "__main__":
