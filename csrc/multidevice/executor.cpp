@@ -33,7 +33,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();

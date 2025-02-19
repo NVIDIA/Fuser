@@ -73,11 +73,12 @@ class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
-      Communicator& comm,
+      Communicator& comm = Communicator::getInstance(),
       hir::HostIrEvaluatorParams params = hir::HostIrEvaluatorParams());
 
   // Run the fusion on several devices with the given global inputs
-  std::vector<at::Tensor> runWithInput(const std::vector<c10::IValue>& inputs);
+  std::vector<at::Tensor> runWithInput(
+      const c10::ArrayRef<c10::IValue>& inputs);
 
   // Returns the Communicator
   Communicator* comm() const {
