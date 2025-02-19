@@ -62,8 +62,8 @@ void KernelArgumentHolder::push(at::Tensor tensor) {
   arguments_.emplace_back(PolymorphicValue(tensor));
 }
 
-void KernelArgumentHolder::push(const PolymorphicValue& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
+void KernelArgumentHolder::push(PolymorphicValue val) {
+  arguments_.emplace_back(std::move(val));
 }
 
 void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
