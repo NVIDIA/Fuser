@@ -7385,9 +7385,9 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     DataType ptr_type =
         PointerType{std::make_shared<DataType>(DataType::Float)};
     auto ptr = IrBuilder::create<Val>(ptr_type);
-    // DataType array_type =
-    //     ArrayType{std::make_shared<DataType>(DataType::Float), 2};
-    // auto array = IrBuilder::create<Val>(array_type);
+    DataType array_type =
+        ArrayType{std::make_shared<DataType>(DataType::Float), 2};
+    auto array = IrBuilder::create<Val>(array_type);
     fusion->addInput(tv0);
     fusion->addInput(tv1);
     fusion->addInput(d);
@@ -7417,10 +7417,10 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     output = IrBuilder::addExpr(output, abs(cf));
     output = IrBuilder::addExpr(output, abs(cd));
     output = IrBuilder::addExpr(output, IrBuilder::derefExpr(ptr));
-    // output = IrBuilder::addExpr(
-    //     output, IrBuilder::getItemExpr(array, PolymorphicValue(0L)));
-    // output = IrBuilder::addExpr(
-    //     output, IrBuilder::getItemExpr(array, PolymorphicValue(1L)));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(0L)));
+    output = IrBuilder::addExpr(
+        output, IrBuilder::getItemExpr(array, PolymorphicValue(1L)));
     output = add(tv0, output);
     output = add(tv1, output);
 
@@ -7452,7 +7452,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     args.push(std::complex<double>(4.5, 6.7));
     args.push(std::complex<double>(8.9, 10.11));
     args.push(t2.data_ptr<float>());
-    // args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+    args.push(PolymorphicValue(std::vector<PolymorphicValue>{12.3, 45.0}));
     if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
       args.push(12.3); // bf16
     }
@@ -7524,7 +7524,7 @@ TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
   fusion.addOutput(tv);
 
   KernelArgumentHolder args;
-  args.push(Opaque(std::array<float, 2>{1.2, 3.4}));
+  args.push(PolymorphicValue(Opaque(std::array<float, 2>{1.2, 3.4})));
 
   KernelExecutor ke;
   ke.compile(&fusion);

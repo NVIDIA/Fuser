@@ -34,6 +34,16 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 
 } // namespace
 
+void KernelArgumentHolder::push(const KernelArgumentHolder& args) {
+  for (const auto& arg : args) {
+    arguments_.emplace_back(arg);
+  }
+}
+
+void KernelArgumentHolder::push(const std::vector<PolymorphicValue>& args) {
+  arguments_.insert(arguments_.end(), args.begin(), args.end());
+}
+
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   for (const auto& tensor : tensors) {
     arguments_.emplace_back(PolymorphicValue(tensor));
@@ -68,24 +78,24 @@ void KernelArgumentHolder::push(const PolymorphicValue& val) {
   arguments_.emplace_back(PolymorphicValue(val));
 }
 
-void KernelArgumentHolder::push(const int64_t& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
+void KernelArgumentHolder::push(int64_t val) {
+  arguments_.emplace_back(PolymorphicValue(std::move(val)));
 }
 
-void KernelArgumentHolder::push(const int& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
+void KernelArgumentHolder::push(int val) {
+  arguments_.emplace_back(PolymorphicValue(std::move(val)));
 }
 
-void KernelArgumentHolder::push(const double& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
+void KernelArgumentHolder::push(double val) {
+  arguments_.emplace_back(PolymorphicValue(std::move(val)));
 }
 
-void KernelArgumentHolder::push(const bool& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
+void KernelArgumentHolder::push(bool val) {
+  arguments_.emplace_back(PolymorphicValue(std::move(val)));
 }
 
-void KernelArgumentHolder::push(const std::complex<double>& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
+void KernelArgumentHolder::push(std::complex<double> val) {
+  arguments_.emplace_back(PolymorphicValue(std::move(val)));
 }
 
 void KernelArgumentHolder::push(const ArrayType& vals) {
