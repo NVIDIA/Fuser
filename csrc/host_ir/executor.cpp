@@ -189,7 +189,7 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_device_index_(communicator_ ? communicator_->deviceId() : 0) {
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -204,13 +204,7 @@ HostIrEvaluator::HostIrEvaluator(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-std::vector<at::Tensor> HostIrEvaluator::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
-  // process input values
-  for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(val, IValueToPolymorphicValue(ivalue));
-  }
-
+std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
@@ -219,6 +213,27 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
 
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+}
+
+std::vector<at::Tensor> HostIrEvaluator::runWithInput(
+    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, ivalue] : val_to_IValue) {
+    expr_evaluator_.bind(
+        val, PolymorphicValue_functions::IValueToPolymorphicValue(ivalue));
+  }
+
+  return dispatchAndCollectOutputs();
+}
+
+std::vector<at::Tensor> HostIrEvaluator::runWithPolymorphicValues(
+    std::unordered_map<Val*, const PolymorphicValue&> val_to_PValue) {
+  // process input values
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    expr_evaluator_.bind(val, pvalue);
+  }
+
+  return dispatchAndCollectOutputs();
 }
 
 std::string HostIrEvaluator::canRun() const {
@@ -279,13 +294,13 @@ void HostIrEvaluator::handle(GetCurrentStream* get_current_stream) {
   streams_.insert(
       {get_current_stream->stream(),
        c10::cuda::getCurrentCUDAStream(
-           static_cast<c10::DeviceIndex>(my_device_index_))});
+           static_cast<c10::DeviceIndex>(my_local_device_index_))});
 }
 
 void HostIrEvaluator::handle(Synchronize* synchronize) {
   cudaStream_t current_stream =
       c10::cuda::getCurrentCUDAStream(
-          static_cast<c10::DeviceIndex>(my_device_index_))
+          static_cast<c10::DeviceIndex>(my_local_device_index_))
           .stream();
   cudaStream_t stream_to_sync = getCUDAStream(synchronize->stream()).stream();
 
@@ -300,8 +315,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   std::vector<c10::IValue> input_IValues;
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+  KernelArgumentHolder args(input_IValues);
   for (auto& input : launch_kernel->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -315,7 +329,11 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // run the compiled kernel
   std::vector<at::Tensor> outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
+      container_->getKernelExecutor(launch_kernel->getIndex())
+          ->run(
+              args,
+              launch_kernel->launch_params(),
+              launch_kernel->compile_params());
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
@@ -375,8 +393,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      KernelArgumentHolder args =
-          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      KernelArgumentHolder args(input_IValues);
       outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
 
     } else {
@@ -388,15 +405,13 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
                hu->fusion_to_execute(), 1, 1, 1, 1)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
-        KernelArgumentHolder args =
-            KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+        KernelArgumentHolder args(input_IValues);
         ExecutorDispatch::compile(
             ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      KernelArgumentHolder args =
-          KernelArgumentHolder::createKernelArgumentHolder(input_IValues);
+      KernelArgumentHolder args(input_IValues);
       outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
     }
   }

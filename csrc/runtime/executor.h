@@ -86,11 +86,10 @@ class KernelExecutor : public ExecutorAbstract {
   //! tests.
   void compile(
       Fusion* fusion,
-      const at::ArrayRef<c10::IValue>& inputs = {},
+      const c10::ArrayRef<c10::IValue>& inputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams()) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
+    KernelArgumentHolder args(inputs);
     compile(fusion, args, launch_constraints, compile_params);
   }
 
@@ -106,13 +105,12 @@ class KernelExecutor : public ExecutorAbstract {
       std::vector<at::Tensor> outputs = {});
 
   std::vector<at::Tensor> run(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
+    KernelArgumentHolder args(inputs);
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
@@ -120,7 +118,7 @@ class KernelExecutor : public ExecutorAbstract {
   }
 
   std::vector<at::Tensor> run(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {

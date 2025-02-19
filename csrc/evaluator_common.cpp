@@ -191,12 +191,12 @@ void PrecomputedValues::bindValues(
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
     if (auto* tv = dynamic_cast<TensorView*>(input)) {
-      const auto& tensor = args[i]->as<at::Tensor>();
+      const auto& tensor = args[i].as<at::Tensor>();
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tv, tensor);
       }
     } else {
-      bindValue(input->evaluatorIndex(), *args[i]);
+      bindValue(input->evaluatorIndex(), args[i]);
     }
   }
 }
