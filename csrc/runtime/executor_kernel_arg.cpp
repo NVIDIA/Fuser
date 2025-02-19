@@ -34,6 +34,10 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 
 } // namespace
 
+void KernelArgumentHolder::push(const std::vector<PolymorphicValue>& args) {
+  arguments_.insert(arguments_.end(), args.begin(), args.end());
+}
+
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   for (const auto& tensor : tensors) {
     arguments_.emplace_back(PolymorphicValue(tensor));
@@ -54,42 +58,19 @@ void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
   }
 }
 
-void KernelArgumentHolder::push(const at::Tensor& tensor) {
+void KernelArgumentHolder::push(at::Tensor tensor) {
   arguments_.emplace_back(PolymorphicValue(tensor));
 }
 
-void KernelArgumentHolder::push(const std::optional<at::Tensor>& opt_tensor) {
-  if (opt_tensor.has_value()) {
-    arguments_.emplace_back(PolymorphicValue(opt_tensor.value()));
-  }
+void KernelArgumentHolder::push(PolymorphicValue val) {
+  arguments_.emplace_back(std::move(val));
 }
 
-void KernelArgumentHolder::push(const PolymorphicValue& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
-}
-
-void KernelArgumentHolder::push(const int64_t& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
-}
-
-void KernelArgumentHolder::push(const int& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
-}
-
-void KernelArgumentHolder::push(const double& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
-}
-
-void KernelArgumentHolder::push(const bool& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
-}
-
-void KernelArgumentHolder::push(const std::complex<double>& val) {
-  arguments_.emplace_back(PolymorphicValue(val));
-}
-
-void KernelArgumentHolder::push(const ArrayType& vals) {
-  NVF_THROW("Not implemented");
+void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
+  NVF_ERROR(
+      tensor.has_value(),
+      "KernelArgumentHolder doesn't support empty optional values, it's expected that when pushed they exist.");
+  arguments_.emplace_back(PolymorphicValue(tensor.value()));
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {

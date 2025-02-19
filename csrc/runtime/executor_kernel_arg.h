@@ -22,22 +22,6 @@
 
 namespace nvfuser {
 
-namespace detail {
-template <typename T>
-struct is_kernel_argument_holder : std::false_type {};
-
-template <>
-struct is_kernel_argument_holder<KernelArgumentHolder> : std::true_type {};
-
-template <typename T>
-inline constexpr bool is_kernel_argument_holder_v = is_kernel_argument_holder<
-    std::remove_cv_t<std::remove_reference_t<T>>>::value;
-
-template <typename... Args>
-inline constexpr bool no_kernel_argument_holder =
-    !(is_kernel_argument_holder_v<Args> || ...);
-} // namespace detail
-
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
 //! for both compilation as well as kernel execution. It takes ownership of
@@ -47,6 +31,10 @@ class NVF_API KernelArgumentHolder {
   KernelArgumentHolder() = default;
 
   KernelArgumentHolder(const KernelArgumentHolder& self) = default;
+  KernelArgumentHolder(KernelArgumentHolder& self) = default;
+  KernelArgumentHolder(KernelArgumentHolder&& self) = default;
+  KernelArgumentHolder& operator=(const KernelArgumentHolder& other) = default;
+  KernelArgumentHolder& operator=(KernelArgumentHolder&& other) = default;
 
   // Constructor using std::enable_if_t for C++17 compatibility to prevent
   // implicit conversion to KernelArgumentHolder which can cause a recursive
@@ -54,9 +42,7 @@ class NVF_API KernelArgumentHolder {
   //
   // Previously this constructor took in an optional device but I couldn't
   // figure out how to get that to work with the variadic template.
-  template <
-      typename... Args,
-      typename = std::enable_if_t<detail::no_kernel_argument_holder<Args...>>>
+  template <typename... Args>
   NVF_API KernelArgumentHolder(Args&&... args) {
     (push(std::forward<Args>(args)), ...);
     if (arguments_.empty()) {
@@ -75,8 +61,18 @@ class NVF_API KernelArgumentHolder {
       const std::vector<int64_t>& strides,
       at::ScalarType dtype);
 
+  // KernelArgumentHolder specific push to disambiguate from PolymorphicValue
+  // push
+  template <typename T>
+  std::enable_if_t<std::is_same_v<std::decay_t<T>, KernelArgumentHolder>, void>
+  push(const T& args) {
+    arguments_.reserve(arguments_.size() + args.size());
+    for (const auto& arg : args) {
+      arguments_.emplace_back(arg);
+    }
+  }
+
   void push(const std::vector<at::Tensor>& tensors);
-  void push(const std::optional<at::Tensor>& opt_tensor);
   void push(const c10::ArrayRef<c10::IValue>& args);
   void push(std::initializer_list<c10::IValue> args) {
     push(c10::ArrayRef<c10::IValue>(args));
@@ -90,21 +86,14 @@ class NVF_API KernelArgumentHolder {
       push(arg);
     }
   }
-  // void push(const KernelArgumentHolder& args);
-  void push(const std::vector<c10::IValue>& args);
-  void push(const at::Tensor& tensor);
-  void push(const PolymorphicValue& val);
-  void push(const int64_t& val);
-  void push(const int& val);
-  void push(const double& val);
-  void push(const bool& val);
-  void push(const std::complex<double>& val);
-  void push(const ArrayType& vals);
 
-  template <typename T>
-  void push(T* ptr) {
-    arguments_.push_back(PolymorphicValue(ptr));
-  }
+  void push(const std::vector<PolymorphicValue>& args);
+  void push(const std::vector<c10::IValue>& args);
+  // Needed to disambiguate from std::optional<at::Tensor> push when using
+  // at::Tensor
+  void push(at::Tensor tensor);
+  void push(PolymorphicValue val);
+  void push(std::optional<at::Tensor> tensor);
 
   void erase(const PolymorphicValue& arg_to_delete);
 
