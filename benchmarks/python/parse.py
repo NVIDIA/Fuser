@@ -70,7 +70,8 @@ for idx, line in enumerate(lines):
         if cta_m > 64:
             cond_a = cta_m % 64 == 0
             cond_b = cta_n <= 256
-            if cond_a and cond_b:
+            cond_c = cta_n % 8 == 0
+            if all([cond_a, cond_b, cond_c]):
                 modifiers.append(Modifier.alternateM)
             else:
                 odd_alternate_m.add(line)
@@ -106,7 +107,6 @@ for idx, line in enumerate(lines):
     dp += 1
     all_kernels.add(Name)
     data[Layout[layout]].add(Name)
-    idx += 1
 
 print("====")
 print(f"dp: {dp}, split-k: {splitk}")
