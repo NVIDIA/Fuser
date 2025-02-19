@@ -68,12 +68,6 @@ void KernelArgumentHolder::push(const at::Tensor& tensor) {
   arguments_.emplace_back(PolymorphicValue(tensor));
 }
 
-void KernelArgumentHolder::push(const std::optional<at::Tensor>& opt_tensor) {
-  if (opt_tensor.has_value()) {
-    arguments_.emplace_back(PolymorphicValue(opt_tensor.value()));
-  }
-}
-
 void KernelArgumentHolder::push(const PolymorphicValue& val) {
   arguments_.emplace_back(PolymorphicValue(val));
 }
