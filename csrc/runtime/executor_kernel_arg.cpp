@@ -34,12 +34,6 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 
 } // namespace
 
-void KernelArgumentHolder::push(const KernelArgumentHolder& args) {
-  for (const auto& arg : args) {
-    arguments_.emplace_back(arg);
-  }
-}
-
 void KernelArgumentHolder::push(const std::vector<PolymorphicValue>& args) {
   arguments_.insert(arguments_.end(), args.begin(), args.end());
 }
@@ -72,28 +66,11 @@ void KernelArgumentHolder::push(const PolymorphicValue& val) {
   arguments_.emplace_back(PolymorphicValue(val));
 }
 
-void KernelArgumentHolder::push(int64_t val) {
-  arguments_.emplace_back(PolymorphicValue(std::move(val)));
-}
-
-void KernelArgumentHolder::push(int val) {
-  arguments_.emplace_back(PolymorphicValue(std::move(val)));
-}
-
-void KernelArgumentHolder::push(double val) {
-  arguments_.emplace_back(PolymorphicValue(std::move(val)));
-}
-
-void KernelArgumentHolder::push(bool val) {
-  arguments_.emplace_back(PolymorphicValue(std::move(val)));
-}
-
-void KernelArgumentHolder::push(std::complex<double> val) {
-  arguments_.emplace_back(PolymorphicValue(std::move(val)));
-}
-
-void KernelArgumentHolder::push(const ArrayType& vals) {
-  NVF_THROW("Not implemented");
+void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
+  NVF_ERROR(
+      tensor.has_value(),
+      "KernelArgumentHolder doesn't support empty optional values, it's expected that when pushed they exist.");
+  arguments_.emplace_back(PolymorphicValue(tensor.value()));
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {

@@ -7524,7 +7524,7 @@ TEST_F(NVFuserTest, OpaqueTupleAsComplex) {
   fusion.addOutput(tv);
 
   KernelArgumentHolder args;
-  args.push(PolymorphicValue(Opaque(std::array<float, 2>{1.2, 3.4})));
+  args.push(Opaque(std::array<float, 2>{1.2, 3.4}));
 
   KernelExecutor ke;
   ke.compile(&fusion);

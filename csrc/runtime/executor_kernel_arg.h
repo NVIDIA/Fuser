@@ -61,6 +61,17 @@ class NVF_API KernelArgumentHolder {
       const std::vector<int64_t>& strides,
       at::ScalarType dtype);
 
+  // KernelArgumentHolder specific push to disambiguate from PolymorphicValue
+  // push
+  template <typename T>
+  std::enable_if_t<std::is_same_v<std::decay_t<T>, KernelArgumentHolder>, void>
+  push(const T& args) {
+    arguments_.reserve(arguments_.size() + args.size());
+    for (const auto& arg : args) {
+      arguments_.emplace_back(arg);
+    }
+  }
+
   void push(const std::vector<at::Tensor>& tensors);
   void push(const c10::ArrayRef<c10::IValue>& args);
   void push(std::initializer_list<c10::IValue> args) {
@@ -76,22 +87,13 @@ class NVF_API KernelArgumentHolder {
     }
   }
 
-  void push(const KernelArgumentHolder& args);
   void push(const std::vector<PolymorphicValue>& args);
   void push(const std::vector<c10::IValue>& args);
+  // Needed to disambiguate from std::optional<at::Tensor> push when using
+  // at::Tensor
   void push(const at::Tensor& tensor);
   void push(const PolymorphicValue& val);
-  void push(int64_t val);
-  void push(int val);
-  void push(double val);
-  void push(bool val);
-  void push(std::complex<double> val);
-  void push(const ArrayType& vals);
-
-  template <typename T>
-  void push(T* ptr) {
-    arguments_.push_back(PolymorphicValue(ptr));
-  }
+  void push(std::optional<at::Tensor> tensor);
 
   void erase(const PolymorphicValue& arg_to_delete);
 
