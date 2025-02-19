@@ -1591,8 +1591,8 @@ INSTANTIATE_TEST_SUITE_P(
 using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;
 TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   DataType dtype = GetParam();
-  int64_t dim1 = (dtype == DataType::Half ? 66 * 1024 : 33 * 1024);
-  const std::vector<int64_t> input_shape = {1024, dim1};
+  int64_t dim1 = 4096;
+  const std::vector<int64_t> input_shape = {8192, dim1};
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(input_shape.size(), dtype);

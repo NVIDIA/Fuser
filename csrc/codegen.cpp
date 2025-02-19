@@ -1242,6 +1242,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
+  // There are 16 Named Barriers provided by Hardware starting in Hopper
+  // Their IDs are in the range 0-15
+  // Number of threads syncing using the barrier must be a multiple of warp-size
+  // ID 0 should not be used for safety, as other driver APIs (i.e.
+  // __syncthreads) may use it and conflict with other uses.
+  std::string genBarrierId() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    if (!pdim_map.hasWarpSpecialization()) {
+      ss << "0";
+    } else {
+      ss << "1" << " + " << genInline(current_buffer_id_);
+    }
+    return ss.str();
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "
@@ -1281,6 +1297,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
     func_args.arg(genComputeBlockDim());
+    func_args.arg(genBarrierId());
 
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
              << ";\n";
@@ -1314,6 +1331,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
     func_args.arg(genComputeBlockDim());
+    func_args.arg(genBarrierId());
 
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
@@ -3032,8 +3050,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (std::getenv("NO_FETCH_UNROLL") == nullptr && loop->circularBufferLoopStage() !=
-        CircularBufferLoopStage::NotApplicable) {
+    if (std::getenv("NO_FETCH_UNROLL") == nullptr &&
+        loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::NotApplicable) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler
       // should maximally unroll such loops leading to very long compiles, we
@@ -3589,6 +3608,28 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::MBarrierWaitParity* wait) final {
+    auto getTensorIndex = [wait]() {
+      auto mbarrier = wait->mbarrier();
+      kir::TensorIndex* tensor_index = nullptr;
+      auto current_def = mbarrier->definition();
+      while (current_def && current_def->isA<UnaryOp>()) {
+        std::cout << "current def:\n" << current_def->toString() << std::endl;
+        auto input = current_def->as<UnaryOp>()->in();
+        if (input->isA<kir::TensorIndex>()) {
+          tensor_index = input->as<kir::TensorIndex>();
+          break;
+        }
+        current_def = input->definition();
+      }
+      return tensor_index;
+    };
+
+    if (auto mbarrier_tensor_index = getTensorIndex()) {
+      current_buffer_id_ = mbarrier_tensor_index->index();
+      std::cout << "current_buffer_id_: "
+                << current_buffer_id_->toInlineString() << std::endl;
+    }
+
     auto call = genCall(
         "mbarrier::waitParity",
         ArgumentBuilder()
@@ -3698,6 +3739,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   int block_nest_level_ = 0;
   int block_reduce_name_ = 0;
   bool print_inline_ = false;
+
+  // Keep track of the current circular buffer id
+  Val* current_buffer_id_;
 
   // Mark when we are inside of a vectorized for-loop
   bool vectorize_scope_ = false;

@@ -169,9 +169,9 @@ void innerPersistentHeuristicTMA(
   circular_buffer_options.stage = std::min(smem_limited_stages, max_stages);
 
   circular_buffer_options.prefetch = 1;
-  if (std::getenv("USE_MAX_PREFETCH")) {
-    circular_buffer_options.prefetch =
-        std::max(circular_buffer_options.stage - 1, (int64_t)1);
+  if (std::getenv("PREFETCH")) {
+    int64_t prefetch = std::atoi(std::getenv("PREFETCH"));
+    circular_buffer_options.prefetch = prefetch;
   }
   // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
   // false};
@@ -671,32 +671,45 @@ void innerPersistentHeuristic2D(
   if (std::getenv("USE_TMA") != nullptr) {
     rparams->use_tma_load = true;
     rparams->smem_persistent_buffers = properties.persistent_buffers;
-    CircularBufferOptions circular_buffer_options;
+
     int64_t max_stages = 128;
     if (std::getenv("MAX_STAGES")) {
       max_stages = std::atoi(std::getenv("MAX_STAGES"));
     }
     int64_t smem_limited_stages =
         getMaxCircularBufferStages(fusion, properties);
-    while (properties.total_iteration_numel % smem_limited_stages) {
-      smem_limited_stages--;
+    // while (properties.total_iteration_numel % smem_limited_stages) {
+    //   smem_limited_stages--;
+    // }
+    int64_t stages = std::min(smem_limited_stages, max_stages);
+    int64_t prefetch = 1;
+    if (std::getenv("PREFETCH")) {
+      prefetch = std::atoi(std::getenv("PREFETCH"));
     }
-    circular_buffer_options.stage = std::min(smem_limited_stages, max_stages);
 
-    circular_buffer_options.prefetch = 1;
-    if (std::getenv("USE_MAX_PREFETCH")) {
-      circular_buffer_options.prefetch =
-          std::max(circular_buffer_options.stage - 1, (int64_t)1);
-    }
-    // CircularBufferType circular_buffer_type{std::in_place_type<Pipelined>,
-    // false};
-    CircularBufferType circular_buffer_type{Pipelined(true)};
-    circular_buffer_options.type = circular_buffer_type;
-    if (std::getenv("WARPTIDZ")) {
-      CircularBufferType circular_buffer_type{
-          WarpSpecialized(ParallelType::TIDz)};
-      circular_buffer_options.type = circular_buffer_type;
-    }
+    CircularBufferType circular_buffer_type =
+        WarpSpecialized(ParallelType::TIDx);
+    // if (std::getenv("WARPTIDZ")) {
+    //   CircularBufferType circular_buffer_type{
+    //       WarpSpecialized(ParallelType::TIDz)};
+    //   circular_buffer_options.type = circular_buffer_type;
+    // }else
+    // if (std::getenv("WARPTIDX")) {
+    //   CircularBufferType circular_buffer_type{
+    //       WarpSpecialized(ParallelType::TIDx)};
+    //   circular_buffer_options.type = circular_buffer_type;
+    // }else
+    // if (std::getenv("WARPTIDY")) {
+    //   CircularBufferType circular_buffer_type{
+    //       WarpSpecialized(ParallelType::TIDy)};
+    //   circular_buffer_options.type = circular_buffer_type;
+    // }else{
+    //   CircularBufferType circular_buffer_type{Pipelined(true)};
+    //   circular_buffer_options.type = circular_buffer_type;
+    // }
+    CircularBufferOptions circular_buffer_options{
+        .type = circular_buffer_type, .stage = stages, .prefetch = prefetch};
+
     rparams->circular_buffer_options = circular_buffer_options;
     rparams->cparams.enable_magic_zero = false;
   } else {
