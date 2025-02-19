@@ -170,7 +170,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     std::stringstream final_code;
     for (const auto& [ns, code] : codegen.utilities_) {
       if (!ns.empty()) {
-        final_code << "namespace " << ns << " {\n" << code.str() << "} // namespace " << ns << "\n";
+        final_code << "namespace " << ns << " {\n"
+                   << code.str() << "} // namespace " << ns << "\n";
       } else {
         final_code << code.str() << "\n";
       }
