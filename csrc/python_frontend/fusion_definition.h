@@ -12,6 +12,7 @@
 #include <unordered_map>
 
 #include <exceptions.h>
+#include <multidevice/executor.h>
 #include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_state.h>
 #include <python_frontend/segmentation.h>
@@ -367,6 +368,11 @@ class NVF_API FusionDefinition : public FusionState {
 
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
+
+ public:
+  //! (Experimental) toggle using MultiDeviceExecutor directly instead of the
+  //! main stack
+  mutable bool use_multidevice_executor = false;
 };
 
 } // namespace nvfuser::python_frontend

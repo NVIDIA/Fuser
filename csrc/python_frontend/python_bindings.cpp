@@ -1530,7 +1530,10 @@ void initNvFuserPythonBindings(PyObject* module) {
             return out;
           },
           py::arg("dtype") = DataType::Double,
-          py::return_value_policy::reference);
+          py::return_value_policy::reference)
+      .def("use_multidevice_executor", [](FusionDefinition& self) {
+        self.use_multidevice_executor = true;
+      });
   fusion_def.def(
       "define_scalar",
       [](FusionDefinition& self,

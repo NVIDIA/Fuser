@@ -402,7 +402,13 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   const auto* user_sched = find_user_schedule();
 
   std::vector<at::Tensor> out_tensors;
-  if (user_sched == nullptr) {
+  if (use_multidevice_executor) {
+    if (scheds->multi_device_executor == nullptr) {
+      scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
+          std::make_unique<Fusion>(*scheds->auto_gen_schedules->fusion()));
+    }
+    out_tensors = scheds->multi_device_executor->runWithInput(inputs);
+  } else if (user_sched == nullptr) {
     out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
         inputs, std::nullopt, selected_device);
   } else {
@@ -457,10 +463,13 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
   out_dtensors.reserve(out_tensors.size());
+  // if (user_sched == nullptr && use_multidevice_executor == false) {
   if (user_sched == nullptr) {
-    FusionKernelRuntime* runtime =
-        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
-    Fusion* fusion = runtime->fusionSegments()->completeFusion();
+    Fusion* fusion = use_multidevice_executor
+        ? scheds->multi_device_executor->hirEvaluator()->container()
+        : scheds->auto_gen_schedules->getMostRecentKernelRuntime()
+              ->fusionSegments()
+              ->completeFusion();
 
     int64_t tensor_index = 0;
     for (Val* out_val : fusion->outputs()) {
