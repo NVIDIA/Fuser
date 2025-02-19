@@ -687,26 +687,15 @@ void innerPersistentHeuristic2D(
       prefetch = std::atoi(std::getenv("PREFETCH"));
     }
 
-    CircularBufferType circular_buffer_type =
-        WarpSpecialized(ParallelType::TIDx);
-    // if (std::getenv("WARPTIDZ")) {
-    //   CircularBufferType circular_buffer_type{
-    //       WarpSpecialized(ParallelType::TIDz)};
-    //   circular_buffer_options.type = circular_buffer_type;
-    // }else
-    // if (std::getenv("WARPTIDX")) {
-    //   CircularBufferType circular_buffer_type{
-    //       WarpSpecialized(ParallelType::TIDx)};
-    //   circular_buffer_options.type = circular_buffer_type;
-    // }else
-    // if (std::getenv("WARPTIDY")) {
-    //   CircularBufferType circular_buffer_type{
-    //       WarpSpecialized(ParallelType::TIDy)};
-    //   circular_buffer_options.type = circular_buffer_type;
-    // }else{
-    //   CircularBufferType circular_buffer_type{Pipelined(true)};
-    //   circular_buffer_options.type = circular_buffer_type;
-    // }
+    ParallelType warp_parallel_type = ParallelType::TIDx;
+    if (std::getenv("WARPTIDZ")) {
+      warp_parallel_type = ParallelType::TIDz;
+    }
+    if (std::getenv("WARPTIDY")) {
+      warp_parallel_type = ParallelType::TIDy;
+    }
+    CircularBufferType circular_buffer_type = WarpSpecialized(warp_parallel_type);
+    
     CircularBufferOptions circular_buffer_options{
         .type = circular_buffer_type, .stage = stages, .prefetch = prefetch};
 
