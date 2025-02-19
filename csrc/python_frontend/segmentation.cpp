@@ -14,7 +14,7 @@ int64_t SegmentationState::setupSegmentation(
     Fusion* fusion,
     const std::unordered_map<const Val*, int64_t>&
         map_presched_value_to_original_python_index,
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   // Check state
   NVF_ERROR(fusion != nullptr);
   NVF_ERROR(cloned_original_fusion_ == nullptr);
@@ -55,8 +55,7 @@ int64_t SegmentationState::setupSegmentation(
       });
 
   // Step 3) Concretize fusion with input arguments.
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+  KernelArgumentHolder args(inputs, device);
 
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(cloned_original_fusion_.get(), args);
@@ -95,7 +94,7 @@ int64_t SegmentationState::setupSegmentation(
 
   // Run segmentation algorithm
   segmented_fusion_ = SegmentCandidateFinder::segment(
-      std::move(cloned_original_fusion_), &args, runtime_info);
+      std::move(cloned_original_fusion_), args, runtime_info);
 
   // Get the order for fusion segments
   prepareGroupOrder();

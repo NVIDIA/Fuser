@@ -425,6 +425,12 @@ inline c10::Scalar toScalar(const PolymorphicValue& x) {
   }
 }
 
+PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
+
+inline bool isScalar(const PolymorphicValue& x);
+
+c10::IValue toIValue(const PolymorphicValue& x);
+
 } // namespace PolymorphicValue_functions
 
 } // namespace nvfuser
