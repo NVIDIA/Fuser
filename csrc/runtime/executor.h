@@ -81,35 +81,11 @@ class KernelExecutor : public ExecutorAbstract {
       CompileParams compile_params = CompileParams(),
       SchedulerType sceduler_type = SchedulerType::None);
 
-  // Initializer list version that creates KernelArgumentHolder from tensors
-  NVF_API void compile(
-      Fusion* fusion,
-      std::initializer_list<at::Tensor> args,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      SchedulerType sceduler_type = SchedulerType::None) {
-    compile(
-        fusion,
-        KernelArgumentHolder(args),
-        launch_constraints,
-        compile_params,
-        sceduler_type);
-  }
-
   NVF_API std::vector<at::Tensor> run(
       KernelArgumentHolder args,
       std::vector<at::Tensor> outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams());
-
-  NVF_API std::vector<at::Tensor> run(
-      std::initializer_list<at::Tensor> args,
-      std::vector<at::Tensor> outputs = {},
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams()) {
-    auto kernel_args = KernelArgumentHolder(args);
-    return run(kernel_args, outputs, launch_constraints, compile_params);
-  }
 
   // Register a lowering hooks that are called to modify the GpuLower object
   // before running lowering passes. The main use case is for unit tests to
