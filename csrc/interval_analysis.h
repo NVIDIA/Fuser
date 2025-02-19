@@ -100,7 +100,7 @@ class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
       ExpressionEvaluator& expr_eval,
       const LaunchParams& launch_params);
 
-  NVF_API ~ScalarBoundsCalculator() final = default;
+  NVF_API ~ScalarBoundsCalculator() override = default;
 
   //! Return the bounds, computed over all scalars in the fusion with the given
   //! data type
