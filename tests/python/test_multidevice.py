@@ -1688,3 +1688,78 @@ def test_transformer_backward(multidevice_test, benchmark):
     _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)
 
     benchmark.pedantic(benchmark_fn, rounds=5)
+
+
+class OverlapAGMatmulStreamOutermost(FusionDefinition):
+    def __init__(self, M, K, N, S, num_devices):
+        super().__init__()
+        self._M = M
+        self._K = K
+        self._N = N
+        self._S = S
+        self._num_devices = num_devices
+        self.use_multidevice_executor()
+
+    def definition(self) -> None:
+        M, K, N, S, D = (
+            self._M,
+            self._K,
+            self._N,
+            self._S,
+            self._num_devices,
+        )
+        self.x = self.define_tensor(
+            shape=[S, D, M // (S * D), K], contiguity=True, dtype=DataType.BFloat16
+        )
+        self.weight = self.define_tensor(
+            shape=[N, K], contiguity=True, dtype=DataType.BFloat16
+        )
+        self.bias = self.define_tensor(
+            shape=[N], contiguity=True, dtype=DataType.BFloat16
+        )
+
+        self.out = self.ops.linear(
+            self.x, self.weight, self.bias
+        )  # [S, D, M//(S*D), N]
+
+        self.add_output(self.out)
+
+    def multidevice_schedule(self):
+        mesh = nvfuser.DeviceMesh(range(self._num_devices))
+        for tv in [
+            self.x,
+            self.weight,
+            self.bias,
+            self.out,
+        ]:
+            self.sched._set_device_mesh(tv, mesh)
+
+        self.sched.parallelize(self.x, 1, nvfuser.ParallelType.mesh_x)
+        self.sched.parallelize(self.out, 0, nvfuser.ParallelType.stream)
+
+
+@pytest.mark.mpi
+def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
+    M, K, N, S, D = 256, 128, 64, 8, multidevice_test.size
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+    x_unsharded = torch.testing.make_tensor(
+        S, D, M // (S * D), K, dtype=torch.bfloat16, device="cuda"
+    )
+    weight = torch.testing.make_tensor(N, K, dtype=torch.bfloat16, device="cuda")
+    bias = torch.testing.make_tensor(N, dtype=torch.bfloat16, device="cuda")
+    rank = multidevice_test.rank
+    x = x_unsharded[:, rank : rank + 1, :, :]
+    ins = [x, weight, bias]
+    out_ref = torch.nn.functional.linear(x_unsharded, weight, bias)
+
+    fd = OverlapAGMatmulStreamOutermost(M, K, N, S, D)
+
+    warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
+
+    outs = warmup_fn()
+    (out,) = outs
+    _assert_shape_dtype(out, [S, D, M // (S * D), N], torch.bfloat16)
+    torch.testing.assert_close(out.local, out_ref, rtol=1e-1, atol=1e-1)
+
+    benchmark.pedantic(benchmark_fn, rounds=5)
