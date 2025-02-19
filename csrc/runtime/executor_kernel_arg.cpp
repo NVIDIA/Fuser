@@ -58,7 +58,7 @@ void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
   }
 }
 
-void KernelArgumentHolder::push(const at::Tensor& tensor) {
+void KernelArgumentHolder::push(at::Tensor tensor) {
   arguments_.emplace_back(PolymorphicValue(tensor));
 }
 

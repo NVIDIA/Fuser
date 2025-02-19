@@ -91,7 +91,7 @@ class NVF_API KernelArgumentHolder {
   void push(const std::vector<c10::IValue>& args);
   // Needed to disambiguate from std::optional<at::Tensor> push when using
   // at::Tensor
-  void push(const at::Tensor& tensor);
+  void push(at::Tensor tensor);
   void push(const PolymorphicValue& val);
   void push(std::optional<at::Tensor> tensor);
 
