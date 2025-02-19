@@ -1,4 +1,6 @@
 import sys
+import matplotlib.pyplot as plt
+import numpy as np
 import torch
 from enum import Enum
 from dataclasses import dataclass
@@ -210,7 +212,8 @@ def main():
     eager_data = analyze_json("gh200_matmul_eager.json")
     nvf_data = analyze_json("gh200_matmul_nvf.json")
 
-    for problem_config, nvjet_config in dp.items():
+    relative_scores = []
+    for idx, (problem_config, nvjet_config) in enumerate(dp.items()):
         nvfuser_config = generate_nvfuser_config(nvjet_config)
         if nvfuser_config is None:
             continue
@@ -247,12 +250,27 @@ def main():
         if nvf_result == -1:
             continue
 
+        relative_scores.append(normalized_result)
+
         if problem_config[:3] in nvf_data[Layout[layout]]:
             nvf_baseline = nvf_data[Layout[problem_config[3]]][problem_config[:3]]
             nvf_normalized_result = nvf_baseline / nvf_result
             print(
-                f"{problem_config} --- {eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}. relative improvement: {nvf_normalized_result :2f}"
+                f"{idx} / {len(dp)} --- {problem_config} --- {eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}. relative improvement: {nvf_normalized_result :2f}"
             )
+
+    plt.scatter(
+        np.arange(len(relative_scores)),
+        np.array(list(sorted(relative_scores))),
+        color="blue",
+        marker="o",
+        s=5,
+    )
+    plt.ylabel("Relative %")
+    plt.ylim(0, 1)
+    plt.title("Hopper Matmul S-Curve")
+    plt.savefig("nvfuser_NT_nvjet_config.png")
+    plt.close("all")
 
 
 if __name__ == "__main__":
