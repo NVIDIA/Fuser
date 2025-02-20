@@ -112,6 +112,10 @@ class Communication : public Expr {
     return attribute<CommunicatorBackend>(5);
   }
 
+  const CommunicatorBackend& backend() const {
+    return attribute<CommunicatorBackend>(5);
+  }
+
   // PyTorch's process group expects the root to be specified
   // as an integer between 0 and world_size-1. We choose it to be
   // the device's relative index within the team
