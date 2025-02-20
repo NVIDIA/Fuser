@@ -654,7 +654,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   fusion.addOutput(tv3);
 
   IdModel id_model(&fusion);
-  ValGraph& exact_graph = id_model.buildExactGraph();
+  ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
 
   // As mentioned above, we don't know any relationship between tv0
   // and tv1, so they should not be mapped.
