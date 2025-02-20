@@ -81,15 +81,15 @@ class Trace : public NonCopyable {
 class TraceScope : public NonCopyable {
  public:
   explicit TraceScope(const char* event_name) : event_name_(event_name) {
-    Trace::instance()->beginEvent(event_name_);
+    Trace::instance()->beginEvent(event_name_.c_str());
   }
 
   ~TraceScope() {
-    Trace::instance()->endEvent(event_name_);
+    Trace::instance()->endEvent(event_name_.c_str());
   }
 
  private:
-  const char* event_name_ = nullptr;
+  std::string event_name_ = nullptr;
 };
 
 #define FUSER_MACRO_CONCAT2(a, b) a##b
