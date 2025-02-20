@@ -43,15 +43,7 @@ def get_cpp_test_executables(build_dir):
             "multidevice" in os.path.basename(test).lower()
         ].append(test)
 
-    # Separate priority tests and others
-    priority_tests = [
-        os.path.join(build_dir, "test_nvfuser"),
-        os.path.join(build_dir, "test_matmul"),
-    ]
-    other_tests = [test for test in single_device_tests if test not in priority_tests]
-
-    # Return multidevice tests separately, and ordered single device tests prioritizing long running tests first
-    return multidevice_tests, priority_tests + other_tests
+    return multidevice_tests, single_device_tests
 
 
 def get_python_tests(python_test_dir):
@@ -65,16 +57,7 @@ def get_python_tests(python_test_dir):
             "multidevice" in os.path.basename(test).lower()
         ].append(test)
 
-    # Separate test_ops.py and other tests
-    test_ops = [
-        test for test in single_device_tests if os.path.basename(test) == "test_ops.py"
-    ]
-    other_tests = [
-        test for test in single_device_tests if os.path.basename(test) != "test_ops.py"
-    ]
-
-    # Return multidevice tests and ordered single device tests separately
-    return multidevice_tests, test_ops + other_tests
+    return multidevice_tests, single_device_tests
 
 
 def get_test_timeout(test_name):
@@ -217,55 +200,63 @@ def run_python_test(test_path, log_dir, gpu_id, dry_run=False):
         return None
 
 
-def run_parallel_tests(log_dir, num_gpus, tests, run_func, dry_run=False):
-    """Run tests in parallel across available GPUs"""
+def run_parallel_tests(log_dir, num_gpus, test_infos, dry_run=False):
+    """Run tests in parallel across available GPUs using provided test configurations"""
     if dry_run:
         current_tests = {i: None for i in range(num_gpus)}  # Simulate GPU allocation
-        test_queue = tests.copy()
+        test_queue = test_infos.copy()
 
         print(f"\nSimulating parallel execution across {num_gpus} GPUs:")
 
         # Initial allocation
         for gpu_id in range(num_gpus):
             if test_queue:
-                current_tests[gpu_id] = test_queue.pop(0)
-                run_func(current_tests[gpu_id], log_dir, gpu_id, dry_run=True)
+                test_path, run_func = test_queue.pop(0)
+                current_tests[gpu_id] = (test_path, run_func)
+                run_func(test_path, log_dir, gpu_id, dry_run=True)
 
         # Simulate rest of queue
         while test_queue:
             # Simulate round-robin GPU completion
             gpu_id = len(test_queue) % num_gpus
-            print(f"\nGPU {gpu_id} finished {os.path.basename(current_tests[gpu_id])}")
-            current_tests[gpu_id] = test_queue.pop(0)
-            run_func(current_tests[gpu_id], log_dir, gpu_id, dry_run=True)
+            current_test_path, _ = current_tests[gpu_id]
+            print(f"\nGPU {gpu_id} finished {os.path.basename(current_test_path)}")
+            test_path, run_func = test_queue.pop(0)
+            current_tests[gpu_id] = (test_path, run_func)
+            run_func(test_path, log_dir, gpu_id, dry_run=True)
 
         # Show final tests completing
         for gpu_id in range(num_gpus):
             if current_tests[gpu_id]:
-                print(
-                    f"\nGPU {gpu_id} finished {os.path.basename(current_tests[gpu_id])}"
-                )
+                test_path, _ = current_tests[gpu_id]
+                print(f"\nGPU {gpu_id} finished {os.path.basename(test_path)}")
 
         return [], []
 
     # Initialize test queue and tracking variables
-    test_queue = tests.copy()
+    test_queue = test_infos.copy()
     current_processes = {i: None for i in range(num_gpus)}
     current_tests = {i: None for i in range(num_gpus)}
     start_times = {i: time.time() for i in range(num_gpus)}
     completed_tests = []
     failed_tests = []
 
-    def start_test(test, gpu_id):
+    def start_test(test_info, gpu_id):
         """Start a test on specified GPU"""
-        current_tests[gpu_id] = test
-        process = run_func(test, log_dir, gpu_id)
+        test_path, run_func = test_info
+        current_tests[gpu_id] = test_info
+        process = run_func(test_path, log_dir, gpu_id)
+        
         if process is None:
-            failed_tests.append(os.path.basename(test))
+            failed_name = os.path.basename(test_path)
+            if run_func == run_python_test:
+                failed_name = f"python_{failed_name}"
+            failed_tests.append(failed_name)
             return False
+            
         current_processes[gpu_id] = process
         start_times[gpu_id] = time.time()
-        print(f"Started {os.path.basename(test)} on GPU {gpu_id}")
+        print(f"Started {os.path.basename(test_path)} on GPU {gpu_id}")
         return True
 
     def check_completion():
@@ -277,25 +268,24 @@ def run_parallel_tests(log_dir, num_gpus, tests, run_func, dry_run=False):
                 continue
 
             # Get timeout for current test
-            test_name = os.path.basename(current_tests[gpu_id])
+            test_path, run_func = current_tests[gpu_id]
+            test_name = os.path.basename(test_path)
             timeout = get_test_timeout(test_name)
 
             # Check for timeout
             if time.time() - start_times[gpu_id] > timeout:
-                print(
-                    f"Test {test_name} on GPU {gpu_id} timed out after {timeout/60} minutes"
-                )
+                print(f"Test {test_name} on GPU {gpu_id} timed out after {timeout/60} minutes")
                 current_processes[gpu_id].kill()
-                test = current_tests[gpu_id]
-
-                # Append timeout status to log file
-                log_file = log_dir / f"{os.path.basename(test)}.log"
-                if not log_file.exists():
-                    log_file = log_dir / f"python_{os.path.basename(test)}.log"
+                log_file = log_dir / f"{test_name}.log"
+                if run_func == run_python_test:
+                    log_file = log_dir / f"python_{test_name}.log"
                 with open(log_file, "a") as f:
                     f.write(f"\nERROR: Test timed out after {timeout/60} minutes\n")
 
-                failed_tests.append(os.path.basename(test))
+                failed_name = test_name
+                if run_func == run_python_test:
+                    failed_name = f"python_{failed_name}"
+                failed_tests.append(failed_name)
                 current_processes[gpu_id] = None
                 current_tests[gpu_id] = None
                 free_gpus.append(gpu_id)
@@ -303,26 +293,26 @@ def run_parallel_tests(log_dir, num_gpus, tests, run_func, dry_run=False):
 
             # Check if process completed
             if current_processes[gpu_id].poll() is not None:
-                test = current_tests[gpu_id]
+                test_path, run_func = current_tests[gpu_id]
+                test_name = os.path.basename(test_path)
                 success = current_processes[gpu_id].returncode == 0
-                print(
-                    f"Completed {os.path.basename(test)} on GPU {gpu_id}: {'Success' if success else 'Failed'}"
-                )
+                print(f"Completed {test_name} on GPU {gpu_id}: {'Success' if success else 'Failed'}")
 
                 # Append completion status to log file
-                log_file = log_dir / f"{os.path.basename(test)}.log"
-                if not log_file.exists():
-                    log_file = log_dir / f"python_{os.path.basename(test)}.log"
+                log_file = log_dir / f"{test_name}.log"
+                if run_func == run_python_test:
+                    log_file = log_dir / f"python_{test_name}.log"
                 with open(log_file, "a") as f:
-                    f.write(
-                        f"\nTest completed with {'success' if success else 'failure'}\n"
-                    )
+                    f.write(f"\nTest completed with {'success' if success else 'failure'}\n")
                     f.write(f"Return code: {current_processes[gpu_id].returncode}\n")
 
                 if success:
-                    completed_tests.append(test)
+                    completed_tests.append(test_path)
                 else:
-                    failed_tests.append(os.path.basename(test))
+                    failed_name = test_name
+                    if run_func == run_python_test:
+                        failed_name = f"python_{failed_name}"
+                    failed_tests.append(failed_name)
 
                 current_processes[gpu_id] = None
                 current_tests[gpu_id] = None
@@ -456,8 +446,8 @@ def main():
         return 0
 
     print(f"Found {len(multidevice_tests)} C++ multidevice tests")
-    print(f"Found {len(single_device_tests)} C++ single device tests")
     print(f"Found {len(python_multidevice_tests)} Python multidevice tests")
+    print(f"Found {len(single_device_tests)} C++ single device tests")
     print(f"Found {len(python_single_tests)} Python single device tests")
     print(f"Logs will be written to: {log_dir}")
 
@@ -489,44 +479,46 @@ def main():
             if not args.dry_run:
                 failed_tests.append(f"python_{os.path.basename(test)}")
 
-    # Run single device tests in parallel using all available GPUs
-    print("\nC++ single device tests:")
+    # Run all single device tests (C++ and Python) in parallel
+    print("\nRunning all single device tests in parallel:")
+    
+    # Create initial unordered test list
+    test_infos = [
+        (t, run_single_device_test) for t in single_device_tests
+    ] + [
+        (t, run_python_test) for t in python_single_tests
+    ]
+    
+    # Find and prioritize specific tests by name match in full path
+    priority_names = ["test_nvfuser", "test_matmul", "test_ops.py"]
+    priority_tests = []
+    other_tests = []
+    
+    for test_info in test_infos:
+        test_path, _ = test_info
+        if any(name in test_path for name in priority_names):
+            priority_tests.append(test_info)
+        else:
+            other_tests.append(test_info)
+    
+    test_infos = priority_tests + other_tests
+
     if not args.dry_run:
-        completed, failed = run_parallel_tests(
-            log_dir, gpu_count, single_device_tests, run_single_device_test
-        )
+        completed, failed = run_parallel_tests(log_dir, gpu_count, test_infos)
         success_count += len(completed)
         failed_tests.extend(failed)
     else:
-        run_parallel_tests(
-            log_dir,
-            gpu_count,
-            single_device_tests,
-            run_single_device_test,
-            dry_run=True,
-        )
-
-    # Run Python single device tests in parallel
-    print("\nPython single device tests:")
-    if not args.dry_run:
-        completed, failed = run_parallel_tests(
-            log_dir, gpu_count, python_single_tests, run_python_test
-        )
-        success_count += len(completed)
-        failed_tests.extend([f"python_{test}" for test in failed])
-    else:
-        run_parallel_tests(
-            log_dir, gpu_count, python_single_tests, run_python_test, dry_run=True
-        )
+        run_parallel_tests(log_dir, gpu_count, test_infos, dry_run=True)
 
     if args.dry_run:
         # Show what would be written to summary.txt
         print("\nWould create summary.txt with:")
         print(f"Total tests: {total_tests}")
         print(f"Multidevice tests: {len(multidevice_tests)}")
-        print(f"Single device tests: {len(single_device_tests)}")
-        print(f"Python tests: {len(python_multidevice_tests)}")
-
+        print(f"Multidevice python tests: {len(python_multidevice_tests)}")
+        print(f"C++ single device tests: {len(single_device_tests)}")
+        print(f"Python single device tests: {len(python_single_tests)}")
+        
         # Show failure collection simulation
         collect_test_failures(log_dir, dry_run=True)
 
