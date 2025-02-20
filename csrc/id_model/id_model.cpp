@@ -58,6 +58,9 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
   for (TensorView* tv : tvs_) {
     std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, graph);
+    if (self_mapping.has_value()) {
+      tv->fusion()->print();
+    }
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
@@ -439,15 +442,10 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
     // broadcast extent.
     if (merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
-    } else if (merge->outer()->extent()->isOneInt()) {
+    }
+    if (merge->outer()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
-    if (getenv("OLD")) {
-      if (merge->outer()->extent()->isOneInt()) {
-        mapped_ids.push_back({merge->inner(), merge->out()});
-      }
-    }
-
   } else if (auto split = dynamic_cast<Split*>(expr)) {
     if (split->factor()->isOneInt()) {
       if (split->innerSplit()) {
@@ -505,6 +503,27 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
+  std::unordered_map<Val*, std::unordered_set<Val*>> forbidden_pairs;
+  for (TensorView* tv : tvs_) {
+    // root
+    if (tv->hasRoot()) {
+      for (auto id : tv->getRootDomain()) {
+        forbidden_pairs[id].insert(
+            tv->getRootDomain().begin(), tv->getRootDomain().end());
+      }
+    }
+    for (auto id : tv->getLogicalDomain()) {
+      forbidden_pairs[id].insert(
+          tv->getLogicalDomain().begin(), tv->getLogicalDomain().end());
+    }
+    for (auto id : tv->getLoopDomain()) {
+      forbidden_pairs[id].insert(
+          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
+    }
+  }
+
+  almost_exact_graph.do_not_map_vals_ = forbidden_pairs;
+
   // Maps iter domain pairs returned by calling that return mappings from
   // isTrivialExpr on every expression in the graph.
 
@@ -524,7 +543,6 @@ ValGraph& IdModel::buildAlmostExactGraph() {
       // Map through trivial expressions
       for (auto mapped_id_group : mapped_ids) {
         for (auto id : mapped_id_group) {
-          // almost_exact_graph.mapVals(mapped_id_group.front(), id);
           ids_to_map.emplace_back(mapped_id_group.front(), id);
         }
       }
@@ -532,7 +550,12 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   for (const auto& [id1, id2] : ids_to_map) {
+#if 0
+    std::cerr << "Trivial map: " << id1->toString() << ", " <<
+        id2->toString() << "\n";
+#endif
     almost_exact_graph.mapVals(id1, id2);
+    assertNoSelfMapping(almost_exact_graph);
   }
 
   almost_exact_graph.validateConsistency();

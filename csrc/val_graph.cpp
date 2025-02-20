@@ -410,6 +410,38 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   const ValGroup orig_val_group0 = toGroup(val0);
   const ValGroup orig_val_group1 = toGroup(val1);
 
+  for (const auto v0 : *orig_val_group0) {
+    auto it = do_not_map_vals_.find(v0);
+    if (it == do_not_map_vals_.end()) {
+      continue;
+    }
+    const auto& do_not_map_set = it->second;
+    if (std::any_of(
+            orig_val_group1->begin(), orig_val_group1->end(), [&](Val* v1) {
+              return do_not_map_set.count(v1);
+            })) {
+      return;
+    }
+  }
+
+  for (const auto v0 : *orig_val_group1) {
+    auto it = do_not_map_vals_.find(v0);
+    if (it == do_not_map_vals_.end()) {
+      continue;
+    }
+    const auto& do_not_map_set = it->second;
+    if (std::any_of(
+            orig_val_group0->begin(), orig_val_group0->end(), [&](Val* v1) {
+              return do_not_map_set.count(v1);
+            })) {
+      return;
+    }
+  }
+
+#if 0
+  std::cerr << "mapVals: " << val0->toString() << ", " << val1->toString() <<
+      "\n";
+#endif
   // Note that getDefinitions and getUses return references, which
   // will be invalidated once unique_definitions_ and unique_uses_ are
   // updated
@@ -482,6 +514,12 @@ void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   if (!exprsMap(expr0, expr1, forward)) {
     return;
   }
+
+#if 0
+  std::cerr << "maybeMapThroughExprs: " << expr0->toString()
+            << ", " << expr1->toString()
+            << ", " << forward << "\n";
+#endif
 
   // Expr inputs are mapped. If propagate_through_exprs_ is true, map the
   // exprs and outputs. If not, map the exprs only when both inputs
