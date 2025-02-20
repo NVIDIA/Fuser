@@ -73,6 +73,14 @@ struct CoveredGroup {
   bool is_inner_ = false;
 };
 
+// Returns true if covered_groups_x is equal to or a superset of
+// covered_groups_y, that is, for all of CoveredGroup of
+// covered_groups_y, if there's a CoveredGroup in covered_groups_x
+// that is equal or a superset.
+bool isEqualToOrSuperSetOf(
+    const CoveredGroups& covered_groups_x,
+    const CoveredGroups& covered_groups_y);
+
 } // namespace nvfuser
 
 namespace std {

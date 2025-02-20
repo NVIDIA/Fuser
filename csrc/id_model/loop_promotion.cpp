@@ -74,18 +74,7 @@ bool CoveredGroup::isEqualToOrSuperSetOf(const CoveredGroup& other) const {
     // groups. If the input groups of this split is a superset of the
     // input groups of the split of the other CoveredGroup, this
     // CoveredGroup is a superset
-    if (std::all_of(
-            other_split_in.begin(),
-            other_split_in.end(),
-            [&](const CoveredGroup& other_split_in_group) {
-              return std::any_of(
-                  split_in.begin(),
-                  split_in.end(),
-                  [&](const CoveredGroup& split_in_group) {
-                    return split_in_group.isEqualToOrSuperSetOf(
-                        other_split_in_group);
-                  });
-            })) {
+    if (nvfuser::isEqualToOrSuperSetOf(split_in, other_split_in)) {
       return true;
     }
   }
@@ -108,6 +97,22 @@ bool CoveredGroup::isEqualToOrSuperSetOf(const CoveredGroup& other) const {
   // proven to be true either.
 
   return false;
+}
+
+bool isEqualToOrSuperSetOf(
+    const CoveredGroups& covered_groups_x,
+    const CoveredGroups& covered_groups_y) {
+  return std::all_of(
+      covered_groups_y.begin(),
+      covered_groups_y.end(),
+      [&](const CoveredGroup& covered_group_y) {
+        return std::any_of(
+            covered_groups_x.begin(),
+            covered_groups_x.end(),
+            [&](const CoveredGroup& covered_group_x) {
+              return covered_group_x.isEqualToOrSuperSetOf(covered_group_y);
+            });
+      });
 }
 
 std::string CoveredGroup::toString() const {
@@ -170,26 +175,6 @@ bool isDependencyOf(
   }
 
   return false;
-}
-
-// Returns true if covered_groups_x is equal to or a superset of
-// covered_groups_y, that is, for all of CoveredGroup of
-// covered_groups_y, if there's a CoveredGroup in covered_groups_x
-// that is equal or a superset.
-bool isEqualToOrSuperSetOf(
-    const CoveredGroups& covered_groups_x,
-    const CoveredGroups& covered_groups_y) {
-  return std::all_of(
-      covered_groups_y.begin(),
-      covered_groups_y.end(),
-      [&](const CoveredGroup& covered_group_y) {
-        return std::any_of(
-            covered_groups_x.begin(),
-            covered_groups_x.end(),
-            [&](const CoveredGroup& covered_group_x) {
-              return covered_group_x.isEqualToOrSuperSetOf(covered_group_y);
-            });
-      });
 }
 
 } // namespace
