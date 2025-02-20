@@ -3379,7 +3379,7 @@ class HopperMatmulSchedulerTest
 
   MatmulParams mparams;
 
-  std::vector<c10::IValue> inputs;
+  KernelArgumentHolder inputs;
 
   // Tests should place the reference tensor here
   at::Tensor tref;
