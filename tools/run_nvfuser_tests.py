@@ -45,7 +45,7 @@ def get_cpp_test_executables(build_dir):
 
     # Separate priority tests and others
     priority_tests = [
-        os.path.join(build_dir, "nvfuser_tests"),
+        os.path.join(build_dir, "test_nvfuser"),
         os.path.join(build_dir, "test_matmul"),
     ]
     other_tests = [test for test in single_device_tests if test not in priority_tests]
@@ -79,7 +79,7 @@ def get_python_tests(python_test_dir):
 
 def get_test_timeout(test_name):
     """Return timeout in seconds for a given test"""
-    if test_name in ["nvfuser_tests", "test_matmul", "test_ops"]:
+    if test_name in ["test_nvfuser", "test_matmul", "test_ops"]:
         return 3600  # 1 hour
     return 600  # 10 minutes
 
