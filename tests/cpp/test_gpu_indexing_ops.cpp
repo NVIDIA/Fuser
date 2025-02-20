@@ -429,7 +429,7 @@ TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
-  testValidate(&fusion, cg_outputs, args.toC10Array(), __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, args, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {

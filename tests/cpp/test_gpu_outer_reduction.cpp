@@ -1443,7 +1443,7 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
     ref = ref + t1.to(at::kFloat);
   }
 
-  testValidate(&fusion, cg_outputs, args.toC10Array(), {ref}, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, args, {ref}, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -1601,8 +1601,7 @@ void grid_persistent_welford_outer_norm_like_scheduler(
     ref = ref + t1.to(at::kFloat);
   }
 
-  testValidate(
-      &fusion, cg_outputs, args.toC10Array(), {ref}, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, args, {ref}, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -1786,14 +1785,7 @@ void grid_persistent_batchnorm_scheduler(
 
   cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
 
-  testValidate(
-      &fusion,
-      cg_outputs,
-      args.toC10Array(),
-      {at_output},
-      __LINE__,
-      __FILE__,
-      "");
+  testValidate(&fusion, cg_outputs, args, {at_output}, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -1916,7 +1908,7 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
     }
   }
 
-  testValidate(&fusion, cg_outputs, args.toC10Array(), __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, args, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -2106,7 +2098,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
   testValidate(
       &fusion,
       cg_outputs,
-      args.toC10Array(),
+      args,
       {std::get<0>(at_output), std::get<1>(at_output), std::get<2>(at_output)},
       __LINE__,
       __FILE__,
@@ -2457,12 +2449,7 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
     auto cg_outputs = executor_cache.runFusionWithInputs(args);
     auto ref = t0.to(at::kFloat).sum({0});
     testValidate(
-        executor_cache.fusion(),
-        cg_outputs,
-        args.toC10Array(),
-        {ref},
-        __LINE__,
-        __FILE__);
+        executor_cache.fusion(), cg_outputs, args, {ref}, __LINE__, __FILE__);
   };
 
   maybeClearAllocator(0);
@@ -2609,8 +2596,7 @@ TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(args);
 
-  testValidate(
-      executor_cache.fusion(), outputs, args.toC10Array(), __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, args, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

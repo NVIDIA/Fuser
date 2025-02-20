@@ -122,7 +122,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   testValidate(
       executor_cache.fusion(),
       {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
-      args.toC10Array(),
+      args,
       {std::get<0>(aten_gradients),
        std::get<1>(aten_gradients),
        std::get<2>(aten_gradients)},
@@ -294,7 +294,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     testValidate(
         &fusion,
         cg_outputs,
-        args.toC10Array(),
+        args,
         {aten_out_linked,
          std::get<0>(aten_gradients),
          std::get<1>(aten_gradients),
@@ -479,7 +479,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     testValidate(
         &fusion,
         cg_outputs,
-        args.toC10Array(),
+        args,
         __LINE__,
         __FILE__,
         "",

@@ -6235,7 +6235,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
-  testValidate(&fusion, cg_outputs, args.toC10Array(), __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, args, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
@@ -6301,7 +6301,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
       -1,
       true);
 
-  testValidate(&fusion, cg_outputs, args.toC10Array(), __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, args, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormalization_CUDA) {
@@ -6459,7 +6459,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerBatchNormalization_CUDA) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      args.toC10Array(),
+      args,
       {std::get<0>(aten_outputs),
        std::get<1>(aten_outputs),
        std::get<2>(aten_outputs)},
@@ -6537,7 +6537,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalization_CUDA) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      args.toC10Array(),
+      args,
       // TODO: can run_mean/run_var be checked here?
       // fusion_outputs.size() == aten_outputs.size() && aten_outputs.size()
       // == fusion->outputs().size() - output_alias_indices.size()
@@ -6669,7 +6669,7 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
   testValidate(
       executor_cache_backward.fusion(),
       outputs_backward,
-      args_backwards.toC10Array(),
+      args_backwards,
       {at_input.grad(), at_weight.grad(), at_bias.grad()},
       __LINE__,
       __FILE__,

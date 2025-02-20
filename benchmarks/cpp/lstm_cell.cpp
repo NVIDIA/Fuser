@@ -103,8 +103,7 @@ static void NvFuserScheduler_LstmCell_AutoSchedule(
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
-    SchedulerEntry::scheduleWith(
-        &fusion, SchedulerType::PointWise, args.toC10Array());
+    SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
   }
 }
 
@@ -125,8 +124,7 @@ static void NvFuserScheduler_LstmCell_Lower(benchmark::State& benchmark_state) {
   // inputs
   KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
 
-  SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, args.toC10Array());
+  SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   for (auto _ : benchmark_state) {
     GpuLower(&fusion).run();
@@ -150,8 +148,7 @@ static void NvFuserScheduler_LstmCell_Compile(
   // inputs
   KernelArgumentHolder args = setupInputs(kHiddenFeatures, kBatchSize);
 
-  SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, args.toC10Array());
+  SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   for (auto _ : benchmark_state) {
     KernelExecutor ke;
@@ -178,8 +175,8 @@ static void NvFuserScheduler_LstmCell_RunFusion(
   // outputs
   std::vector<at::Tensor> outputs;
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, args.toC10Array());
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   KernelExecutor ke;
   ke.compile(&fusion, args);
@@ -215,8 +212,8 @@ static void NvFuserScheduler_LstmCell_RunFusion_GpuOnly(
   // outputs
   std::vector<at::Tensor> outputs;
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, args.toC10Array());
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   KernelExecutor ke;
   ke.compile(&fusion, args);
@@ -253,8 +250,8 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
   // outputs
   std::vector<at::Tensor> outputs;
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, args.toC10Array());
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   KernelExecutor ke;
   ke.setExecuteKernelFlag(false);

@@ -448,8 +448,8 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto aten_c = at::randn({M, N, splitk_factor}, options);
   KernelArgumentHolder args = {aten_c};
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::Reduction, args.toC10Array());
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(fusion, SchedulerType::Reduction, args);
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 
