@@ -13,32 +13,18 @@ from nvfuser import (
     MatmulTileRasterizationOrder,
     MatmulCircularBufferingStrategy,
 )
-import sys
 import torch
 import math
 import itertools
-from enum import Enum
+from enum import IntEnum
 
 
-class Layout(Enum):
+class Layout(IntEnum):
     NN = 0
     NT = 1
     TN = 2
     TT = 3
     MAX = 4
-
-
-def get_layout_enum(layout):
-    if layout == "NN":
-        return Layout.NN
-    elif layout == "NT":
-        return Layout.NT
-    elif layout == "TN":
-        return Layout.TN
-    elif layout == "TT":
-        return Layout.TT
-    else:
-        return Layout.MAX
 
 
 # machine_info - dict
@@ -66,7 +52,7 @@ def analyze_json(filename):
             M, N, K, layout = row.params["config"]
             shape = (M, N, K)
             time = row.stats["median"]
-            data[get_layout_enum(layout)][shape] = time
+            data[Layout[layout]][shape] = time
         return data
 
     json = json.load(open(filename))
@@ -102,48 +88,48 @@ parameter_configurations = {
 
 
 # Apply scheduler with custom parameters using decorator
-def custom_matmul_scheduler(fd, config):
+def custom_matmul_scheduler(fd, config, verbose=False):
     def inner_fn():
-        # NOTE Scheduler _matmul_ ***rejected*** because : MatmulOp and LinearOp
-        # fusion is disabled by default. Enable it using
-        # NVFUSER_ENABLE=fuse_matmul
+        assert config is not None
         status, error = fd.sched.can_schedule(SchedulerType.matmul)
         assert status, error
 
         schedule_params = fd.sched.compute_matmul_heuristics()
 
         # Modify original parameters
-        if config is not None:
-            tile_sizes, macro, tile_order, cluster_dims, stages = config
-            schedule_params.tile_sizes = tile_sizes
-            schedule_params.mma_macro = macro.mma_macro()
-            schedule_params.cta_order = tile_order
-            schedule_params.cluster_dims = cluster_dims
-            schedule_params.circular_buffering_strategy = (
-                MatmulCircularBufferingStrategy.warp_specialized
-            )
-            schedule_params.circular_buffer_options.circular_buffer_smem_write = (
-                stages > 1
-            )
-            schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
+        tile_sizes, macro, tile_order, cluster_dims, stages = config
+        schedule_params.tile_sizes = tile_sizes
+        schedule_params.mma_macro = macro.mma_macro()
+        schedule_params.cta_order = tile_order
+        schedule_params.cluster_dims = cluster_dims
+        schedule_params.circular_buffering_strategy = (
+            MatmulCircularBufferingStrategy.warp_specialized
+        )
+        schedule_params.circular_buffer_options.circular_buffer_smem_write = stages > 1
+        schedule_params.circular_buffer_options.smem_circular_buffer_stage = stages
+        if verbose:
             print(schedule_params)
 
         # Schedule fusion
         fd.sched.schedule()
 
-    fd.schedule = inner_fn
+    if config is not None:
+        fd.schedule = inner_fn
     return fd
 
 
 def test_matmul_nvf(
     problem_config: tuple,
     schedule_config: tuple,
+    verbose: bool = False,
+    validate: bool = False,
 ):
     m, n, k, layout = problem_config
     dtype = torch.bfloat16
 
-    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
-    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
+    # NOTE reduced precision accumulation is not supported in nvFuser
+    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = False
+    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = False
 
     a = torch.randn(m, k, device="cuda", dtype=dtype)
     b = torch.randn(k, n, device="cuda", dtype=dtype)
@@ -161,45 +147,53 @@ def test_matmul_nvf(
     try:
         nvf_outputs = scheduled_fd.execute([a, b], profile=True)
     except Exception as e:
-        print(e)
+        if verbose:
+            print(e)
         return -1
+
+    if validate:
+        baseline_output = torch.matmul(a, b)
+        assert torch.allclose(nvf_outputs[0], baseline_output, atol=1e-2, rtol=1e-2)
 
     prof = scheduled_fd.profile()
     # convert to microseconds to match pytorch profiler units
     return prof.kernel_profiles[0].time_ms * 1e-3
 
 
-def validation(problem_config):
-    m, n, k, layout = problem_config
-    dtype = torch.bfloat16
-
-    torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = True
-    torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = True
-
-    a = torch.randn(m, k, device="cuda", dtype=dtype)
-    b = torch.randn(k, n, device="cuda", dtype=dtype)
-
-    if layout == "NT" or layout == "NN":
-        a = a.as_strided(size=[m, k], stride=[1, m])
-    if layout == "TN" or layout == "NN":
-        b = b.as_strided(size=[k, n], stride=[1, k])
-
-    kwargs = dict(
-        _enable_options=["fuse_matmul"],
-        _disable_options=["matmul_expr_eval"],
-    )
-
-    with FusionDefinition() as presched_fd:
-        matmul_fusion(presched_fd, [a, b])
-
-    nvf_outputs = presched_fd.execute([a, b], **kwargs)
-    eager_output = torch.matmul(a, b)
-    assert torch.allclose(nvf_outputs[0], eager_output, atol=1e-2, rtol=1e-2)
-
-
 def main():
-    # nvjet_tst_128x256_64x4_1x1_h_bz_coopA_TTN
-    problem_config = (1752, 4720, 584, "NN")
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="For a single problem, run through a combination of matmul parameters and compare relative performance against nvjet."
+    )
+    parser.add_argument(
+        "-f",
+        "--baseline_filepath",
+        type=str,
+        help="The filepath to a json file for the nvjet baseline.",
+    )
+    parser.add_argument("m", type=int, help="The size of M dimension")
+    parser.add_argument("n", type=int, help="The size of N dimension")
+    parser.add_argument("k", type=int, help="The size of K dimension")
+    parser.add_argument(
+        "layout",
+        type=str,
+        choices=[layout.name for layout in Layout],
+        help="The layout for matmul problem.",
+    )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Print matmul parameters and exceptions.",
+    )
+    parser.add_argument(
+        "--validate",
+        action="store_true",
+        help="Print matmul parameters and exceptions.",
+    )
+    args = parser.parse_args()
+
+    problem_config = (args.m, args.n, args.k, args.layout)
 
     device_properties = torch.cuda.get_device_properties(0)
     # short-circuit: problem does not fit on device
@@ -209,14 +203,21 @@ def main():
     ):
         assert False
 
-    eager_data = analyze_json(sys.argv[1])
-    eager_result = eager_data[get_layout_enum(problem_config[3])][problem_config[:3]]
+    baseline_data = analyze_json(args.baseline_filepath)
+    baseline_result = baseline_data[Layout[problem_config[3]]][problem_config[:3]]
 
-    for scheduler_config in itertools.product(*parameter_configurations.values()):
-        nvf_result = test_matmul_nvf(problem_config, scheduler_config)
-        normalized_result = eager_result / nvf_result
+    print(
+        f"problem configuration, m: {args.m}, n: {args.n}, k: {args.k}, layout: {args.layout}"
+    )
+    for idx, scheduler_config in enumerate(
+        itertools.product(*parameter_configurations.values())
+    ):
+        nvf_result = test_matmul_nvf(
+            problem_config, scheduler_config, args.verbose, args.validate
+        )
+        normalized_result = baseline_result / nvf_result
         print(
-            f"{eager_result: .3e} out of {nvf_result: 3e} is {normalized_result: 2f}."
+            f"index: {idx}, baseline(us): {baseline_result: .3e}, nvfuser(us):{nvf_result: 3e}, normalized(us):{normalized_result: 2f}."
         )
 
 
@@ -231,5 +232,6 @@ def main():
 #
 # Script CMD:
 # NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval python single_matmul.py nvjet_pybench.json
+# 1752 4720 584 NN -f ~/workspace/hopper_benchmarks/gh200_matmul_eager.json
 if __name__ == "__main__":
     main()
