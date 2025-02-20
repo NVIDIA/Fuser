@@ -18,4 +18,6 @@ namespace nvfuser {
 // Transpose, Shift, Gather, and View Ops with LoadStoreOps
 std::vector<Expr*> loadStoreOpInserter(const std::vector<Expr*>& exprs);
 
+std::vector<Expr*> skipToAliasedConsumers(const std::vector<Expr*>& exprs);
+
 } // namespace nvfuser
