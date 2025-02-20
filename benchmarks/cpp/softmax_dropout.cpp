@@ -93,10 +93,9 @@ static void NvFuserScheduler_SoftmaxDropout(
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   at::Tensor at_scores = at::randn(input_shape, options);
   at::Tensor at_mask = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs(
-      {at_scores, at_mask, sqrt(kAttentionHeadSize)});
+  KernelArgumentHolder args({at_scores, at_mask, sqrt(kAttentionHeadSize)});
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // 5 dtype: attention_scores + attention_mask + attention_scores_out +
   // attention_probs_out + output

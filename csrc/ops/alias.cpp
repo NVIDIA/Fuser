@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
@@ -747,9 +748,15 @@ TensorView* slice(
       ", Expected: ",
       ndims);
 
-  const auto get_int = [](Val* x) -> std::optional<int64_t> {
-    if (x != nullptr && x->isConstInt()) {
-      return x->evaluate().as<int64_t>();
+  ExpressionEvaluator expr_eval;
+
+  const auto get_int = [&expr_eval](Val* x) -> std::optional<int64_t> {
+    if (x == nullptr) {
+      return std::nullopt;
+    }
+    auto inferred_val = expr_eval.evaluate(x);
+    if (inferred_val.hasValue()) {
+      return inferred_val.as<int64_t>();
     } else {
       return std::nullopt;
     }
@@ -809,9 +816,7 @@ TensorView* slice(
                 SimplifyingIrBuilder::addExpr(range.start, cast_extent),
                 range.start));
       }
-      if (range.start->isConstInt()) {
-        start_int = range.start->evaluate().as<int64_t>();
-      }
+      start_int = get_int(range.start);
     }
 
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)

@@ -1676,8 +1676,8 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   // t8 := (alpha * ((A x B) + bias)) + (beta * C)
   auto t8 = at::add(t6, t7);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
+  KernelArgumentHolder args = {t0, t1, t2, t3, alpha, beta};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -2092,21 +2092,21 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
               at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
           auto bias = maybeUnalign(at::randn({M, N}, options), align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();
@@ -2287,7 +2287,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
@@ -2295,14 +2295,14 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
           auto bias =
               padAndUnalign2D(at::randn({M, N}, options), pad_bias, align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();

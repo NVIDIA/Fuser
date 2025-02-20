@@ -380,21 +380,17 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
-    // Simplify x + (-x) to 0
-    Val* x = nullptr;
-    auto uop = dynamic_cast<UnaryOp*>(lhs->definition());
-    if (uop != nullptr) {
-      // lhs may be (-x). Pick rhs as x
-      x = rhs;
-    } else {
-      uop = dynamic_cast<UnaryOp*>(rhs->definition());
-      // rhs may be (-x). Pick lhs as x
-      x = lhs;
-    }
-    if (uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Neg &&
-        uop->in()->sameAs(x)) {
+    // Simplify (-x) + x to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(lhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(rhs)) {
       return lhs->fusion()->zeroVal(lhs->dtype());
     }
+    // Simplify x + (-x) to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(rhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(lhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+
     return IrBuilder::addExpr(lhs, rhs);
   }
 }
