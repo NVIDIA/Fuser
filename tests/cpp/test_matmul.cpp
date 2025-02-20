@@ -3278,14 +3278,14 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder inputs = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
               at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
           auto bias = maybeUnalign(at::randn({M, N}, options), alignBias);
           tref = tref + bias;
-          inputs.push_back(bias);
+          inputs.push(bias);
         }
 
         if (downcast_output) {

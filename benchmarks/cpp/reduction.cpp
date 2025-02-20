@@ -63,9 +63,9 @@ static void NvFuserScheduler_Reduction(
       (reduction_dim ? at::randn({iter_size, reduction_size}, options)
                      : at::randn({reduction_size, iter_size}, options));
 
-  std::vector<c10::IValue> aten_inputs({aten_input});
+  KernelArgumentHolder inputs({aten_input});
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, inputs);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

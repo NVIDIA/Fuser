@@ -289,11 +289,11 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    std::unordered_map<Val*, const PolymorphicValue&> tensor_map;
+    std::unordered_map<Val*, PolymorphicValue> tensor_map;
     for (const auto i : c10::irange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
-    auto outputs = hie_->runWithPolymorphicValues(tensor_map);
+    auto outputs = hie_->runWithInput(tensor_map);
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
@@ -656,20 +656,11 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     // something abstract. This is quite unsatisfying.
 
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
+    KernelArgumentHolder group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
 
-    std::vector<c10::IValue> ivalues;
-    ivalues.reserve(group_runtime_outputs
-                        .size()); // Optional but recommended for performance
-    for (const auto& tensor : group_runtime_outputs) {
-      ivalues.emplace_back(c10::IValue(tensor));
-    }
-
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(),
-        KernelArgumentHolder(c10::ArrayRef<c10::IValue>(ivalues)),
-        run_order_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
