@@ -321,6 +321,8 @@ class ValGraph {
     return false;
   }
 
+  std::unordered_map<Val*, std::unordered_set<Val*>> do_not_map_vals_;
+
  private:
   // Map expr0 and expr1 with each other, update unique_definitions_
   // unique_uses_
