@@ -351,7 +351,7 @@ TEST_F(MultiDeviceTest, Transpose) {
   const auto num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
 
-  TensorView* in = makeSymbolicTensor({2});
+  TensorView* in = makeSymbolicTensor(2);
   TensorView* out = transpose(in, 0, 1);
   in->split(0, num_devices, /*inner_split=*/false);
   in->axis(0)->parallelize(ParallelType::DIDx);
