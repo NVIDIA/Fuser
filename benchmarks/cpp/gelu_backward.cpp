@@ -77,7 +77,7 @@ static void setupFusion(Fusion* fusion) {
   fusion->addOutput(t27);
 }
 
-static std::vector<c10::IValue> setupInputs() {
+static KernelArgumentHolder setupInputs() {
   at::manual_seed(0);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
@@ -112,12 +112,12 @@ static void NvFuserScheduler_GeluBackward_AutoSchedule(
     benchmark_state.PauseTiming();
     Fusion fusion;
     setupFusion(&fusion);
-    std::vector<c10::IValue> inputs = setupInputs();
+    KernelArgumentHolder args = setupInputs();
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
     SchedulerEntry::scheduleWith(
-        &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+        &fusion, SchedulerType::PointWise, args.toC10Array());
   }
 }
 
@@ -134,10 +134,10 @@ static void NvFuserScheduler_GeluBackward_Lower(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
   SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+      &fusion, SchedulerType::PointWise, args.toC10Array());
 
   for (auto _ : benchmark_state) {
     GpuLower(&fusion).run();
@@ -156,14 +156,14 @@ static void NvFuserScheduler_GeluBackward_Compile(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
   auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+      &fusion, SchedulerType::PointWise, args.toC10Array());
 
   for (auto _ : benchmark_state) {
     KernelExecutor ke;
-    ke.compile(&fusion, inputs, heuristic_params->lparams);
+    ke.compile(&fusion, args.toC10Array(), heuristic_params->lparams);
   }
 }
 
@@ -179,22 +179,21 @@ static void NvFuserScheduler_GeluBackward_RunFusion(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
   // outputs
   std::vector<at::Tensor> outputs;
 
   auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+      &fusion, SchedulerType::PointWise, args.toC10Array());
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs, heuristic_params->lparams);
+  ke.compile(&fusion, args.toC10Array(), heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs =
-        ke.run(c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+    outputs = ke.run(args.toC10Array(), heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
   }
@@ -213,16 +212,15 @@ static void NvFuserScheduler_GeluBackward_RunFusion_GpuOnly(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
   auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+      &fusion, SchedulerType::PointWise, args.toC10Array());
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs, heuristic_params->lparams);
+  ke.compile(&fusion, args.toC10Array(), heuristic_params->lparams);
 
-  runBenchmarkIterations(
-      benchmark_state, &ke, inputs, heuristic_params->lparams);
+  runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);
 }
 
 BENCHMARK(NvFuserScheduler_GeluBackward_RunFusion_GpuOnly)
@@ -239,21 +237,20 @@ static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
   // outputs
   std::vector<at::Tensor> outputs;
 
   auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+      &fusion, SchedulerType::PointWise, args.toC10Array());
 
   KernelExecutor ke;
   ke.setExecuteKernelFlag(false);
-  ke.compile(&fusion, inputs, heuristic_params->lparams);
+  ke.compile(&fusion, args.toC10Array(), heuristic_params->lparams);
 
   for (auto _ : benchmark_state) {
-    outputs =
-        ke.run(c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+    outputs = ke.run(args.toC10Array(), heuristic_params->lparams);
   }
 }
 

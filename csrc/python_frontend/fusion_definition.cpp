@@ -234,7 +234,7 @@ void FusionDefinition::verifyTensorDimensions() {
   }
 }
 
-bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+bool FusionDefinition::existSchedule(const c10::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::existsSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -245,7 +245,7 @@ bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 }
 
 void FusionDefinition::setupSchedule(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -279,8 +279,8 @@ void FusionDefinition::setupSchedule(
   // Add TensorViews created by composite operations to Python FusionDefinition.
   findHiddenTensorViews(user_sched_->scheduled_fusion.get());
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(device);
 
   // Concretize fusion
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
@@ -306,7 +306,7 @@ void FusionDefinition::setupSchedule(
 }
 
 void FusionDefinition::finalizeSchedule(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
 
   FusionGuard::setCurFusion(prev_fusion_);
@@ -348,7 +348,7 @@ void FusionDefinition::print(std::ostream& os) const {
 }
 
 std::vector<DistributedTensor> FusionDefinition::execute(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
@@ -358,7 +358,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
-
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(selected_device);
   NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -387,17 +388,17 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       return nullptr;
     }
 
-    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
+    auto user_sched_id =
+        fusionCache()->queryUserScheduleId(scheds, args.toC10Array());
     if (!user_sched_id.has_value()) {
       return nullptr;
     }
 
-    auto device = getCommonDeviceCUDA(inputs, selected_device);
     NVF_CHECK(
-        inputs.empty() || device > -1,
+        args.empty() || args.getDeviceIndex() > -1,
         "Inputs are not all on the same device or don't match selection!");
-    const UserSchedule& user_sched =
-        fusionCache()->queryUserSchedule(scheds, user_sched_id.value(), device);
+    const UserSchedule& user_sched = fusionCache()->queryUserSchedule(
+        scheds, user_sched_id.value(), args.getDeviceIndex());
     return &user_sched;
   };
   const auto* user_sched = find_user_schedule();
@@ -405,7 +406,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   std::vector<at::Tensor> out_tensors;
   if (user_sched == nullptr) {
     out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
-        inputs, std::nullopt, selected_device);
+        args.toC10Array(), std::nullopt, args.getDeviceIndex());
   } else {
     if (isProfilerEnabledWithCupti()) {
       FusionProfiler::start();
@@ -418,23 +419,22 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       // Manual schedule
       if (!user_sched->executor->isCompiled()) {
         user_sched->executor->compile(
-            user_sched->scheduled_fusion.get(), inputs);
+            user_sched->scheduled_fusion.get(), args.toC10Array());
       }
-      out_tensors = user_sched->executor->run(inputs);
+      out_tensors = user_sched->executor->run(args.toC10Array());
     } else {
       // Automatic scheduler was used for UserSchedule.
       // Pass launch and compile params to compileFusion and runFusion.
       if (!user_sched->executor->isCompiled()) {
         user_sched->executor->compile(
             user_sched->scheduled_fusion.get(),
-            KernelArgumentHolder::createKernelArgumentHolder(
-                inputs, getCommonDeviceCUDA(inputs)),
+            args,
             user_sched->heuristic_params->lparams,
             user_sched->heuristic_params->cparams,
             user_sched->heuristic_params->scheduler_type);
       }
       out_tensors = user_sched->executor->run(
-          inputs,
+          args.toC10Array(),
           user_sched->heuristic_params->lparams,
           user_sched->heuristic_params->cparams);
     }
@@ -544,7 +544,7 @@ std::string FusionDefinition::lastCudaCode(
 }
 
 std::string FusionDefinition::cudaCodeFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool intrinsic_code,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -590,7 +590,7 @@ std::string FusionDefinition::lastScheduledFusionIr(
 }
 
 std::string FusionDefinition::scheduledFusionIrFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool tensor_transforms,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -737,12 +737,12 @@ std::vector<Tensor> FusionDefinition::tensors() {
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   return get_val_constants(preschedFusion(), inputs);
 }
 
 int64_t FusionDefinition::setupSegmentation(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   NVF_ERROR(
       segmentation_state_ == nullptr, "SegmentationState already exists!");

@@ -76,23 +76,10 @@ class KernelExecutor : public ExecutorAbstract {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compile(
       Fusion* fusion,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      CompileParams compile_params,
-      SchedulerType sceduler_type = SchedulerType::None);
-
-  // TODO: merge it with the overload above.
-  //! This API is merely here so we don't have to go back and update all cpp
-  //! tests.
-  void compile(
-      Fusion* fusion,
-      const at::ArrayRef<c10::IValue>& inputs = {},
+      const KernelArgumentHolder& args = {},
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams()) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compile(fusion, args, launch_constraints, compile_params);
-  }
+      CompileParams compile_params = CompileParams(),
+      SchedulerType sceduler_type = SchedulerType::None);
 
   // TODO: args shouldn't come in a reference here because we will append the
   // outputs to be able to send it to the kernel. For now none of the users are
@@ -106,13 +93,12 @@ class KernelExecutor : public ExecutorAbstract {
       std::vector<at::Tensor> outputs = {});
 
   std::vector<at::Tensor> run(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       const std::vector<at::Tensor>& outputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
+    KernelArgumentHolder args(inputs);
     if (opt_code.has_value()) {
       args.setCacheId(*opt_code);
     }
@@ -120,7 +106,7 @@ class KernelExecutor : public ExecutorAbstract {
   }
 
   std::vector<at::Tensor> run(
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams(),
       const std::optional<size_t>& opt_code = std::nullopt) {
