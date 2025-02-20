@@ -51,6 +51,8 @@ def get_python_tests(python_test_dir):
     all_tests = glob.glob(os.path.join(python_test_dir, "test_*.py"))
 
     # Separate multidevice and single device tests
+    # This is not catching all python multidevice tests like test_communication.py
+    # TODO: Change test names to separate out multidevice tests, or update to support all multidevice python tests
     multidevice_tests, single_device_tests = [], []
     for test in all_tests:
         (single_device_tests, multidevice_tests)[
@@ -443,6 +445,8 @@ def main():
 
     log_dir = setup_logging_dir()
     multidevice_tests, single_device_tests = get_cpp_test_executables(build_dir)
+    # This is not catching all python multidevice tests like test_communication.py
+    # TODO: Change test names to separate out multidevice tests, or update to support all multidevice python tests
     python_multidevice_tests, python_single_tests = get_python_tests(python_test_dir)
 
     if not (multidevice_tests or single_device_tests) and not (
