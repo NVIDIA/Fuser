@@ -1999,7 +1999,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     const Fusion* fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options) {
   auto fusion_copy = std::make_unique<Fusion>(*fusion);
   return segment(std::move(fusion_copy), inputs, options);
@@ -2008,20 +2008,21 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
 // Perform segmentation on and take ownership of the given fusion
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
-    SegmentCandidateFinderOptions options) {
+    const KernelArgumentHolder& inputs,
+    SegmentCandidateFinderOptions options,
+    bool multi_device) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     debug() << "Segment the fusion (Original Fusion Un-modified): "
             << std::endl;
     fusion->printMath();
   }
-  SegmentCandidateFinder scf(std::move(fusion), inputs, options);
+  SegmentCandidateFinder scf(std::move(fusion), inputs, options, multi_device);
   return std::move(scf.segmented_fusion_);
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -2030,7 +2031,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         Schedule::proposeHeuristics(fusion.get(), runtime_info);
     if (fusion_heuristic_type != SchedulerType::None) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), fusion_heuristic_type, *inputs);
+          std::move(fusion), fusion_heuristic_type, inputs);
     }
   } else {
     scheduler_debug_utils::canScheduleMessage(
@@ -3939,15 +3940,10 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
-    SegmentCandidateFinderOptions options)
-    : options_(options),
-      runtime_info_(
-          inputs == nullptr ? std::nullopt
-                            : std::make_optional<SchedulerRuntimeInfo>(
-                                  fusion.get(),
-                                  *inputs)),
-      runtime_inputs_(inputs) {
+    const KernelArgumentHolder& inputs,
+    SegmentCandidateFinderOptions options,
+    bool multi_device)
+    : options_(options), runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
           (!options_.run_translate_welford &&
@@ -3955,8 +3951,22 @@ SegmentCandidateFinder::SegmentCandidateFinder(
            options_.run_final_merge),
       "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+
+  // Conditionally initialize runtime_info_ based on multi_device
+  if (!multi_device) {
+    runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
+  }
+
   privatizeUpcast();
   findSegments();
+}
+
+// Add runtimeInfo() accessor with validation
+SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
+  NVF_ERROR(
+      runtime_info_.has_value(),
+      "runtime_info_ is not available. This function should not be called in multi-device segmentation.");
+  return *runtime_info_;
 }
 
 void SegmentCandidateFinder::buildInitialSegments() {
@@ -4113,7 +4123,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), *runtime_inputs_)) {
+            segmented_fusion_.get(), runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();
