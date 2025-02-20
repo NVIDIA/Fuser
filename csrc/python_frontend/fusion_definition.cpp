@@ -234,7 +234,7 @@ void FusionDefinition::verifyTensorDimensions() {
   }
 }
 
-bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+bool FusionDefinition::existSchedule(const c10::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::existsSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -245,7 +245,7 @@ bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 }
 
 void FusionDefinition::setupSchedule(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -279,8 +279,7 @@ void FusionDefinition::setupSchedule(
   // Add TensorViews created by composite operations to Python FusionDefinition.
   findHiddenTensorViews(user_sched_->scheduled_fusion.get());
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+  KernelArgumentHolder args(inputs, device);
 
   // Concretize fusion
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
@@ -306,7 +305,7 @@ void FusionDefinition::setupSchedule(
 }
 
 void FusionDefinition::finalizeSchedule(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
 
   FusionGuard::setCurFusion(prev_fusion_);
@@ -348,7 +347,7 @@ void FusionDefinition::print(std::ostream& os) const {
 }
 
 std::vector<DistributedTensor> FusionDefinition::execute(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
@@ -427,8 +426,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       if (!user_sched->executor->isCompiled()) {
         user_sched->executor->compile(
             user_sched->scheduled_fusion.get(),
-            KernelArgumentHolder::createKernelArgumentHolder(
-                inputs, getCommonDeviceCUDA(inputs)),
+            KernelArgumentHolder(inputs, getCommonDeviceCUDA(inputs)),
             user_sched->heuristic_params->lparams,
             user_sched->heuristic_params->cparams,
             user_sched->heuristic_params->scheduler_type);
@@ -544,7 +542,7 @@ std::string FusionDefinition::lastCudaCode(
 }
 
 std::string FusionDefinition::cudaCodeFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool intrinsic_code,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -590,7 +588,7 @@ std::string FusionDefinition::lastScheduledFusionIr(
 }
 
 std::string FusionDefinition::scheduledFusionIrFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool tensor_transforms,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -737,12 +735,12 @@ std::vector<Tensor> FusionDefinition::tensors() {
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   return get_val_constants(preschedFusion(), inputs);
 }
 
 int64_t FusionDefinition::setupSegmentation(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   NVF_ERROR(
       segmentation_state_ == nullptr, "SegmentationState already exists!");
