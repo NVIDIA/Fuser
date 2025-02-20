@@ -1691,7 +1691,7 @@ def test_transformer_backward(multidevice_test, benchmark):
 
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
-    def __init__(self, M, K, N, S, num_devices):
+    def __init__(self, M, K, N, S, num_devices, communication_backend):
         super().__init__()
         self._M = M
         self._K = K
@@ -1699,6 +1699,7 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
         self._S = S
         self._num_devices = num_devices
         self.use_multidevice_executor()
+        self.set_backend(communication_backend)
 
     def definition(self) -> None:
         M, K, N, S, D = (
@@ -1753,7 +1754,7 @@ def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
     ins = [x, weight, bias]
     out_ref = torch.nn.functional.linear(x_unsharded, weight, bias)
 
-    fd = OverlapAGMatmulStreamOutermost(M, K, N, S, D)
+    fd = OverlapAGMatmulStreamOutermost(M, K, N, S, D, nvfuser.CommunicatorBackend.ucc)
 
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 

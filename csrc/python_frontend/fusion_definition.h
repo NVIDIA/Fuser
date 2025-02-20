@@ -373,6 +373,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! (Experimental) toggle using MultiDeviceExecutor directly instead of the
   //! main stack
   mutable bool use_multidevice_executor = false;
+  mutable CommunicatorBackend backend_type = CommunicatorBackend::kNccl;
 };
 
 } // namespace nvfuser::python_frontend

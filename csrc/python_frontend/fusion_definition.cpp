@@ -405,7 +405,10 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   if (use_multidevice_executor) {
     if (scheds->multi_device_executor == nullptr) {
       scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
-          std::make_unique<Fusion>(*scheds->auto_gen_schedules->fusion()));
+          std::make_unique<Fusion>(*scheds->auto_gen_schedules->fusion()),
+          Communicator::getInstance(),
+          MultiDeviceExecutorParams{
+              .lower = {.communicator_backend = backend_type}});
     }
     out_tensors = scheds->multi_device_executor->runWithInput(inputs);
   } else if (user_sched == nullptr) {
@@ -463,7 +466,6 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
   out_dtensors.reserve(out_tensors.size());
-  // if (user_sched == nullptr && use_multidevice_executor == false) {
   if (user_sched == nullptr) {
     Fusion* fusion = use_multidevice_executor
         ? scheds->multi_device_executor->hirEvaluator()->container()

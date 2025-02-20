@@ -23,6 +23,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <mma_type.h>
+#include <multidevice/communicator.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -855,6 +856,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
 
+  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+      .value("nccl", CommunicatorBackend::kNccl)
+      .value("ucc", CommunicatorBackend::kUcc);
+
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
   nvfuser.def("serialize", serialize);
@@ -1532,9 +1537,17 @@ void initNvFuserPythonBindings(PyObject* module) {
           },
           py::arg("dtype") = DataType::Double,
           py::return_value_policy::reference)
-      .def("use_multidevice_executor", [](FusionDefinition& self) {
-        self.use_multidevice_executor = true;
-      });
+      .def(
+          "use_multidevice_executor",
+          [](FusionDefinition& self) { self.use_multidevice_executor = true; })
+      .def(
+          "set_backend",
+          [](FusionDefinition& self, CommunicatorBackend backend_type) {
+            static bool backend_set = false;
+            NVF_CHECK(!backend_set, "Backend type has already been set");
+            backend_set = true;
+            self.backend_type = backend_type;
+          });
   fusion_def.def(
       "define_scalar",
       [](FusionDefinition& self,
