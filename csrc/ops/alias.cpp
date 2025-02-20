@@ -751,6 +751,9 @@ TensorView* slice(
   ExpressionEvaluator expr_eval;
 
   const auto get_int = [&expr_eval](Val* x) -> std::optional<int64_t> {
+    if (x == nullptr) {
+      return std::nullopt;
+    }
     auto inferred_val = expr_eval.evaluate(x);
     if (inferred_val.hasValue()) {
       return inferred_val.as<int64_t>();
