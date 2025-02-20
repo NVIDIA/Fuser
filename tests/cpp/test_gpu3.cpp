@@ -7400,7 +7400,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     fusion->addInput(cf);
     fusion->addInput(cd);
     fusion->addInput(ptr);
-    // fusion->addInput(array);
+    fusion->addInput(array);
 
     auto output = d;
     output = IrBuilder::addExpr(output, f);
