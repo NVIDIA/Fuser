@@ -193,7 +193,7 @@ int64_t Communication::getRootRelativeIndex() {
   return getRelativeIndex(team(), root());
 }
 
-std::string Communication::toString(const int indent_size) const {
+std::string Communication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
                           << "type=" << type() << ", "
@@ -207,12 +207,13 @@ std::string Communication::toString(const int indent_size) const {
   if (!outputs().empty()) {
     ss << ", output=" << out();
   }
-  ss << ")\n";
+  ss << ", backend=" << backend();
+  ss << ")";
   return ss.str();
 }
 
-std::string Communication::toInlineString(int indent_size) const {
-  return toString(indent_size);
+std::string Communication::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
