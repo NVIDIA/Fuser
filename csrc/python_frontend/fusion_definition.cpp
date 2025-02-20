@@ -406,7 +406,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   std::vector<at::Tensor> out_tensors;
   if (user_sched == nullptr) {
     out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
-        args.toC10Array(), std::nullopt, args.getDeviceIndex());
+        args, std::nullopt, args.getDeviceIndex());
   } else {
     if (isProfilerEnabledWithCupti()) {
       FusionProfiler::start();
@@ -419,9 +419,9 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       // Manual schedule
       if (!user_sched->executor->isCompiled()) {
         user_sched->executor->compile(
-            user_sched->scheduled_fusion.get(), args.toC10Array());
+            user_sched->scheduled_fusion.get(), args);
       }
-      out_tensors = user_sched->executor->run(args.toC10Array());
+      out_tensors = user_sched->executor->run(args);
     } else {
       // Automatic scheduler was used for UserSchedule.
       // Pass launch and compile params to compileFusion and runFusion.
@@ -434,7 +434,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
             user_sched->heuristic_params->scheduler_type);
       }
       out_tensors = user_sched->executor->run(
-          args.toC10Array(),
+          args,
           {},
           user_sched->heuristic_params->lparams,
           user_sched->heuristic_params->cparams);

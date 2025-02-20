@@ -411,7 +411,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, args);
     }
   }
 
