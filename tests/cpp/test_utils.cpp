@@ -22,7 +22,10 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <list>
+#include <ranges>
 #include <system_error>
+#include <vector>
 
 namespace nvfuser {
 
@@ -1623,6 +1626,78 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
   Val* v4_7_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[7], v4);
   EXPECT_EQ(simplifyExpr(v4_7_in_v4)->value(), 1);
+}
+
+using TestCpp23BackPort = NVFuserTest;
+
+TEST_F(TestCpp23BackPort, DifferentWaysToSayZeroToTen) {
+  // vector of integers
+  std::vector<int64_t> integer{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+  // list of English words
+  std::list<std::string> english{
+      "zero",
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+      "seven",
+      "eight",
+      "nine"};
+
+  // Custom iterator and range implementing the set-theoretic definition of
+  // natural numbers:
+  // https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers
+  struct SetTheoreticNaturalNumber {
+    std::vector<SetTheoreticNaturalNumber> content;
+    using value_type = SetTheoreticNaturalNumber;
+    using difference_type = std::ptrdiff_t;
+    SetTheoreticNaturalNumber() = default; // zero
+    SetTheoreticNaturalNumber(
+        std::initializer_list<SetTheoreticNaturalNumber> x)
+        : content(x) {}
+    SetTheoreticNaturalNumber operator*() const {
+      return *this;
+    }
+    SetTheoreticNaturalNumber& operator++() {
+      content.emplace_back(*this);
+      return *this;
+    }
+    SetTheoreticNaturalNumber operator++(int) {
+      SetTheoreticNaturalNumber temp = *this;
+      ++(*this);
+      return temp;
+    }
+    bool operator==(const SetTheoreticNaturalNumber& other) const {
+      return content == other.content;
+    }
+  };
+  static_assert(std::input_iterator<SetTheoreticNaturalNumber>);
+  struct ZeroToInf : std::ranges::view_interface<ZeroToInf> {
+    SetTheoreticNaturalNumber begin() {
+      return SetTheoreticNaturalNumber();
+    }
+    SetTheoreticNaturalNumber end() {
+      SetTheoreticNaturalNumber invalid_natural_number({{{}}});
+      return invalid_natural_number;
+    }
+  } set_theoretic_zero_to_inf;
+  static_assert(std::ranges::input_range<ZeroToInf>);
+  static_assert(std::ranges::view<ZeroToInf>);
+
+  for (auto&& [i, e, s, itoa] :
+       zip(integer,
+           english,
+           set_theoretic_zero_to_inf,
+           std::ranges::iota_view(0))) {
+    static_assert(std::is_same_v<decltype(i), int64_t&>);
+    static_assert(std::is_same_v<decltype(e), std::string&>);
+    static_assert(std::is_same_v<decltype(s), SetTheoreticNaturalNumber>);
+    static_assert(std::is_same_v<decltype(itoa), int>);
+    std::cout << i << std::endl;
+  }
 }
 
 } // namespace nvfuser

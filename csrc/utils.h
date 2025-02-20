@@ -22,6 +22,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -615,5 +616,66 @@ void checkAllEqual(std::initializer_list<T> elements) {
         "]");
   }
 }
+
+#if __cplusplus >= 202302L
+
+using std::views::zip;
+
+#else
+
+namespace views {
+template <std::ranges::input_range... Rs>
+class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
+ private:
+  std::tuple<Rs...> bases;
+
+  struct iterator {
+    std::tuple<std::ranges::iterator_t<Rs>...> iterators;
+
+    using value_type = std::tuple<std::ranges::range_value_t<Rs>...>;
+    using reference = std::tuple<std::ranges::range_reference_t<Rs>...>;
+    using difference_type = std::ptrdiff_t;
+
+    iterator& operator++() {
+      std::apply([](auto&... it) { ((++it), ...); }, iterators);
+      return *this;
+    }
+
+    reference operator*() const {
+      return std::apply(
+          [](auto&... it) -> reference { return {*it...}; }, iterators);
+    }
+
+    bool operator==(const iterator& other) const {
+      return iterators == other.iterators;
+    }
+  };
+
+ public:
+  zip_view(Rs... ranges) : bases{std::move(ranges)...} {}
+
+  auto begin() {
+    return iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::begin(r)...}; },
+        bases)};
+  }
+
+  auto end() {
+    return iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::end(r)...}; }, bases)};
+  }
+};
+
+template <std::ranges::input_range... Rs>
+zip_view(Rs&&...) -> zip_view<Rs...>;
+
+template <std::ranges::input_range... Rs>
+auto zip(Rs&&... rs) {
+  return zip_view{std::forward<Rs>(rs)...};
+}
+} // namespace views
+using views::zip;
+
+#endif
 
 } // namespace nvfuser
