@@ -148,7 +148,7 @@ class FusionKernelRuntime {
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
-  std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
+  std::unordered_map<Val*, PolymorphicValue> runSegmentsWithInputs(
       KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
