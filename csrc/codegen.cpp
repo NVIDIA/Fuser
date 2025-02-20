@@ -3061,7 +3061,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     if (std::getenv("NO_FETCH_UNROLL") == nullptr &&
         loop->circularBufferLoopStage() !=
-            CircularBufferLoopStage::NotApplicable) {
+            CircularBufferLoopStage::NotApplicable && loop->isUnrolled()) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler
       // should maximally unroll such loops leading to very long compiles, we

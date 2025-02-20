@@ -110,16 +110,16 @@ Val* getOffsetForCircularBufferTensor(
   const CircularBufferLoopStage stage =
       circular_buffer_loop->circularBufferLoopStage();
 
-  std::cout << "stage: " << stage << std::endl;
+  // std::cout << "stage: " << stage << std::endl;
 
   auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
-  std::cout << "loop_index: " << loop_index->toInlineString() << std::endl;
+  // std::cout << "loop_index: " << loop_index->toInlineString() << std::endl;
 
   const auto& opt =
       GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
           circular_buffer_loop->iter_domain());
 
-  std::cout << "getCircularBufferOptionsFor: " << opt << std::endl;
+  // std::cout << "getCircularBufferOptionsFor: " << opt << std::endl;
 
   // If this appears as a consumer, it should be either prologue or
   // main. If it's producer, it should be main or epilogue
@@ -134,7 +134,7 @@ Val* getOffsetForCircularBufferTensor(
       (as_consumer ? "consumer" : "producer"));
 
   auto offset = loop_index;
-  std::cout << "offset: " << offset->toInlineString() << std::endl;
+  // std::cout << "offset: " << offset->toInlineString() << std::endl;
 
   // If this is a consumer and in the main loop, advance the offset
   // for read-ahead
@@ -142,21 +142,21 @@ Val* getOffsetForCircularBufferTensor(
     offset = SimplifyingIrBuilder::addExpr(
         offset,
         SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
-    std::cout << "Main offset: " << offset->toInlineString() << std::endl;
+    // std::cout << "Main offset: " << offset->toInlineString() << std::endl;
   }
 
   // Add "offset % num_stages", except when it's in prologue
   if (stage != CircularBufferLoopStage::Prolog) {
     offset = SimplifyingIrBuilder::modExpr(
         offset, SimplifyingIrBuilder::create<Val>(opt.stage, DataType::Index));
-    std::cout << "Prolog offset: " << offset->toInlineString() << std::endl;
+    // std::cout << "Prolog offset: " << offset->toInlineString() << std::endl;
   }
 
   
 
   auto original_alloc_size =
       gpu_lower->circularBufferInfo().getOriginalAllocSize(circular_buffer_tv);
-  std::cout << "original_alloc_size: " << original_alloc_size->toInlineString() << std::endl;
+  // std::cout << "original_alloc_size: " << original_alloc_size->toInlineString() << std::endl;
 
   return SimplifyingIrBuilder::mulExpr(offset, original_alloc_size);
 }

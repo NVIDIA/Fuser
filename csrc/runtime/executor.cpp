@@ -1126,6 +1126,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     }
 
     if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+      std::cout << "============ ExecutorRunFusion::cuLaunchKernel ========= " << std::endl;
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->cudaExecutable()->function,
@@ -1140,6 +1141,7 @@ std::vector<at::Tensor> KernelExecutor::run(
           executor_entry->arg_ptrs.data(),
           nullptr));
     } else {
+      std::cout << "============ cuLaunchCooperativeKernel ========= " << std::endl;
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
           compiled_kernel_->cudaExecutable()->function,

@@ -1448,9 +1448,10 @@ TensorView* scheduleReductionGeneral(
   TensorView* result = reduction_scheduler_utils::scheduleReductionTV(
       rparams, reduction_tv, has_iter_axis);
 
-  if (std::getenv("WARPTIDZ")) {
+  if (std::getenv("WARPTIDZ") || std::getenv("USETIDZ")) {
     result->axis(1)->parallelize(ParallelType::TIDz);
   }
+
   std::cout << result->toString() << std::endl;
   return result;
 
@@ -1555,12 +1556,12 @@ void schedulePersistentKernel(
       inner_most_iter_axis++;
     }
     std::cout << "inner_most_iter_axis: " << inner_most_iter_axis << std::endl;
-    // if (rparams->circular_buffer_options.isEnable()) {
-    TransformPropagator propagator_circular_buffer(
-        reference_tv, inner_most_iter_axis);
-    MaxLogicalDomainInfoSpanningTree(reference_tv)
-        .traverse(&propagator_circular_buffer);
-    // }
+    if (inner_most_iter_axis > 0) {
+      TransformPropagator propagator_circular_buffer(
+          reference_tv, inner_most_iter_axis);
+      MaxLogicalDomainInfoSpanningTree(reference_tv)
+          .traverse(&propagator_circular_buffer);
+    }
 
     // propagate reduction domains
     TransformPropagator propagator(reference_tv);
@@ -1573,7 +1574,6 @@ void schedulePersistentKernel(
     reduction_scheduler_utils::propagateTransformation(reference_tv);
   }
 
-  // fusion->printMath();
 
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
@@ -1649,6 +1649,8 @@ void schedulePersistentKernel(
   } else {
     inlineMost();
   }
+
+  fusion->printMath();
 
   // circular buffer
   if (rparams->use_tma_load && rparams->circular_buffer_options.isEnable()) {

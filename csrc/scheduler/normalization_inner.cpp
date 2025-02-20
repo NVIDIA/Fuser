@@ -686,6 +686,10 @@ void innerPersistentHeuristic2D(
     if (std::getenv("PREFETCH")) {
       prefetch = std::atoi(std::getenv("PREFETCH"));
     }
+    
+    if (std::getenv("PBATCH")) {
+      best_heuristic.persistent_batch_size = std::atoi(std::getenv("PBATCH"));
+    }
 
     ParallelType warp_parallel_type = ParallelType::Serial;
     if (std::getenv("WARPTIDZ")) {
@@ -699,7 +703,14 @@ void innerPersistentHeuristic2D(
     }
     CircularBufferType circular_buffer_type{Pipelined(true)};
     if (warp_parallel_type != ParallelType::Serial) {
-      circular_buffer_type = WarpSpecialized(warp_parallel_type);
+      if (std::getenv("NUMREG")) {
+        int64_t tma_reg = 40L;
+        int64_t num_regs = std::atoi(std::getenv("NUMREG"));
+        std::cout << "TMA thread is set to use 40 registers, compute thread uses register: " << num_regs << std::endl;
+        circular_buffer_type = WarpSpecialized(warp_parallel_type, std::make_pair(tma_reg, num_regs));
+      }else{
+        circular_buffer_type = WarpSpecialized(warp_parallel_type);
+      }
     }
 
     CircularBufferOptions circular_buffer_options{

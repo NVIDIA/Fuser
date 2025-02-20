@@ -390,6 +390,10 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   for (auto alloc : summary_.global_allocations) {
     parameters_.push_back(alloc->buffer());
   }
+
+  if (std::getenv("PERSISTENT")) {
+    summary_.has_cooperative_grid_reduction = true;
+  }
 }
 
 void Kernel::analyze() {
