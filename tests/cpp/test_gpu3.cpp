@@ -2219,7 +2219,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
   checker.handle(gpulw.run()->topLevelExprs());
 
   KernelExecutor ke;
-  ke.compile(&fusion, {}, LaunchParams());
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({X, Y, Y, Z}, options);
@@ -4503,7 +4503,7 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  std::vector<c10::IValue> inputs;
+  KernelArgumentHolder args;
   std::vector<at::Tensor> outputs;
   for (const auto& input_type : data_types) {
     at::Tensor t = at::randn({x, y}, options)
@@ -4511,19 +4511,19 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
                                // unsigned types are equivalent. There is no way
                                // to represent unsigned numbers in PyTorch.
                        .to(data_type_to_aten(input_type));
-    inputs.emplace_back(t);
+    args.push(t);
     for (const auto& output_type : data_types) {
       outputs.emplace_back(t.to(data_type_to_aten(output_type)));
     }
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      inputs,
+      args.toC10Array(),
       outputs,
       __LINE__,
       __FILE__,
@@ -7452,7 +7452,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     args.push(std::complex<double>(4.5, 6.7));
     args.push(std::complex<double>(8.9, 10.11));
     args.push(t2.data_ptr<float>());
-    args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+    args.push(PolymorphicValue(std::vector<PolymorphicValue>{12.3, 45.0}));
     if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
       args.push(12.3); // bf16
     }

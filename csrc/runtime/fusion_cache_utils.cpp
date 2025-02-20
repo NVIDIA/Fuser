@@ -58,10 +58,9 @@ KernelArgumentHolder ArgumentManager::translateValsToArgs(
         " in tensor map");
     arg_values.push_back(it->second);
   }
-  // TODO:
-  //  return KernelArgumentHolder(std::move(arg_values));
+
   KernelArgumentHolder holder;
-  for (auto& arg : arg_values) {
+  for (auto arg : arg_values) {
     holder.push(std::move(arg));
   }
   return holder;
@@ -271,19 +270,19 @@ void InputsIdLookup::deserialize(const serde::InputsIdLookup* buffer) {
 }
 
 InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
-    const c10::ArrayRef<c10::IValue>& inputs,
-    const std::unordered_set<size_t>& scalar_inputs_to_record,
-    int8_t device) {
+    const KernelArgumentHolder& args,
+    const std::unordered_set<size_t>& scalar_inputs_to_record) {
   IdLookupReturn ret;
 
   // lock mutex_ because we are touching encoding_
   std::lock_guard<std::mutex> guard(mutex_);
   encoding_.clear();
-  encodeBuffer(device, encoding_);
-  for (const auto i : c10::irange(inputs.size())) {
-    auto input = inputs[i];
-    if (input.isTensor()) {
-      auto& input_tensor = input.toTensor();
+  encodeBuffer(args.getDeviceIndex(), encoding_);
+
+  for (const auto i : c10::irange(args.size())) {
+    const auto& arg = args[i];
+    if (arg.is<at::Tensor>()) {
+      const auto& input_tensor = arg.as<at::Tensor>();
 
       for (auto size : input_tensor.sizes()) {
         encodeBuffer(size, encoding_);
@@ -300,7 +299,6 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
           SchedulerRuntimeInfo::computeAlignmentSize(
               (size_t)input_tensor.data_ptr()),
           encoding_);
-      // NOTE: device is set for the whole set of inputs first using device arg
     } else {
       // encode s for scalar;
       encoding_.push_back('s');
@@ -310,18 +308,18 @@ InputsIdLookup::IdLookupReturn InputsIdLookup::lookupId(
         // Note that although most commonly these will be Int or Bool scalars,
         // any DataType might appear via `cast` and `where`, so we handle all
         // cases here.
-        if (input.isInt()) {
-          encodeBuffer(input.toInt(), encoding_);
-        } else if (input.isBool()) {
-          encodeBuffer(input.toBool(), encoding_);
-        } else if (input.isDouble()) {
-          encodeBuffer(input.toDouble(), encoding_);
-        } else if (input.isComplexDouble()) {
-          encodeBuffer(input.toComplexDouble(), encoding_);
+        if (arg.is<int64_t>()) {
+          encodeBuffer(arg.as<int64_t>(), encoding_);
+        } else if (arg.is<bool>()) {
+          encodeBuffer(arg.as<bool>(), encoding_);
+        } else if (arg.is<double>()) {
+          encodeBuffer(arg.as<double>(), encoding_);
+        } else if (arg.is<std::complex<double>>()) {
+          encodeBuffer(arg.as<std::complex<double>>(), encoding_);
         } else {
           NVF_THROW(
               "Unhandled input type when creating input ID. Cannot record ",
-              input);
+              PolymorphicValue_functions::toString(arg));
         }
       }
     }

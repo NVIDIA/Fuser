@@ -425,11 +425,11 @@ TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
   at::Tensor idx = at::randint(0, nElem, (nElem_select), options_i);
   auto idx_pre = at::zeros({nElem_select}, options_i);
 
-  std::vector<c10::IValue> aten_inputs = {t1, t0, idx, idx_pre};
+  KernelArgumentHolder args = {t1, t0, idx, idx_pre};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  testValidate(&fusion, cg_outputs, args.toC10Array(), __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {
