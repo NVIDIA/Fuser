@@ -418,8 +418,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     if (user_sched->heuristic_params == nullptr) {
       // Manual schedule
       if (!user_sched->executor->isCompiled()) {
-        user_sched->executor->compile(
-            user_sched->scheduled_fusion.get(), args);
+        user_sched->executor->compile(user_sched->scheduled_fusion.get(), args);
       }
       out_tensors = user_sched->executor->run(args);
     } else {
