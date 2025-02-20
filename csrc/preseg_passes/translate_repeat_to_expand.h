@@ -46,7 +46,7 @@ class TranslateRepeatToExpand
 
  protected:
   static void runPass(Fusion* fusion);
-  static constexpr const char* name() {
+  static constexpr std::string_view name() {
     return "TranslateRepeatToExpand";
   }
 };

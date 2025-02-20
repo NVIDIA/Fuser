@@ -17,7 +17,7 @@ class MoveSplitCatPass : public OptimizationPass<MoveSplitCatPass> {
 
  protected:
   static void runPass(Fusion* fusion);
-  static constexpr const char* name() {
+  static constexpr std::string_view name() {
     return "MoveSplitCatPass";
   }
 };
