@@ -29,10 +29,9 @@ namespace nvfuser {
 namespace {
 // Replace CUDA tensor with Meta tensor because storing tensors can cause
 // out-of-memory issues. Other arguments are returned as-is.
-std::shared_ptr<PolymorphicValue> convertMetadataArg(
-    std::shared_ptr<PolymorphicValue> arg) {
-  if (arg->is<at::Tensor>()) {
-    if (const auto& tensor = arg->as<at::Tensor>(); tensor.is_cuda()) {
+PolymorphicValue convertMetadataArg(PolymorphicValue arg) {
+  if (arg.is<at::Tensor>()) {
+    if (const auto& tensor = arg.as<at::Tensor>(); tensor.is_cuda()) {
       auto meta_tensor = at::Tensor(at::detail::empty_strided_meta(
           tensor.sizes(),
           tensor.strides(),
@@ -40,7 +39,7 @@ std::shared_ptr<PolymorphicValue> convertMetadataArg(
           c10::nullopt,
           c10::Device(c10::DeviceType::Meta, 0),
           c10::nullopt));
-      return std::make_shared<PolymorphicValue>(std::move(meta_tensor));
+      return std::move(meta_tensor);
     }
   }
   return arg;
@@ -99,7 +98,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
     segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
+        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
@@ -290,7 +289,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    std::unordered_map<Val*, const PolymorphicValue*> tensor_map;
+    std::unordered_map<Val*, const PolymorphicValue&> tensor_map;
     for (const auto i : c10::irange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
@@ -324,8 +323,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
         "Segmented fusion output ",
         output->toString(),
         " does not exist in `tensor_map`.");
-    const PolymorphicValue* runtime_output = tensor_map.at(output);
-    fusion_outputs.push_back(runtime_output->as<at::Tensor>());
+    fusion_outputs.push_back(tensor_map.at(output).as<at::Tensor>());
   }
   return fusion_outputs;
 }
@@ -378,13 +376,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs;
+    auto group_runtime_inputs =
+        args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
-    }
-    for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
@@ -525,9 +521,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
   // We make a mutable copy of args so that we can use it in an
   // ArgumentManager
-  KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
-      mutable_args, runtime_workspace_, segmented_fusion_->inputs());
+      args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -538,10 +533,9 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     FusionGuard fg(fusion_to_run);
 
     // Get input arguments for SchedulerRuntimeInfo
-    KernelArgumentHolder group_runtime_inputs;
-    for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
-    }
+    KernelArgumentHolder group_runtime_inputs =
+        args_manager.translateValsToArgs(group_to_run->inputs());
+    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
 
     // Create PrecomputedValues for fusion segment
     std::unique_ptr<PrecomputedValues> evaluator_precomputed_values;
@@ -629,7 +623,7 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
   return executors_;
 }
 
-std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
+std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
   NVF_ERROR(
@@ -651,13 +645,11 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-    KernelArgumentHolder group_runtime_inputs;
+    KernelArgumentHolder group_runtime_inputs =
+        args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
-    }
-    for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     // TODO: currently we are still outputing PyTorch tensors, instead of
@@ -666,27 +658,36 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     // Run graph segment
     std::vector<at::Tensor> group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
+
+    std::vector<c10::IValue> ivalues;
+    ivalues.reserve(group_runtime_outputs
+                        .size()); // Optional but recommended for performance
+    for (const auto& tensor : group_runtime_outputs) {
+      ivalues.emplace_back(c10::IValue(tensor));
+    }
+
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+        group_to_run->outputs(),
+        KernelArgumentHolder(c10::ArrayRef<c10::IValue>(ivalues)),
+        run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
   if (isProfilerEnabled()) {
     int64_t input_bytes = 0;
-    for (auto inp : fusionSegments()->inputs()) {
-      if (dynamic_cast<TensorView*>(inp)) {
-        auto aten_ten = args_manager.checkTensorMap(inp);
-        input_bytes +=
-            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+    for (auto* inp : fusionSegments()->inputs()) {
+      if (inp->isA<TensorView>()) {
+        const auto& tensor = args_manager.checkTensorMap(inp).as<at::Tensor>();
+        input_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
     FusionProfiler::inputBytesAccessed(input_bytes);
+
     int64_t output_bytes = 0;
-    for (auto outp : fusionSegments()->outputs()) {
-      if (dynamic_cast<TensorView*>(outp)) {
-        auto aten_ten = args_manager.checkTensorMap(outp);
-        output_bytes +=
-            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+    for (auto* outp : fusionSegments()->outputs()) {
+      if (outp->isA<TensorView>()) {
+        const auto& tensor = args_manager.checkTensorMap(outp).as<at::Tensor>();
+        output_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
     FusionProfiler::outputBytesAccessed(output_bytes);

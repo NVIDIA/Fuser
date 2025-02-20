@@ -55,7 +55,7 @@ int64_t SegmentationState::setupSegmentation(
       });
 
   // Step 3) Concretize fusion with input arguments.
-  KernelArgumentHolder args = KernelArgumentHolder(inputs, device);
+  KernelArgumentHolder args(inputs, device);
 
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(cloned_original_fusion_.get(), args);
@@ -94,7 +94,7 @@ int64_t SegmentationState::setupSegmentation(
 
   // Run segmentation algorithm
   segmented_fusion_ = SegmentCandidateFinder::segment(
-      std::move(cloned_original_fusion_), &args, runtime_info);
+      std::move(cloned_original_fusion_), args, runtime_info);
 
   // Get the order for fusion segments
   prepareGroupOrder();

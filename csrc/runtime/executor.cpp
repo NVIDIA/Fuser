@@ -603,7 +603,7 @@ void dumpKernelArgs(
           << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
-    debug() << "  " << toString(*args[i]) << std::endl;
+    debug() << "  " << toString(args[i]) << std::endl;
   }
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
@@ -998,7 +998,7 @@ std::vector<at::Tensor> KernelExecutor::run(
       continue;
     }
     expr_eval.bind(
-        output, *args[compiled_kernel_->kernel()->inputs().size() + i]);
+        output, args[compiled_kernel_->kernel()->inputs().size() + i]);
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1057,7 +1057,7 @@ std::vector<at::Tensor> KernelExecutor::run(
               ->summary()
               .global_allocations.at(i)
               ->buffer(),
-          *args
+          args
               [compiled_kernel_->kernel()->inputs().size() + outputs.size() +
                i]);
       if (buf_info.is_profile_buffer) {
