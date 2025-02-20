@@ -55,7 +55,12 @@ def analyze_json(filename):
             data[Layout[layout]][shape] = time
         return data
 
-    json = json.load(open(filename))
+    try:
+        json = json.load(open(filename))
+    except Exception as e:
+        print(e)
+        return None
+
     return _organize_by_layout(json)
 
 
@@ -153,18 +158,69 @@ def test_matmul_nvf(
 
     if validate:
         baseline_output = torch.matmul(a, b)
-        assert torch.allclose(nvf_outputs[0], baseline_output, atol=1e-2, rtol=1e-2)
+        tolerance = k * 1e-6
+        assert torch.allclose(nvf_outputs[0], baseline_output, atol=tolerance, rtol=tolerance)
 
     prof = scheduled_fd.profile()
     # convert to microseconds to match pytorch profiler units
     return prof.kernel_profiles[0].time_ms * 1e-3
 
 
+def normalized_profile(args):
+    baseline_data = analyze_json(args.baseline_filepath)
+    # short-circuit
+    if baseline_data is None:
+        return False
+
+    problem_config = (args.m, args.n, args.k, args.layout)
+    shape = (args.m, args.n, args.k)
+    layout = Layout[args.layout]
+
+    # short-circuit
+    if layout not in baseline_data or shape not in baseline_data[layout]:
+        return False
+
+    baseline_result = baseline_data[layout][shape]
+    print(
+        f"problem configuration, m: {args.m}, n: {args.n}, k: {args.k}, layout: {args.layout}"
+    )
+    for idx, scheduler_config in enumerate(
+        itertools.product(*parameter_configurations.values())
+    ):
+        nvf_result = test_matmul_nvf(
+            problem_config, scheduler_config, args.verbose, args.validate
+        )
+        normalized_result = baseline_result / nvf_result
+        print(
+            f"index: {idx}, baseline(us): {baseline_result: .3e}, "
+            f"nvfuser(us):{nvf_result: 3e}, normalized(us):{normalized_result: 2f}"
+        )
+
+
+def profile(args):
+    problem_config = (args.m, args.n, args.k, args.layout)
+    shape = (args.m, args.n, args.k)
+
+    print(
+        f"problem configuration, m: {args.m}, n: {args.n}, k: {args.k}, layout: {args.layout}"
+    )
+    for idx, scheduler_config in enumerate(
+        itertools.product(*parameter_configurations.values())
+    ):
+        nvf_result = test_matmul_nvf(
+            problem_config, scheduler_config, args.verbose, args.validate
+        )
+        print(
+            f"index: {idx}, nvfuser(us):{nvf_result: 3e}"
+        )
+
+
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="For a single problem, run through a combination of matmul parameters and compare relative performance against nvjet."
+        description=("Run through a combination of matmul parameters and compare"
+        "relative performance against nvjet for a single problem.")
     )
     parser.add_argument(
         "-f",
@@ -194,7 +250,6 @@ def main():
     args = parser.parse_args()
 
     problem_config = (args.m, args.n, args.k, args.layout)
-
     device_properties = torch.cuda.get_device_properties(0)
     # short-circuit: problem does not fit on device
     if (
@@ -203,22 +258,9 @@ def main():
     ):
         assert False
 
-    baseline_data = analyze_json(args.baseline_filepath)
-    baseline_result = baseline_data[Layout[problem_config[3]]][problem_config[:3]]
-
-    print(
-        f"problem configuration, m: {args.m}, n: {args.n}, k: {args.k}, layout: {args.layout}"
-    )
-    for idx, scheduler_config in enumerate(
-        itertools.product(*parameter_configurations.values())
-    ):
-        nvf_result = test_matmul_nvf(
-            problem_config, scheduler_config, args.verbose, args.validate
-        )
-        normalized_result = baseline_result / nvf_result
-        print(
-            f"index: {idx}, baseline(us): {baseline_result: .3e}, nvfuser(us):{nvf_result: 3e}, normalized(us):{normalized_result: 2f}."
-        )
+    # If a problem shape is not found in json file, profile the raw kernel.
+    if not normalized_profile(args):
+        profile(args)
 
 
 # NOTE Scheduler _matmul_ ***rejected*** because : MatmulOp and LinearOp fusion
