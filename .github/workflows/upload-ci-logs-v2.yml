@@ -22,27 +22,17 @@ on:
       context:
         description: 'context'
         required: true
+      pr_number:
+        description: 'pr number'
+        required: false
 
-run-name: PR ${{ fromJson(github.event.inputs.args).pr }} - ${{ inputs.commit_sha }} - ${{ inputs.context }}
+run-name: PR status ${{ inputs.pr_number || github.run_id }} - ${{ inputs.commit_sha }} - ${{ inputs.context }}
 jobs:
-  Upload-Log:
-    name: Upload log
-    runs-on: blossom
-    steps:
-      - name: Log
-        run: blossom-ci
-        env:
-          OPERATION: 'POST-PROCESSING'
-          CI_SERVER: ${{ secrets.CI_SERVER }}
-          REPO_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   status_update:
     name: Update commit status
     runs-on: ubuntu-latest
     permissions:
       statuses: write
-    needs: [Upload-Log]
-    if: ${{ always() }}
     steps:
       - name: Set status
         run: |
