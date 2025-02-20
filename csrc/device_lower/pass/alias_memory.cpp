@@ -562,6 +562,7 @@ struct AllocationInfo {
   const kir::Allocate* alias_to = nullptr;
   bool is_inner_alias = false;
   bool should_try_alias = true;
+  bool should_allocate = true;
   bool is_cp_async_bulk = false;
   MemoryType mem_type = MemoryType::Local;
   DataType data_type = DataType::Float;
@@ -757,17 +758,6 @@ class AllocationInfoMap : private kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
-    if (expr->outputs().size() == 1) {
-      // Look for forced aliases
-      auto* out_tv = dynamic_cast<TensorView*>(expr->output(0));
-      if (out_tv) {
-        auto* alias_tv = GpuLower::current()->getTensorProducerAlias(out_tv);
-        if (alias_tv != nullptr) {
-          useInnerAlias(
-              getAllocInfoFromTV(out_tv), getAllocInfoFromTV(alias_tv));
-        }
-      }
-    }
     if (debug_printer_) {
       debug_printer_->pushBack(scope_map_.getExprPos(expr), expr);
     }
@@ -823,8 +813,17 @@ class AllocationInfoMap : private kir::IrVisitor {
       return;
     }
 
-    // Skip smaller register sizes
     bool should_try_alias = true;
+    bool should_allocate = true;
+    if (GpuLower::current()->getTensorProducerAlias(tv) != nullptr) {
+      // Don't alias or allocate tensors that are aliased to their producers,
+      // since we will just be removing all references to them in a later pass
+      // (removeAliasedConsumers)
+      should_try_alias = false;
+      should_allocate = false;
+    }
+
+    // Skip smaller register sizes
     if (mem_type == MemoryType::Local) {
       if (!alloc->size()->isConstInt()) {
         TORCH_WARN_ONCE(
@@ -852,6 +851,7 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
+    alloc_info->should_allocate = should_allocate;
     alloc_info->is_cp_async_bulk =
         (tv->definition() != nullptr &&
          ir_utils::isCpAsyncBulk(tv->definition()));
@@ -883,6 +883,12 @@ class AllocationInfoMap : private kir::IrVisitor {
 
     auto mark_liveness = [&expr_pos, this](TensorView* tv, bool is_write) {
       AllocationInfo* alloc_info = getAllocInfoFromTV(tv);
+      if (TensorView* alias_producer =
+              GpuLower::current()->getTensorProducerAlias(tv);
+          alias_producer && !is_write) {
+        // Count reads of aliased consumers as reads of their producer
+        alloc_info = getAllocInfoFromTV(alias_producer);
+      }
       if (is_write) {
         alloc_info->inner_live_interval->markWrite(expr_pos);
       } else {
@@ -1745,6 +1751,9 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
   }
 
   void pushAndAssign(AllocationInfo* alloc_info) {
+    if (!alloc_info->should_allocate) {
+      return;
+    }
     if (isDebugDumpEnabled(DebugDumpOption::BufferReuseInfo)) {
       auto alloc = alloc_info->alloc_expr;
       debug() << "Pushing allocation for T" << alloc->buffer()->name()
@@ -2088,7 +2097,8 @@ void assignSharedMemoryAllocations(
 
   // Verify that all smem allocations have a non-null address now
   for (auto& alloc_info : allocation_info_map.allAllocationInfos()) {
-    if (alloc_info->mem_type != MemoryType::Shared || alloc_info->alias_to) {
+    if (!alloc_info->should_allocate ||
+        alloc_info->mem_type != MemoryType::Shared || alloc_info->alias_to) {
       continue;
     }
     auto alloc = alloc_info->alloc_expr;

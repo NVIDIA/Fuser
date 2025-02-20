@@ -283,6 +283,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"generateConditionalFromPredicate",
             generateConditionalFromPredicate},
            {"vectorizeWelford", vectorizeWelford},
+           {"removeAliasedConsumers", removeAliasedConsumers},
            {"addRNG", addRNG},
            {"allocateCommonScalars", allocateCommonScalars},
            {"insertMagicZero", insertMagicZero},
@@ -663,6 +664,31 @@ Val* GpuLower::getLoopIndexVariable(
   } else {
     return caMap()->getIndexVariable(id, stage);
   }
+}
+
+void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
+  std::cout << "aliasTensorProducer consumer=T" << consumer->name() << " "
+            << (void*)consumer << " producer=T" << producer->name() << " "
+            << (void*)producer << std::endl;
+  if (TensorView* old_alias = getTensorProducerAlias(consumer)) {
+    if (old_alias != producer) {
+      aliasTensorProducer(old_alias, producer);
+    }
+  }
+  tensor_producer_alias_map_[consumer] = producer;
+  for (auto& [c, p] : tensor_producer_alias_map_) {
+    if (p == consumer) {
+      p = producer;
+    }
+  }
+}
+
+TensorView* GpuLower::getTensorProducerAlias(TensorView* tv) const {
+  if (tv == nullptr) {
+    return nullptr;
+  }
+  auto it = tensor_producer_alias_map_.find(tv);
+  return it != tensor_producer_alias_map_.end() ? it->second : nullptr;
 }
 
 } // namespace nvfuser

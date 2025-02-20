@@ -510,13 +510,6 @@ class AllocationInserter : public kir::ExprMutator {
       return;
     }
 
-    if (!expr->outputs().empty() &&
-        GpuLower::current()->getTensorProducerAlias(
-            dynamic_cast<TensorView*>(expr->output(0))) != nullptr) {
-      // Don't create allocations for outputs that are aliased as producers
-      return;
-    }
-
     int64_t circular_buffer_depth = 1;
 
     // Found where the allocation needs to be inserted

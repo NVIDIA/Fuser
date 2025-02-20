@@ -20,4 +20,6 @@ std::vector<Expr*> loadStoreOpInserter(const std::vector<Expr*>& exprs);
 
 std::vector<Expr*> skipToAliasedConsumers(const std::vector<Expr*>& exprs);
 
+std::vector<Expr*> removeAliasedConsumers(const std::vector<Expr*>& exprs);
+
 } // namespace nvfuser

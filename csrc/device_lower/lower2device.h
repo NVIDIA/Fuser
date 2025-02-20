@@ -340,29 +340,11 @@ class GpuLower : public NonCopyable {
   //!
   //! Omitting one of these aliases might cause errors since that tensor's
   //! definition might get codegen'd without an allocation.
-  void aliasTensorProducer(TensorView* consumer, TensorView* producer) {
-    std::cout << "aliasTensorProducer consumer=T" << consumer->name()
-              << " producer=T" << producer->name() << std::endl;
-    if (TensorView* old_alias = getTensorProducerAlias(consumer)) {
-      tensor_producer_alias_map_[consumer] = producer;
-      aliasTensorProducer(old_alias, producer);
-    }
-    for (auto& [c, p] : tensor_producer_alias_map_) {
-      if (p == consumer) {
-        p = producer;
-      }
-    }
-  }
+  void aliasTensorProducer(TensorView* consumer, TensorView* producer);
 
   //! Return producer that this tensor should be aliased to. Returns nullptr if
   //! no alias exists, i.e. that we should codegen tv's definition.
-  TensorView* getTensorProducerAlias(TensorView* tv) const {
-    if (tv == nullptr) {
-      return nullptr;
-    }
-    auto it = tensor_producer_alias_map_.find(tv);
-    return it != tensor_producer_alias_map_.end() ? it->second : nullptr;
-  }
+  TensorView* getTensorProducerAlias(TensorView* tv) const;
 
  private:
   void analysis(Fusion* fusion);
