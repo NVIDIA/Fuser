@@ -19,7 +19,7 @@ class SegmentInplaceUpdatePass
 
  protected:
   static void runPass(Fusion* fusion);
-  static std::string name() {
+  static constexpr const char* name() {
     return "SegmentInplaceUpdate";
   }
 };

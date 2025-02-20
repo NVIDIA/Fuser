@@ -19,7 +19,7 @@ class NVF_API PreSegmenter : public OptimizationPass<PreSegmenter> {
 
  protected:
   static void runPass(Fusion* fusion);
-  static std::string name() {
+  static constexpr const char* name() {
     return "PreSegmenter";
   }
 };

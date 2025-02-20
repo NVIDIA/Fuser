@@ -53,7 +53,7 @@ class OptimizationPass {
       return;
     }
 
-    FUSER_PERF_SCOPE(DerivedClass::name().c_str());
+    FUSER_PERF_SCOPE(DerivedClass::name());
     DerivedClass::runPass(fusion);
 
     // TODO: skip the logging of the pass where the fusion has not been changed.

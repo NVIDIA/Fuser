@@ -25,7 +25,7 @@ class ReorderShardedAxisPass : public OptimizationPass<ReorderShardedAxisPass> {
 
  protected:
   static void runPass(Fusion* fusion);
-  static std::string name() {
+  static constexpr const char* name() {
     return "ReorderShardedAxisPass";
   }
 };

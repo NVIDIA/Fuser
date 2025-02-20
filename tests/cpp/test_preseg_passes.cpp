@@ -40,7 +40,7 @@ TEST_F(PresegTest, FusionTestOptimizationPassFlag) {
     static void runPass(Fusion* fusion) {
       throw std::runtime_error("running DerivedPass");
     };
-    static std::string name() {
+    static constexpr const char* name() {
       return "DerivedPass";
     }
   };
