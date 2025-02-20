@@ -1144,6 +1144,24 @@ std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
+  // On Hopper, we use TMA to load operands. Since TMA requires each coordinate
+  // of the input to be represented with a 32-bit signed int, we will encounter
+  // overflow if any dimension of an operand is larger than that.
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  if (device_prop->major == 9) {
+    for (Val* inp : fusion->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+        for (int64_t extent : runtime_info.getInputAllocationSizes(tv)) {
+          if (extent >= (1L << 31)) {
+            std::stringstream ss;
+            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, but found "
+               << extent;
+            return ss.str();
+          }
+        }
+      }
+    }
+  }
   return "";
 }
 
