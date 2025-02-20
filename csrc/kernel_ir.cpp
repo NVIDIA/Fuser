@@ -18,7 +18,9 @@
 #include <kernel_ir.h>
 #include <type.h>
 
+#include <cctype>
 #include <iostream>
+#include <regex>
 
 namespace nvfuser {
 namespace kir {
@@ -324,9 +326,10 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
 }
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (auto in : inputs()) {
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+    auto in = input(i);
     const char* constraint = nullptr;
-    if (in->isConst()) {
+    if (options().immediate_inputs.count(i) > 0) {
       constraint = "n";
     } else {
       constraint = getPTXConstraints(in);
@@ -414,16 +417,52 @@ std::string Asm::toInlineString(int indent_size) const {
 
 const std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "waitTMemLoad"},
-      {"tcgen05.wait::st.sync.aligned", "waitTMemStore"},
-      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "loadTMem"},
-      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
-      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32", "allocTMem"},
+      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
+      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "tmem::load"},
+      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "tmem::store"},
+      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+       "tmem::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "relinquishTMemAllocPermit"}};
-  auto it = ptx_to_utility.find(code());
+       "tmem::relinquishAllocPermit"},
+      {"wgmma.fence.sync.aligned", "wgmma::fence"},
+      {"fence.proxy.async", "fenceAsyncProxy"},
+      {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
+      {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
+      {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
+      {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
+      {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
+      {"cp.async.bulk.commit_group", "cpAsyncBulkCommitGroup"},
+      {"cp.async.bulk.wait_group.read", "cpAsyncBulkWaitGroup"},
+      {"setmaxnreg.inc.sync.aligned.u32", "increaseRegisters"},
+      {"setmaxnreg.dec.sync.aligned.u32", "decreaseRegisters"}};
+  const std::string& code = this->code();
+  auto it = ptx_to_utility.find(code);
   if (it != ptx_to_utility.end()) {
     return it->second;
+  }
+  // Match wgmma. Example:
+  // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
+  // utility: wgmmaM64N256K16Half
+  {
+    // Half
+    std::regex pattern(
+        R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
+    std::smatch match;
+    if (std::regex_match(code, match, pattern)) {
+      std::string extracted = match[1];
+      return "wgmma::" + extracted + "Half";
+    }
+  }
+  {
+    // BFloat16
+    std::regex pattern(
+        R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.bf16\.bf16)");
+    std::smatch match;
+    if (std::regex_match(code, match, pattern)) {
+      std::string extracted = match[1];
+      return "wgmma::" + extracted + "BF16";
+    }
   }
   return "";
 }

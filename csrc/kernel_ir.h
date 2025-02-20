@@ -183,6 +183,7 @@ struct AsmOptions {
   bool volatile_ = false;
   bool memory = false;
   std::unordered_set<int64_t> readable_outputs = {};
+  std::unordered_set<int64_t> immediate_inputs = {};
 };
 
 class Asm final : public Expr {

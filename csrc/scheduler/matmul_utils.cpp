@@ -919,7 +919,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   mma_utils::MatmulPattern& pattern = patterns.front();
 
   // IdModel is used to analyze problem shape & layout
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
 
   const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
@@ -1102,7 +1102,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #3
   // Prepare an IdModel which will be reused to check remaining conditions
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::TensorRolesMapOpt tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);

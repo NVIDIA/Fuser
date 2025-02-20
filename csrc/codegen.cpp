@@ -167,8 +167,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.genBody();
     codegen.endBlock();
     NVF_CHECK(codegen.block_nest_level_ == 0);
-    codegen.utilities_ << codegen.code_.str();
-    return codegen.utilities_.str();
+    std::stringstream final_code;
+    for (const auto& [ns, code] : codegen.utilities_) {
+      if (!ns.empty()) {
+        final_code << "namespace " << ns << " {\n"
+                   << code.str() << "} // namespace " << ns << "\n";
+      } else {
+        final_code << code.str() << "\n";
+      }
+    }
+    final_code << codegen.code_.str();
+    return final_code.str();
   }
 
  private:
@@ -3190,10 +3199,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Reference:
   // https://docs.nvidia.com/cuda/inline-ptx-assembly
   void handle(const kir::Asm* asm_) final {
+    auto get_type_or_index_type = [](Val* value) {
+      if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
+        if (isPointerType(ti->index()->dtype())) {
+          return ti->index()->dtype();
+        }
+      }
+      return value->dtype();
+    };
     // If asm_ has a utility name, we will wrap the PTX code in a utility
     // function with that name. Otherwise, we just generate the PTX code
     // directly in the kernel.
-    std::string utility_name = asm_->utility();
+    const std::string utility_name = asm_->utility();
+    std::string namespace_name = "";
+    std::string utility_name_no_ns = utility_name;
+    if (size_t pos = utility_name.rfind("::"); pos != std::string::npos) {
+      namespace_name = utility_name.substr(0, pos);
+      utility_name_no_ns = utility_name.substr(pos + 2);
+    }
     bool as_utility = !utility_name.empty();
     bool utility_generated = false; // Is the same utility function already
                                     // generated when handling another asm_?
@@ -3203,15 +3226,16 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
     }
     // The stream to write the PTX code to
-    std::stringstream* asm_target = as_utility ? &utilities_ : &code_;
+    std::stringstream& utilities = utilities_[namespace_name];
+    std::stringstream* asm_target = as_utility ? &utilities : &code_;
     // Indentation for the PTX code
     int utility_block_nest_level = 1;
     std::function<std::ostream&()> indent_utility = [&]() -> std::ostream& {
       for (auto _ : c10::irange(utility_block_nest_level)) {
         (void)_;
-        utilities_ << kTab;
+        utilities << kTab;
       }
-      return utilities_;
+      return utilities;
     };
     std::function<std::ostream&()> indent_code = [this]() -> std::ostream& {
       return this->indent();
@@ -3231,29 +3255,46 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (!utility_generated) {
         const auto& outputs = asm_->outputs();
         const auto& inputs = asm_->inputs();
-        utilities_ << "__device__ __inline__ void " << utility_name << "(";
+        if (!asm_->options().immediate_inputs.empty()) {
+          utilities << "template <";
+          bool first = true;
+          for (auto in_i : c10::irange((int64_t)inputs.size())) {
+            if (asm_->options().immediate_inputs.count(in_i)) {
+              if (!first) {
+                utilities << ", ";
+              }
+              utilities << inputs.at(in_i)->dtype() << " in" << in_i;
+              first = false;
+            }
+          }
+          utilities << ">\n";
+        }
+        utilities << "__device__ __inline__ void " << utility_name_no_ns << "(";
         for (auto out_i : c10::irange(outputs.size())) {
           if (out_i > 0) {
-            utilities_ << ", ";
+            utilities << ", ";
           }
-          utilities_ << outputs.at(out_i)->dtype() << "& out" << out_i;
+          utilities << outputs.at(out_i)->dtype() << "& out" << out_i;
         }
         if (!outputs.empty()) {
-          utilities_ << ", ";
+          utilities << ", ";
         }
-        for (auto in_i : c10::irange(inputs.size())) {
-          if (in_i > 0) {
-            utilities_ << ", ";
+        for (auto in_i : c10::irange((int64_t)inputs.size())) {
+          if (asm_->options().immediate_inputs.count(in_i)) {
+            continue;
           }
-          utilities_ << inputs.at(in_i)->dtype() << " in" << in_i;
+          if (in_i > 0) {
+            utilities << ", ";
+          }
+          utilities << get_type_or_index_type(inputs.at(in_i)) << " in" << in_i;
         }
-        utilities_ << ") {\n";
+        utilities << ") {\n";
       }
-      this->indent() << utility_name << "(";
+      this->indent() << utility_name;
     }
     // Generate the actual PTX code like below:
     //   asm("bla.bla.bla": "=f"(out1): "f"(in1));
-    // We may either generate it in utilities_ or in code_, depending on
+    // We may either generate it in utilities or in code_, depending on
     // whether we are generating a utility function or not.
     if (!as_utility || !utility_generated) {
       indent() << "asm";
@@ -3284,15 +3325,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent();
       }
 
-      auto getTypeOrIndexType = [](Val* value) {
-        if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
-          if (isPointerType(ti->index()->dtype())) {
-            return ti->index()->dtype();
-          }
-        }
-        return value->dtype();
-      };
-
       if (asm_->hasBooleanInput()) {
         (*asm_target) << "\"{\\n\"\n";
         int64_t boolean_counter = 0;
@@ -3302,7 +3334,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         for (const auto* io : outputs_and_inputs) {
           for (auto val : *io) {
             // don't treat pointer to bool as bool
-            auto val_dtype = getTypeOrIndexType(val);
+            auto val_dtype = get_type_or_index_type(val);
             if (val_dtype == DataType::Bool) {
               indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
               indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
@@ -3356,7 +3388,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               if (counter > 0) {
                 next_line();
               }
-              auto reg_dtype = getTypeOrIndexType(register_);
+              auto reg_dtype = get_type_or_index_type(register_);
               if (std::holds_alternative<ArrayType>(reg_dtype.type)) {
                 for (auto i :
                      c10::irange(std::get<ArrayType>(reg_dtype.type).size)) {
@@ -3424,15 +3456,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Something like:
     //   myFunc(T1[0], T0[0]);
     if (as_utility) {
+      if (!asm_->options().immediate_inputs.empty()) {
+        code_ << "<";
+        bool first = true;
+        for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
+          if (constraint == "n") {
+            if (!first) {
+              code_ << ", ";
+            }
+            code_ << gen(register_);
+            first = false;
+          }
+        }
+        code_ << ">";
+      }
+      code_ << "(";
       bool first = true;
-      for (auto [_, register_] : asm_->constraintsAndOutputs()) {
+      for (auto&& [_, register_] : asm_->constraintsAndOutputs()) {
         if (!first) {
           code_ << ", ";
         }
         code_ << gen(register_);
         first = false;
       }
-      for (auto [_, register_] : asm_->constraintsAndInputs()) {
+      for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
+        if (constraint == "n") {
+          continue;
+        }
         if (!first) {
           code_ << ", ";
         }
@@ -3444,7 +3494,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // utility call.
     if (as_utility) {
       if (!utility_generated) {
-        utilities_ << "}\n";
+        utilities << "}\n";
       }
       code_ << ");\n";
     }
@@ -3644,8 +3694,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // that contains the kernel code itself.
   //
   //   // Utility section
+  //   namespace feature1 {
   //   void myFunc(float& out1, float in1) {
   //     asm("bla.bla.bla": "=f"(out1): "f"(in1));
+  //   }
   //   }
   //   // Kernel section
   //   __global__ void kernel_name(Tensor T0, Tensor T1, ...) {
@@ -3654,8 +3706,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //     ...
   //   }
 
-  // string for utility section
-  std::stringstream utilities_;
+  // string for utility section. namespace -> utility code
+  // using std::map instead of std::unordered_map for determinism
+  std::map<std::string, std::stringstream> utilities_;
   // string kernel section
   std::stringstream code_;
 
