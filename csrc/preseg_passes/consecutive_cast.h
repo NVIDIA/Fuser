@@ -18,7 +18,7 @@ class ConsecutiveCastPass : public OptimizationPass<ConsecutiveCastPass> {
 
  protected:
   static void runPass(Fusion* fusion);
-  static constexpr std::string name() {
+  static std::string name() {
     return "ConsecutiveCastPass";
   }
 };
