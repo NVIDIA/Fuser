@@ -23,10 +23,6 @@ int64_t SegmentationState::setupSegmentation(
   NVF_ERROR(map_cloned_concretized_value_to_original_python_index_.empty());
   NVF_ERROR(cloned_original_extents_.empty());
 
-  int8_t device = getCommonDeviceCUDA(inputs);
-  NVF_CHECK(
-      inputs.empty() || device > -1, "Inputs are not all on the same device!");
-
   // Step 1) Clone preschedFusion CPP Fusion.
   cloned_original_fusion_ = std::make_unique<Fusion>();
 
@@ -55,7 +51,7 @@ int64_t SegmentationState::setupSegmentation(
       });
 
   // Step 3) Concretize fusion with input arguments.
-  KernelArgumentHolder args(inputs, device);
+  KernelArgumentHolder args(inputs);
 
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(cloned_original_fusion_.get(), args);

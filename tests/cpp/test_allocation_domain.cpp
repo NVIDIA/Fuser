@@ -1041,10 +1041,9 @@ TEST_F(AllocationDomainTest, VectorizationIssue902) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   ASSERT_TRUE(cg_outputs[0].equal(t0));
 }
@@ -1334,14 +1333,13 @@ TEST_F(AllocationDomainTest, ReductionSchedulerIssue1895) {
   auto t0 =
       at::randn({x, y, z, w, h}, options)
           .as_strided({x, y, z, w, h}, {w * h * z * y, w * h * z, w * h, 1, w});
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto ref = t0.to(at::kDouble).sum({2, 4});
   testValidate(
-      executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ReductionVectorization) {
@@ -1375,12 +1373,12 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({x, 1, z}, options);
   auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
-  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {

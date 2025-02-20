@@ -1398,13 +1398,17 @@ TEST_F(AliasTest, QKVSplitBackprop) {
   fusion->addOutput(permute_out);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> aten_inputs;
+  KernelArgumentHolder args;
   for (int i = 0; i < 3; i++) {
-    aten_inputs.push_back(at::randn({b, s, h * f}).cuda());
+    args.push(at::randn({b, s, h * f}).cuda());
   }
-  auto out_tensors = executor_cache.runFusionWithInputs(aten_inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs(args);
   testValidate(
-      executor_cache.fusion(), out_tensors, aten_inputs, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      args.toC10Array(),
+      __LINE__,
+      __FILE__);
 
   EXPECT_TRUE(out_tensors[2].is_alias_of(out_tensors[1]));
 }

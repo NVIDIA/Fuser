@@ -1368,7 +1368,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
   // By default, the extent of the tv1 domain is:
   //   i0 + ( ( fmax(0, ( fmin(i0, 1) )) ) + ( -i0 ) )
   // This should be simplified to just:
-  //   fmax(0, ( fmin(i0, 1) ))
+  //   fmin(i0, 1)
 
   fusion.addOutput(tv1);
 
@@ -1376,7 +1376,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
   auto bop = dynamic_cast<BinaryOp*>(resize_extent->definition());
   ASSERT_TRUE(bop != nullptr)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
-  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::Max)
+  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::Min)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
 }
 
@@ -2492,7 +2492,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  auto args = KernelArgumentHolder({t0, t1});
+  KernelArgumentHolder args({t0, t1});
   FusionKernelRuntime runtime(std::move(fusion), args);
   runtime.compileFusionParallel(args);
   auto cg_outputs = runtime.runWithInputs(args);

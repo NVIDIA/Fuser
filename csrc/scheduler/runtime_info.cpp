@@ -94,12 +94,6 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
   }
 }
 
-SchedulerRuntimeInfo::SchedulerRuntimeInfo(
-    Fusion* complete_fusion,
-    const c10::ArrayRef<c10::IValue>& aten_inputs)
-    : SchedulerRuntimeInfo(complete_fusion, KernelArgumentHolder(aten_inputs)) {
-}
-
 // TODO: Output tensors could have an alignment that is not 16 Bytes passed in
 // from user.
 size_t SchedulerRuntimeInfo::ptrOf(TensorView* tv) const {
