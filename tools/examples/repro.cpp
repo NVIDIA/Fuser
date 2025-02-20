@@ -55,16 +55,16 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(kFloat).device(at::kCUDA, 0);
-  std::vector<IValue> inputs;
+  KernelArgumentHolder args;
   std::vector<Tensor> outputs;
 
   {
     auto t0 = at::randn({-1}, options);
-    inputs.push_back(t0);
+    args.push(t0);
     auto t1 = at::randn({-1}, options);
-    inputs.push_back(t1);
+    args.push(t1);
     auto t2 = at::randn({-1, -1}, options).to(ScalarType::Half);
-    inputs.push_back(t2);
+    args.push(t2);
     auto t3 = t0.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});
     auto t4 = t1.unsqueeze(0).unsqueeze(1).expand({1, 1024, 768});
     auto t5 = t2.view({1, 1024, 768});
@@ -104,6 +104,6 @@ TEST_F(NVFuserTest, FusionGeneratedTest_CUDA) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  testValidate(fusion, cg_outputs, args.toC10Array(), outputs, __LINE__, __FILE__);
 }

@@ -10,9 +10,174 @@
 #include <id_model/to_string.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <logical_domain_map.h>
+#include <options.h>
 #include <val_graph_visitor.h>
 
 namespace nvfuser {
+
+std::string toString(const CoveredGroups& covered_groups) {
+  std::stringstream ss;
+  ss << "{\n";
+  for (const auto& cg : covered_groups) {
+    ss << "\t" << cg.toString() << "\n";
+  }
+  ss << "}\n";
+  return ss.str();
+}
+
+// Check if this CoveredGroup is equal to or a superset of the other
+// CoveredGroup. Trying to check as many sufficient conditions as
+// possible, but may not be complete.
+bool CoveredGroup::isEqualToOrSuperSetOf(const CoveredGroup& other) const {
+  if (*this == other) {
+    return true;
+  }
+
+  // When both are derived from split and correspond to either inner
+  // or outer.
+  if (split_in_.get() && other.split_in_.get() &&
+      is_inner_ == other.is_inner_) {
+    const CoveredGroups& split_in = *split_in_;
+    const CoveredGroups& other_split_in = *other.split_in_;
+
+    // When both have the same split input (and both correspond to
+    // either inner or outer), they should cover the same exact
+    // groups. This should only happen when broadcast is merged. For
+    // example, suppose there are two tensors and they are scheduled as
+    // follows;
+    //
+    // t0: [i0]
+    // t1: [i1, b2]
+    //
+    // t1->merge(0, 1)->split(0, 4);
+    // t0->split(0, 4)
+    //
+    // t0->inlineAt(t1, 1)
+    //
+    // In this case, t0->axis(0) and t1->axis(0) have the same
+    // split input group, {i0, i1}. Note that b2 is not included as
+    // it's a broadcast. Also note that both are the outer
+    // output. Here, group_ of t0->axis(0) is the exact group of
+    // t0->axis(0), while that of tv1->axis(0) is the exact group of
+    // the t1->merge(0, 1) output. In this case, however, this merge
+    // is just a merge of i1 and the b2 broadcast ID, so in terms of
+    // covered exact groups, it's effectively the same as that of
+    // t0->axis(0). All in all, as long as both correspond to either
+    // inner or outer of the same split input, they should be
+    // considered the same.
+    if (split_in == other_split_in) {
+      return true;
+    }
+
+    // Both are derived from a split but have differnt split input
+    // groups. If the input groups of this split is a superset of the
+    // input groups of the split of the other CoveredGroup, this
+    // CoveredGroup is a superset
+    if (nvfuser::isEqualToOrSuperSetOf(split_in, other_split_in)) {
+      return true;
+    }
+  }
+
+  // If the other CoveredGroup has a split input, it is sufficient to
+  // satisfy that this CoveredGroup is equal to or
+  // superior to the split input of other
+  if (other.split_in_.get()) {
+    if (std::all_of(
+            other.split_in_->begin(),
+            other.split_in_->end(),
+            [&](const CoveredGroup& other_split_in) {
+              return isEqualToOrSuperSetOf(other_split_in);
+            })) {
+      return true;
+    }
+  }
+
+  // At this point, it does not mean it's definitely false but not
+  // proven to be true either.
+
+  return false;
+}
+
+bool isEqualToOrSuperSetOf(
+    const CoveredGroups& covered_groups_x,
+    const CoveredGroups& covered_groups_y) {
+  return std::all_of(
+      covered_groups_y.begin(),
+      covered_groups_y.end(),
+      [&](const CoveredGroup& covered_group_y) {
+        return std::any_of(
+            covered_groups_x.begin(),
+            covered_groups_x.end(),
+            [&](const CoveredGroup& covered_group_x) {
+              return covered_group_x.isEqualToOrSuperSetOf(covered_group_y);
+            });
+      });
+}
+
+std::string CoveredGroup::toString() const {
+  std::stringstream ss;
+
+  ss << "{" << nvfuser::toString(group_);
+  if (split_in_.get()) {
+    ss << " (" << (is_inner_ ? "inner" : "outer") << " split from ";
+    bool is_first = true;
+    for (const auto& cg : *split_in_) {
+      if (!is_first) {
+        ss << ", ";
+      }
+      ss << cg.toString();
+      is_first = false;
+    }
+    ss << ")";
+  }
+  ss << "}";
+  return ss.str();
+}
+
+namespace {
+
+bool isDependencyOf(
+    const std::shared_ptr<CoveredGroups>& dependency,
+    const std::shared_ptr<CoveredGroups>& of);
+
+bool isDependencyOf(
+    const std::shared_ptr<CoveredGroups>& dependency,
+    const CoveredGroup& of) {
+  if (dependency->count(of)) {
+    return true;
+  }
+
+  if (of.splitIn() == dependency) {
+    return true;
+  }
+
+  if (of.splitIn().get() != nullptr &&
+      isDependencyOf(dependency, of.splitIn())) {
+    return true;
+  }
+
+  return false;
+}
+
+bool isDependencyOf(
+    const std::shared_ptr<CoveredGroups>& dependency,
+    const std::shared_ptr<CoveredGroups>& of) {
+  if (dependency == of) {
+    return true;
+  }
+
+  if (std::any_of(
+          of->begin(), of->end(), [&](const CoveredGroup& covered_group) {
+            return isDependencyOf(dependency, covered_group);
+          })) {
+    return true;
+  }
+
+  return false;
+}
+
+} // namespace
 
 LoopPromotionMapBuilder::LoopPromotionMapBuilder(
     IdModel& id_model,
@@ -106,7 +271,7 @@ namespace {
 // finding the promotion ID is a trivial probelm. Only the
 // loop groups of the loop domains need to be checked as loop
 // promotion does not matter for the other domains.
-bool isLoopGraphAlmostUniform(const IdModel& id_model) {
+bool isLoopGraphUniform(const IdModel& id_model) {
   for (const auto tv : id_model.tvs()) {
     if (tv->isFusionInput()) {
       continue;
@@ -116,22 +281,8 @@ bool isLoopGraphAlmostUniform(const IdModel& id_model) {
           id_model.idGraph(IdMappingMode::LOOP).toGroup(loop_id);
       const auto all_exact_groups =
           id_model.idGraph(IdMappingMode::EXACT).toGroups(*loop_group);
-      if (all_exact_groups.size() == 1) {
-        continue;
-      }
-
-      // Even when multiple exact groups are found, if there's only
-      // one concrete group and all the others are broadcast, it's
-      // obvious that the concrete group represents the promotion.
-      bool concrete_group_found = false;
-      for (const auto& exact_group : all_exact_groups) {
-        if (!exact_group->front()->as<IterDomain>()->isBroadcast()) {
-          if (concrete_group_found) {
-            // multiple concrete groups
-            return false;
-          }
-          concrete_group_found = true;
-        }
+      if (all_exact_groups.size() > 1) {
+        return false;
       }
     }
   }
@@ -141,21 +292,93 @@ bool isLoopGraphAlmostUniform(const IdModel& id_model) {
 
 } // namespace
 
+ValGroups LoopPromotionMapBuilder::getInputGroupsOfExactGraph(
+    const ValGraph& exact_graph,
+    const IdModel& id_model) {
+  std::unordered_set<IterDomain*> non_input_ids;
+
+  for (auto tv_expr : id_model.tvExprs()) {
+    for (const auto producer :
+         ir_utils::filterByType<TensorView>(tv_expr->inputs())) {
+      for (const auto consumer :
+           ir_utils::filterByType<TensorView>(tv_expr->outputs())) {
+        auto p2c = PairwiseLogicalDomainMap(producer, consumer)
+                       .mapBroadcast(false)
+                       .mapProducerToConsumer();
+        for (const auto& [p_id, c_id] : p2c) {
+          non_input_ids.insert(c_id);
+        }
+      }
+    }
+  }
+
+  ValGroups input_groups;
+  for (const auto tv : id_model.tvs()) {
+    for (const auto maybe_root_id : tv->getMaybeRootDomain()) {
+      if (!non_input_ids.count(maybe_root_id)) {
+        input_groups.pushBack(exact_graph.toGroup(maybe_root_id));
+      }
+    }
+  }
+
+  // Remove redundancy. There may be dependencies between inputs. For
+  // example:
+  //
+  //  Fusion inputs:
+  //   T0: [i0, i1]
+  //   T1: [i2]
+  //
+  //  T2 = reshape(T0, {i0, i1}, {i0*i1});
+  //  T3 = add(T2, T1)
+  //
+  // In this case, i2 forms an input group but is redundant as there
+  // are i0 and i1. In fact, traversing from {i0, i1, i2} would miss
+  // the expr between {i0, i1} and {i2}.
+
+  ValGroups input_groups_to_keep;
+  for (auto it = input_groups.begin(); it != input_groups.end(); ++it) {
+    const ValGroup& input = *it;
+
+    ValGroups other_inputs = input_groups_to_keep;
+    other_inputs.pushBack(it + 1, input_groups.end());
+    if (ValGraphBFS::getExprGroupsBetween(
+            exact_graph,
+            other_inputs,
+            {input},
+            /*require_all_to_visited=*/false,
+            Direction::Forward)
+            .second) {
+      // This input group is redundant with respect
+      continue;
+    } else {
+      input_groups_to_keep.pushBack(input);
+    }
+  }
+
+  return input_groups_to_keep;
+}
+
+ValGroups LoopPromotionMapBuilder::getInputGroupsOfIELGraph(
+    const ValGraph& iel_graph,
+    const IdModel& id_model) {
+  const auto exact_input_groups = getInputGroupsOfExactGraph(
+      id_model.idGraph(IdMappingMode::EXACT), id_model);
+
+  ValGroups iel_input_groups;
+  for (const ValGroup& exact_input_group : exact_input_groups) {
+    iel_input_groups.pushBack(iel_graph.toGroups(*exact_input_group));
+  }
+
+  return iel_input_groups;
+}
+
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // Some quick shortcut conditions to skip the full loop promotion
   // analysis. These are not comprehensive. Should add more conditions
   // if necessary.
-  if (!force_full_loop_promotion_analysis_ &&
-      isLoopGraphAlmostUniform(id_model_)) {
+  if (!force_full_loop_promotion_analysis_ && isLoopGraphUniform(id_model_)) {
     return buildWithNoBroadcast();
   }
-
-  // Cyclic exact graph is not supported. Specifically,
-  // computeCoveredGroups would fail as it uses ValGraphStmtSort.
-  NVF_ERROR(
-      !isCyclic(idGraph(IdMappingMode::EXACT)),
-      "Cyclic exact graph is not supported: ",
-      idGraph(IdMappingMode::EXACT).toString());
 
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
@@ -611,7 +834,8 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     const std::unordered_map<ValGroup, IterDomain*>& loop_graph_promotion_map) {
   // In order to make this traversal work, the traversal order must be
   // topologically sorted.
-  ValGraphStmtSort iel_stmt_sort(iel_graph);
+  ValGraphStmtSort iel_stmt_sort(
+      iel_graph, getInputGroupsOfIELGraph(iel_graph, id_model_));
 
   for (const ExprGroup& iel_expr : iel_stmt_sort.exprs()) {
     NVF_ERROR(!iel_expr->empty());
@@ -713,22 +937,37 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
       iel_graph, iel_promotion_map, idGraph(IdMappingMode::LOOP), {});
 }
 
-namespace {
-
-// Returns for each ValGroup in provided IdGraph what the input ValGroups are
-// traversing on definitions. Ignoring broadcast ValGroups and resetting inputs
-// at RFactor ValGroups.
-std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-    const ValGraph& graph) {
+std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+LoopPromotionMapBuilder::computeCoveredGroups(
+    const ValGraph& exact_graph,
+    const IdModel& id_model) {
   // Map from an exact iter domain group, to all the exact iter domain groups it
   // covers
-  std::unordered_map<ValGroup, ValGroups> covered_ids;
+  std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+      covered_group_map;
 
-  for (const ValGroup& id_group : graph.disjointValSets().disjointSets()) {
+  auto get_mapped_covered_groups = [&covered_group_map](
+                                       const ValGroup& id_group) {
+    auto map_it = covered_group_map.find(id_group);
+    if (map_it == covered_group_map.end()) {
+      // Initialize to empty group if not yet initialized
+      map_it =
+          covered_group_map.emplace(id_group, std::make_shared<CoveredGroups>())
+              .first;
+    }
+    return map_it->second;
+  };
+
+  ValGroups input_groups_of_graph =
+      getInputGroupsOfExactGraph(exact_graph, id_model);
+
+  for (const ValGroup& id_group :
+       exact_graph.disjointValSets().disjointSets()) {
     // Initialize inputs
-    const ExprGroups& id_group_defs = graph.getDefinitions(id_group);
-    if (id_group_defs.empty()) {
-      covered_ids[id_group] = {id_group};
+    if (input_groups_of_graph.has(id_group)) {
+      auto init_groups = std::make_shared<CoveredGroups>();
+      init_groups->insert(CoveredGroup(id_group));
+      NVF_ERROR(covered_group_map.emplace(id_group, init_groups).second);
     }
 
     // Initialize broadcast groups to empty since broadcast domains
@@ -736,34 +975,64 @@ std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
     if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
           return id->as<IterDomain>()->isBroadcast();
         })) {
-      covered_ids[id_group] = {};
+      covered_group_map[id_group] = std::make_shared<CoveredGroups>();
     }
   }
 
-  ValGraphStmtSort exact_stmt_sort(graph);
-
+  ValGraphStmtSort exact_stmt_sort(exact_graph, input_groups_of_graph);
+#if 0
+  std::cerr << "Sorted exprs:\n";
   for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
-    std::vector<ValGroup> input_groups = graph.inputGroups(exact_expr);
+    std::cerr << exact_expr->front()->toString();
+  }
+#endif
+  for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
+    const std::vector<ValGroup> input_groups =
+        exact_graph.inputGroups(exact_expr);
+    const std::vector<ValGroup> output_groups =
+        exact_graph.outputGroups(exact_expr);
 
-    ValGroups covered;
-    for (const ValGroup& inp_group : input_groups) {
-      covered.pushBack(covered_ids.at(inp_group));
+    // If this expr is a split, don't propagate the input coverage as
+    // is but set the covered group of each output group by itself.
+    // The input coverage info is propagated as the split input.
+    if (exact_expr->front()->isA<Split>()) {
+      auto input_coverage = get_mapped_covered_groups(input_groups.at(0));
+      for (const ValGroup& output_group : output_groups) {
+        auto output_coverage = get_mapped_covered_groups(output_group);
+        if (isDependencyOf(output_coverage, input_coverage)) {
+          continue;
+        }
+        bool is_inner =
+            output_group->has(exact_expr->front()->as<Split>()->inner());
+        output_coverage->insert(
+            CoveredGroup(output_group, input_coverage, is_inner));
+      }
+      continue;
     }
 
-    for (const ValGroup& output_group : graph.outputGroups(exact_expr)) {
-      // Note that pushBack must be used instead of just
-      // `covered_ids[outputGroups] = covered`. An exact group may have multiple
-      // exact expr groups and may have different coverage groups depending on
-      // the expr groups. For example, this can happen with reshape or resize.
-      // See test LoopPromotionCoverage for a concrete example.
-      covered_ids[output_group].pushBack(covered);
+    for (const ValGroup& output_group : output_groups) {
+      std::shared_ptr<CoveredGroups> current_output_covered_groups =
+          get_mapped_covered_groups(output_group);
+
+      for (const ValGroup& input_group : input_groups) {
+        const std::shared_ptr<CoveredGroups>& inp_covered_groups =
+            covered_group_map.at(input_group);
+        if (isDependencyOf(current_output_covered_groups, inp_covered_groups)) {
+          continue;
+        }
+
+        // Note that an exact group may have multiple
+        // exact expr groups and may have different coverage groups depending on
+        // the expr groups. For example, this can happen with reshape or resize.
+        // See test LoopPromotionCoverage for a concrete example.
+        current_output_covered_groups->insert(
+            inp_covered_groups->begin(), inp_covered_groups->end());
+      }
     }
   }
 
-  return covered_ids;
+  return covered_group_map;
 }
-
-}; // namespace
 
 std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
     projectIELPromotionToLoopGraph(
@@ -771,8 +1040,9 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
         const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
         const ValGraph& loop_graph,
         const StatefulInliningInfo& inlining_info) const {
-  const std::unordered_map<ValGroup, ValGroups> exact_covered_ids =
-      computeCoveredGroups(idGraph(IdMappingMode::EXACT));
+  const std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+      exact_covered_ids =
+          computeCoveredGroups(idGraph(IdMappingMode::EXACT), id_model_);
 
   // Grab terminal iter domain in the loop groups.
   const VectorOfUniqueEntries<IterDomain*> terminal_loop_ids =
@@ -800,7 +1070,8 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     const ValGroup& loop_group,
     const ValGraph& iel_graph,
     const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-    const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+    const std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>&
+        exact_covered_ids,
     const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const {
   const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
 
@@ -854,11 +1125,15 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
   ValGroups exact_groups = exact_graph.toGroups(*loop_group);
 
   // All exact groups covered by all iter domains in this loop group
-  ValGroups loop_group_covered_ids;
+  CoveredGroups loop_group_covered_ids;
   for (const ValGroup& exact_group : exact_groups) {
     auto covered_it = exact_covered_ids.find(exact_group);
-    NVF_ERROR(covered_it != exact_covered_ids.end());
-    loop_group_covered_ids.pushBack(covered_it->second);
+    NVF_ERROR(
+        covered_it != exact_covered_ids.end(),
+        "No covered group info for ",
+        nvfuser::toString(exact_group));
+    loop_group_covered_ids.insert(
+        covered_it->second->begin(), covered_it->second->end());
   }
 
   // Check if any of the candidate Iter Domains we collected cover all the
@@ -869,7 +1144,8 @@ IterDomain* LoopPromotionMapBuilder::findPromotionOfLoopGroup(
     IterDomain* terminal_id = entry.second;
     auto covered_it = exact_covered_ids.find(terminal_id_group);
     NVF_ERROR(covered_it != exact_covered_ids.end());
-    if (loop_group_covered_ids.computeSubtract(covered_it->second).empty()) {
+    const auto& covered_groups = covered_it->second;
+    if (isEqualToOrSuperSetOf(*covered_groups, loop_group_covered_ids)) {
       return terminal_id;
     }
   }
@@ -988,18 +1264,10 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
           (int64_t)StmtSort::getExprsTo({loop_id->extent()}).size();
       auto this_is_const = loop_id->extent()->isConstInt();
 
-      // A group is allowed to have one single exact group of concrete
-      // IDs with a broadcast group.
-      if (promotion == nullptr ||
-          (promotion->isBroadcast() && !loop_id->isBroadcast())) {
+      if (promotion == nullptr) {
         is_const = this_is_const;
         promotion = loop_id;
         num_exprs = this_num_exprs;
-        continue;
-      }
-
-      // Ignore broadcast if a concrete ID is already found
-      if (!promotion->isBroadcast() && loop_id->isBroadcast()) {
         continue;
       }
 

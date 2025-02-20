@@ -1349,7 +1349,7 @@ MatmulOperandInnerDimsOpt getOperandInnerDims(Fusion* fusion) {
     TORCH_WARN("TODO: Update getOperandInnerDims for multiple patterns");
   }
   const MatmulPattern& pattern = patterns[0];
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto id_roles = pattern.getDimRoles(id_model);
   const auto tensor_roles_opt = getTensorRoles(fusion, id_model, id_roles);
   if (!tensor_roles_opt.isValid()) {
@@ -2141,8 +2141,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
 } // namespace
 
 DimRolesMap MatmulPattern::getDimRoles(IdModel& id_model) const {
-  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+  const ValGraph& graph = id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
 
   // There are four types of ValGroup involved in a MatmulPattern: M, N, K, and
   // Batch. These are enumerated in the MatmulDimRole enum class. They are

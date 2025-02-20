@@ -32,6 +32,7 @@ namespace nvfuser {
 
 void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
     TensorView* tv) {
+  NVF_ERROR(tv->axis(-1)->isReduction(), "Inner axis should be Reduction.");
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
   //
@@ -43,7 +44,7 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
   tv->split(-2, getN(params_->mma_macro));
   // K dimension is present for mma_result
   // We don't need to split by warp_tile.k, since we always have
-  // cta_tile.k==warp_tile.k
+  // cta_tile.k == warp_tile.k
   tv->split(-1, getK(params_->mma_macro));
   // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Kw, Ki]
   tv->reorder({
@@ -65,7 +66,15 @@ void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
 
 void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
     TensorView* tv) {
-  // TODO Add constraints
+  NVF_ERROR(
+      tv->domain()->loop().size() >= 4,
+      "transformLikeMmaOutputWithoutK requires at least four iterDomains but ",
+      tv->toString(),
+      " only has ",
+      tv->domain()->loop().size(),
+      ".");
+  NVF_ERROR(
+      !tv->axis(-1)->isReduction(), "Inner axis should not be Reduction.");
 
   // The input is originally block tiled so that the inner dims are the CTA tile
   // size
@@ -515,6 +524,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
     }
 
     transformLikeMmaOutputWithK(mma_result);
+
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
@@ -732,11 +742,30 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
 
     CircularBufferType cb_type;
     switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined:
+      case MatmulParams::CircularBufferingStrategy::Pipelined: {
         cb_type = (CircularBufferType)Pipelined(false);
         break;
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
-        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+      }
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
+        NVF_ERROR(
+            std::all_of(
+                mma_results_.begin(),
+                mma_results_.end(),
+                [](TensorView* tv) {
+                  IterDomain* ws_axis = tv->axis(-7);
+                  return ws_axis->getParallelType() == ParallelType::TIDy &&
+                      ws_axis->extent()->evaluate().as<int64_t>() <= 2;
+                }),
+            "There can be at most two compute warp groups for register ",
+            "sharing with warp specialization");
+        constexpr int64_t num_registers_load_warp = 40;
+        constexpr int64_t num_registers_compute_warp = 232;
+        cb_type = (CircularBufferType)WarpSpecialized(
+            ParallelType::TIDy,
+            std::make_pair(
+                num_registers_load_warp, num_registers_compute_warp));
+        break;
+      }
     }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(

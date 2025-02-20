@@ -29,13 +29,13 @@ namespace nvfuser {
 // using expr evaluator.
 //
 // `fusion_outputs` is the return value of
-// `FusionExecutorCache::runFusionWithInputs(aten_inputs)`. It's not always
-// `fusion->outputs().size()` because `runFusionWithInputs` hides outputs
-// that are inputs in-place updated.
+// `FusionExecutorCache::runFusionWithInputs(aten_inputs)`. It's not
+// always `fusion->outputs().size()` because `runFusionWithInputs`
+// hides outputs that are inputs in-place updated.
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
     std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
@@ -48,7 +48,7 @@ void testValidate(
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",

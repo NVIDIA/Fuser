@@ -3032,19 +3032,18 @@ TEST_P(MatmulTestWithLayout, FusionAmpereMatmulSplitKBias_CUDA) {
       SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
           ->schedule(&fusion, &mparams);
 
-      auto [aten_a, aten_b] = matmulAtInput3DTuring(M, N, K, layout);
-      at::Tensor aten_bias = at::randn({M}, aten_a.options());
-      std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
+      auto [t0, t1] = matmulAtInput3DTuring(M, N, K, layout);
+      at::Tensor bias = at::randn({M}, t0.options());
 
       KernelExecutor ke;
-      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+          7, 5, ke.compile(&fusion, {t0, t1, bias}));
       EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-      auto cg_outputs = ke.run(inputs);
+      auto cg_outputs = ke.run({t0, t1, bias});
       ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
           ke.compiledKernel()->kernel()));
       auto tref = atBiasEpilogue(
-          atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
-          aten_bias);
+          atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout), bias);
 
       // Relax tolerance for larger sum due to large K
       EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
@@ -3090,21 +3089,18 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitK) {
       SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
           ->schedule(&fusion, &mparams);
 
-      at::Tensor aten_a =
+      auto t0 =
           matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-      at::Tensor aten_b =
+      auto t1 =
           matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
 
-      std::vector<c10::IValue> inputs = {aten_a, aten_b};
-
       KernelExecutor ke;
-      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, {t0, t1}));
       ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
           ke.compiledKernel()->kernel()));
-      auto cg_outputs = ke.run(inputs);
-      auto tref =
-          atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout);
+      auto cg_outputs = ke.run({t0, t1});
+      auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
       // Relax tolerance for larger sum due to large K
       EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
@@ -3154,23 +3150,21 @@ TEST_P(MatmulTestWithLayout, AmpereMatmulBatchSplitKBias) {
       SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
           ->schedule(&fusion, &mparams);
 
-      at::Tensor aten_a =
+      auto t0 =
           matmulAtInput2D(layout, TensorMatmulPos::A, at::kHalf, M, N, K, B);
-      at::Tensor aten_b =
+      auto t1 =
           matmulAtInput2D(layout, TensorMatmulPos::B, at::kHalf, M, N, K, B);
-      at::Tensor aten_bias = at::randn({M}, aten_a.options());
-
-      std::vector<c10::IValue> inputs = {aten_a, aten_b, aten_bias};
+      at::Tensor bias = at::randn({M}, t0.options());
 
       KernelExecutor ke;
-      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(7, 5, ke.compile(&fusion, inputs));
+      NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
+          7, 5, ke.compile(&fusion, {t0, t1, bias}));
       ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
       ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
           ke.compiledKernel()->kernel()));
-      auto cg_outputs = ke.run(inputs);
+      auto cg_outputs = ke.run({t0, t1, bias});
       auto tref = atBiasEpilogue(
-          atMatmul(aten_a.to(at::kFloat), aten_b.to(at::kFloat), layout),
-          aten_bias);
+          atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout), bias);
 
       // Relax tolerance for larger sum due to large K
       EXPECT_TRUE(cg_outputs[0].allclose(tref, 1e-6 * K, 1e-6 * K));
@@ -3433,21 +3427,20 @@ TEST_F(MatmulTest, MultipleConsecutiveDims) {
       ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor A = at::randn({M1, M2, K}, options);
-  at::Tensor B = at::randn({N1, N2, K}, options);
-  std::vector<c10::IValue> inputs{A, B};
+  auto t0 = at::randn({M1, M2, K}, options);
+  auto t1 = at::randn({N1, N2, K}, options);
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
   auto tref = at::reshape(
       at::linear(
-          at::reshape(A.to(at::kFloat), {M1 * M2, K}),
-          at::reshape(B.to(at::kFloat), {N1 * N2, K})),
+          at::reshape(t0.to(at::kFloat), {M1 * M2, K}),
+          at::reshape(t1.to(at::kFloat), {N1 * N2, K})),
       {M1, M2, N1, N2});
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3498,19 +3491,18 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveMDims) {
       ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor A = at::randn({M1, K, M2}, options);
-  at::Tensor B = at::randn({N, K}, options);
-  std::vector<c10::IValue> inputs{A, B};
+  auto t0 = at::randn({M1, K, M2}, options);
+  auto t1 = at::randn({N, K}, options);
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
-  auto cg_outputs = ke.run(inputs);
-  auto Apermuted = A.permute({{1, 2}}).reshape({M1 * M2, K});
-  auto tref = at::linear(Apermuted.to(at::kFloat), B.to(at::kFloat))
+  auto cg_outputs = ke.run({t0, t1});
+  auto Apermuted = t0.permute({{1, 2}}).reshape({M1 * M2, K});
+  auto tref = at::linear(Apermuted.to(at::kFloat), t1.to(at::kFloat))
                   .reshape({M1, M2, N})
                   .permute({{1, 2}});
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
@@ -3563,19 +3555,18 @@ TEST_F(MatmulTest, DISABLED_MultipleNonConsecutiveNDims) {
       ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor A = at::randn({M, K}, options);
-  at::Tensor B = at::randn({N1, K, N2}, options);
-  std::vector<c10::IValue> inputs{A, B};
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N1, K, N2}, options);
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
-  auto cg_outputs = ke.run(inputs);
-  auto Bpermuted = B.permute({{1, 2}}).reshape({N1 * N2, K});
-  auto tref = at::linear(A.to(at::kFloat), Bpermuted.to(at::kFloat))
+  auto cg_outputs = ke.run({t0, t1});
+  auto Bpermuted = t1.permute({{1, 2}}).reshape({N1 * N2, K});
+  auto tref = at::linear(t0.to(at::kFloat), Bpermuted.to(at::kFloat))
                   .reshape({M, N1, N2});
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
@@ -3622,19 +3613,18 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
       ->schedule(&fusion, &mparams);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor A = at::randn({M1, Batch, M2, K}, options);
-  at::Tensor B = at::randn({Batch, N, K}, options);
-  std::vector<c10::IValue> inputs{A, B};
+  auto t0 = at::randn({M1, Batch, M2, K}, options);
+  auto t1 = at::randn({Batch, N, K}, options);
 
   KernelExecutor ke;
   NVFUSER_TEST_CUDA_ARCH_COMPILE_CHECK(
-      8, 0, ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams));
+      8, 0, ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams));
   ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
   auto tref =
-      at::matmul(A.to(at::kFloat), at::permute(B.to(at::kFloat), {0, 2, 1}));
+      at::matmul(t0.to(at::kFloat), at::permute(t1.to(at::kFloat), {0, 2, 1}));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
@@ -3990,14 +3980,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
 
   auto [A3d, B3d] =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-  at::Tensor A = A3d.squeeze();
-  at::Tensor B = B3d.squeeze();
-  std::vector<c10::IValue> inputs{A, B};
+  auto t0 = A3d.squeeze();
+  auto t1 = B3d.squeeze();
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs, LaunchParams(), matmul_cparams);
-  auto cg_outputs = ke.run(inputs);
-  auto tref = atMatmul(A, B, layout);
+  ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = ke.run({t0, t1});
+  auto tref = atMatmul(t0, t1, layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
@@ -4024,13 +4013,13 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto a_ref = at::randn({K, M, 1}, options);
-  auto b_ref = at::randn({K, 1, N}, options);
-  auto out_ref = at::matmul(a_ref.squeeze().t(), b_ref.squeeze()).to(at::kHalf);
+  auto t0 = at::randn({K, M, 1}, options);
+  auto t1 = at::randn({K, 1, N}, options);
+  auto out_ref = at::matmul(t0.squeeze().t(), t1.squeeze()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4050,12 +4039,10 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4081,13 +4068,13 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze().t()).to(at::kHalf);
+  auto t0 = at::randn({M, 1, K}, options);
+  auto t1 = at::randn({1, N, K}, options);
+  auto out_ref = at::matmul(t0.squeeze(), t1.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4107,12 +4094,10 @@ TEST_F(HopperMatmulTest, HSH_TN_UseScheduler) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4143,14 +4128,13 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto a_ref = at::randn({1, K, M}, options);
-  auto b_ref = at::randn({N, K, 1}, options);
-  auto out_ref =
-      at::matmul(a_ref.squeeze().t(), b_ref.squeeze().t()).to(at::kHalf);
+  auto t0 = at::randn({1, K, M}, options);
+  auto t1 = at::randn({N, K, 1}, options);
+  auto out_ref = at::matmul(t0.squeeze().t(), t1.squeeze().t()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4170,12 +4154,10 @@ TEST_F(HopperMatmulTest, HSH_NN_UseScheduler) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4206,13 +4188,13 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto a_ref = at::randn({M, K, 1}, options);
-  auto b_ref = at::randn({1, K, N}, options);
-  auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze()).to(at::kHalf);
+  auto t0 = at::randn({M, K, 1}, options);
+  auto t1 = at::randn({1, K, N}, options);
+  auto out_ref = at::matmul(t0.squeeze(), t1.squeeze()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 16);
-  gemm_tile.warp_tile = GemmTile(64, 256, 16);
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -4232,12 +4214,10 @@ TEST_F(HopperMatmulTest, HSH_TT_UseScheduler) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4251,51 +4231,22 @@ struct MLPBenchmarkTestParams {
 };
 
 class MLPBenchmarkTest
-    : public NVFuserTest,
+    : public HopperBase,
       public ::testing::WithParamInterface<MLPBenchmarkTestParams> {
  protected:
   MLPBenchmarkTestParams test_params;
-  MatmulParams mparams;
-
   void SetUp() override {
-    test_params = GetParam();
-    NVFuserTest::SetUp();
-    if (test_params.warp_specialization) {
-      // warp specialization requires Hopper+
-      NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
-    }
+    HopperBase::SetUp();
 
-    mparams.supported_vec_size = {8, 8, 8};
-    mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-    MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 256, 16);
-    gemm_tile.warp_tile = GemmTile(64, 256, 16);
-    mparams.tile_sizes = gemm_tile;
-    mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
-    mparams.async_gmem_load_operands = true;
-    mparams.circular_buffering_strategy = test_params.warp_specialization
-        ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
-        : MatmulParams::CircularBufferingStrategy::Pipelined;
-    mparams.tiling_strategy = test_params.persistent_kernel
-        ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
-        : MatmulParams::TilingStrategy::OneTilePerCTA;
-    mparams.circular_buffer_options.circular_buffer_smem_write = true;
-    mparams.circular_buffer_options.circular_buffer_smem_read = false;
-    mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-    mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
-    mparams.splitk_factor = 1;
-    mparams.use_smem_epilogue = true;
-    mparams.cluster_dims = {2, 1, 1};
-    mparams.promote_prologue_smem_reuse = true;
+    test_params = GetParam();
+
+    if (test_params.persistent_kernel) {
+      GTEST_SKIP() << "persistent kernel tests are currently disabled";
+    }
   }
 };
 
 TEST_P(MLPBenchmarkTest, FwdGEMM) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4312,57 +4263,42 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, K}, options);
-  auto b_ref = at::randn({N, K}, options);
-  auto out_ref = at::linear(a_ref, b_ref);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
+  auto out_ref = at::linear(t0, t1);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 2, 1};
+  mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-      ke.compiledKernel()->kernel()));
-
-  // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
-}
-
-TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int64_t M = 4096, N = 14336, K = 5120;
-  const auto dtype = DataType::BFloat16;
-
-  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-
-  auto tv2 = fusedMultiplySum(tv0, tv1, {2});
-  auto tv3 = castOp(dtype, tv2);
-
-  fusion.addOutput(tv3);
-
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto out_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
-
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(&fusion, &mparams);
-
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
-  KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4371,11 +4307,6 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
 }
 
 TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4403,80 +4334,46 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
   fusion.addOutput(tv11);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, K}, options);
-  auto b_ref = at::randn({N, K}, options);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
   auto c_ref = at::randn({M, N}, options);
 
-  auto tv3_ref = at::linear(a_ref, b_ref);
+  auto tv3_ref = at::linear(t0, t1);
   auto tv4_ref = tv3_ref.to(at::kFloat);
   auto tv11_ref =
       (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * c_ref).to(at::kBFloat16);
 
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(&fusion, &mparams);
-
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
-
-  KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-      ke.compiledKernel()->kernel()));
-
-  // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(cg_outputs[1].allclose(tv11_ref, 1e-2, 1e-2));
-}
-
-TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
-  GTEST_SKIP() << "THIS TEST IS CURRENTLY FAILING" << std::endl;
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int64_t M = 4096, N = 14336, K = 5120;
-  const auto dtype = DataType::BFloat16;
-
-  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
-  auto tv2 = makeContigConcreteTensor({1, -1}, dtype); // M, N
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
-
-  auto tv4 = fusedMultiplySum(tv0, tv1, {2});
-  auto tv3 = castOp(dtype, tv4);
-  fusion.addOutput(tv3);
-
-  auto tv5 = neg(tv4);
-  auto tv6 = exp(tv5);
-  auto tv7 = add(fusion.oneVal(DataType::Float), tv6);
-  auto tv8 = reciprocal(tv7);
-  auto tv9 = mul(tv4, tv8);
-  auto tv10 = mul(tv9, tv2);
-  auto tv11 = castOp(dtype, tv10);
-  fusion.addOutput(tv11);
-
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto c_ref = at::randn({M, N}, options);
-
-  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
-  auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv11_ref =
-      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * c_ref).to(at::kBFloat16);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 2, 1};
+  mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1, c_ref});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1, c_ref});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4486,11 +4383,6 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
 }
 
 TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
 
@@ -4525,102 +4417,55 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   fusion.addOutput(tv12);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, K}, options);
-  auto b_ref = at::randn({N, K}, options);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
   auto c_ref = at::randn({N, K}, options);
 
-  auto tv3_ref = at::linear(a_ref, b_ref);
+  auto tv3_ref = at::linear(t0, t1);
   auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv10_ref = at::linear(a_ref, c_ref);
+  auto tv10_ref = at::linear(t0, c_ref);
   auto tv12_ref =
       (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
           .to(at::kBFloat16);
 
-  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
-      ->schedule(&fusion, &mparams);
-
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
-
-  KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
-  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
-      ke.compiledKernel()->kernel()));
-
-  // Relax tolerance for larger sum due to large K
-  // TODO: Some of these are failing, perhaps due to improper syncing of
-  // horizontally fused kernels?
-  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
-}
-
-TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
-  EnableOptionsGuard eog;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
-
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int64_t M = 4096, N = 14336, K = 5120;
-  const auto dtype = DataType::BFloat16;
-
-  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
-  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
-  auto tv2 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-  fusion.addInput(tv2);
-
-  auto tv4 = fusedMultiplySum(tv0, tv1, {2});
-  auto tv3 = castOp(dtype, tv4);
-  fusion.addOutput(tv3);
-
-  auto tv5 = neg(tv4);
-  auto tv6 = exp(tv5);
-  auto tv7 = add(fusion.oneVal(DataType::Float), tv6);
-  auto tv8 = reciprocal(tv7);
-  auto tv9 = mul(tv4, tv8);
-
-  auto tv10 = fusedMultiplySum(tv0, tv2, {2});
-  auto tv10c = castOp(dtype, tv10);
-  fusion.addOutput(tv10c);
-
-  auto tv11 = mul(tv9, tv10);
-  auto tv12 = castOp(DataType::BFloat16, tv11);
-  fusion.addOutput(tv12);
-
-  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto c_ref = at::randn({1, N, K}, options);
-
-  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
-  auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv10_ref = at::linear(a_ref.squeeze(), c_ref.squeeze());
-  auto tv12_ref =
-      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
-          .to(at::kBFloat16);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 128, 64);
+  gemm_tile.warp_tile = GemmTile(64, 128, 64);
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.circular_buffering_strategy = test_params.warp_specialization
+      ? MatmulParams::CircularBufferingStrategy::WarpSpecialized
+      : MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = test_params.persistent_kernel
+      ? MatmulParams::TilingStrategy::DistributeTilesAcrossSMs
+      : MatmulParams::TilingStrategy::OneTilePerCTA;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = true;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 2, 1};
+  mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1, c_ref});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1, c_ref});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  // TODO: Some of these are failing, perhaps due to improper syncing of
-  // horizontally fused kernels?
-  // EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(cg_outputs[0].allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
   EXPECT_TRUE(cg_outputs[1].allclose(tv10_ref, 1e-6 * K, 1e-6 * K));
-  // EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 1e-2, 1e-1));
+  EXPECT_TRUE(cg_outputs[2].allclose(tv12_ref, 5e-2, 1e-1));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -4634,14 +4479,11 @@ INSTANTIATE_TEST_SUITE_P(
             .warp_specialization = true,
             .persistent_kernel = false},
         MLPBenchmarkTestParams{
-            .warp_specialization = false,
-            .persistent_kernel = true},
-        MLPBenchmarkTestParams{
             .warp_specialization = true,
             .persistent_kernel = true}),
     [](const testing::TestParamInfo<MLPBenchmarkTestParams>& info) {
       std::stringstream ss;
-      ss << (info.param.persistent_kernel ? "persistent" : "dataparallel");
+      ss << (info.param.persistent_kernel ? "persistent" : "data_parallel");
       ss << (info.param.warp_specialization ? "_warpspec" : "_non_warpspec");
       return ss.str();
     });
@@ -4671,9 +4513,9 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto a_ref = at::randn({K, M, 1}, options);
-  auto b_ref = at::randn({K, 1, N}, options);
-  auto out_ref = at::matmul(a_ref.squeeze().t(), b_ref.squeeze()).to(at::kHalf);
+  auto t0 = at::randn({K, M, 1}, options);
+  auto t1 = at::randn({K, 1, N}, options);
+  auto out_ref = at::matmul(t0.squeeze().t(), t1.squeeze()).to(at::kHalf);
 
   MatMulTileOptions gemm_tile;
   // Regardless of the instruction, this should result in 2 warp groups i.e. 256
@@ -4702,16 +4544,14 @@ TEST_F(HopperMatmulTest, HSH_NT_UseScheduler_MultipleInstructionsPerWarpTile) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1});
   kir::Kernel* kernel = ke.compiledKernel()->kernel();
   ASSERT_TRUE(kernel != nullptr);
   EXPECT_TRUE(getBankConflictInfo(kernel).empty());
   EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(kernel));
 
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
 
   // Check number of launched threads matches what we expect
   EXPECT_EQ(ke.lastLaunchParams().bdimx(), 128);
@@ -4742,10 +4582,10 @@ TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  auto a_ref = at::randn({M, K}, options);
-  // auto b_ref = at::randn({N, K}, options).t();
-  auto b_ref = at::randn({K, N}, options);
-  auto out_ref = at::matmul(a_ref, b_ref);
+  auto t0 = at::randn({M, K}, options);
+  // auto t1 = at::randn({N, K}, options).t();
+  auto t1 = at::randn({K, N}, options);
+  auto out_ref = at::matmul(t0, t1);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 256, 16);
@@ -4769,16 +4609,14 @@ TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
-
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, {t0, t1});
   kir::Kernel* kernel = ke.compiledKernel()->kernel();
   ASSERT_TRUE(kernel != nullptr);
   EXPECT_TRUE(getBankConflictInfo(kernel).empty());
   EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(kernel));
 
-  auto cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run({t0, t1});
 
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));

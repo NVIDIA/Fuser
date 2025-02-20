@@ -71,6 +71,11 @@ class MaxPosCalculator {
       bool best_effort = false,
       bool check_siblings = true);
 
+  int64_t getConsumerPosAlignedToProducerCA(
+      TensorView* consumer,
+      TensorView* producer,
+      int64_t producer_pos);
+
   MaxPosCalculator(
       std::unordered_set<IterDomain*> uninlinable_ids = {},
       bool compute_at_only = false);

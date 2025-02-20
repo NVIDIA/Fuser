@@ -225,9 +225,10 @@ bool fillDefaultHopperHeuristic(
   // warp tile equal to the macro and increase the CTA tile until we hit
   // a limit. The limits are given by the maximum number of threads per CTA.
 
-  // TODO: it might be advantageous in some cases to issue multiple wgmma
-  // instructions per warp group
-  warp_tile = instruction_tile;
+  // k = 64 yields four wgmma instructions per warp group.
+  constexpr int64_t k_ratio = 4;
+  warp_tile = {
+      instruction_tile.m, instruction_tile.n, instruction_tile.k * k_ratio};
 
   // The MmaOp output is a 32-bit float which requires one register per value
 
@@ -918,7 +919,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   mma_utils::MatmulPattern& pattern = patterns.front();
 
   // IdModel is used to analyze problem shape & layout
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
 
   const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
@@ -1101,7 +1102,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #3
   // Prepare an IdModel which will be reused to check remaining conditions
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::TensorRolesMapOpt tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
