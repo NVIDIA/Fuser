@@ -351,30 +351,30 @@ TEST_F(MultiDeviceTest, Transpose) {
   const auto num_devices = communicator_->size();
   auto mesh = DeviceMesh::createForNumDevices(num_devices);
 
-  TensorView* in = makeContigConcreteTensor({num_devices, -1, -1});
-  in->setDeviceMesh(mesh);
+  TensorView* in = makeSymbolicTensor({2});
+  TensorView* out = transpose(in, 0, 1);
+  in->split(0, num_devices, /*inner_split=*/false);
   in->axis(0)->parallelize(ParallelType::DIDx);
-  TensorView* out = transpose(in, 1, 2);
-  out->setAllocationDomain({out->axis(0), out->axis(1), out->axis(2)}, true);
-
+  out->split(1, num_devices, /*inner_split=*/false);
+  out->axis(1)->parallelize(ParallelType::DIDx);
+  out->reorder({1, 0});
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
   fusion->addInput(in);
   fusion->addOutput(out);
 
   // Sizes need to be large enough to trigger the transpose scheduler.
-  at::Tensor unsharded_in_tensor =
-      at::randn({num_devices, 1024, 1024}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
-
+  at::Tensor in_tensor = at::randn({1024, 1024}, tensor_options);
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
 
-  at::Tensor expected_out_tensor =
-      shardTensor(unsharded_in_tensor.transpose(1, 2), out);
   testValidate(
       executor_cache.fusion(),
       {out_tensor},
       {in_tensor},
-      {expected_out_tensor},
+      {in_tensor.transpose(0, 1)},
       __LINE__,
       __FILE__);
 

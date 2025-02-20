@@ -385,16 +385,16 @@ getReferenceTensors(
   return reference_tensors_entry;
 }
 
-std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
+std::pair<std::vector<int64_t>, int64_t> getLoopDomainSizes(
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     scheduler_tools::TransposeDomainMap& domain_map) {
-  auto ref_logical = reference->getLogicalDomain();
+  auto ref_loop = reference->getLoopDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;
-  for (auto id : ref_logical) {
+  for (auto id : ref_loop) {
     auto concrete_id = domain_map.getComputeAtMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     auto inferred_val =
@@ -449,10 +449,8 @@ std::string getTransposeRuntimeRejectReason(
   auto reference_tensors = reference_tensors_entry.get();
   TensorView* reference1 = reference_tensors[0];
 
-  auto pair =
-      getShapeInReference(data_cache, runtime_info, reference1, domain_map);
-  auto& shape_in_ref1 = pair.first;
-  auto& n_elems = pair.second;
+  auto [shape_in_ref1, n_elems] =
+      getLoopDomainSizes(data_cache, runtime_info, reference1, domain_map);
 
   auto innermost_info_entry = getInnerMostDimInfoInReference(
       data_cache, reference_tensors, reference1, domain_map);
@@ -475,8 +473,8 @@ std::string getTransposeRuntimeRejectReason(
     return "Transpose scheduler does not perform well on small problem sizes.";
   }
 
-  auto inner_size1 = shape_in_ref1[inner_most_pos1_in_ref1];
-  auto inner_size2 = shape_in_ref1[inner_most_pos2_in_ref1];
+  auto inner_size1 = shape_in_ref1.at(inner_most_pos1_in_ref1);
+  auto inner_size2 = shape_in_ref1.at(inner_most_pos2_in_ref1);
 
   // For cases like
   //   transpose(T0[1000000000, 2, 2], 1, 2)
@@ -593,10 +591,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   auto reference_tensors = reference_tensors_entry.get();
   TensorView* reference1 = reference_tensors[0];
   TensorView* reference2 = reference_tensors[1];
-  auto pair =
-      getShapeInReference(data_cache, runtime_info, reference1, domain_map);
-  auto& shape_in_ref1 = pair.first;
-  auto& n_elems = pair.second;
+  auto [shape_in_ref1, n_elems] =
+      getLoopDomainSizes(data_cache, runtime_info, reference1, domain_map);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
