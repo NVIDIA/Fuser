@@ -4721,9 +4721,16 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
   // [..., Mi, Ki] -> [..., Ki, Mi]
   tv0c->reorder({{-2, -1}});
   tv0c->applyMmaSwizzleForTMALoad(swizzle);
+  // This is the serial loop that performs the 4 mma instructions for each warp
+  // tile. Unroll is necessary to avoid this dimension being selected as the
+  // circular buffering dimension.
+  // TODO: Why is this not necessary when there are broadcast dimensions
+  // present?
+  tv0c->axis(-6)->parallelize(ParallelType::Unroll);
   // [..., Ni, Ki] -> [..., Ki, Ni]
   tv1c->reorder({{-1, -2}});
   tv1c->applyMmaSwizzleForTMALoad(swizzle);
+  tv1c->axis(-6)->parallelize(ParallelType::Unroll);
 
   // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
   tv0b->reorder({{-3, -1}});

@@ -138,7 +138,8 @@ bool needSharedMemPredicate(TensorView* producer, TensorView* consumer) {
   //    if we initialze T1 we cannot do that and thus the
   //    kernel would not fit in smaller devices.
   if (producer->getMemoryType() == MemoryType::Shared) {
-    if (auto producer_def = producer->definition()) {
+    if (auto producer_def = producer->definition(); producer_def != nullptr &&
+        !producer_def->isOneOf<BroadcastOp, SqueezeOp>()) {
       if (std::any_of(
               producer_def->inputs().begin(),
               producer_def->inputs().end(),
