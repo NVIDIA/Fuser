@@ -687,15 +687,21 @@ void innerPersistentHeuristic2D(
       prefetch = std::atoi(std::getenv("PREFETCH"));
     }
 
-    ParallelType warp_parallel_type = ParallelType::TIDx;
+    ParallelType warp_parallel_type = ParallelType::Serial;
     if (std::getenv("WARPTIDZ")) {
       warp_parallel_type = ParallelType::TIDz;
     }
     if (std::getenv("WARPTIDY")) {
       warp_parallel_type = ParallelType::TIDy;
     }
-    CircularBufferType circular_buffer_type = WarpSpecialized(warp_parallel_type);
-    
+    if (std::getenv("WARPTIDX")) {
+      warp_parallel_type = ParallelType::TIDx;
+    }
+    CircularBufferType circular_buffer_type{Pipelined(true)};
+    if (warp_parallel_type != ParallelType::Serial) {
+      circular_buffer_type = WarpSpecialized(warp_parallel_type);
+    }
+
     CircularBufferOptions circular_buffer_options{
         .type = circular_buffer_type, .stage = stages, .prefetch = prefetch};
 
@@ -729,6 +735,16 @@ void innerPersistentHeuristic2D(
   }
 
   int64_t gdimx = LaunchParams::UNINITIALIZED_VAL;
+  if (std::getenv("PERSISTENT")) {
+    const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+    auto sm_count = dev_prop->multiProcessorCount;
+    int64_t smem_gdimx = blocks_per_sm / rparams->circular_buffer_options.stage * sm_count;
+    gdimx = std::atoi(std::getenv("PERSISTENT"));
+    std::cout << "gdimx: " << gdimx << std::endl;
+    std::cout << "smem_gdimx: " << smem_gdimx << std::endl;
+    std::cout << "blocks_per_sm: " << blocks_per_sm << std::endl;
+    std::cout << "stage: " << rparams->circular_buffer_options.stage << std::endl;
+  }
   int64_t godim =
       ceilDiv(properties.total_iteration_numel, best_heuristic.bdimy);
   if (godim > 1) {

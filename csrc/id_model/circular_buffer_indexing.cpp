@@ -101,7 +101,7 @@ Val* getOffsetForCircularBufferTensor(
       gpu_lower->circularBufferInfo().getCircularBufferLoop(
           circular_buffer_tv, for_loops);
 
-  std::cout << "circular_buffer_loop:\n" << circular_buffer_loop->toString() << std::endl;
+  // std::cout << "circular_buffer_loop:\n" << circular_buffer_loop->toString() << std::endl;
 
   NVF_ERROR(circular_buffer_loop != nullptr);
 
@@ -151,6 +151,8 @@ Val* getOffsetForCircularBufferTensor(
         offset, SimplifyingIrBuilder::create<Val>(opt.stage, DataType::Index));
     std::cout << "Prolog offset: " << offset->toInlineString() << std::endl;
   }
+
+  
 
   auto original_alloc_size =
       gpu_lower->circularBufferInfo().getOriginalAllocSize(circular_buffer_tv);

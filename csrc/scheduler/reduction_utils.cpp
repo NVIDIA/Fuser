@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
@@ -16,7 +17,6 @@
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
-#include <ATen/cuda/CUDAContext.h>
 namespace nvfuser {
 
 namespace reduction_scheduler_utils {
@@ -268,15 +268,13 @@ TensorView* scheduleReductionTV(
     // only used by inner persistent scheduler
     // [iter]  --> [iter/stages, stages [Serial]]
     // [number-of-sms [BIDx], iter/stages/number-of-sms, stages [Serial]]
-    if (rparams->circular_buffer_options.isEnable()) {
-      reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
-      if(std::getenv("PERSISTENT")){
-        auto dev_prop = at::cuda::getCurrentDeviceProperties();
-        int64_t sm_count = dev_prop->multiProcessorCount;        
-        reduction_tv->split(iter_axis, sm_count, false);
-      }
+    // if (rparams->circular_buffer_options.isEnable()) {
+    //   reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
+    // }
+    if (std::getenv("PERSISTENT")) {
+      reduction_tv->split(iter_axis, rparams->lparams.gdimx(), false);
+      reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
     }
-
     if (rparams->vectorize_iter_dom) {
       vectorize(iter_axis, rparams->unroll_factor_iter_dom);
     }

@@ -892,6 +892,8 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
+  std::cout << "\n\n getLinearIndex fot tv: " << tv->toString() << std::endl;
+
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
 
@@ -903,18 +905,13 @@ Val* TensorIndexer::getLinearIndex(
         linear_index,
         SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
   }
-  if(as_consumer && ir_utils::isCpAsyncUblk(expr)){
-    std::cout << "\n\nlinear_index: " << linear_index->toInlineString() << std::endl;
-  }
-
+  std::cout << "linear_index: " << linear_index->toInlineString() << std::endl;
   // If a tensor is circular buffered, it also requires indexing of
   // the circular buffer itself
   if (tv->isCircularBuffered()) {
     auto circular_buffer_offset =
         getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
-    if(as_consumer && ir_utils::isCpAsyncUblk(expr)){
-      std::cout << "circular_buffer_offset: " << circular_buffer_offset->toInlineString() << std::endl;
-    }
+    std::cout << "circular_buffer_offset: " << circular_buffer_offset->toInlineString() << std::endl;
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
@@ -927,21 +924,20 @@ Val* TensorIndexer::getLinearIndex(
   // not generated for TMA load, out of bound access may happen if any of the
   // split is not disvisible. The modulo operation is added to avoid this issue
   // at the cost of several useless loads in the last iteration.
-  // if (ir_utils::isCpAsyncUblk(expr)) {
-  //   auto gmem_tv = expr->input(0)->as<TensorView>();
-  //   if(gmem_tv == tv){
-  //     auto logical_size = gmem_tv->fusion()->oneVal();
-  //     const auto& logical_domain = gmem_tv->getLogicalDomain();
-  //     for (const auto i : c10::irange(logical_domain.size())) {
-  //       logical_size = SimplifyingIrBuilder::mulExpr(
-  //           logical_size, logical_domain.at(i)->extent());
-  //     }
-  //     linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
-  //   }
-  // }
-  if(as_consumer && ir_utils::isCpAsyncUblk(expr)){
-    std::cout << "\n\nfinal_linear_index: " << linear_index->toInlineString() << std::endl;
+  if (ir_utils::isCpAsyncUblk(expr)) {
+    auto gmem_tv = expr->input(0)->as<TensorView>();
+    if(gmem_tv == tv){
+      auto logical_size = gmem_tv->fusion()->oneVal();
+      const auto& logical_domain = gmem_tv->getLogicalDomain();
+      for (const auto i : c10::irange(logical_domain.size())) {
+        logical_size = SimplifyingIrBuilder::mulExpr(
+            logical_size, logical_domain.at(i)->extent());
+      }
+      linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
+    }
   }
+  std::cout << "final_linear_index: " << linear_index->toInlineString() << std::endl;
+  std::cout << "\n\n" << std::endl;
   return linear_index;
 }
 
@@ -1065,10 +1061,15 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         }
       }
     }
+    std::cout << "loop_id: " << loop_id->toString() 
+          << ", cur_index: " << cur_index->toInlineString()  << std::endl;
 
     if (replacement_index == nullptr || replacement_index == cur_index) {
       continue;
     }
+    std::cout << "loop_id: " << loop_id->toString() 
+          << ", cur_index: " << cur_index->toInlineString()
+          << ", replacement_index: " << replacement_index->toInlineString() << std::endl;
 
     replacement_map.emplace(cur_index, replacement_index);
   }
@@ -1344,6 +1345,9 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         bool as_consumer,
         const IndexingAllocationInfo& alloc_info,
         const std::vector<ForLoop*>& for_loops) const {
+
+  std::cout << "==============getContigIndexFor: " << expr->toString() << std::endl;
+
   auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
@@ -1380,6 +1384,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         contig_domain_group->front()->toString());
     Val* idx = idx_it->second;
     Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
+    std::cout << "get indice idx: " << idx->toInlineString() 
+              << ", replaced_idx: " << replaced_idx->toInlineString() << std::endl;
     result.push_back(replaced_idx);
   }
 
