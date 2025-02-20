@@ -55,10 +55,9 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 
 } // namespace
 
-void IdModel::assertNoSelfMapping() {
-  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
   for (TensorView* tv : tvs_) {
-    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, exact_graph);
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, graph);
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
@@ -413,6 +412,12 @@ ValGraph& IdModel::buildExactGraph() {
 
   graph.validateConsistency();
 
+  // Make sure there's no self mapping in the Exact graph as that
+  // would invalidate lowering assumptions.
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(graph);
+  }
+
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     checkStaticExtentGroups(graph);
   }
@@ -434,10 +439,15 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
     // broadcast extent.
     if (merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
-    }
-    if (merge->outer()->extent()->isOneInt()) {
+    } else if (merge->outer()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
+    if (getenv("OLD")) {
+      if (merge->outer()->extent()->isOneInt()) {
+        mapped_ids.push_back({merge->inner(), merge->out()});
+      }
+    }
+
   } else if (auto split = dynamic_cast<Split*>(expr)) {
     if (split->factor()->isOneInt()) {
       if (split->innerSplit()) {
@@ -526,6 +536,13 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  // Even when EXACT has no self mapping, there was a case ALMOSTEXACT
+  // had self mapping (see issue #3919). ALMOSTEXACT is used in
+  // indexing, which assumes the graph has no self mapping.
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(almost_exact_graph);
+  }
 
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     checkStaticExtentGroups(almost_exact_graph);
@@ -851,15 +868,7 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  // Make sure there's no self mapping in the Exact graph as that
-  // would invalidate lowering assumptions.
-  if (!allow_self_mapping_) {
-    assertNoSelfMapping();
-  }
-
   buildAlmostExactGraph();
-  // Skip validating the almost exact graph as the IdModel graph also
-  // maps non-size-one broadcast domains
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled

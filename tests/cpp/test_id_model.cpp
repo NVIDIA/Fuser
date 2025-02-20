@@ -2102,6 +2102,39 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   //     loop_graph.toGroup(tv10->axis(1)), loop_graph.toGroup(tv10->axis(2)));
 }
 
+// When two broadcast IDs are merged, all of the two input IDs and the
+// output ID can be considered trivially mapped. However, doing so can
+// cause self mappings in a loop domain, which violates the assumption
+// of TensorIndexer. (For example, in this test case, tv1's loop
+// domain has two padded IDs of extent 3. If the merge of tv0 triggers
+// mappings of the two broadcast IDs of tv0, the two root IDs of tv1
+// will be mapped too in the AlmostExact graph, which then means the
+// two logical IDs of tv1 will also be mapped.
+TEST_F(IdModelTest, SelfMappingInAlmostExactGraph) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [1, 1]
+  auto tv0 = makeConcreteTensor({1, 1});
+  fusion.addInput(tv0);
+
+  // [3, 3]
+  auto tv1 =
+      pad(tv0,
+          {fusion.oneVal(), fusion.oneVal(), fusion.oneVal(), fusion.oneVal()});
+
+  fusion.addOutput(tv1);
+
+  tv0->merge(0);
+
+  IdModel id_model(&fusion);
+  const auto& almost_exact = id_model.buildAlmostExactGraph();
+  EXPECT_FALSE(almost_exact.disjointValSets().strictAreMapped(
+      tv1->getLogicalDomain().at(0), tv1->getLogicalDomain().at(1)))
+      << "Should not be mapped: " << tv1->getLogicalDomain().at(0)->toString()
+      << ", " << tv1->getLogicalDomain().at(1)->toString();
+}
+
 namespace {
 bool iterDomainsAreMapped(
     const IdModel& id_model,

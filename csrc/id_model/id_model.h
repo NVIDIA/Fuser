@@ -286,7 +286,7 @@ class IdModel : public PolymorphicBase {
       const StatefulInliningInfo& info);
 
   // Errors if self mapping occurs
-  void assertNoSelfMapping();
+  void assertNoSelfMapping(const ValGraph& graph) const;
 
   // Loop graph represents the loop structure of the given fusion, so
   // there must not be any mapping between the loop domains of each
