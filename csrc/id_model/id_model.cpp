@@ -64,13 +64,13 @@ void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
-        tv,
+        tv->toString(),
         ". ",
         self_mapping->where,
         " domains, ",
-        self_mapping->id1,
+        self_mapping->id1->toString(),
         " and ",
-        self_mapping->id2,
+        self_mapping->id2->toString(),
         ", are mapped with each other.");
   }
 }

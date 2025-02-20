@@ -116,7 +116,7 @@ class IdModel : public PolymorphicBase {
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs = {},
       bool build_graphs = false,
-      bool allow_self_mapping = false,
+      bool allow_self_mapping = true,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
@@ -129,7 +129,7 @@ class IdModel : public PolymorphicBase {
   IdModel(
       Fusion* fusion,
       bool build_graphs = false,
-      bool allow_self_mapping = false,
+      bool allow_self_mapping = true,
       bool validate = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
