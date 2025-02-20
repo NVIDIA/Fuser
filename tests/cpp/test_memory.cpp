@@ -2877,7 +2877,7 @@ void testTMemAddKernel(bool same_region) {
   tv9->axis(0)->parallelize(ParallelType::BIDx);
   tv9->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::parallelizeAllLike(tv9, {tv1, tv2});
+  scheduler_utils::parallelizeAllLike(tv9);
 
   for (auto tv : {tv2, tv6}) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);

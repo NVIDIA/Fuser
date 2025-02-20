@@ -147,7 +147,7 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
           max_lanes,
           " available.");
     }
-    constexpr int64_t unit_of_allocation = 512;
+    constexpr int64_t unit_of_allocation = 32;
     Val* unit_of_allocation_val = IrBuilder::create<Val>(unit_of_allocation);
     region.num_columns = SimplifyingIrBuilder::maxExpr(
         unit_of_allocation_val, region.num_columns);
