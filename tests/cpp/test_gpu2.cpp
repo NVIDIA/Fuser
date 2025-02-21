@@ -96,7 +96,7 @@ TEST_F(NVFuserTest, FusionGlobalIntermediate_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {input}, lparams);
-  auto cg_outputs = ke.run({input}, lparams);
+  auto cg_outputs = ke.run({input}, {}, lparams);
 
   auto aten_output = input.to(at::kDouble).sum({1});
   testValidate(
@@ -1935,7 +1935,7 @@ TEST_F(NVFuserTest, FusionIssue549_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, lparams);
-  ke.run({t0, t1}, lparams);
+  ke.run({t0, t1}, {}, lparams);
 
   // Make sure bad launch params throws
   // TODO: Re-enable once we have parallelization validation in.
@@ -2590,7 +2590,7 @@ TEST_P(WelfordReduction, Test) {
   // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.
   ke.compile(&fusion, {aten_input}, lparams, cparams);
-  auto outputs = ke.run({aten_input}, lparams);
+  auto outputs = ke.run({aten_input}, {}, lparams);
 
   // by default Welford outputs sum of square diff so need to divide to
   // get var
@@ -2749,7 +2749,7 @@ TEST_F(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   LaunchParams lparams(1, -1, -1, 32, 4, 4);
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, lparams);
-  ke.run({t0, t1}, lparams);
+  ke.run({t0, t1}, {}, lparams);
 
   // Don't specify any launch params
   auto cg_outputs = ke.run({t0, t1});
@@ -4781,13 +4781,7 @@ TEST_F(NVFuserTest, FusionDAGMerging_CUDA) {
   at::Tensor t0 = at::randn({2, 2, 2, 2, 2}, options);
   at::Tensor t1 = at::randn({2}, options);
 
-  std::vector<at::Tensor> aten_inputs = {t0, t1};
-
-  KernelArgumentHolder args;
-  args.setDeviceIndex(0);
-  args.push(aten_inputs);
-
-  auto fusion_segments = fusion.segment(args);
+  auto fusion_segments = fusion.segment({t0, t1});
   NVF_CHECK(fusion_segments->groups().size() <= 4);
 }
 
@@ -5090,12 +5084,8 @@ TEST_F(NVFuserTest, FusionSegmentVerticalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args;
-  args.setDeviceIndex(0);
-  args.push(t0);
-
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), {t0}, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5134,14 +5124,8 @@ TEST_F(NVFuserTest, FusionSegmentHorizontalMerge_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args;
-  args.setDeviceIndex(0);
-  args.push(t0);
-  double scalar = 1.0;
-  args.push(scalar);
-
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), {t0, 1.0}, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() == 2);
 }
@@ -5179,12 +5163,8 @@ TEST_F(NVFuserTest, FusionSegmentMixReduction_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 2}, options);
 
-  KernelArgumentHolder args;
-  args.setDeviceIndex(0);
-  args.push(t0);
-
   auto segmented_fusion =
-      SegmentCandidateFinder::segment(fusion.get(), args, segment_options);
+      SegmentCandidateFinder::segment(fusion.get(), {t0}, segment_options);
 
   NVF_CHECK(segmented_fusion->groups().size() <= 2);
 }
@@ -5319,8 +5299,8 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro_CUDA) {
   at::Tensor t7 = at::randn_like(t0);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4, t5, t6, t7});
+  KernelArgumentHolder args = {t0, t1, t2, t3, t4, t5, t6, t7};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 }
 
 // TODO: We only changed inputs, merge this with the test above.
@@ -5386,8 +5366,8 @@ TEST_F(NVFuserTest, FusionBNBackwardRepro2_CUDA) {
   at::Tensor t7 = at::randn_like(t0);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4, t5, t6, t7});
+  KernelArgumentHolder args = {t0, t1, t2, t3, t4, t5, t6, t7};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 }
 
 TEST_F(NVFuserTest, FusionBNRepro_CUDA) {
@@ -7064,7 +7044,7 @@ TEST_F(NVFuserTest, FusionSegmenterCombineReductionsCycleRepro_CUDA) {
       at_t0, at_t1, at_t3, at_t5, at_t7, at_t11, at_t13, at_t15, at_t17};
 
   KernelArgumentHolder args;
-  args.push({aten_inputs});
+  args.push(aten_inputs);
   args.push(PolymorphicValue(at_d56));
 
   for (auto i : c10::irange(5)) {

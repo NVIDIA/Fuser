@@ -112,11 +112,10 @@ static void NvFuserScheduler_InstanceNorm(
   at::Tensor at_mean = at::zeros({benchmark_state.range(2)}, fp32_options);
   at::Tensor at_var = at::ones({benchmark_state.range(2)}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs = {
-      at_x, at_weight, at_bias, at_mean, at_var};
+  KernelArgumentHolder args = {at_x, at_weight, at_bias, at_mean, at_var};
   std::vector<at::Tensor> outputs;
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t kChannels = benchmark_state.range(2);
 
@@ -183,10 +182,10 @@ static void NvFuserScheduler_InstanceNormNHWC(
   at::Tensor at_weight = at::randn({benchmark_state.range(2)}, options);
   at::Tensor at_bias = at::randn({benchmark_state.range(2)}, options);
 
-  std::vector<c10::IValue> aten_inputs = {at_x, at_weight, at_bias};
+  KernelArgumentHolder args = {at_x, at_weight, at_bias};
   std::vector<at::Tensor> outputs;
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t kChannels = benchmark_state.range(2);
 
