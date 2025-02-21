@@ -425,7 +425,7 @@ getInnerMostDimInfoInReference(
               auto inner_most_id = scheduler_utils::innerMostAllocDim(ref_tv);
               auto inner_most_pos_in_global_ref =
                   domain_map.getInnerLeafDim(global_reference, inner_most_id);
-              data.emplace_back(inner_most_pos_in_global_ref);
+              data.push_back(inner_most_pos_in_global_ref);
             }
             return std::make_unique<std::vector<int64_t>>(std::move(data));
           });
@@ -729,9 +729,14 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
     // Adding a domain_guard so we can transform reference1
     ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
+    std::vector<int64_t> to_update(
+        {inner_most_pos1_in_ref1, inner_most_pos2_in_ref1});
     // we only apply split here, since we want to merge split dimensions, we can
     // simply map those merged domains via ContiguousInnerDimensionsMapper
-    scheduler_utils::splitDims(reference1, tparams->split_before_tiling);
+    scheduler_utils::splitDims(
+        reference1, tparams->split_before_tiling, to_update);
+    inner_most_pos1_in_ref1 = to_update[0];
+    inner_most_pos2_in_ref1 = to_update[1];
 
     tparams->vectorize_factor1 =
         vectorize_helper::getVectorizationFactorTransposeGroup(

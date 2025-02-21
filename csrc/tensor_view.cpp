@@ -49,7 +49,7 @@ NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
-  ss << ir_utils::varName(this);
+  indent(ss, indent_size) << ir_utils::varName(this);
   switch (getMemoryType()) {
     case MemoryType::Global:
       ss << "_g";
@@ -66,7 +66,7 @@ std::string TensorView::toString(int indent_size) const {
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
-  ss << "_" << dtype() << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString();
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";
