@@ -38,7 +38,7 @@ setup(
             library_dirs=[nvfuser_lib_dir],
             extra_link_args=[f"-Wl,-rpath,{nvfuser_lib_dir}"],
             sources=["main.cpp"],
-            extra_compile_args={'cxx': ['-std=c++20']},
+            extra_compile_args={"cxx": ["-std=c++20"]},
         )
     ],
     cmdclass={"build_ext": BuildExtension},
