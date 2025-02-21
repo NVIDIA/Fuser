@@ -26,7 +26,6 @@ class Layout(IntEnum):
     NT = 1
     TN = 2
     TT = 3
-    MAX = 4
 
 
 def estimate_matmul_size(config, dtype):
@@ -147,10 +146,8 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description=(
-            "Run through a combination of matmul parameters and compare"
-            "relative performance against nvjet for a single problem."
-        )
+        description="""Run through a combination of matmul parameters and compare relative performance against nvjet for a single problem.""",
+        epilog="""How to run script: NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval python single_matmul.py nvjet_pybench.json 1752 4720 584 NN --verbose --validate"""
     )
     parser.add_argument("m", type=int, help="The size of M dimension")
     parser.add_argument("n", type=int, help="The size of N dimension")
@@ -169,7 +166,7 @@ def main():
     parser.add_argument(
         "--validate",
         action="store_true",
-        help="Print matmul parameters and exceptions.",
+        help="Validate nvfuser against pytorch matmul.",
     )
     args = parser.parse_args()
 
@@ -209,17 +206,5 @@ def main():
         )
 
 
-# NOTE Scheduler _matmul_ ***rejected*** because : MatmulOp and LinearOp fusion
-# is disabled by default. Enable it using NVFUSER_ENABLE=fuse_matmul
-#
-# CMD to generate pybench json:
-# NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval pytest benchmarks/python/test_matmul.py
-# -vsk 'baseline and bf16 and fullred and not 138216-236592-50664-N and not 97952-319616-3232-TT'
-# --disable-validation --benchmark-eager --benchmark-json=nvjet_pybench.json 2>&1 |
-# tee ~/nvjet_pybench.log
-#
-# Script CMD:
-# NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval python single_matmul.py nvjet_pybench.json
-# 1752 4720 584 NN --verbose --validate
 if __name__ == "__main__":
     main()
