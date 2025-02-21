@@ -20,7 +20,7 @@ from .embedding_ops import embedding_setup
 @pytest.mark.parametrize(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
-def test_rope_fwd_benchmark(
+def test_embedding_fwd_benchmark(
     benchmark,
     variation: str,
     executor: str,
@@ -51,7 +51,7 @@ def test_rope_fwd_benchmark(
 @pytest.mark.parametrize(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
-def test_rope_bwd_benchmark(
+def test_embedding_bwd_benchmark(
     benchmark,
     variation: str,
     executor: str,
