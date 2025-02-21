@@ -725,7 +725,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
-  auto outputs = ExecutorDispatch::run(ea, args, launch_params, compile_params);
+  auto outputs =
+      ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
 
   return outputs;
 }

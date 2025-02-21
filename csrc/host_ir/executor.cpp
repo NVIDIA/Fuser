@@ -332,6 +332,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
       container_->getKernelExecutor(launch_kernel->getIndex())
           ->run(
               args,
+              {},
               launch_kernel->launch_params(),
               launch_kernel->compile_params());
 
@@ -394,7 +395,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, args);
 
     } else {
       DynamicTransform::concretizeFusion(
@@ -410,7 +411,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, args);
     }
   }
 

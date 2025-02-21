@@ -3704,7 +3704,7 @@ TEST_F(NVFuserTest, FusionSimpleGemm_CUDA) {
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, LaunchParams(1, -1, -1, 32, 4, 4));
   // Lets specify a few bounds in launch params to make sure it works
-  ke.run({t0, t1}, LaunchParams(1, -1, -1, 32, 4, 4));
+  ke.run({t0, t1}, {}, LaunchParams(1, -1, -1, 32, 4, 4));
 
   // Make sure bad launch params throws
   // TODO: Re-enable once we have parallelization validation in.
@@ -5238,7 +5238,7 @@ TEST_F(NVFuserTest, FusionSymbolicReduction_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {aten_input}, lparams);
-  auto cg_outputs = ke.run({aten_input}, lparams);
+  auto cg_outputs = ke.run({aten_input}, {}, lparams);
 
   testValidate(
       &fusion,
@@ -7168,7 +7168,7 @@ TEST_F(NVFuserTest, FusionSmemDynamicReductionSymbolic_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {aten_input}, lparams);
-  auto cg_outputs = ke.run({aten_input}, lparams);
+  auto cg_outputs = ke.run({aten_input}, {}, lparams);
 
   testValidate(
       &fusion,
@@ -7232,7 +7232,7 @@ TEST_F(NVFuserTest, FusionSmemDynamicReductionSymbolicArg_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {aten_input, runtime_threadIdx_dim}, lparams);
-  auto cg_outputs = ke.run({aten_input, runtime_threadIdx_dim}, lparams);
+  auto cg_outputs = ke.run({aten_input, runtime_threadIdx_dim}, {}, lparams);
 
   testValidate(
       &fusion,
@@ -7296,7 +7296,7 @@ TEST_F(NVFuserTest, FusionSmemDynamicPwiseMulSymbolicArgWAR_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1, BSX}, lparams);
-  auto cg_outputs = ke.run({t0, t1, BSX}, lparams);
+  auto cg_outputs = ke.run({t0, t1, BSX}, {}, lparams);
 
   testValidate(
       &fusion, cg_outputs, {t0, t1, BSX}, __LINE__, __FILE__, "", lparams);

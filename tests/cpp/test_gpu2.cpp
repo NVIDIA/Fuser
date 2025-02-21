@@ -96,7 +96,7 @@ TEST_F(NVFuserTest, FusionGlobalIntermediate_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {input}, lparams);
-  auto cg_outputs = ke.run({input}, lparams);
+  auto cg_outputs = ke.run({input}, {}, lparams);
 
   auto aten_output = input.to(at::kDouble).sum({1});
   testValidate(
@@ -1935,7 +1935,7 @@ TEST_F(NVFuserTest, FusionIssue549_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, lparams);
-  ke.run({t0, t1}, lparams);
+  ke.run({t0, t1}, {}, lparams);
 
   // Make sure bad launch params throws
   // TODO: Re-enable once we have parallelization validation in.
@@ -2590,7 +2590,7 @@ TEST_P(WelfordReduction, Test) {
   // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.
   ke.compile(&fusion, {aten_input}, lparams, cparams);
-  auto outputs = ke.run({aten_input}, lparams);
+  auto outputs = ke.run({aten_input}, {}, lparams);
 
   // by default Welford outputs sum of square diff so need to divide to
   // get var
@@ -2749,7 +2749,7 @@ TEST_F(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   LaunchParams lparams(1, -1, -1, 32, 4, 4);
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, lparams);
-  ke.run({t0, t1}, lparams);
+  ke.run({t0, t1}, {}, lparams);
 
   // Don't specify any launch params
   auto cg_outputs = ke.run({t0, t1});
