@@ -20,6 +20,7 @@
 #include <expr_simplifier.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -2144,13 +2145,15 @@ kir::TensorIndex* Index::getProducerIndex(
   Val* index = nullptr;
   bool is_producer_tma_op = producer->definition() != nullptr &&
       producer->definition()->isA<LoadStoreOp>() &&
-      producer->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile;
+      ir_utils::isCpAsyncBulkLoad(producer->definition());
+  bool is_consumer_tma_op = consumer->definition() != nullptr &&
+      consumer->definition()->isA<LoadStoreOp>() &&
+      ir_utils::isCpAsyncBulkLoad(consumer->definition());
 
   if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
-      is_producer_tma_op ||
+      is_producer_tma_op || is_consumer_tma_op ||
       GpuLower::current()->idModelOptions().producerIndex()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);
@@ -2678,7 +2681,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-    NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
@@ -2716,6 +2718,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     auto indices_inner_to_outer =
         indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+
+    // These are the box coordinates of the TMA box, which must be of type
+    // int32_t. Possible overflow in each of these dims should be checked
+    // elsewhere.
+    for (size_t i : c10::irange(indices_inner_to_outer.size())) {
+      indices_inner_to_outer[i] =
+          IrBuilder::maybeCastExpr(DataType::Int32, indices_inner_to_outer[i]);
+    }
 
     auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
     auto descriptor = tma_info.tensorMap();

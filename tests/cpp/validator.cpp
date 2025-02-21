@@ -15,7 +15,7 @@ namespace nvfuser {
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
@@ -63,10 +63,10 @@ void testValidate(
 
   for (auto i : c10::irange(fusion->inputs().size())) {
     if (fusion->inputs()[i]->isA<TensorView>()) {
-      NVF_ERROR(aten_inputs[i].isTensor(), "Mismatch of tensor inputs.");
+      NVF_ERROR(aten_inputs[i].is<at::Tensor>(), "Mismatch of tensor inputs.");
 
       auto fusion_input_tv = fusion->inputs()[i]->as<TensorView>();
-      auto at_tensor = aten_inputs[i].toTensor();
+      auto at_tensor = aten_inputs[i].as<at::Tensor>();
 
       NVF_ERROR(
           at_tensor.dim() ==
@@ -152,7 +152,7 @@ void testValidate(
 void testValidate(
     Fusion* fusion,
     const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     int line_number,
     const char* file_name,
     std::string err_msg,
