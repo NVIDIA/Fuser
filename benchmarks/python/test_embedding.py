@@ -39,6 +39,7 @@ def test_rope_fwd_benchmark(
     benchmark_fn = with_executor(executor, fwd_call, **kwargs)
     run_benchmark(benchmark, benchmark_fn, inputs)
 
+
 @pytest.mark.parametrize(
     "variation",
     [
@@ -76,5 +77,8 @@ def test_rope_bwd_benchmark(
     # NOTE: passing in *list(model.parameters()), so we would clear all computed grad before
     # calling backwards, this avoid the accumulation kernel
     run_benchmark(
-        benchmark, unary_bwd_torch, [outputs[0], grad(), *list(model.parameters())], iobytes=iobytes()
+        benchmark,
+        unary_bwd_torch,
+        [outputs[0], grad(), *list(model.parameters())],
+        iobytes=iobytes(),
     )
