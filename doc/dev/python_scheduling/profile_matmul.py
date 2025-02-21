@@ -116,7 +116,7 @@ def test_matmul_nvf(
     with FusionDefinition() as presched_fd:
         matmul_fusion(presched_fd, [a, b])
 
-    scheduled_fd = custom_matmul_scheduler(presched_fd, schedule_config)
+    scheduled_fd = custom_matmul_scheduler(presched_fd, schedule_config, verbose)
 
     try:
         nvf_outputs = scheduled_fd.execute([a, b], profile=True)
