@@ -486,7 +486,9 @@ void ScalarBoundsCalculator::handle(ForLoop* loop) {
 }
 
 void ScalarBoundsCalculator::handle(LoadStoreOp* lsop) {
-  setBounds(lsop->out(), bounds_.at(lsop->in()));
+  if (lsop->in()->isIntegralScalar()) {
+    setBounds(lsop->out(), bounds_.at(lsop->in()));
+  }
 }
 
 void ScalarBoundsCalculator::handle(UnaryOp* uop) {
