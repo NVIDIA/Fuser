@@ -313,6 +313,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         launch_kernel->toString());
     args.push(expr_evaluator_.evaluate(input));
   }
+  args.setDeviceIndex();
 
   // run the compiled kernel
   std::vector<at::Tensor> outputs =
@@ -341,7 +342,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
         post_ir->toString());
     input_args.push(expr_evaluator_.evaluate(input));
   }
-
+  input_args.setDeviceIndex();
   // placeholder for storing the outputs
   std::vector<at::Tensor> outputs;
 
