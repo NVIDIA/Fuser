@@ -626,9 +626,43 @@ using std::views::zip;
 
 #else
 
+#if !defined(__clang__) || (__clang_major__ > 14)
+using std::views::iota;
+#else
+// Workaround for Clang 14
+class iota {
+ public:
+  class iterator {
+   public:
+    using value_type = int;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::input_iterator_tag;
+    int64_t value;
+    iterator(int64_t start) : value(start) {}
+    int64_t operator*() const { return value; }
+    iterator& operator++() { ++value; return *this; }
+    iterator operator++(int) { iterator temp = *this; ++value; return temp; }
+    template<typename T>
+    bool operator==(T) const { return false; }
+  };
+
+  iterator begin() const {
+    return iterator(start);
+  }
+  std::default_sentinel_t end() const { return std::unreachable_sentinel; }
+  int64_t start;
+  iota(int64_t start) : start(start) {}
+};
+#endif
+
 namespace views {
 template <std::ranges::input_range... Rs>
+#if !defined(__clang__) || (__clang_major__ > 14)
 class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
+#else
+// Workaround for Clang 14
+class zip_view {
+#endif
  private:
   std::tuple<Rs...> bases;
 
@@ -699,7 +733,7 @@ using views::zip;
 #endif
 
 auto enumerate(auto&& range) {
-  return zip(std::views::iota(0), std::forward<decltype(range)>(range));
+  return zip(iota(0LL), std::forward<decltype(range)>(range));
 }
 
 } // namespace nvfuser
