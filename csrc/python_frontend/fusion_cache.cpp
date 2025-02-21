@@ -492,7 +492,8 @@ std::optional<size_t> FusionCache::queryUserScheduleId(
 
   auto& user_scheds = scheds->user_def_schedules;
   if (!user_scheds.empty()) {
-    auto input_id = user_def_input_encodings_.lookupId(inputs);
+    KernelArgumentHolder args(inputs);
+    auto input_id = user_def_input_encodings_.lookupId(args);
     auto user_sched = user_scheds.find(input_id.id);
     if (user_sched != user_scheds.end()) {
       return std::optional<size_t>(user_sched->first);
@@ -523,10 +524,11 @@ bool FusionCache::existUserSchedule(
   if (scheds->user_def_schedules.empty()) {
     return false;
   }
-
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(device);
   // Short-Circuit: User schedule does not exist for fusion and inputs.
   InputsIdLookup::IdLookupReturn input_id =
-      user_def_input_encodings_.lookupId(inputs);
+      user_def_input_encodings_.lookupId(args);
   auto user_sched_iter = scheds->user_def_schedules.find(input_id.id);
   if (user_sched_iter == scheds->user_def_schedules.end()) {
     return false;
@@ -594,8 +596,10 @@ UserSchedule* FusionCache::createUserSchedule(
     bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionCache::createUserSchedule");
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(device);
   auto& user_scheds = scheds->user_def_schedules;
-  auto input_id = user_def_input_encodings_.lookupId(inputs);
+  auto input_id = user_def_input_encodings_.lookupId(args);
 
   // Create UserSchedule for device
   if (user_scheds[input_id.id].count(device) == 0) {

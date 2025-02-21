@@ -216,19 +216,8 @@ std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
 }
 
 std::vector<at::Tensor> HostIrEvaluator::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
   // process input values, converting IValue to PolymorphicValue
-  for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(
-        val, PolymorphicValue_functions::IValueToPolymorphicValue(ivalue));
-  }
-
-  return dispatchAndCollectOutputs();
-}
-
-std::vector<at::Tensor> HostIrEvaluator::runWithPolymorphicValues(
-    std::unordered_map<Val*, const PolymorphicValue&> val_to_PValue) {
-  // process input values
   for (const auto& [val, pvalue] : val_to_PValue) {
     expr_evaluator_.bind(val, pvalue);
   }
@@ -332,6 +321,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
       container_->getKernelExecutor(launch_kernel->getIndex())
           ->run(
               args,
+              {},
               launch_kernel->launch_params(),
               launch_kernel->compile_params());
 
@@ -376,6 +366,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
+  KernelArgumentHolder args(input_IValues);
   // Compile the fusion and execute it with HostIrExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
@@ -386,33 +377,30 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
-    outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
+    outputs = fec_.at(hu).runFusionWithInputs(args);
   } else {
     // This path should generally be avoided as it will likely send the fusion
     // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      KernelArgumentHolder args(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, args);
 
     } else {
       DynamicTransform::concretizeFusion(
-          hu->fusion_to_execute(), input_IValues);
+          hu->fusion_to_execute(), args.toC10Array());
       auto it2 = executors_.insert(
           {hu,
            ExecutorDispatch::makeExecutor(
                hu->fusion_to_execute(), 1, 1, 1, 1)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
-        KernelArgumentHolder args(input_IValues);
         ExecutorDispatch::compile(
             ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      KernelArgumentHolder args(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, args);
     }
   }
 
@@ -455,7 +443,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communication,
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(),
+      communicator_->getWorld(communication->backend()),
       buffer);
 }
 
