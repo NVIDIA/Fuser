@@ -311,6 +311,14 @@ inferAndValidateAllocationSizesAndStrides(
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
   for (IterDomain* id : TensorDomain::noReductions(alloc)) {
+    if (id->isBroadcast() && !id->hasExpandedExtent()) {
+      // There could be broadcasts introduced in the logical domain that are not
+      // present in the root domain. If so, just set their size and stride
+      // manually.
+      allocation_sizes.push_back(1);
+      allocation_strides.push_back(0);
+      continue;
+    }
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
     } else {
