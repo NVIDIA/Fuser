@@ -989,12 +989,17 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           mparams->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
-  if (isHopper(mparams->mma_macro)) {
+  if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
     // Always promote smem reuse for Hopper. This is needed because we use TMA
     // which has higher alignment requirements, so it's important that we place
     // our TMA buffers at an offset that's a multiple of 64 (like 0) if
     // possible.
     mparams->promote_prologue_smem_reuse = true;
+
+    // TMA allows us to avoid linear indexing
+    // TODO: verify here that we will be able to use Int32 indexing. If not,
+    // then disable use_smem_epilogue.
+    // mparams->cparams.index_type = PrimDataType::Int32;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
@@ -1139,14 +1144,24 @@ std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
+  // On Hopper, we use TMA to load operands. Since TMA requires each coordinate
+  // of the input to be represented with a 32-bit signed int, we will encounter
+  // overflow if any dimension of an operand is larger than that.
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-
-  if (device_prop->major >= 9 &&
-      runtime_info.getIndexType() != DataType::Int32) {
-    // See https://github.com/NVIDIA/Fuser/issues/3595
-    return "Hopper matmul is not yet supported with problem sizes requiring 64-bit indexing";
+  if (device_prop->major == 9) {
+    for (Val* inp : fusion->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+        for (int64_t extent : runtime_info.getInputAllocationSizes(tv)) {
+          if (extent >= (1L << 31)) {
+            std::stringstream ss;
+            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, but found "
+               << extent;
+            return ss.str();
+          }
+        }
+      }
+    }
   }
-
   return "";
 }
 

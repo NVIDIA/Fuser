@@ -4622,4 +4622,107 @@ TEST_F(HopperMatmulTest, ScheduleWithTranslation) {
   EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
 }
 
+// Test that we can compile matmul kernels with both 32-bit and 64-bit indexing,
+// and that if we pass arguments for which this is unsafe (meaning there is
+// overflow), that the appropriate exception is raised
+TEST_F(HopperMatmulTest, IndexTypeValidation) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // M, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+
+  // Reorder the accumulator as [M, N, K]
+  // [M, K, N] -> [M, N, K]
+  tv2->reorder({{-2, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion.addOutput(tv3);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = false;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 1;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  constexpr int64_t M = 1 << 17, N = 256, K = 1 << 17;
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+
+  { // This scope is to help us reclaim memory later
+    auto a_ref = at::randn({M, K, 1}, options);
+    auto b_ref = at::randn({1, K, N}, options);
+    auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze()).to(at::kHalf);
+    const std::vector<c10::IValue> inputs = {a_ref, b_ref};
+
+    mparams.cparams.index_type = DataType::Int32;
+
+    at::Tensor int32_output;
+    {
+      Fusion fusion_clone;
+      Fusion::copy(&fusion, &fusion_clone);
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+          ->schedule(&fusion_clone, &mparams);
+
+      KernelExecutor ke;
+      ke.compile(&fusion_clone, inputs);
+      int32_output = ke.run(inputs).at(0);
+    }
+
+    mparams.cparams.index_type = DataType::Int;
+
+    Fusion fusion_clone;
+    Fusion::copy(&fusion, &fusion_clone);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion_clone, &mparams);
+
+    KernelExecutor ke;
+    ke.compile(&fusion_clone, inputs);
+    auto int64_output = ke.run(inputs).at(0);
+    EXPECT_TRUE(int64_output.equal(int32_output));
+  }
+
+  // Test that passing inputs that are too large in one dimension lead to error
+  maybeClearAllocator(/*max_bytes=*/0);
+  {
+    mparams.cparams.index_type = DataType::Int;
+
+    Fusion fusion_clone;
+    Fusion::copy(&fusion, &fusion_clone);
+    SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+        ->schedule(&fusion_clone, &mparams);
+
+    constexpr int64_t M_big = 1L << 32, N_big = 2, K_big = 2;
+    auto a_big = at::randn({M_big, K_big, 1}, options);
+    auto b_big = at::randn({1, K_big, N_big}, options);
+    const std::vector<c10::IValue> inputs_big{a_big, b_big};
+
+    KernelExecutor ke;
+    ke.compile(&fusion_clone, inputs_big);
+    EXPECT_THAT(
+        [&]() { ke.run(inputs_big); },
+        ::testing::ThrowsMessage<nvfuser::nvfError>(
+            ::testing::HasSubstr("Found unsafe casts from DataType::Index")));
+  }
+}
+
 } // namespace nvfuser
