@@ -4304,10 +4304,10 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   auto t1 = at::randn({N, K}, options);
   auto out_ref = at::linear(t0, t1);
 
+  std::vector<c10::IValue> inputs = {t0, t1};
+
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
-
-  std::vector<c10::IValue> inputs = {a_ref, b_ref};
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
@@ -4338,17 +4338,19 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
   fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto out_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
+  auto t0 = at::randn({M, 1, K}, options);
+  auto t1 = at::randn({1, N, K}, options);
+  auto out_ref = at::linear(t0.squeeze(), t1.squeeze());
+
+  std::vector<c10::IValue> inputs = {t0, t1};
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1});
+  ke.compile(&fusion, inputs);
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run({t0, t1});
+  auto cg_outputs = ke.run(inputs);
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4391,17 +4393,17 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({N, K}, options);
-  auto c_ref = at::randn({M, N}, options);
+  auto t2 = at::randn({M, N}, options);
 
   auto tv3_ref = at::linear(t0, t1);
   auto tv4_ref = tv3_ref.to(at::kFloat);
   auto tv11_ref =
-      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * c_ref).to(at::kBFloat16);
+      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * t2).to(at::kBFloat16);
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
+  std::vector<c10::IValue> inputs = {t0, t1, t2};
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
@@ -4445,22 +4447,24 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
   fusion.addOutput(tv11);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto c_ref = at::randn({M, N}, options);
+  auto t0 = at::randn({M, 1, K}, options);
+  auto t1 = at::randn({1, N, K}, options);
+  auto t2 = at::randn({M, N}, options);
 
-  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
+  auto tv3_ref = at::linear(t0.squeeze(), t1.squeeze());
   auto tv4_ref = tv3_ref.to(at::kFloat);
   auto tv11_ref =
-      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * c_ref).to(at::kBFloat16);
+      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * t2).to(at::kBFloat16);
+
+  std::vector<c10::IValue> inputs = {t0, t1, t2};
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, c_ref});
+  ke.compile(&fusion, inputs);
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run({t0, t1, c_ref});
+  auto cg_outputs = ke.run(inputs);
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4513,14 +4517,16 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({N, K}, options);
-  auto c_ref = at::randn({N, K}, options);
+  auto t2 = at::randn({N, K}, options);
 
   auto tv3_ref = at::linear(t0, t1);
   auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv10_ref = at::linear(t0, c_ref);
+  auto tv10_ref = at::linear(t0, t2);
   auto tv12_ref =
       (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
           .to(at::kBFloat16);
+
+  std::vector<c10::IValue> inputs = {t0, t1, t2};
 
   // Adjust parameters in order to fit smem and register constraints
   mparams.tile_sizes.cta_tile = GemmTile(128, 128, 64);
@@ -4531,8 +4537,6 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
-
-  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
@@ -4588,16 +4592,18 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   fusion.addOutput(tv12);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto a_ref = at::randn({M, 1, K}, options);
-  auto b_ref = at::randn({1, N, K}, options);
-  auto c_ref = at::randn({1, N, K}, options);
+  auto t0 = at::randn({M, 1, K}, options);
+  auto t1 = at::randn({1, N, K}, options);
+  auto t2 = at::randn({1, N, K}, options);
 
-  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
+  auto tv3_ref = at::linear(t0.squeeze(), t1.squeeze());
   auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv10_ref = at::linear(a_ref.squeeze(), c_ref.squeeze());
+  auto tv10_ref = at::linear(t0.squeeze(), t2.squeeze());
   auto tv12_ref =
       (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * tv10_ref.to(at::kFloat))
           .to(at::kBFloat16);
+
+  std::vector<c10::IValue> inputs{t0, t1, t2};
 
   // Adjust parameters in order to fit smem and register constraints
   mparams.tile_sizes.cta_tile = GemmTile(128, 128, 64);
@@ -4610,9 +4616,9 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
       ->schedule(&fusion, &mparams);
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, c_ref});
+  ke.compile(&fusion, inputs);
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run({t0, t1, c_ref});
+  auto cg_outputs = ke.run(inputs);
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
