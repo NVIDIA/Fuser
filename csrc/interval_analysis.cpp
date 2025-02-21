@@ -60,62 +60,101 @@ BoundedInt BoundedInt::operator*(const int64_t other) const {
 // negative and a positive range. Then we compute the bounds for every non-empty
 // combination of ranges, of which there are at most four. The final bound is
 // the union of those intervals.
-#define DEFINE_DIVISION_LIKE_OP(a, b, pospos, posneg, negpos, negneg)        \
-  NVF_ERROR(                                                                 \
-      b.min != 0L || b.max != 0L,                                            \
-      "Found denominator that cannot be non-zero: ",                         \
-      b);                                                                    \
-  /* Note that division by zero will be a runtime error anyway, so we can */ \
-  /* ignore it for this analysis. This means that if this or other has */    \
-  /* negative min and positive max, we should consider the union of up to    \
-   * four */                                                                 \
-  /* different bounds */                                                     \
-  const auto split_ranges_around_zero = [](const BoundedInt& b,              \
-                                           bool include_zero) {              \
-    std::vector<BoundedInt> ranges;                                          \
-    if (b.min < 0L) {                                                        \
-      ranges.push_back({b.min, std::min(b.max, -1L)});                       \
-    }                                                                        \
-    int64_t min_nonneg_val = include_zero ? 0L : 1L;                         \
-    if (b.max >= min_nonneg_val) {                                           \
-      ranges.push_back({std::max(b.min, min_nonneg_val), b.max});            \
-    }                                                                        \
-    return ranges;                                                           \
-  };                                                                         \
-  const std::vector<BoundedInt> numer_ranges =                               \
-      split_ranges_around_zero(a, /*include_zero=*/true);                    \
-  const std::vector<BoundedInt> denom_ranges =                               \
-      split_ranges_around_zero(b, /*include_zero=*/false);                   \
-                                                                             \
-  BoundedInt result;                                                         \
-  bool first = true;                                                         \
-  for (const BoundedInt& numer : numer_ranges) {                             \
-    for (const BoundedInt& denom : denom_ranges) {                           \
-      BoundedInt simple_range;                                               \
-      /* numer and denom are each either only negative or only positive */   \
-      if (numer.min >= 0) {                                                  \
-        if (denom.min > 0) {                                                 \
-          simple_range = pospos(numer, denom);                               \
-        } else {                                                             \
-          simple_range = posneg(numer, denom);                               \
-        }                                                                    \
-      } else {                                                               \
-        if (denom.min > 0) {                                                 \
-          simple_range = negpos(numer, denom);                               \
-        } else {                                                             \
-          simple_range = negneg(numer, denom);                               \
-        }                                                                    \
-      }                                                                      \
-      /* Result is the union over all of the simple ranges */                \
-      if (first) {                                                           \
-        result = simple_range;                                               \
-      } else {                                                               \
-        result.min = std::min(result.min, simple_range.min);                 \
-        result.max = std::max(result.max, simple_range.max);                 \
-      }                                                                      \
-      first = false;                                                         \
-    }                                                                        \
-  }                                                                          \
+//
+// For example, if we have -2 <= a <= 1 and -1 <= b <= 2 and we want to compute
+// bounds for a / b, we have the following cases to handle
+//
+//   -2 / -1 =  2
+//   -1 / -1 =  1
+//    0 / -1 =  0
+//    1 / -1 = -1
+//   -2 /  0 = ERROR
+//   -1 /  0 = ERROR
+//    0 /  0 = ERROR
+//    1 /  0 = ERROR
+//   -2 /  1 = -2
+//   -1 /  1 = -1
+//    0 /  1 =  0
+//    1 /  1 =  1
+//   -2 /  2 = -1
+//   -1 /  2 =  0
+//    0 /  2 =  0
+//    1 /  2 =  0
+//
+// We split a into intervals -2 <= a <= -1 and 0 <= a <= 1 which includes zero.
+// We split b, on the other hand, into -1 <= b <= -1 and 1 <= b <= 2, excluding
+// the error cases. Then for all four combinations we compute a single interval
+// before computing the union of those four intervals.
+//
+//   -2 / -1 =  2
+//   -1 / -1 =  1     =>    [1, 2]
+//
+//   -2 /  1 = -2
+//   -1 /  1 = -1
+//   -2 /  2 = -1
+//   -1 /  2 =  0     =>    [-2, 0]
+//
+//    0 / -1 =  0
+//    1 / -1 = -1     =>    [-1, 0]
+//
+//    0 /  1 =  0
+//    1 /  1 =  1
+//    0 /  2 =  0
+//    1 /  2 =  0     =>    [0, 1]
+//
+// The result we return in this case is the union of these four intervals which
+// is [-2, 2]
+#define DEFINE_DIVISION_LIKE_OP(a, b, pospos, posneg, negpos, negneg)      \
+  NVF_ERROR(                                                               \
+      b.min != 0L || b.max != 0L,                                          \
+      "Found denominator that cannot be non-zero: ",                       \
+      b);                                                                  \
+  const auto split_ranges_around_zero = [](const BoundedInt& b,            \
+                                           bool include_zero) {            \
+    std::vector<BoundedInt> ranges;                                        \
+    if (b.min < 0L) {                                                      \
+      ranges.push_back({b.min, std::min(b.max, -1L)});                     \
+    }                                                                      \
+    int64_t min_nonneg_val = include_zero ? 0L : 1L;                       \
+    if (b.max >= min_nonneg_val) {                                         \
+      ranges.push_back({std::max(b.min, min_nonneg_val), b.max});          \
+    }                                                                      \
+    return ranges;                                                         \
+  };                                                                       \
+  const std::vector<BoundedInt> numer_ranges =                             \
+      split_ranges_around_zero(a, /*include_zero=*/true);                  \
+  const std::vector<BoundedInt> denom_ranges =                             \
+      split_ranges_around_zero(b, /*include_zero=*/false);                 \
+                                                                           \
+  BoundedInt result;                                                       \
+  bool first = true;                                                       \
+  for (const BoundedInt& numer : numer_ranges) {                           \
+    for (const BoundedInt& denom : denom_ranges) {                         \
+      BoundedInt simple_range;                                             \
+      /* numer and denom are each either only negative or only positive */ \
+      if (numer.min >= 0) {                                                \
+        if (denom.min > 0) {                                               \
+          simple_range = pospos(numer, denom);                             \
+        } else {                                                           \
+          simple_range = posneg(numer, denom);                             \
+        }                                                                  \
+      } else {                                                             \
+        if (denom.min > 0) {                                               \
+          simple_range = negpos(numer, denom);                             \
+        } else {                                                           \
+          simple_range = negneg(numer, denom);                             \
+        }                                                                  \
+      }                                                                    \
+      /* Result is the union over all of the simple ranges */              \
+      if (first) {                                                         \
+        result = simple_range;                                             \
+      } else {                                                             \
+        result.min = std::min(result.min, simple_range.min);               \
+        result.max = std::max(result.max, simple_range.max);               \
+      }                                                                    \
+      first = false;                                                       \
+    }                                                                      \
+  }                                                                        \
   return result;
 BoundedInt BoundedInt::operator/(const BoundedInt& other) const {
   // positive over positive

@@ -242,6 +242,10 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       /*input_bounds=*/{{x, {-3, -1}}, {y, {-3, 2}}},
       /*expected_range=*/{-3, 3});
   RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {-2, 1}}, {y, {-1, 2}}},
+      /*expected_range=*/{-2, 2});
+  RangeChecker::check(
       ceilDiv(x, y),
       /*input_bounds=*/{{x, {-3, -1}}, {y, {-3, 2}}},
       /*expected_range=*/{-3, 5},
