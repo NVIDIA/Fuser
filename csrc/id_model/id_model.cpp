@@ -503,13 +503,11 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
-  std::unordered_map<Val*, std::unordered_set<Val*>> forbidden_pairs;
   for (TensorView* tv : tvs_) {
-    // root
     if (tv->hasRoot()) {
       for (auto id : tv->getRootDomain()) {
-        forbidden_pairs[id].insert(
-            tv->getRootDomain().begin(), tv->getRootDomain().end());
+        almost_exact_graph.setUnmappable(
+            {tv->getRootDomain().begin(), tv->getRootDomain().end()});
       }
     }
     for (auto id : tv->getLogicalDomain()) {

@@ -404,44 +404,16 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
     return;
   }
 
+  if (areUnmappable(val0, val1)) {
+    return;
+  }
+
   // Definitions and uses are based on the groups of id0 and id1, don't merge
   // them into a single group until we grab all definitions and uses for later
   // processing.
   const ValGroup orig_val_group0 = toGroup(val0);
   const ValGroup orig_val_group1 = toGroup(val1);
 
-  for (const auto v0 : *orig_val_group0) {
-    auto it = do_not_map_vals_.find(v0);
-    if (it == do_not_map_vals_.end()) {
-      continue;
-    }
-    const auto& do_not_map_set = it->second;
-    if (std::any_of(
-            orig_val_group1->begin(), orig_val_group1->end(), [&](Val* v1) {
-              return do_not_map_set.count(v1);
-            })) {
-      return;
-    }
-  }
-
-  for (const auto v0 : *orig_val_group1) {
-    auto it = do_not_map_vals_.find(v0);
-    if (it == do_not_map_vals_.end()) {
-      continue;
-    }
-    const auto& do_not_map_set = it->second;
-    if (std::any_of(
-            orig_val_group0->begin(), orig_val_group0->end(), [&](Val* v1) {
-              return do_not_map_set.count(v1);
-            })) {
-      return;
-    }
-  }
-
-#if 0
-  std::cerr << "mapVals: " << val0->toString() << ", " << val1->toString() <<
-      "\n";
-#endif
   // Note that getDefinitions and getUses return references, which
   // will be invalidated once unique_definitions_ and unique_uses_ are
   // updated
@@ -514,12 +486,6 @@ void ValGraph::maybeMapThroughExprs(Expr* expr0, Expr* expr1, bool forward) {
   if (!exprsMap(expr0, expr1, forward)) {
     return;
   }
-
-#if 0
-  std::cerr << "maybeMapThroughExprs: " << expr0->toString()
-            << ", " << expr1->toString()
-            << ", " << forward << "\n";
-#endif
 
   // Expr inputs are mapped. If propagate_through_exprs_ is true, map the
   // exprs and outputs. If not, map the exprs only when both inputs
@@ -601,6 +567,39 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
   }
 
   return true;
+}
+
+void ValGraph::setUnmappable(Val* val0, Val* val1) {
+  unmappable_vals_[val0].insert(val1);
+  unmappable_vals_[val1].insert(val0);
+}
+
+void ValGraph::setUnmappable(const std::vector<Val*>& vals) {
+  for (const auto i : c10::irange(vals.size() - 1)) {
+    for (const auto j : c10::irange(i + 1, vals.size())) {
+      setUnmappable(vals.at(i), vals.at(j));
+    }
+  }
+}
+
+bool ValGraph::areUnmappable(Val* val0, Val* val1) const {
+  const ValGroup& val_group0 = toGroup(val0);
+  const ValGroup& val_group1 = toGroup(val1);
+
+  for (const auto v0 : *val_group0) {
+    auto it = unmappable_vals_.find(v0);
+    if (it == unmappable_vals_.end()) {
+      continue;
+    }
+    const auto& unmappable_val_set = it->second;
+    if (std::any_of(val_group1->begin(), val_group1->end(), [&](Val* v1) {
+          return unmappable_val_set.count(v1);
+        })) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 void ValGraph::validateConsistency() const {
