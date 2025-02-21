@@ -11564,6 +11564,73 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   i20 = ((8 + (16 * (i19 / 8))) + (i19 % 8)) + i14;
   nvfuser_index_t i21;
   i21 = (9 - T1.logical_size[1LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4));
+
+  // Circular-buffer for-loop is the first serial for-loop to the left of
+  // computeAt position. It is applied to the load cacheAfter TensorViews.
+  //
+  // Persistent scheduling with matmul creates multiple serial for-loops.
+  // There is a grid-stride for-loop over output-tiles and cta-k for-loop.
+  //
+  // Proposal:
+  //  * Merge output-tile and cta-k iterDomains.
+  //  * Apply circular buffering to the load cacheAfter TensorView.
+  //  * wgmma consumer would have separate output-tile and cta-k iterDomains.
+  //
+  // Why? A single serial iterDomain for circular buffering.
+  // This matches current implementation.
+  //
+  // Problem: The output-tile and cta-k iterDomains cannot be merged for compute
+  // warp-groups because storing the matmul results to global memory does not
+  // have cta-k iterDomain.
+  //
+  // Does consumer of circular buffering inputs need to be inlined?
+  // This restriction seems unnecessary for warp-specialized circular buffering.
+  //
+  // Proposal: For warp-specialized circular buffering, track separate for-loops
+  // for load and compute warp groups.
+  //
+  // Invariant: The compute for-loop must be derived from load for-loop.
+  //
+  // Pseudo-code:
+  //
+  // mbarrier init
+  // if (tma-load) {
+  //   decrease_register_limit(40);
+  //   for (output-tile) {
+  //     for (cta-k) {
+  //       if (elect-sync) {
+  //         mbarrier wait for empty stage
+  //         mbarrier arriveExpectTx for tma load
+  //         tma load operand A and B cta tiles for stage
+  //       }
+  //     }
+  //   }
+  // } else {  // compute warp-group
+  //   increase_register_limit(232);
+  //   mbarrier arrive to signal all stages are empty
+  //   for (output-tile) {
+  //     for (cta-k) {
+  //       mbarrier wait for full stage
+  //       for (warp-k) {
+  //         wgmma_fence;
+  //         wgmma_64m_256m_16k;
+  //       }
+  //       wgmma_commit;
+  //       wgmma_wait;
+  //       mbarrier arrive to signal current stage is empty
+  //     }
+  //     wgmma_wait;
+  //     convert fp32 results to bf16
+  //     stmatrix from registers to shared memory
+  //     block_sync();
+  //     tma store from shared to global memory
+  //     tma_store_commit;
+  //     tma_store_wait;
+  //   }
+  // }
+  // destroy mbarrier
+
+  // outer for-loop
 #pragma unroll 1
   for (nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
     nvfuser_index_t i23;
@@ -11583,6 +11650,8 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     wgmma::fence();
     fenceAsyncProxy();
     uint64_t* T9 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
+
+    // mbarrier init - every iteration
 #pragma unroll
     for (nvfuser_index_t i29 = 0; i29 < 3; ++i29) {
       if (((Hopper::electSync(4294967295U) && b15) && b16)) {
@@ -11596,6 +11665,8 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       }
     }
     __syncthreads();
+
+    // warp-specialization - within for-loop
     if (b17) {
 #pragma unroll 2
       for (nvfuser_index_t i31 = 0; i31 < i5; ++i31) {
@@ -11620,7 +11691,9 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
               (i9 + (16384 * i32)));
         }
       }
+      // TODO default implementation of register sharing has return here
     } else {
+      // compute warp-group
 #pragma unroll
       for (nvfuser_index_t i33 = 0; i33 < 3; ++i33) {
         mbarrier::arrive(toSmem((&T9[(i33 + 3LL)])));
@@ -11657,6 +11730,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         mbarrier::arrive(toSmem((&T9[((i34 % 3) + 3LL)])));
       }
     }
+    // destroy mbarrier every iteration
 #pragma unroll
     for (nvfuser_index_t i42 = 0; i42 < 3; ++i42) {
       if (((Hopper::electSync(4294967295U) && b15) && b16)) {
@@ -11670,6 +11744,8 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       }
     }
     wgmma::wait<0LL>();
+
+    // store results
     Array<__bfloat, 128, 8> T7;
 #pragma unroll
     for (nvfuser_index_t i44 = 0; i44 < 32; ++i44) {
