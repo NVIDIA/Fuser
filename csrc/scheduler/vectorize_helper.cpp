@@ -937,6 +937,8 @@ int64_t getVectorizationFactorTransposeGroup(
     virtual_innermost_dim.insert(
         virtual_innermost_dim.begin(), reference->axis(dim));
   }
+ // Make sure it is not yet parallelized
+  NVF_ERROR(reference->axis(inner_most_dim)->getParallelType() == ParallelType::Serial);
   virtual_innermost_dim.push_back(reference->axis(inner_most_dim));
 
   // NOTE: do I need to consider stride here?! sounds like
