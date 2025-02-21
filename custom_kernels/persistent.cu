@@ -11579,9 +11579,11 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   // Why? A single serial iterDomain for circular buffering.
   // This matches current implementation.
   //
-  // Problem: The output-tile and cta-k iterDomains cannot be merged for compute
-  // warp-groups because storing the matmul results to global memory does not
-  // have cta-k iterDomain.
+  // Problem:
+  // The output-tile and cta-k iterDomains cannot be merged for compute warp
+  // groups because storing the matmul results to global memory does not have
+  // cta-k iterDomain. The wgmma consumer cannot be inlined with cacheAfter tma
+  // load, breaking the current circular buffering implementation.
   //
   // Does consumer of circular buffering inputs need to be inlined?
   // This restriction seems unnecessary for warp-specialized circular buffering.
@@ -11630,6 +11632,23 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   // }
   // destroy mbarrier
 
+  uint64_t* T9 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
+  // mbarrier init - every iteration
+  #pragma unroll
+  for (nvfuser_index_t i29 = 0; i29 < 3; ++i29) {
+    if (((Hopper::electSync(4294967295U) && b15) && b16)) {
+      mbarrier::init(toSmem((&T9[i29])), 2U);
+    }
+  }
+  #pragma unroll
+  for (nvfuser_index_t i30 = 0; i30 < 3; ++i30) {
+    if (((Hopper::electSync(4294967295U) && b15) && b16)) {
+      mbarrier::init(toSmem((&T9[(i30 + 3LL)])), 256U);
+    }
+  }
+  __syncthreads();
+  fenceAsyncProxy();
+
   // outer for-loop
 #pragma unroll 1
   for (nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
@@ -11647,24 +11666,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     i28 = i21 + i24;
     Array<float, 128, 1> T3;
     ((*reinterpret_cast<Array<float, 128, 1>*>(&T3[0]))).set(0);
-    wgmma::fence();
-    fenceAsyncProxy();
-    uint64_t* T9 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
 
-    // mbarrier init - every iteration
-#pragma unroll
-    for (nvfuser_index_t i29 = 0; i29 < 3; ++i29) {
-      if (((Hopper::electSync(4294967295U) && b15) && b16)) {
-        mbarrier::init(toSmem((&T9[i29])), 2U);
-      }
-    }
-#pragma unroll
-    for (nvfuser_index_t i30 = 0; i30 < 3; ++i30) {
-      if (((Hopper::electSync(4294967295U) && b15) && b16)) {
-        mbarrier::init(toSmem((&T9[(i30 + 3LL)])), 256U);
-      }
-    }
-    __syncthreads();
 
     // warp-specialization - within for-loop
     if (b17) {
@@ -11730,19 +11732,6 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         mbarrier::arrive(toSmem((&T9[((i34 % 3) + 3LL)])));
       }
     }
-    // destroy mbarrier every iteration
-#pragma unroll
-    for (nvfuser_index_t i42 = 0; i42 < 3; ++i42) {
-      if (((Hopper::electSync(4294967295U) && b15) && b16)) {
-        mbarrier::inval(toSmem((&T9[(i42 + 3LL)])));
-      }
-    }
-#pragma unroll
-    for (nvfuser_index_t i43 = 0; i43 < 3; ++i43) {
-      if (((Hopper::electSync(4294967295U) && b15) && b16)) {
-        mbarrier::inval(toSmem((&T9[i43])));
-      }
-    }
     wgmma::wait<0LL>();
 
     // store results
@@ -11794,6 +11783,19 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     __syncthreads();
     cpAsyncBulkCommitGroup();
     cpAsyncBulkWaitGroup<0LL>();
+  }
+  // destroy mbarrier every iteration
+  #pragma unroll
+  for (nvfuser_index_t i42 = 0; i42 < 3; ++i42) {
+    if (((Hopper::electSync(4294967295U) && b15) && b16)) {
+      mbarrier::inval(toSmem((&T9[(i42 + 3LL)])));
+    }
+  }
+  #pragma unroll
+  for (nvfuser_index_t i43 = 0; i43 < 3; ++i43) {
+    if (((Hopper::electSync(4294967295U) && b15) && b16)) {
+      mbarrier::inval(toSmem((&T9[i43])));
+    }
   }
   cpAsyncBulkCommitGroup();
   cpAsyncBulkWaitGroup<0LL>();
