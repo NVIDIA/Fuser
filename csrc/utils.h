@@ -649,7 +649,7 @@ class iota {
   iterator begin() const {
     return iterator(start);
   }
-  std::default_sentinel_t end() const { return std::unreachable_sentinel; }
+  auto end() const { return std::unreachable_sentinel; }
   int64_t start;
   iota(int64_t start) : start(start) {}
 };
