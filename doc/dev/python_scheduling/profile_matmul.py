@@ -14,6 +14,8 @@ from nvfuser import (
     MatmulCircularBufferingStrategy,
 )
 import torch
+from torch.autograd import DeviceType
+from torch.profiler import profile, record_function, ProfilerActivity
 import math
 import itertools
 from enum import IntEnum
@@ -27,43 +29,6 @@ class Layout(IntEnum):
     MAX = 4
 
 
-# machine_info - dict
-#  * node, cpu, gpu-name - string
-#  * gpu_sm_count - int
-# commit_info - dict
-#  * id, project, branch - string
-# benchmarks - list
-#  * fullname: string
-#  * params - dict
-#     * config: [M, N, K, Shape]
-#  * stats - dict
-#     * median: float
-def analyze_json(filename):
-    import pandas as pd
-    import json
-
-    def get_field(json_data, field):
-        return pd.DataFrame(json_data[field])
-
-    def _organize_by_layout(json_data):
-        benchmarks = get_field(json_data, "benchmarks")
-        data = {layout: {} for layout in Layout if layout is not Layout.MAX}
-        for row in benchmarks.itertuples():
-            M, N, K, layout = row.params["config"]
-            shape = (M, N, K)
-            time = row.stats["median"]
-            data[Layout[layout]][shape] = time
-        return data
-
-    try:
-        json = json.load(open(filename))
-    except Exception as e:
-        print(e)
-        return None
-
-    return _organize_by_layout(json)
-
-
 def estimate_matmul_size(config, dtype):
     def _estimate_size(shape, dtype):
         return math.prod(shape) * dtype.itemsize
@@ -75,21 +40,27 @@ def estimate_matmul_size(config, dtype):
     return total_in_gbs
 
 
+def get_kernel_time(prof_averages: torch.autograd.profiler_util.EventList):
+    elapsed_cuda_time = 0
+    has_cuda_event = False
+    for event in prof_averages:
+        if event.device_type != DeviceType.CUDA:
+            continue
+        has_cuda_event = True
+        elapsed_cuda_time = (
+            elapsed_cuda_time + event.self_device_time_total
+            if hasattr(event, "self_device_time_total")
+            else event.self_cuda_time_total
+        )
+    assert has_cuda_event, "No CUDA events found"
+    return elapsed_cuda_time / 1e3
+
+
 def matmul_fusion(fd: FusionDefinition, inputs: list[torch.Tensor]) -> None:
     a = fd.from_pytorch(inputs[0])
     b = fd.from_pytorch(inputs[1])
     out = fd.ops.matmul(a, b)
     fd.add_output(out)
-
-
-# These are the parameters we'll optimize
-parameter_configurations = {
-    "tile_sizes": [MatMulTileOptions(GemmTile(128, 256, 64), GemmTile(64, 256, 64))],
-    "mma_macro": [MmaMacroEncode(MmaMacroArch.hopper, 64, 256, 16)],
-    "tile_order": [MatmulTileRasterizationOrder.column_major],
-    "cluster_dims": [ClusterDims(1, 1, 1)],
-    "circular_buffer_stages": [4],
-}
 
 
 # Apply scheduler with custom parameters using decorator
@@ -156,77 +127,30 @@ def test_matmul_nvf(
             print(e)
         return -1
 
+    with profile(activities=[ProfilerActivity.CUDA], record_shapes=True) as prof:
+        with record_function("matmul"):
+            baseline_output = torch.matmul(a, b)
+    baseline_time = get_kernel_time(prof.key_averages())
+
     if validate:
-        baseline_output = torch.matmul(a, b)
         tolerance = k * 1e-6
-        assert torch.allclose(nvf_outputs[0], baseline_output, atol=tolerance, rtol=tolerance)
+        assert torch.allclose(
+            nvf_outputs[0], baseline_output, atol=tolerance, rtol=tolerance
+        )
 
     prof = scheduled_fd.profile()
-    # convert to microseconds to match pytorch profiler units
-    return prof.kernel_profiles[0].time_ms * 1e-3
-
-
-def normalized_profile(args):
-    baseline_data = analyze_json(args.baseline_filepath)
-    # short-circuit
-    if baseline_data is None:
-        return False
-
-    problem_config = (args.m, args.n, args.k, args.layout)
-    shape = (args.m, args.n, args.k)
-    layout = Layout[args.layout]
-
-    # short-circuit
-    if layout not in baseline_data or shape not in baseline_data[layout]:
-        return False
-
-    baseline_result = baseline_data[layout][shape]
-    print(
-        f"problem configuration, m: {args.m}, n: {args.n}, k: {args.k}, layout: {args.layout}"
-    )
-    for idx, scheduler_config in enumerate(
-        itertools.product(*parameter_configurations.values())
-    ):
-        nvf_result = test_matmul_nvf(
-            problem_config, scheduler_config, args.verbose, args.validate
-        )
-        normalized_result = baseline_result / nvf_result
-        print(
-            f"index: {idx}, baseline(us): {baseline_result: .3e}, "
-            f"nvfuser(us):{nvf_result: 3e}, normalized(us):{normalized_result: 2f}"
-        )
-
-
-def profile(args):
-    problem_config = (args.m, args.n, args.k, args.layout)
-    shape = (args.m, args.n, args.k)
-
-    print(
-        f"problem configuration, m: {args.m}, n: {args.n}, k: {args.k}, layout: {args.layout}"
-    )
-    for idx, scheduler_config in enumerate(
-        itertools.product(*parameter_configurations.values())
-    ):
-        nvf_result = test_matmul_nvf(
-            problem_config, scheduler_config, args.verbose, args.validate
-        )
-        print(
-            f"index: {idx}, nvfuser(us):{nvf_result: 3e}"
-        )
+    nvf_time = prof.kernel_profiles[0].time_ms
+    return baseline_time, nvf_time
 
 
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description=("Run through a combination of matmul parameters and compare"
-        "relative performance against nvjet for a single problem.")
-    )
-    parser.add_argument(
-        "-f",
-        "--baseline_filepath",
-        type=str,
-        help="The filepath to a json file for the nvjet baseline.",
+        description=(
+            "Run through a combination of matmul parameters and compare"
+            "relative performance against nvjet for a single problem."
+        )
     )
     parser.add_argument("m", type=int, help="The size of M dimension")
     parser.add_argument("n", type=int, help="The size of N dimension")
@@ -258,9 +182,31 @@ def main():
     ):
         assert False
 
-    # If a problem shape is not found in json file, profile the raw kernel.
-    if not normalized_profile(args):
-        profile(args)
+    # These are the parameters we'll optimize
+    parameter_configurations = {
+        "tile_sizes": [
+            MatMulTileOptions(GemmTile(128, 256, 64), GemmTile(64, 256, 64))
+        ],
+        "mma_macro": [MmaMacroEncode(MmaMacroArch.hopper, 64, 256, 16)],
+        "tile_order": [MatmulTileRasterizationOrder.column_major],
+        "cluster_dims": [ClusterDims(1, 1, 1)],
+        "circular_buffer_stages": [4],
+    }
+
+    print(
+        f"problem configuration, m: {args.m}, n: {args.n}, k: {args.k}, layout: {args.layout}"
+    )
+    for idx, scheduler_config in enumerate(
+        itertools.product(*parameter_configurations.values())
+    ):
+        baseline_result, nvf_result = test_matmul_nvf(
+            problem_config, scheduler_config, args.verbose, args.validate
+        )
+        normalized_result = baseline_result / nvf_result
+        print(
+            f"index: {idx}, baseline(us): {baseline_result: .3e}, "
+            f"nvfuser(us):{nvf_result: 3e}, normalized(us):{normalized_result: 2f}"
+        )
 
 
 # NOTE Scheduler _matmul_ ***rejected*** because : MatmulOp and LinearOp fusion
@@ -274,6 +220,6 @@ def main():
 #
 # Script CMD:
 # NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval python single_matmul.py nvjet_pybench.json
-# 1752 4720 584 NN -f ~/workspace/hopper_benchmarks/gh200_matmul_eager.json
+# 1752 4720 584 NN --verbose --validate
 if __name__ == "__main__":
     main()
