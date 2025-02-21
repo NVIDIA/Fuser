@@ -9,6 +9,21 @@ from functools import partial
 from .model_configs import configs
 
 
+# Note this computes the bandwidth for weight gradient if the entire computation is done in a
+# single kernel. We don't consider the specific segmentation happening yet, since we don't have
+# a good clue how it should be segmented at this moment.
+def embedding_weight_grad_iobytes(config, dtype):
+    n_elements = 0
+    # adding size of grad
+    n_elements += config.batch_size * config.seq_len * config.hidden_size
+    # adding size of index
+    n_elements += config.batch_size * config.seq_len
+    # adding size of output (weight.grad)
+    n_elements += config.vocab_size * config.hidden_size
+    # scale by dtype size
+    return n_elements * dtype.itemsize
+
+
 def hf_qwen2(dtype):
     from transformers.models.qwen2.modeling_qwen2 import Qwen2PreTrainedModel
 
@@ -48,15 +63,11 @@ def hf_qwen2(dtype):
         )
         return grad
 
-    def iobytes():
-        # TODO: compute iobytes
-        return 1
-
     return (
         MyModel(config).cuda().to(dtype),
         partial(inputs, dtype),
         partial(grads, dtype),
-        iobytes,
+        partial(embedding_weight_grad_iobytes, config, dtype),
     )
 
 
@@ -101,15 +112,11 @@ def hf_phi3(dtype):
         )
         return grad
 
-    def iobytes():
-        # TODO: compute iobytes
-        return 1
-
     return (
         MyModel(config).cuda().to(dtype),
         partial(inputs, dtype),
         partial(grads, dtype),
-        iobytes,
+        partial(embedding_weight_grad_iobytes, config, dtype),
     )
 
 
@@ -152,15 +159,11 @@ def hf_mistral_nemo(dtype):
         )
         return grad
 
-    def iobytes():
-        # TODO: compute iobytes
-        return 1
-
     return (
         MyModel(config).cuda().to(dtype),
         partial(inputs, dtype),
         partial(grads, dtype),
-        iobytes,
+        partial(embedding_weight_grad_iobytes, config, dtype),
     )
 
 
