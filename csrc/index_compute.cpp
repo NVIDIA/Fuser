@@ -2692,7 +2692,13 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
            {"mbarrier", mbarrier}},
           ss.str());
     } else {
-      NVF_THROW("S2G for CpAsyncBulk is not implemented yet.")
+      std::stringstream ss;
+      ss << "Hopper::CpAsyncBulkS2GIndex";
+      auto gmem_address =
+          getConsumerIndex(consumer_tv, loops, rotated_loops, {}, true);
+      index = IrBuilder::structExpr(
+          {{"raw_gmem_addr", gmem_address}, {"bytes", expected_bytes}},
+          ss.str());
     }
   } else {
     // ND TMA with tensor map
