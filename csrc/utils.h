@@ -20,6 +20,7 @@
 
 #include <c10/core/thread_pool.h>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <ranges>
@@ -631,14 +632,15 @@ class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
  private:
   std::tuple<Rs...> bases;
 
-  struct iterator {
+  // Iterator for begin()
+  struct begin_iterator {
     std::tuple<std::ranges::iterator_t<Rs>...> iterators;
 
     using value_type = std::tuple<std::ranges::range_value_t<Rs>...>;
     using reference = std::tuple<std::ranges::range_reference_t<Rs>...>;
     using difference_type = std::ptrdiff_t;
 
-    iterator& operator++() {
+    begin_iterator& operator++() {
       std::apply([](auto&... it) { ((++it), ...); }, iterators);
       return *this;
     }
@@ -648,22 +650,38 @@ class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
           [](auto&... it) -> reference { return {*it...}; }, iterators);
     }
 
-    bool operator==(const iterator& other) const {
+    bool operator==(const begin_iterator& other) const {
       return iterators == other.iterators;
     }
   };
 
+  // Sentinel for end()
+  struct end_iterator {
+    std::tuple<std::ranges::sentinel_t<Rs>...> sentinels;
+
+    bool operator==(const begin_iterator& it) const {
+      return compare(it, std::make_index_sequence<sizeof...(Rs)>{});
+    }
+
+   private:
+    template <std::size_t... I>
+    bool compare(const begin_iterator& it, std::index_sequence<I...>) const {
+      return ((std::get<I>(it.iterators) == std::get<I>(sentinels)) || ...);
+    }
+  };
+
  public:
-  zip_view(Rs... ranges) : bases{std::move(ranges)...} {}
+  explicit zip_view(Rs&&... ranges)
+      : bases{std::forward<Rs>(ranges)...} {} // Ensure perfect forwarding
 
   auto begin() {
-    return iterator{std::apply(
+    return begin_iterator{std::apply(
         [](auto&... r) { return std::tuple{std::ranges::begin(r)...}; },
         bases)};
   }
 
   auto end() {
-    return iterator{std::apply(
+    return end_iterator{std::apply(
         [](auto&... r) { return std::tuple{std::ranges::end(r)...}; }, bases)};
   }
 };
@@ -679,5 +697,9 @@ auto zip(Rs&&... rs) {
 using views::zip;
 
 #endif
+
+auto enumerate(auto&& range) {
+  return zip(std::views::iota(0), std::forward<decltype(range)>(range));
+}
 
 } // namespace nvfuser

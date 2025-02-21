@@ -1630,7 +1630,7 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
 using TestCpp23BackPort = NVFuserTest;
 
-TEST_F(TestCpp23BackPort, DifferentWaysToSayZeroToTen) {
+TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
   // vector of integers
   std::vector<int64_t> integer{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
@@ -1679,15 +1679,18 @@ TEST_F(TestCpp23BackPort, DifferentWaysToSayZeroToTen) {
     SetTheoreticNaturalNumber begin() {
       return SetTheoreticNaturalNumber();
     }
-    SetTheoreticNaturalNumber end() {
-      SetTheoreticNaturalNumber invalid_natural_number({{{}}});
-      return invalid_natural_number;
+    auto end() {
+      return std::unreachable_sentinel;
+      // SetTheoreticNaturalNumber invalid_natural_number({{{}}});
+      // return invalid_natural_number;
     }
   } set_theoretic_zero_to_inf;
   static_assert(std::ranges::input_range<ZeroToInf>);
   static_assert(std::ranges::view<ZeroToInf>);
 
-  for (auto&& [i, e, s, itoa] :
+  int64_t counter = 0;
+  auto english_it = english.begin();
+  for (auto&& [i, e, s, iota] :
        zip(integer,
            english,
            set_theoretic_zero_to_inf,
@@ -1695,9 +1698,244 @@ TEST_F(TestCpp23BackPort, DifferentWaysToSayZeroToTen) {
     static_assert(std::is_same_v<decltype(i), int64_t&>);
     static_assert(std::is_same_v<decltype(e), std::string&>);
     static_assert(std::is_same_v<decltype(s), SetTheoreticNaturalNumber>);
-    static_assert(std::is_same_v<decltype(itoa), int>);
-    std::cout << i << std::endl;
+    static_assert(std::is_same_v<decltype(iota), int>);
+    EXPECT_EQ(i, counter);
+    EXPECT_EQ(&i, &integer[counter]);
+    EXPECT_EQ(&e, &*english_it);
+    EXPECT_EQ(iota, counter);
+    switch (counter) {
+      case 0: {
+        EXPECT_EQ(e, "zero");
+        SetTheoreticNaturalNumber expect = {};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 1: {
+        EXPECT_EQ(e, "one");
+        SetTheoreticNaturalNumber expect = {{}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 2: {
+        EXPECT_EQ(e, "two");
+        SetTheoreticNaturalNumber expect = {{}, {{}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 3: {
+        EXPECT_EQ(e, "three");
+        SetTheoreticNaturalNumber expect = {{}, {{}}, {{}, {{}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 4: {
+        EXPECT_EQ(e, "four");
+        SetTheoreticNaturalNumber expect = {
+            {}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 5: {
+        EXPECT_EQ(e, "five");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 6: {
+        EXPECT_EQ(e, "six");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 7: {
+        EXPECT_EQ(e, "seven");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 8: {
+        EXPECT_EQ(e, "eight");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 9: {
+        EXPECT_EQ(e, "nine");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+               {{},
+                {{}},
+                {{}, {{}}},
+                {{}, {{}}, {{}, {{}}}},
+                {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+    }
+    counter++;
+    english_it++;
   }
+  EXPECT_EQ(counter, 10);
+}
+
+TEST_F(NVFuserTest, Enumerate) {
+  std::vector<int> v{1, 2, 3, 4, 5};
+  int64_t count = 0;
+  for (auto&& [i, x] : enumerate(v)) {
+    EXPECT_EQ(i, count);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
 }
 
 } // namespace nvfuser
