@@ -354,7 +354,7 @@ void ScalarBoundsCalculator::setAsUnbounded(Val* val) {
       std::numeric_limits<int64_t>::max());
 }
 
-void ScalarBoundsCalculator::boundNamedScalar(NamedScalar* scalar) {
+void ScalarBoundsCalculator::setBoundsForNamedScalar(NamedScalar* scalar) {
   if (std::optional<ParallelType> ptype = scalar->getParallelDim();
       ptype.has_value()) {
     // scalar is the extent of a parallel dim, so evaluate it
@@ -378,7 +378,7 @@ std::optional<BoundedInt> ScalarBoundsCalculator::maybeGetBounds(Val* val) {
   if (auto it = bounds_.find(val); it != bounds_.end()) {
     return it->second;
   } else if (auto* scalar = dynamic_cast<NamedScalar*>(val)) {
-    boundNamedScalar(scalar);
+    setBoundsForNamedScalar(scalar);
     return bounds_.at(val);
   } else if (PolymorphicValue pv = expr_eval_.evaluate(val, known_scalars_);
              pv.hasValue()) {

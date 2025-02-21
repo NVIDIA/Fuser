@@ -110,7 +110,7 @@ class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
   //! NamedScalar bounds are set using the launch_params_. For example
   //! `blockDim.x` is set to the [blockDim.x, blockDim.x] and `threadIdx.x` is
   //! set to [0, blockDim.x - 1].
-  NVF_API void boundNamedScalar(NamedScalar* scalar);
+  NVF_API void setBoundsForNamedScalar(NamedScalar* scalar);
 
   using kir::IrVisitor::dispatch;
   //! These public methods are useful for processing an individual statement to
