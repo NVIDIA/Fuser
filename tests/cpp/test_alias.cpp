@@ -631,14 +631,14 @@ TEST_F(AliasTest, TrivialInputForwarding) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  EXPECT_EQ(cg_outputs[0].as<at::Tensor>().data_ptr(), t0.data_ptr());
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   EXPECT_TRUE(executor_cache.isCompiled({t0, t1}));
   auto cg_outputs2 = executor_cache.runFusionWithInputs({t0, t1});
-  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  EXPECT_EQ(cg_outputs2[0].as<at::Tensor>().data_ptr(), t0.data_ptr());
   testValidate(
       executor_cache.fusion(), cg_outputs2, {t0, t1}, __LINE__, __FILE__);
 }
@@ -655,13 +655,13 @@ TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_EQ(cg_outputs[0].data_ptr(), t0.data_ptr());
+  EXPECT_EQ(cg_outputs[0].as<at::Tensor>() data_ptr(), t0.data_ptr());
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly
   EXPECT_TRUE(executor_cache.isCompiled({t0}));
   auto cg_outputs2 = executor_cache.runFusionWithInputs({t0});
-  EXPECT_EQ(cg_outputs2[0].data_ptr(), t0.data_ptr());
+  EXPECT_EQ(cg_outputs2[0].as<at::Tensor>().data_ptr(), t0.data_ptr());
   testValidate(executor_cache.fusion(), cg_outputs2, {t0}, __LINE__, __FILE__);
 }
 

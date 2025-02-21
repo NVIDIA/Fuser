@@ -44,7 +44,7 @@ FusionExecutorCache::FusionExecutorCache(
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
-std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
+KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
@@ -107,7 +107,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     debug() << FusionProfiler::profile();
   }
 
-  return outputs;
+  return KernelArgumentHolder(outputs);
 }
 
 void FusionExecutorCache::setCacheId(KernelArgumentHolder& args) {

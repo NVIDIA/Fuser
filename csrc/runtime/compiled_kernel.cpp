@@ -1396,7 +1396,7 @@ void RtcKernel::compile(
 
 float RtcKernel::run(
     const LaunchParams& launch_params,
-    const std::vector<at::Tensor>& args,
+    const KernelArgumentHolder& args,
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("RtcKernel::run");
 

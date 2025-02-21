@@ -435,7 +435,7 @@ void validateAlignedVectorizedFusionInputOutput(
 void validateAlignedVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   // Verify extents of aligned vectorized tensors
@@ -462,13 +462,13 @@ void validateAlignedVectorizedTensors(
     validateAlignedVectorizedFusionInputOutput(
         args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
   }
-  if (!outputs.empty()) {
+  if (!output_args.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
       validateAlignedVectorizedFusionInputOutput(
-          outputs[pos], word_size, tv, expr_eval);
+          output_args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
     }
   }
 }
@@ -479,7 +479,7 @@ void validateAlignedVectorizedTensors(
 void validateMisalignedVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   auto tensor_vectorization_validation_entry =
@@ -506,13 +506,13 @@ void validateMisalignedVectorizedTensors(
 
   const auto& out_misaligned_tensors_pos =
       tensor_vectorization_validation_entry.get().out_misaligned_tensors_pos;
-  if (!outputs.empty()) {
+  if (!output_args.empty()) {
     out_misaligned_tensors.reserve(out_misaligned_tensors_pos.size());
     std::transform(
         out_misaligned_tensors_pos.begin(),
         out_misaligned_tensors_pos.end(),
         std::back_inserter(out_misaligned_tensors),
-        [&outputs](int idx) { return outputs[idx]; });
+        [&output_args](int idx) { return output_args[idx].as<at::Tensor>(); });
   }
   // If input stride is non-contiguous + no outputs, return false
   NVF_ERROR(
@@ -548,16 +548,16 @@ void validateCircularBuffering(
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("KernelExecutor::validateVectorizedTensors");
 
   validateAlignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      kernel, args, output_args, data_cache, expr_eval);
 
   validateMisalignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      kernel, args, output_args, data_cache, expr_eval);
 }
 
 ExpressionEvaluator bindInputs(

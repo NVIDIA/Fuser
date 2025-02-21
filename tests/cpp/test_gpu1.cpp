@@ -816,7 +816,7 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   KernelExecutor ke;
   ke.compile(&fusion);
   auto outputs = ke.run({});
-  const auto& output = outputs.at(0);
+  const auto& output = outputs[0].as<at::Tensor>();
 
   at::Tensor output_ref = at::ones_like(output, options);
   output_ref = output_ref + 2.0 + 3.0;
@@ -858,7 +858,7 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   KernelExecutor ke;
   ke.compile(&fusion);
   auto outputs = ke.run({});
-  const auto& output = outputs.at(0);
+  const auto& output = outputs[0].as<at::Tensor>();
 
   at::Tensor output_ref = at::ones_like(output, options);
   output_ref = output_ref + 2.0 + 3.0;
@@ -5054,7 +5054,8 @@ TEST_F(NVFuserTest, FusionSumTo_CUDA) {
   auto cg_outputs = ke.run({aten_input});
 
   NVF_CHECK(
-      cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
+      cg_outputs[0].as<at::Tensor>().dim() ==
+          static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
   testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
@@ -5096,7 +5097,8 @@ TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
   auto cg_outputs = ke.run({aten_input});
 
   NVF_CHECK(
-      cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
+      cg_outputs[0].as<at::Tensor>().dim() ==
+          static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
   testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);

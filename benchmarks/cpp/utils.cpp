@@ -158,13 +158,13 @@ int64_t getSizeOfInputs(const KernelArgumentHolder& inputs) {
   return bytes;
 }
 
-int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
-  int64_t bytes = 0;
-  for (const auto& tensor : outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
+int64_t getSizeOfOutputs(const PolymorphicValue& outputs) {
+  if (outputs.is<at::Tensor>()) {
+    return outputs.as<at::Tensor>().numel() *
+        (int64_t)dataTypeSize(
+               aten_to_data_type(outputs.as<at::Tensor>().scalar_type()));
   }
-  return bytes;
+  return 0;
 }
 } // namespace
 

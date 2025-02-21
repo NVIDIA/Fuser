@@ -139,7 +139,7 @@ TEST_P(HostIrTest, SingleFusion) {
   auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), t0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -236,7 +236,7 @@ TEST_P(HostIrTest, TwoFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -365,7 +365,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0_0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(t2_2, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(t2_2, outputs[0].as<at::Tensor>()));
 }
 
 // This unit test the for-loop IR by implementing a program that could be
@@ -668,7 +668,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
   // validate the obtained results
   for (int i = 0; i < n_iterations; i++) {
-    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(i)));
+    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[i].as<at::Tensor>()));
   }
   EXPECT_NE(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
@@ -1108,7 +1108,7 @@ TEST_F(IfThenElseTest, HostIr) {
 
     // validate
     auto ref_output = at::ones_like(at_buffer) + (1 + (int)boolean);
-    EXPECT_TRUE(outputs.at(0).equal(ref_output));
+    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(ref_output));
   }
 }
 
@@ -1130,7 +1130,7 @@ TEST_F(AllocationTest, HostIr) {
 
   auto outputs = hie.runWithInput({});
 
-  EXPECT_EQ(sizes, outputs.at(0).sizes());
+  EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
 }
 
 TEST_F(AllocationTest, inHostForLoop) {
@@ -1167,7 +1167,7 @@ TEST_F(AllocationTest, inHostForLoop) {
 
   auto outputs = hie.runWithInput({});
 
-  EXPECT_EQ(sizes, outputs.at(0).sizes());
+  EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
 }
 
 } // namespace hir

@@ -399,9 +399,9 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   };
   const auto* user_sched = find_user_schedule();
 
-  std::vector<at::Tensor> out_tensors;
+  KernelArgumentHolder outputs;
   if (user_sched == nullptr) {
-    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
+    outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         args, std::nullopt, args.getDeviceIndex());
   } else {
     if (isProfilerEnabledWithCupti()) {
@@ -414,10 +414,9 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     if (user_sched->heuristic_params == nullptr) {
       // Manual schedule
       if (!user_sched->executor->isCompiled()) {
-        user_sched->executor->compile(
-            user_sched->scheduled_fusion.get(), args.toC10Array());
+        user_sched->executor->compile(user_sched->scheduled_fusion.get(), args);
       }
-      out_tensors = user_sched->executor->run(args.toC10Array());
+      outputs = user_sched->executor->run(args);
     } else {
       // Automatic scheduler was used for UserSchedule.
       // Pass launch and compile params to compileFusion and runFusion.
@@ -429,8 +428,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
             user_sched->heuristic_params->cparams,
             user_sched->heuristic_params->scheduler_type);
       }
-      out_tensors = user_sched->executor->run(
-          args.toC10Array(),
+      outputs = user_sched->executor->run(
+          args,
           {},
           user_sched->heuristic_params->lparams,
           user_sched->heuristic_params->cparams);
@@ -455,30 +454,32 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
-  out_dtensors.reserve(out_tensors.size());
+  out_dtensors.reserve(outputs.size());
   if (user_sched == nullptr) {
     FusionKernelRuntime* runtime =
         scheds->auto_gen_schedules->getMostRecentKernelRuntime();
     Fusion* fusion = runtime->fusionSegments()->completeFusion();
 
-    int64_t tensor_index = 0;
-    for (Val* out_val : fusion->outputs()) {
+    for (auto out_i : c10::irange(fusion->outputs().size())) {
+      Val* out_val = fusion->outputs()[out_i];
+      NVF_ERROR(
+          out_val->isA<TensorView>(),
+          "Non tensor outputs not supported currently due to lack of support of DistributedTensor in KernelArgumentHolder");
+
       auto* out_tv = out_val->as<TensorView>();
       if (fusion->getOutputAlias(out_tv).hide_output) {
         continue;
       }
 
-      const at::Tensor& out_tensor = out_tensors.at(tensor_index);
-      tensor_index++;
+      const at::Tensor& out_tensor = outputs[out_i].as<at::Tensor>();
       const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      DistributedTensor& out_dtensor =
-          out_dtensors.emplace_back(out_tensor, mesh);
+      out_dtensors[out_i] = DistributedTensor(out_tensor, mesh);
 
       if (mesh.size() > 0) {
         for (const ParallelType parallel_type : kParallelTypeDIDs) {
           if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
               axis != -1) {
-            out_dtensor.setAxisIsShardedOn(axis, parallel_type);
+            out_dtensors[out_i].setAxisIsShardedOn(axis, parallel_type);
           }
         }
       }

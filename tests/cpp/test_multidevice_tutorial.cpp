@@ -732,7 +732,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
   auto outputs = hie.runWithInput({{input, aten_input}});
 
   // validate the result
-  EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs.at(0)));
+  EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs[0].as<at::Tensor>()));
 }
 
 // Let us now present a case where the host program consists of launching three
@@ -859,7 +859,7 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
   auto outputs = hie.runWithInput({{tv0, aten_tv0}});
 
   // validate the result
-  EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs.at(0)));
+  EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs[0].as<at::Tensor>()));
 }
 
 // Let us now present a real world scenario, used in transformer, where we need
@@ -963,7 +963,8 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
       hie.runWithInput({{tva, aten_tva}, {tvb, aten_tvb}, {tvd, aten_tvd}});
 
   // "validate" the result
-  EXPECT_EQ(outputs.at(0).numel(), (M * N) / communicator_->size());
+  EXPECT_EQ(
+      outputs[0].as<at::Tensor>().numel(), (M * N) / communicator_->size());
 }
 
 // Let us now show how to implement Kernel Pipelining with Host IR. Let us
@@ -1119,7 +1120,7 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result
-  EXPECT_TRUE(torch::allclose(outputs.at(0), aten_tv0 + 3));
+  EXPECT_TRUE(torch::allclose(outputs[0].as<at::Tensor>(), aten_tv0 + 3));
 }
 
 } // namespace hir

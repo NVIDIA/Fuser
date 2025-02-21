@@ -206,7 +206,7 @@ TEST_P(MmaTest, SingleTile) {
                   .to(at::kFloat)
                   .matmul(b_input.squeeze().t().to(at::kFloat));
 
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
 TEST_P(MmaTest, SingleTileWithStridedInput) {
@@ -238,7 +238,7 @@ TEST_P(MmaTest, SingleTileWithStridedInput) {
   auto tref =
       a_input.squeeze().to(at::kFloat).matmul(b_input.squeeze().to(at::kFloat));
 
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 
   // Clear the fusion and try propagating changes to the mma output.
   fusion.clear();
@@ -253,7 +253,7 @@ TEST_P(MmaTest, SingleTileWithStridedInput) {
       1 /*dim to reduce [M, N, K]*/,
       macro,
       true /* propagate backwards*/);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
 auto all_dtypes = testing::Values(DataType::Half, DataType::BFloat16);
@@ -397,7 +397,7 @@ TEST_P(HopperRS, SingleTile) {
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
 using HopperMmaRSStMatrixTestParams = std::tuple<
@@ -562,7 +562,7 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
                   layout)
                   .to(data_type_to_aten(dtype));
 
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-1, 1e-1));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-1, 1e-1));
 }
 
 std::string testNameHopperRS(
@@ -740,7 +740,7 @@ TEST_P(HopperSS, SingleTile) {
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
 // Same as SingleTile, except that the core matrices of A and B are stored
@@ -869,7 +869,7 @@ TEST_P(HopperSS, SingleTileTransposed) {
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
 TEST_P(HopperSS, MultipleTile) {
@@ -1048,7 +1048,7 @@ TEST_P(HopperSS, MultipleTile) {
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
       layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
 std::string testNameHopperSS(

@@ -279,7 +279,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
   return index_type.value();
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
+KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
@@ -315,7 +315,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   // Produce final global output
-  std::vector<at::Tensor> fusion_outputs;
+  KernelArgumentHolder fusion_outputs;
   fusion_outputs.reserve(segmented_fusion_->outputs().size());
   for (Val* output : segmented_fusion_->outputs()) {
     NVF_ERROR(
@@ -323,7 +323,7 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
         "Segmented fusion output ",
         output->toString(),
         " does not exist in `tensor_map`.");
-    fusion_outputs.push_back(tensor_map.at(output).as<at::Tensor>());
+    fusion_outputs.push(tensor_map.at(output));
   }
   return fusion_outputs;
 }
@@ -687,7 +687,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
   return args_manager.getTensorMap();
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
+KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");

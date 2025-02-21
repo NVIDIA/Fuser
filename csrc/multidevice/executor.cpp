@@ -32,7 +32,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
 }
 
-std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
+KernelArgumentHolder MultiDeviceExecutor::runWithInput(
     const KernelArgumentHolder& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)

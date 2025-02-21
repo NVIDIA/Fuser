@@ -910,7 +910,7 @@ void grid_persistent_batchnorm_manual(
   }
 
   auto cg_outputs = ke.run(inputs);
-  cg_outputs.at(2) = cg_outputs.at(2).permute({0, 3, 1, 2});
+  cg_outputs[2] = cg_outputs[2].permute({0, 3, 1, 2});
 
   auto at_output = at::batch_norm(
       at_input,
@@ -925,7 +925,7 @@ void grid_persistent_batchnorm_manual(
 
   testValidate(
       ke.compiledKernel()->kernel(),
-      {cg_outputs.at(2)},
+      {cg_outputs[2]},
       inputs,
       {at_output},
       __LINE__,
@@ -1237,7 +1237,7 @@ void grid_persistent_batchnorm_bwd_manual(
 
   cg_outputs = ke.run(inputs);
   // Permute grad_input output
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs[0] = cg_outputs[0].permute({0, 3, 1, 2});
 
   auto at_output = at::native_batch_norm_backward(
       at_grad_out,
@@ -1782,7 +1782,7 @@ void grid_persistent_batchnorm_scheduler(
       kEps,
       true);
 
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs[0] = cg_outputs[0].permute({0, 3, 1, 2});
 
   testValidate(&fusion, cg_outputs, args, {at_output}, __LINE__, __FILE__, "");
 }
@@ -2080,7 +2080,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
   }
 
   // Permute grad_input output
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs[0] = cg_outputs[0].permute({0, 3, 1, 2});
 
   auto at_output = at::native_batch_norm_backward(
       at_grad_out,

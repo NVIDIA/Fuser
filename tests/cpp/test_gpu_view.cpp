@@ -2282,7 +2282,7 @@ TEST_F(GpuViewTest, ReshapeOfReshape) {
 
   auto ref = t0.reshape({8, 4}).reshape({32});
 
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // A reproducer for #1116.
