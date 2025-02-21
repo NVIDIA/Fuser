@@ -8,13 +8,14 @@
 
 #include <multidevice/device_mesh.h>
 
+#include <multidevice/multidevice.h>
+#include <type.h>
+
 #include <numeric>
 #include <unordered_set>
 
 // for operator<<(std::ostream&, const std::vector<T>&)
 #include <c10/util/Logging.h>
-
-#include <type.h>
 
 namespace nvfuser {
 

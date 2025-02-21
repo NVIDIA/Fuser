@@ -1089,29 +1089,6 @@ static constexpr int kMaxNumGroupedReductions = 16;
 Pointer::Pointer(void* ptr, DataType dtype)
     : ptr_(reinterpret_cast<std::byte*>(ptr)), size_(dataTypeSize(dtype)) {}
 
-inline PolymorphicValue castToDtype(
-    PolymorphicValue value,
-    const DataType& dtype) {
-  if (!value.hasValue()) {
-    return value;
-  }
-  // Cast the given value to the given data type. This enables interface
-  // like: IrBuilder::create<Val>(0, DataType::Double) where value is
-  // an integer but the desired data type is double.
-  if (!hasCompatibleDataType(value, dtype)) {
-    PolymorphicValue::for_all_types([&](auto _) {
-      using T = typename decltype(_)::type;
-      if constexpr (IsPrimitiveNativeType<T>::value) {
-        if (isCompatibleDataType(NativeTypeToDataType<T>::type, dtype)) {
-          value = PolymorphicValue(static_cast<T>(value));
-        }
-      }
-      // TODO: support arrays and pointers
-    });
-  }
-  return value;
-}
-
 // Converts an enum to its underlying type.
 // It corresponds with std::to_underlying introduced in c++23
 // https://en.cppreference.com/w/cpp/utility/to_underlying

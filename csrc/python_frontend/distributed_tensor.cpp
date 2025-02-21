@@ -7,17 +7,35 @@
 // clang-format on
 
 #include <exceptions.h>
+#include <multidevice/device_mesh.h>
 #include <python_frontend/distributed_tensor.h>
 #include <type.h>
 #include <utils.h>
 
 namespace nvfuser::python_frontend {
 
+DistributedTensor::DistributedTensor(const DistributedTensor& other)
+    : local_(other.local_), mesh_(std::make_unique<DeviceMesh>(*other.mesh_)) {
+  axis_sharded_on_ = other.axis_sharded_on_;
+}
+
+DistributedTensor& DistributedTensor::operator=(
+    const DistributedTensor& other) {
+  if (this != &other) {
+    local_ = other.local_;
+    mesh_ = std::make_unique<DeviceMesh>(*other.mesh_);
+    axis_sharded_on_ = other.axis_sharded_on_;
+  }
+  return *this;
+}
+
+DistributedTensor::~DistributedTensor() = default;
+
 void DistributedTensor::setAxisIsShardedOn(
     const int64_t axis,
     const ParallelType parallel_type) {
   NVF_CHECK(isParallelTypeDeviceDim(parallel_type));
-  NVF_CHECK(mesh_.size() > 0, "Cannot shard a non-distributed tensor.");
+  NVF_CHECK(mesh_->size() > 0, "Cannot shard a non-distributed tensor.");
   const auto i = axis_sharded_on_.find(parallel_type);
   NVF_CHECK(
       i == axis_sharded_on_.end(),
@@ -32,5 +50,17 @@ int64_t DistributedTensor::axisShardedOn(
     const ParallelType parallel_type) const {
   return getOrDefault(axis_sharded_on_, parallel_type, -1L);
 }
+
+const DeviceMesh& DistributedTensor::mesh() const {
+  return *mesh_.get();
+}
+
+DistributedTensor::DistributedTensor(
+    at::Tensor local_tensor,
+    const DeviceMesh* mesh)
+    : local_(std::move(local_tensor)),
+      mesh_(
+          mesh ? std::make_unique<DeviceMesh>(*mesh)
+               : std::make_unique<DeviceMesh>()) {}
 
 } // namespace nvfuser::python_frontend

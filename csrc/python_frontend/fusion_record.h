@@ -1965,7 +1965,9 @@ struct ScalarRecord : RecordFunctor {
             serde::RecordType::Scalar,
             inline_def),
         value_(
-            dtype.has_value() ? castToDtype(std::move(value), dtype.value())
+            dtype.has_value() ? PolymorphicValue_functions::castToDtype(
+                                    std::move(value),
+                                    dtype.value())
                               : std::move(value)),
         dtype_(
             dtype.has_value()

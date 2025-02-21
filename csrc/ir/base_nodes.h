@@ -252,7 +252,7 @@ class NVF_API Val : public Statement {
       : Val(passkey,
             ValType::Others,
             dtype,
-            castToDtype(std::move(value), dtype)) {}
+            PolymorphicValue_functions::castToDtype(std::move(value), dtype)) {}
 
   // NOTE: we don't clone the definition_ and uses_ here
   //  since they may introduce cloning cycles. Instead, we copy

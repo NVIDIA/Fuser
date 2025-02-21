@@ -476,7 +476,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       tensor_index++;
       const DeviceMesh& mesh = out_tv->getDeviceMesh();
       DistributedTensor& out_dtensor =
-          out_dtensors.emplace_back(out_tensor, mesh);
+          out_dtensors.emplace_back(out_tensor, &mesh);
 
       if (mesh.size() > 0) {
         for (const ParallelType parallel_type : kParallelTypeDIDs) {
