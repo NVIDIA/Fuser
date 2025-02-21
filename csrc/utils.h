@@ -698,8 +698,8 @@ using views::zip;
 
 #endif
 
-auto enumerate(auto&& range) {
-  return zip(std::views::iota(0), std::forward<decltype(range)>(range));
-}
+// auto enumerate(auto&& range) {
+//   return zip(std::views::iota(0), std::forward<decltype(range)>(range));
+// }
 
 } // namespace nvfuser

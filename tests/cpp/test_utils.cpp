@@ -1927,15 +1927,15 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
   EXPECT_EQ(counter, 10);
 }
 
-TEST_F(NVFuserTest, Enumerate) {
-  std::vector<int> v{1, 2, 3, 4, 5};
-  int64_t count = 0;
-  for (auto&& [i, x] : enumerate(v)) {
-    EXPECT_EQ(i, count);
-    EXPECT_EQ(x, count + 1);
-    count++;
-  }
-  EXPECT_EQ(count, 5);
-}
+// TEST_F(NVFuserTest, Enumerate) {
+//   std::vector<int> v{1, 2, 3, 4, 5};
+//   int64_t count = 0;
+//   for (auto&& [i, x] : enumerate(v)) {
+//     EXPECT_EQ(i, count);
+//     EXPECT_EQ(x, count + 1);
+//     count++;
+//   }
+//   EXPECT_EQ(count, 5);
+// }
 
 } // namespace nvfuser
