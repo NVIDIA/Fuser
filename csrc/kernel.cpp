@@ -73,8 +73,9 @@ class KernelIrScanner : private IrVisitor {
       summary_.has_elect_sync_predicate = true;
     } else if (
         uop->getUnaryOpType() == UnaryOpType::Cast &&
-        uop->in()->dtype() == DataType::Index) {
-      summary_.has_index_casts = true;
+        uop->in()->dtype() == DataType::Index &&
+        uop->out()->dtype() != DataType::Int) {
+      summary_.has_narrowing_index_casts = true;
     }
   }
 

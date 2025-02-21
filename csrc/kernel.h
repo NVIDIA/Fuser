@@ -131,7 +131,7 @@ struct KernelSummary {
 
   //! Do we have any possibly narrowing casts from DataType::Index variables?
   //! These need to be validated to prevent overflow.
-  bool has_index_casts = false;
+  bool has_narrowing_index_casts = false;
 };
 
 class KernelPerformanceProfile {
