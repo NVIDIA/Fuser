@@ -167,7 +167,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.genBody();
     codegen.endBlock();
     NVF_CHECK(codegen.block_nest_level_ == 0);
-    return codegen.code_.str();
+    std::stringstream final_code;
+    for (const auto& [ns, code] : codegen.utilities_) {
+      if (!ns.empty()) {
+        final_code << "namespace " << ns << " {\n"
+                   << code.str() << "} // namespace " << ns << "\n";
+      } else {
+        final_code << code.str() << "\n";
+      }
+    }
+    final_code << codegen.code_.str();
+    return final_code.str();
   }
 
  private:
@@ -358,12 +368,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Generates setup code which is executed before the kernel body
   void genPrologue() {
     const auto& kernel_summary = kernel_->summary();
-
-    if (kernel_summary.has_philox_op) {
-      indent() << "Array<uint32_t, 4> rng_result;\n";
-      indent() << "nvfuser_index_t rng_subseq = -1;\n";
-      indent() << "nvfuser_index_t rng_offset = -1;\n";
-    }
 
     // Do we have any dynamic shared memory buffers?
     const bool has_dynamic_smem =
@@ -684,7 +688,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
 
     if (ti->view()->getMemoryType() == MemoryType::Tensor) {
-      code_ << genInline(ti->index());
+      // Generate code like:
+      // (uint32_t)(T2 + Array<uint16_t, 2, 1>{0, 0})
+      code_ << "(uint32_t)(" << genVariableName(ti->view()) << " + "
+            << genInline(ti->index()) << ")";
       return;
     }
 
@@ -861,26 +868,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const RNGOp* rop) final {
-    // TODO: NVF_ERROR that the scheduler correctly creates an
-    // innermost ID of size 4 (float) or size 2 (double)?
-    auto index = genInline(rop->getPhiloxIndex());
-    int multiple = rop->getPhiloxMultiple();
-    indent() << "nvfuser_index_t linear_index" << rop->name() << " = " << index
-             << ";\n";
-    indent() << "nvfuser_index_t rng_subseq" << rop->name() << " = linear_index"
-             << rop->name() << " / " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_component" << rop->name()
-             << " = linear_index" << rop->name() << " % " << multiple << ";\n";
-    indent() << "nvfuser_index_t rng_offset" << rop->name() << " = "
-             << genInline(rop->getRNGOffsetVal()) << ";\n";
-    indent() << "if (rng_subseq != rng_subseq" << rop->name()
-             << " || rng_offset != rng_offset" << rop->name() << ") {\n";
-    indent() << "  rng_result = philox(" << genInline(rop->getRNGSeedVal())
-             << ", rng_subseq" << rop->name() << ", "
-             << "rng_offset" << rop->name() << ");\n";
-    indent() << "  rng_subseq = rng_subseq" << rop->name() << ";\n";
-    indent() << "  rng_offset = rng_offset" << rop->name() << ";\n";
-    indent() << "}\n";
+    NVF_THROW("RNGOp should be lowered to kir::RNGOp");
+  }
+
+  void handle(const kir::RNGOp* rop) final {
     auto op_type = rop->getRNGOpType();
     indent() << gen(rop->output(0)) << " = " << op_type;
     if (needFloatSuffix(op_type)) {
@@ -893,16 +884,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       // Generate other datatypes in double
     }
-    code_ << "(rng_result, rng_component" << rop->name();
-    switch (op_type) {
-      case RNGOpType::UniformRange:
-      case RNGOpType::NormalGeneral: {
-        auto parameters = rop->getParameters();
-        NVF_ERROR(parameters.size() == 2);
-        code_ << ", " << gen(parameters[0]) << ", " << gen(parameters[1]);
-        break;
-      }
-      default:;
+    code_ << "(" << gen(rop->input(0));
+    for (auto inp_i : c10::irange(1, rop->inputs().size())) {
+      code_ << ", " << gen(rop->input(inp_i));
     }
     code_ << ");\n";
   }
@@ -1025,7 +1009,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             code_ << "\n";
             indent() << kTab << "= " << lhs;
           } else {
-            indent() << "\n" << kTab << "* " << lhs;
+            code_ << "\n";
+            indent() << kTab << "* " << lhs;
           }
         }
       }
@@ -3197,7 +3182,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           break;
         }
         case MemoryType::Tensor: {
-          // Do nothing for now. This behavior will change soon.
+          // Generate code like:
+          // TMemTensor T2(T5[0], 0, 0);
+          indent() << "TMemTensor " << genVariableName(tv) << "("
+                   << genInline(alloc->address()) << ", "
+                   << genInline(alloc->laneOffset()) << ", "
+                   << genInline(alloc->colOffset()) << ");\n";
           break;
         }
         default:
@@ -3206,38 +3196,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  // Reference:
+  // https://docs.nvidia.com/cuda/inline-ptx-assembly
   void handle(const kir::Asm* asm_) final {
-    // Reference:
-    // https://docs.nvidia.com/cuda/inline-ptx-assembly/
-    indent() << "asm";
-    if (asm_->volatile_()) {
-      code_ << " volatile";
-    }
-    bool multiline = asm_->hasBooleanInput() ||
-        (asm_->code().size() +
-             (asm_->inputs().size() + asm_->outputs().size()) * 5 >
-         80);
-    if (!multiline) {
-      // If any of the operand is an array type, force using multiline
-      for (const auto& l :
-           std::array<std::reference_wrapper<const std::vector<Val*>>, 2>{
-               asm_->inputs(), asm_->outputs()}) {
-        for (const auto& v : l.get()) {
-          if (std::holds_alternative<ArrayType>(v->dtype().type)) {
-            multiline = true;
-            break;
-          }
-        }
-      }
-    }
-    code_ << "(";
-    if (multiline) {
-      code_ << "\n";
-      block_nest_level_++;
-      indent();
-    }
-
-    auto getTypeOrIndexType = [](Val* value) {
+    auto get_type_or_index_type = [](Val* value) {
       if (auto ti = dynamic_cast<kir::TensorIndex*>(value)) {
         if (isPointerType(ti->index()->dtype())) {
           return ti->index()->dtype();
@@ -3245,117 +3207,297 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       return value->dtype();
     };
-
-    if (asm_->hasBooleanInput()) {
-      code_ << "\"{\\n\"\n";
-      int64_t boolean_counter = 0;
-      int64_t counter = 0;
-      std::array<const std::vector<Val*>*, 2> outputs_and_inputs = {
-          &asm_->outputs(), &asm_->inputs()};
-      for (const auto* io : outputs_and_inputs) {
-        for (auto val : *io) {
-          // don't treat pointer to bool as bool
-          auto val_dtype = getTypeOrIndexType(val);
-          if (val_dtype == DataType::Bool) {
-            indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
-            indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
-                     << counter << ", 0;\\n\"\n";
-            boolean_counter++;
+    // If asm_ has a utility name, we will wrap the PTX code in a utility
+    // function with that name. Otherwise, we just generate the PTX code
+    // directly in the kernel.
+    const std::string utility_name = asm_->utility();
+    std::string namespace_name = "";
+    std::string utility_name_no_ns = utility_name;
+    if (size_t pos = utility_name.rfind("::"); pos != std::string::npos) {
+      namespace_name = utility_name.substr(0, pos);
+      utility_name_no_ns = utility_name.substr(pos + 2);
+    }
+    bool as_utility = !utility_name.empty();
+    bool utility_generated = false; // Is the same utility function already
+                                    // generated when handling another asm_?
+    if (as_utility) {
+      if (!generated_utilities_.insert(utility_name).second) {
+        utility_generated = true;
+      }
+    }
+    // The stream to write the PTX code to
+    std::stringstream& utilities = utilities_[namespace_name];
+    std::stringstream* asm_target = as_utility ? &utilities : &code_;
+    // Indentation for the PTX code
+    int utility_block_nest_level = 1;
+    std::function<std::ostream&()> indent_utility = [&]() -> std::ostream& {
+      for (auto _ : c10::irange(utility_block_nest_level)) {
+        (void)_;
+        utilities << kTab;
+      }
+      return utilities;
+    };
+    std::function<std::ostream&()> indent_code = [this]() -> std::ostream& {
+      return this->indent();
+    };
+    std::function<std::ostream&()> indent =
+        (as_utility ? indent_utility : indent_code);
+    // Increase or decrease the indentation level for the PTX code
+    auto next_level = [&]() {
+      as_utility ? utility_block_nest_level++ : block_nest_level_++;
+    };
+    auto prev_level = [&]() {
+      as_utility ? utility_block_nest_level-- : block_nest_level_--;
+    };
+    // Generate the utility function signature like below:
+    //   void myFunc(float& out1, float in1) {
+    if (as_utility) {
+      if (!utility_generated) {
+        const auto& outputs = asm_->outputs();
+        const auto& inputs = asm_->inputs();
+        if (!asm_->options().immediate_inputs.empty()) {
+          utilities << "template <";
+          bool first = true;
+          for (auto in_i : c10::irange((int64_t)inputs.size())) {
+            if (asm_->options().immediate_inputs.count(in_i)) {
+              if (!first) {
+                utilities << ", ";
+              }
+              utilities << inputs.at(in_i)->dtype() << " in" << in_i;
+              first = false;
+            }
           }
-          if (std::holds_alternative<ArrayType>(val_dtype.type)) {
-            counter += (int64_t)std::get<ArrayType>(val_dtype.type).size;
-          } else {
-            counter++;
+          utilities << ">\n";
+        }
+        utilities << "__device__ __inline__ void " << utility_name_no_ns << "(";
+        for (auto out_i : c10::irange(outputs.size())) {
+          if (out_i > 0) {
+            utilities << ", ";
+          }
+          utilities << outputs.at(out_i)->dtype() << "& out" << out_i;
+        }
+        if (!outputs.empty()) {
+          utilities << ", ";
+        }
+        for (auto in_i : c10::irange((int64_t)inputs.size())) {
+          if (asm_->options().immediate_inputs.count(in_i)) {
+            continue;
+          }
+          if (in_i > 0) {
+            utilities << ", ";
+          }
+          utilities << get_type_or_index_type(inputs.at(in_i)) << " in" << in_i;
+        }
+        utilities << ") {\n";
+      }
+      this->indent() << utility_name;
+    }
+    // Generate the actual PTX code like below:
+    //   asm("bla.bla.bla": "=f"(out1): "f"(in1));
+    // We may either generate it in utilities or in code_, depending on
+    // whether we are generating a utility function or not.
+    if (!as_utility || !utility_generated) {
+      indent() << "asm";
+      if (asm_->volatile_()) {
+        (*asm_target) << " volatile";
+      }
+      bool multiline = asm_->hasBooleanInput() ||
+          (asm_->code().size() +
+               (asm_->inputs().size() + asm_->outputs().size()) * 5 >
+           80);
+      if (!multiline) {
+        // If any of the operand is an array type, force using multiline
+        for (const auto& l :
+             std::array<std::reference_wrapper<const std::vector<Val*>>, 2>{
+                 asm_->inputs(), asm_->outputs()}) {
+          for (const auto& v : l.get()) {
+            if (std::holds_alternative<ArrayType>(v->dtype().type)) {
+              multiline = true;
+              break;
+            }
           }
         }
       }
-      indent() << "\"  " << asm_->code();
-    } else {
-      code_ << "\"" << asm_->code();
-    }
-
-    auto parameters = asm_->parameters();
-    if (!parameters.empty()) {
-      code_ << " " << parameters;
-    }
-    code_ << R"(;\n")";
-
-    if (asm_->hasBooleanInput()) {
-      code_ << "\n";
-      indent() << R"("}\n")";
-    }
-
-    auto next_section = [&]() {
+      (*asm_target) << "(";
       if (multiline) {
-        code_ << "\n";
+        (*asm_target) << "\n";
+        next_level();
         indent();
       }
-      code_ << ":";
-    };
 
-    auto print_constraints_and_registers =
-        [&](const auto& constraints_and_registers) {
-          bool first = true;
-          for (auto [constraint, register_] : constraints_and_registers) {
-            auto next_line = [&]() {
-              code_ << ",";
-              if (multiline) {
-                code_ << "\n";
-                indent() << " ";
-              } else {
-                code_ << " ";
-              }
-            };
-            if (!first) {
-              next_line();
+      if (asm_->hasBooleanInput()) {
+        (*asm_target) << "\"{\\n\"\n";
+        int64_t boolean_counter = 0;
+        int64_t counter = 0;
+        std::array<const std::vector<Val*>*, 2> outputs_and_inputs = {
+            &asm_->outputs(), &asm_->inputs()};
+        for (const auto* io : outputs_and_inputs) {
+          for (auto val : *io) {
+            // don't treat pointer to bool as bool
+            auto val_dtype = get_type_or_index_type(val);
+            if (val_dtype == DataType::Bool) {
+              indent() << "\"  .reg .pred p" << boolean_counter << "; \\n\"\n";
+              indent() << "\"  setp.ne.b32 p" << boolean_counter << ", %"
+                       << counter << ", 0;\\n\"\n";
+              boolean_counter++;
             }
-            first = false;
-            auto reg_dtype = getTypeOrIndexType(register_);
-            if (std::holds_alternative<ArrayType>(reg_dtype.type)) {
-              for (auto i :
-                   c10::irange(std::get<ArrayType>(reg_dtype.type).size)) {
-                if (i > 0) {
-                  next_line();
-                }
-                code_ << "\"" << constraint << "\"(" << gen(register_) << "["
-                      << i << "]"
-                      << ")";
-              }
+            if (std::holds_alternative<ArrayType>(val_dtype.type)) {
+              counter += (int64_t)std::get<ArrayType>(val_dtype.type).size;
             } else {
-              code_ << "\"" << constraint << "\"(";
-              if (reg_dtype == DataType::Bool) {
-                code_ << "(uint32_t)(";
-              }
-              code_ << gen(register_);
-              if (reg_dtype == DataType::Bool) {
-                code_ << ")";
-              }
-              code_ << ")";
+              counter++;
             }
           }
-        };
+        }
+        indent() << "\"  " << asm_->code();
+      } else {
+        (*asm_target) << "\"" << asm_->code();
+      }
 
-    // outputs
-    if (!asm_->outputs().empty() || !asm_->inputs().empty() || asm_->memory()) {
-      next_section();
-    }
-    print_constraints_and_registers(asm_->constraintsAndOutputs());
+      auto parameters = asm_->parameters();
+      if (!parameters.empty()) {
+        (*asm_target) << " " << parameters;
+      }
+      (*asm_target) << R"(;\n")";
 
-    if (!asm_->inputs().empty() || asm_->memory()) {
-      next_section();
-    }
-    print_constraints_and_registers(asm_->constraintsAndInputs());
+      if (asm_->hasBooleanInput()) {
+        (*asm_target) << "\n";
+        indent() << R"("}\n")";
+      }
 
-    if (asm_->memory()) {
-      next_section();
-      code_ << "\"memory\"";
+      auto next_section = [&]() {
+        if (multiline) {
+          (*asm_target) << "\n";
+          indent();
+        }
+        (*asm_target) << ":";
+      };
+
+      auto print_constraints_and_registers =
+          [&](const auto& constraints_and_registers, std::string prefix) {
+            int64_t counter = 0;
+            for (auto [constraint, register_] : constraints_and_registers) {
+              auto next_line = [&]() {
+                (*asm_target) << ",";
+                if (multiline) {
+                  (*asm_target) << "\n";
+                  indent() << " ";
+                } else {
+                  (*asm_target) << " ";
+                }
+              };
+              if (counter > 0) {
+                next_line();
+              }
+              auto reg_dtype = get_type_or_index_type(register_);
+              if (std::holds_alternative<ArrayType>(reg_dtype.type)) {
+                for (auto i :
+                     c10::irange(std::get<ArrayType>(reg_dtype.type).size)) {
+                  if (i > 0) {
+                    next_line();
+                  }
+                  (*asm_target)
+                      << "\"" << constraint
+                      << "\"("
+                      // If generating a utility function, we need to generate
+                      // the parameter name like out1, in1, etc. If generating
+                      // directly in the kernel, we need to generate the the
+                      // actual argument value like T0[i * 4 + j].
+                      << (as_utility ? prefix + std::to_string(counter)
+                                     : gen(register_))
+                      << "[" << i << "]"
+                      << ")";
+                }
+              } else {
+                (*asm_target) << "\"" << constraint << "\"(";
+                if (reg_dtype == DataType::Bool) {
+                  (*asm_target) << "(uint32_t)(";
+                }
+                (*asm_target)
+                    // If generating a utility function, we need to generate the
+                    // parameter name like out1, in1, etc. If generating the
+                    // PTX code directly in the kernel, we need to generate the
+                    // the actual argument value like T0[i * 4 + j].
+                    << (as_utility ? prefix + std::to_string(counter)
+                                   : gen(register_));
+                if (reg_dtype == DataType::Bool) {
+                  (*asm_target) << ")";
+                }
+                (*asm_target) << ")";
+              }
+              counter++;
+            }
+          };
+
+      // outputs
+      if (!asm_->outputs().empty() || !asm_->inputs().empty() ||
+          asm_->memory()) {
+        next_section();
+      }
+      print_constraints_and_registers(asm_->constraintsAndOutputs(), "out");
+
+      if (!asm_->inputs().empty() || asm_->memory()) {
+        next_section();
+      }
+      print_constraints_and_registers(asm_->constraintsAndInputs(), "in");
+
+      if (asm_->memory()) {
+        next_section();
+        (*asm_target) << "\"memory\"";
+      }
+      if (multiline) {
+        (*asm_target) << "\n";
+        prev_level();
+        indent();
+      }
+      (*asm_target) << ");\n";
     }
-    if (multiline) {
-      code_ << "\n";
-      block_nest_level_--;
-      indent();
+    // If the PTX code is wrapped as a utility function, we still need to
+    // generate the function call to the utility function in the kernel code.
+    // Something like:
+    //   myFunc(T1[0], T0[0]);
+    if (as_utility) {
+      if (!asm_->options().immediate_inputs.empty()) {
+        code_ << "<";
+        bool first = true;
+        for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
+          if (constraint == "n") {
+            if (!first) {
+              code_ << ", ";
+            }
+            code_ << gen(register_);
+            first = false;
+          }
+        }
+        code_ << ">";
+      }
+      code_ << "(";
+      bool first = true;
+      for (auto&& [_, register_] : asm_->constraintsAndOutputs()) {
+        if (!first) {
+          code_ << ", ";
+        }
+        code_ << gen(register_);
+        first = false;
+      }
+      for (auto&& [constraint, register_] : asm_->constraintsAndInputs()) {
+        if (constraint == "n") {
+          continue;
+        }
+        if (!first) {
+          code_ << ", ";
+        }
+        code_ << gen(register_);
+        first = false;
+      }
     }
-    code_ << ");\n";
+    // The closing } for the utility function definition, and the ); for the
+    // utility call.
+    if (as_utility) {
+      if (!utility_generated) {
+        utilities << "}\n";
+      }
+      code_ << ");\n";
+    }
   }
 
   void handle(const kir::BlockSync* sync) final {
@@ -3547,7 +3689,29 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
  private:
+  // Our generated string has two parts: a utilities section that contains PTX
+  // wrappers and other definitions derived from kernel IR, and a kernel section
+  // that contains the kernel code itself.
+  //
+  //   // Utility section
+  //   namespace feature1 {
+  //   void myFunc(float& out1, float in1) {
+  //     asm("bla.bla.bla": "=f"(out1): "f"(in1));
+  //   }
+  //   }
+  //   // Kernel section
+  //   __global__ void kernel_name(Tensor T0, Tensor T1, ...) {
+  //     ...
+  //     myFunc(T1[0], T0[0]);
+  //     ...
+  //   }
+
+  // string for utility section. namespace -> utility code
+  // using std::map instead of std::unordered_map for determinism
+  std::map<std::string, std::stringstream> utilities_;
+  // string kernel section
   std::stringstream code_;
+
   const kir::Kernel* kernel_;
   int block_nest_level_ = 0;
   int block_reduce_name_ = 0;
@@ -3568,6 +3732,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::unordered_map<const Val*, std::string> val_to_name_;
   //! basically kernel_->parameters(), but as a set so it's faster to lookup
   std::unordered_set<const Val*> kernel_params_;
+  //! Utility names already generated
+  std::unordered_set<std::string> generated_utilities_;
 };
 
 } // namespace

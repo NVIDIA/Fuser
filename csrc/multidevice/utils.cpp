@@ -32,16 +32,6 @@ NVF_API bool distributedEnabled() {
 
 namespace {
 
-std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
-  std::unordered_set<IterDomain*> sharded_ids;
-  std::copy_if(
-      tv->getLoopDomain().begin(),
-      tv->getLoopDomain().end(),
-      std::inserter(sharded_ids, sharded_ids.begin()),
-      [](auto id) { return id->isDeviceDim(); });
-  return sharded_ids;
-}
-
 // Returns the position where an axis is allocated in a tv, skipping trivial
 // dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
 // tv's loop domain WAR: today we assume that the loop domain match with the
@@ -228,6 +218,21 @@ int64_t getShardedLogicalAxis(
   }
 
   return logical_id_to_axis.at(id);
+}
+
+int64_t getShardedLoopAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  NVF_ERROR(
+      isParallelTypeDeviceDim(parallel_type),
+      "Expect a DID but found: ",
+      parallel_type);
+  for (int64_t i : c10::irange(tv->nDims())) {
+    if (tv->getLoopDomain()[i]->isDeviceDim()) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 at::Tensor shardTensor(
@@ -616,25 +621,53 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 }
 
 void reorderDIDToFront(TensorView* tv) {
-  // new position to old position
+  // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
 
   for (auto pos : c10::irange(tv->nDims())) {
     if (tv->axis(pos)->isDeviceDim()) {
-      order_map[current_pos] = pos;
-      current_pos++;
-    }
-  }
-
-  for (auto pos : c10::irange(tv->nDims())) {
-    if (!tv->axis(pos)->isDeviceDim()) {
-      order_map[current_pos] = pos;
+      order_map[pos] = current_pos;
       current_pos++;
     }
   }
 
   tv->reorder(order_map);
+}
+
+std::unordered_set<TensorView*> getTvsWithDifferentSharding(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs) {
+  std::unordered_set<TensorView*> ret;
+  const auto& reference_dom = ref->getLoopDomain();
+  FusionGuard fg(ref->fusion());
+  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
+  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
+  for (auto id : reference_dom) {
+    auto ca_id =
+        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+    concrete_to_reference_map[ca_id] = id;
+  }
+
+  for (TensorView* tv : tvs) {
+    if (ref->getDeviceMesh().vector() != tv->getDeviceMesh().vector()) {
+      ret.insert(tv);
+      continue;
+    }
+    for (auto id : tv->getLoopDomain()) {
+      auto ca_id =
+          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+      if (concrete_to_reference_map.count(ca_id) > 0) {
+        auto ref_id = concrete_to_reference_map.at(ca_id);
+        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
+            ref_id->getParallelType() != id->getParallelType()) {
+          ret.insert(tv);
+          break;
+        }
+      }
+    }
+  }
+  return ret;
 }
 
 } // namespace nvfuser

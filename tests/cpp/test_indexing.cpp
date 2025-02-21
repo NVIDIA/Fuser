@@ -3093,16 +3093,15 @@ TEST_F(PredicateIndexingTest, DoubleBuffering1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Same fusion ad IndexingTest.CircularBuffering1
@@ -3192,16 +3191,15 @@ TEST_F(PredicateIndexingTest, CircularBuffering1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Same fusion as IndexingTest.CircularBuffering2. Combination of
@@ -3360,16 +3358,15 @@ TEST_F(PredicateIndexingTest, UnrolledCircularBuffering) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Completely unswitched circular buffering
@@ -3436,16 +3433,15 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({99}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Mostly the same as UnswitchedCircularBuffering1 but with Vectorize
@@ -3522,16 +3518,15 @@ TEST_F(PredicateIndexingTest, UnswitchedCircularBuffering2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test circular buffering with unswitch. This fusion has a non
@@ -3625,16 +3620,15 @@ TEST_P(PredicateIndexingTest, UnswitchedCircularBuffering3) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
   at::Tensor t1 = at::randn({1000}, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -3800,13 +3794,12 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplit1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Mostly same pattern as NonDivisibleSplit1 but with unswitch. The
@@ -3892,13 +3885,12 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitch) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Testing non divisible split predicate with circular buffering
@@ -3987,13 +3979,12 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithCircularBuffering) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Non divisible split with unswitched circular buffering. The non divisible
@@ -4098,13 +4089,12 @@ TEST_F(
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({999}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Repro of unswitch predicate issue #681
@@ -4132,7 +4122,6 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4, 10}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   struct GetReference : AbstractGetReference {
     GetReference(const TensorIndexer& indexer, const IdModel& id_model)
@@ -4186,12 +4175,12 @@ TEST_P(PredicateIndexingTest, UnswitchPredicateIssueRepro681) {
   }
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
   auto ref = t0.to(at::kDouble).sum();
 
-  testValidate(&fusion, outputs, aten_inputs, {ref}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 // Testing unswitched non-divisible predicates. For a given tensor,
@@ -4340,16 +4329,15 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({5}, options);
   at::Tensor t1 = at::randn({5, 100}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
@@ -4463,16 +4451,15 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({1000}, options);
   at::Tensor t1 = at::randn({1000}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Same fusion as SimplePointwise1 but with contig indexing
@@ -4887,13 +4874,12 @@ TEST_F(ContigIndexingTest, ConcretizedBroadcastMerge) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({5, 6}, options);
   auto t1 = at::randn({5, 6, 7}, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
 
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(ContigPredicateIndexingTest, SimplePointwise1) {
@@ -5116,13 +5102,12 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({10, 20}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(IndexingTest, PerDimLogicalIndices) {
@@ -5281,12 +5266,12 @@ TEST_F(IndexingTest, Issue3374) {
   auto t1 = at::randn(shape2, options);
   auto t2 = at::randn(shape3, options);
   auto t3 = at::randn(shape3, options);
-  std::vector<c10::IValue> inputs{t0, t1, t2, t3};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
 
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
 }
 
 // Repro of issue #3299
@@ -5316,12 +5301,11 @@ TEST_F(IndexingTest, Issue3299) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
-  std::vector<c10::IValue> inputs{t0};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(IndexingTest, ResizeRotation) {
@@ -5389,13 +5373,12 @@ TEST_F(IndexingTest, ResizeRotation) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
-  std::vector<c10::IValue> inputs{t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PredicateIndexingTest, VectorizedResizeRotation) {
@@ -5488,13 +5471,12 @@ TEST_F(PredicateIndexingTest, VectorizedResizeRotation) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
-  std::vector<c10::IValue> inputs{t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Repro of issue #3505. The indexing WAR for resize triggered an
@@ -5534,13 +5516,12 @@ TEST_F(IndexingTest, Issue3505Repro1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i1, i2}, options);
   auto t1 = at::randn({i0, i1 / 2, i2 / 2}, options);
-  std::vector<c10::IValue> inputs{t0, t1};
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Another repro of issue #3505
@@ -5582,13 +5563,12 @@ TEST_F(IndexingTest, Issue3505Repro2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({i0}, options);
   auto t1 = at::randn({i1, i0 / 2}, options);
-  std::vector<c10::IValue> inputs{t0, t1};
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
@@ -5620,13 +5600,12 @@ TEST_F(IndexingTest, AlmostExactIndexingUpdate) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({4, 8}, options);
-  std::vector<c10::IValue> inputs{t0};
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Small repro of
@@ -5658,12 +5637,41 @@ TEST_F(IndexingTest, BroadcastLogicalDomainIndexing) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randn(shape2, options);
-  std::vector<c10::IValue> inputs{t0, t1};
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(IndexingTest, Rng) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  Val* i = IrBuilder::create<Val>(DataType::Int);
+  fusion.addInput(i);
+
+  auto tv0 = randn(
+      {i},
+      DataType::Float,
+      /*Val* philox_seed=*/fusion.zeroVal(),
+      /*Val* philox_offset=*/fusion.zeroVal());
+
+  fusion.addOutput(tv0);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({1});
+
+  at::manual_seed(0);
+  at::Tensor randn_sample = at::randn({1}, options);
+
+  testValidate(&fusion, outputs, {1}, {randn_sample}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

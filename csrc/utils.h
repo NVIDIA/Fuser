@@ -49,6 +49,8 @@
 
 namespace nvfuser {
 
+class KernelArgumentHolder;
+
 int getNumThreads();
 c10::ThreadPool* getThreadPool();
 
@@ -65,8 +67,8 @@ bool is_meta_scalar(const at::Tensor& tensor);
 //! selected_device will be returned. If tensor inputs are found their devices
 //! must match one another, and if selected_device is given they must match it
 //! as well, otherwise -1 is returned.
-int8_t getCommonDeviceCUDA(
-    const at::ArrayRef<c10::IValue>& inputs,
+int8_t NVF_API getCommonDeviceCUDA(
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);

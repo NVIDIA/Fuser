@@ -44,7 +44,7 @@ void swap(Fusion& a, Fusion& b) noexcept {
 std::unique_ptr<SegmentedFusion> Fusion::segment(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("Segment Fusion");
-  return SegmentCandidateFinder::segment(this, &args);
+  return SegmentCandidateFinder::segment(this, args);
 }
 
 IrCloner Fusion::copy(const Fusion* from, Fusion* to) {
@@ -399,14 +399,14 @@ std::ostream& Fusion::print(std::ostream& os, bool include_tensor_transforms)
     const {
   FUSER_PERF_SCOPE("Fusion::print");
 
-  debug() << "Inputs:" << std::endl;
+  os << "Inputs:" << std::endl;
   for (auto inp : inputs()) {
-    debug() << "  " << inp << std::endl;
+    os << "  " << inp << std::endl;
   }
 
-  debug() << "Outputs:" << std::endl;
+  os << "Outputs:" << std::endl;
   for (auto out : outputs()) {
-    debug() << "  " << out << std::endl;
+    os << "  " << out << std::endl;
   }
 
   os << "\n%kernel {\n";
@@ -708,18 +708,6 @@ std::unordered_set<Expr*> Fusion::unordered_uses(const Val* val) const {
 Expr* Fusion::definition(const Val* val) const {
   assertInContainer(val, "Cannot detect the definition of val, ");
   return val->definition();
-}
-
-// Indicate to kernel to set itself up to generate random numbers
-bool Fusion::isStochastic() const {
-  for (auto expr : exprs()) {
-    if (expr->isA<RNGOp>()) {
-      // Note that RNGOps without seed is not stochastic since the random seed
-      // and offset are given as Vals.
-      return !expr->as<RNGOp>()->isDeterministic();
-    }
-  }
-  return false;
 }
 
 std::vector<Val*> Fusion::getTerminatingOutputs() const {

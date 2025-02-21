@@ -124,8 +124,8 @@ static void NvFuserScheduler_Transpose(
   auto at_input1 = aten_inputs[0];
   auto at_input2 = aten_inputs[1];
 
-  std::vector<c10::IValue> fuser_inputs = {at_input1, at_input2};
-  runBenchmarkIterations(benchmark_state, executor_cache, fuser_inputs);
+  KernelArgumentHolder args({at_input1, at_input2});
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

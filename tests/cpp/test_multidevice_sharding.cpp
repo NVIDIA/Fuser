@@ -10,6 +10,8 @@
 
 #include <fusion.h>
 #include <ops/all_ops.h>
+#include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/optimization_pass.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -58,20 +60,14 @@ TEST_P(MultiDeviceReductionTest, UnshardedInput_ShardedOutput) {
   }
 
   auto x0 = at::randn(input_shape, tensor_options);
-  std::vector<c10::IValue> inputs = {x0};
   auto x1 = shardTensor(x0, tv1);
   auto x2 = x1 + x1;
   auto x3 = shardTensor(at::sum(x0 + x0, {sharded_input_dim}), tv3);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({x0});
 
   testValidate(
-      executor_cache.fusion(),
-      outputs,
-      inputs,
-      {x1, x2, x3},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), outputs, {x0}, {x1, x2, x3}, __LINE__, __FILE__);
 }
 
 // Test multidevice fusion with sharded input and replicated intermediates and
@@ -102,12 +98,17 @@ TEST_P(MultiDeviceReductionTest, ShardedInput_ReplicatedOutput) {
   }
 
   auto x1 = at::randn(unsharded_input_shape, tensor_options);
-  std::vector<c10::IValue> inputs = {shardTensor(x1, tv0)};
+  KernelArgumentHolder args = {shardTensor(x1, tv0)};
   auto x2 = x1 * 2;
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      outputs,
+      args.toC10Array(),
+      {x1, x2},
+      __LINE__,
+      __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -177,14 +178,14 @@ TEST_F(MultiDeviceTest, Slice) {
   const auto options = at::TensorOptions().device(communicator_->device());
   auto aten_x = at::randn(input_shape, options);
   auto expected_out = aten_x.split(4, 2);
-  std::vector<c10::IValue> inputs = {{shardTensor(aten_x, x)}};
+  KernelArgumentHolder args = {shardTensor(aten_x, x)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args.toC10Array(),
       {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
       __LINE__,
       __FILE__);
@@ -218,6 +219,48 @@ TEST_F(MultiDeviceTest, BackpropMeshes) {
   EXPECT_THAT(z_tensor.sizes(), ElementsAre(1, 4))
       << "Due to sharding propagation, z is supposed to "
       << "be sharded in the same way as x.";
+}
+
+TEST_F(MultiDeviceTest, DivideBySum) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int64_t d = communicator_->size();
+
+  // [b, h, s, s]
+  TensorView* x = makeContigTensor(4);
+  TensorView* sum_x = sum(x, {-1});
+  TensorView* sum_x_broadcasted = broadcast(sum_x, {false, false, false, true});
+  TensorView* y = div(x, sum_x_broadcasted);
+  fusion->addInput(x);
+  fusion->addOutput(y);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {x, sum_x, sum_x_broadcasted, y}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(1, d, /*inner_split=*/false);
+    tv->axis(1)->parallelize(ParallelType::DIDx);
+    tv->reorder({{1, 0}});
+  }
+  for (auto* tv : {x, y}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  const int64_t b = 2;
+  const int64_t h = d * 3;
+  const int64_t s = 5;
+  at::Tensor unsharded_x_tensor = at::randint(5, {b, h, s, s}, tensor_options);
+  at::Tensor x_tensor = shardTensor(unsharded_x_tensor, x);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor y_tensor = executor_cache.runFusionWithInputs({x_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {y_tensor},
+      {x_tensor},
+      {x_tensor / x_tensor.sum(-1, true)},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_F(MultiDeviceTest, LayerNorm) {
@@ -536,6 +579,168 @@ TEST_F(MultiDeviceTest, ShardTensor_InnerSplit) {
       [&]() { shardTensor(unsharded, tv); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("DID on inner splits")));
+}
+
+TEST_F(MultiDeviceTest, BiasAddRelu) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int b = 2;
+  const int s = 128;
+  const int h = d * 64;
+
+  TensorView* in = makeContigConcreteTensor({b, s, h});
+  TensorView* bias = makeContigConcreteTensor({h});
+  TensorView* broadcasted_bias = broadcast(bias, {true, true, false});
+  TensorView* add_out = add(in, broadcasted_bias);
+  TensorView* out = relu(add_out);
+
+  fusion->addInput(in);
+  fusion->addInput(bias);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, bias, broadcasted_bias, add_out, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(-1, d, /*inner_split=*/false);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+    tv->reorder({{-2, 0}});
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({b, s, h / d}, tensor_options);
+  at::Tensor bias_tensor = at::randn({h / d}, tensor_options);
+  KernelArgumentHolder args = {in_tensor, bias_tensor};
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs(args)[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      args.toC10Array(),
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, ViewWithSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+
+  TensorView* in = makeContigConcreteTensor({d * 2, 15});
+  TensorView* out = reshape(in, {d * 2, 15}, {d * 2, 3, 5});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  in->setAllocationDomain(in->getLoopDomain(), true);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  // So the View won't be treated as a meta op and will trigger Pointwise, the
+  // purpose of the test.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 15}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({-1, 3, 5})},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
+}
+
+TEST_F(MultiDeviceTest, ViewWithMerge) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+
+  TensorView* in = makeContigConcreteTensor({d * 2, 3, 5});
+  TensorView* out = reshape(in, {d * 2, 3, 5}, {d * 2, 15});
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+  }
+  in->setAllocationDomain(in->getLoopDomain(), true);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  // So the View won't be treated as a meta op and will trigger Pointwise, the
+  // purpose of the test.
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      optimization_guard(false);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({2, 3, 5}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({-1, 15})},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::PointWise)));
+}
+
+TEST_F(MultiDeviceTest, ReorderDIDToFront) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  const int64_t b = 2, s = 4, h = 16;
+  TensorView* in = makeConcreteTensor({b, s, d * h});
+  TensorView* out = set(in);
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(-1, d, /*inner_split=*/false);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+    reorderDIDToFront(tv);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    NVF_CHECK(tv->axis(0)->isDeviceDim());
+  }
+
+  at::Tensor in_tensor = at::randn({b, s, h}, tensor_options);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 } // namespace nvfuser

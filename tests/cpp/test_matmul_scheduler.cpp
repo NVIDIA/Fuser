@@ -1676,8 +1676,8 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   // t8 := (alpha * ((A x B) + bias)) + (beta * C)
   auto t8 = at::add(t6, t7);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
+  KernelArgumentHolder args = {t0, t1, t2, t3, alpha, beta};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -2092,21 +2092,21 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
               at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
           auto bias = maybeUnalign(at::randn({M, N}, options), align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();
@@ -2287,7 +2287,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
@@ -2295,14 +2295,14 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
           auto bias =
               padAndUnalign2D(at::randn({M, N}, options), pad_bias, align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();
@@ -2660,7 +2660,7 @@ TEST_F(MatmulSchedulerTest, SegmentMatmulOpUnsupportedDtype) {
 TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   // TODO: fix up params or switch to FusionExecutorCache when ready, then
   // enable Ampere
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2701,7 +2701,6 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
       atBiasEpilogue(
           at::matmul(a.to(at::kFloat), b.to(at::kFloat).t()), c.to(at::kFloat))
           .neg_();
-  std::vector<c10::IValue> inputs{t0, t1, c};
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -2721,8 +2720,8 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
       ->schedule(fusion.get(), &mparams);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), inputs, LaunchParams(), matmul_cparams);
-  auto outputs = ke.run(inputs);
+  ke.compile(fusion.get(), {t0, t1, c}, LaunchParams(), matmul_cparams);
+  auto outputs = ke.run({t0, t1, c});
 
   NVF_CHECK(outputs[0].allclose(tref, 0.001, 0.001));
 }
@@ -2753,18 +2752,17 @@ TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
   const int M = 1 << 16, N = 1 << 15, K = 1 << 8;
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
-  at::Tensor a = at::randn({M, K}, options);
-  at::Tensor b = at::randn({K, N}, options);
-  std::vector<c10::IValue> inputs{a, b};
+  at::Tensor t0 = at::randn({M, K}, options);
+  at::Tensor t1 = at::randn({K, N}, options);
 
-  at::Tensor tref = -at::matmul(a, b);
+  at::Tensor tref = -at::matmul(t0, t1);
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {tref}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
 
   if (!cudaArchGuardShouldSkip(9, 0)) {
     // The Hopper matmul scheduler should reject this fusion since it requires
@@ -2829,9 +2827,8 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({K, N}, options);
   auto t2 = at::randn({K, N}, options);
-  std::vector<c10::IValue> inputs{t0, t1, t2};
 
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
 
   at::Tensor t3, t4;
   if (fusion_enabled) {
@@ -3232,13 +3229,12 @@ TEST_F(MatmulSchedulerTest, OperandOrderIssue2434) {
   fusion->addOutput(mm);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
-  auto x_ref = at::randn({M, K}, options);
-  auto y_ref = at::randn({N, K}, options);
-  std::vector<c10::IValue> inputs{x_ref, y_ref};
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-  auto tref = at::linear(x_ref.to(at::kFloat), y_ref.to(at::kFloat));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto tref = at::linear(t0.to(at::kFloat), t1.to(at::kFloat));
   NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
 }
 
@@ -3329,13 +3325,13 @@ class HopperMatmulSchedulerTest
     // TODO cta tile is a multiple of mma macro for hopper.
     // Default cta_tile configuration is 2-CTA.
     gemm_tile.cta_tile =
-        GemmTile(2 * getM(mma_macro), getN(mma_macro), getK(mma_macro));
+        GemmTile(2 * getM(mma_macro), getN(mma_macro), 2 * getK(mma_macro));
 
     // TODO warp tile is (macroM, macroN, macroK) for hopper.
     gemm_tile.warp_tile =
-        GemmTile(getM(mma_macro), getN(mma_macro), getK(mma_macro));
+        GemmTile(getM(mma_macro), getN(mma_macro), 2 * getK(mma_macro));
 
-    mparams.supported_vec_size = {8, 8, 4};
+    mparams.supported_vec_size = {8, 8, 8};
 
     mparams.mma_macro = mma_macro;
 
@@ -3523,7 +3519,7 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(), // b_k_inner
         testing::Values(512), // M
         testing::Values(256), // N
-        testing::Values(64), // K
+        testing::Values(128), // K
         testing::Values(MmaMacro::Hopper_64_128_16), // mma_macros
         testing::Values(1, 2) // SplitK Factor
         ),

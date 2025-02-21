@@ -1607,9 +1607,30 @@ Val* Index::getLinearLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
-  return sumVals(
-      getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+      ir_utils::isCpAsyncBulkLoad(consumer_tv->definition()) ||
+      GpuLower::current()->idModelOptions().consumerIndex()) {
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    auto per_dim_indices = indexer.getIndexFor(
+        consumer_tv->definition(),
+        /*as_consumer=*/true,
+        consumer_tv->getLogicalDomain(),
+        loops);
+    Val* stride = consumer_tv->fusion()->oneVal();
+    for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
+      auto per_dim_index = per_dim_indices.at(i);
+      auto logical_id = consumer_tv->getLogicalDomain().at(i);
+      auto per_dim_strided_index =
+          SimplifyingIrBuilder::mulExpr(per_dim_index, stride);
+      per_dim_indices.at(i) = per_dim_strided_index;
+      stride = SimplifyingIrBuilder::mulExpr(stride, logical_id->extent());
+    }
+    return sumVals(per_dim_indices);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
+    return sumVals(
+        getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
+  }
 }
 
 std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
@@ -2123,13 +2144,15 @@ kir::TensorIndex* Index::getProducerIndex(
   Val* index = nullptr;
   bool is_producer_tma_op = producer->definition() != nullptr &&
       producer->definition()->isA<LoadStoreOp>() &&
-      producer->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile;
+      ir_utils::isCpAsyncBulkLoad(producer->definition());
+  bool is_consumer_tma_op = consumer->definition() != nullptr &&
+      consumer->definition()->isA<LoadStoreOp>() &&
+      ir_utils::isCpAsyncBulkLoad(consumer->definition());
 
   if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
-      is_producer_tma_op ||
+      is_producer_tma_op || is_consumer_tma_op ||
       GpuLower::current()->idModelOptions().producerIndex()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);
@@ -2657,7 +2680,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-    NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
