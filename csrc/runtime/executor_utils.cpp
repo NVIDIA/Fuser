@@ -41,8 +41,8 @@ bool checkSameStride(const std::vector<at::Tensor>& tensors) {
     return true;
   }
   for (const auto idx : c10::irange(tensors.size() - 1)) {
-    auto current_tensor = tensors[idx];
-    auto next_tensor = tensors[idx + 1];
+    const auto& current_tensor = tensors[idx];
+    const auto& next_tensor = tensors[idx + 1];
 
     if (current_tensor.ndimension() != next_tensor.ndimension()) {
       return false;
