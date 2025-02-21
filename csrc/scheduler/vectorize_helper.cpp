@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
@@ -937,9 +938,15 @@ int64_t getVectorizationFactorTransposeGroup(
     virtual_innermost_dim.insert(
         virtual_innermost_dim.begin(), reference->axis(dim));
   }
- // Make sure it is not yet parallelized
-  NVF_ERROR(reference->axis(inner_most_dim)->getParallelType() == ParallelType::Serial);
   virtual_innermost_dim.push_back(reference->axis(inner_most_dim));
+
+  if (reference->axis(inner_most_dim)->isParallelized()) {
+    std::ostringstream oss;
+    IrTransformPrinter printer(oss);
+    printer.printTransforms(reference);
+    NVF_THROW(
+        "Loop axis ", inner_most_dim, " is expected to be Serial: ", oss.str());
+  }
 
   // NOTE: do I need to consider stride here?! sounds like
   // ContiguousInnerDimensionsMapper::map requires reference to be
