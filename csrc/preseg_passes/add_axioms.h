@@ -17,7 +17,7 @@ class AddAxiomsPass : public OptimizationPass<AddAxiomsPass> {
 
  protected:
   static void runPass(Fusion* fusion);
-  static std::string name() {
+  static constexpr std::string_view name() {
     return "AddAxiomsPass";
   }
 };

@@ -12,6 +12,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
+#include <multidevice/utils.h>
 #include <runtime/executor_kernel_arg.h>
 #include <tensor_metadata.h>
 
@@ -190,12 +191,12 @@ void PrecomputedValues::bindValues(
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
     if (auto* tv = dynamic_cast<TensorView*>(input)) {
-      const auto& tensor = args[i]->as<at::Tensor>();
+      const auto& tensor = args[i].as<at::Tensor>();
       if (!tensor.is_cpu()) {
         bindTensorMetaData(tv, tensor);
       }
     } else {
-      bindValue(input->evaluatorIndex(), *args[i]);
+      bindValue(input->evaluatorIndex(), args[i]);
     }
   }
 }
@@ -348,9 +349,11 @@ void PrecomputedValues::bindTensorMetaData(
       tensor.dim() == static_cast<int64_t>(logical_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
-  for (const auto dim : c10::irange(logical_domain.size())) {
+  std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
+  for (const auto dim :
+       c10::irange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
-    const auto dim_size = tensor.size(static_cast<int64_t>(dim));
+    const auto dim_size = logical_sizes.at(dim);
     if (id->isBroadcast()) {
       // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
       // and .ExpandedBroadcast.
@@ -359,13 +362,7 @@ void PrecomputedValues::bindTensorMetaData(
         bindValue(id->expandedExtent()->evaluatorIndex(), dim_size);
       }
     } else {
-      if (id->isDeviceDim()) {
-        bindValue(
-            id->extent()->evaluatorIndex(),
-            tv->getDeviceMesh().size(id->getParallelType()));
-      } else {
-        bindValue(id->extent()->evaluatorIndex(), dim_size);
-      }
+      bindValue(id->extent()->evaluatorIndex(), dim_size);
     }
   }
 

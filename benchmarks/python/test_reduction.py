@@ -4,7 +4,7 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache
+from .core import run_benchmark, clear_dynamo_cache, with_executor, DEFAULT_EXECUTORS
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 
@@ -53,7 +53,7 @@ def test_reduction_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, inputs)
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 @pytest.mark.parametrize("reduction_axis", [0, 1])
@@ -62,14 +62,17 @@ def test_reduction_baseline_benchmark(
     size: tuple,
     dtype: torch.dtype,
     reduction_axis: int,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     input = torch.randn(size, device="cuda", dtype=dtype)
+
+    benchmark_fn = with_executor(executor, reduction_fwd_fn)
+
     # Inputs and outputs are same as nvFuser, no need for manual IOByte computation
     run_benchmark(
         benchmark,
-        torch.compile(reduction_fwd_fn) if compile else reduction_fwd_fn,
+        benchmark_fn,
         [input, reduction_axis],
     )

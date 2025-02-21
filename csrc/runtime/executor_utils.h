@@ -29,21 +29,10 @@
 namespace nvfuser {
 namespace executor_utils {
 
-// Include all the functions we might need in generated code
-std::string kernelPreamble();
-
-//! Bind input values to runtime values
-NVF_API ExpressionEvaluator
-bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
-
-NVF_API std::string disassembleBinary(
-    const std::vector<char>& cubin,
-    const std::string& nvdisasm_args);
-
-// I'm not happy with CompiledKernel being a struct exposing all the fields.
+// I'm not happy with CudaExecutable being a struct exposing all the fields.
 // This could be refactored.
-struct CompiledKernel : public NonCopyable {
-  NVF_API ~CompiledKernel();
+struct CudaExecutable : public NonCopyable {
+  NVF_API ~CudaExecutable();
 
   CUmodule module = nullptr;
   CUfunction function = nullptr;
@@ -58,26 +47,17 @@ struct CompiledKernel : public NonCopyable {
   int register_spills = -1;
 };
 
-// Returns executable function and the ptxas log from compilation
-std::unique_ptr<CompiledKernel> getCompiledKernel(
-    std::optional<std::reference_wrapper<const std::string>> kernel_code,
-    const std::string& code,
-    const std::string& func_name,
-    const std::string& id,
-    const CompileParams& compile_params = CompileParams(),
-    std::optional<int64_t> opt_block_size = std::nullopt);
+//! Bind input values to runtime values
+NVF_API ExpressionEvaluator
+bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
-// Returns executable function using flatbuffer object
-std::unique_ptr<CompiledKernel> getCompiledKernel(
-    const serde::CudaKernel* buffer,
-    const CompileParams& compile_params);
-
+// Compile time cache for execution
 namespace caching {
 // TODO: Could consider putting some of
 //  the logic in the common space and re-use
 
 //! List of all the possible entry types in
-//!  `FusionExecutor` compile-time data cache.
+//!  `KernelExecutor` compile-time data cache.
 enum class CompileTimeEntryType {
   PARALLEL_BINDING_ITERDOMAINS,
   PARALLEL_ITER_EXTENT_MAP,
@@ -91,7 +71,7 @@ enum class CompileTimeEntryType {
 //! Entry class definitions for each entry type:
 //!  each class defines the data type for each entry type
 
-//! Compile-time info to be cached in each FusionExecutor:
+//! Compile-time info to be cached in each KernelExecutor:
 //!  ParallelBindingIterDomains:
 //!    Stores all the iterdomains that are parallelized
 //!    on the scheduled Fusion graph. They will be used
@@ -104,7 +84,7 @@ class ParallelBindingIterDomains {
       CompileTimeEntryType::PARALLEL_BINDING_ITERDOMAINS;
 };
 
-//! Compile-time info to be cached in each FusionExecutor:
+//! Compile-time info to be cached in each KernelExecutor:
 //!  ParallelIterExtentMap
 //!    Stores the symbolic extents of all the parallelized
 //!    iterdomains corresponding to each used parallel type.
@@ -132,7 +112,7 @@ struct VectorizedTensorInfo {
   std::vector<int64_t> out_misaligned_tensors_pos;
 };
 
-//! Compile-time info to be cached in each FusionExecutor:
+//! Compile-time info to be cached in each KernelExecutor:
 //!  VectorizedTensorValidation
 //!    Stores position info and vector word sizes of
 //!    vectorized input/output tensors, to be used
@@ -252,60 +232,6 @@ void validateVectorizedTensors(
 void validateCircularBuffering(
     kir::Kernel* kernel,
     ExpressionEvaluator& expr_eval);
-
-//! Kernel timing utility
-//!
-//! Usage example:
-//!
-//!   CudaKernelTimer timer(stream);
-//!   timer.init();
-//!   kernel<<<..., stream>>>(...);
-//!   auto elapsed_ms = timer.elapsed();
-//!
-class CudaKernelTimer {
- public:
-  CudaKernelTimer(cudaStream_t s) : stream_(s) {}
-
-  ~CudaKernelTimer() {
-    if (initialized_) {
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(start_event));
-      NVFUSER_CUDA_RT_SAFE_CALL(cudaEventDestroy(finish_event));
-    }
-  }
-
-  void init() {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&start_event));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventCreate(&finish_event));
-    initialized_ = true;
-  }
-
-  void start() {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(start_event, stream_));
-  }
-
-  float elapsed() {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventRecord(finish_event, stream_));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(start_event));
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaEventSynchronize(finish_event));
-    NVFUSER_CUDA_RT_SAFE_CALL(
-        cudaEventElapsedTime(&kernel_time_ms_, start_event, finish_event));
-    return kernel_time_ms_;
-  }
-
- private:
-  cudaStream_t stream_;
-  cudaEvent_t start_event = {};
-  cudaEvent_t finish_event = {};
-  bool initialized_ = false;
-  float kernel_time_ms_ = 0;
-};
-
-//! Query the target GPU version number NVRTC compiles CUDA kernels for
-void queryTargetGPUVersion(
-    const cudaDeviceProp* const prop,
-    int64_t& major,
-    int64_t& minor,
-    bool& compile_to_sass);
 
 } // namespace executor_utils
 } // namespace nvfuser

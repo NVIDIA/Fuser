@@ -47,7 +47,7 @@ TEST_F(NVFuserTest, FunctionTrace1) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:32"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:32"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
@@ -65,7 +65,7 @@ TEST_F(NVFuserTest, FunctionTrace2) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning -3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_gpu_utils.cpp:34"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:34"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif
@@ -469,8 +469,7 @@ TEST_F(VectorizeHelperTest, BackwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2 * 3, 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
@@ -792,8 +791,7 @@ TEST_F(VectorizeHelperTest, ForwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2, 3 * 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
@@ -1115,16 +1113,17 @@ TEST_F(NVFuserTest, FusionSASSDumpError) {
 
   at::Tensor t0 = at::randn({8}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
 
   EXPECT_THAT(
-      [&]() { fe.disassembledKernelSASS(); },
+      [&]() { ke.compiledKernel()->disassembledKernelSASS(); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("I am fake")));
 
-  auto cg_outputs = fe.runFusion({t0});
-  testValidate(fe.kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
+  auto cg_outputs = ke.run({t0});
+  testValidate(
+      ke.compiledKernel()->kernel(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, ProveLinearAndGetStride) {

@@ -49,6 +49,8 @@
 
 namespace nvfuser {
 
+class KernelArgumentHolder;
+
 int getNumThreads();
 c10::ThreadPool* getThreadPool();
 
@@ -65,8 +67,8 @@ bool is_meta_scalar(const at::Tensor& tensor);
 //! selected_device will be returned. If tensor inputs are found their devices
 //! must match one another, and if selected_device is given they must match it
 //! as well, otherwise -1 is returned.
-int8_t getCommonDeviceCUDA(
-    const at::ArrayRef<c10::IValue>& inputs,
+int8_t NVF_API getCommonDeviceCUDA(
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
@@ -112,23 +114,23 @@ class PolymorphicBase {
   // (checked in DEBUG builds)
   template <class T>
   T* as() {
-#ifdef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
   template <class T>
   const T* as() const {
-#ifdef NDEBUG
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     auto downcast_ptr = static_cast<const T*>(this);
 #else
     auto downcast_ptr = dynamic_cast<const T*>(this);
     NVF_ERROR(downcast_ptr != nullptr);
-#endif
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return downcast_ptr;
   }
 
@@ -543,9 +545,12 @@ NVF_API char* getNvFuserEnv(const char* env_name);
 
 // Returns the mapped value or the default.
 template <typename K, typename V>
-V getOrDefault(const std::unordered_map<K, V>& map, const K& key) {
+const V& getOrDefault(
+    const std::unordered_map<K, V>& map,
+    const K& key,
+    const V& default_value = V()) {
   const auto i = map.find(key);
-  return i == map.end() ? V() : i->second;
+  return i == map.end() ? default_value : i->second;
 }
 
 size_t deviceAvailableSharedMemoryBytes();
@@ -597,5 +602,20 @@ constexpr bool isPowOf2(int64_t x) {
 template <typename T>
 using MaybeUniqueOwningPtr = dynamic_type::
     DynamicType<dynamic_type::NoContainers, T*, std::unique_ptr<T>>;
+
+template <typename T>
+void checkAllEqual(std::initializer_list<T> elements) {
+  for (const auto& element : elements) {
+    NVF_CHECK(
+        element == *elements.begin(),
+        "Expected all elements to be equal, but found ",
+        element,
+        " and ",
+        *elements.begin(),
+        " in [",
+        toDelimitedString(elements),
+        "]");
+  }
+}
 
 } // namespace nvfuser

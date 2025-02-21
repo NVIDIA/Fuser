@@ -16,7 +16,7 @@ env:
 
 jobs:
   clang-build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -37,7 +37,7 @@ jobs:
           python setup.py build
 
   dynamic-type-meson:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
         with:

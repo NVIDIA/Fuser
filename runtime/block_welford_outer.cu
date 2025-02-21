@@ -56,11 +56,21 @@ namespace impl {
 // registers than just returing the output. Results would vary
 // depending on compiler versions, but it seems safer to return outputs
 // as a new value.
-template <bool Aligned, int NumVals, typename DataType, int BDIMX, int BDIMY>
+template <
+    bool Aligned,
+    int NumVals,
+    typename DataType,
+    int BDIMX,
+    int BDIMY,
+    typename BlockDimT>
 __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     DataType* inp_avg,
     DataType* inp_var,
     nvfuser_index_t inp_N,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     DataType* smem) {
   constexpr int num_warps = BDIMX * BDIMY / 32;
   static_assert(num_warps >= 1, "There must be at least a single warp");
@@ -188,7 +198,7 @@ __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     }
   }
 
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // The next step is to let each thread of a warp independently
   // accumulate the partial results on the shared memory
@@ -245,7 +255,7 @@ __inline__ __device__ WelfordTriplet<DataType> blockWelfordOuter(
     }
   }
 
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // Nothing to do for warps whose wid is larger than NunVals
   if (wid >= NumVals) {

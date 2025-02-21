@@ -144,7 +144,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const TensorView* tv,
     std::vector<Val*> symbolic_sizes,
     std::vector<bool> expand_flags,
-    ExpressionEvaluator& expr_eval) {
+    const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
 
   // Allocate should be provided for intermediates. We just need to
@@ -207,9 +207,6 @@ void setFillAllocationWithNan(bool value) {
 
 void fillTensorWithNan(at::Tensor& t) {
   switch (t.scalar_type()) {
-    case at::ScalarType::Byte:
-      t.fill_(0xFF);
-      break;
     case at::ScalarType::Char:
       t.fill_(0x7F);
       break;
@@ -221,6 +218,18 @@ void fillTensorWithNan(at::Tensor& t) {
       break;
     case at::ScalarType::Long:
       t.fill_(0x7FFFFFFFFFFFFFFFL);
+      break;
+    case at::ScalarType::Byte:
+      t.fill_(0xFF);
+      break;
+    case at::ScalarType::UInt16:
+      t.fill_(0xFFFF);
+      break;
+    case at::ScalarType::UInt32:
+      t.fill_(0xFFFFFFFF);
+      break;
+    case at::ScalarType::UInt64:
+      t.fill_(0xFFFFFFFFFFFFFFFFL);
       break;
     case at::ScalarType::Bool:
       t.fill_(true);
@@ -243,14 +252,12 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
-namespace {
-// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
-at::Tensor allocateOutput(
+at::Tensor allocateTensor(
     const GlobalBufferInfo& out_info,
     const AliasInfo& alias_info,
     const c10::Device& device,
     ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutput");
+  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateTensor");
   // Handle a fusion with duplicated outputs.
   TensorView* out_tv = out_info.tv;
   if (ee.isKnown(out_tv)) {
@@ -312,7 +319,6 @@ at::Tensor allocateOutput(
       NVF_THROW("Unrecognized AllocationType.");
   }
 }
-} // namespace
 
 std::vector<at::Tensor> allocateOutputs(
     const Fusion* fusion,
@@ -354,7 +360,7 @@ std::vector<at::Tensor> allocateOutputs(
 
   std::vector<at::Tensor> out_tensors(num_outs);
   for (const auto& [out_index, out] : sorted_outs) {
-    at::Tensor out_tensor = allocateOutput(
+    at::Tensor out_tensor = allocateTensor(
         output_info[out_index], fusion->getOutputAlias(out), device, ee);
     // Bind `out_tensor` so
     // 1. duplicated outputs map to the same tensor,
@@ -364,20 +370,6 @@ std::vector<at::Tensor> allocateOutputs(
     out_tensors[out_index] = out_tensor;
   }
   return out_tensors;
-}
-
-std::vector<at::Tensor> allocOutputSpace(
-    const at::ArrayRef<c10::IValue>& inputs,
-    Fusion* fusion,
-    const c10::Device& device) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocOutputSpace");
-  auto fusion_inputs = KernelArgumentHolder::createKernelArgumentHolder(inputs);
-  auto expr_eval = executor_utils::bindInputs(fusion_inputs, fusion);
-
-  auto output_info =
-      getBufferInfos(expr_eval, PrimDataType::Int, fusion->outputs());
-
-  return allocateOutputs(fusion, output_info, device, expr_eval);
 }
 
 namespace {
@@ -418,7 +410,7 @@ namespace {
 
 class ForwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Forward traverse split from allocation to logical. Needs to, for example,
@@ -535,7 +527,7 @@ class ForwardTraverseFromAllocToLogical {
  public:
   ForwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -555,7 +547,7 @@ class ForwardTraverseFromAllocToLogical {
 // transformations.
 class BackwardTraverseFromAllocToLogical {
   at::Tensor tensor_;
-  ExpressionEvaluator& ee_;
+  const ExpressionEvaluator& ee_;
   std::list<IterDomain*>& frontier_;
 
   // Backward traverse split from allocation to logical. Needs to, for example,
@@ -659,7 +651,7 @@ class BackwardTraverseFromAllocToLogical {
  public:
   BackwardTraverseFromAllocToLogical(
       at::Tensor tensor,
-      ExpressionEvaluator& ee,
+      const ExpressionEvaluator& ee,
       std::list<IterDomain*>& frontier)
       : tensor_(std::move(tensor)), ee_(ee), frontier_(frontier) {}
 
@@ -685,12 +677,11 @@ class BackwardTraverseFromAllocToLogical {
 // Another example, if the logical domain is [I1*I2] and the allocation domain
 // is [I1, I2], then we will allocate as [I1, I2] and do a tensor.view(I1*I2) to
 // get a tensor whose semantics is [I1*I2] but memory is [I1,I2]
-at::Tensor transformOutputFromAllocationToLogical(
+at::Tensor transformFromAllocationToLogical(
     at::Tensor tensor,
     TensorView* tv,
-    ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE(
-      "fusion_executor::allocations::transformOutputFromAllocationToLogical");
+    const ExpressionEvaluator& ee) {
+  FUSER_PERF_SCOPE("allocations::transformFromAllocationToLogical");
   // Ignore reductions because reductions does not exist in tensor's definition
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   auto alloc = TensorDomain::noReductions(tv->getMaybeAllocationDomain());
@@ -724,7 +715,7 @@ at::Tensor transformOutputFromAllocationToLogical(
 
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
-    ExpressionEvaluator& expr_eval) {
+    const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
   // Fusion outputs do not come with Allocate and
   // need to be allocated while taking expanded broadcasts into
@@ -765,9 +756,8 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       at::empty_strided(size_stride.first, size_stride.second, options);
   // TODO(jiej): we should refactor it here, there's no need to use
   // meta_tensor at all, size + stride should be used directly in the
-  // `transformOutputFromAllocationToLogical`
-  meta_tensor =
-      transformOutputFromAllocationToLogical(meta_tensor, tv, expr_eval);
+  // `transformFromAllocationToLogical`
+  meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
 }
 

@@ -4,10 +4,17 @@
 import pytest
 from nvfuser import FusionDefinition, DataType
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
-from .core import run_benchmark, clear_dynamo_cache, unary_bwd_torch
+from .core import (
+    run_benchmark,
+    clear_dynamo_cache,
+    unary_bwd_torch,
+    with_executor,
+    DEFAULT_EXECUTORS,
+)
 import torch
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
 import numpy as np
+from .torch_ops import gelu
 
 
 def gelu_bwd_fusion(
@@ -88,24 +95,28 @@ def test_gelu_bwd_nvf_benchmark(
         run_benchmark(benchmark, fd.execute, [inputs, grads, bias])
 
 
-@pytest.mark.parametrize("compile", [False, True], ids=["eager", "compile"])
+@pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
 @pytest.mark.parametrize("size", generate_input_sizes(dims=2))
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_gelu_bwd_baseline_benchmark(
     benchmark,
     size: tuple,
     dtype: torch.dtype,
-    compile: bool,
+    executor: str,
 ):
-    if compile:
+    if executor == "torchcompile":
         clear_dynamo_cache()
     inputs = torch.randn(size, device="cuda", dtype=dtype, requires_grad=True)
     bias = torch.ones(size[-1], device="cuda", dtype=dtype)
     grads = torch.randn(size, device="cuda", dtype=dtype)
-    eager_output = torch.nn.functional.gelu(inputs + bias, approximate="tanh")
+
+    fwd_fn = with_executor(executor, gelu)
+    fwd_inputs = [inputs, bias]
+    outputs = fwd_fn(fwd_inputs)
+
     run_benchmark(
         benchmark,
-        torch.compile(unary_bwd_torch) if compile else unary_bwd_torch,
-        [eager_output, grads],
+        unary_bwd_torch,
+        [outputs, grads, *fwd_inputs],
         iobytes=gelu_bwd_iobytes(size, dtype),
     )

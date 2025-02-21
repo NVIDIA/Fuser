@@ -69,15 +69,14 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
  public:
   HopperMultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
       : MultipleMatmulScheduler(fusion, params) {
-    const auto device_prop = at::cuda::getCurrentDeviceProperties();
-    const int cc = device_prop->major * 10 + device_prop->minor;
-    NVF_ERROR(
-        cc >= 90 && cc < 100, "This matmul scheduler is restricted to Hopper.");
+    validate();
   }
 
   void run() final;
 
  private:
+  void validate() const;
+
   void cacheInputsAndOutputs();
 
   // Including current tensor naming convention for reference,
@@ -118,18 +117,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void cacheOperandsToSmem(
       const std::vector<TensorView*>& operands,
-      std::vector<TensorView*>& smem_operands,
-      int64_t vec_size);
-
-  // We add two LoadStore operators to the inputs of our fusions. The first
-  // one is for a read from global memory and the second one (below) is for a
-  // cache read. As an optimizaton, we avoid adding an operator if there's an
-  // existing LoadStoreOp present. Please note that for the second LoadStore
-  // we don't propagate the allocation domain, since the scheduler sets the
-  // allocation domain in the registers.
-  void addSetsForCacheReads(
-      const std::vector<TensorView*>& tv_smems,
-      std::vector<TensorView*>& tv_rs);
+      std::vector<TensorView*>& smem_operands);
 
   //! Swizzle the M and N outer dimensions after makeTile has been called.
   //! This updates outer_dim_roles if we introduce a new dimension, which can
@@ -139,7 +127,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
-  //! This calls orig->cacheAfter() and also updates the permissive graph to
+  //! This calls orig->cacheAfter() and also updates the broadcast graph to
   //! reflect the new IterDomain mappings
   TensorView* cacheAfter(
       TensorView* orig,
@@ -160,42 +148,57 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   std::vector<std::vector<MatmulDimRole>> blockTileTensors(
       const std::vector<TensorView*>& tvs);
 
+  //! Specifies the CGA dimensions by setting "cluster_dims" as fusion-managed
+  //! data
+  void setCGADims() const {
+    if (params_->cluster_dims != MatmulParams::ClusterDims{1, 1, 1}) {
+      fusion_->manage(
+          "cluster_dims",
+          std::tuple<int64_t, int64_t, int64_t>{
+              params_->cluster_dims.x,
+              params_->cluster_dims.y,
+              params_->cluster_dims.z});
+    }
+  }
+
   //! Schedule the loads of all operands from global memory to shared memory.
   //! Starting from the basic tiled schedule, we swizzle the operand memory.
   //! Note that the cache op and LoadStoreOpType are already set during
   //! defineOperandCaches().
-  void scheduleOperandSmemStores();
+  void scheduleOperands();
 
-  void scheduleMmaOperands(
-      std::vector<TensorView*>& tvs,
-      const std::optional<MmaOperand> operand_type);
+  //! Check that there is no computation in the prologues, since we do not
+  //! support that (yet)
+  void inspectPrologues() const;
 
-  // MmaOperand contains only A and B. If tvs are outputs (i.e. not operands),
-  // then operand_type should be std::nullopt.
+  void parallelizeBlocks(const std::vector<TensorView*>& tvs) const;
+
   void scheduleMmaResults();
 
-  void schedulePrologues();
-
-  void scheduleOutputTensor(TensorView* c);
-
   void scheduleEpilogue();
-
-  //! Propagates transformations from fusion output to fusion tv inputs that are
-  //!  producers in the epilogue. Transformations' propagation aims at input tvs
-  //!  which are not assigned to core roles, that is, are not MMA inputs.
-  void scheduleFusionInputsForEpilogue();
 
   void scheduleSplitKSum();
 
   void setUpInlining();
 
-  // NOTE: this should be called after acw_smem, acr, ..., ab, and mma_result
-  // transforms have been applied and inlining
   void setUpCircularBuffering();
 
- private:
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
+  // Map TensorView's iterDomain to its ValGroup.
+  // Then, find the MatmulDimRole for the ValGroup.
+  // Return MatmulDimRole for IterDomain
+  MatmulDimRole findMatmulDimRole(IterDomain* id);
 
+  // Schedule a block-tiled TensorView like mma output.
+  // Why? WGMMA has a unique output format. TensorViews after the mma-result in
+  // registers must respect this format for correctness.
+  // This version is meant to be used on the mma_result, which has a Reduction
+  // K axis.
+  void transformLikeMmaOutputWithK(TensorView* tv);
+
+  // This is like the above method, but tv should not have any K dimension
+  void transformLikeMmaOutputWithoutK(TensorView* tv);
+
+ private:
   std::vector<ValGroup> canonical_dim_ordering_;
 
   std::vector<TensorView*> acw_smems_, bcw_smems_, acrs_, bcrs_, abs_, bbs_,

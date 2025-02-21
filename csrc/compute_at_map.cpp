@@ -610,7 +610,9 @@ void IterDomainGraph::build(Fusion* fusion) {
 
   // Grab all the logical ids.
   for (auto consumer_tv : all_consumer_tvs) {
-    auto exprs = StmtSort::getExprsTo(
+    auto exprs = StmtSort::getExprsBetween(
+        {consumer_tv->getMaybeRootDomain().begin(),
+         consumer_tv->getMaybeRootDomain().end()},
         {consumer_tv->getLogicalDomain().begin(),
          consumer_tv->getLogicalDomain().end()});
     for (auto expr : exprs) {
@@ -661,6 +663,20 @@ void IterDomainGraph::build(Fusion* fusion) {
 
       if (first_expr == nullptr) {
         continue;
+      }
+
+      // logical_id_uses are guaranteed to be a valid expr, but
+      // first_logical_id->definition() may not be part of the valid
+      // exprs
+      if (!prop_forward) {
+        if (std::any_of(
+                first_expr->inputs().begin(),
+                first_expr->inputs().end(),
+                [&](Val* id_input) {
+                  return !all_ids_.has(id_input->as<IterDomain>());
+                })) {
+          continue;
+        }
       }
 
       if (visited_exprs.find(first_expr) != visited_exprs.end()) {
@@ -864,13 +880,13 @@ void ComputeAtMap::allocateIndexVariables() {
             concrete_loop_id)) {
       // Allocate index variable for each stage of the circular buffered loop.
       circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
-          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
-              {{CircularBufferLoopStage::Prolog,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Main,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Epilog,
-                IrBuilder::create<Val>(DataType::Index)}}));
+          std::make_unique<CircularBufferIndices>();
+      for (auto i : c10::irange(
+               static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+        auto stage = static_cast<CircularBufferLoopStage>(i);
+        circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
+            ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
+      }
     } else {
       // Everything now should be serial concrete loops,
       //   we just allocate a loop index integer for each set of loops.
@@ -900,8 +916,8 @@ Val* ComputeAtMap::getIndexVariable(
     // buffer loop
     if (circular_buffer_loop_stage == CircularBufferLoopStage::NotApplicable) {
       // The circular buffered loop stages are created after the loop nest
-      //  lowering phase so this function will be querried before the double
-      //  buffer pass. At that point, no forloop has any circular buffer
+      //  lowering phase so this function will be queried before the circular
+      //  buffer pass. At that point, no for loop has any circular buffer
       //  stage defined, and we just default to using the main stage index.
       circular_buffer_loop_stage = CircularBufferLoopStage::Main;
     }
@@ -1282,6 +1298,13 @@ void ComputeAtMap::buildUniqueExactExprMaps() {
       if (id->definition() != nullptr) {
         auto id_inputs =
             ir_utils::filterByType<IterDomain>(id->definition()->inputs());
+        // If any input ID is not included in the map, this definition
+        // should not be included either.
+        if (std::any_of(id_inputs.begin(), id_inputs.end(), [&](auto id_input) {
+              return !idExistsInMap(id_input);
+            })) {
+          continue;
+        }
         if (std::any_of(id_inputs.begin(), id_inputs.end(), [&](auto id_input) {
               return disjoint_set_shared_ptr->has(id_input);
             })) {

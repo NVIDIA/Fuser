@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <ATen/cuda/CUDAContext.h>
+#include <c10/util/irange.h>
 #include <multidevice/utils.h>
 #include <scheduler/ampere_multi_matmul.h>
 #include <scheduler/hopper_multi_matmul.h>
@@ -21,7 +22,23 @@ void MultipleMatmulScheduler::findPatterns() {
 void MultipleMatmulScheduler::translatePatterns() {
   mma_results_.reserve(patterns_.size());
   for (mma_utils::MatmulPattern& pattern : patterns_) {
-    MmaOp* mma = pattern.translateToMmaOp();
+    // TODO: properly handle all mul+sum patterns for Hopper. For now, these
+    // should work fine as long as the inner dimensions are the ones being
+    // reduced.
+    if (!isAmpere(params_->mma_macro) && !isTuring(params_->mma_macro) &&
+        pattern.output->definition()->isA<ReductionOp>()) {
+      bool found_reduction = false;
+      for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+        NVF_ERROR(
+            !found_reduction ||
+                !pattern.output->axis((int64_t)dim)->isReduction(),
+            "Mul+Sum patterns can only be translated on Hopper if the reduction dim is innermost");
+      }
+    }
+
+    MmaOp* mma = pattern.translateToMmaOp(
+        /*avoid_intermediates=*/!isAmpere(params_->mma_macro) &&
+        !isTuring(params_->mma_macro));
     mma_results_.push_back(mma->out()->as<TensorView>());
   }
 
@@ -77,10 +94,10 @@ void MultipleMatmulScheduler::countDims() {
 void MultipleMatmulScheduler::updateIdModel() {
   // Build new IdModel
   IdModel new_id_model(fusion_, /*build_graphs=*/false);
-  new_id_model.buildPermissiveGraph();
+  new_id_model.buildBroadcastGraph();
 
-  // Get new permissive graph
-  ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+  // Get new broadcast graph
+  ValGraph& new_graph = new_id_model.idGraph(IdMappingMode::BROADCAST);
 
   if (!id_roles_.empty()) {
     // Update id_roles_ to have keys corresponding to ValGroups in the new
@@ -93,7 +110,7 @@ void MultipleMatmulScheduler::updateIdModel() {
     id_roles_ = new_id_roles;
   }
 
-  graph_ = &new_id_model.idGraph(IdMappingMode::PERMISSIVE);
+  graph_ = &new_id_model.idGraph(IdMappingMode::BROADCAST);
 
   // Set id_model_ after we are done using the old one
   id_model_ = std::move(new_id_model);

@@ -40,16 +40,16 @@ std::string toString(LaunchParams lparams);
 //! if not segmented.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
-    std::vector<c10::IValue>& aten_inputs);
+    FusionExecutorCache* executor_cache,
+    const KernelArgumentHolder& args);
 
 //! Run benchmark iterations with a fusion executor and
 //! inputs. The fusion is assumed to have already been compiled. The
 //! kernel time is added to benchmark_state.
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
-    FusionExecutor* fusion_executor,
-    std::vector<c10::IValue>& aten_inputs,
+    KernelExecutor* ke,
+    const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints = LaunchParams(),
     CompileParams compile_params = CompileParams());
 
@@ -209,3 +209,17 @@ class BenchmarkGraph : public benchmark::Fixture {
 
 #define NVFUSER_BENCHMARK_RUN(BENCHMARK_NAME) \
   BENCHMARK_REGISTER_F(BENCHMARK_NAME##___GRAPH, BENCHMARK_NAME)
+
+FusionKernelRuntime* getLayerBackwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    KernelArgumentHolder& args,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape);
+
+FusionKernelRuntime* getLayerForwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    KernelArgumentHolder& args,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape);

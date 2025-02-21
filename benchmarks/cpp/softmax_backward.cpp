@@ -57,7 +57,7 @@ static void setupSoftmaxBWD(
 
 static void NvFuserScheduler_Softmax_BWD(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     const int reduction_axis) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
@@ -81,9 +81,9 @@ static void NvFuserScheduler_Softmax_BWD(
       (reduction_axis ? at::randn({iter_size, reduction_size}, options)
                       : at::randn({reduction_size, iter_size}, options));
 
-  std::vector<c10::IValue> aten_inputs({grad_output, output, input});
+  KernelArgumentHolder args({grad_output, output, input});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

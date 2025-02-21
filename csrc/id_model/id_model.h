@@ -95,7 +95,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Map all iteration domains
 //   Always contain root mappings (otherwise they could have been forwarded in
 //   broadcast)
-// IdMappingMode::AlmostExact
+// IdMappingMode::ALMOSTEXACT
 //   Forward through broadcast axes, but not through to a non-broadcast axis
 //     i.e. id{b1*i0}, id{i0} are mapped
 //          id{i1*i0}, id{i0} are not mapped (this part is the difference from
@@ -115,7 +115,7 @@ class IdModel : public PolymorphicBase {
   IdModel(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs = {},
-      bool build_graphs = true,
+      bool build_graphs = false,
       bool allow_self_mapping = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
@@ -128,7 +128,7 @@ class IdModel : public PolymorphicBase {
   // transition from the current ComputeAtMap.
   IdModel(
       Fusion* fusion,
-      bool build_graphs = true,
+      bool build_graphs = false,
       bool allow_self_mapping = false,
       bool validate = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
@@ -164,6 +164,14 @@ class IdModel : public PolymorphicBase {
     return tvs_.empty();
   }
 
+  const std::vector<TensorView*>& tvs() const {
+    return tvs_;
+  }
+
+  const std::vector<Expr*>& tvExprs() const {
+    return tv_exprs_;
+  }
+
   Fusion* fusion() const {
     return fusion_;
   }
@@ -194,13 +202,17 @@ class IdModel : public PolymorphicBase {
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph. Build the Exact
   // and Permissive graphs as well if not yet done.
-  ValGraph& buildLoopGraph();
+  //
+  // (For debugging only) When force_full_loop_promotion_analysis is
+  // true, it always performs the full loop promotion analysis even
+  // when it's possible to take a quicker shortcut.
+  ValGraph& buildLoopGraph(bool force_full_loop_promotion_analysis = false);
 
   // Build a graph. Dependent graphs are also built if not yet done.
-  void buildGraph(IdMappingMode mode);
+  ValGraph& buildGraph(IdMappingMode mode);
 
   // Build a graph if not already built
-  void maybeBuildGraph(IdMappingMode mode);
+  ValGraph& maybeBuildGraph(IdMappingMode mode);
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
   // a new ValGraph and returns it.

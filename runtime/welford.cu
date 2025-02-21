@@ -114,7 +114,8 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __inline__ __device__ void blockWelford(
     T& out_avg,
     T& out_M2,
@@ -127,24 +128,28 @@ __inline__ __device__ void blockWelford(
     TN* shared_mem_N,
     bool read_pred,
     bool write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // If this thread will output a final result
   bool should_write =
       index_utils::maskedIsZero<X_REDUCE, Y_REDUCE, Z_REDUCE>(threadIdx);
 
   // Size of the reduction segments
   unsigned int reduction_size =
-      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(blockDim);
+      index_utils::maskedSize<X_REDUCE, Y_REDUCE, Z_REDUCE>(block_dim);
 
   // Index into the reduction segment
   unsigned int reduction_tid =
       index_utils::maskedOffset<X_REDUCE, Y_REDUCE, Z_REDUCE>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Index of the reduction segment
   unsigned int reduction_idx =
       index_utils::maskedOffset<!X_REDUCE, !Y_REDUCE, !Z_REDUCE>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Offset into smem for the current thread
   unsigned int smem_offset = reduction_idx * reduction_size + reduction_tid;
@@ -159,7 +164,7 @@ __inline__ __device__ void blockWelford(
     shared_mem_N[smem_offset] = 0;
   }
 
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
   // Reduce down to nearest power of 2:
   int np2 = 1 << (31 - __clz(reduction_size));
 
@@ -172,7 +177,7 @@ __inline__ __device__ void blockWelford(
         shared_mem_M2[smem_offset + np2],
         shared_mem_N[smem_offset + np2]);
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 
   // loop peel the final iteration to save one syncthread for the end
   for (int factor = np2 / 2; factor > 1; factor >>= 1) {
@@ -185,7 +190,7 @@ __inline__ __device__ void blockWelford(
           shared_mem_M2[smem_offset + factor],
           shared_mem_N[smem_offset + factor]);
     }
-    block_sync::sync<Aligned>();
+    block_sync::sync<Aligned>(block_dim);
   }
 
   if (should_write && write_pred) {
@@ -212,7 +217,7 @@ __inline__ __device__ void blockWelford(
     out_M2 = res_M2;
     out_N = res_N;
   }
-  block_sync::sync<Aligned>();
+  block_sync::sync<Aligned>(block_dim);
 }
 
 // Use the same pred for both reads and writes
@@ -222,7 +227,8 @@ template <
     bool Z_REDUCE,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __inline__ __device__ void blockWelford(
     T& out_avg,
     T& out_M2,
@@ -234,7 +240,11 @@ __inline__ __device__ void blockWelford(
     T* shared_mem_M2,
     TN* shared_mem_N,
     bool read_write_pred,
-    T init_val) {
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   blockWelford<X_REDUCE, Y_REDUCE, Z_REDUCE, Aligned, T, TN>(
       out_avg,
       out_M2,
@@ -247,7 +257,8 @@ __inline__ __device__ void blockWelford(
       shared_mem_N,
       read_write_pred,
       read_write_pred,
-      init_val);
+      init_val,
+      block_dim);
 }
 // -----------------------------------------------------------------------------------------------
 //  Grid Welford Prototype
@@ -260,7 +271,8 @@ template <
     bool Z_THREAD,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __device__ void gridWelfordLastBlock(
     T& out_avg,
     T& out_M2,
@@ -271,8 +283,11 @@ __device__ void gridWelfordLastBlock(
     const nvfuser_index_t
         grid_reduction_segment_size, // Number of reductions across
                                      // grid reduce dimensions
-    const nvfuser_index_t
-        block_reduction_segment_size, // Number of reductions across the block
+    const nvfuser_index_t block_reduction_segment_size,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
     T* shared_buf_avg,
     T* shared_buf_M2,
     TN* shared_buf_N,
@@ -286,18 +301,18 @@ __device__ void gridWelfordLastBlock(
   // Find the reduction id of the participating threads
   const auto block_reduction_segment_idx =
       index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Find an id associated within a reduction segment for all
   // "non-participating" threads, which will parallelize the reductions for the
   // "participating" threads
   const auto id_in_block_segment =
       index_utils::maskedOffset<!X_THREAD, !Y_THREAD, !Z_THREAD>(
-          threadIdx, blockDim);
+          threadIdx, block_dim);
 
   // Stride by the "non-participating" threads
   const auto input_stride_for_thread_in_segment =
-      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(blockDim);
+      index_utils::maskedSize<!X_THREAD, !Y_THREAD, !Z_THREAD>(block_dim);
 
   T inp_avg = init_val;
   T inp_M2 = init_val;
@@ -333,7 +348,8 @@ __device__ void gridWelfordLastBlock(
       shared_buf_M2,
       shared_buf_N,
       true,
-      init_val);
+      init_val,
+      block_dim);
   const bool should_write = (X_THREAD || threadIdx.x == 0) &&
       (Y_THREAD || threadIdx.y == 0) && (Z_THREAD || threadIdx.z == 0);
   if (should_write && write_pred) {
@@ -352,7 +368,8 @@ template <
     bool PERSISTENT_REDUCTION,
     bool Aligned,
     typename T,
-    typename TN>
+    typename TN,
+    typename BlockDimT>
 __device__ void gridWelford(
     T& out_avg,
     T& out_M2,
@@ -371,7 +388,11 @@ __device__ void gridWelford(
     bool write_pred,
     T init_val,
     const nvfuser_index_t entrance_ind,
-    const nvfuser_index_t n_entrances) {
+    const nvfuser_index_t n_entrances,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim) {
   // entrance index only matters for non-persistent re-entrant grid reductions.
   const nvfuser_index_t entrance_ind_ = PERSISTENT_REDUCTION ? 0 : entrance_ind;
   const nvfuser_index_t n_entrances_ = PERSISTENT_REDUCTION ? 1 : n_entrances;
@@ -389,7 +410,7 @@ __device__ void gridWelford(
   // Number of threads we can use in final reduction, Seems to assume all
   // threads in the block participate
   const auto block_reduction_segment_size =
-      index_utils::maskedSize<X_THREAD, Y_THREAD, Z_THREAD>(blockDim);
+      index_utils::maskedSize<X_THREAD, Y_THREAD, Z_THREAD>(block_dim);
 
   // Number of reductions in the grid
   const nvfuser_index_t grid_segment_size = PERSISTENT_REDUCTION
@@ -411,7 +432,7 @@ __device__ void gridWelford(
         index_utils::maskedOffset<X_BLOCK, Y_BLOCK, Z_BLOCK>(blockIdx, gridDim);
     auto thread_offset =
         index_utils::maskedOffset<X_THREAD, Y_THREAD, Z_THREAD>(
-            threadIdx, blockDim);
+            threadIdx, block_dim);
     auto work_buf_offset =
         block_offset * block_reduction_segment_size + thread_offset;
     if (read_pred) {
@@ -427,12 +448,15 @@ __device__ void gridWelford(
 
   if (PERSISTENT_REDUCTION) {
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   } else {
     // Use a different sync flag for each call
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
         sync_flags[entrance_ind_ * grid_segment_size + idx_in_grid_segment],
-        grid_reduction_segment_size);
+        grid_reduction_segment_size,
+        block_dim);
   }
 
   bool last_block =
@@ -449,6 +473,7 @@ __device__ void gridWelford(
         work_buf_N,
         grid_reduction_segment_size,
         block_reduction_segment_size,
+        block_dim,
         shared_buf_avg,
         shared_buf_M2,
         shared_buf_N,
@@ -460,7 +485,9 @@ __device__ void gridWelford(
     // Make sure we're done with global memory before we allow the kernel to
     // continue
     grid_sync::sync<X_BLOCK, Y_BLOCK, Z_BLOCK, PERSISTENT_REDUCTION, Aligned>(
-        sync_flags[idx_in_grid_segment], grid_reduction_segment_size);
+        sync_flags[idx_in_grid_segment],
+        grid_reduction_segment_size,
+        block_dim);
   }
 }
 

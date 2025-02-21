@@ -326,8 +326,7 @@ SegmentProfiler::SegmentProfiler(uint32_t id, bool cupti_disabled)
       output_bytes_(0),
       kernel_profile_state_(ProfilerState::Ready) {}
 
-void SegmentProfiler::startCompile(int device) {
-  device_ = device;
+void SegmentProfiler::startCompile() {
   compile_timer_.start();
 }
 
@@ -335,8 +334,7 @@ void SegmentProfiler::stopCompile() {
   compile_timer_.stop();
 }
 
-void SegmentProfiler::startKernel(int device) {
-  device_ = device;
+void SegmentProfiler::startKernel() {
   NVF_CHECK(
       kernel_profile_state_ == ProfilerState::Ready,
       "ProfilerState is not Ready!",

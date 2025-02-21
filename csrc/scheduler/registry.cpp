@@ -13,6 +13,7 @@
 #include <scheduler/matmul_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/resize.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/utils.h>
 
@@ -60,6 +61,12 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  if (registry_utils::SchedulerTopologyChecker::hasResizeAndIndexOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "has resize-based ops and index ops");
+    return false;
+  }
+
   return true;
 }
 
@@ -90,6 +97,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<MatmulScheduler>();
     case SchedulerType::ExprEval:
       return std::make_unique<ExprEvalScheduler>();
+    case SchedulerType::Resize:
+      return std::make_unique<ResizeScheduler>();
     default:
       NVF_THROW("unreachable");
   }
@@ -98,7 +107,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
 std::unique_ptr<HeuristicParams> SchedulerEntry::scheduleWith(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   NVF_ERROR(
@@ -120,7 +129,8 @@ bool canSchedule(
     SchedulerType scheduler_type,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
+    HeuristicDataCache* data_cache,
+    bool skip_compile_time_checks) {
   // If a data cache is given, the compile time part doesn't need to be checked,
   // since during segmentation the segmenter will call
   // SchedulerEntry::proposeHeuristics which doesn't pass a data_cache.
@@ -130,8 +140,12 @@ bool canSchedule(
 
   std::unique_ptr<SchedulerEntry> scheduler =
       SchedulerEntry::makeSchedulerInstance(scheduler_type);
-  return scheduler->canScheduleCompileTime(fusion) &&
-      scheduler->canScheduleRunTime(fusion, runtime_info, data_cache);
+
+  if (!skip_compile_time_checks && !scheduler->canScheduleCompileTime(fusion)) {
+    return false;
+  }
+
+  return scheduler->canScheduleRunTime(fusion, runtime_info, data_cache);
 }
 
 // Simply loop through the list as baseline strategy

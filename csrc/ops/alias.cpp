@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
@@ -747,17 +748,64 @@ TensorView* slice(
       ", Expected: ",
       ndims);
 
-  const auto normalize_slice_range = [&manual_normalization](
-                                         Slice range, Val* extent) -> Slice {
+  ExpressionEvaluator expr_eval;
+
+  const auto get_int = [&expr_eval](Val* x) -> std::optional<int64_t> {
+    if (x == nullptr) {
+      return std::nullopt;
+    }
+    auto inferred_val = expr_eval.evaluate(x);
+    if (inferred_val.hasValue()) {
+      return inferred_val.as<int64_t>();
+    } else {
+      return std::nullopt;
+    }
+  };
+
+  // Specialized min for extents. Do some more simplification beyond
+  // SimplifyingIrBuilder that are only valid for extents.
+  const auto min_extents = [&](Val* x, Val* y) -> Val* {
+    auto x_int = get_int(x);
+    auto y_int = get_int(y);
+    // Since extents are never negative, if one is 0, that must be the mininum.
+    if (x_int == 0) {
+      return x;
+    } else if (y_int == 0) {
+      return y;
+    }
+    // Simplify patterns like min(min(x, 32), 32) to min(x, 32) as it
+    // isn't uncommon.
+    auto bop = dynamic_cast<BinaryOp*>(x->definition());
+    if (y_int != std::nullopt && bop != nullptr &&
+        bop->getBinaryOpType() == BinaryOpType::Min) {
+      if (auto lhs_int = get_int(bop->lhs()); lhs_int != std::nullopt) {
+        return SimplifyingIrBuilder::minExpr(
+            bop->rhs(), IrBuilder::create<Val>(std::min(*lhs_int, *y_int)));
+      } else if (auto rhs_int = get_int(bop->rhs()); rhs_int != std::nullopt) {
+        return SimplifyingIrBuilder::minExpr(
+            bop->lhs(), IrBuilder::create<Val>(std::min(*rhs_int, *y_int)));
+      }
+    }
+
+    return SimplifyingIrBuilder::minExpr(x, y);
+  };
+
+  const auto normalize_slice_range =
+      [&manual_normalization, &min_extents, &get_int](
+          Slice range, Val* extent) -> Slice {
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
     auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
 
+    auto start_int = get_int(range.start);
+    auto stop_int = get_int(range.stop);
+
     // norm_start = max(0, start < 0 ? start + extent : start)
     if (range.start == nullptr) {
       range.start = zero;
-    } else if (!range.start->isZeroInt()) {
+      start_int = 0;
+    } else if (start_int != 0) {
       range.start =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
       if (!manual_normalization) {
@@ -768,6 +816,7 @@ TensorView* slice(
                 SimplifyingIrBuilder::addExpr(range.start, cast_extent),
                 range.start));
       }
+      start_int = get_int(range.start);
     }
 
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
@@ -776,15 +825,20 @@ TensorView* slice(
     } else if (!range.stop->sameAs(extent)) {
       range.stop =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
-      if (!manual_normalization) {
-        range.stop = SimplifyingIrBuilder::maxExpr(
-            range.start,
-            SimplifyingIrBuilder::minExpr(
-                cast_extent,
-                SimplifyingIrBuilder::whereExpr(
-                    SimplifyingIrBuilder::ltExpr(range.stop, zero),
-                    SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
-                    range.stop)));
+      // Commonly, range.start is zero and stop is non negative
+      if (start_int == 0 && stop_int >= 0) {
+        range.stop = min_extents(cast_extent, range.stop);
+      } else {
+        if (!manual_normalization) {
+          range.stop = SimplifyingIrBuilder::maxExpr(
+              range.start,
+              min_extents(
+                  cast_extent,
+                  SimplifyingIrBuilder::whereExpr(
+                      SimplifyingIrBuilder::ltExpr(range.stop, zero),
+                      SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
+                      range.stop)));
+        }
       }
     }
 
@@ -1122,6 +1176,96 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
     IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
   }
   return out_tensor;
+}
+
+TensorView* repeat(
+    TensorView* inp_tv,
+    const std::vector<int64_t>& repeat_times) {
+  const auto ndims =
+      TensorDomain::noReductions(inp_tv->getLogicalDomain()).size();
+
+  // Handle repetitions of non-broadcast IDs first. Each ID is
+  // individully repeated by:
+  //
+  // Step 1. Insert a broadcast ID immediately outside of the
+  // repeated ID
+  // Step 2. Expand the broadcast ID by the repetition factor
+  // Step 3. Flatten the expanded ID and the repeated ID
+  //
+  // Note that it's also possible to repeat multiple non-broadcast IDs
+  // once by inserting and expanding broadcast IDs by one BroadcastOp
+  // and one ExpandOp.
+
+  bool has_repetition_of_broadcast = false;
+  auto intermediate_tv = inp_tv;
+  for (const auto i : c10::irange(ndims)) {
+    if (repeat_times.at(i) == 1) {
+      continue;
+    }
+
+    auto inp_id = intermediate_tv->getLogicalDomain().at(i);
+
+    // Broadcast is handled after this
+    if (inp_id->isBroadcast()) {
+      has_repetition_of_broadcast = true;
+      continue;
+    }
+
+    // Step 1: Insert a broadcast ID
+    std::vector<bool> bcast_flags(ndims + 1, false);
+    bcast_flags.at(i) = true;
+    auto broadcast_tv = broadcast(intermediate_tv, bcast_flags);
+
+    // Step 2: Expand the broadcast ID for the repetition factor
+    std::vector<Val*> expanded_sizes(
+        bcast_flags.size(), IrBuilder::create<Val>(-1L));
+    expanded_sizes.at(i) = IrBuilder::create<Val>(repeat_times.at(i));
+    auto expanded_tv = expand(broadcast_tv, expanded_sizes);
+
+    // Step 3: Reshape to merge the broadcast ID and the repeated ID
+    intermediate_tv = flatten(expanded_tv, (int64_t)i, (int64_t)i + 1);
+  }
+
+  if (!has_repetition_of_broadcast) {
+    return intermediate_tv;
+  }
+
+  // Repeat broadcast IDs. The expand approach doesn't work as reshape
+  // would just squeeze repeated IDs and thus there would be no
+  // merge. Expanded IDs would remain to be expanded broadcast IDs. To
+  // concretize them, use RepeatOp
+  std::vector<IterDomain*> new_domain;
+  new_domain.reserve(ndims);
+  std::vector<std::optional<bool>> new_contiguity;
+  new_contiguity.reserve(ndims);
+
+  for (const auto i : c10::irange(ndims)) {
+    auto inp_id = intermediate_tv->getLogicalDomain().at(i);
+    IterDomain* new_id = nullptr;
+
+    if (repeat_times.at(i) > 1 && inp_id->isBroadcast()) {
+      new_id = IterDomainBuilder(inp_id)
+                   .extent(IrBuilder::create<Val>(
+                       repeat_times.at(i), DataType::Index))
+                   .iter_type(IterType::Iteration)
+                   .build();
+    } else {
+      new_id = inp_id->cloneWithoutRFactor();
+    }
+
+    new_domain.push_back(new_id);
+    new_contiguity.push_back(
+        new_id->isBroadcast() ? std::optional<bool>(std::nullopt)
+                              : std::optional<bool>(true));
+  }
+
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(new_domain, new_contiguity),
+      inp_tv->dtype());
+
+  IrBuilder::create<RepeatOp>(out_tv, intermediate_tv);
+
+  return out_tv;
 }
 
 } // namespace nvfuser

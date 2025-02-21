@@ -9,10 +9,10 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/lower.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
@@ -20,30 +20,32 @@
 namespace nvfuser::preseg_passes {
 
 void ReorderShardedAxisPass::runPass(Fusion* fusion) {
+  FusionGuard fg(fusion);
+
   const std::vector<Expr*>& exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (!isResharding(expr)) {
+    if (HostIrLower::canLower(expr)) {
       continue;
     }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
-        "Non-tv op is not supported:",
+        "Non-tv op is not supported: ",
         expr->toString());
     NVF_ERROR(
         expr->outputs().size() == 1,
-        "Resharding operations can only have one output",
+        "Resharding operations can only have one output: ",
         expr->toString());
     NVF_ERROR(
         expr->inputs().size() == 1,
-        "Resharding operations can have only one input",
+        "Resharding operations can have only one input: ",
         expr->toString());
     auto* output = expr->outputs().at(0)->as<TensorView>();
     auto* input = expr->inputs().at(0)->as<TensorView>();
-    auto [shard_additions, shard_deletions] = getShardingChanges(expr);
+    auto [shard_additions, shard_deletions] = getShardingChanges(input, output);
     NVF_ERROR(
         shard_additions.size() + shard_deletions.size() <= 1,
-        "Resharding expr can only support one axis:",
+        "Resharding expr can only support one axis: ",
         expr->toString())
 
     // For gather operations i.e. ID goes from sharded to unsharded
@@ -122,11 +124,12 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
           permute(output_permute, {{0, sharding_axis_after_permute}});
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
 
-      // Propagate shardings from input and manually apply sharding additions.
-      shardAllLike(input, {input_permute, output_permute, new_output});
       output_permute->axis(0)->parallelize(shard_added_id->getParallelType());
       new_output->axis(sharding_axis_after_permute)
           ->parallelize(shard_added_id->getParallelType());
+      // `output_permute` and `new_output` have inherited mesh from `input`. We
+      // need to change them to `output`'s mesh so communication is only
+      // between `input_permute` and `output_permute`.
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
     }

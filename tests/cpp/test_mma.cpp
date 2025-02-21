@@ -172,10 +172,10 @@ std::vector<at::Tensor> scheduleCompileAndRun(
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  return fe.runFusion({inputs.first, inputs.second});
+  return ke.run({inputs.first, inputs.second});
 }
 
 TEST_P(MmaTest, SingleTile) {
@@ -388,11 +388,11 @@ TEST_P(HopperRS, SingleTile) {
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -400,12 +400,46 @@ TEST_P(HopperRS, SingleTile) {
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
 }
 
-TEST_P(HopperRS, SingleTileWithTMALoadStore) {
+using HopperMmaRSStMatrixTestParams = std::tuple<
+    MmaMacro,
+    PrimDataType,
+    MmaLayout,
+    MmaInputSmemSwizzle,
+    std::vector<int64_t>>;
+
+class HopperRSStmatrix
+    : public HopperBase,
+      public ::testing::WithParamInterface<HopperMmaRSStMatrixTestParams> {
+ protected:
+  MmaLayout layout;
+  MmaMacro macro;
+  PrimDataType dtype;
+  MmaInputSmemSwizzle swizzle_b;
+  std::vector<int64_t> tile_sizes;
+
+  void SetUp() override {
+    HopperBase::SetUp();
+    macro = std::get<0>(GetParam());
+    dtype = std::get<1>(GetParam());
+    layout = std::get<2>(GetParam());
+    swizzle_b = std::get<3>(GetParam());
+    tile_sizes = std::get<4>(GetParam());
+  }
+};
+
+TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto shapes = matmulAtInputShape3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout);
+
+  int64_t tile_m = tile_sizes.at(0);
+  int64_t tile_n = tile_sizes.at(1);
+
+  if (getM(macro) % tile_m || getN(macro) % tile_n) {
+    GTEST_SKIP() << "skipping test as output is not divisible by tile size";
+  }
 
   auto tv0 = makeContigConcreteTensor(shapes.first, dtype);
   auto tv1 = makeContigConcreteTensor(shapes.second, dtype);
@@ -420,14 +454,28 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  auto tv2 = fusedMultiplySum(tv0, tv1, {layout == MmaLayout::TT ? 1 : 2});
+  int axes = 0;
+  switch (layout) {
+    case MmaLayout::TT:
+      axes = 1;
+      break;
+    case MmaLayout::TN:
+      axes = 2;
+      break;
+    default:
+      NVF_ERROR("Invalid layout");
+  }
 
-  auto tv3 = set(tv2);
-  tv2->setMemoryType(MemoryType::Shared);
-  tv3->definition()->as<LoadStoreOp>()->setOpType(
+  auto tv2 = fusedMultiplySum(tv0, tv1, {axes});
+
+  auto tv3 = castOp(dtype, tv2);
+
+  auto tv4 = set(tv3);
+  tv3->setMemoryType(MemoryType::Shared);
+  tv4->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
-  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
 
   auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
   NVF_CHECK(
@@ -436,10 +484,20 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
       mma_ops.size());
   mma_ops.front()->setMacro(macro);
 
-  auto tv2c = tv2->cacheBefore();
+  auto tv3c = tv3->cacheBefore();
+
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
 
   matmul_utils::moveInnerBroadcastLeft(tv0);
   tv0->applyMmaSwizzle(MmaOperand::A);
+
+  // This is a temporary way to pass this information
+  // to the custom index generator for stmatrix.
+  // TODO: remove the need for fusion managed cache.
+  fusion.manage("st_matrix_m_tile", tile_m);
+  fusion.manage("st_matrix_n_tile", tile_n);
+  fusion.manage("st_matrix_m", getM(macro));
+  fusion.manage("st_matrix_n", getN(macro));
 
   tv0->merge(1);
   tv0->merge(1);
@@ -450,50 +508,61 @@ TEST_P(HopperRS, SingleTileWithTMALoadStore) {
 
   if (layout == MmaLayout::TT) {
     // [M, K, N] -> [M, N, K]
-    tv2c->reorder({{-1, -2}});
+    tv2->reorder({{-1, -2}});
   }
 
-  EXPECT_TRUE(tv2c->getMemoryType() == MemoryType::Local);
-  EXPECT_TRUE(tv2->getMemoryType() == MemoryType::Shared);
-  EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Global);
+  EXPECT_TRUE(tv3c->getMemoryType() == MemoryType::Local);
+  EXPECT_TRUE(tv3->getMemoryType() == MemoryType::Shared);
+  EXPECT_TRUE(tv4->getMemoryType() == MemoryType::Global);
 
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2c->getLoopDomain());
-    tv2c->setAllocationDomain(s.as<IterDomain*>(), true);
-    // Note: according to internal doc "Representing ldmatrix", we need both a
-    // read domain and a write domain to correctly represent MmaOp. Without this
-    // new mechanism, there is no correct loop domain, and the only choices are
-    // either we want to represent the smem read well, or represent the register
-    // write well. We choose to represent the smem read well here. Likely, this
-    // means we will not be able to have multiple tiles in register, but we can
-    // workaround this by always inlining the MmaOp most. We should fix this
-    // after we implemented the new read/write domain mechanism.
-    tv2c->axis(-1)->parallelize(ParallelType::Mma);
-    tv2c->axis(-2)->parallelize(ParallelType::Mma);
-    tv2c->axis(-3)->parallelize(ParallelType::Mma);
-  }
   {
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         tv2->getLoopDomain());
-    tv2->setLoopDomain(s.as<IterDomain*>());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
   }
 
-  mma_utils::scheduleTMAStoreForMmaOutput(tv3, getM(macro), getN(macro));
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+  }
+
+  MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(tv3);
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3->getLoopDomain());
+
+    if (swizzle != MmaInputSmemSwizzle::None) {
+      mma_utils::scheduleTMAStoreForMmaOutput(tv3, swizzle);
+    }
+
+    tv3->setLoopDomain(s.as<IterDomain*>());
+  }
+  mma_utils::scheduleStMatrixForMmaOutput(tv3, swizzle, tile_m, tile_n);
+  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  mma_utils::scheduleTMAStoreForMmaOutput(tv4, swizzle);
 
   auto inputs = matmulAtInput3DHopperRS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
-      inputs.first.squeeze().to(at::kFloat),
-      inputs.second.squeeze().to(at::kFloat),
-      layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+                  inputs.first.squeeze().to(at::kFloat),
+                  inputs.second.squeeze().to(at::kFloat),
+                  layout)
+                  .to(data_type_to_aten(dtype));
+
+  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-1, 1e-1));
 }
 
 std::string testNameHopperRS(
@@ -507,6 +576,19 @@ std::string testNameHopperRS(
      << dtype;
   return os.str();
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    MmaTest,
+    HopperRSStmatrix,
+    testing::Combine(
+        kAllHopperMacros,
+        testing::Values(DataType::Half, DataType::BFloat16),
+        testing::Values(MmaLayout::TN, MmaLayout::TT),
+        kAllSmemSwizzleModes,
+        testing::Values(
+            // M, N
+            std::vector<int64_t>{16, 8},
+            std::vector<int64_t>{16, 16})));
 
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,
@@ -650,10 +732,10 @@ TEST_P(HopperSS, SingleTile) {
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -779,10 +861,10 @@ TEST_P(HopperSS, SingleTileTransposed) {
   auto inputs = matmulAtInput3DHopperSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
@@ -958,10 +1040,10 @@ TEST_P(HopperSS, MultipleTile) {
       layout,
       data_type_to_aten(dtype));
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),

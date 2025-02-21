@@ -185,6 +185,24 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
   };
 
+  if (auto* mma = dynamic_cast<MmaOp*>(consumer_tv_->definition())) {
+    // producer_tv_ is either A or B
+    const MmaOp::AxesData& operand_axes = producer_tv_ == mma->inA()
+        ? mma->axisMapping().a_axes
+        : mma->axisMapping().b_axes;
+    NVF_ERROR(operand_axes.size() == consumer_root.size());
+    for (size_t idx : c10::irange(operand_axes.size())) {
+      int64_t operand_pos = operand_axes[idx];
+      if (operand_pos == -1) {
+        continue;
+      }
+      IterDomain* operand_id = producer_logical.at((size_t)operand_pos);
+      IterDomain* out_id = consumer_root.at(idx);
+      updatePairwiseLogicalDomainMap(operand_id, out_id);
+    }
+    return dom_map;
+  }
+
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
     // Check if the producer is lhs/rhs input
@@ -303,6 +321,27 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
+    }
+    return dom_map;
+  }
+
+  if (EmbeddingFwdOp* op =
+          dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {
+    // Producers:
+    //   input = [*]
+    //   weight = [V, embedding_dim]
+    // Consumers:
+    //   output = [*, embedding_dim]
+    auto ndims_out = consumer_root.size();
+    if (producer_tv_->sameAs(op->in())) {
+      for (auto idx : c10::irange(ndims_out - 1)) {
+        updatePairwiseLogicalDomainMap(
+            producer_logical.at(idx), consumer_root.at(idx));
+      }
+    }
+    if (producer_tv_->sameAs(op->weight())) {
+      updatePairwiseLogicalDomainMap(
+          producer_logical.back(), consumer_root.back());
     }
     return dom_map;
   }

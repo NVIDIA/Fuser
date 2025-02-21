@@ -684,8 +684,9 @@ TensorView* viewAsScalar(TensorView* inp);
 //!
 //! \param tv_a first multiply operand
 //! \param tv_b second multiply operand
-//! \param axes axes to sum over
+//! \param axes axes to sum over, relative to output loop domain
 //! \param init sum initial value
+//! \param axis_mapping_opt mapping from output axes to operand axes
 //!
 //! Note & TODO:
 //!   currently only support lowering to a mma op
@@ -696,7 +697,8 @@ NVF_API TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
     const std::vector<int64_t>& axes,
-    Val* init = nullptr);
+    Val* init = nullptr,
+    const std::optional<MmaOp::AxisMapping>& axis_mapping_opt = std::nullopt);
 
 // Create a tensor view from the given value. The given value can be a single
 // scalar, an array of scalars, or a nested array of scalars.

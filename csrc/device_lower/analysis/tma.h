@@ -88,4 +88,6 @@ class TMAInfo {
 std::unordered_map<TensorView*, const TMAInfo> getConsumerToTMAInfoMap(
     Fusion* fusion);
 
+MmaInputSmemSwizzle getSwizzle(TensorView* tv);
+
 } // namespace nvfuser

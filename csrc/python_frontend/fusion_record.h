@@ -586,12 +586,8 @@ struct DimsOpRecord : RecordFunctor {
       auto arg =
           fd.getFusionState(args_.at(0).index)->template as<TensorView>();
       auto output = set(arg);
-      int rank = static_cast<int>(dims_.size());
-      std::vector<IterDomain*> allocation_domain(rank);
-      for (int i : c10::irange(rank)) {
-        allocation_domain[rank - 1 - static_cast<int>(dims_[i])] =
-            output->axis(i);
-      }
+      std::vector<IterDomain*> allocation_domain =
+          ir_utils::strideOrderToAllocation(output->getLogicalDomain(), dims_);
       output->setAllocationDomain(allocation_domain, true);
       fd.setFusionState(outputs_.at(0).index, output);
     } else {
@@ -1368,7 +1364,7 @@ struct TensorRecord : RecordFunctor {
     }
 
     fd.setFusionState(outputs_.at(0).index, tv);
-    fd.addInput(tv);
+    fd.addInput(tv, outputs_.at(0).index);
   }
 
   void print(std::ostream& os, bool close_function = true) const final {
@@ -1538,19 +1534,17 @@ struct OutputRecord : RecordFunctor {
       if constexpr (std::is_same_v<OutputType, TensorView>) {
         auto tv_output = output->template as<TensorView>();
         if (!stride_order_.empty()) {
-          size_t rank = stride_order_.size();
-          std::vector<IterDomain*> allocation_domain(rank);
-          for (auto i : c10::irange(rank)) {
-            allocation_domain[rank - 1 - stride_order_[i]] = tv_output->axis(i);
-          }
+          auto logical_domain = tv_output->getLogicalDomain();
+          std::vector<IterDomain*> allocation_domain =
+              ir_utils::strideOrderToAllocation(logical_domain, stride_order_);
           tv_output->setAllocationDomain(allocation_domain, true);
         }
-        fd.addOutput(tv_output);
+        fd.addOutput(tv_output, args_.at(0).index);
       } else {
         NVF_CHECK(
             stride_order_.empty(),
             "stride_order can't be dictated for scalar outputs.");
-        fd.addOutput(output);
+        fd.addOutput(output, args_.at(0).index);
       }
     }
   }
@@ -1823,7 +1817,7 @@ struct SelectOpRecord : RecordFunctor {
 
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
-    auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
+    auto arg3 = fd.getFusionState(args_.at(1).index);
 
     Val* output = select(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
@@ -2015,7 +2009,7 @@ struct ScalarRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     Val* output = IrBuilder::create<nvfuser::Val>(value_, dtype_);
     if (!value_.hasValue()) {
-      fd.addInput(output);
+      fd.addInput(output, outputs_.at(0).index);
     }
     fd.setFusionState(outputs_.at(0).index, output);
   }
@@ -3055,6 +3049,49 @@ struct SdpaBwdOpRecord : RecordFunctor {
     fd.setFusionState(outputs_.at(0).index, grad.grad_query);
     fd.setFusionState(outputs_.at(1).index, grad.grad_key);
     fd.setFusionState(outputs_.at(2).index, grad.grad_value);
+  }
+};
+
+struct EmbeddingFwdOpRecord : RecordFunctor {
+  EmbeddingFwdOpRecord(std::vector<State> args, std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.embedding_fwd",
+            serde::RecordType::EmbeddingFwdOp) {}
+  ~EmbeddingFwdOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new EmbeddingFwdOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto input = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto weight = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto padding_idx = (args_.at(2).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(2).index)->as<Val>()
+        : nullptr;
+    auto max_norm = (args_.at(3).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(3).index)->as<Val>()
+        : nullptr;
+    auto norm_type = (args_.at(4).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(4).index)->as<Val>()
+        : nullptr;
+    auto scale_grad_by_freq = (args_.at(5).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(5).index)->as<Val>()
+        : nullptr;
+    auto sparse = (args_.at(6).stype == serde::StateType::Scalar)
+        ? fd.getFusionState(args_.at(6).index)->as<Val>()
+        : nullptr;
+
+    auto output = embedding_fwd(
+        input,
+        weight,
+        padding_idx,
+        max_norm,
+        norm_type,
+        scale_grad_by_freq,
+        sparse);
+    fd.setFusionState(outputs_.at(0).index, output);
   }
 };
 

@@ -230,6 +230,46 @@ TEST_F(TensorFactoryTest, StandaloneIota) {
   }
 }
 
+TEST_F(TensorFactoryTest, SimpleTriu) {
+  std::vector<std::vector<int64_t>> input_sizes_2d = {
+      {64, 64}, {4, 16}, {16, 4}};
+  std::vector<std::vector<int64_t>> input_sizes_3d = {{16, 8, 32}};
+  auto offsets = {0, 1, 2, -1, -2, 200, -200};
+
+  for (auto in : {input_sizes_2d, input_sizes_3d}) {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv_to_triu_on = makeSymbolicTensor(in.at(0).size(), DataType::Half);
+    auto input_offset = IrBuilder::create<Val>(DataType::Int);
+    auto out = triu(tv_to_triu_on, input_offset);
+
+    fusion->addInput(tv_to_triu_on);
+    fusion->addInput(input_offset);
+    fusion->addOutput(out);
+
+    FusionExecutorCache executor_cache(std::move(fusion));
+
+    for (auto input_size : in) {
+      for (auto offset : offsets) {
+        auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+        auto in_tensor = at::randn(input_size, options);
+
+        auto cg_outputs =
+            executor_cache.runFusionWithInputs({in_tensor, offset});
+
+        testValidate(
+            executor_cache.fusion(),
+            cg_outputs,
+            {in_tensor, offset},
+            {at::triu(in_tensor, offset)},
+            __LINE__,
+            __FILE__);
+      }
+    }
+  }
+}
+
 TEST_F(TensorFactoryTest, StandaloneARange) {
   auto starts_ends = {-1., 0., 10.3, 1024. * 256};
   auto steps = {-1.5, 1., 2.};
@@ -352,9 +392,9 @@ TEST_F(TensorFactoryTest, TensorConstruct) {
   auto output = tensor(std::vector<std::vector<Val*>>{{i00, i01}, {i10, i11}});
   fusion->addOutput(output);
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get());
-  auto cg_outputs = fe.runFusion({00, 01, 10, 11});
+  KernelExecutor ke;
+  ke.compile(fusion.get());
+  auto cg_outputs = ke.run({00, 01, 10, 11});
 
   testValidate(fusion.get(), cg_outputs, {00, 01, 10, 11}, __LINE__, __FILE__);
 }
@@ -403,9 +443,9 @@ TEST_F(TensorFactoryTest, MetadataAsTensor) {
   auto input0 = at::randn({2, 3, 4, 5}, options);
   auto input1 = at::randn({6, 7, 8, 9}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get());
-  auto cg_outputs = fe.runFusion({input0, input1});
+  KernelExecutor ke;
+  ke.compile(fusion.get());
+  auto cg_outputs = ke.run({input0, input1});
 
   testValidate(fusion.get(), cg_outputs, {input0, input1}, __LINE__, __FILE__);
 }
@@ -479,11 +519,10 @@ TEST_F(TensorFactoryTest, FactoryBroadcast) {
 
   const auto options =
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto in = at::randn({100}, options);
-  std::vector<c10::IValue> inputs{1, in};
+  auto t0 = at::randn({100}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({1, t0});
 
   at::manual_seed(0);
   at::Tensor randn_sample = at::randn({1}, options);
@@ -493,13 +532,13 @@ TEST_F(TensorFactoryTest, FactoryBroadcast) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      inputs,
-      {in,
-       in + 1,
-       in + randn_sample,
-       in + randn_sample,
-       in + rand_sample,
-       in + rand_sample},
+      {1, t0},
+      {t0,
+       t0 + 1,
+       t0 + randn_sample,
+       t0 + randn_sample,
+       t0 + rand_sample,
+       t0 + rand_sample},
       __LINE__,
       __FILE__);
 }

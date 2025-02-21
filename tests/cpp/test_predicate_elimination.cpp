@@ -77,9 +77,9 @@ TEST_F(PredicateEliminationTest, 2) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = (t0 + 1).sum({1}) + 1;
 
@@ -127,9 +127,9 @@ TEST_F(PredicateEliminationTest, 3) {
   for (auto size : {1, 2, 999, 1001, 1234, 10000}) {
     auto t0 = at::randn({size}, options);
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
 
     auto ref = sum(t0) + 1;
     testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
@@ -180,9 +180,9 @@ TEST_F(PredicateEliminationTest, 4) {
     for (auto s1 : sizes) {
       auto t0 = at::randn({s0, s1}, options);
 
-      FusionExecutor fe;
-      fe.compileFusion(&fusion, {t0});
-      auto cg_outputs = fe.runFusion({t0});
+      KernelExecutor ke;
+      ke.compile(&fusion, {t0});
+      auto cg_outputs = ke.run({t0});
 
       auto t1 = t0.sum({1});
       auto t3 = t1.sum({0}) + 1;
@@ -228,9 +228,9 @@ TEST_F(PredicateEliminationTest, 5) {
   for (auto s0 : sizes) {
     auto t0 = at::randn({s0}, options);
 
-    FusionExecutor fe;
-    fe.compileFusion(&fusion, {t0});
-    auto cg_outputs = fe.runFusion({t0});
+    KernelExecutor ke;
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
 
     auto ref = t0.mean({0});
 
@@ -263,23 +263,23 @@ TEST_F(PredicateEliminationTest, 6) {
 
   // The expression for tv2 is a local-to-local expression. It
   // satisfies all the requirements of predicate elimination, except
-  // for the on on split root domains. As the second root axis of tv2
+  // for the on on split logical domains. As the second logical axis of tv2
   // is split, its index exceeds its extent (i.e., 3 in this case)
   // without its predicate.
   NVF_CHECK(PredicatedChecker::isPredicated(tv2, gpulw));
 
-  // Unlike tv2, tv3 is computed at tv4, so the second root axis does
+  // Unlike tv2, tv3 is computed at tv4, so the second logical axis does
   // have a zero domain. Its index should look like "i * 5 + j", where
-  // i comes from the first root domain and j comes from the split
+  // i comes from the first logical domain and j comes from the split
   // inner domain.
   NVF_CHECK(!PredicatedChecker::isPredicated(tv3, gpulw));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 3}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -313,9 +313,9 @@ TEST_F(PredicateEliminationTest, 7) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({123}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -382,15 +382,13 @@ TEST_F(PredicateEliminationTest, 8) {
   at::Tensor aten_t3 = at::randn(full_size, options); // tv0 - 3
   at::Tensor aten_t4 = at::randn({channel_size}, options); // tv4 - 4
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs =
-      fec.runFusionWithInputs({aten_t0, aten_t1, aten_t2, aten_t3, aten_t4});
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  KernelArgumentHolder args = {aten_t0, aten_t1, aten_t2, aten_t3, aten_t4};
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
-  const auto& compiled_executors =
-      fec.getMostRecentKernelRuntime()->executors();
-  NVF_CHECK(compiled_executors.size() == 1, "Unexpected scheduling");
+  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   NVF_CHECK(
-      !PredicatedChecker::isPredicated(tv6, compiled_executors.at(0).kernel()),
+      !PredicatedChecker::isPredicated(tv6, ke->compiledKernel()->kernel()),
       "T6 should not be predicated");
 }
 
@@ -431,9 +429,9 @@ TEST_F(PredicateEliminationTest, 9) {
   //  with TIDx in this tensor
   EXPECT_TRUE(PredicatedChecker::isPredicated(tv1, gpulw));
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion.get(), {t0});
-  auto cg_outputs = fe.runFusion({t0});
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto cg_outputs = ke.run({t0});
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
@@ -470,16 +468,16 @@ TEST_F(PredicateEliminationTest, ExtentEqualToMaxParallelTypeExtent) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({10 * 32}, options);
-  FusionExecutor fe;
-  fe.registerLoweringHook([&](GpuLower* lower) {
+  KernelExecutor ke;
+  ke.registerLoweringHook([&](GpuLower* lower) {
     lower->passes().insert(
         lower->passes().begin(),
         {"validate_smem_predicate_elimination",
          validate_smem_predicate_elimination});
   });
-  fe.compileFusion(&fusion, {t0}, {}, matmul_cparams);
+  ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
-  auto cg_outputs = fe.runFusion({t0});
+  auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 

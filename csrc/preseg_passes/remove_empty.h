@@ -20,7 +20,7 @@ class RemoveEmptyPass : public OptimizationPass<RemoveEmptyPass> {
 
  protected:
   static void runPass(Fusion* fusion);
-  static std::string name() {
+  static constexpr std::string_view name() {
     return "RemoveEmptyPass";
   }
 };

@@ -42,53 +42,10 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  // The ElectSync predicate expects a single thread to run operations within
-  // If-Then-Else. Any TensorView with thread parallelization is incompatible
-  // with this If-Then-Else because it can create a conflicting predicate.
-  void checkElectSyncCompatibility(Expr* expr) {
-    NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
-    NVF_ERROR(expr->isA<kir::IfThenElse>());
-
-    // Check all the expressions in the scope
-    auto check_scope_compatibility = [](Scope& scope) {
-      for (Expr* expr : scope.exprs()) {
-        // Thread predicates are generated based on the expression's outputs
-        for (Val* val : expr->outputs()) {
-          // short-circuit
-          if (!val->isA<kir::TensorIndex>()) {
-            continue;
-          }
-          // Check that none of the IterDomains in TensorView are parallelized
-          // with a thread dimension like TIDx, TIDy, or TIDz.
-          TensorView* tv = val->as<kir::TensorIndex>()->view();
-          bool is_thread_parallelized = std::any_of(
-              tv->domain()->loop().begin(),
-              tv->domain()->loop().end(),
-              [](IterDomain* id) { return id->isThreadDim(); });
-          NVF_ERROR(
-              !is_thread_parallelized,
-              "This thread-parallelized TensorView ",
-              tv->toString(),
-              " is incorrectly contained within a If-Then-Else with the ",
-              "ElectSync predicate.");
-        }
-      }
-    };
-
-    // Check the thenBody and elseBody of If-Then-Else
-    kir::IfThenElse* ite = expr->as<kir::IfThenElse>();
-    check_scope_compatibility(ite->thenBody());
-    check_scope_compatibility(ite->elseBody());
-  }
-
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
-
-      if (expr->predicate()->predicate_type() == PredicateType::ElectSync) {
-        checkElectSyncCompatibility(expr);
-      }
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
@@ -103,7 +60,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               "Expecting predicated body to only have one vectorized expression.");
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
-              vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>(),
+              vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
+                  vec_expr->isA<TernaryOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),
@@ -236,25 +194,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt);
-        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt);
-        Val* full_mask_val =
-            IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-
-        Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-        IrBuilder::create<UnaryOp>(
-            UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-
-        Val* first_warp = IrBuilder::logicalAndExpr(
-            IrBuilder::logicalAndExpr(
-                IrBuilder::ltExpr(
-                    NamedScalar::getParallelIndex(ParallelType::TIDx),
-                    warp_size),
-                IrBuilder::eqExpr(
-                    NamedScalar::getParallelIndex(ParallelType::TIDy), zero)),
-            IrBuilder::eqExpr(
-                NamedScalar::getParallelIndex(ParallelType::TIDz), zero));
-        return IrBuilder::logicalAndExpr(first_warp, elect_sync_val);
+        return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
       }
       default:
         break;

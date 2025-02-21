@@ -159,20 +159,24 @@ bool isTvOp(const Expr* expr) {
           LinearOp,
           SdpaFwdOp,
           SdpaBwdOp,
+          EmbeddingFwdOp,
           BroadcastOp,
           SqueezeOp,
           ExpandOp,
+          RepeatOp,
           ViewAsScalar,
           ViewOp,
           PadOp,
           SliceOp,
           CatOp,
+          kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,
           kir::GridBroadcast,
           kir::GridWelford,
           kir::GroupedGridWelford,
-          kir::VectorizedWelfordOp>())) {
+          kir::VectorizedWelfordOp,
+          kir::RNGOp>())) {
     return true;
   }
   return false;
@@ -201,39 +205,43 @@ bool isCpAsyncOp(const Expr* expr) {
 
 namespace {
 
-enum class CpAsyncBulkTileType { G2S, S2G, NotACpAsyncBulkTile };
+enum class CpAsyncBulkMode { G2S, S2G, NotACpAsyncBulk };
 
-inline CpAsyncBulkTileType getCpAsyncBulkTileType(const Expr* expr) {
+inline CpAsyncBulkMode getCpAsyncBulkMode(const Expr* expr) {
+  // Attempt to cast to LoadStoreOp
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile) {
-      if (getTv(ldst->in())->getMemoryType() == MemoryType::Global &&
-          getTv(ldst->out())->getMemoryType() == MemoryType::Shared) {
-        return CpAsyncBulkTileType::G2S;
+    // Check if opType is either CpAsyncBulk or CpAsyncBulkTensorTile
+    auto op_type = ldst->opType();
+    if (op_type == LoadStoreOpType::CpAsyncBulk ||
+        op_type == LoadStoreOpType::CpAsyncBulkTensorTile) {
+      // Check memory types
+      auto in_mem = getTv(ldst->in())->getMemoryType();
+      auto out_mem = getTv(ldst->out())->getMemoryType();
+      if (in_mem == MemoryType::Global && out_mem == MemoryType::Shared) {
+        return CpAsyncBulkMode::G2S;
       } else if (
-          getTv(ldst->in())->getMemoryType() == MemoryType::Shared &&
-          getTv(ldst->out())->getMemoryType() == MemoryType::Global) {
-        return CpAsyncBulkTileType::S2G;
+          in_mem == MemoryType::Shared && out_mem == MemoryType::Global) {
+        return CpAsyncBulkMode::S2G;
       } else {
-        NVF_THROW("Invalid CpAsyncBulkTileType");
+        NVF_THROW("Invalid memory types for CpAsyncBulk or CpAsyncBulkTile");
       }
     }
   }
-  return CpAsyncBulkTileType::NotACpAsyncBulkTile;
+  return CpAsyncBulkMode::NotACpAsyncBulk;
 }
 
 } // namespace
 
 bool isCpAsyncBulk(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) !=
-      CpAsyncBulkTileType::NotACpAsyncBulkTile;
+  return getCpAsyncBulkMode(expr) != CpAsyncBulkMode::NotACpAsyncBulk;
 }
 
 bool isCpAsyncBulkLoad(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::G2S;
+  return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::G2S;
 }
 
 bool isCpAsyncBulkStore(const Expr* expr) {
-  return getCpAsyncBulkTileType(expr) == CpAsyncBulkTileType::S2G;
+  return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {
@@ -278,24 +286,6 @@ std::vector<TensorView*> getTvs(const std::vector<Val*>& vals) {
     }
   }
   return tvs;
-}
-
-TensorView* getTvOutput(const Expr* expr) {
-  for (auto out : expr->outputs()) {
-    if (auto tv = getTv(out)) {
-      return tv;
-    }
-  }
-  return nullptr;
-}
-
-TensorView* getTvInput(const Expr* expr) {
-  for (auto inp : expr->inputs()) {
-    if (auto tv = getTv(inp)) {
-      return tv;
-    }
-  }
-  return nullptr;
 }
 
 bool isScalarOp(const Expr* expr) {
@@ -564,6 +554,32 @@ class ReplaceExprInput : private kir::ExprMutator {
     return;
   }
 
+  void handle(kir::RNGOp* node) final {
+    auto replaced_inputs = getMaybeInputReplacementMap(node);
+    if (replaced_inputs.has_value()) {
+      kir::RNGOp* replacement = nullptr;
+      if (node->inputs().size() == 4) {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType(),
+            std::vector<Val*>{
+                replaced_inputs->at(node->input(2)),
+                replaced_inputs->at(node->input(3))});
+      } else {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType());
+      }
+      registerReplaceWithPredicate(node, replacement);
+    }
+  }
+
   void handle(ReductionOp* node) final {
     auto replaced_inputs = getMaybeInputReplacementMap(node);
     if (replaced_inputs.has_value()) {
@@ -633,6 +649,7 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
+          node->axisMapping(),
           node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -848,9 +865,16 @@ bool isScalarExpr(Expr* expr) {
   return true;
 }
 
-bool isExtentEqualToMaxParallelTypeExtent(const IterDomain* id) {
+bool isExtentEqualToMaxParallelTypeExtent(
+    const IterDomain* id,
+    bool in_compute_warp) {
   const auto& parallel_dim_map = GpuLower::current()->parallelDimensionMap();
-  auto* pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  Val* pdm_max_extent = nullptr;
+  if (in_compute_warp) {
+    pdm_max_extent = parallel_dim_map.getRawCompute(id->getParallelType());
+  } else {
+    pdm_max_extent = parallel_dim_map.getRaw(id->getParallelType());
+  }
   if (nullptr == pdm_max_extent) {
     return false;
   }
@@ -931,7 +955,11 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   auto out_tv = ir_utils::getTv(expr->out());
   IterDomain* reduction_id = nullptr;
-  for (auto id : out_tv->getLogicalDomain()) {
+  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
+  // using commitLeafToLogical. In the split-k case, use the root domain for the
+  // mma layout because the k dimension is divided into two iterDomains in the
+  // logical domain.
+  for (auto id : out_tv->getMaybeRootDomain()) {
     if (id->isReduction()) {
       reduction_id = id;
       break;
@@ -1907,6 +1935,11 @@ Val* proveLinearAndGetStride(
     const ValGroup& linear_g,
     const ValGroups& domain) {
   FusionGuard fg(linear_g->front()->fusion());
+  // This function uses simplifyExpr extensively. If we have disable expression
+  // simplification in order to help inspect generated kernels then we will get
+  // incorrect results here. Instead, we ensure it is enabled using this guard.
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
   if (simplifyExpr(extent(linear_g))->isOne()) {
     // If the extent of the linear group is 1, we always consider it as linear,
     // regardless of its relationship with domain. For this case, we use stride
@@ -1917,7 +1950,8 @@ Val* proveLinearAndGetStride(
   // Propagate from linear_g to domain. Use frontier to keep track of the
   // how linear_g lives in the current propagation front.
   Projection frontier = linear_g;
-  auto path = ValGraphBFS::getExprsBetween(id_graph, domain, {linear_g});
+  auto path =
+      ValGraphBFS::getExprGroupsBetween(id_graph, domain, {linear_g}).first;
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
     path.pop_back();
@@ -1938,7 +1972,7 @@ IterDomain* getConcreteLoopID(IterDomain* id) {
   // Currently, the concrete loop ID depends on if loops are generated
   // based on the IdModel loop promotion, which needs to be enabled
   // explicitly by the IdModelEnableOption::Loop option.
-  if (isIdModelOptionEnabled(IdModelEnableOption::Loop)) {
+  if (GpuLower::current()->idModelOptions().loop()) {
     // If enabled, the concret ID should be basically just the
     // promotion ID itself. However, just to reduce literacl changes
     // of generated kernels so that the CI diff check could report
@@ -1988,11 +2022,16 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
+std::vector<Expr*> getSyncExprs(
+    AsyncOpType async_type,
+    int64_t keep_stages,
+    bool requires_commit) {
   std::vector<Expr*> sync_exprs;
   sync_exprs.reserve(2);
-  auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-  sync_exprs.push_back(commit);
+  if (requires_commit) {
+    auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
+    sync_exprs.push_back(commit);
+  }
   auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
   sync_exprs.push_back(wait);
   return sync_exprs;

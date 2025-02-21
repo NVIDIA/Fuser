@@ -50,6 +50,8 @@ from opinfo_input_generators import (
     matmul_input_generator,
     linear_input_generator,
     linear_error_generator,
+    triu_input_generator,
+    triu_error_generator,
 )
 from utils import (
     bool_int_dtypes,
@@ -1218,6 +1220,19 @@ linear_opinfo = OpInfo(
 )
 linear_ops.append(linear_opinfo)
 
+tv_val_ops = []
+
+triu_opinfo = OpInfo(
+    lambda fd: fd.ops.triu,
+    "triu",
+    sample_input_generator=triu_input_generator,
+    error_input_generator=triu_error_generator,
+    reference=torch.triu,
+    symbolic_parameter_list=[ArgumentType.Symbolic, ArgumentType.Constant],
+)
+
+tv_val_ops.append(triu_opinfo)
+
 """ End Tensor Creation """
 
 # Puts all opinfos into the "opinfos" list
@@ -1231,3 +1246,4 @@ opinfos.extend(shape_ops)
 opinfos.extend(tensor_creation_ops)
 opinfos.extend(matmul_ops)
 opinfos.extend(linear_ops)
+opinfos.extend(tv_val_ops)

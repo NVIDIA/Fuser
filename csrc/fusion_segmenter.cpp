@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <algorithm>
+#include <sstream>
+
 #include <debug.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
@@ -20,9 +23,7 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
-#include <algorithm>
-
-#include <sstream>
+#include <transform_iter.h>
 
 namespace nvfuser {
 
@@ -1860,35 +1861,61 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       }
     }
 
-    NVF_ERROR(new_logical_domain.size() == tv->domain()->contiguity().size());
     TensorDomain* new_td = nullptr;
-
     if (tv->domain()->hasAllocation()) {
       // we need to reorder the logical domain into allocation domain
       // consistently with the mapping from the old TensorView logical domain to
       // its allocation domain
-      const auto& alloc = tv->getAllocationDomain();
-      NVF_ERROR(
-          alloc.size() == logical.size(),
-          "size between logical and alloc doesn't match");
-      const auto rank = alloc.size();
-      std::vector<int64_t> stride_order(rank, -1);
-      for (auto i : c10::irange(rank)) {
-        bool found_match = false;
-        for (auto j : c10::irange(rank)) {
-          if (alloc[i] == logical[j]) {
-            stride_order[j] = static_cast<int64_t>(rank - 1 - i);
-            found_match = true;
-            break;
-          }
-        }
-        NVF_ERROR(
-            found_match,
-            "cannot match IterDomain between allocation domain to logical domain");
+      std::unordered_map<IterDomain*, IterDomain*> old_to_new;
+      for (const auto i : c10::irange(logical.size())) {
+        old_to_new.emplace(logical[i], new_logical_domain[i]);
       }
+
+      ReplayTransformations replay(tv->getAllocationDomain(), old_to_new);
+      // Without this,
+      // https://github.com/NVIDIA/Fuser/blob/e613929a6c21b3095c8817b01b8f177096a26e60/csrc/transform_iter.cpp#L299
+      // tries to look for root IDs in the map, which shouldn't exist because
+      // the whole purpose of this function is to remove the root domain.
+      replay.setErrorOnFailure(false);
+      // We don't need replay.setReplayRFactor(true). The new root is the same
+      // as the new logical so there aren't any expressions between them.
+
+      std::vector<IterDomain*> new_alloc;
+      new_alloc.reserve(tv->getAllocationDomain().size());
+      for (IterDomain* alloc_id : tv->getAllocationDomain()) {
+        IterDomain* new_alloc_id = replay.getReplay().at(alloc_id);
+        // ReplayTransformations replay transforms but not paralelization, so
+        // we have to manually parallelize the new allocation ID. In other
+        // places, parallelization is usually done through parallelizeAllLike.
+        new_alloc_id->parallelize(alloc_id->getParallelType());
+        new_alloc.push_back(new_alloc_id);
+      }
+
+      std::vector<IterDomain*> new_loop;
+      if (tv->getLoopDomain() == tv->getAllocationDomain()) {
+        new_loop = new_alloc;
+      } else {
+        NVF_ERROR(
+            tv->getLoopDomain() == tv->getLogicalDomain(),
+            tv,
+            " has an unexpected loop domain:\n",
+            tv->domain()->toString(0, /*loop_only=*/false));
+
+        new_loop = new_logical_domain;
+      }
+
       new_td = IrBuilder::create<TensorDomain>(
-          new_logical_domain, stride_order, tv->domain()->contiguity());
+          /*root_domain=*/std::vector<IterDomain*>(),
+          new_logical_domain,
+          new_alloc,
+          new_loop,
+          tv->domain()->contiguity());
     } else {
+      NVF_ERROR(
+          tv->getLoopDomain() == tv->getLogicalDomain(),
+          tv,
+          " has an unexpected loop domain:\n",
+          tv->domain()->toString(0, /*loop_only=*/false));
       new_td = IrBuilder::create<TensorDomain>(
           new_logical_domain, tv->domain()->contiguity());
     }
@@ -1909,7 +1936,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
             /*root_domain=*/std::vector<IterDomain*>{},
             /*logical_domain=*/new_logical,
             /*allocation=*/TensorDomain::noReductions(new_td->allocation()),
-            /*loop_domain=*/new_logical,
+            /*loop_domain=*/TensorDomain::noReductions(new_td->loop()),
             /*contiguity=*/no_red_contiguity);
       } else {
         new_td = IrBuilder::create<TensorDomain>(
@@ -1972,7 +1999,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     const Fusion* fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options) {
   auto fusion_copy = std::make_unique<Fusion>(*fusion);
   return segment(std::move(fusion_copy), inputs, options);
@@ -1981,20 +2008,21 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
 // Perform segmentation on and take ownership of the given fusion
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
-    SegmentCandidateFinderOptions options) {
+    const KernelArgumentHolder& inputs,
+    SegmentCandidateFinderOptions options,
+    bool multi_device) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     debug() << "Segment the fusion (Original Fusion Un-modified): "
             << std::endl;
     fusion->printMath();
   }
-  SegmentCandidateFinder scf(std::move(fusion), inputs, options);
+  SegmentCandidateFinder scf(std::move(fusion), inputs, options, multi_device);
   return std::move(scf.segmented_fusion_);
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -2003,7 +2031,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         Schedule::proposeHeuristics(fusion.get(), runtime_info);
     if (fusion_heuristic_type != SchedulerType::None) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), fusion_heuristic_type, *inputs);
+          std::move(fusion), fusion_heuristic_type, inputs);
     }
   } else {
     scheduler_debug_utils::canScheduleMessage(
@@ -2641,7 +2669,8 @@ std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
           schedulerType(),
           runtime_info.fusion(),
           runtime_info,
-          heuristic_data_cache)) {
+          heuristic_data_cache,
+          /*skip_compile_time_checks=*/true)) {
     return std::nullopt;
   }
   return SchedulerEntry::makeSchedulerInstance(schedulerType())
@@ -3558,6 +3587,194 @@ bool CombineReductions::shouldRun(
   return false;
 }
 
+// This preprocessing attempts to find groups of exprs consist of an
+// up-cast, followed by some ops and ended by a downcast. It is highly
+// likely that such sequences of ops should never be segmented
+// out. This is particularly commonly seen in fusions given by Thunder
+// as it inserts fine-grained downcasting and upcasting ops. Without
+// this preprocessing, a fusion may be segmented right after an
+// up-cast op, for example, and in fact it happened quite frequently
+// in some of the RoPE cases. This preprocessing does not completely
+// avoid such segmentation boundaries, but it should become less
+// likely. See also https://github.com/NVIDIA/Fuser/pull/3699.
+class MergeUpAndDownCast {
+ public:
+  static void run(SegmentCandidateFinder* segment_candidate_finder) {
+    MergeUpAndDownCast group_cast(segment_candidate_finder);
+  }
+
+ private:
+  MergeUpAndDownCast(SegmentCandidateFinder* segment_candidate_finder)
+      : segment_candidate_finder_(segment_candidate_finder) {
+    merge();
+  }
+
+  void merge() {
+    bool merged = true;
+    while (merged) {
+      merged = false;
+      std::unordered_set<SegmentedGroup*> considered_groups;
+
+      for (SegmentedGroup* group : segment_candidate_finder_->groups()) {
+        // If the group is an up-cast group, see if there's a
+        // candidate group starting with the group.
+        if (!isUpCast(group) || considered_groups.count(group)) {
+          continue;
+        }
+
+        auto groups_to_merge = getCandidateCastGroup(group);
+        if (groups_to_merge.size() < 2) {
+          continue;
+        }
+
+        for (auto group : groups_to_merge) {
+          considered_groups.insert(group);
+        }
+
+        // Try merging the detected group
+        if (mergeCastGroup(groups_to_merge)) {
+          merged = true;
+          break;
+        }
+      }
+    }
+  }
+
+  // Try to detect a set of groups that could be merged as a cast
+  // group. The analysis starts with an initial group that solely
+  // consists of an up-cast expression. From the initial group, it
+  // traverses its neighbor groups. If the group is an down-cast group,
+  // it only traverses through the consumer edges. If it's an up-cast
+  // group, it only traverses through the producer edges.
+  //
+  // Additionaly, this traversal has several safeguards to keep the
+  // DAG property intact:
+  //
+  // - For a given group, it does not visit its consumers if it has
+  //   multiple consumers, even if the group is not a down-cast
+  //   group.
+  // - Similarly, it does not visit a producer if the producer has
+  //   multiple cosumers.
+  //
+  // The basic form of this set of groups should look like an up-cast
+  // group, followed by some op groups and ended by a down-cast
+  // group. However, it is not always the case because of the above
+  // safeguards. For example, the following groups would be detected
+  // as a cast group.
+  //
+  // t1 = bf16ToFp32(t0)
+  // t2 = neg(t1)
+  // t3 = sin(t2)
+  // t4 = cos(t2)
+  // t5 = fp32ToBf16(t3)
+  // t6 = fp32ToBf16(t4)
+  //
+  // In this case, t1 and t2 would be detected as a candidate group,
+  // but t3 and t4 would not be included. While we could certainly
+  // extend the analysis, it would need to make sure the DAG property
+  // is not violated.
+  std::vector<SegmentedGroup*> getCandidateCastGroup(
+      SegmentedGroup* initial_group) {
+    std::vector<SegmentedGroup*> groups_to_merge;
+    std::unordered_set<SegmentedGroup*> groups_to_merge_set;
+
+    std::deque<SegmentedGroup*> to_visit;
+    to_visit.push_back(initial_group);
+
+    while (!to_visit.empty()) {
+      SegmentedGroup* group = to_visit.front();
+      to_visit.pop_front();
+
+      if (groups_to_merge_set.count(group)) {
+        continue;
+      }
+
+      // For simplicity, all groups are assumed to be the initial
+      // single-expr groups. Skip if not
+
+      groups_to_merge.push_back(group);
+      groups_to_merge_set.insert(group);
+
+      // Consumer traversal. Stop if this group is a down cast
+      // group. Also stop if there are multiple consumer edges to
+      // simplify keeping the DAG property.
+      if (!isDownCast(group) && group->consumer_edges.size() == 1) {
+        auto consumer_edge = group->consumer_edges.at(0);
+        SegmentedGroup* consumer_group = consumer_edge->to;
+        if (!groups_to_merge_set.count(consumer_group)) {
+          to_visit.push_back(consumer_group);
+        }
+      }
+
+      if (!isUpCast(group)) {
+        for (const auto producer_edge : group->producer_edges) {
+          SegmentedGroup* producer_group = producer_edge->from;
+          // Don't add producers that have more than multiple consumers
+          if (producer_group->consumer_edges.size() > 1) {
+            continue;
+          }
+          if (!groups_to_merge_set.count(producer_group)) {
+            to_visit.push_back(producer_group);
+          }
+        }
+      }
+    }
+
+    return groups_to_merge;
+  }
+
+  // Try merging a candidate cast group. Return true if merged.
+  bool mergeCastGroup(const std::vector<SegmentedGroup*>& groups) {
+    auto sched_type = tryMerge(
+        segment_candidate_finder_->segmented_fusion_.get(),
+        segment_candidate_finder_->runtimeInfo(),
+        groups);
+
+    if (sched_type == SchedulerType::None) {
+      return false;
+    }
+
+    segment_candidate_finder_->mergeAllGivenGroups(groups);
+
+    return true;
+  }
+
+  bool isUpCast(SegmentedGroup* group) const {
+    if (auto precision_bits = getProducerConsumerPrecision(group);
+        precision_bits.has_value()) {
+      return precision_bits->first < precision_bits->second;
+    } else {
+      return false;
+    }
+  }
+
+  bool isDownCast(SegmentedGroup* group) const {
+    if (auto precision_bits = getProducerConsumerPrecision(group);
+        precision_bits.has_value()) {
+      return precision_bits->first > precision_bits->second;
+    } else {
+      return false;
+    }
+  }
+
+  std::optional<std::pair<int64_t, int64_t>> getProducerConsumerPrecision(
+      SegmentedGroup* group) const {
+    if (group->exprs().size() != 1) {
+      return std::nullopt;
+    }
+
+    auto uop = dynamic_cast<UnaryOp*>(group->exprs().front());
+    if (uop == nullptr || uop->getUnaryOpType() != UnaryOpType::Cast) {
+      return std::nullopt;
+    }
+
+    return ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+  }
+
+ private:
+  SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
+};
+
 namespace {
 
 //! Returns true if group1 and group2 are an immediate producer-consumer pair.
@@ -3723,15 +3940,10 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
-    SegmentCandidateFinderOptions options)
-    : options_(options),
-      runtime_info_(
-          inputs == nullptr ? std::nullopt
-                            : std::make_optional<SchedulerRuntimeInfo>(
-                                  fusion.get(),
-                                  *inputs)),
-      runtime_inputs_(inputs) {
+    const KernelArgumentHolder& inputs,
+    SegmentCandidateFinderOptions options,
+    bool multi_device)
+    : options_(options), runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
           (!options_.run_translate_welford &&
@@ -3739,7 +3951,22 @@ SegmentCandidateFinder::SegmentCandidateFinder(
            options_.run_final_merge),
       "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+
+  // Conditionally initialize runtime_info_ based on multi_device
+  if (!multi_device) {
+    runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
+  }
+
+  privatizeUpcast();
   findSegments();
+}
+
+// Add runtimeInfo() accessor with validation
+SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
+  NVF_ERROR(
+      runtime_info_.has_value(),
+      "runtime_info_ is not available. This function should not be called in multi-device segmentation.");
+  return *runtime_info_;
 }
 
 void SegmentCandidateFinder::buildInitialSegments() {
@@ -3896,7 +4123,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), *runtime_inputs_)) {
+            segmented_fusion_.get(), runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();
@@ -3917,6 +4144,9 @@ void SegmentCandidateFinder::findSegments() {
   removeScalarEdges();
 
   // Run pre-merge heuristics
+  MergeUpAndDownCast::run(this);
+  segmented_fusion_->validateIfDebug(true);
+
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
   }
@@ -3984,6 +4214,198 @@ void SegmentCandidateFinder::findSegments() {
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegmentsDrawing)) {
     segmented_fusion_->draw();
+  }
+}
+
+void SegmentCandidateFinder::privatizeUpcast() {
+  // Insert castOp to complete_fusion_
+  FusionGuard fg(segmented_fusion_->complete_fusion_.get());
+
+  const auto exprs = segmented_fusion_->complete_fusion_->exprs();
+
+  for (auto expr : exprs) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+
+    for (const auto i : c10::irange(expr->inputs().size())) {
+      auto maybe_upcast_out_tv = dynamic_cast<TensorView*>(expr->input(i));
+      if (maybe_upcast_out_tv == nullptr) {
+        continue;
+      }
+
+      // Check if the input is an output of an upcast op
+      auto maybe_upcast_op =
+          dynamic_cast<UnaryOp*>(maybe_upcast_out_tv->definition());
+      if (maybe_upcast_op == nullptr ||
+          maybe_upcast_op->getUnaryOpType() != UnaryOpType::Cast) {
+        continue;
+      }
+
+      auto precisions =
+          ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+      if (!precisions.has_value() || precisions->first >= precisions->second) {
+        continue;
+      }
+
+      // Check if there's multiple uses of the upcast output
+      auto uses_of_upcast_out_tv = maybe_upcast_out_tv->uses();
+      if (uses_of_upcast_out_tv.size() < 2) {
+        continue;
+      }
+
+      // If this is the first use of the upcast output, keep it as is
+      if (expr == uses_of_upcast_out_tv.front()) {
+        continue;
+      }
+
+      auto upcast_out_tv_clone =
+          castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
+      expr = ir_utils::replaceValInExprInputs(
+          expr, maybe_upcast_out_tv, upcast_out_tv_clone);
+
+      privatized_upcast_ops_[maybe_upcast_op].insert(
+          upcast_out_tv_clone->definition()->as<UnaryOp>());
+    }
+  }
+}
+
+void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
+  // If a given consumer edge is a duplicate of another edge of the
+  // same producer group, remove the given edge from both the producer
+  // and consumer groups.
+  auto maybe_deduplicate_edge =
+      [](SegmentedEdge* maybe_duplicated_consumer_edge) {
+        SegmentedGroup* producer_group = maybe_duplicated_consumer_edge->from;
+
+        auto same_edge_it = std::find_if(
+            producer_group->consumer_edges.begin(),
+            producer_group->consumer_edges.end(),
+            [&](SegmentedEdge* consumer_edge) {
+              return consumer_edge != maybe_duplicated_consumer_edge &&
+                  *consumer_edge == *maybe_duplicated_consumer_edge;
+            });
+
+        if (same_edge_it == producer_group->consumer_edges.end()) {
+          return;
+        }
+
+        // maybe_duplicated_consumer_edge is redundant. Remove it from the
+        // from and the two groups
+        auto consumer_edge_to_remove = std::find(
+            producer_group->consumer_edges.begin(),
+            producer_group->consumer_edges.end(),
+            maybe_duplicated_consumer_edge);
+        NVF_ERROR(
+            consumer_edge_to_remove != producer_group->consumer_edges.end());
+        producer_group->consumer_edges.erase(consumer_edge_to_remove);
+
+        SegmentedGroup* consumer_group = maybe_duplicated_consumer_edge->to;
+        auto producer_edge_to_remove = std::find(
+            consumer_group->producer_edges.begin(),
+            consumer_group->producer_edges.end(),
+            maybe_duplicated_consumer_edge);
+        NVF_ERROR(
+            producer_edge_to_remove != consumer_group->producer_edges.end());
+        consumer_group->producer_edges.erase(producer_edge_to_remove);
+      };
+
+  // Replace old_expr with new_expr if found in a given group. Return
+  // true if replaced.
+  auto maybe_replace =
+      [](SegmentedGroup* group, Expr* old_expr, Expr* new_expr) -> bool {
+    auto it = std::find(group->exprs_.begin(), group->exprs_.end(), old_expr);
+    if (it != group->exprs_.end()) {
+      *it = new_expr;
+      return true;
+    } else {
+      return false;
+    }
+  };
+
+  for (const auto& [original_upcast, clones] : privatized_upcast_ops_) {
+    std::vector<UnaryOp*> upcast_in_group;
+    Val* upcast_val_to_keep = nullptr;
+    for (auto uop : ir_utils::filterByType<UnaryOp>(group->exprs())) {
+      if (uop != original_upcast && !clones.count(uop)) {
+        continue;
+      }
+
+      upcast_in_group.push_back(uop);
+
+      auto upcast_tv = uop->out();
+
+      // Prefer the original upcast if found
+      if (upcast_val_to_keep == nullptr ||
+          upcast_tv == original_upcast->out()) {
+        upcast_val_to_keep = upcast_tv;
+      }
+    }
+
+    if (upcast_in_group.size() < 2) {
+      continue;
+    }
+
+    for (auto uop : upcast_in_group) {
+      Val* upcast_val_to_replace = uop->out();
+      if (upcast_val_to_replace == upcast_val_to_keep) {
+        // Keep this uop as is since its output replaces the other
+        // upcast outputs
+        continue;
+      }
+
+      NVF_ERROR(
+          upcast_val_to_replace->uses().size() == 1,
+          "Multiple use of replicated upcast tensor found: ",
+          toDelimitedString(upcast_val_to_replace->uses()));
+
+      auto use_of_upcast_val_to_replace = upcast_val_to_replace->uses().at(0);
+
+      auto updated_expr = ir_utils::replaceValInExprInputs(
+          use_of_upcast_val_to_replace,
+          upcast_val_to_replace,
+          upcast_val_to_keep);
+
+      // Replace use_of_upcast_val_to_replace with
+      // updated_expr. use_of_upcast_val_to_replace must be in the
+      // same group of its consumer groups
+      if (!maybe_replace(group, use_of_upcast_val_to_replace, updated_expr)) {
+        for (auto consumer_edge : group->consumer_edges) {
+          if (maybe_replace(
+                  consumer_edge->to,
+                  use_of_upcast_val_to_replace,
+                  updated_expr)) {
+            break;
+          }
+        }
+      }
+
+      // Update a consumer edge if its val is
+      // upcast_val_to_replace. Again, there must be at most one such
+      // edge.
+      SegmentedEdge* consumer_edge_to_update = nullptr;
+      for (auto consumer_edge : group->consumer_edges) {
+        if (consumer_edge->val == upcast_val_to_replace) {
+          NVF_ERROR(
+              consumer_edge_to_update == nullptr,
+              "Multiple consumer edges using ",
+              upcast_val_to_replace->toString(),
+              " found");
+          consumer_edge->val = upcast_val_to_keep;
+          consumer_edge_to_update = consumer_edge;
+        }
+      }
+
+      // Now that the consumer edge is updated, it may be a duplicate
+      // of an exising edge. Remove if so.
+      if (consumer_edge_to_update != nullptr) {
+        maybe_deduplicate_edge(consumer_edge_to_update);
+      }
+
+      // Note that it should not be necessary to do anything with
+      // group->output_vals since the inserted upcast ops should never produce
+      // fusion outputs.
+    }
   }
 }
 
@@ -4411,6 +4833,10 @@ void SegmentCandidateFinder::finalize() {
   // Resolve all the scalar expressions needed in each group
   for (auto group : segmented_fusion_->groups()) {
     resolveScalarsInGroup(group);
+  }
+
+  for (auto group : segmented_fusion_->groups()) {
+    revertPrivatizedUpcast(group);
   }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.

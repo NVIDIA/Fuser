@@ -23,7 +23,7 @@ namespace nvfuser::python_frontend {
 //! \brief A container to hold a scheduled Fusion IR as well as an executor
 //! to contain the corresponding generated kernel.
 struct UserSchedule {
-  UserSchedule();
+  UserSchedule(int64_t fusion_id, int64_t device_id);
 
   //! Runtime information for schedulers
   std::unique_ptr<SchedulerRuntimeInfo> runtime_info;
@@ -41,7 +41,7 @@ struct UserSchedule {
   std::unique_ptr<Fusion> scheduled_fusion;
 
   //! Generated kernel container
-  std::unique_ptr<FusionExecutor> executor;
+  std::unique_ptr<KernelExecutor> executor;
 
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
@@ -98,15 +98,24 @@ struct FusionSchedules {
   //! Key:   Input Encoding hash of Fusion inputs as is created by the
   //!        InputsIdLookup struct found inside of the FusionCache.
   //! Value: A vector based on device_id of User Defined Fusion Schedules.
-  std::unordered_map<size_t, std::vector<UserSchedule>> user_def_schedules;
+  std::unordered_map<size_t, std::unordered_map<int, UserSchedule>>
+      user_def_schedules;
   //! Keeps a pointer to the last scheduled Fusion IR for printing
   Fusion* last_user_def_scheduled_ir;
   //! Keeps a pointer to the last executed executor for printing its cuda kernel
-  FusionExecutor* last_user_def_executor;
+  KernelExecutor* last_user_def_executor;
   //! For thread-Safe locking of Fusion Schedules
   std::mutex scheds_lock;
   //! ID of fusion in python frontend fusion cache
   int64_t fusion_id_ = -1;
+  //! Fusion IDs of input arguments for FusionState
+  std::vector<int64_t> inputs_fid_;
+  //! IDs for Extents for TensorView input arguments for FusionState
+  std::vector<int64_t> extents_fid_;
+  //! Fusion IDs of output arguments for FusionState
+  std::vector<int64_t> outputs_fid_;
+  //! Map Fusion Val to its corresponding FusionDefinition index
+  std::unordered_map<const Val*, int64_t> map_value_to_fid_;
 };
 
 //! \struct TrieNode
@@ -222,14 +231,14 @@ class FusionCache {
   //! Determine if a user schedule exists for given inputs.
   bool existUserSchedule(
       const FusionSchedules* scheds,
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       int device);
   //! Lookup the User Schedule Id and return null if one does not exist.
   //! NOTE: this method cannot be const because the InputsIdLookup can
   //! cause a modification to that data member for cache eviction.
   std::optional<size_t> queryUserScheduleId(
       const FusionSchedules* scheds,
-      const at::ArrayRef<c10::IValue>& inputs);
+      const c10::ArrayRef<c10::IValue>& inputs);
   //! Lookup the User Schedule based on Id
   const UserSchedule& queryUserSchedule(
       const FusionSchedules* scheds,
@@ -241,7 +250,7 @@ class FusionCache {
   //! Lookup the User Schedule based on Id
   UserSchedule* createUserSchedule(
       FusionSchedules* scheds,
-      const at::ArrayRef<c10::IValue>& inputs,
+      const c10::ArrayRef<c10::IValue>& inputs,
       int device,
       bool overwrite_existing_schedule = false);
   //! Get the root Trie ptr

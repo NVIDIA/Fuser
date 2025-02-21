@@ -23,12 +23,12 @@ namespace nvfuser {
 using Sizes = std::vector<int64_t>;
 using MatmulNodeParamType = std::tuple<Sizes, Sizes>;
 
-class MatmulNodeParametrizedTest
+class MatmulNodeParameterizedTest
     : public NVFuserFixtureParamTest<MatmulNodeParamType> {
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  MatmulNodeParametrizedTest() : optimization_guard_(false) {}
+  MatmulNodeParameterizedTest() : optimization_guard_(false) {}
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
@@ -55,7 +55,7 @@ void checkMatmulOpIdMapping(
     TensorView* B,
     TensorView* output) {
   IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   // If K is Broadcast then we will not have a reduction dim.
@@ -109,7 +109,7 @@ void checkLinearOpIdMapping(
     TensorView* bias,
     TensorView* output) {
   IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   // input: [* , in_features]
@@ -144,7 +144,7 @@ void checkLinearOpIdMapping(
   }
 }
 
-TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
+TEST_P(MatmulNodeParameterizedTest, MatmulNodeConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -164,13 +164,13 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
 
-TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
+TEST_P(MatmulNodeParameterizedTest, MatmulNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -190,8 +190,8 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
   at::Tensor t1 = at::randn(b_shape, at::kHalf).cuda();
   at::Tensor out_ref = at::matmul(t0, t1);
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out = fec.runFusionWithInputs({t0, t1});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out = executor_cache.runFusionWithInputs({t0, t1});
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -227,20 +227,19 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = fec.runFusionWithInputs({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
-      fec.getMostRecentKernelRuntime()->executors();
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -277,20 +276,19 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   }
   at::Tensor out_ref = at::linear(t0, t1, bias_opt);
 
-  FusionExecutorCache fec(std::move(fusion));
+  FusionExecutorCache executor_cache(std::move(fusion));
 
   std::vector<at::Tensor> out = {};
   if (bias_shape.has_value()) {
-    out = fec.runFusionWithInputs({t0, t1, bias_opt});
+    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = fec.runFusionWithInputs({t0, t1});
+    out = executor_cache.runFusionWithInputs({t0, t1});
   }
 
-  const std::vector<FusionExecutor>& executors =
-      fec.getMostRecentKernelRuntime()->executors();
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
   EXPECT_EQ(executors.size(), 1);
-  // Verify that fusion compilation was skipped.
-  EXPECT_FALSE(executors.front().hasCompiledKernel());
+  EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
   EXPECT_TRUE(at::allclose(out[0], out_ref));
 }
@@ -300,7 +298,7 @@ constexpr int64_t b = 128, m = 64, k = 32, n = 16;
 // Parametrize a_shape and b_shape
 INSTANTIATE_TEST_SUITE_P(
     ,
-    MatmulNodeParametrizedTest,
+    MatmulNodeParameterizedTest,
     testing::Combine(
         testing::Values(
             Sizes({k}),
@@ -317,7 +315,7 @@ INSTANTIATE_TEST_SUITE_P(
 // Test case where K=1
 INSTANTIATE_TEST_SUITE_P(
     ReductionAxisIsOne,
-    MatmulNodeParametrizedTest,
+    MatmulNodeParameterizedTest,
     testing::Combine(
         testing::Values(
             Sizes({1}),

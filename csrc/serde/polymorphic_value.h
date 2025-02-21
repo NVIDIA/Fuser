@@ -21,7 +21,7 @@ namespace nvfuser::serde {
 //! PolymorphicValue table. This factory creates Bool, ComplexDouble, Double,
 //! Long, CPU Scalar, and CUDA Tensor objects. These arguments are stored in
 //! KernelArgumentHolder, which is used to schedule the fusion in
-//! FusionKernelRuntime and to run a kernel in FusionExecutor.
+//! FusionKernelRuntime and to run a kernel in KernelExecutor.
 class PolymorphicValueFactory
     : public Factory<PolymorphicValue, nvfuser::PolymorphicValue> {
  public:
@@ -38,7 +38,7 @@ nvfuser::PolymorphicValue deserializePolymorphicValue(const Scalar* c);
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
-    std::shared_ptr<nvfuser::PolymorphicValue> v);
+    const nvfuser::PolymorphicValue& v);
 
 flatbuffers::Offset<Scalar> serializeScalarCpu(
     flatbuffers::FlatBufferBuilder& builder,

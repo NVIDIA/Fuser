@@ -14,9 +14,11 @@
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
+#include <device_lower/analysis/tensor_memory.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/id_model_options.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/predicate.h>
@@ -45,10 +47,6 @@
 
 namespace nvfuser {
 
-// TODO: we frequently use pairwise root mapping from consumers to producers.
-// This information is implicitly in the computeAtMaps, but there's no isolated
-// container for this information that we can reuse. Would be nice to generate
-// such a structure and propagate it through lowering.
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 class GpuLower : public NonCopyable {
   class KernelIrMapper;
@@ -206,14 +204,6 @@ class GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
-  bool requiresIdModel() const {
-    return requires_id_model_;
-  }
-
-  bool& requiresIdModel() {
-    return requires_id_model_;
-  }
-
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
@@ -279,6 +269,14 @@ class GpuLower : public NonCopyable {
     return consumer_to_tma_info_;
   }
 
+  const TensorMemoryInfo& tmemInfo() const {
+    return tmem_info_;
+  }
+
+  TensorMemoryInfo& tmemInfo() {
+    return tmem_info_;
+  }
+
   // Register a boolean Val as a predicate to validate at the run time. Optional
   // validation error messages can be given as args.
   template <typename... Args>
@@ -312,6 +310,10 @@ class GpuLower : public NonCopyable {
       IterDomain* id,
       CircularBufferLoopStage stage =
           CircularBufferLoopStage::NotApplicable) const;
+
+  const IdModelOptions idModelOptions() const {
+    return id_model_options_;
+  }
 
  private:
   void analysis(Fusion* fusion);
@@ -372,6 +374,9 @@ class GpuLower : public NonCopyable {
   // Keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
 
+  // Information about tensor memory usage
+  TensorMemoryInfo tmem_info_;
+
   // Keep track of validations needed at runtime. For example, a pair of
   //! "extent mod split_factor == 0" and an error message for divisibility check
   //! for vectorization.
@@ -379,9 +384,8 @@ class GpuLower : public NonCopyable {
 
   Fusion* fusion_ = nullptr;
 
-  // A temporary flag which is true if the fusion uses any feature that requires
-  // the new experimental id model
-  bool requires_id_model_ = false;
+  // A temporary option set to selectively enable IdModel usage
+  IdModelOptions id_model_options_;
 };
 
 } // namespace nvfuser

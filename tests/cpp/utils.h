@@ -40,19 +40,23 @@ namespace nvfuser {
 struct CGResultsPackage {
   std::vector<at::Tensor> outputs;
   std::unique_ptr<HeuristicParams> heuristic_params;
-  std::unique_ptr<FusionExecutor> fusion_executor;
+  std::unique_ptr<KernelExecutor> kernel_executor;
 };
+
+// Returns the only executor in the most recent runtime.
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache);
 
 // Grabs heuristics and schedules with the provided scheduler type, compiles and
 // runs with Fuion executor, returns a struct containing the outputs,
-// heuristic_params, and FusionExecutor. These structures are for convenience in
+// heuristic_params, and KernelExecutor. These structures are for convenience in
 // testing. If validate_scheduler is set to false the scheduler check will still
 // be run but it will be ignored. Otherwise canScheduler returning false will
 // throw.
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
@@ -551,6 +555,9 @@ class NVFuserTest : public ::testing::Test {
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
     std::srand(getCRandomSeed());
+
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModelExtraValidation);
   }
 
   void TearDown() override {
@@ -595,11 +602,36 @@ class NVFuserTest : public ::testing::Test {
     return str;
   }
 
+ protected:
+  EnableOptionsGuard enable_options_guard_;
+  DisableOptionsGuard disable_options_guard_;
+
  private:
   bool capturing_ = false;
 };
 
 class HopperBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0, 10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+class BlackwellBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// TMA is supported on Hopper and newer GPUs
+class TmaBase : public NVFuserTest {
  protected:
   void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0)) {
@@ -698,6 +730,8 @@ static auto kAllHopperMacros = testing::Values(
     MmaMacro::Hopper_64_240_16,
     MmaMacro::Hopper_64_248_16,
     MmaMacro::Hopper_64_256_16);
+
+std::string macroToString(const MmaMacro macro);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
@@ -820,7 +854,7 @@ bool isSchedulerInUse(
     const SchedulerType& scheduler_type);
 
 // Disable magic zero
-constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
+const CompileParams matmul_cparams{DataType::Int32, 255, false};
 
 // Utility to generate tensor with bias applied on the input tensor
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);

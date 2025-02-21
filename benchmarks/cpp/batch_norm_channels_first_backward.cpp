@@ -89,7 +89,7 @@ static void setupBatchNorm_BWD(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_BatchNorm_BWD(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
@@ -112,10 +112,10 @@ static void NvFuserScheduler_BatchNorm_BWD(
   at::Tensor save_mean = at::zeros({input_shape[1]}, fp32_options);
   at::Tensor save_var = at::ones({input_shape[1]}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs(
-      {input, grad_out, weight, run_mean, run_var, save_mean, save_var});
+  KernelArgumentHolder args = {
+      input, grad_out, weight, run_mean, run_var, save_mean, save_var};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

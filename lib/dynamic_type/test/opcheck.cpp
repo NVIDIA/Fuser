@@ -169,7 +169,7 @@ static_assert(!opcheck<int>->value());
 
 // Arrow star operator
 struct OverloadArrowStar {
-  auto operator->*(int OverloadArrowStar::*memberPtr) const -> int* {
+  auto operator->*(int OverloadArrowStar::* memberPtr) const -> int* {
     return nullptr;
   }
 };

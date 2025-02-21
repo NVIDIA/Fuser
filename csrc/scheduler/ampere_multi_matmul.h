@@ -69,16 +69,14 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
  public:
   AmpereMultipleMatmulScheduler(Fusion* fusion, const MatmulParams* params)
       : MultipleMatmulScheduler(fusion, params) {
-    const auto device_prop = at::cuda::getCurrentDeviceProperties();
-    const int cc = device_prop->major * 10 + device_prop->minor;
-    NVF_ERROR(
-        cc >= 75 && cc < 90,
-        "This matmul scheduler is restricted to Ampere and Turing.");
+    validate();
   }
 
   void run() final;
 
  private:
+  void validate() const;
+
   void cacheInputsAndOutputs();
 
   // Including current tensor naming convention for reference,
@@ -128,7 +126,7 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // existing LoadStoreOp present. Please note that for the second LoadStore
   // we don't propagate the allocation domain, since the scheduler sets the
   // allocation domain in the registers.
-  void addSetsForCacheReads(
+  void cacheOperandsToRegisters(
       const std::vector<TensorView*>& tv_smems,
       std::vector<TensorView*>& tv_rs);
 
@@ -140,7 +138,7 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
-  //! This calls orig->cacheAfter() and also updates the permissive graph to
+  //! This calls orig->cacheAfter() and also updates the broadcast graph to
   //! reflect the new IterDomain mappings
   TensorView* cacheAfter(
       TensorView* orig,

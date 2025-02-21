@@ -345,8 +345,8 @@ for l in lines:
 
 test_str += """  }
 
-  FusionExecutorCache fec(std::move(fusion_ptr));
-  auto cg_outputs = fec.runFusionWithInputs(inputs);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
 }"""
 

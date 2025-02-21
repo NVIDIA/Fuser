@@ -444,6 +444,28 @@ AbstractTensor swizzleSharedMemory(TensorView* shared_mem_tv) {
 
 } // namespace
 
+void AmpereMultipleMatmulScheduler::validate() const {
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const int cc = device_prop->major * 10 + device_prop->minor;
+  NVF_ERROR(
+      cc >= 75 && cc < 90,
+      "This matmul scheduler is restricted to Ampere and Turing.");
+
+  NVF_CHECK(
+      params_->tiling_strategy == MatmulParams::TilingStrategy::OneTilePerCTA,
+      "Ampere matmul scheduler does not support scheduling persistent CTAs");
+
+  NVF_CHECK(
+      params_->buffering_loop_level ==
+          MatmulParams::BufferingLoopLevel::CTATiles,
+      "Ampere matmul scheduler only supports cooperatively buffering at the CTA level (no ping-pong)");
+
+  NVF_CHECK(
+      params_->circular_buffering_strategy ==
+          MatmulParams::CircularBufferingStrategy::Pipelined,
+      "Ampere matmul scheduler does not support warp specialization");
+}
+
 void AmpereMultipleMatmulScheduler::run() {
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs
@@ -498,10 +520,10 @@ void AmpereMultipleMatmulScheduler::cacheInputsAndOutputs() {
 
 void AmpereMultipleMatmulScheduler::defineOperandCaches() {
   cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
-  addSetsForCacheReads(acw_smems_, acrs_);
+  cacheOperandsToRegisters(acw_smems_, acrs_);
 
   cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
-  addSetsForCacheReads(bcw_smems_, bcrs_);
+  cacheOperandsToRegisters(bcw_smems_, bcrs_);
 
   // Now that we are finished possibly redefining the inputs to the MmaOps,
   // we can set the macro for those ops
@@ -551,7 +573,7 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToSmem(
   }
 }
 
-void AmpereMultipleMatmulScheduler::addSetsForCacheReads(
+void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
     const std::vector<TensorView*>& tv_smems,
     std::vector<TensorView*>& tv_rs) {
   tv_rs.resize(tv_smems.size(), nullptr);
@@ -807,7 +829,8 @@ void AmpereMultipleMatmulScheduler::scheduleMmaOperands(
     // NOTE: this applies to either mma_result _or_ ab/bb since both have the
     // same number of dimensions.
     // TODO: use the version that uses merged_roles instead here
-    mma_utils::scheduleWarpTileWithReduction(operand, params_->tile_sizes);
+    mma_utils::scheduleWarpTileWithReduction(
+        operand, params_->tile_sizes, params_->mma_macro);
 
     // parallelize Mwo, Nwo by thread
     operand->axis((int64_t)merged_roles.size() + num_splitk_dims_ + 1)
@@ -865,7 +888,8 @@ void AmpereMultipleMatmulScheduler::scheduleMmaResults() {
     // NOTE: this applies to either mma_result _or_ ab/bb since both have the
     // same number of dimensions.
     // TODO: use the version that uses merged_roles instead here
-    mma_utils::scheduleWarpTileWithReduction(mma_result, params_->tile_sizes);
+    mma_utils::scheduleWarpTileWithReduction(
+        mma_result, params_->tile_sizes, params_->mma_macro);
 
     // This does a split-reorder-merge swizzle of the last two M and N
     // dimensions (and a possible final reduction dim). eg. [M64, N24, R]  ->
@@ -990,9 +1014,6 @@ void AmpereMultipleMatmulScheduler::schedulePrologues() {
                                     std::vector<TensorView*>& mma_inputs,
                                     MmaOperand operand_type) {
     NVF_ERROR(smem_stores.size() == smem_loads.size());
-    // TODO: we should not assume that each operand is used in only a single
-    // mma op
-    NVF_ERROR(mma_results_.size() >= smem_loads.size());
     // We will save abs_ and bbs_ here for later use
     // TODO: save all register prologue tensors instead to a new vector called
     // prologue_register_tensors_
@@ -1300,11 +1321,17 @@ void AmpereMultipleMatmulScheduler::setUpCircularBuffering() {
 
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(
-          params_->circular_buffer_options.smem_circular_buffer_stage);
+          params_->circular_buffer_options.smem_circular_buffer_stage,
+          params_->circular_buffer_options.smem_circular_buffer_stage -
+              params_->circular_buffer_options
+                  .smem_circular_buffer_prefetch_gap);
     }
     for (TensorView* bcw_smem : bcw_smems_) {
       bcw_smem->circularBuffer(
-          params_->circular_buffer_options.smem_circular_buffer_stage);
+          params_->circular_buffer_options.smem_circular_buffer_stage,
+          params_->circular_buffer_options.smem_circular_buffer_stage -
+              params_->circular_buffer_options
+                  .smem_circular_buffer_prefetch_gap);
     }
   }
 

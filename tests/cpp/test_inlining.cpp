@@ -48,9 +48,9 @@ TEST_F(InliningTest, InliningMismatchedDims1) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
@@ -80,9 +80,9 @@ TEST_F(InliningTest, InliningMismatchedDims2) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
@@ -113,9 +113,9 @@ TEST_F(InliningTest, InliningMismatchedDims4) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
@@ -150,9 +150,9 @@ TEST_F(InliningTest, InliningBroadcast) {
       at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor input = at::randn({2, 3, 4}, options);
 
-  FusionExecutor fe;
-  fe.compileFusion(&fusion, {input});
-  auto cg_outputs = fe.runFusion({input});
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  auto cg_outputs = ke.run({input});
 
   testValidate(&fusion, cg_outputs, {input}, __LINE__, __FILE__);
 }
@@ -268,11 +268,9 @@ TEST_F(InliningTest, IsAllowedID) {
   // tv3
   {
     std::vector<IterDomain*> loop_domain{
-        tv1->getLoopDomain().at(0)->cloneWithoutRFactor(),
+        tv3->getLogicalDomain().at(0),
         tv1->getLoopDomain().at(1)->cloneWithoutRFactor(),
         tv1->getLoopDomain().at(2)->cloneWithoutRFactor()};
-    IrBuilder::create<Merge>(
-        tv3->getLogicalDomain().at(0), loop_domain[1], loop_domain[2]);
     tv3->setLoopDomain(loop_domain);
     for (const auto i : c10::irange(3)) {
       EXPECT_TRUE(isAllowedID(tv3, i))
@@ -283,11 +281,9 @@ TEST_F(InliningTest, IsAllowedID) {
   // tv4
   {
     std::vector<IterDomain*> loop_domain{
-        tv1->getLoopDomain().at(0)->cloneWithoutRFactor(),
+        tv4->getLogicalDomain().at(0),
         tv1->getLoopDomain().at(1)->cloneWithoutRFactor(),
         tv1->getLoopDomain().at(2)->cloneWithoutRFactor()};
-    IrBuilder::create<Merge>(
-        tv4->getLogicalDomain().at(0), loop_domain[1], loop_domain[2]);
     // Note that loop_domain[1] and loop_domain[2] are not connected
     // with the logical domain of tv4
     tv4->setLoopDomain(loop_domain);

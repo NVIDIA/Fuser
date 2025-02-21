@@ -67,20 +67,13 @@ struct GemmTile {
 struct MatMulTileOptions {
   GemmTile cta_tile = GemmTile(128, 128, 32);
   GemmTile warp_tile = GemmTile(64, 64, 32);
-  GemmTile instruction_tile = GemmTile(16, 8, 16);
 
   MatMulTileOptions() = default;
-  MatMulTileOptions(
-      GemmTile cta_tile_,
-      GemmTile warp_tile_,
-      GemmTile instruction_tile_)
-      : cta_tile(cta_tile_),
-        warp_tile(warp_tile_),
-        instruction_tile(instruction_tile_) {}
+  MatMulTileOptions(GemmTile cta_tile_, GemmTile warp_tile_)
+      : cta_tile(cta_tile_), warp_tile(warp_tile_) {}
 
   bool operator==(const MatMulTileOptions& other) const {
-    return cta_tile == other.cta_tile && warp_tile == other.warp_tile &&
-        instruction_tile == other.instruction_tile;
+    return cta_tile == other.cta_tile && warp_tile == other.warp_tile;
   }
 };
 
@@ -203,17 +196,17 @@ inline bool isHopper(MmaMacro macro) {
 }
 
 //! Get the m size from macro type
-inline int getM(MmaMacro macro) {
+inline int64_t getM(MmaMacro macro) {
   return MmaMacroEncode(macro).m;
 }
 
 //! Get the n size from macro type
-inline int getN(MmaMacro macro) {
+inline int64_t getN(MmaMacro macro) {
   return MmaMacroEncode(macro).n;
 }
 
 //! Get the k size from macro type
-inline int getK(MmaMacro macro) {
+inline int64_t getK(MmaMacro macro) {
   return MmaMacroEncode(macro).k;
 }
 

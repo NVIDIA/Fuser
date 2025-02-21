@@ -8,11 +8,15 @@
 #include <debug.h>
 #include <fusion_profiler.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <options.h>
+#include <preseg_passes/pre_segmenter.h>
+#include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
 #include <runtime/executor_kernel_arg.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <scheduler/compile_time_info.h>
 #include <scheduler/scheduler_types.h>
 #include <utils.h>
@@ -108,6 +112,17 @@ void FusionDefinition::finalizeDefinition() {
       throw;
     }
 
+    // The FusionState creates a mapping from CPP Fusion to its State objects.
+    // Since the CPP Fusion is cached in FusionCache and the FusionState is
+    // temporary, the information linking CPP Fusion and Python
+    // FusionDefinition is stored in FusionCache.
+    FusionSchedules* fs =
+        fusionCache()->queryFusionSchedules(fusion_id_.value());
+    fs->inputs_fid_ = inputs();
+    fs->outputs_fid_ = outputs();
+    fs->extents_fid_ = extents();
+    fs->map_value_to_fid_ = getValueMap();
+
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
     }
@@ -121,6 +136,17 @@ void FusionDefinition::finalizeDefinition() {
     // build a proper fusion earlier.
     NVF_CHECK(!opt_e.has_value(), opt_e.value());
     fusion_id_ = std::optional<size_t>(trie_node_->fusion_id);
+
+    // A CPP fusion already exists in the FusionCache for this FusionDefinition.
+    // In this case, a new CPP Fusion is not created, so the mapping from CPP
+    // fusion to Python FusionDefinition is not initialized. This state is
+    // stored within FusionSchedules and is retrieved for this FusionDefinition.
+    FusionSchedules* fs =
+        fusionCache()->queryFusionSchedules(fusion_id_.value());
+    inputs_fid_ = fs->inputs_fid_;
+    outputs_fid_ = fs->outputs_fid_;
+    extents_fid_ = fs->extents_fid_;
+    map_value_to_fid_ = fs->map_value_to_fid_;
   }
 
   NVF_ERROR(
@@ -208,7 +234,7 @@ void FusionDefinition::verifyTensorDimensions() {
   }
 }
 
-bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
+bool FusionDefinition::existSchedule(const c10::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::existsSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
   FusionSchedules* scheds = fusionCache()->queryFusionSchedules(id().value());
@@ -219,7 +245,7 @@ bool FusionDefinition::existSchedule(const at::ArrayRef<c10::IValue>& inputs) {
 }
 
 void FusionDefinition::setupSchedule(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionDefinition::setupSchedule");
   NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
@@ -253,8 +279,8 @@ void FusionDefinition::setupSchedule(
   // Add TensorViews created by composite operations to Python FusionDefinition.
   findHiddenTensorViews(user_sched_->scheduled_fusion.get());
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(inputs, device);
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(device);
 
   // Concretize fusion
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
@@ -280,7 +306,7 @@ void FusionDefinition::setupSchedule(
 }
 
 void FusionDefinition::finalizeSchedule(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   FUSER_PERF_SCOPE("FusionDefinition::finalizeSchedule");
 
   FusionGuard::setCurFusion(prev_fusion_);
@@ -289,6 +315,17 @@ void FusionDefinition::finalizeSchedule(
 
   // NOTE: Clear user schedule state in setupSchedule.
   // Users can access schedule objects after scheduling the fusion.
+}
+
+void FusionDefinition::setupMultideviceSchedule() {
+  // FusionDefinition.multidevice_schedule may create new Exprs (e.g. DID
+  // splits), which will be added to the presched fusion.
+  prev_fusion_ = FusionGuard::getCurFusion();
+  FusionGuard::setCurFusion(preschedFusion());
+}
+
+void FusionDefinition::finalizeMultideviceSchedule() {
+  FusionGuard::setCurFusion(prev_fusion_);
 }
 
 void FusionDefinition::print(std::ostream& os) const {
@@ -310,88 +347,108 @@ void FusionDefinition::print(std::ostream& os) const {
   os << std::endl;
 }
 
-std::vector<at::Tensor> FusionDefinition::execute(
-    const at::ArrayRef<c10::IValue>& inputs,
+std::vector<DistributedTensor> FusionDefinition::execute(
+    const c10::ArrayRef<c10::IValue>& inputs,
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
     bool capture_debug_output,
-    bool profile) const {
+    bool profile,
+    std::vector<std::string> _enable_options,
+    std::vector<std::string> _disable_options) const {
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
-
+  KernelArgumentHolder args(inputs);
+  args.setDeviceIndex(selected_device);
   NVF_CHECK(id().has_value(), "Valid fusion schedule is not available!");
 
   auto scheds = fusionCache()->queryFusionSchedules(id().value());
 
-  std::vector<at::Tensor> outputs;
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().set(ProfilerOption::Enable);
   }
 
-  if (!override_user_schedule) {
-    auto device = getCommonDeviceCUDA(inputs, selected_device);
+  EnableOptionsGuard enable_opt_guard;
+  for (const auto& _enable_option : _enable_options) {
+    std::optional<EnableOption> opt = stringToEnableOption(_enable_option);
+    NVF_CHECK(opt.has_value(), "Unrecognized enable_option: ", _enable_option);
+    EnableOptionsGuard::getCurOptions().set(opt.value());
+  }
+
+  DisableOptionsGuard disable_opt_guard;
+  for (const auto& _disable_option : _disable_options) {
+    std::optional<DisableOption> opt = stringToDisableOption(_disable_option);
     NVF_CHECK(
-        inputs.empty() || device > -1,
+        opt.has_value(), "Unrecognized disable_option: ", _disable_option);
+    DisableOptionsGuard::getCurOptions().set(opt.value());
+  }
+
+  auto find_user_schedule = [&]() -> const UserSchedule* {
+    if (override_user_schedule) {
+      return nullptr;
+    }
+
+    auto user_sched_id =
+        fusionCache()->queryUserScheduleId(scheds, args.toC10Array());
+    if (!user_sched_id.has_value()) {
+      return nullptr;
+    }
+
+    NVF_CHECK(
+        args.empty() || args.getDeviceIndex() > -1,
         "Inputs are not all on the same device or don't match selection!");
-    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, inputs);
-    if (user_sched_id.has_value()) {
-      if (isProfilerEnabledWithCupti()) {
-        FusionProfiler::start();
-        FusionProfiler::createSegments(1);
-      }
-      auto& user_sched = fusionCache()->queryUserSchedule(
-          scheds, user_sched_id.value(), device);
-      scheds->last_user_def_scheduled_ir = user_sched.scheduled_fusion.get();
-      scheds->last_user_def_executor = user_sched.executor.get();
+    const UserSchedule& user_sched = fusionCache()->queryUserSchedule(
+        scheds, user_sched_id.value(), args.getDeviceIndex());
+    return &user_sched;
+  };
+  const auto* user_sched = find_user_schedule();
 
-      if (user_sched.heuristic_params == nullptr) {
-        // Manual schedule
-        if (!user_sched.executor->isCompiled()) {
-          user_sched.executor->compileFusion(
-              user_sched.scheduled_fusion.get(),
-              inputs,
-              user_sched.fusion_id_,
-              user_sched.device_id_);
-        }
-        outputs = user_sched.executor->runFusion(inputs);
-      } else {
-        // Automatic scheduler was used for UserSchedule.
-        // Pass launch and compile params to compileFusion and runFusion.
-        if (!user_sched.executor->isCompiled()) {
-          user_sched.executor->compileFusion(
-              user_sched.scheduled_fusion.get(),
-              KernelArgumentHolder::createKernelArgumentHolder(
-                  inputs, getCommonDeviceCUDA(inputs)),
-              user_sched.heuristic_params->lparams,
-              user_sched.heuristic_params->cparams,
-              user_sched.heuristic_params->scheduler_type,
-              user_sched.fusion_id_,
-              user_sched.device_id_);
-        }
-        outputs = user_sched.executor->runFusion(
-            inputs,
-            user_sched.heuristic_params->lparams,
-            user_sched.heuristic_params->cparams);
-      }
+  std::vector<at::Tensor> out_tensors;
+  if (user_sched == nullptr) {
+    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
+        args.toC10Array(), std::nullopt, args.getDeviceIndex());
+  } else {
+    if (isProfilerEnabledWithCupti()) {
+      FusionProfiler::start();
+      FusionProfiler::createSegments(1);
+    }
+    scheds->last_user_def_scheduled_ir = user_sched->scheduled_fusion.get();
+    scheds->last_user_def_executor = user_sched->executor.get();
 
-      if (isProfilerEnabledWithCupti()) {
-        FusionProfiler::segment(0).scheduler("user");
-        FusionProfiler::stop();
-        if (isProfilerPrintingEnabled()) {
-          debug() << FusionProfiler::profile();
-        }
+    if (user_sched->heuristic_params == nullptr) {
+      // Manual schedule
+      if (!user_sched->executor->isCompiled()) {
+        user_sched->executor->compile(
+            user_sched->scheduled_fusion.get(), args.toC10Array());
+      }
+      out_tensors = user_sched->executor->run(args.toC10Array());
+    } else {
+      // Automatic scheduler was used for UserSchedule.
+      // Pass launch and compile params to compileFusion and runFusion.
+      if (!user_sched->executor->isCompiled()) {
+        user_sched->executor->compile(
+            user_sched->scheduled_fusion.get(),
+            args,
+            user_sched->heuristic_params->lparams,
+            user_sched->heuristic_params->cparams,
+            user_sched->heuristic_params->scheduler_type);
+      }
+      out_tensors = user_sched->executor->run(
+          args.toC10Array(),
+          {},
+          user_sched->heuristic_params->lparams,
+          user_sched->heuristic_params->cparams);
+    }
+
+    if (isProfilerEnabledWithCupti()) {
+      FusionProfiler::segment(0).scheduler("user");
+      FusionProfiler::stop();
+      if (isProfilerPrintingEnabled()) {
+        debug() << FusionProfiler::profile();
       }
     }
   }
 
-  // when `!override_user_schedule == true`, it *could* have produced an
-  // output already at this point and we would not want to overwrite
-  // generated output through user scheduled kernel.
-  if (outputs.empty()) {
-    outputs = scheds->auto_gen_schedules->runFusionWithInputs(
-        inputs, std::nullopt, selected_device);
-  }
   if (profile) {
     ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   }
@@ -400,7 +457,43 @@ std::vector<at::Tensor> FusionDefinition::execute(
     debug_output_ = debug_ss.str();
   }
 
-  return outputs;
+  // Convert `at::Tensor`s to `DistributedTensor`s.
+  std::vector<DistributedTensor> out_dtensors;
+  out_dtensors.reserve(out_tensors.size());
+  if (user_sched == nullptr) {
+    FusionKernelRuntime* runtime =
+        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
+    Fusion* fusion = runtime->fusionSegments()->completeFusion();
+
+    int64_t tensor_index = 0;
+    for (Val* out_val : fusion->outputs()) {
+      auto* out_tv = out_val->as<TensorView>();
+      if (fusion->getOutputAlias(out_tv).hide_output) {
+        continue;
+      }
+
+      const at::Tensor& out_tensor = out_tensors.at(tensor_index);
+      tensor_index++;
+      const DeviceMesh& mesh = out_tv->getDeviceMesh();
+      DistributedTensor& out_dtensor =
+          out_dtensors.emplace_back(out_tensor, mesh);
+
+      if (mesh.size() > 0) {
+        for (const ParallelType parallel_type : kParallelTypeDIDs) {
+          if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
+              axis != -1) {
+            out_dtensor.setAxisIsShardedOn(axis, parallel_type);
+          }
+        }
+      }
+    }
+    NVF_ERROR(out_dtensors.size() == out_tensors.size());
+  } else {
+    for (const auto& out_tensor : out_tensors) {
+      out_dtensors.emplace_back(out_tensor);
+    }
+  }
+  return out_dtensors;
 }
 
 std::string FusionDefinition::fusionIr() {
@@ -441,10 +534,9 @@ std::string FusionDefinition::lastCudaCode(
 
   if (!override_user_schedule && (user_exec != nullptr)) {
     if (intrinsic_code) {
-      result = user_exec->getStructuredCode(
-          user_exec->kernelString(), user_exec->kernel()->indexType());
+      result = user_exec->compiledKernel()->getStructuredCode();
     } else {
-      result = user_exec->kernelString();
+      result = user_exec->compiledKernel()->kernelString();
     }
   } else {
     result = scheds->auto_gen_schedules->getMostRecentCode(intrinsic_code);
@@ -453,7 +545,7 @@ std::string FusionDefinition::lastCudaCode(
 }
 
 std::string FusionDefinition::cudaCodeFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool intrinsic_code,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -470,10 +562,9 @@ std::string FusionDefinition::cudaCodeFor(
           scheds, user_sched_id.value(), device);
       auto user_exec = user_sched.executor.get();
       if (intrinsic_code) {
-        return user_exec->getStructuredCode(
-            user_exec->kernelString(), user_exec->kernel()->indexType());
+        return user_exec->compiledKernel()->getStructuredCode();
       } else {
-        return user_exec->kernelString();
+        return user_exec->compiledKernel()->kernelString();
       }
     }
   }
@@ -500,7 +591,7 @@ std::string FusionDefinition::lastScheduledFusionIr(
 }
 
 std::string FusionDefinition::scheduledFusionIrFor(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const c10::ArrayRef<c10::IValue>& inputs,
     bool tensor_transforms,
     bool override_user_schedule) const {
   NVF_CHECK(id().has_value(), "Invalid fusion definition!");
@@ -647,8 +738,33 @@ std::vector<Tensor> FusionDefinition::tensors() {
 }
 
 std::vector<std::pair<double, double>> FusionDefinition::getValTolerances(
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const c10::ArrayRef<c10::IValue>& inputs) {
   return get_val_constants(preschedFusion(), inputs);
+}
+
+int64_t FusionDefinition::setupSegmentation(
+    const c10::ArrayRef<c10::IValue>& inputs) {
+  NVF_CHECK(id().has_value(), "FusionDefinition definition does not exist!");
+  NVF_ERROR(
+      segmentation_state_ == nullptr, "SegmentationState already exists!");
+  segmentation_state_ = std::make_unique<SegmentationState>();
+  return segmentation_state_->setupSegmentation(
+      preschedFusion(), map_value_to_fid_, inputs);
+}
+
+std::unordered_map<int64_t, int64_t> FusionDefinition::buildSegment(
+    FusionDefinition& segment_fd,
+    int64_t segment_id) {
+  NVF_CHECK(id().has_value(), "FusionDefinition does not exist!");
+  NVF_CHECK(
+      segmentation_state_ != nullptr,
+      "Run setupSegmentation first before trying to build segments!");
+  return segmentation_state_->buildSegment(segment_fd, segment_id);
+}
+
+void FusionDefinition::finalizeSegmentation() {
+  // Destroy SegmentedState
+  segmentation_state_.reset();
 }
 
 } // namespace nvfuser::python_frontend

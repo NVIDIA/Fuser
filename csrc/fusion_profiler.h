@@ -186,12 +186,15 @@ class SegmentProfiler {
  public:
   SegmentProfiler(uint32_t id, bool cupti_disabled);
 
-  void startCompile(int device);
+  void startCompile();
   void stopCompile();
 
-  void startKernel(int device);
+  void startKernel();
   void stopKernel();
 
+  void setDevice(int64_t device) {
+    device_ = (int)device;
+  }
   void inputBytesAccessed(int64_t bytes);
   void outputBytesAccessed(int64_t bytes);
 
@@ -219,13 +222,13 @@ class SegmentProfiler {
  private:
   bool cupti_disabled_;
 
-  int device_;
-  uint32_t segment_id_;
+  int device_ = -1;
+  uint32_t segment_id_ = -1;
 
   HostTimer compile_timer_;
-  int64_t input_bytes_;
-  int64_t output_bytes_;
-  std::string scheduler_;
+  int64_t input_bytes_ = -1;
+  int64_t output_bytes_ = -1;
+  std::string scheduler_ = "None";
   ProfilerState kernel_profile_state_;
 };
 

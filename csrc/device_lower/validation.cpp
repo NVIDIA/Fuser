@@ -407,20 +407,42 @@ class VectorizeValidator : public OptInDispatch {
   // correctly for such a case, whereas this version addresses the
   // limitation by using ValGraphBFS.
   static std::pair<IterDomain*, std::unordered_set<IterDomain*>>
-  getDependentAllocIDsIdModel(IterDomain* v_id, TensorView* tv) {
+  getDependentAllocIDsIdModel(
+      IterDomain* v_id,
+      TensorView* tv,
+      Expr* load_store) {
     NVF_ERROR(GpuLower::hasCurrent());
     NVF_ERROR(GpuLower::current()->hasIdModel());
 
     const auto& id_model = GpuLower::current()->idModel();
     const auto& graph = id_model.idGraph(IdMappingMode::EXACT);
 
-    auto expr_path = ValGraphBFS::getExprsBetween(
-        graph,
-        graph.toGroups(tv->getMaybeAllocationDomain()),
-        graph.toGroups(std::vector<Val*>{v_id}));
-    expr_path = reverse(expr_path);
+    // Traverse from the complete set of loop IDs to the allocation
+    // domain of this tensor. Note that the allocation domain may
+    // include unused IDs such as broadcast IDs. They may not be
+    // reachable, so the require_all_to_visited needs to be
+    // false. Here, only the innermost allocation ID needs to be
+    // reachable, which is asserted at the end of the function.
+    //
+    // Note that previously this traversal was from the allocation
+    // domain to v_id only. It does not work when the allocation
+    // domain has a broadcast ID that is promoted to a concrete ID
+    // and then is used to generate v_id. See
+    // LoopDomainSchedulingTest.VecValidationRepro for a concrete
+    // case. The traversal needs to use the promoted concrete ID
+    // instead of the broadcast allocation ID. Instead, here, we
+    // traverse from the promoted loop IDs to the allocation
+    // domain. This should be always able to reach at least the
+    // vectorized ID.
+    const auto loop_domain = getLoopIds(load_store, id_model);
+    auto expr_path = ValGraphBFS::getExprGroupsBetween(
+                         graph,
+                         graph.toGroups(loop_domain),
+                         graph.toGroups(tv->getMaybeAllocationDomain()),
+                         /*require_all_to_visited=*/false)
+                         .first;
 
-    ValGroup cur_group = graph.toGroup(v_id);
+    ValGroup cur_group = graph.toGroup(getLoopPromotion(v_id, id_model));
     std::unordered_set<ValGroup> visited_ids;
     visited_ids.insert(cur_group);
 
@@ -454,11 +476,11 @@ class VectorizeValidator : public OptInDispatch {
         }
       }
 
-      visited_ids.insert(outputs.begin(), outputs.end());
-
       if (std::find(inputs.begin(), inputs.end(), cur_group) == inputs.end()) {
         continue;
       }
+
+      visited_ids.insert(outputs.begin(), outputs.end());
 
       if (expr->isA<Resize>()) {
         // No validatiton is done at this moment
@@ -500,6 +522,24 @@ class VectorizeValidator : public OptInDispatch {
       if (cur_group == alloc_group) {
         innermost_alloc_id = alloc;
       }
+    }
+
+    if (innermost_alloc_id == nullptr) {
+      // Failed to find the innermost allocation ID
+      std::stringstream ss;
+      ss << "Failed to find a corresponding innermost allocation ID of "
+         << tv->toString() << " with vectorized ID of " << v_id->toString()
+         << "\n"
+         << "Vectorized load-store: " << load_store->toString()
+         << "Allocation domain: "
+         << toDelimitedString(tv->getMaybeAllocationDomain()) << "\n"
+         << "Loop domain: " << toDelimitedString(loop_domain) << "\n"
+         << "Current visited group: " << nvfuser::toString(cur_group) << " ("
+         << cur_group->front()->toString() << ")\n";
+      for (auto expr : tv->domain()->allExprs()) {
+        ss << expr->toString();
+      }
+      NVF_THROW(ss.str());
     }
 
     return {innermost_alloc_id, dep_alloc_ids};
@@ -553,9 +593,13 @@ class VectorizeValidator : public OptInDispatch {
     auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
     bool is_ldmatrix_trans =
         ldst != nullptr && mma_utils::isLdMatrixTranspose(ldst);
-    if (!is_ldmatrix_trans) {
+    if (!is_ldmatrix_trans && name.compare("consumer") != 0) {
       // ldmatrix.trans is a hardware transpose instruction that can do
       // "vectorized" read from discontiguous memory
+      // We don't think allocation domain of consumer is used in allocation. We
+      // skip it in validation here. Note that this assert was hit for
+      // vectorized pad, because we do not propagate allocation domain for
+      // PadOp. See: https://github.com/NVIDIA/Fuser/pull/3439
       NVF_CHECK(
           last_alloc_dim == vec_alloc_id,
           "Vectorized dim for ",
@@ -586,10 +630,11 @@ class VectorizeValidator : public OptInDispatch {
   static IterDomain* getAndValidateVectorizedIdInAllocationDomain(
       IterDomain* v_id,
       TensorView* tv,
-      std::string name) {
+      std::string name,
+      Expr* load_store) {
     const auto& [vec_alloc_id, dep_alloc_ids] =
         GpuLower::current()->hasIdModel()
-        ? getDependentAllocIDsIdModel(v_id, tv)
+        ? getDependentAllocIDsIdModel(v_id, tv, load_store)
         : getDependentAllocIDs(v_id, tv);
 
     validateAllocationVectorizedId(vec_alloc_id, dep_alloc_ids, tv, name);
@@ -646,8 +691,14 @@ class VectorizeValidator : public OptInDispatch {
         vector_size,
         " however, vector sizes only upto and including 16 bytes are supported.");
 
-    auto consumer_vectorized_id =
-        getAndValidateVectorizedIdInAllocationDomain(v_id, tv, "consumer");
+    auto tv_def = tv->definition();
+    NVF_ERROR(
+        tv_def != nullptr,
+        "Tv has no definition, cannot validate vectorization:",
+        tv);
+
+    auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
+        v_id, tv, "consumer", tv_def);
     if (consumer_vectorized_id == nullptr) {
       return;
     }
@@ -663,22 +714,31 @@ class VectorizeValidator : public OptInDispatch {
       GpuLower::current()->vectorizedAccesses().emplace(tv, vector_word_size);
     }
 
-    auto tv_def = tv->definition();
-    NVF_ERROR(
-        tv_def != nullptr,
-        "Tv has no definition, cannot validate vectorization:",
-        tv);
-    auto producer_tv = tv_def->inputs().at(0)->as<TensorView>();
-    auto producer_word_size_it =
-        GpuLower::current()->vectorizedAccesses().find(producer_tv);
-    if (producer_word_size_it !=
-        GpuLower::current()->vectorizedAccesses().end()) {
-      producer_word_size_it->second =
-          std::max(vector_word_size, producer_word_size_it->second);
-    } else {
-      GpuLower::current()->vectorizedAccesses().emplace(
-          producer_tv, vector_word_size);
+    // TernaryOp(where) is a could have multiple inputs. But we only support
+    // single TensorView input for vectorization.
+    TensorView* producer_tv = nullptr;
+    for (auto input : tv_def->inputs()) {
+      if (!input->isA<TensorView>()) {
+        continue;
+      }
+      NVF_ERROR(
+          producer_tv == nullptr,
+          "Vectorization validation only support op with a single TensorView input");
+      producer_tv = input->as<TensorView>();
+      auto producer_word_size_it =
+          GpuLower::current()->vectorizedAccesses().find(producer_tv);
+      if (producer_word_size_it !=
+          GpuLower::current()->vectorizedAccesses().end()) {
+        producer_word_size_it->second =
+            std::max(vector_word_size, producer_word_size_it->second);
+      } else {
+        GpuLower::current()->vectorizedAccesses().emplace(
+            producer_tv, vector_word_size);
+      }
     }
+    NVF_ERROR(
+        producer_tv != nullptr,
+        "Vectorization validation requires a TensorView input");
 
     VectorizedSetInfo vectorized_set_info;
     vectorized_set_info.consumer_tv = tv;
@@ -695,7 +755,7 @@ class VectorizeValidator : public OptInDispatch {
       // No need to do replayPasC when using IdModel
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              v_id, producer_tv, "producer");
+              v_id, producer_tv, "producer", tv_def);
     } else {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, tv);
       auto producer_replayed_as_consumer =
@@ -713,7 +773,7 @@ class VectorizeValidator : public OptInDispatch {
               .getReplay();
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
-              c2p_map.at(v_id), producer_tv, "producer");
+              c2p_map.at(v_id), producer_tv, "producer", tv_def);
     }
 
     // For aligned vectorize, the extent of a vectorized domain must
@@ -798,6 +858,10 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       Expr* def = tv->definition();
       NVF_ERROR(
           def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
+              def->isA<PadOp>() ||
+              (def->isA<TernaryOp>() &&
+               def->as<TernaryOp>()->getTernaryOpType() ==
+                   TernaryOpType::Where) ||
               (def->isA<ReductionOp>() &&
                def->as<ReductionOp>()->serialGridReductionRequested()),
           "Vectorized accesses cannot be inline with computation: ",

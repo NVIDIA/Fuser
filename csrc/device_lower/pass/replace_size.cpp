@@ -59,26 +59,36 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
     // 1. Constant ints. These might be non-immediate constants
     // 2. Extents of input TVs.
     // 3. Extents of non-input TVs.
-    // Within these three classes, we find the IterDomain with the smallest
-    // name().
+    // Within these three classes, we find the IterDomain with the
+    // smallest name(). For case 3, we also prefer the IterDomain with
+    // the simplest extent, which has the smallest number of defining
+    // expessions.
     bool group_is_const = false;
     IterDomain* rep = nullptr;
     bool rep_is_input_id = false;
+    int64_t rep_num_defs = 0;
     std::unordered_set<Val*> dynamic_scalars;
     for (Val* v : *group) {
       auto* id = dynamic_cast<IterDomain*>(v);
       NVF_ERROR(
           id != nullptr, "Expected only IterDomains in exact graph ValGroups");
       bool is_input_id = fusion_input_ids.count(id) > 0;
-      if (rep == nullptr) {
-        rep = id;
-        rep_is_input_id = is_input_id;
-        continue;
-      }
       Val* ext = id->extent();
       bool ext_is_const = ext->isConstInt();
       if (!ext_is_const) {
         dynamic_scalars.insert(ext);
+      }
+
+      // Initializing rep with the first ID
+      if (rep == nullptr) {
+        rep = id;
+        rep_is_input_id = is_input_id;
+        group_is_const = ext_is_const;
+        // If neigher const nor input, record the number of exprs
+        if (!ext_is_const && !is_input_id) {
+          rep_num_defs = ir_utils::getOperationCount(id->extent());
+        }
+        continue;
       }
 
       if (ext_is_const) {
@@ -103,9 +113,12 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
         if (group_is_const || rep_is_input_id) {
           continue;
         }
-        if (id->name() < rep->name()) {
+        auto num_defs = ir_utils::getOperationCount(id->extent());
+        if (num_defs < rep_num_defs ||
+            (num_defs == rep_num_defs && id->name() < rep->name())) {
           rep = id;
           rep_is_input_id = is_input_id;
+          rep_num_defs = num_defs;
           continue;
         }
       }
@@ -253,8 +266,29 @@ void replaceSymbolicSizes(Fusion* fusion) {
     }
   }
 
-  // Run mutation on the fusion with the tensor_dim_map
-  ir_utils::replaceValue(fusion, extent_simplification_map);
+  // Iter domains in the fusion-managed exact mappings may be going to
+  // be replaced by another exact-mapped ID, so it'll be reset and
+  // recreated. Save a copy here before replacement to fix them up later.
+  const auto registered_exact_mappings = fusion->registeredExactMappings();
+
+  auto mutation_map = ir_utils::replaceValue(fusion, extent_simplification_map);
+
+  fusion->resetExactMappings();
+
+  auto get_maybe_mutated = [&mutation_map](IterDomain* id) -> IterDomain* {
+    if (auto mutation_map_it = mutation_map.find(id);
+        mutation_map_it != mutation_map.end()) {
+      id = mutation_map_it->second->as<IterDomain>();
+    }
+    return id;
+  };
+
+  for (const auto& exact_id_group : registered_exact_mappings.disjointSets()) {
+    auto first_id = get_maybe_mutated(exact_id_group->front());
+    for (IterDomain* id : *exact_id_group) {
+      fusion->registerExactMapping(first_id, get_maybe_mutated(id));
+    }
+  }
 }
 
 } // namespace nvfuser
