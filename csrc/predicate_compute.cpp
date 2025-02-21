@@ -288,15 +288,8 @@ ParallelizedDomainPredicate::getPredicateMap(
           tv->getLoopDomain().begin(),
           tv->getLoopDomain().end(),
           [&](auto tv_id) {
-#if 0
             return gpu_lower->caMap()->areMapped(
                 loop_id, tv_id, IdMappingMode::EXACT);
-#else
-            return gpu_lower->idModel()
-                .idGraph(IdMappingMode::EXACT)
-                .disjointValSets()
-                .strictAreMapped(loop_id, tv_id);
-#endif
           });
       if (it == tv->getLoopDomain().end()) {
         continue;
