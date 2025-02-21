@@ -505,22 +505,14 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   for (TensorView* tv : tvs_) {
     if (tv->hasRoot()) {
-      for (auto id : tv->getRootDomain()) {
-        almost_exact_graph.setUnmappable(
-            {tv->getRootDomain().begin(), tv->getRootDomain().end()});
-      }
+      almost_exact_graph.setUnmappable(
+          {tv->getRootDomain().begin(), tv->getRootDomain().end()});
     }
-    for (auto id : tv->getLogicalDomain()) {
-      forbidden_pairs[id].insert(
-          tv->getLogicalDomain().begin(), tv->getLogicalDomain().end());
-    }
-    for (auto id : tv->getLoopDomain()) {
-      forbidden_pairs[id].insert(
-          tv->getLoopDomain().begin(), tv->getLoopDomain().end());
-    }
+    almost_exact_graph.setUnmappable(
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+    almost_exact_graph.setUnmappable(
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
   }
-
-  almost_exact_graph.do_not_map_vals_ = forbidden_pairs;
 
   // Maps iter domain pairs returned by calling that return mappings from
   // isTrivialExpr on every expression in the graph.
