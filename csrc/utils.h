@@ -639,17 +639,30 @@ class iota {
     using iterator_category = std::input_iterator_tag;
     int64_t value;
     iterator(int64_t start) : value(start) {}
-    int64_t operator*() const { return value; }
-    iterator& operator++() { ++value; return *this; }
-    iterator operator++(int) { iterator temp = *this; ++value; return temp; }
-    template<typename T>
-    bool operator==(T) const { return false; }
+    int64_t operator*() const {
+      return value;
+    }
+    iterator& operator++() {
+      ++value;
+      return *this;
+    }
+    iterator operator++(int) {
+      iterator temp = *this;
+      ++value;
+      return temp;
+    }
+    template <typename T>
+    bool operator==(T) const {
+      return false;
+    }
   };
 
   iterator begin() const {
     return iterator(start);
   }
-  auto end() const { return std::unreachable_sentinel; }
+  auto end() const {
+    return std::unreachable_sentinel;
+  }
   int64_t start;
   iota(int64_t start) : start(start) {}
 };
