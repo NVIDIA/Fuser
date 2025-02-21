@@ -503,6 +503,11 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
+  // Even when EXACT has no self mapping, there was a case ALMOSTEXACT
+  // had self mapping (see issue #3919). ALMOSTEXACT is used in
+  // indexing, which assumes the graph has no self mapping. To avoid
+  // self mapping, mark each of the root, logical and loop domains of
+  // all tensors unmappable
   for (TensorView* tv : tvs_) {
     if (tv->hasRoot()) {
       almost_exact_graph.setUnmappable(
@@ -545,9 +550,6 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   almost_exact_graph.validateConsistency();
 
-  // Even when EXACT has no self mapping, there was a case ALMOSTEXACT
-  // had self mapping (see issue #3919). ALMOSTEXACT is used in
-  // indexing, which assumes the graph has no self mapping.
   if (!allow_self_mapping_) {
     assertNoSelfMapping(almost_exact_graph);
   }
