@@ -177,7 +177,7 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   executors_fb.reserve(executors_.size());
   for (auto& ea : executors_) {
     if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
-      executors_fb.push_back(ke->serialize(builder));
+      executors_fb.emplace_back(ke->serialize(builder));
     }
   }
 
@@ -425,7 +425,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
+    num_live_args_after_segment_runs_.emplace_back((int64_t)args.size());
   }
 
   // add all expressions and compiled kernels to the host ir container
