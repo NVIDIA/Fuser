@@ -10,6 +10,8 @@
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <id_model/indexing_traversal.h>
+#include <id_model/predicate_indexing.h>
 #include <id_model/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
@@ -71,52 +73,107 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 
 namespace {
 
-std::unordered_set<Val*> getNonUnswitchedRootDomains(
+std::vector<IterDomain*> getFullyUnswitchedLoopIds(
+    const Expr* expr,
     const std::vector<ForLoop*>& loops,
-    size_t unswitched_loop_index) {
-  std::vector<Val*> non_unswited_loop_domains;
+    ForLoop* unswitched_loop) {
+  if (unswitched_loop == nullptr) {
+    return {};
+  }
+
+  const auto& id_model = GpuLower::current()->idModel();
+  const auto& indexing_graph =
+      id_model.idGraph(TensorIndexer::traversalGraphType());
+
+  auto out_tv = ir_utils::getTvOutput(expr);
+  NVF_ERROR(out_tv != nullptr);
+
+  std::vector<IterDomain*> loop_ids;
+  loop_ids.reserve(loops.size());
   std::transform(
       loops.begin(),
-      loops.begin() + (int64_t)unswitched_loop_index,
-      std::back_inserter(non_unswited_loop_domains),
-      [&](ForLoop* loop) { return loop->iter_domain(); });
-
-  auto non_unswitched_inputs =
-      IterVisitor::getInputsTo(non_unswited_loop_domains);
-
-  auto non_unswitched_root_doms =
-      ir_utils::filterByType<IterDomain>(non_unswitched_inputs);
-
-  std::unordered_set<Val*> non_unswitched_concrete_root_domains;
-
-  std::transform(
-      non_unswitched_root_doms.begin(),
-      non_unswitched_root_doms.end(),
-      std::inserter(
-          non_unswitched_concrete_root_domains,
-          non_unswitched_concrete_root_domains.end()),
-      [&](auto root_dom) {
-        return GpuLower::current()->caMap()->getConcreteMappedID(
-            root_dom, IdMappingMode::EXACT);
+      loops.end(),
+      std::back_inserter(loop_ids),
+      [&](ForLoop* loop) {
+        const auto& loop_group =
+            id_model.idGraph(IdMappingMode::LOOP).toGroup(loop->iter_domain());
+        auto promotion_it = id_model.loopPromotionMap().find(loop_group);
+        NVF_ERROR(
+            promotion_it != id_model.loopPromotionMap().end(),
+            "Loop promotion not found for ",
+            loop->iter_domain()->toString());
+        return promotion_it->second;
       });
 
-  return non_unswitched_concrete_root_domains;
-}
+  const auto predicate_ids = getPredicateDomains(out_tv, expr);
 
-bool isFullyUnswitched(
-    IterDomain* loop_id,
-    const std::unordered_set<Val*>& non_unswitched_root_domains) {
-  auto root_vals = IterVisitor::getInputsTo({loop_id});
+  const IndexingTraversal::ExprPath predicate_path =
+      IndexingTraversal::getExprsBetween(
+          expr, indexing_graph, loop_ids, predicate_ids);
 
-  auto root_domains = ir_utils::filterByType<IterDomain>(root_vals);
+  ValGroups non_unswitch_dep_ids;
+  std::vector<IterDomain*> unswitched_loop_ids;
+  bool unswitch_found = false;
+  for (const auto loop : loops) {
+    if (loop == unswitched_loop) {
+      unswitch_found = true;
+    }
+    if (unswitch_found) {
+      unswitched_loop_ids.push_back(loop->iter_domain());
+    } else {
+      non_unswitch_dep_ids.pushBack(
+          indexing_graph.toGroup(loop->iter_domain()));
+    }
+  }
 
-  return std::none_of(
-      root_domains.begin(), root_domains.end(), [&](auto root_dom) {
-        auto concrete_root_dom =
-            GpuLower::current()->caMap()->getConcreteMappedID(
-                root_dom, IdMappingMode::EXACT);
-        return non_unswitched_root_domains.count(concrete_root_dom) > 0;
-      });
+  for (const auto& [expr_g, dir] : predicate_path) {
+    const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
+    const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
+    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+          return non_unswitch_dep_ids.has(input);
+        })) {
+      // Depends on non-unswitched ids
+      non_unswitch_dep_ids.pushBack(outputs);
+    }
+  }
+
+  // If none of unswitched_loop_ids is used with the non-unswitched
+  // loop ids,
+
+  std::vector<IterDomain*> fully_unswitched_loop_ids;
+  for (auto unswitched_loop_id : unswitched_loop_ids) {
+    if (!isParallelTypeThread(unswitched_loop_id->getParallelType())) {
+      continue;
+    }
+
+    ValGroups unswitch_dep_ids;
+    unswitch_dep_ids.pushBack(indexing_graph.toGroup(unswitched_loop_id));
+
+    bool conflict_found = false;
+    for (const auto& [expr_g, dir] : predicate_path) {
+      const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
+      const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
+      if (std::none_of(
+              inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+                return unswitch_dep_ids.has(input);
+              })) {
+        continue;
+      }
+
+      if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
+            return non_unswitch_dep_ids.has(input);
+          })) {
+        conflict_found = true;
+        break;
+      }
+    }
+
+    if (!conflict_found) {
+      fully_unswitched_loop_ids.push_back(unswitched_loop_id);
+    }
+  }
+
+  return fully_unswitched_loop_ids;
 }
 
 } // namespace
@@ -147,13 +204,15 @@ ParallelizedDomainPredicate::getPredicateMap(
   bool within_unswitch = false;
   std::unordered_set<Val*> non_unswitched_root_domains;
 
+  auto fully_unswitched_loop_ids =
+      getFullyUnswitchedLoopIds(expr, loops, unswitched_loop);
+
   for (const auto i : c10::irange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.
     if (loop == unswitched_loop) {
       within_unswitch = true;
-      non_unswitched_root_domains = getNonUnswitchedRootDomains(loops, i);
     }
 
     auto loop_id = loop->iter_domain();
@@ -168,7 +227,10 @@ ParallelizedDomainPredicate::getPredicateMap(
 
     // Parallel dimensions need not be predicated if fully unswitched.
     if (within_unswitch &&
-        isFullyUnswitched(loop_id, non_unswitched_root_domains)) {
+        std::find(
+            fully_unswitched_loop_ids.begin(),
+            fully_unswitched_loop_ids.end(),
+            loop_id) != fully_unswitched_loop_ids.end()) {
       continue;
     }
 
