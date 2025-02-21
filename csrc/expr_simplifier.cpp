@@ -2166,6 +2166,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
   if (op != BinaryOpType::Div && op != BinaryOpType::Mod) {
     return value;
   }
+
   auto lhs = sym_algebra::factorize(divmod->lhs());
   auto rhs = sym_algebra::factorize(divmod->rhs());
 
