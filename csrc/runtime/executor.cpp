@@ -899,10 +899,10 @@ void KernelExecutor::resetCompiledKernelProperties() {
 }
 
 std::vector<at::Tensor> KernelExecutor::run(
-    KernelArgumentHolder& args,
+    KernelArgumentHolder args,
+    std::vector<at::Tensor> outputs,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params,
-    std::vector<at::Tensor> outputs) {
+    CompileParams compile_params) {
   FUSER_PERF_SCOPE("KernelExecutor::runFusion");
 
   if (isProfilerEnabled()) {

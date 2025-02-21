@@ -834,7 +834,7 @@ void reductionDynamicViewAddFusion(
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
 
-    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args, __LINE__, __FILE__);
   }
 }
 
@@ -947,7 +947,7 @@ void reductionDynamicPadAddFusion(
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, args.toC10Array(), __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args, __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE
@@ -1197,7 +1197,7 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
 
   auto outputs = executor_cache.runFusionWithInputs(valid_args);
 
-  testValidate(fusion, outputs, valid_args.toC10Array(), __LINE__, __FILE__);
+  testValidate(fusion, outputs, valid_args, __LINE__, __FILE__);
 
   // An informative error message should be given by
   // SqueezeOp::checkConcretization
@@ -1242,11 +1242,7 @@ TEST_F(NVFuserTest, SymbolicExpand) {
   auto outputs = executor_cache.runFusionWithInputs(valid_args);
 
   testValidate(
-      executor_cache.fusion(),
-      outputs,
-      valid_args.toC10Array(),
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), outputs, valid_args, __LINE__, __FILE__);
 
   // An informative error message should be given during concretization
   EXPECT_THAT(

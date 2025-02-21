@@ -1267,7 +1267,7 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
   KernelExecutor ke;
   auto lparams = rparams->lparams;
   ke.compile(&fusion, {t0, idx}, lparams);
-  auto cg_outputs = ke.run({t0, idx}, lparams);
+  auto cg_outputs = ke.run({t0, idx}, {}, lparams);
 
   auto t_gather = at::gather(t0, dim, idx);
   testValidate(

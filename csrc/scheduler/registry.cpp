@@ -107,7 +107,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
 std::unique_ptr<HeuristicParams> SchedulerEntry::scheduleWith(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const c10::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   NVF_ERROR(
