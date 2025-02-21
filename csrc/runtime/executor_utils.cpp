@@ -727,7 +727,7 @@ void validateIndexCasts(
     kir::Kernel* kernel,
     ExpressionEvaluator& expr_eval,
     const LaunchParams& launch_params) {
-  if (!kernel->summary().has_index_casts) {
+  if (!kernel->summary().has_narrowing_index_casts) {
     return;
   }
   ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
