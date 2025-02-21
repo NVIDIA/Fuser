@@ -289,11 +289,11 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    std::unordered_map<Val*, const PolymorphicValue&> tensor_map;
+    std::unordered_map<Val*, PolymorphicValue> tensor_map;
     for (const auto i : c10::irange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
-    auto outputs = hie_->runWithPolymorphicValues(tensor_map);
+    auto outputs = hie_->runWithInput(tensor_map);
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
@@ -725,7 +725,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
-  auto outputs = ExecutorDispatch::run(ea, args, launch_params, compile_params);
+  auto outputs =
+      ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
 
   return outputs;
 }

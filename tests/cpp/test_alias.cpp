@@ -1403,12 +1403,7 @@ TEST_F(AliasTest, QKVSplitBackprop) {
     args.push(at::randn({b, s, h * f}).cuda());
   }
   auto out_tensors = executor_cache.runFusionWithInputs(args);
-  testValidate(
-      executor_cache.fusion(),
-      out_tensors,
-      args.toC10Array(),
-      __LINE__,
-      __FILE__);
+  testValidate(executor_cache.fusion(), out_tensors, args, __LINE__, __FILE__);
 
   EXPECT_TRUE(out_tensors[2].is_alias_of(out_tensors[1]));
 }

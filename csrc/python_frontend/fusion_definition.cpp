@@ -435,6 +435,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       }
       out_tensors = user_sched->executor->run(
           args.toC10Array(),
+          {},
           user_sched->heuristic_params->lparams,
           user_sched->heuristic_params->cparams);
     }

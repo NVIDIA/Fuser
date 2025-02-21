@@ -620,24 +620,32 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .TOSTRINGMETHOD(CompileParams);
 
   DEFINECLASS(GemmTile)
+      .def(py::init<int64_t, int64_t, int64_t>())
       .PARAM(GemmTile, m)
       .PARAM(GemmTile, n)
       .PARAM(GemmTile, k)
       .TOSTRINGTOPLEVEL(GemmTile);
 
-#undef GEMMTILEDIMPARAM
   DEFINECLASS(MatMulTileOptions)
+      .def(py::init<GemmTile, GemmTile>())
       .PARAM(MatMulTileOptions, cta_tile)
       .PARAM(MatMulTileOptions, warp_tile)
       .TOSTRINGTOPLEVEL(MatMulTileOptions);
 
-  DEFINECLASS(MatmulParams::CircularBufferOptions)
+  py::class_<MatmulParams::CircularBufferOptions>(
+      nvfuser, "CircularBufferOptions")
+      .def(py::init<bool, bool, int, int>())
       .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_read)
       .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_write)
       .PARAM(MatmulParams::CircularBufferOptions, smem_circular_buffer_stage)
+      .PARAM(
+          MatmulParams::CircularBufferOptions,
+          smem_circular_buffer_prefetch_gap)
       .TOSTRINGMETHOD(MatmulParams::CircularBufferOptions);
 
-  DEFINECLASS(MatmulParams::SupportedVectorization)
+  py::class_<MatmulParams::SupportedVectorization>(
+      nvfuser, "SupportedVectorization")
+      .def(py::init<int64_t, int64_t, int64_t>())
       .PARAM(MatmulParams::SupportedVectorization, a)
       .PARAM(MatmulParams::SupportedVectorization, b)
       .PARAM(MatmulParams::SupportedVectorization, epilogue)
@@ -648,7 +656,8 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
 
-  DEFINECLASS(MatmulParams::ClusterDims)
+  py::class_<MatmulParams::ClusterDims>(nvfuser, "ClusterDims")
+      .def(py::init<int64_t, int64_t, int64_t>())
       .PARAM(MatmulParams::ClusterDims, x)
       .PARAM(MatmulParams::ClusterDims, y)
       .PARAM(MatmulParams::ClusterDims, z)
@@ -660,6 +669,15 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .value("turing", MmaMacroEncode::Arch::Turing)
       .value("ampere", MmaMacroEncode::Arch::Ampere)
       .value("hopper", MmaMacroEncode::Arch::Hopper);
+
+  DEFINECLASS(MmaMacroEncode)
+      .def(py::init<MmaMacroEncode::Arch, uint16_t, uint16_t, uint16_t>())
+      .def("mma_macro", &MmaMacroEncode::operator MmaMacro)
+      .PARAM(MmaMacroEncode, arch)
+      .PARAM(MmaMacroEncode, m)
+      .PARAM(MmaMacroEncode, n)
+      .PARAM(MmaMacroEncode, k);
+
   // NOTE: MmaMacro is a uint64_t. To modify it, we convert to and from
   // MmaMacroEncode
 #define MMAMACROPROP(prop, type)                                      \
@@ -678,6 +696,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .MMAMACROPROP(k, uint16_t)
       .TOSTRINGTOPLEVEL(MmaMacro);
 #undef MMAMACROPROP
+
   py::enum_<MatmulParams::TilingStrategy>(nvfuser, "MatmulTilingStrategy")
       .value("one_tile_per_cta", MatmulParams::TilingStrategy::OneTilePerCTA)
       .value(
