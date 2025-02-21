@@ -1696,7 +1696,7 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
   int64_t counter = 0;
   auto english_it = english.begin();
   for (auto&& [i, e, s, iota] :
-       zip(integer, english, set_theoretic_zero_to_inf, iota(0LL))) {
+       zip(integer, english, set_theoretic_zero_to_inf, views::iota(0LL))) {
     static_assert(std::is_same_v<decltype(i), int64_t&>);
     static_assert(std::is_same_v<decltype(e), std::string&>);
     static_assert(std::is_same_v<decltype(s), SetTheoreticNaturalNumber>);

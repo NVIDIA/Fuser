@@ -626,6 +626,7 @@ using std::views::zip;
 
 #else
 
+namespace views {
 #if !defined(__clang__) || (__clang_major__ > 14)
 using std::views::iota;
 #else
@@ -668,7 +669,6 @@ class iota {
 };
 #endif
 
-namespace views {
 template <std::ranges::input_range... Rs>
 #if !defined(__clang__) || (__clang_major__ > 14)
 class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
@@ -746,7 +746,7 @@ using views::zip;
 #endif
 
 auto enumerate(auto&& range) {
-  return zip(iota(0LL), std::forward<decltype(range)>(range));
+  return zip(views::iota(0LL), std::forward<decltype(range)>(range));
 }
 
 } // namespace nvfuser
