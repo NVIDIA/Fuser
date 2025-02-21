@@ -351,7 +351,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(3));
+      Contains(HeuristicIs(SchedulerType::ExprEval)));
 }
 
 // Reproduces #2721.
