@@ -115,6 +115,61 @@ BoundedInt BoundedInt::operator/(const int64_t other) const {
   }
 }
 
+BoundedInt ceilDiv(const BoundedInt& numer, const BoundedInt& denom) {
+  // NOTE: This is very similar to operator/
+  auto split_ranges_around_zero = [](const BoundedInt& b) {
+    std::vector<BoundedInt> ranges;
+    if (b.min < 0L) {
+      ranges.push_back({b.min, std::min(b.max, -1L)});
+    }
+    if (b.max > 0L) {
+      ranges.push_back({std::max(b.min, 1L), b.max});
+    }
+    return ranges;
+  };
+  const std::vector<BoundedInt> numer_ranges = split_ranges_around_zero(numer);
+  const std::vector<BoundedInt> denom_ranges = split_ranges_around_zero(denom);
+
+  BoundedInt result;
+  bool first = true;
+  for (const BoundedInt& numer : numer_ranges) {
+    for (const BoundedInt& denom : denom_ranges) {
+      BoundedInt simple_range;
+      // numer and denom are each either only negative or only positive
+      if (numer.min > 0) {
+        if (denom.min > 0) {
+          // positive over positive
+          simple_range = {
+              ceilDiv(numer.min, denom.max), ceilDiv(numer.max, denom.min)};
+        } else {
+          // positive over negative
+          simple_range = {
+              ceilDiv(numer.max, denom.max), ceilDiv(numer.min, denom.min)};
+        }
+      } else {
+        if (denom.min > 0) {
+          // negative over positive
+          simple_range = {
+              ceilDiv(numer.min, denom.min), ceilDiv(numer.max, denom.max)};
+        } else {
+          // negative over negative
+          simple_range = {
+              ceilDiv(numer.max, denom.min), ceilDiv(numer.min, denom.max)};
+        }
+      }
+      // Result is the union over all of the simple ranges
+      if (first) {
+        result = simple_range;
+      } else {
+        result.min = std::min(result.min, simple_range.min);
+        result.max = std::max(result.max, simple_range.max);
+      }
+      first = false;
+    }
+  }
+  return result;
+}
+
 BoundedInt BoundedInt::operator%(const BoundedInt& other) const {
   if (min >= 0L && other.min >= 0L && max < other.min) {
     return {min, max};
@@ -177,38 +232,21 @@ int64_t BoundedInt::countCommonHighBits() const {
 // Since twos-complement negative integers can be envisioned as simply
 // stacking (without flipping) the negative values at the right side of the
 // positive values, we can apply the same algorithm regardless of signedness.
-BoundedInt BoundedInt::operator^(const BoundedInt& other) const {
-  // New interval has this many fixed bits
-  int64_t var_bits =
-      64L - std::min(countCommonHighBits(), other.countCommonHighBits());
-  // Mask everything below the higher fixed_bits
-  int64_t low_mask = (1 << var_bits) - 1; // 0b00111
-  int64_t new_min = (min ^ other.min) & (~low_mask); // 0b01000
-  int64_t new_max = new_min + low_mask; // 0b01111
-  return {new_min, new_max};
-}
-
-BoundedInt BoundedInt::operator&(const BoundedInt& other) const {
-  // New interval has this many fixed bits
-  int64_t var_bits =
-      64L - std::min(countCommonHighBits(), other.countCommonHighBits());
-  // Mask everything below the higher fixed_bits
-  int64_t low_mask = (1 << var_bits) - 1; // 0b00111
-  int64_t new_min = (min & other.min) & (~low_mask); // 0b01000
-  int64_t new_max = new_min + low_mask; // 0b01111
-  return {new_min, new_max};
-}
-
-BoundedInt BoundedInt::operator|(const BoundedInt& other) const {
-  // New interval has this many fixed bits
-  int64_t var_bits =
-      64L - std::min(countCommonHighBits(), other.countCommonHighBits());
-  // Mask everything below the higher fixed_bits
-  int64_t low_mask = (1 << var_bits) - 1; // 0b00111
-  int64_t new_min = (min | other.min) & (~low_mask); // 0b01000
-  int64_t new_max = new_min + low_mask; // 0b01111
-  return {new_min, new_max};
-}
+#define DEFINE_BITWISE_BINARY_OP(op)                                        \
+  BoundedInt BoundedInt::operator op(const BoundedInt & other) const {      \
+    /* New interval has this many fixed bits */                             \
+    int64_t var_bits =                                                      \
+        64L - std::min(countCommonHighBits(), other.countCommonHighBits()); \
+    /* Mask everything below the higher fixed_bits */                       \
+    int64_t low_mask = (1 << var_bits) - 1;                                 \
+    int64_t new_min = (min op other.min) & (~low_mask);                     \
+    int64_t new_max = new_min + low_mask;                                   \
+    return {new_min, new_max};                                              \
+  }
+DEFINE_BITWISE_BINARY_OP(&)
+DEFINE_BITWISE_BINARY_OP(|)
+DEFINE_BITWISE_BINARY_OP(^)
+#undef DEFINE_BITWISE_BINARY_OP
 
 BoundedInt BoundedInt::operator~() const {
   // New interval has this many fixed bits
@@ -230,61 +268,6 @@ BoundedInt BoundedInt::operator>>(const BoundedInt& other) const {
   int64_t new_min = (min < 0L) ? (min >> other.min) : (min >> other.max);
   int64_t new_max = (max < 0L) ? (max >> other.max) : (max >> other.min);
   return {new_min, new_max};
-}
-
-BoundedInt ceilDiv(const BoundedInt& numer, const BoundedInt& denom) {
-  // NOTE: This is very similar to operator/
-  auto split_ranges_around_zero = [](const BoundedInt& b) {
-    std::vector<BoundedInt> ranges;
-    if (b.min < 0L) {
-      ranges.push_back({b.min, std::min(b.max, -1L)});
-    }
-    if (b.max > 0L) {
-      ranges.push_back({std::max(b.min, 1L), b.max});
-    }
-    return ranges;
-  };
-  const std::vector<BoundedInt> numer_ranges = split_ranges_around_zero(numer);
-  const std::vector<BoundedInt> denom_ranges = split_ranges_around_zero(denom);
-
-  BoundedInt result;
-  bool first = true;
-  for (const BoundedInt& numer : numer_ranges) {
-    for (const BoundedInt& denom : denom_ranges) {
-      BoundedInt simple_range;
-      // numer and denom are each either only negative or only positive
-      if (numer.min > 0) {
-        if (denom.min > 0) {
-          // positive over positive
-          simple_range = {
-              ceilDiv(numer.min, denom.max), ceilDiv(numer.max, denom.min)};
-        } else {
-          // positive over negative
-          simple_range = {
-              ceilDiv(numer.max, denom.max), ceilDiv(numer.min, denom.min)};
-        }
-      } else {
-        if (denom.min > 0) {
-          // negative over positive
-          simple_range = {
-              ceilDiv(numer.min, denom.min), ceilDiv(numer.max, denom.max)};
-        } else {
-          // negative over negative
-          simple_range = {
-              ceilDiv(numer.max, denom.min), ceilDiv(numer.min, denom.max)};
-        }
-      }
-      // Result is the union over all of the simple ranges
-      if (first) {
-        result = simple_range;
-      } else {
-        result.min = std::min(result.min, simple_range.min);
-        result.max = std::max(result.max, simple_range.max);
-      }
-      first = false;
-    }
-  }
-  return result;
 }
 
 BoundedInt BoundedInt::operator<<(const BoundedInt& other) const {
