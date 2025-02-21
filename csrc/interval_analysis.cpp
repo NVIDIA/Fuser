@@ -289,26 +289,6 @@ ScalarBoundsCalculator::ScalarBoundsCalculator(
   }
 }
 
-//! Return the bounds, computed over all scalars in the fusion with the given
-//! data type
-BoundedInt ScalarBoundsCalculator::boundByDataType(DataType dtype) {
-  BoundedInt ret;
-  bool initialized = false;
-  for (auto& [val, b] : bounds_) {
-    if (val->dtype() != dtype) {
-      continue;
-    }
-    if (!initialized) {
-      ret = b;
-      initialized = true;
-    } else {
-      ret.min = std::min(ret.min, b.min);
-      ret.max = std::max(ret.max, b.max);
-    }
-  }
-  return ret;
-}
-
 //! Look at all casts (T)x where x is of type nvfuser_index_t, to ensure that
 //! these casts are safe i.e. that the bounds of x do not overflow those
 //! representable by T.
@@ -591,21 +571,6 @@ void ScalarBoundsCalculator::handle(TernaryOp* top) {
           "Propagation of integer bounds is not yet implemented for ",
           top->toString());
   }
-}
-
-// TODO: Use this to set index type
-PrimDataType getSmallestIndexTypeByBoundingExpressions(
-    kir::Kernel* kernel,
-    ExpressionEvaluator& expr_eval,
-    const LaunchParams& launch_params) {
-  // bind args to expression evaluator
-  ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
-  // Compute the range of all nvfuser_index_t values in the fusion
-  BoundedInt index_bounds = calc.boundByDataType();
-  return (index_bounds.min < (int64_t)std::numeric_limits<int32_t>::min() ||
-          index_bounds.max > (int64_t)std::numeric_limits<int32_t>::max())
-      ? PrimDataType::Int
-      : PrimDataType::Int32;
 }
 
 } // namespace nvfuser

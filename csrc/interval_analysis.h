@@ -102,10 +102,6 @@ class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
 
   NVF_API ~ScalarBoundsCalculator() override = default;
 
-  //! Return the bounds, computed over all scalars in the fusion with the given
-  //! data type
-  NVF_API BoundedInt boundByDataType(DataType dtype = DataType::Index);
-
   //! Look at all casts (T)x where x is of type nvfuser_index_t, to ensure that
   //! these casts are safe i.e. that the bounds of x do not overflow those
   //! representable by T.
@@ -152,14 +148,5 @@ class NVF_API ScalarBoundsCalculator : kir::IrVisitor {
   std::unordered_map<const Val*, PolymorphicValue> known_scalars_;
   std::vector<UnaryOp*> casts_from_index_;
 };
-
-//! This function uses ScalarBoundsCalculator to determine the union of all the
-//! ranges of DataType::Index scalars in the fusion. Then it returns the
-//! smallest type that can represent that range, out of PrimDataType::Int or
-//! PrimDataType::Int32.
-PrimDataType getSmallestIndexTypeByBoundingExpressions(
-    kir::Kernel* kernel,
-    ExpressionEvaluator& expr_eval,
-    const LaunchParams& launch_params);
 
 } // namespace nvfuser
