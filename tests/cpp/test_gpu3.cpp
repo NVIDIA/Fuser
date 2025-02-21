@@ -4523,7 +4523,7 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      args.toC10Array(),
+      args,
       outputs,
       __LINE__,
       __FILE__,
