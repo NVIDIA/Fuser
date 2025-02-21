@@ -250,6 +250,18 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       // when denom < 0. The bound above is actually tight for the in-kernel
       // code but that does not currently match our ExpressionEvaluator
       /*bound_is_tight=*/false);
+  RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {0, 0}}, {y, {2, 3}}},
+      /*expected_range=*/{0, 0});
+  RangeChecker::check(
+      div(x, y),
+      /*input_bounds=*/{{x, {0, 1}}, {y, {1, 1}}},
+      /*expected_range=*/{0, 1});
+  RangeChecker::check(
+      ceilDiv(x, y),
+      /*input_bounds=*/{{x, {0, 1}}, {y, {2, 3}}},
+      /*expected_range=*/{0, 1});
 
   RangeChecker::check(
       mod(x, y),
@@ -263,6 +275,10 @@ TEST_F(IntervalAnalysisTest, BinaryOps) {
       mod(x, y),
       /*input_bounds=*/{{x, {2, 4}}, {y, {2, 5}}},
       /*expected_range=*/{0, 4});
+  RangeChecker::check(
+      mod(x, y),
+      /*input_bounds=*/{{x, {2, 4}}, {y, {-8, -7}}},
+      /*expected_range=*/{2, 4});
 
   // We do not generally place the tightest bounds on bitwise ops because it is
   // difficult to do without exhaustively trying input combinations.

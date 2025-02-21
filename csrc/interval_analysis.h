@@ -64,6 +64,7 @@ struct NVF_API BoundedInt {
   NVF_API BoundedInt operator+(const int64_t other) const;
   NVF_API BoundedInt operator-(const BoundedInt& other) const;
   NVF_API BoundedInt operator-(const int64_t other) const;
+  NVF_API BoundedInt operator-() const;
   NVF_API BoundedInt operator*(const BoundedInt& other) const;
   NVF_API BoundedInt operator*(const int64_t other) const;
   NVF_API BoundedInt operator/(const BoundedInt& other) const;
