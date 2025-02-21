@@ -2106,13 +2106,16 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
 }
 
 // When two broadcast IDs are merged, all of the two input IDs and the
-// output ID can be considered trivially mapped. However, doing so can
+// output ID can be considered trivially mapped. However, doing so could
 // cause self mappings in a loop domain, which violates the assumption
 // of TensorIndexer. (For example, in this test case, tv1's loop
 // domain has two padded IDs of extent 3. If the merge of tv0 triggers
 // mappings of the two broadcast IDs of tv0, the two root IDs of tv1
-// will be mapped too in the AlmostExact graph, which then means the
-// two logical IDs of tv1 will also be mapped.
+// would be mapped too in the AlmostExact graph, which then means the
+// two logical IDs of tv1 would also be mapped. This should be fixed
+// by avoiding mapping that could result in self mapping.
+//
+// This is also a repro of issue #3919.
 TEST_F(IdModelTest, SelfMappingInAlmostExactGraph) {
   Fusion fusion;
   FusionGuard fg(&fusion);

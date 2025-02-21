@@ -550,12 +550,7 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   for (const auto& [id1, id2] : ids_to_map) {
-#if 0
-    std::cerr << "Trivial map: " << id1->toString() << ", " <<
-        id2->toString() << "\n";
-#endif
     almost_exact_graph.mapVals(id1, id2);
-    assertNoSelfMapping(almost_exact_graph);
   }
 
   almost_exact_graph.validateConsistency();

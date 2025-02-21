@@ -492,7 +492,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
-    // fusion_->print();
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,

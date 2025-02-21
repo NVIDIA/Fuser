@@ -749,8 +749,6 @@ TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
     traversalGraph().dumpGraphvizDotGraph("indexing_traversal_graph.dot");
-    id_model.idGraph(IdMappingMode::EXACT)
-        .dumpGraphvizDotGraph("indexing_traversal_exact_graph.dot");
   }
 }
 
