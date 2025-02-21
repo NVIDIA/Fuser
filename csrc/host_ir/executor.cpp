@@ -350,7 +350,6 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
-  KernelArgumentHolder args(input_IValues);
   // Compile the fusion and execute it with HostIrExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
@@ -387,8 +386,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      outputs =
-          ExecutorDispatch::run(ea, input_args);
+      outputs = ExecutorDispatch::run(ea, input_args);
     }
   }
 
