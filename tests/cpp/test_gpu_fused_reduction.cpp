@@ -590,7 +590,7 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   KernelExecutor ke;
   LaunchParams launch_params(2, 2, -1, -1, -1, -1);
   ke.compile(&fusion, aten_inputs, launch_params);
-  auto cg_outputs = ke.run(aten_inputs, launch_params);
+  auto cg_outputs = ke.run(aten_inputs, {}, launch_params);
 
   auto t5 = t0.to(at::kFloat);
   auto t6 = t1.to(at::kFloat);

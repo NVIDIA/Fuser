@@ -989,7 +989,7 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
     }
   }
   auto cg_outputs =
-      ke.run({t0}, heuristic_params->as<ReductionParams>()->lparams);
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 

@@ -155,7 +155,7 @@ static void NvFuserScheduler_LstmCell_Compile(
 
   for (auto _ : benchmark_state) {
     KernelExecutor ke;
-    ke.compile(&fusion, args.toC10Array());
+    ke.compile(&fusion, args);
   }
 }
 
@@ -182,12 +182,12 @@ static void NvFuserScheduler_LstmCell_RunFusion(
       &fusion, SchedulerType::PointWise, args.toC10Array());
 
   KernelExecutor ke;
-  ke.compile(&fusion, args.toC10Array());
+  ke.compile(&fusion, args);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   for (auto _ : benchmark_state) {
-    outputs = ke.run(args.toC10Array(), heuristic_params->lparams);
+    outputs = ke.run(args, {}, heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
   }
 }
@@ -219,7 +219,7 @@ static void NvFuserScheduler_LstmCell_RunFusion_GpuOnly(
       &fusion, SchedulerType::PointWise, args.toC10Array());
 
   KernelExecutor ke;
-  ke.compile(&fusion, args.toC10Array());
+  ke.compile(&fusion, args);
 
   runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);
 }
@@ -258,10 +258,10 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
 
   KernelExecutor ke;
   ke.setExecuteKernelFlag(false);
-  ke.compile(&fusion, args.toC10Array());
+  ke.compile(&fusion, args);
 
   for (auto _ : benchmark_state) {
-    outputs = ke.run(args.toC10Array(), heuristic_params->lparams);
+    outputs = ke.run(args, {}, heuristic_params->lparams);
   }
 }
 

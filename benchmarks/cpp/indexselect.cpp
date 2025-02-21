@@ -133,7 +133,7 @@ static void NvFuserScheduler_IndexSelect_Compile(
 
   for (auto _ : benchmark_state) {
     KernelExecutor ke;
-    ke.compile(&fusion, args.toC10Array(), heuristic_params->lparams);
+    ke.compile(&fusion, args, heuristic_params->lparams);
   }
 }
 
@@ -155,14 +155,14 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
       &fusion, SchedulerType::PointWise, args.toC10Array());
 
   KernelExecutor ke;
-  ke.compile(&fusion, args.toC10Array(), heuristic_params->lparams);
+  ke.compile(&fusion, args, heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
   at::Tensor output = at::empty_like(args[0].as<at::Tensor>());
 
   for (auto _ : benchmark_state) {
-    ke.run(args.toC10Array(), {output}, heuristic_params->lparams);
+    ke.run(args, {output}, heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
   }
