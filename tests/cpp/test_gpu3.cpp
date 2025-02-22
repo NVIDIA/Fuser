@@ -3626,7 +3626,7 @@ TEST_F(NVFuserTest, FusionCheckedSymbolicShape_CUDA) {
   at::Tensor c = at::randn({321, 654}, options);
 
   using return_t =
-      std::pair<std::unique_ptr<FusionExecutorCache>, std::vector<at::Tensor>>;
+      std::pair<std::unique_ptr<FusionExecutorCache>, KernelArgumentHolder>;
   auto matched_add = [](at::Tensor a, at::Tensor b) -> return_t {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
