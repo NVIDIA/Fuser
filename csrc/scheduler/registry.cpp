@@ -99,6 +99,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ExprEvalScheduler>();
     case SchedulerType::Resize:
       return std::make_unique<ResizeScheduler>();
+    case SchedulerType::Communication:
+      return std::make_unique<CommunicationScheduler>();
     default:
       NVF_THROW("unreachable");
   }
