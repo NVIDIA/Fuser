@@ -483,7 +483,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
         }
       }
     }
-    NVF_ERROR(out_dtensors.size() == out_tensors.size());
+    NVF_ERROR(out_dtensors.size() == outputs.size());
   } else {
     for (const auto& out_tensor : outputs) {
       out_dtensors.emplace_back(out_tensor.as<at::Tensor>());

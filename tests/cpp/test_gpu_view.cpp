@@ -2307,9 +2307,9 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {in_tensor});
-  at::Tensor actual_out_tensor = ke.run({in_tensor})[0];
+  auto cg_outputs = ke.run({in_tensor});
 
-  testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {

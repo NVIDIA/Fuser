@@ -172,7 +172,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   debug() << "Removing " << compiled_kernel->ptx_filename << std::endl;
   std::filesystem::remove(compiled_kernel->ptx_filename);
 
-  std::vector<at::Tensor> actual_outputs = ke.run({a, b});
+  auto actual_outputs = ke.run({a, b});
   testValidate(&fusion, actual_outputs, {a, b}, {c}, __LINE__, __FILE__);
 }
 

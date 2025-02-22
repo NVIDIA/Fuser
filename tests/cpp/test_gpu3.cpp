@@ -2786,9 +2786,9 @@ TEST_F(NVFuserTest, FusionExpandIssue1751_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   for (const auto& cg_out : cg_outputs) {
-    NVF_ERROR(cg_out.size(0) == x);
-    NVF_ERROR(cg_out.size(1) == y);
-    NVF_ERROR(cg_out.size(2) == z);
+    NVF_ERROR(cg_out.as<at::Tensor>().size(0) == x);
+    NVF_ERROR(cg_out.as<at::Tensor>().size(1) == y);
+    NVF_ERROR(cg_out.as<at::Tensor>().size(2) == z);
   }
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
@@ -2820,8 +2820,8 @@ TEST_F(NVFuserTest, FusionExpandToConcrete_CUDA) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   for (const auto& cg_out : cg_outputs) {
-    NVF_ERROR(cg_out.size(0) == x);
-    NVF_ERROR(cg_out.size(1) == y);
+    NVF_ERROR(cg_out.as<at::Tensor>().size(0) == x);
+    NVF_ERROR(cg_out.as<at::Tensor>().size(1) == y);
   }
 
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
@@ -5330,11 +5330,12 @@ TEST_F(NVFuserTest, FusionFloatConstantWhere_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::arange(4, options) > 1.0;
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0}).outputs;
   auto ref = at::where(t0, (float)3.0, (float)5.0);
   // testValidate does not check that dtypes match
-  NVF_CHECK(cg_outputs.outputs[0].dtype() == ref.dtype());
-  testValidate(&fusion, cg_outputs.outputs, {t0}, {ref}, __LINE__, __FILE__);
+  NVF_CHECK(cg_outputs[0].as<at::Tensor>().dtype() == ref.dtype());
+  testValidate(&fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionCpAsyncCommitWait_CUDA) {
@@ -6902,15 +6903,16 @@ TEST_F(ExpandedBroadcastGlobalIntermediateTest, TheTest_CUDA) {
 
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), {t0});
-  auto cg_output = ke.run({t0}).at(0);
+  auto out_tensor = ke.run({t0})[0].as<at::Tensor>();
 
-  ASSERT_EQ(cg_output.size(0), 2);
-  ASSERT_EQ(cg_output.size(1), (1L << 60L));
-  ASSERT_EQ(cg_output.size(2), 2);
-  ASSERT_EQ(cg_output.stride(0), 2);
-  ASSERT_EQ(cg_output.stride(1), 0);
-  ASSERT_EQ(cg_output.stride(2), 1);
-  ASSERT_TRUE(at::eq(t0.squeeze(1), cg_output.select(1, 0)).all().item<bool>());
+  ASSERT_EQ(out_tensor.size(0), 2);
+  ASSERT_EQ(out_tensor.size(1), (1L << 60L));
+  ASSERT_EQ(out_tensor.size(2), 2);
+  ASSERT_EQ(out_tensor.stride(0), 2);
+  ASSERT_EQ(out_tensor.stride(1), 0);
+  ASSERT_EQ(out_tensor.stride(2), 1);
+  ASSERT_TRUE(
+      at::eq(t0.squeeze(1), out_tensor.select(1, 0)).all().item<bool>());
 }
 
 TEST_F(NVFuserTest, FusionTestWarnRegisterSpill_CUDA) {

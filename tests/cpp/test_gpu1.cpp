@@ -6668,7 +6668,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
       outputs_forward[2]};
   auto outputs_backward =
       executor_cache_backward.runFusionWithInputs(args_backwards);
-  outputs_backward[0] = outputs_backward[0].permute({0, 4, 1, 2, 3});
+  outputs_backward[0] =
+      outputs_backward[0].as<at::Tensor>().permute({0, 4, 1, 2, 3});
   testValidate(
       executor_cache_backward.fusion(),
       outputs_backward,

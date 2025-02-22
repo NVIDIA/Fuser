@@ -288,7 +288,7 @@ TEST_F(AliasTest, SliceViewPermute) {
   EXPECT_EQ(out_tensors.size(), 3);
 
   for (const auto& out_tensor : out_tensors) {
-    EXPECT_TRUE(out_tensor.is_alias_of(in_tensor));
+    EXPECT_TRUE(out_tensor.as<at::Tensor>().is_alias_of(in_tensor));
   }
 
   std::vector<at::Tensor> expected_out_tensors =
@@ -380,11 +380,11 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
-      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(cg_outputs[0].as<at::Tensor>().is_alias_of(in_tensor));
 
   // Expect two segments:
   //
@@ -445,8 +445,8 @@ TEST_F(AliasTest, NotAllOutputsAlias_Reduction) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
-  EXPECT_TRUE(out_tensors[2].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[2].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(AliasTest, Issue1452) {
@@ -464,11 +464,11 @@ TEST_F(AliasTest, Issue1452) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({1024, 1024}).cuda();
-  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
   testValidate(
-      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {in_tensor}, __LINE__, __FILE__);
 
-  at::Tensor set_out_tensor = out_tensors[0];
+  at::Tensor set_out_tensor = cg_outputs[0].as<at::Tensor>();
   EXPECT_TRUE(set_out_tensor.is_alias_of(in_tensor));
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -514,7 +514,7 @@ TEST_F(AliasTest, AliasOutputBeforeNonAliasOutput) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  at::Tensor slice_out_tensor = out_tensors[0];
+  at::Tensor slice_out_tensor = out_tensors[0].as<at::Tensor>();
   EXPECT_TRUE(slice_out_tensor.is_alias_of(in_tensor));
 
   const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
@@ -662,7 +662,7 @@ TEST_F(AliasTest, TrivialInputForwarding_ScalarTensor) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  EXPECT_EQ(cg_outputs[0].as<at::Tensor>() data_ptr(), t0.data_ptr());
+  EXPECT_EQ(cg_outputs[0].as<at::Tensor>().data_ptr(), t0.data_ptr());
   testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 
   // Second run to ensure cache hit handles trivial forwarding properly

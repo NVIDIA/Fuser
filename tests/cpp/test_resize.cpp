@@ -2300,7 +2300,8 @@ TEST_F(ResizeTest, SliceVectorization) {
   at::Tensor t0 = at::randn(N + 8, options);
   at::Tensor t1 = at::randn(N, options);
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1}).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {

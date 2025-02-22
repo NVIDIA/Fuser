@@ -1223,8 +1223,6 @@ void grid_persistent_batchnorm_bwd_manual(
        at_save_mean,
        at_save_var});
 
-  std::vector<at::Tensor> cg_outputs;
-
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), inputs);
 
@@ -1235,7 +1233,7 @@ void grid_persistent_batchnorm_bwd_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run(inputs);
   // Permute grad_input output
   cg_outputs[0] = cg_outputs[0].as<at::Tensor>().permute({0, 3, 1, 2});
 
