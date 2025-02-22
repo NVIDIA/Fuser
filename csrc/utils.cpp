@@ -39,16 +39,6 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-std::string debug_str(const c10::IValue& val) {
-  if (val.isTensor()) {
-    return debug_str(val.toTensor());
-  }
-
-  std::stringstream out_s;
-  out_s << val.toScalar();
-  return out_s.str();
-}
-
 std::string debug_str(const at::Tensor& tensor) {
   std::stringstream ss;
   ss << "Tensor:";

@@ -568,7 +568,8 @@ std::string FusionDefinition::cudaCodeFor(
       }
     }
   }
-  return scheds->auto_gen_schedules->getCodeFor(inputs, intrinsic_code);
+  return scheds->auto_gen_schedules->getCodeFor(
+      KernelArgumentHolder(inputs), intrinsic_code);
 }
 
 std::string FusionDefinition::lastScheduledFusionIr(
