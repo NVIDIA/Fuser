@@ -38,8 +38,8 @@ void testValidate(
     const KernelArgumentHolder& aten_inputs,
     std::vector<at::Tensor> aten_outputs,
     int line_number,
-    const char* file_name,s
-    std::string err_msg = "",
+    const char* file_name,
+    std::string err_msg = "", 
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
 

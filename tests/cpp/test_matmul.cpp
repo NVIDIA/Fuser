@@ -3634,7 +3634,7 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   auto cg_outputs = ke.run({t0, t1});
   auto tref =
       at::matmul(t0.to(at::kFloat), at::permute(t1.to(at::kFloat), {0, 2, 1}));
-  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
+   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
