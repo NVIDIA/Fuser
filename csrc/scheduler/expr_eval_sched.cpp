@@ -44,31 +44,24 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return true;
   }
 
+  auto expr_check = [](Expr* expr) {
+    return expr->isOneOf<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp, GetMetaData>() ||
+        (expr->isOneOf<LinearOp, MatmulOp>() &&
+         !isOptionDisabled(DisableOption::MatmulExprEval)) ||
+        ir_utils::isScalarOp(expr);
+  };
+
   auto exprs = fusion->exprs();
-  if (exprs.size() != 1) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Fusion must contain only a single expression.");
-    return false;
-  }
 
-  if (exprs.front()->isOneOf<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp>()) {
-    return true;
-  }
-
-  if (exprs.front()->isOneOf<LinearOp, MatmulOp>()) {
-    if (isOptionDisabled(DisableOption::MatmulExprEval)) {
+  for (auto expr : exprs) {
+    if (!expr_check(expr)) {
       scheduler_debug_utils::canScheduleRejectReason(
-          schedulerType(),
-          "Matmul ATen evaluation was disabled by NVFUSER_DISABLE=matmul_expr_eval");
+          "Expr not supported in ExprEvalScheduler:", expr->toString());
       return false;
     }
-    return true;
   }
 
-  scheduler_debug_utils::canScheduleRejectReason(
-      schedulerType(),
-      "Fusion must contain only a single expression of type MatmulOp/LinearOp/SdpaFwdOp/SdpaBwdOp");
-  return false;
+  return true;
 }
 
 void ExprEvalScheduler::schedule(
