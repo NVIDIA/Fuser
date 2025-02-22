@@ -89,15 +89,13 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   // semantically correct to actually return them as outputs from
   // fusion.
   NVF_ERROR(fusion->outputs().size() == outputs.size());
-  size_t new_size = 0;
-  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+  KernelArgumentHolder unaliased_outputs;
+  for (auto out_index : c10::irange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];
     if (!fusion->getOutputAlias(out).hide_output) {
-      outputs[new_size] = outputs[out_index];
-      new_size++;
+      unaliased_outputs.push(outputs[out_index]);
     }
   }
-  outputs.resize(new_size);
 
   // NOTE: This should be the last code in the method to capture all host time
   if (isProfilerEnabled()) {
@@ -107,7 +105,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     debug() << FusionProfiler::profile();
   }
 
-  return KernelArgumentHolder(outputs);
+  return unaliased_outputs;
 }
 
 void FusionExecutorCache::setCacheId(KernelArgumentHolder& args) {

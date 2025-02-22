@@ -119,7 +119,7 @@ void validate(
       return oss.str();
     };
 
-    EXPECT_TRUE(output_tensor.allclose(expected_outputs[i], rtol, atol))
+    EXPECT_TRUE(at::allclose(output_tensor, expected_outputs[i], rtol, atol))
         << "Output " << i << " mismatches with atol " << atol << ":"
         << std::endl
         << generate_comparison_details(

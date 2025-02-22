@@ -3389,7 +3389,8 @@ TEST_P(MatmulTestWithLayout, MisalignedVectorization) {
             ke.compiledKernel()->kernel()));
         auto outputs = ke.run(inputs);
 
-        EXPECT_TRUE(at::allclose(outputs[0], tref, 0.001, 0.001));
+        EXPECT_TRUE(
+            at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
       }
     }
   }

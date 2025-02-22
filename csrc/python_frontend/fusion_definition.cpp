@@ -384,8 +384,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       return nullptr;
     }
 
-    auto user_sched_id =
-        fusionCache()->queryUserScheduleId(scheds, args.toC10Array());
+    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, args);
     if (!user_sched_id.has_value()) {
       return nullptr;
     }
@@ -486,8 +485,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     }
     NVF_ERROR(out_dtensors.size() == out_tensors.size());
   } else {
-    for (const auto& out_tensor : out_tensors) {
-      out_dtensors.emplace_back(out_tensor);
+    for (const auto& out_tensor : outputs) {
+      out_dtensors.emplace_back(out_tensor.as<at::Tensor>());
     }
   }
   return out_dtensors;

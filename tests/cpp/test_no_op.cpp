@@ -181,7 +181,7 @@ TEST_F(NoOpTest, View) {
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
-  at::Tensor out_tensor = out_tensors[0];
+  at::Tensor out_tensor = out_tensors[0].as<at::Tensor>();
 
   // Verify aliasing.
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());

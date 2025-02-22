@@ -90,7 +90,7 @@ class MmaTest : public NVFuserFixtureParamTest<MmaTestParams> {
   }
 };
 
-std::vector<at::Tensor> scheduleCompileAndRun(
+KernelArgumentHolder scheduleCompileAndRun(
     Fusion* fusion,
     TensorView* tva,
     TensorView* tvb,

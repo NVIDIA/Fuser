@@ -1083,7 +1083,7 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
-  at::Tensor t1 = outputs[0];
+  at::Tensor t1 = outputs[0].as<at::Tensor>();
 
   auto get_data = [](const at::Tensor& t) -> std::vector<float> {
     const float* base = t.data_ptr<float>();
@@ -1270,7 +1270,7 @@ TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   KernelExecutor ke;
   ke.compile(&fusion, {in_tensor});
-  at::Tensor out_tensor = ke.run({in_tensor})[0];
+  at::Tensor out_tensor = ke.run({in_tensor})[0].as<at::Tensor>();
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
 }
 

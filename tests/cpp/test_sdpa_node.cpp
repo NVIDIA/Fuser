@@ -46,7 +46,7 @@ using AtenSdpaOut = std::tuple<
     at::Tensor,
     at::Tensor,
     at::Tensor>;
-auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
+auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
                                  AtenSdpaOut aten_out) {
   auto
       [attn,
@@ -687,7 +687,7 @@ TEST_F(SDPATest, AttnProgram) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({q, k, v});
-  EXPECT_TRUE(at::allclose(out[0], expected_out));
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), expected_out));
 }
 
 TEST_F(SDPATest, AttnFwdBwd) {

@@ -261,7 +261,7 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
         scheduleAndRun(
             fusion, SchedulerType::Transpose, {input0, input1}, false)
             .outputs;
-    auto out = outputs[0];
+    auto out = outputs[0].as<at::Tensor>();
 
     NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
@@ -540,11 +540,11 @@ TEST_F(RNGTest, DifferentOffsets) {
   for (int64_t size : {1, 4}) {
     at::manual_seed(0);
     EXPECT_TRUE(get_current_offset() == 0);
-    auto r1 = executor_cache.runFusionWithInputs({size}).at(0);
+    auto r1 = executor_cache.runFusionWithInputs({size})[0].as<at::Tensor>();
     EXPECT_TRUE(get_current_offset() == 4);
     auto r23 = fec2.runFusionWithInputs({size});
-    auto r2 = r23.at(0);
-    auto r3 = r23.at(1);
+    auto r2 = r23[0].as<at::Tensor>();
+    auto r3 = r23[1].as<at::Tensor>();
     EXPECT_TRUE(get_current_offset() == 12);
     // Check that non of r1's elements are equal to any r2's elements.
     // Same for r1 vs r3, and r2 vs r3.

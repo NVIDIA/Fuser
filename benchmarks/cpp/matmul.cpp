@@ -183,7 +183,7 @@ static void SingleMatmulBase(
 
   // Warm up run
   auto outputs = ke.run(args);
-  checkMatch(expected_output, outputs[0].to<at::Tensor>().to(at::kDouble), k);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), k);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 
@@ -360,7 +360,7 @@ static void SingleMatmulPartitionedK(
   // Warm up run
   auto outputs = ke.run(args);
 
-  checkMatch(expected_output, outputs[0].to<at::Tensor>().to(at::kDouble), Ki);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), Ki);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 
@@ -474,7 +474,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 
   checkMatch(
       expected_output,
-      outputs[0].to<at::Tensor>().to(at::kDouble),
+      outputs[0].as<at::Tensor>().to(at::kDouble),
       splitk_factor);
 
   runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);

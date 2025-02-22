@@ -222,7 +222,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t6, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t6, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -307,7 +308,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueRelu) {
       16l / dataTypeSize(in_type),
       16l / dataTypeSize(out_type));
 
-  NVF_CHECK(at::allclose(outputs[0], t4, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -412,7 +414,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasRelu) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
-  NVF_CHECK(at::allclose(outputs[0], t7, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t7, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -501,9 +504,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueReluAux) {
       16l / dataTypeSize(out_type));
 
   // D tensor results
-  NVF_CHECK(at::allclose(outputs[0], t3, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t3, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(at::allclose(outputs[1], t5, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t5, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -613,9 +618,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasReluAux) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
-  NVF_CHECK(at::allclose(outputs[0], t6, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t6, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(at::allclose(outputs[1], t8, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t8, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -699,7 +706,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueGelu) {
       16l / dataTypeSize(in_type),
       16l / dataTypeSize(out_type));
 
-  NVF_CHECK(at::allclose(outputs[0], t4, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t4, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -788,9 +796,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueGeluAux) {
       16l / dataTypeSize(out_type));
 
   // D tensor results
-  NVF_CHECK(at::allclose(outputs[0], t3, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t3, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(at::allclose(outputs[1], t5, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t5, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -893,7 +903,8 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGelu) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t7, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t7, abs_err_thr, rel_err_thr));
 }
 
 // Matmul test that uses segmenter for fusion:
@@ -1002,9 +1013,11 @@ TEST_P(PrecisionParametrizedTest, EpilogueBiasGeluAux) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference D tensor results
-  NVF_CHECK(at::allclose(outputs[0], t6, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[0].as<at::Tensor>(), t6, abs_err_thr, rel_err_thr));
   // Aux tensor results
-  NVF_CHECK(at::allclose(outputs[1], t8, abs_err_thr, rel_err_thr));
+  NVF_CHECK(
+      at::allclose(outputs[1].as<at::Tensor>(), t8, abs_err_thr, rel_err_thr));
 }
 
 } // namespace
@@ -1150,7 +1163,7 @@ TEST_P(MatmulSchedulerTestWithLayout, BasicMatmulRelaxedCheck) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
-  NVF_CHECK(at::allclose(outputs[0], tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that reslies on segmenter for 'C = A x B' fusion, for Ampere
@@ -1199,7 +1212,7 @@ TEST_F(MatmulSchedulerTest, BasicMatmulInputShuffledTT) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
-  NVF_CHECK(at::allclose(outputs[0], tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for 'C = float2half(A x B)' fusion, for
@@ -1252,7 +1265,7 @@ TEST_F(MatmulSchedulerTest, EpilogueOutputCast) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
-  NVF_CHECK(at::allclose(outputs[0], tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for 'C = alpha * (A x B)' fusion, for
@@ -1308,7 +1321,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlpha) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
-  NVF_CHECK(at::allclose(outputs[0], tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for 'C = float2half(alpha * (A x B))'
@@ -1366,7 +1379,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaOutputCast) {
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 8);
 
-  NVF_CHECK(at::allclose(outputs[0], tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1437,7 +1450,7 @@ TEST_F(MatmulSchedulerTest, EpilogueBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t5, 0.01, 0.04));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t5, 0.01, 0.04));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1513,7 +1526,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t6, 0.001, 0.004));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t6, 0.001, 0.004));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1596,7 +1609,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaGeluOutputCast) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t8, 0.01, 0.06));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t8, 0.01, 0.06));
 }
 
 // Matmul test that uses segmenter for fusion for Ampere:
@@ -1683,7 +1696,7 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative verification
   //       caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t8, 0.01, 0.01));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t8, 0.01, 0.01));
 }
 
 // Strided batch gemm test taht uses matmul scheduler, for Ampere:
@@ -1736,7 +1749,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatch) {
   // NOTE: increasted absolute tolerance to silence false negative
   // verification
   //       caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t2, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t2, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with alpha and beta that uses matmul scheduler,
@@ -1811,7 +1824,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t6, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t6, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with alpha and beta scaling that uses matmul
@@ -1893,7 +1906,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueAlphaSingleBeta) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t7, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t7, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with bias that uses matmul scheduler, for Ampere:
@@ -1954,7 +1967,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t4, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t4, 0.0001, 0.0001));
 }
 
 // Strided batch gemm test with single bias vector that uses matmul
@@ -2017,7 +2030,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedBatchEpilogueSingleBias) {
 
   // NOTE: increasted absolute tolerance to silence false negative
   //  verification caused by different way of calculating reference
-  NVF_CHECK(at::allclose(outputs[0], t4, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), t4, 0.0001, 0.0001));
 }
 
 // Test matmul with contiguous inputs but sizes that are not divisible by 8 and
@@ -2128,7 +2141,8 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
         EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
         EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
-        EXPECT_TRUE(at::allclose(outputs[0], tref, 0.001, 0.001));
+        EXPECT_TRUE(
+            at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
       };
 
       [[maybe_unused]] bool contig_K_A =
@@ -2324,7 +2338,8 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
         EXPECT_EQ(params->supported_vec_size.b, expected_vec_B);
         EXPECT_EQ(params->supported_vec_size.epilogue, expected_vec_epilogue);
 
-        EXPECT_TRUE(at::allclose(outputs[0], tref, 0.001, 0.001));
+        EXPECT_TRUE(
+            at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
       };
 
       [[maybe_unused]] bool contig_K_A =
@@ -2723,7 +2738,7 @@ TEST_F(MatmulSchedulerTest, PreBroadcastMmaBiasNeg) {
   ke.compile(fusion.get(), {t0, t1, c}, LaunchParams(), matmul_cparams);
   auto outputs = ke.run({t0, t1, c});
 
-  NVF_CHECK(at::allclose(outputs[0], tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 }
 
 // Test automatically scheduling a fusion that requires 64-bit indexing
@@ -2844,7 +2859,7 @@ TEST_P(MatmulFusionTest, Llama2FFN) {
   }
   at::Tensor tref = ((at::sigmoid(t3) * t3) * t4);
 
-  NVF_CHECK(at::allclose(outputs[0], tref, 0.001, 0.001));
+  NVF_CHECK(at::allclose(outputs[0].as<at::Tensor>(), tref, 0.001, 0.001));
 
   const FusionKernelRuntime* runtime =
       executor_cache.getMostRecentKernelRuntime();

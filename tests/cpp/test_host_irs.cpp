@@ -741,7 +741,7 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   std::vector<at::indexing::TensorIndex> ranges_aten(
@@ -799,7 +799,7 @@ TEST_F(MatmulHostIrTest, HostIr) {
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}, {hie.inputs().at(1), t1}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   auto ref_output = at::matmul(t0, t1);
@@ -879,7 +879,7 @@ TEST_F(LinearHostIrTest, HostIr) {
       {hie.inputs().at(1), weight_at},
       {hie.inputs().at(2), bias_at}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   auto ref_output = at::linear(in_at, weight_at, bias_at);
@@ -967,7 +967,7 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   auto ref_output = t0.select(dim, index);
@@ -1024,8 +1024,8 @@ TEST_F(ViewTest, SimpleReshape) {
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate
-  EXPECT_TRUE(outputs[0].equal(at::reshape(t0, {kX * kY})));
-  EXPECT_TRUE(outputs[1].equal(at::reshape(t0, {kY, kX})));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(at::reshape(t0, {kX * kY})));
+  EXPECT_TRUE(outputs[1].as<at::Tensor>().equal(at::reshape(t0, {kY, kX})));
 }
 
 using ReductionHostIrTest = NVFuserTest;
@@ -1053,7 +1053,7 @@ TEST_F(ReductionHostIrTest, Sum) {
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate
-  EXPECT_TRUE(outputs[0].equal(at::sum(t0, 0)));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(at::sum(t0, 0)));
 }
 
 using IfThenElseTest = NVFuserTest;

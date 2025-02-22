@@ -214,7 +214,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  NVF_CHECK(output_ref.equal(outputs[0]));
+  NVF_CHECK(output_ref.equal(outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionCopy_CUDA) {
@@ -906,7 +906,7 @@ TEST_F(NVFuserTest, FusionCodeGen2_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  NVF_CHECK(output_ref.equal(outputs[0]));
+  NVF_CHECK(output_ref.equal(outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionSimplePWise_CUDA) {
@@ -1068,8 +1068,7 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   auto outputs = ke.run({input1, input2});
 
   at::Tensor check = at::full({1, 128}, 4, options);
-  ;
-  NVF_CHECK(outputs[0].equal(check));
+  NVF_CHECK(outputs[0].as<at::Tensor>().equal(check));
 }
 
 int ceilDiv_(int a, int b) {
@@ -2010,7 +2009,7 @@ TEST_F(NVFuserTest, FusionLoopUnroll_CUDA) {
   ke.compile(&fusion, {input0, input1});
   auto outputs = ke.run({input0, input1});
 
-  NVF_CHECK(outputs[0].equal(input0.add(input1.add(2.0))));
+  NVF_CHECK(outputs[0].as<at::Tensor>().equal(input0.add(input1.add(2.0))));
 }
 
 /*
@@ -2715,10 +2714,10 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            outputs[0].equal(ref_output),
+            outputs[0].as<at::Tensor>().equal(ref_output),
             "cast to fp8 and back had a mismatch.\n",
             "\nABS MAX DIFF: ",
-            outputs[0].sub(ref_output).abs().max(),
+            outputs[0].as<at::Tensor>().sub(ref_output).abs().max(),
             "\n");
       }
     }

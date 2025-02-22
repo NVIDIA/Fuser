@@ -231,29 +231,26 @@ P2PCommunication::P2PCommunication(
     IrBuilderPasskey passkey,
     P2PCommunicationType type,
     TensorView* buffer,
-    Val* peer,
-    CommunicatorBackend backend)
+    Val* peer)
     : Expr(passkey) {
   addInput(buffer);
   addDataAttribute(type);
   addAttribute(peer);
-  addDataAttribute(backend);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(P2PCommunication)
 
-std::string P2PCommunication::toInlineString(const int indent_size) const {
+std::string P2PCommunication::toString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "P2PCommunication " << name() << " ("
                           << "type=" << type() << ", "
                           << "buffer=" << buffer() << ", "
-                          << "peer=" << peer() << ", "
-                          << "backend=" << backend() << ")";
+                          << "peer=" << peer() << ")\n";
   return ss.str();
 }
 
-std::string P2PCommunication::toString(int indent_size) const {
-  return toInlineString(indent_size) + "\n";
+std::string P2PCommunication::toInlineString(int indent_size) const {
+  return toString(indent_size);
 }
 
 namespace {

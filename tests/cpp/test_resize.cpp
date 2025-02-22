@@ -2315,8 +2315,8 @@ TEST_F(ResizeTest, SliceVectorization) {
   auto ref = t0.narrow(0, 1, N) + t1;
 
   // testValidate does not check that dtypes match
-  EXPECT_EQ(cg_outputs.outputs[0].dtype(), ref.dtype());
-  testValidate(&fusion, cg_outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+  EXPECT_EQ(cg_outputs[0].as<at::Tensor>().dtype(), ref.dtype());
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Concretize a symbolic pad that results in a broadcast (static pads)
@@ -3572,7 +3572,7 @@ TEST_F(ResizeTest, Chunk_SizeZero) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_EQ(out_tensors.back().numel(), 0);
+  EXPECT_EQ(out_tensors.back().as<at::Tensor>().numel(), 0);
 }
 
 TEST_F(ResizeTest, Chunk_Uneven) {
@@ -3592,7 +3592,7 @@ TEST_F(ResizeTest, Chunk_Uneven) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_EQ(out_tensors.back().numel(), 1);
+  EXPECT_EQ(out_tensors.back().as<at::Tensor>().numel(), 1);
 }
 
 // Schedule a slice with the loop domain derived from the producer
@@ -5612,7 +5612,7 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 //
 //   auto ref = at::pad(t0.relu(), {0, 0, 4, 4, 0, 0});
 //
-//   NVF_CHECK(ref.equal(cg_outputs.outputs[0]));
+//   NVF_CHECK(ref.equal(cg_outputs.outputs[0].as<at::Tensor>()));
 //   // TODO: check vectorization factor
 // }
 

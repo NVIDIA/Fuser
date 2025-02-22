@@ -108,7 +108,7 @@ KernelArgumentHolder ExprEvalExecutor::run(
         auto out_tensor =
             expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
         expr_eval.bind(out_val, out_tensor);
-        outputs.emplace_back(out_tensor);
+        outputs.push(out_tensor);
       }
     }
   }
@@ -645,7 +645,7 @@ void KernelExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       compiled_kernel_->kernel(),
       args,
-      outputs,
+      output_args,
       compileTimeDataCache(),
       expr_eval);
 

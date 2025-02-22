@@ -316,7 +316,6 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 
   // Produce final global output
   KernelArgumentHolder fusion_outputs;
-  fusion_outputs.reserve(segmented_fusion_->outputs().size());
   for (Val* output : segmented_fusion_->outputs()) {
     NVF_ERROR(
         tensor_map.count(output),

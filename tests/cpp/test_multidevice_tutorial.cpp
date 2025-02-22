@@ -243,7 +243,8 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
     }
 
     // The same computation is replicated on all the devices
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Each device produces the full output
@@ -262,7 +263,8 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
     // the input's data. However, the shape of the input is used to infer the
     // concrete shape of tv0 and subsequent tensors' shape. Therefore, we still
     // need to give each device inputs with valid shapes.
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Only device 0 receives a non-void output
@@ -362,7 +364,8 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
       at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocates a tensor on a different device
   at::Tensor input = at::ones({kTensorSize}, tensor_options);
-  at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+  at::Tensor output =
+      multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
   // VALIDATION
   if (communicator_->deviceId() == 1) {
@@ -467,7 +470,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
     }
 
     // Each device is responsible for a fraction of the total compute
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Each device produces a slice of the global output, which is also sharded
@@ -509,7 +513,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
       // clang-format on
     }
 
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     EXPECT_TRUE(
@@ -550,7 +555,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
       // clang-format on
     }
 
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     if (communicator_->deviceId() == 0) {
@@ -600,7 +606,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
     // must not be "1" but must equal the number of devices.
     input = at::randn({communicator_->size(), kTensorSize}, tensor_options);
 
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Each device receives a slice of the global input.
