@@ -5066,6 +5066,10 @@ bool ForLoop::isUnrolled() const {
     return false;
   }
 
+  if (hasRuntimeReductionFunctions()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -5211,6 +5215,43 @@ bool ForLoop::isGroup() const {
       {typeid(GroupedReductionOp),
        typeid(kir::GroupedGridReduction),
        typeid(kir::GroupedGridWelford)});
+}
+
+namespace {
+
+//! A utility class to check if runtime reduction exists
+class RuntimeReductionFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(const Expr* expr) {
+    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    RuntimeReductionFinder finder;
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr->isA<ReductionOp>() || expr->isA<WelfordOp>() ||
+        expr->isA<kir::GridReduction>() ||
+        expr->isA<kir::GroupedGridReduction>() ||
+        expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
+        expr->isA<GroupedReductionOp>()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::hasRuntimeReductionFunctions() const {
+  return RuntimeReductionFinder::exists(this);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)
