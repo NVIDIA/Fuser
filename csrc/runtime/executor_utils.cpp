@@ -13,8 +13,10 @@
 
 #include <contiguity.h>
 #include <debug.h>
+#include <device_lower/utils.h>
 #include <driver_api.h>
 #include <instrumentation.h>
+#include <interval_analysis.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -41,8 +43,8 @@ bool checkSameStride(const std::vector<at::Tensor>& tensors) {
     return true;
   }
   for (const auto idx : c10::irange(tensors.size() - 1)) {
-    auto current_tensor = tensors[idx];
-    auto next_tensor = tensors[idx + 1];
+    const auto& current_tensor = tensors[idx];
+    const auto& next_tensor = tensors[idx + 1];
 
     if (current_tensor.ndimension() != next_tensor.ndimension()) {
       return false;
@@ -709,6 +711,20 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
   }
 
   return parallel_iter_extents_ptr;
+}
+
+void validateIndexCasts(
+    kir::Kernel* kernel,
+    ExpressionEvaluator& expr_eval,
+    const LaunchParams& launch_params) {
+  if (!kernel->summary().has_narrowing_index_casts) {
+    return;
+  }
+  ScalarBoundsCalculator calc(kernel, expr_eval, launch_params);
+  NVF_ERROR(
+      calc.castsFromIndexAreSafe(),
+      "Found unsafe casts from DataType::Index. ",
+      "This is likely because one coordinate of a TMA instruction overflowed Int32");
 }
 
 } // namespace executor_utils

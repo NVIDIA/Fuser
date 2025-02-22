@@ -313,6 +313,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         launch_kernel->toString());
     args.push(expr_evaluator_.evaluate(input));
   }
+  args.setDeviceIndex();
 
   // run the compiled kernel
   std::vector<at::Tensor> outputs =
@@ -341,7 +342,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
         post_ir->toString());
     input_args.push(expr_evaluator_.evaluate(input));
   }
-
+  input_args.setDeviceIndex();
   // placeholder for storing the outputs
   std::vector<at::Tensor> outputs;
 
@@ -386,8 +387,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      outputs =
-          ExecutorDispatch::run(ea, input_args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, input_args);
     }
   }
 
@@ -430,7 +430,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communication,
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(),
+      communicator_->getWorld(communication->backend()),
       buffer);
 }
 
