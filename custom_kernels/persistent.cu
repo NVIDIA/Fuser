@@ -11534,6 +11534,8 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
   i3 = ceilDiv(T1.logical_size[1LL], 256);
   nvfuser_index_t i4;
   i4 = ceilDiv(((ceilDiv(T0.logical_size[0LL], 128))*i3), 132);
+  nvfuser_index_t max_tiles;
+  max_tiles = (ceilDiv(T0.logical_size[0LL], 128))*i3;
   nvfuser_index_t i5;
   i5 = ceilDiv(T0.logical_size[2LL], 64);
   const TensorMap* ptr6;
@@ -11667,6 +11669,9 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
     for (nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
       nvfuser_index_t i23;
       i23 = ((nvfuser_index_t)blockIdx.x) + (132 * i22);
+      if (i23 >= max_tiles) {
+        break;
+      }
       nvfuser_index_t i24;
       i24 = 256 * (i23 % i3);
       nvfuser_index_t i25;
@@ -11677,7 +11682,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
         nvfuser_index_t i32;
         i32 = i31 % 3;
 	nvfuser_index_t stage;
-        stage = i22 * i4 + i31;
+        stage = i22 * i5 + i31;
         if ((Hopper::electSync(4294967295U) && b15)) {
           mbarrier::waitParity(
               toSmem((&T9[((stage % 3) + 3LL)])), (uint32_t)(((stage / 3) % 2)));
@@ -11712,6 +11717,9 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
     for (nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
       nvfuser_index_t i23;
       i23 = ((nvfuser_index_t)blockIdx.x) + (132 * i22);
+      if (i23 >= max_tiles) {
+        break;
+      }
       nvfuser_index_t i24;
       i24 = 256 * (i23 % i3);
       nvfuser_index_t i25;
@@ -11734,7 +11742,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
         uint32_t i37;
         i37 = i7 + (32768 * i35);
 	nvfuser_index_t stage;
-        stage = i22 * i4 + i34;
+        stage = i22 * i5 + i34;
         mbarrier::waitParity(toSmem((&T9[(stage % 3)])), (uint32_t)(((stage / 3) % 2)));
         #pragma unroll
         for (nvfuser_index_t i38 = 0; i38 < 4; ++i38) {
@@ -11758,6 +11766,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
         mbarrier::arrive(toSmem((&T9[((stage % 3) + 3LL)])));
       }
       wgmma::wait<0LL>();
+      asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
     
       // store results
       Array<__bfloat, 128, 8> T7;
@@ -11777,6 +11786,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
           }
         }
       }
+      asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
       #pragma unroll
       for (nvfuser_index_t i50 = 0; i50 < 16; ++i50) {
         if ((b27 && (i28 < (-(16 * i50))))) {
