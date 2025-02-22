@@ -1577,7 +1577,7 @@ using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;
 TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   DataType dtype = GetParam();
   int64_t dim1 = 4096;
-  const std::vector<int64_t> input_shape = {132*2*5, dim1};
+  const std::vector<int64_t> input_shape = {8192, dim1};
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(input_shape.size(), dtype);
@@ -1603,6 +1603,45 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
 
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
+
+TEST_P(SimpleNormTmaTest, tanh) {
+  DataType dtype = GetParam();
+  int64_t dim1 = 4096;
+  const std::vector<int64_t> input_shape = {8192, dim1};
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  if (dtype == DataType::Half) {
+    tv0 = castOp(DataType::Float, tv0);
+  }
+  auto tv4 = tanh(tv0);
+  if (dtype == DataType::Half) {
+    tv4 = castOp(DataType::Half, tv4);
+  }
+  fusion->addOutput(tv4);
+
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(-1)->parallelize(ParallelType::Bulk);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+  tv0a->axis(0)->parallelize(ParallelType::BIDx);
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto fusion_copy = *fusion;
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
 INSTANTIATE_TEST_SUITE_P(
     PersistentBufferTest,
     SimpleNormTmaTest,
@@ -1611,7 +1650,7 @@ INSTANTIATE_TEST_SUITE_P(
       std::stringstream ss;
       ss << "dtype_" << info.param;
       return sanitizeTestName(ss.str());
-    });
+    });    
 // batch size = 2k
 // CircularBufferOptions{ stage=2, prefetch=1, type=PipelinedMBarrierForWAR }   
 // 2k x 25600, set1, 4 x 7 x 928, 47%

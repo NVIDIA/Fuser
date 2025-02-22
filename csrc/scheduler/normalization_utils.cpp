@@ -1492,38 +1492,61 @@ void schedulePersistentKernel(
       "Need these two tensor views to finish the scheduling.");
 
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
-
-  for (auto output : dummy_outputs) {
-    fusion->addOutput(output);
-  }
+  auto reduction_tv = reduction_tvs.at(0);
 
   const bool is_unroll_or_vectorization = rparams->isUnrolled();
   const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
   const bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
-
-  // Propagate transformations before we rfactor the other reductions
-  auto reduction_tv = reduction_tvs.at(0);
-  std::vector<TensorView*> tma_tvs;
-  // Propagate transformations before we rfactor the other reductions
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  std::vector<TensorView*> tma_load_tvs;
+  std::vector<TensorView*> tma_store_tvs;
+  std::vector<TensorView*> ldst_tma_tvs;
   if (rparams->use_tma_load) {
     for (auto tv : smem_consumers) {
       auto smem_tv = ir_utils::getSoleProducerTv(tv);
       if (!ir_utils::isCpAsyncBulkLoad(smem_tv->definition())) {
         continue;
       }
-      if (std::find(tma_tvs.begin(), tma_tvs.end(), smem_tv) == tma_tvs.end()) {
+      if (std::find(tma_load_tvs.begin(), tma_load_tvs.end(), smem_tv) ==
+          tma_load_tvs.end()) {
         std::cout << "Found TMA load: " << smem_tv->toString() << std::endl;
-        tma_tvs.emplace_back(smem_tv);
+        tma_load_tvs.emplace_back(smem_tv);
+        ldst_tma_tvs.emplace_back(smem_tv);
       }
     }
+    if (std::getenv("TMASTORE") && std::atoi(std::getenv("TMASTORE")) != 0) {
+      for (auto val : fusion->outputs()) {
+        if (auto tv = dynamic_cast<TensorView*>(val)) {
+          if (unroll_vectorizable_cached_tvs.count(tv) > 0) {
+            auto smem_tv = tv->cacheBefore();
+            smem_tv->setMemoryType(MemoryType::Shared);
+            tma_store_tvs.emplace_back(tv);
+            ldst_tma_tvs.emplace_back(tv);
+            tv->definition()->as<LoadStoreOp>()->setOpType(
+                LoadStoreOpType::CpAsyncBulk);
+          }
+        }
+      }
+    }
+  }
 
+  for (auto output : dummy_outputs) {
+    fusion->addOutput(output);
+  }
+
+  // Propagate transformations before we rfactor the other reductions
+
+  // Propagate transformations before we rfactor the other reductions
+  if (rparams->use_tma_load) {
     // tma tvs are excluded in transform propagation, to add a valid path from
     // reduction tv to output tv, needs to connect pre-reduction tv and
     // post-reduction tv with dummy outputs
     if (!rparams->project_persistent_buffers) {
-      for (auto tv : tma_tvs) {
+      for (auto tv : tma_load_tvs) {
         const auto& consumers = ir_utils::consumerTvsOf(tv);
         TensorView* pre_redu_tv = nullptr;
         TensorView* post_redu_tv = nullptr;
@@ -1565,8 +1588,8 @@ void schedulePersistentKernel(
 
     // propagate reduction domains
     TransformPropagator propagator(reference_tv);
-    std::vector<TensorView*> non_tma_tvs =
-        ir_utils::allTvsExcept(fusion, {tma_tvs.begin(), tma_tvs.end()});
+    std::vector<TensorView*> non_tma_tvs = ir_utils::allTvsExcept(
+        fusion, {ldst_tma_tvs.begin(), ldst_tma_tvs.end()});
     SetSelector selector({non_tma_tvs.begin(), non_tma_tvs.end()});
     MaxLogicalDomainInfoSpanningTree(reference_tv, &selector)
         .traverse(&propagator);
@@ -1574,16 +1597,12 @@ void schedulePersistentKernel(
     reduction_scheduler_utils::propagateTransformation(reference_tv);
   }
 
-
   // If reduction_tv is rfactored, rfactor all reductions.
   if (reference_tv != reduction_tv) {
     reduction_scheduler_utils::propagateRFactor(
         reference_tv, reduction_tv, reduction_tvs);
   }
 
-  const auto& unroll_vectorizable_cached_tvs =
-      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
-          reference_tv, is_vectorize, cached_inputs, cached_outputs);
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -1598,6 +1617,10 @@ void schedulePersistentKernel(
     int64_t vectorization_factor = rparams->unroll_factor_inner_reduction;
     reduction_scheduler_utils::sharedMemoryConsumerVectorization(
         smem_consumers, vectorization_factor);
+    for(auto tv : tma_store_tvs) {
+      auto smem_tv = ir_utils::getSoleProducerTv(tv);
+      smem_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
   }
 
   // Remove dummy outputs as they can inadvertently affect CA positions
@@ -1606,11 +1629,11 @@ void schedulePersistentKernel(
   }
 
   if (rparams->use_tma_load) {
-    for (auto tv : tma_tvs) {
+    for (auto tv : ldst_tma_tvs) {
       // tv->split(-1, 256);
       tv->axis(-1)->parallelize(ParallelType::Bulk);
     }
-    if (std::getenv("PRELDG")) {
+    if (std::getenv("PRELDG") && std::atoi(std::getenv("PRELDG")) != 0) {
       // If a cached input is used by outer broadcast tvs e.g. weights and bias
       // in layer norm, don't inline them. We want to prefetch them into
       // registers at the begining of the kernel to avoid issuing memory load
@@ -1621,7 +1644,8 @@ void schedulePersistentKernel(
       std::vector<TensorView*> cached_input_outer_broadcast_tvs;
       for (auto tv : cached_inputs) {
         // tma tvs don't need special handling
-        if (std::find(tma_tvs.begin(), tma_tvs.end(), tv) != tma_tvs.end()) {
+        if (std::find(tma_load_tvs.begin(), tma_load_tvs.end(), tv) !=
+            tma_load_tvs.end()) {
           continue;
         }
         // cached input used by outer broadcast tensors needs to be prefetch
@@ -1639,7 +1663,7 @@ void schedulePersistentKernel(
           {cached_input_outer_broadcast_tvs.begin(),
            cached_input_outer_broadcast_tvs.end()});
       inlineMost(all_tvs_except_special);
-    } else if (std::getenv("PRESMEM")) {
+    } else if (std::getenv("PRESMEM") && std::atoi(std::getenv("PRESMEM")) != 0) {
       std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
           fusion, {smem_consumers.begin(), smem_consumers.end()});
       inlineMost(all_tvs_except_special);
@@ -1658,7 +1682,7 @@ void schedulePersistentKernel(
     int64_t prefetch_distance = rparams->circular_buffer_options.prefetch;
     CircularBufferType circular_buffer_type =
         rparams->circular_buffer_options.type;
-    for (auto tv : tma_tvs) {
+    for (auto tv : tma_load_tvs) {
       if (tv->getComputeAtPosition() > 0) {
         tv->circularBuffer(
             number_of_stages, prefetch_distance, circular_buffer_type);

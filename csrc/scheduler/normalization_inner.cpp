@@ -177,7 +177,7 @@ void innerPersistentHeuristicTMA(
   // false};
   CircularBufferType circular_buffer_type{Pipelined(true)};
   circular_buffer_options.type = circular_buffer_type;
-  if (std::getenv("WARPTIDX")) {
+  if (std::getenv("WARPTIDX") && std::atoi(std::getenv("WARPTIDX")) != 0) {
     CircularBufferType circular_buffer_type{
         WarpSpecialized(ParallelType::TIDx)};
     circular_buffer_options.type = circular_buffer_type;
@@ -686,7 +686,7 @@ void innerPersistentHeuristic2D(
     if (std::getenv("PREFETCH")) {
       prefetch = std::atoi(std::getenv("PREFETCH"));
     }
-    
+
     if (std::getenv("PBATCH")) {
       best_heuristic.persistent_batch_size = std::atoi(std::getenv("PBATCH"));
     }
@@ -698,7 +698,7 @@ void innerPersistentHeuristic2D(
     if (std::getenv("WARPTIDY")) {
       warp_parallel_type = ParallelType::TIDy;
     }
-    if (std::getenv("WARPTIDX")) {
+    if (std::getenv("WARPTIDX") && std::atoi(std::getenv("WARPTIDX")) != 0) {
       warp_parallel_type = ParallelType::TIDx;
     }
     CircularBufferType circular_buffer_type{Pipelined(true)};
@@ -706,9 +706,12 @@ void innerPersistentHeuristic2D(
       if (std::getenv("NUMREG")) {
         int64_t tma_reg = 40L;
         int64_t num_regs = std::atoi(std::getenv("NUMREG"));
-        std::cout << "TMA thread is set to use 40 registers, compute thread uses register: " << num_regs << std::endl;
-        circular_buffer_type = WarpSpecialized(warp_parallel_type, std::make_pair(tma_reg, num_regs));
-      }else{
+        std::cout
+            << "TMA thread is set to use 40 registers, compute thread uses register: "
+            << num_regs << std::endl;
+        circular_buffer_type = WarpSpecialized(
+            warp_parallel_type, std::make_pair(tma_reg, num_regs));
+      } else {
         circular_buffer_type = WarpSpecialized(warp_parallel_type);
       }
     }
@@ -749,12 +752,14 @@ void innerPersistentHeuristic2D(
   if (std::getenv("PERSISTENT")) {
     const auto dev_prop = at::cuda::getCurrentDeviceProperties();
     auto sm_count = dev_prop->multiProcessorCount;
-    int64_t smem_gdimx = blocks_per_sm / rparams->circular_buffer_options.stage * sm_count;
+    int64_t smem_gdimx =
+        blocks_per_sm / rparams->circular_buffer_options.stage * sm_count;
     gdimx = std::atoi(std::getenv("PERSISTENT"));
     std::cout << "gdimx: " << gdimx << std::endl;
     std::cout << "smem_gdimx: " << smem_gdimx << std::endl;
     std::cout << "blocks_per_sm: " << blocks_per_sm << std::endl;
-    std::cout << "stage: " << rparams->circular_buffer_options.stage << std::endl;
+    std::cout << "stage: " << rparams->circular_buffer_options.stage
+              << std::endl;
   }
   int64_t godim =
       ceilDiv(properties.total_iteration_numel, best_heuristic.bdimy);
