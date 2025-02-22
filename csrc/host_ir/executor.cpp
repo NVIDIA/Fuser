@@ -313,6 +313,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         launch_kernel->toString());
     args.push(expr_evaluator_.evaluate(input));
   }
+  args.setDeviceIndex();
 
   // run the compiled kernel
   KernelArgumentHolder outputs =
@@ -341,7 +342,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
         post_ir->toString());
     input_args.push(expr_evaluator_.evaluate(input));
   }
-
+  input_args.setDeviceIndex();
   // placeholder for storing the outputs
   KernelArgumentHolder outputs;
 
@@ -367,7 +368,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      outputs = KernelArgumentHolder(ExecutorDispatch::run(ea, input_args));
+      outputs = ExecutorDispatch::run(ea, input_args);
 
     } else {
       DynamicTransform::concretizeFusion(hu->fusion_to_execute(), input_args);
@@ -386,8 +387,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      outputs = KernelArgumentHolder(
-          ExecutorDispatch::run(ea, input_args, KernelArgumentHolder{}));
+      outputs = ExecutorDispatch::run(ea, input_args);
     }
   }
 
@@ -430,7 +430,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communication,
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(),
+      communicator_->getWorld(communication->backend()),
       buffer);
 }
 

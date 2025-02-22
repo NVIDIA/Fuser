@@ -113,6 +113,58 @@ TEST_F(HostIrIntegrationTest, Sum) {
       "");
 }
 
+TEST_F(HostIrIntegrationTest, Set) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
+TEST_F(HostIrIntegrationTest, Sum) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+
+  TensorView* out = sum(in, {0});
+  fusion->addOutput(out);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
 } // namespace hir
 
 } // namespace nvfuser

@@ -214,27 +214,13 @@ void KernelExecutor::compile(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
-    NVF_ERROR(
-        !has_cp_async_bulk ||
-            (compile_params.index_type.value() == PrimDataType::Int32),
-        "Compilation with int64 is requested but int32 is required because ",
-        "of TMA operations.");
-
-  } else if (arg_index_type == PrimDataType::Int) {
+  } else {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
     // indexing. Note that if the arg type is 32-bit, it doesn't mean
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
-    NVF_ERROR(
-        !has_cp_async_bulk,
-        "Compilation with int64 is required based on input arguments, but ",
-        "int32 is required because of TMA operations.");
-  } else if (has_cp_async_bulk) {
-    // TMA operations require 32-bit indexing.
-    compile_params.index_type = PrimDataType::Int32;
-  } else {
     compile_params.index_type = arg_index_type;
   }
 
@@ -651,6 +637,9 @@ void KernelExecutor::initializeExecutorEntry(
 
   executor_utils::validateCircularBuffering(
       compiled_kernel_->kernel(), expr_eval);
+
+  executor_utils::validateIndexCasts(
+      compiled_kernel_->kernel(), expr_eval, launch_params);
 
   // Check that a full warp exists in blockDim.x if the kernel contains
   // ElectSync predicate.

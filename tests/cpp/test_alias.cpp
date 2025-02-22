@@ -397,7 +397,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::PointWise)));
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
@@ -475,7 +475,7 @@ TEST_F(AliasTest, Issue1452) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::PointWise)));
 
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
@@ -1124,7 +1124,7 @@ TEST_F(AliasTest, PerfDebugVerboseWhenSomeKernelsNotLaunched) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::PointWise)));
 }
 
@@ -1270,8 +1270,8 @@ TEST_F(AliasTest, Bookend_InputsAndOutputs) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
@@ -1302,7 +1302,7 @@ TEST_F(AliasTest, Bookend_IntermediateTensors) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
@@ -1382,7 +1382,7 @@ TEST_F(AliasTest, Bookend_ReuseSegmentSet) {
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
           HeuristicIs(SchedulerType::PointWise),
-          HeuristicIs(SchedulerType::NoOp)));
+          HeuristicIs(SchedulerType::ExprEval)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
       EXPECT_THAT(group->inputs(), SizeIs(1));
@@ -1459,7 +1459,7 @@ TEST_F(AliasTest, Bookend_Issue2375) {
   EXPECT_THAT(
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::InnerPersistent)));
 }
 
