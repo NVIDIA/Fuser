@@ -3634,7 +3634,7 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
   auto cg_outputs = ke.run({t0, t1});
   auto tref =
       at::matmul(t0.to(at::kFloat), at::permute(t1.to(at::kFloat), {0, 2, 1}));
-   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 #undef NVFUSER_TEST_CUDA_ARCH_GUARD
@@ -4330,7 +4330,8 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
       ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(cg_outputs[0].allclose(out_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
@@ -4427,8 +4428,10 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
       ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(at::allclose(cg_outputs[1].as<at::Tensor>(), tv11_ref, 1e-2, 1e-2));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(
+      at::allclose(cg_outputs[1].as<at::Tensor>(), tv11_ref, 1e-2, 1e-2));
 }
 
 TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
@@ -4476,9 +4479,9 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
       ->schedule(&fusion, &mparams);
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, c_ref});
+  ke.compile(&fusion, {t0, t1, t2});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run({t0, t1, c_ref});
+  auto cg_outputs = ke.run({t0, t1, t2});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4563,9 +4566,12 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   // Relax tolerance for larger sum due to large K
   // TODO: Some of these are failing, perhaps due to improper syncing of
   // horizontally fused kernels?
-  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(at::allclose(cg_outputs[1].as<at::Tensor>(), tv10_ref, 1e-6 * K, 1e-6 * K));
-  EXPECT_TRUE(at::allclose(cg_outputs[2].as<at::Tensor>(), tv12_ref, 5e-2, 1e-1));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[1].as<at::Tensor>(), tv10_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(
+      at::allclose(cg_outputs[2].as<at::Tensor>(), tv12_ref, 5e-2, 1e-1));
 }
 
 TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
@@ -4631,9 +4637,9 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
       ->schedule(&fusion, &mparams);
 
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, c_ref});
+  ke.compile(&fusion, {t0, t1, t2});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  auto cg_outputs = ke.run({t0, t1, c_ref});
+  auto cg_outputs = ke.run({t0, t1, t2});
   ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
       ke.compiledKernel()->kernel()));
 
@@ -4867,7 +4873,7 @@ TEST_F(HopperMatmulTest, IndexTypeValidation) {
 
       KernelExecutor ke;
       ke.compile(&fusion_clone, inputs);
-      int32_output = ke.run(inputs).at(0);
+      int32_output = ke.run(inputs)[0].as<at::Tensor>();
     }
 
     mparams.cparams.index_type = DataType::Int;
@@ -4879,7 +4885,7 @@ TEST_F(HopperMatmulTest, IndexTypeValidation) {
 
     KernelExecutor ke;
     ke.compile(&fusion_clone, inputs);
-    auto int64_output = ke.run(inputs).at(0);
+    auto int64_output = ke.run(inputs)[0].as<at::Tensor>();
     EXPECT_TRUE(int64_output.equal(int32_output));
   }
 

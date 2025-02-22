@@ -910,7 +910,6 @@ void grid_persistent_batchnorm_manual(
   }
 
   auto cg_outputs = ke.run(inputs);
-  cg_outputs[2] = cg_outputs[2].as<at::Tensor>().permute({0, 3, 1, 2});
 
   auto at_output = at::batch_norm(
       at_input,
@@ -925,7 +924,7 @@ void grid_persistent_batchnorm_manual(
 
   testValidate(
       ke.compiledKernel()->kernel(),
-      cg_outputs,
+      cg_outputs[2].as<at::Tensor>().permute({0, 3, 1, 2}),
       inputs,
       {at_output},
       __LINE__,
