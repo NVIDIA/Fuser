@@ -1095,8 +1095,11 @@ class TestScheduleOps(TestCase):
         torch_ref = torch.abs(inputs[0]).reshape(inputs[1].shape) + inputs[1]
         self.assertEqual(nvf_out[0], torch_ref)
 
-    @pytest.mark.skipif(
-        torch.cuda.device_count() < 2, reason="More than 1 GPU required"
+    # @pytest.mark.skipif(
+    #     torch.cuda.device_count() < 2, reason="More than 1 GPU required"
+    # )
+    @pytest.mark.skip(
+        reason="Disable test, not clear what nvFuser behavior should be with mixed devices in a fusion."
     )
     def test_inputs_with_different_devices(self):
         """

@@ -303,8 +303,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 }
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
-  std::vector<c10::IValue> input_IValues;
-  KernelArgumentHolder args(input_IValues);
+  KernelArgumentHolder args;
   for (auto& input : launch_kernel->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -312,9 +311,9 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         input,
         " for handling ",
         launch_kernel->toString());
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
-    args.push(input_evaluation);
+    args.push(expr_evaluator_.evaluate(input));
   }
+  args.setDeviceIndex();
 
   // run the compiled kernel
   std::vector<at::Tensor> outputs =
@@ -333,7 +332,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
-  std::vector<c10::IValue> input_IValues;
+  KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -341,23 +340,9 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
         input,
         " for handling ",
         post_ir->toString());
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
-    c10::IValue value;
-    if (input_evaluation.is<at::Tensor>()) {
-      value = input_evaluation.as<at::Tensor>();
-    } else if (input_evaluation.is<int64_t>()) {
-      value = at::Scalar(input_evaluation.as<int64_t>());
-    } else {
-      NVF_ERROR(
-          "Wrong type ",
-          input_evaluation.type().name(),
-          " for the PolymorphicValue ",
-          input_evaluation,
-          ", must be at::Tensor or int64_t");
-    }
-    input_IValues.push_back(value);
+    input_args.push(expr_evaluator_.evaluate(input));
   }
-
+  input_args.setDeviceIndex();
   // placeholder for storing the outputs
   std::vector<at::Tensor> outputs;
 
@@ -366,7 +351,6 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       "op must be a HostUnit: ",
       post_ir->hostOpToPost());
   auto hu = post_ir->hostOpToPost()->as<HostUnit>();
-  KernelArgumentHolder args(input_IValues);
   // Compile the fusion and execute it with HostIrExecutor
   // Check if the executor has been cached. If not, create and cache it
   if (params_.use_fusion_executor_cache) {
@@ -377,18 +361,17 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
-    outputs = fec_.at(hu).runFusionWithInputs(args);
+    outputs = fec_.at(hu).runFusionWithInputs(input_args);
   } else {
     // This path should generally be avoided as it will likely send the fusion
     // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      outputs = ExecutorDispatch::run(ea, args);
+      outputs = ExecutorDispatch::run(ea, input_args);
 
     } else {
-      DynamicTransform::concretizeFusion(
-          hu->fusion_to_execute(), args.toC10Array());
+      DynamicTransform::concretizeFusion(hu->fusion_to_execute(), input_args);
       auto it2 = executors_.insert(
           {hu,
            ExecutorDispatch::makeExecutor(
@@ -396,11 +379,15 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
         ExecutorDispatch::compile(
-            ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
+            ea,
+            hu->fusion_to_execute(),
+            input_args,
+            LaunchParams(),
+            CompileParams());
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      outputs = ExecutorDispatch::run(ea, args);
+      outputs = ExecutorDispatch::run(ea, input_args);
     }
   }
 

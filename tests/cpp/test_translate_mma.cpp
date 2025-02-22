@@ -557,7 +557,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   if (transpose_a_alloc) {
     t0 = t0.as_strided({M, K}, {1, M});
   }
-  std::vector<c10::IValue> inputs{t0, t1};
+  KernelArgumentHolder inputs{t0, t1};
   at::Tensor tref;
   if (bias_dim >= 0) {
     at::Tensor bias;
@@ -568,7 +568,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     } else {
       NVF_THROW("Invalid bias dimension given:", bias_dim);
     }
-    inputs.emplace_back(bias);
+    inputs.push(bias);
     tref = at::linear(t0, t1, bias);
   } else {
     tref = at::linear(t0, t1);
