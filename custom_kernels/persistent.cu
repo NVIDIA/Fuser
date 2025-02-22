@@ -11340,11 +11340,11 @@ __device__ __inline__ void fenceAsyncProxy() {
 }
 template <nvfuser_index_t in0>
 __device__ __inline__ void decreaseRegisters() {
-  asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n"::"n"(in0));
+  asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n" ::"n"(in0));
 }
 template <nvfuser_index_t in0>
 __device__ __inline__ void increaseRegisters() {
-  asm volatile("setmaxnreg.inc.sync.aligned.u32 %0;\n"::"n"(in0));
+  asm volatile("setmaxnreg.inc.sync.aligned.u32 %0;\n" ::"n"(in0));
 }
 __device__ __inline__ void stmatrix4(uint32_t in0, Array<uint32_t, 4, 1> in1) {
   asm volatile(
@@ -11520,14 +11520,15 @@ __device__ __inline__ void wait() {
   asm volatile("wgmma.wait_group.sync.aligned %0;\n" ::"n"(in0) : "memory");
 }
 } // namespace wgmma
-__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
-    Tensor<__bfloat, 3, 3> T0,
-    Tensor<__bfloat, 3, 3> T1,
-    Tensor<__bfloat, 3, 3> T2,
-    const __grid_constant__ TensorMap var0,
-    const __grid_constant__ TensorMap var1,
-    const __grid_constant__ TensorMap var2,
-    Tensor<__bfloat, 2, 2> T4) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
+    __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
+        Tensor<__bfloat, 3, 3> T0,
+        Tensor<__bfloat, 3, 3> T1,
+        Tensor<__bfloat, 3, 3> T2,
+        const __grid_constant__ TensorMap var0,
+        const __grid_constant__ TensorMap var1,
+        const __grid_constant__ TensorMap var2,
+        Tensor<__bfloat, 2, 2> T4) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i3;
@@ -11643,15 +11644,15 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
   // destroy mbarrier
 
   // mbarrier init - every iteration
-  uint32_t num_threads = blockDim.x * (blockDim.y-1) * blockDim.z;
+  uint32_t num_threads = blockDim.x * (blockDim.y - 1) * blockDim.z;
   uint64_t* T9 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
-  #pragma unroll
+#pragma unroll
   for (nvfuser_index_t i29 = 0; i29 < 3; ++i29) {
     if (((Hopper::electSync(4294967295U) && b15) && b16)) {
       mbarrier::init(toSmem((&T9[i29])), 2U);
     }
   }
-  #pragma unroll
+#pragma unroll
   for (nvfuser_index_t i30 = 0; i30 < 3; ++i30) {
     if (((Hopper::electSync(4294967295U) && b15) && b16)) {
       mbarrier::init(toSmem((&T9[(i30 + 3LL)])), 256U);
@@ -11663,9 +11664,9 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
   // warp-specialization
   if (b17) {
     decreaseRegisters<40>();
-    // load warp-group
-    // outer for-loop
-    #pragma unroll 1
+// load warp-group
+// outer for-loop
+#pragma unroll 1
     for (nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
       nvfuser_index_t i23;
       i23 = ((nvfuser_index_t)blockIdx.x) + (132 * i22);
@@ -11677,15 +11678,16 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
       nvfuser_index_t i25;
       i25 = 128 * (i23 / i3);
 
-      #pragma unroll 2
+#pragma unroll 2
       for (nvfuser_index_t i31 = 0; i31 < i5; ++i31) {
-        nvfuser_index_t i32;
-        i32 = i31 % 3;
-	nvfuser_index_t stage;
+        nvfuser_index_t stage;
         stage = i22 * i5 + i31;
+        nvfuser_index_t i32;
+        i32 = stage % 3;
         if ((Hopper::electSync(4294967295U) && b15)) {
           mbarrier::waitParity(
-              toSmem((&T9[((stage % 3) + 3LL)])), (uint32_t)(((stage / 3) % 2)));
+              toSmem((&T9[((stage % 3) + 3LL)])),
+              (uint32_t)(((stage / 3) % 2)));
           mbarrier::arriveExpectTX(toSmem((&T9[(stage % 3)])), 32768U);
           Hopper::cpAsyncBulkTensorTileG2S(
               (Hopper::CpAsyncBulkTensorTileG2SIndex<2>{
@@ -11706,14 +11708,15 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
     return;
   } else {
     increaseRegisters<232>();
-    // compute warp-group
-    #pragma unroll
+// compute warp-group
+#pragma unroll
     for (nvfuser_index_t i33 = 0; i33 < 3; ++i33) {
       mbarrier::arrive(toSmem((&T9[(i33 + 3LL)])));
     }
 
-    // outer for-loop
-    #pragma unroll 1
+    Array<float, 128, 1> T3;
+// outer for-loop
+#pragma unroll 1
     for (nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
       nvfuser_index_t i23;
       i23 = ((nvfuser_index_t)blockIdx.x) + (132 * i22);
@@ -11730,21 +11733,21 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
       b27 = b18 && ((i20 + i25) < T0.logical_size[0LL]);
       nvfuser_index_t i28;
       i28 = i21 + i24;
-      Array<float, 128, 1> T3;
       ((*reinterpret_cast<Array<float, 128, 1>*>(&T3[0]))).set(0);
 
-      #pragma unroll 2
+#pragma unroll 2
       for (nvfuser_index_t i34 = 0; i34 < i5; ++i34) {
+        nvfuser_index_t stage;
+        stage = i22 * i5 + i34;
         nvfuser_index_t i35;
-        i35 = i34 % 3;
+        i35 = stage % 3;
         uint32_t i36;
         i36 = i10 + (16384 * i35);
         uint32_t i37;
         i37 = i7 + (32768 * i35);
-	nvfuser_index_t stage;
-        stage = i22 * i5 + i34;
-        mbarrier::waitParity(toSmem((&T9[(stage % 3)])), (uint32_t)(((stage / 3) % 2)));
-        #pragma unroll
+        mbarrier::waitParity(
+            toSmem((&T9[(stage % 3)])), (uint32_t)(((stage / 3) % 2)));
+#pragma unroll
         for (nvfuser_index_t i38 = 0; i38 < 4; ++i38) {
           nvfuser_index_t i39;
           i39 = 32 * i38;
@@ -11767,18 +11770,18 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
       }
       wgmma::wait<0LL>();
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
-    
+
       // store results
       Array<__bfloat, 128, 8> T7;
-      #pragma unroll
+#pragma unroll
       for (nvfuser_index_t i44 = 0; i44 < 32; ++i44) {
         nvfuser_index_t i45;
         i45 = 4 * i44;
-        #pragma unroll
+#pragma unroll
         for (nvfuser_index_t i46 = 0; i46 < 2; ++i46) {
           nvfuser_index_t i47;
           i47 = i45 + (2 * i46);
-          #pragma unroll
+#pragma unroll
           for (nvfuser_index_t i48 = 0; i48 < 2; ++i48) {
             nvfuser_index_t i49;
             i49 = i47 + i48;
@@ -11787,7 +11790,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
         }
       }
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
-      #pragma unroll
+#pragma unroll
       for (nvfuser_index_t i50 = 0; i50 < 16; ++i50) {
         if ((b27 && (i28 < (-(16 * i50))))) {
           stmatrix4(
@@ -11804,10 +11807,10 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
         }
       }
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
-      fenceAsyncProxy();
-      #pragma unroll
+#pragma unroll
       for (nvfuser_index_t i51 = 0; i51 < 4; ++i51) {
         if (((Hopper::electSync(4294967295U) && b15) && b18)) {
+          fenceAsyncProxy();
           Hopper::cpAsyncBulkTensorTileS2G(
               (Hopper::CpAsyncBulkTensorTileS2GIndex<2>{
                   ptr13,
@@ -11820,14 +11823,14 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384) __cluster_dims_
       cpAsyncBulkWaitGroup<0LL>();
     }
   }
-  // destroy mbarrier every iteration
-  #pragma unroll
+// destroy mbarrier every iteration
+#pragma unroll
   for (nvfuser_index_t i42 = 0; i42 < 3; ++i42) {
     if (((Hopper::electSync(4294967295U) && b15) && b16)) {
       mbarrier::inval(toSmem((&T9[(i42 + 3LL)])));
     }
   }
-  #pragma unroll
+#pragma unroll
   for (nvfuser_index_t i43 = 0; i43 < 3; ++i43) {
     if (((Hopper::electSync(4294967295U) && b15) && b16)) {
       mbarrier::inval(toSmem((&T9[i43])));
