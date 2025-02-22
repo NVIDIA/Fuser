@@ -575,6 +575,9 @@ void ValGraph::setUnmappable(Val* val0, Val* val1) {
 }
 
 void ValGraph::setUnmappable(const std::vector<Val*>& vals) {
+  if (vals.size() < 2) {
+    return;
+  }
   for (const auto i : c10::irange(vals.size() - 1)) {
     for (const auto j : c10::irange(i + 1, vals.size())) {
       setUnmappable(vals.at(i), vals.at(j));
