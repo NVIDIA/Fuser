@@ -786,7 +786,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-     ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {

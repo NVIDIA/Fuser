@@ -39,7 +39,7 @@ void testValidate(
     std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
-    std::string err_msg = "", 
+    std::string err_msg = "",
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
 
