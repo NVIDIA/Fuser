@@ -659,7 +659,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   auto t0 = at::randn(input_sizes, options);
   auto ref_output = at::sum(t0 * 2, {0});
 
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {post_on_stream_inputs.at(0), t0}};
 
   setCurrentCUDAStream(c10::cuda::getDefaultCUDAStream(0));
@@ -738,7 +738,7 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   auto t0 = at::randn(input_sizes, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
 
   auto output = hie.runWithInput(concrete_input_buffers).at(0);
@@ -796,7 +796,7 @@ TEST_F(MatmulHostIrTest, HostIr) {
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   auto t0 = at::randn({H, M, K}, options);
   auto t1 = at::randn({H, K, N}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}, {hie.inputs().at(1), t1}};
 
   auto output = hie.runWithInput(concrete_input_buffers).at(0);
@@ -834,7 +834,7 @@ TEST_F(MatmulHostIrTest, HostIrMatmulOut) {
   at::Tensor t0 = at::randn({H, M, K}, options);
   at::Tensor t1 = at::randn({H, K, N}, options);
   at::Tensor t2 = at::randn({H, M, N}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {tv0, t0}, {tv1, t1}, {tv2, t2}};
 
   hie.runWithInput(concrete_input_buffers);
@@ -874,7 +874,7 @@ TEST_F(LinearHostIrTest, HostIr) {
   auto in_at = at::randn({B, M, K}, options);
   auto weight_at = at::randn({N, K}, options);
   auto bias_at = at::randn({N}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), in_at},
       {hie.inputs().at(1), weight_at},
       {hie.inputs().at(2), bias_at}};
@@ -917,7 +917,7 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
   auto weight_at = at::randn({N, K}, options);
   auto bias_at = at::randn({N}, options);
   auto out_at = at::empty({B, M, N}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), in_at},
       {hie.inputs().at(1), weight_at},
       {hie.inputs().at(2), bias_at},
@@ -964,7 +964,7 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   auto t0 = at::randn(input_sizes, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
 
   auto output = hie.runWithInput(concrete_input_buffers).at(0);
@@ -1018,7 +1018,8 @@ TEST_F(ViewTest, SimpleReshape) {
   constexpr int64_t kX = 32;
   constexpr int64_t kY = 64;
   auto t0 = at::randn({kX, kY}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {{input, t0}};
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {input, t0}};
 
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
@@ -1046,7 +1047,8 @@ TEST_F(ReductionHostIrTest, Sum) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
   auto t0 = at::randn({kTensorSize}, options);
-  std::unordered_map<Val*, c10::IValue> concrete_input_buffers = {{tv0, t0}};
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {tv0, t0}};
 
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
@@ -1096,18 +1098,16 @@ TEST_F(IfThenElseTest, HostIr) {
   HostIrEvaluator hie(std::move(hic));
 
   for (auto boolean : {true, false}) {
-    c10::IValue input_bool_c10 = c10::ivalue::from(boolean);
     auto options =
         at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-    c10::IValue input_buffer_c10 = at::ones(1, options);
-    std::unordered_map<Val*, c10::IValue> concrete_inputs = {
-        {input_bool, input_bool_c10}, {input_buffer, input_buffer_c10}};
+    auto at_buffer = at::ones(1, options);
+    std::unordered_map<Val*, PolymorphicValue> concrete_inputs = {
+        {input_bool, boolean}, {input_buffer, at_buffer}};
 
     auto outputs = hie.runWithInput(concrete_inputs);
 
     // validate
-    auto ref_output =
-        at::ones_like(input_buffer_c10.toTensor()) + (1 + (int)boolean);
+    auto ref_output = at::ones_like(at_buffer) + (1 + (int)boolean);
     EXPECT_TRUE(outputs.at(0).equal(ref_output));
   }
 }

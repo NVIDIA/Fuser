@@ -3167,6 +3167,8 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   auto tv2b = tv2->cacheBefore();
   tv0a->setMemoryType(MemoryType::Shared);
   tv1a->setMemoryType(MemoryType::Shared);
+  tv2b->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
 
   tv2->merge(0);
   tv2->split(0, 512);
@@ -3177,7 +3179,7 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   scheduler_utils::parallelizeAllLike(tv2);
 
   /// TIDx for computation, Bulk for load
-  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2b->axis(-1)->parallelize(ParallelType::TIDx);
   tv0a->axis(-1)->parallelize(ParallelType::Bulk);
   tv1a->axis(-1)->parallelize(ParallelType::Bulk);

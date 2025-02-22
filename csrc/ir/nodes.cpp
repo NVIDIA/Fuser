@@ -599,18 +599,20 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
+      NVF_CHECK(
+          !rhs.is<int64_t>() || rhs != 0, "Integer division by zero detected");
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "Modulo zero detected");
       return {lhs % rhs};
       break;
     case BinaryOpType::Fmod:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "Float modulo zero detected");
       return {fmod(lhs, rhs)};
       break;
     case BinaryOpType::CeilDiv:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "CeilDiv by zero detected");
       return {ceildiv(lhs, rhs)};
       break;
     case BinaryOpType::LogicalAnd:
