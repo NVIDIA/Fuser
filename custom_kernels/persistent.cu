@@ -11520,6 +11520,73 @@ __device__ __inline__ void wait() {
   asm volatile("wgmma.wait_group.sync.aligned %0;\n" ::"n"(in0) : "memory");
 }
 } // namespace wgmma
+
+// Circular-buffer for-loop is the first serial for-loop to the left of
+// computeAt position. It is applied to the load cacheAfter TensorViews.
+//
+// Persistent scheduling with matmul creates multiple serial for-loops.
+// There is a grid-stride for-loop over output-tiles and cta-k for-loop.
+//
+// Proposal:
+//  * Merge output-tile and cta-k iterDomains.
+//  * Apply circular buffering to the load cacheAfter TensorView.
+//  * wgmma consumer would have separate output-tile and cta-k iterDomains.
+//
+// Why? A single serial iterDomain for circular buffering.
+// This matches current implementation.
+//
+// Problem:
+// The output-tile and cta-k iterDomains cannot be merged for compute warp
+// groups because storing the matmul results to global memory does not have
+// cta-k iterDomain. The wgmma consumer cannot be inlined with cacheAfter tma
+// load, breaking the current circular buffering implementation.
+//
+// Does consumer of circular buffering inputs need to be inlined?
+// This restriction seems unnecessary for warp-specialized circular buffering.
+//
+// Proposal: For warp-specialized circular buffering, track separate for-loops
+// for load and compute warp groups.
+//
+// Invariant: The compute for-loop must be derived from load for-loop.
+//
+// Pseudo-code:
+//
+// mbarrier init
+// if (tma-load) {
+//   decrease_register_limit(40);
+//   for (output-tile) {
+//     for (cta-k) {
+//       if (elect-sync) {
+//         mbarrier wait for empty stage
+//         mbarrier arriveExpectTx for tma load
+//         tma load operand A and B cta tiles for stage
+//       }
+//     }
+//   }
+// } else {  // compute warp-group
+//   increase_register_limit(232);
+//   mbarrier arrive to signal all stages are empty
+//   for (output-tile) {
+//     for (cta-k) {
+//       mbarrier wait for full stage
+//       for (warp-k) {
+//         wgmma_fence;
+//         wgmma_64m_256m_16k;
+//       }
+//       wgmma_commit;
+//       wgmma_wait;
+//       mbarrier arrive to signal current stage is empty
+//     }
+//     wgmma_wait;
+//     convert fp32 results to bf16
+//     stmatrix from registers to shared memory
+//     block_sync();
+//     tma store from shared to global memory
+//     tma_store_commit;
+//     tma_store_wait;
+//   }
+// }
+// destroy mbarrier
 __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
     __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         Tensor<__bfloat, 3, 3> T0,
@@ -11575,73 +11642,6 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
   i20 = ((8 + (16 * (i19 / 8))) + (i19 % 8)) + i14;
   nvfuser_index_t i21;
   i21 = (9 - T1.logical_size[1LL]) + (2 * (((nvfuser_index_t)threadIdx.x) % 4));
-
-  // Circular-buffer for-loop is the first serial for-loop to the left of
-  // computeAt position. It is applied to the load cacheAfter TensorViews.
-  //
-  // Persistent scheduling with matmul creates multiple serial for-loops.
-  // There is a grid-stride for-loop over output-tiles and cta-k for-loop.
-  //
-  // Proposal:
-  //  * Merge output-tile and cta-k iterDomains.
-  //  * Apply circular buffering to the load cacheAfter TensorView.
-  //  * wgmma consumer would have separate output-tile and cta-k iterDomains.
-  //
-  // Why? A single serial iterDomain for circular buffering.
-  // This matches current implementation.
-  //
-  // Problem:
-  // The output-tile and cta-k iterDomains cannot be merged for compute warp
-  // groups because storing the matmul results to global memory does not have
-  // cta-k iterDomain. The wgmma consumer cannot be inlined with cacheAfter tma
-  // load, breaking the current circular buffering implementation.
-  //
-  // Does consumer of circular buffering inputs need to be inlined?
-  // This restriction seems unnecessary for warp-specialized circular buffering.
-  //
-  // Proposal: For warp-specialized circular buffering, track separate for-loops
-  // for load and compute warp groups.
-  //
-  // Invariant: The compute for-loop must be derived from load for-loop.
-  //
-  // Pseudo-code:
-  //
-  // mbarrier init
-  // if (tma-load) {
-  //   decrease_register_limit(40);
-  //   for (output-tile) {
-  //     for (cta-k) {
-  //       if (elect-sync) {
-  //         mbarrier wait for empty stage
-  //         mbarrier arriveExpectTx for tma load
-  //         tma load operand A and B cta tiles for stage
-  //       }
-  //     }
-  //   }
-  // } else {  // compute warp-group
-  //   increase_register_limit(232);
-  //   mbarrier arrive to signal all stages are empty
-  //   for (output-tile) {
-  //     for (cta-k) {
-  //       mbarrier wait for full stage
-  //       for (warp-k) {
-  //         wgmma_fence;
-  //         wgmma_64m_256m_16k;
-  //       }
-  //       wgmma_commit;
-  //       wgmma_wait;
-  //       mbarrier arrive to signal current stage is empty
-  //     }
-  //     wgmma_wait;
-  //     convert fp32 results to bf16
-  //     stmatrix from registers to shared memory
-  //     block_sync();
-  //     tma store from shared to global memory
-  //     tma_store_commit;
-  //     tma_store_wait;
-  //   }
-  // }
-  // destroy mbarrier
 
   // mbarrier init - every iteration
   uint32_t num_threads = blockDim.x * (blockDim.y - 1) * blockDim.z;
@@ -11715,6 +11715,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
     }
 
     Array<float, 128, 1> T3;
+    Array<__bfloat, 128, 8> T7;
 // outer for-loop
 #pragma unroll 1
     for (nvfuser_index_t i22 = 0; i22 < i4; ++i22) {
@@ -11765,14 +11766,12 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
               true);
         }
         wgmma::commit();
-        wgmma::wait<0LL>();
+        wgmma::wait<1LL>();
         mbarrier::arrive(toSmem((&T9[((stage % 3) + 3LL)])));
       }
       wgmma::wait<0LL>();
-      asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
 
       // store results
-      Array<__bfloat, 128, 8> T7;
 #pragma unroll
       for (nvfuser_index_t i44 = 0; i44 < 32; ++i44) {
         nvfuser_index_t i45;
@@ -11789,7 +11788,6 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
           }
         }
       }
-      asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
 #pragma unroll
       for (nvfuser_index_t i50 = 0; i50 < 16; ++i50) {
         if ((b27 && (i28 < (-(16 * i50))))) {
@@ -11807,10 +11805,10 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
         }
       }
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
+      fenceAsyncProxy();
 #pragma unroll
       for (nvfuser_index_t i51 = 0; i51 < 4; ++i51) {
         if (((Hopper::electSync(4294967295U) && b15) && b18)) {
-          fenceAsyncProxy();
           Hopper::cpAsyncBulkTensorTileS2G(
               (Hopper::CpAsyncBulkTensorTileS2GIndex<2>{
                   ptr13,
@@ -11818,7 +11816,6 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
               (i12 + (8192 * i51)));
         }
       }
-      asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
       cpAsyncBulkCommitGroup();
       cpAsyncBulkWaitGroup<0LL>();
     }
