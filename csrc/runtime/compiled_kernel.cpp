@@ -1417,7 +1417,7 @@ float RtcKernel::run(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    auto input_tensor = input.as<at::Tensor>();
+    const auto& input_tensor = input.as<at::Tensor>();
     auto dtype = std::get<PrimDataType>(
         aten_to_data_type(input_tensor.scalar_type()).type);
     DataType metadata_type = globalTensorMetaData(dtype, input_tensor.dim());

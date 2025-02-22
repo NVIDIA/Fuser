@@ -661,7 +661,7 @@ void KernelExecutor::initializeExecutorEntry(
     // future uses of this ExecutorEntry may not be provided with
     // allocated outputs
     for (const auto& output : output_args) {
-      at::Tensor out_tensor = output.as<at::Tensor>();
+      const auto& out_tensor = output.as<at::Tensor>();
       output_info.emplace_back(GlobalBufferInfo{
           .sizes = out_tensor.sizes().vec(),
           .strides = out_tensor.strides().vec(),
