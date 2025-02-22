@@ -1003,18 +1003,19 @@ KernelArgumentHolder KernelExecutor::run(
   at::Tensor profile_buffer;
   {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
-    for (const auto i : c10::irange(executor_entry->intermediates.size())) {
-      const auto& buf_info = executor_entry->intermediates.at(i);
+    for (const auto intermediate_i :
+         c10::irange(executor_entry->intermediates.size())) {
+      const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
       bool has_expansion = false;
       std::vector<int64_t> unexpanded_sizes;
       unexpanded_sizes.reserve(buf_info.sizes.size());
       NVF_ERROR(buf_info.sizes.size() == buf_info.strides.size())
-      for (const auto j : c10::irange(buf_info.sizes.size())) {
-        if (buf_info.strides[j] == 0) {
+      for (const auto dim_i : c10::irange(buf_info.sizes.size())) {
+        if (buf_info.strides[dim_i] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
         } else {
-          unexpanded_sizes.push_back(buf_info.sizes[j]);
+          unexpanded_sizes.push_back(buf_info.sizes[dim_i]);
         }
       }
       at::Tensor intermediate_buffer;
@@ -1048,15 +1049,16 @@ KernelArgumentHolder KernelExecutor::run(
         intermediate_buffer =
             at::native::expand(intermediate_buffer, buf_info.sizes);
       }
+      args.push(intermediate_buffer);
       intermediate_args.push(intermediate_buffer);
       expr_eval.bind(
           compiled_kernel_->kernel()
               ->summary()
-              .global_allocations.at(i)
+              .global_allocations.at(intermediate_i)
               ->buffer(),
           args
               [compiled_kernel_->kernel()->inputs().size() +
-               output_args.size() + i]);
+               output_args.size() + intermediate_i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }

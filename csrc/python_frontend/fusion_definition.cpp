@@ -407,6 +407,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
     }
+
     scheds->last_user_def_scheduled_ir = user_sched->scheduled_fusion.get();
     scheds->last_user_def_executor = user_sched->executor.get();
 
@@ -453,32 +454,29 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
-  out_dtensors.reserve(outputs.size());
   if (user_sched == nullptr) {
     FusionKernelRuntime* runtime =
         scheds->auto_gen_schedules->getMostRecentKernelRuntime();
     Fusion* fusion = runtime->fusionSegments()->completeFusion();
 
-    for (auto out_i : c10::irange(fusion->outputs().size())) {
-      Val* out_val = fusion->outputs()[out_i];
+    int64_t tensor_index = 0;
+    for (auto out_val : fusion->outputs()) {
       NVF_ERROR(
           out_val->isA<TensorView>(),
           "Non tensor outputs not supported currently due to lack of support of DistributedTensor in KernelArgumentHolder");
-
       auto* out_tv = out_val->as<TensorView>();
       if (fusion->getOutputAlias(out_tv).hide_output) {
         continue;
       }
-
-      const at::Tensor& out_tensor = outputs[out_i].as<at::Tensor>();
+      const at::Tensor& out_tensor = outputs[tensor_index++].as<at::Tensor>();
       const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      out_dtensors[out_i] = DistributedTensor(out_tensor, mesh);
+      out_dtensors.emplace_back(DistributedTensor(out_tensor, mesh));
 
       if (mesh.size() > 0) {
         for (const ParallelType parallel_type : kParallelTypeDIDs) {
           if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
               axis != -1) {
-            out_dtensors[out_i].setAxisIsShardedOn(axis, parallel_type);
+            out_dtensors.back().setAxisIsShardedOn(axis, parallel_type);
           }
         }
       }
@@ -489,6 +487,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       out_dtensors.emplace_back(out_tensor.as<at::Tensor>());
     }
   }
+
   return out_dtensors;
 }
 
