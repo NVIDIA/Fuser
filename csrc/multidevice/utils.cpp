@@ -277,12 +277,12 @@ int64_t numDeviceDims(const TensorView* tv) {
 }
 
 namespace {
-Val* computeIndex(
+std::pair<Val*, bool> computeIndex(
     IterDomain* id,
     const std::vector<IterDomain*>& sources,
-    std::unordered_map<IterDomain*, Val*>& known_indices) {
+    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& known_indices) {
   if (id == nullptr) {
-    return nullptr;
+    return {nullptr, false};
   }
 
   std::vector<Expr*> transforms =
@@ -301,31 +301,28 @@ Val* computeIndex(
       auto* in = split->in()->as<IterDomain>();
       auto* outer = split->outer()->as<IterDomain>();
       auto* inner = split->inner()->as<IterDomain>();
-      if (known_indices.at(in) == nullptr) {
-        known_indices[outer] = nullptr;
-        known_indices[inner] = nullptr;
-      } else {
-        known_indices[outer] = div(known_indices.at(in), inner->extent());
-        known_indices[inner] = mod(known_indices.at(in), inner->extent());
-      }
+
+      const auto& in_info = known_indices.at(in);
+      known_indices[outer] = {
+          div(in_info.first, inner->extent()), in_info.second};
+      known_indices[inner] = {
+          mod(in_info.first, inner->extent()), in_info.second};
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
-      auto* inner = merge->inner()->as<IterDomain>();
       auto* outer = merge->outer()->as<IterDomain>();
+      auto* inner = merge->inner()->as<IterDomain>();
       auto* out = merge->out()->as<IterDomain>();
-      if (known_indices.at(inner) == nullptr ||
-          known_indices.at(outer) == nullptr) {
-        known_indices[out] = nullptr;
-      } else {
-        known_indices[out] =
-            add(mul(known_indices.at(outer), inner->extent()),
-                known_indices.at(inner));
-      }
+
+      const auto& outer_info = known_indices.at(outer);
+      const auto& inner_info = known_indices.at(inner);
+      known_indices[out] = {
+          add(mul(outer_info.first, inner->extent()), inner_info.first),
+          outer_info.second || inner_info.second};
     } else {
       NVF_THROW("Unexpected transform: ", transform);
     }
   }
 
-  return getOrDefault(known_indices, id);
+  return known_indices.at(id);
 }
 } // namespace
 
@@ -378,31 +375,46 @@ bool haveDifferentShardings(
   NVF_ERROR(producer->fusion() == consumer->fusion());
   FusionGuard fg(producer->fusion());
 
-  std::unordered_map<IterDomain*, Val*> known_indices;
-  std::vector<Val*> assumptions;
+  // FIXME: can we reuse IterDomain* which is also a Val*?
   // FIXME: remove Val* and Expr*
-
-  for (IterDomain* c_root_id : consumer->getRootDomain()) {
-    known_indices[c_root_id] = nullptr;
-  }
-
+  std::unordered_map<IterDomain*, std::pair<Val*, bool>> known_indices;
+  std::vector<Val*> assumptions;
   for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
     const auto i = p2c.find(p_logical_id);
     if (i == p2c.end()) {
       // This happens e.g. when `p_logical_id` is squeezed or is a product of a
       // reduction. Even if `p_logical_id` is parallelized on DID, the
       // dimension is size-1 and doesn't trigger resharding.
-      known_indices[p_logical_id] = nullptr;
       continue;
     }
     IterDomain* c_root_id = i->second;
+
     auto* index = IrBuilder::create<Val>(DataType::Index);
-    // FIXME: should this be getMaybeExtent?
+    known_indices[p_logical_id] = {index, true};
+    known_indices[c_root_id] = {index, true};
     assumptions.push_back(
         IrBuilder::leExpr(producer->fusion()->zeroVal(), index));
     assumptions.push_back(IrBuilder::ltExpr(index, p_logical_id->extent()));
-    known_indices[p_logical_id] = index;
-    known_indices[c_root_id] = index;
+  }
+
+  // FIXME: the two loops below can be consolidated.
+  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
+    Val*& index = known_indices[p_logical_id].first;
+    if (index == nullptr) {
+      index = IrBuilder::create<Val>(DataType::Index);
+      assumptions.push_back(
+          IrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+      assumptions.push_back(IrBuilder::ltExpr(index, p_logical_id->extent()));
+    }
+  }
+  for (IterDomain* c_root_id : consumer->getMaybeRootDomain()) {
+    Val*& index = known_indices[c_root_id].first;
+    if (index == nullptr) {
+      index = IrBuilder::create<Val>(DataType::Index);
+      assumptions.push_back(
+          IrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+      assumptions.push_back(IrBuilder::ltExpr(index, c_root_id->extent()));
+    }
   }
 
   // In practice, only loop IterDomains can be parallelized, and no two loop
@@ -422,29 +434,34 @@ bool haveDifferentShardings(
       mapDeviceParallelTypeToId(consumer->getLoopDomain());
 
   for (const auto parallel_type : kParallelTypeDIDs) {
-    IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
-    Val* p_loop_index =
-        computeIndex(p_loop_id, producer->getLogicalDomain(), known_indices);
+    IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
+    auto [p_index, p_mapped] =
+        computeIndex(p_id, producer->getLogicalDomain(), known_indices);
+    if (!p_mapped) {
+      p_index = nullptr;
+    }
 
-    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
-    Val* c_loop_index =
-        computeIndex(c_loop_id, consumer->getRootDomain(), known_indices);
+    IterDomain* c_id = getOrDefault(c_parallel_type_to_id, parallel_type);
+    auto [c_index, c_mapped] =
+        computeIndex(c_id, consumer->getMaybeRootDomain(), known_indices);
+    if (!c_mapped) {
+      c_index = nullptr;
+    }
 
-    auto is_equivalent = [&assumptions](Val* x, Val* y) -> bool {
-      if (x == nullptr && y == nullptr) {
+    const bool is_equivalent = [&]() -> bool {
+      if (p_index == nullptr && c_index == nullptr) {
         return true;
       }
-
-      if (x == nullptr || y == nullptr) {
+      if (p_index == nullptr || c_index == nullptr) {
         return false;
       }
 
-      x = simplifyExpr(x, {}, assumptions);
-      y = simplifyExpr(y, {}, assumptions);
-      return x->sameAs(y);
-    };
+      p_index = simplifyExpr(p_index, {}, assumptions);
+      c_index = simplifyExpr(c_index, {}, assumptions);
+      return p_index->sameAs(c_index);
+    }();
 
-    if (!is_equivalent(p_loop_index, c_loop_index)) {
+    if (!is_equivalent) {
       return true;
     }
   }
