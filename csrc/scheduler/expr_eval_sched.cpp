@@ -30,6 +30,40 @@ bool allOutputsArePointerArithmetics(Fusion* fusion) {
     return root != nullptr && root->isFusionInput();
   });
 }
+
+bool isNoOp(Expr* expr) {
+  if (expr->isA<LoadStoreOp>() &&
+      (expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set ||
+       expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::SegmenterSet)) {
+    return true;
+  }
+  if (ir_utils::isReductionOp(expr)) {
+    for (auto out_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+      const std::vector<IterDomain*>& logical_dom =
+          TensorDomain::noReductions(out_tv->getLogicalDomain());
+      const bool non_zero_reduction = std::any_of(
+          logical_dom.begin(), logical_dom.end(), [](IterDomain* id) {
+            return !(
+                id->extent()->isConstScalar() &&
+                id->extent()->evaluate().as<int64_t>() == 0);
+          });
+      if (non_zero_reduction) {
+        return false;
+      }
+    }
+    return true;
+  }
+  if (expr->isOneOf<
+          SqueezeOp,
+          BroadcastOp,
+          SliceOp,
+          CatOp,
+          ViewOp,
+          RepeatOp>()) {
+    return true;
+  }
+  return false;
+}
 } // namespace
 
 // Check if the fusion has a single MatmulOp/LinearOp node
@@ -48,7 +82,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return expr->isOneOf<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp, GetMetaData>() ||
         (expr->isOneOf<LinearOp, MatmulOp>() &&
          !isOptionDisabled(DisableOption::MatmulExprEval)) ||
-        ir_utils::isScalarOp(expr);
+        ir_utils::isScalarOp(expr) || isNoOp(expr);
   };
 
   auto exprs = fusion->exprs();
