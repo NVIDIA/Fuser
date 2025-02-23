@@ -427,7 +427,8 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
       "Hopper matmul scheduler currently requires TMA to be enabled");
   auto scheduleBranch = [&](const std::vector<TensorView*>& gmem_operands,
                             const std::vector<TensorView*>& smem_operands,
-                            MmaOperand operand_type) {
+                            MmaOperand operand_type,
+                            int64_t multicast) {
     blockTileTensors(smem_operands);
     parallelizeBlocks(smem_operands);
     for (TensorView* tv : smem_operands) {
@@ -436,11 +437,24 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
       }
       mma_utils::orderTiledConcreteIdAsMaybeAllocationDomain(tv);
       MmaInputSmemSwizzle swizzle_type = mma_utils::tmaSwizzleSharedMemory(tv);
-      tv->applyMmaSwizzleForTMALoad(swizzle_type);
+      tv->applyMmaSwizzleForTMALoad(swizzle_type, multicast);
     }
   };
-  scheduleBranch(as_, acw_smems_, MmaOperand::A);
-  scheduleBranch(bs_, bcw_smems_, MmaOperand::B);
+  // NOTE: For persistent scheduling, gridDim.x == clusterDim.x and it is the
+  // multicast dimension.
+  if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
+    // Traverse along columns then rows, so CTAs in the same cluster share the
+    // same row. Apply TMA multicast to operand A.
+    scheduleBranch(
+        as_, acw_smems_, MmaOperand::A, /*multicast=*/params_->cluster_dims.x);
+    scheduleBranch(bs_, bcw_smems_, MmaOperand::B, /*multicast=*/1);
+  } else {
+    // Traverse along rows then columns, so CTAs in the same cluster share the
+    // same column. Apply TMA multicast to operand B.
+    scheduleBranch(as_, acw_smems_, MmaOperand::A, /*multicast=*/1);
+    scheduleBranch(
+        bs_, bcw_smems_, MmaOperand::B, /*multicast=*/params_->cluster_dims.x);
+  }
 }
 
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
