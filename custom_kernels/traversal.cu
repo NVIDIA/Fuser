@@ -11616,25 +11616,25 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
 
   if (b20) {
     decreaseRegisters<40>();
+    if ((Hopper::electSync(4294967295U) && b18)) {
 #pragma unroll 1
-    for (nvfuser_index_t i25 = 0; i25 < i4; ++i25) {
-      nvfuser_index_t i26;
-      i26 = 2048 * (i25 % i3);
-      nvfuser_index_t i27;
-      i27 = i7 + i26;
-      int i28;
-      i28 = (int32_t)(i27);
-      nvfuser_index_t i29;
-      i29 = 2048 * (i25 / i3);
-      int i30;
-      i30 = (int32_t)((i10 + i29));
+      for (nvfuser_index_t i25 = 0; i25 < i4; ++i25) {
+        nvfuser_index_t i26;
+        i26 = 2048 * (i25 % i3);
+        nvfuser_index_t i27;
+        i27 = i7 + i26;
+        int i28;
+        i28 = (int32_t)(i27);
+        nvfuser_index_t i29;
+        i29 = 2048 * (i25 / i3);
+        int i30;
+        i30 = (int32_t)((i10 + i29));
 #pragma unroll 2
-      for (nvfuser_index_t i36 = 0; i36 < i5; ++i36) {
-        nvfuser_index_t stage;
-        stage = i25 * i5 + i36;
-        nvfuser_index_t i37;
-        i37 = stage % 3;
-        if ((Hopper::electSync(4294967295U) && b18)) {
+        for (nvfuser_index_t i36 = 0; i36 < i5; ++i36) {
+          nvfuser_index_t stage;
+          stage = i25 * i5 + i36;
+          nvfuser_index_t i37;
+          i37 = stage % 3;
           mbarrier::waitParity(
               toSmem((&T9[((stage % 3) + 3LL)])),
               (uint32_t)(((stage / 3) % 2)));
@@ -11736,19 +11736,17 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
       cpAsyncBulkWaitGroup<0LL>();
 #pragma unroll
       for (nvfuser_index_t i55 = 0; i55 < 16; ++i55) {
-        if ((b32 && (i33 < (-(16 * i55))))) {
-          stmatrix4(
-              (uint32_t)((
-                  toSmem(T8) +
-                  ((((nvfuser_index_t)threadIdx.y) * 32768) +
-                   (((i55 / 4) * 8192) +
-                    ((i13 * 128) +
-                     (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) +
-                        ((i55 % 4) * 2)) ^
-                       (i13 % 8)) *
-                      16)))))),
-              (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i55)])));
-        }
+        stmatrix4(
+            (uint32_t)((
+                toSmem(T8) +
+                ((((nvfuser_index_t)threadIdx.y) * 32768) +
+                 (((i55 / 4) * 8192) +
+                  ((i13 * 128) +
+                   (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) +
+                      ((i55 % 4) * 2)) ^
+                     (i13 % 8)) *
+                    16)))))),
+            (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T7[(8 * i55)])));
       }
 
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
