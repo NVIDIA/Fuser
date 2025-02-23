@@ -2636,6 +2636,16 @@ SchedulerType tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    if (Schedule::canSchedule(
+            SchedulerType::ExprEval,
+            segmented_fusion->completeFusion(),
+            runtime_info)) {
+      scheduler_debug_utils::canScheduleMessage(
+          "***Accepted*** as: ", SchedulerType::ExprEval);
+      return SchedulerType::ExprEval;
+    }
+    scheduler_debug_utils::canScheduleMessage(
+        "***Rejected*** failed tryingToMergeSegmenterSet");
     return SchedulerType::None;
   }
   return Schedule::proposeHeuristics(
@@ -4207,6 +4217,26 @@ void SegmentCandidateFinder::findSegments() {
 
   finalize();
 
+  for (auto group : groups()) {
+    // I don't understand why but we're getting some duplicate inputs for the
+    // following segment: Group: pointwise{0} Inputs:
+    //   T0_g_float[iS0{2}, iS1{3}]
+    // Outputs:
+    //   T1_g_float[iS2{2}, iS3{3}]
+
+    // %kernel_math {
+    // T1_g_float[iS2{2}, iS3{3}]
+    //    = T0_g_float[iS0{2}, iS1{3}]
+    //    + T0_g_float[iS0{2}, iS1{3}];
+    // } // %kernel_math
+    // It's listing T0 as an input twice. For now WAR with deduplicating the
+    // inputs.
+    //
+    // TODO: Figure out what's happening in segmentation to make sure this
+    // doesn't happen.
+    group->input_vals = VectorOfUniqueEntries<Val*>(group->input_vals).vector();
+  }
+  // NVF_THROW("TMP");
   // Do sanity check on the final graph.
   segmented_fusion_->validate(/*require_disjoint=*/false);
 
