@@ -11766,7 +11766,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
               true);
         }
         wgmma::commit();
-        wgmma::wait<1LL>();
+        wgmma::wait<0LL>();
         mbarrier::arrive(toSmem((&T9[((stage % 3) + 3LL)])));
       }
       wgmma::wait<0LL>();
@@ -11788,6 +11788,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
           }
         }
       }
+      cpAsyncBulkWaitGroup<0LL>();
 #pragma unroll
       for (nvfuser_index_t i50 = 0; i50 < 16; ++i50) {
         if ((b27 && (i28 < (-(16 * i50))))) {
@@ -11806,18 +11807,17 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
       }
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
       fenceAsyncProxy();
-#pragma unroll
-      for (nvfuser_index_t i51 = 0; i51 < 4; ++i51) {
-        if (((Hopper::electSync(4294967295U) && b15) && b18)) {
+      if (((Hopper::electSync(4294967295U) && b15) && b18)) {
+        #pragma unroll
+        for (nvfuser_index_t i51 = 0; i51 < 4; ++i51) {
           Hopper::cpAsyncBulkTensorTileS2G(
               (Hopper::CpAsyncBulkTensorTileS2GIndex<2>{
                   ptr13,
                   (Array<nvfuser_index_t, 2, 1>{(i24 + (64 * i51)), i26})}),
               (i12 + (8192 * i51)));
         }
+        cpAsyncBulkCommitGroup();
       }
-      cpAsyncBulkCommitGroup();
-      cpAsyncBulkWaitGroup<0LL>();
     }
   }
 // destroy mbarrier every iteration
