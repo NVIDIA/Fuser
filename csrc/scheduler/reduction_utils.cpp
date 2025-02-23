@@ -268,17 +268,15 @@ TensorView* scheduleReductionTV(
     // only used by inner persistent scheduler
     // [iter]  --> [iter/stages, stages [Serial]]
     // [number-of-sms [BIDx], iter/stages/number-of-sms, stages [Serial]]
-    bool split_stages =
-        (std::getenv("PERSISTENT") == std::getenv("PERSISTENT_STAGES")) ||
-        std::getenv("WARPTIDZ");
-    if (split_stages && rparams->circular_buffer_options.isEnable()) {
-      reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
-    }
+    // bool split_stages =
+    //     (std::getenv("PERSISTENT") && std::getenv("PERSISTENT_STAGES")) ||
+    //     std::getenv("WARPTIDZ");
+    // if (split_stages && rparams->circular_buffer_options.isEnable()) {
+    //   reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
+    // }
 
-    if (std::getenv("PERSISTENT")) {
-      reduction_tv->split(iter_axis, rparams->lparams.gdimx(), false);
-      reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
-    }
+
+
 
     if (rparams->vectorize_iter_dom) {
       vectorize(iter_axis, rparams->unroll_factor_iter_dom);
@@ -290,8 +288,18 @@ TensorView* scheduleReductionTV(
         inner_parallel_static(
             iter_axis, rparams->block_dim_iter_dom, rparams->lparams.bdimx());
       } else {
-        inner_parallel(iter_axis, rparams->block_dim_iter_dom);
+        if (rparams->multiple_reds_per_blk) {
+          inner_parallel_static(
+              iter_axis, rparams->block_dim_iter_dom, rparams->lparams.bdimy());
+        }else{
+          inner_parallel(iter_axis, rparams->block_dim_iter_dom);
+        }        
       }
+    }
+
+    if (std::getenv("PERSISTENT")) {
+      reduction_tv->split(iter_axis, rparams->lparams.gdimx(), false);
+      reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
     }
 
     if (!rparams->vectorize_iter_dom && rparams->unroll_factor_iter_dom > 1) {

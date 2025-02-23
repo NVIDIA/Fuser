@@ -691,6 +691,10 @@ void innerPersistentHeuristic2D(
       best_heuristic.persistent_batch_size = std::atoi(std::getenv("PBATCH"));
     }
 
+    if (std::getenv("BDIMY")) {
+      best_heuristic.bdimy = std::atoi(std::getenv("BDIMY"));
+    }
+
     ParallelType warp_parallel_type = ParallelType::Serial;
     if (std::getenv("WARPTIDZ")) {
       warp_parallel_type = ParallelType::TIDz;

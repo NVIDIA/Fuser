@@ -1573,11 +1573,42 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+
+  template <typename data_type>
+  void compare(
+      int64_t tensor_outer_dim,
+      int64_t tensor_inner_dim,
+      const at::Tensor& result,
+      const at::Tensor& reference) {
+    at::Tensor reference_cpu_data = reference.cpu();
+    at::Tensor result_cpu_data = result.cpu();
+
+    auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+    auto result_cpu = result_cpu_data.accessor<data_type, 2>();
+
+    constexpr double abs_tolerance = 1e-3;
+    constexpr double rel_tolerance = 1e-3;
+    for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+      for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+        double tolerance = abs_tolerance +
+            rel_tolerance * fabs((double)reference_cpu[out_pos][in_pos]);
+        if (true || fabs(
+                (double)reference_cpu[out_pos][in_pos] -
+                (double)result_cpu[out_pos][in_pos]) > tolerance) {
+          std::cout << "[" << out_pos << ", " << in_pos
+                    << "] - result: " << result_cpu[out_pos][in_pos]
+                    << " | ref: " << reference_cpu[out_pos][in_pos]
+                    << std::endl;
+        }
+      }
+    }
+  }
 using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;
 TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   DataType dtype = GetParam();
+  int64_t dim0 = 4*148*14;
   int64_t dim1 = 4096;
-  const std::vector<int64_t> input_shape = {8192, dim1};
+  const std::vector<int64_t> input_shape = {dim0, dim1};
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(input_shape.size(), dtype);
@@ -1594,13 +1625,15 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   fusion->addOutput(tv4);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
+  auto t0 = at::ones(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {t0};
   auto fusion_copy = *fusion;
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
+  auto aten_output = t0 + t0.sum({1}, true);
+  compare<float>(dim0,dim1,cg_outputs.at(0), aten_output);
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1620,16 +1653,6 @@ TEST_P(SimpleNormTmaTest, tanh) {
     tv4 = castOp(DataType::Half, tv4);
   }
   fusion->addOutput(tv4);
-
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->axis(-1)->parallelize(ParallelType::Bulk);
-  scheduler_utils::parallelizeAllLike(tv2);
-
-  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
-  tv0a->setMemoryType(MemoryType::Shared);
-  tv0a->axis(0)->parallelize(ParallelType::BIDx);
-  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
-
 
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
