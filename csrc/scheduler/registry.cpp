@@ -143,6 +143,18 @@ bool canSchedule(
   std::unique_ptr<SchedulerEntry> scheduler =
       SchedulerEntry::makeSchedulerInstance(scheduler_type);
 
+  if (std::any_of(
+          fusion->outputs().begin(),
+          fusion->outputs().end(),
+          [](Val* v) { return v->isScalar(); }) &&
+      (scheduler_type != SchedulerType::ExprEval)) {
+    scheduler_debug_utils::canScheduleMessage(
+        "***Rejected*** scheduler ",
+        scheduler_type,
+        " cannot accept scalar outputs");
+    return false;
+  }
+
   if (!skip_compile_time_checks && !scheduler->canScheduleCompileTime(fusion)) {
     return false;
   }

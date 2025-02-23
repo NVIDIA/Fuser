@@ -1997,6 +1997,42 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
 
+namespace {
+void simplifyConstantScalars(Fusion* fusion) {
+  FUSER_PERF_SCOPE("simplifyConstantScalars");
+
+  std::unordered_map<Val*, Val*> replace_const_scalars;
+
+  // Find all scalar expressions with constant inputs
+  for (auto expr : fusion->exprs()) {
+    auto has_const =
+        std::any_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
+          return v->isConstScalar();
+        });
+    auto has_non_const =
+        std::any_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
+          return !v->isConstScalar();
+        });
+    if (!(has_const && has_non_const)) {
+      continue;
+    }
+    for (auto const_scalar : ir_utils::filterByType<Val>(expr->inputs())) {
+      if (!const_scalar->isConstScalar()) {
+        continue;
+      }
+      // No definition
+      if (const_scalar->isConst()) {
+        continue;
+      }
+      auto value = const_scalar->evaluate();
+      replace_const_scalars[const_scalar] =
+          IrBuilder::create<Val>(value, const_scalar->getDataType().value());
+    }
+  }
+  ir_utils::replaceValue(fusion, replace_const_scalars);
+}
+} // namespace
+
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     const Fusion* fusion,
     const KernelArgumentHolder& inputs,
@@ -3944,6 +3980,9 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     SegmentCandidateFinderOptions options,
     bool multi_device)
     : options_(options), runtime_inputs_(inputs) {
+  // Remove constant scalar expressions so they don't get segmented to the expr
+  // eval executor.
+  simplifyConstantScalars(fusion.get());
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
           (!options_.run_translate_welford &&

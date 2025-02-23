@@ -42,14 +42,14 @@ KernelArgumentHolder inferOutputSizes(
 
   for (Val* output : fusion->outputs()) {
     if (output->isA<TensorView>()) {
-    auto output_tv = output->as<TensorView>();
-    const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
-    const auto dtype = (output_tv->dtype() == DataType::Index)
-        ? data_type_to_aten(arg_index_type)
-        : data_type_to_aten(output_tv->dtype());
-    output_tensor_proxies.pushTensorProxy(sizes, strides, dtype);
-    } else if(output->isScalar()){
-      switch(std::get<PrimDataType>(output->dtype().type)){
+      auto output_tv = output->as<TensorView>();
+      const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+      const auto dtype = (output_tv->dtype() == DataType::Index)
+          ? data_type_to_aten(arg_index_type)
+          : data_type_to_aten(output_tv->dtype());
+      output_tensor_proxies.pushTensorProxy(sizes, strides, dtype);
+    } else if (output->isScalar()) {
+      switch (std::get<PrimDataType>(output->dtype().type)) {
         case DataType::Int:
         case DataType::Int32:
           output_tensor_proxies.push(PolymorphicValue(0LL));
