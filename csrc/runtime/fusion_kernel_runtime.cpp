@@ -656,20 +656,11 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     // something abstract. This is quite unsatisfying.
 
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
+    KernelArgumentHolder group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
 
-    std::vector<c10::IValue> ivalues;
-    ivalues.reserve(group_runtime_outputs
-                        .size()); // Optional but recommended for performance
-    for (const auto& tensor : group_runtime_outputs) {
-      ivalues.emplace_back(c10::IValue(tensor));
-    }
-
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(),
-        KernelArgumentHolder(c10::ArrayRef<c10::IValue>(ivalues)),
-        run_order_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
