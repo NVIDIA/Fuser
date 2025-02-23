@@ -86,7 +86,7 @@ def run_multidevice_test(test_path, log_dir, num_gpus, dry_run=False):
     ]
 
     if dry_run:
-        print(f"Would run: {' '.join(cmd)} (timeout: {timeout/60} minutes)")
+        print(f"Would run: {' '.join(cmd)} (timeout: {timeout / 60} minutes)")
         return True
 
     print(f"Running multidevice test: {test_name}")
@@ -100,7 +100,7 @@ def run_multidevice_test(test_path, log_dir, num_gpus, dry_run=False):
     except subprocess.TimeoutExpired:
         with open(f"{log_base}.log", "w") as f:
             f.write(f"Test: {test_name}\n")
-            f.write(f"ERROR: Test timed out after {timeout/60} minutes\n")
+            f.write(f"ERROR: Test timed out after {timeout / 60} minutes\n")
         return False
     except Exception as e:
         with open(f"{log_base}.log", "w") as f:
@@ -277,14 +277,14 @@ def run_parallel_tests(log_dir, num_gpus, test_infos, dry_run=False):
             # Check for timeout
             if time.time() - start_times[gpu_id] > timeout:
                 print(
-                    f"Test {test_name} on GPU {gpu_id} timed out after {timeout/60} minutes"
+                    f"Test {test_name} on GPU {gpu_id} timed out after {timeout / 60} minutes"
                 )
                 current_processes[gpu_id].kill()
                 log_file = log_dir / f"{test_name}.log"
                 if run_func == run_python_test:
                     log_file = log_dir / f"python_{test_name}.log"
                 with open(log_file, "a") as f:
-                    f.write(f"\nERROR: Test timed out after {timeout/60} minutes\n")
+                    f.write(f"\nERROR: Test timed out after {timeout / 60} minutes\n")
 
                 failed_name = test_name
                 if run_func == run_python_test:
