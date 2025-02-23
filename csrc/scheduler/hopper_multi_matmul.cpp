@@ -388,11 +388,19 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
         tv->reorder(
             {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
       }
+      // (M, N)
+      tv->split(num_device_and_batch_dims_ + 1, 8);
+      // (M, N/8, 8)
+      tv->split(num_device_and_batch_dims_, 16);
+      // (M/16, 16, N/8, 8)
+      tv->reorder(
+          {{num_device_and_batch_dims_ + 1, num_device_and_batch_dims_ + 2},
+           {num_device_and_batch_dims_ + 2, num_device_and_batch_dims_ + 1}});
+      // (M/16, N/8, 16, 8)
+      tv->merge(num_device_and_batch_dims_ + 2, num_device_and_batch_dims_ + 3);
+      // (M/16, N/8, 128)
       tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
-
-      const int64_t num_sms =
-          at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-      tv->split(num_device_and_batch_dims_, num_sms);
+      // (M/16) * (N/8), 128)
     }
   }
   return all_merged_roles;
