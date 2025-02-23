@@ -939,7 +939,8 @@ void MmaSwizzler::parallelizeAsBulkSkippingFirstIDs(
 
 void MmaSwizzler::scheduleTMALoadForMma(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle) {
+    MmaInputSmemSwizzle swizzle,
+    int64_t multicast) {
   // In the comments below I have kept K as the outer dimension. That is
   // just to have a concrete running example - it can be inner or outer.
 
@@ -960,18 +961,22 @@ void MmaSwizzler::scheduleTMALoadForMma(
     auto dtype = tv->getDataType().value();
 
     // In the comments below I assume K=16, N=32, swizzle=32, dtype = half.
+    //
+    // split the outer-dim for multicast
+    // [K(16), N(32)] -> [KO(2), KI(16), N(32)]
+    tv->split(-2, multicast, false);
 
     // split the inner-dim
-    // [K(16), N(32)] -> [K(16), NO(2), NI(16)]
+    // [KO(2), KI(16), N(32)] -> [KO(2), KI(16), NO(2), NI(16)]
     tv->split(-1, getBytesFromSwizzle(swizzle) / dataTypeSize(dtype));
 
-    // [NO, K, NI] - the TMA Box is [K, NI]
-    tv->reorder({{-2, -3}});
+    // [NO, KO, KI, NI] - the TMA Box is [KI, NI]
+    tv->reorder({{-2, -4}});
 
-    // [NO, K, NI] ->
-    // [NO, KO(2), KIO(2), KII(4), NIO(2), NII(8)]
+    // [NO, KO, KI, NI] ->
+    // [NO, KO, KIO(2), KIIO(2), KIII(4), NIO(2), NII(8)]
     tv->swizzleTMABox(swizzle);
-    num_ids_to_skip += 1;
+    num_ids_to_skip += 2;
   }
 
   parallelizeAsBulkSkippingFirstIDs(tv, num_ids_to_skip);
