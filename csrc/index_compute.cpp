@@ -2679,12 +2679,34 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
   Val* index = nullptr;
 
   // 1D TMA without tensor map
-  if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+  if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {   
+
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
       auto gmem_address = getProducerIndex(
           producer_tv, consumer_tv, loops, rotated_loops, {}, true);
+      
+      for (const auto fl : loops) {
+        auto loop_id = fl->iter_domain();
+        if(loop_id->isThreadDim()){
+          expected_bytes = SimplifyingIrBuilder::mulExpr(expected_bytes, loop_id->getMaybeExpandedExtent());
+          std::cout << "revised expected_bytes " << expected_bytes->toString() << std::endl;
+        }
+      }
+      expected_bytes =
+          GpuLower::current()->commonScalarMap().hoistScalar(expected_bytes, loops);      
+      // // adjust bytes
+      // auto expr = consumer_tv->definition();
+      // const auto alloc_info = getIndexingAllocationInfo(consumer_tv);
+      // auto index_info = computeIndex(expr, alloc_info.domains, loops);
+      // for (const auto loop_id : index_info.loop_domains) {
+      //   if(loop_id->isThreadDim()){
+      //     expected_bytes = SimplifyingIrBuilder::mulExpr(expected_bytes, loop_id->getMaybeExpandedExtent());
+      //     std::cout << "revised expected_bytes " << expected_bytes->toString() << std::endl;
+      //   }
+      // }
+
       index = IrBuilder::structExpr(
           {{"raw_gmem_addr", gmem_address},
            {"bytes", expected_bytes},

@@ -759,6 +759,8 @@ void innerPersistentHeuristic2D(
     int64_t smem_gdimx =
         blocks_per_sm / rparams->circular_buffer_options.stage * sm_count;
     gdimx = std::atoi(std::getenv("PERSISTENT"));
+    rparams->split_grid_dim_iter_dom_inner = true;
+    // rparams->split_grid_dim_iter_dom_outer = true;
     std::cout << "gdimx: " << gdimx << std::endl;
     std::cout << "smem_gdimx: " << smem_gdimx << std::endl;
     std::cout << "blocks_per_sm: " << blocks_per_sm << std::endl;

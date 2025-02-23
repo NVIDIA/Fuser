@@ -904,6 +904,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // product of all coordinate TMA iterDomains to the right of the circular
     // buffer axis.
     const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
+
     for (size_t idx = consumer_tv->getComputeAtPosition();
          idx < loop_domain.size();
          ++idx) {
@@ -914,6 +915,17 @@ class CloneTmaCircularBufferLoopAndInsertSync
             SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
       }
     }
+
+    if(ir_utils::isCpAsyncUblk(ldst)){
+      std::cout << "consumer_tv " << consumer_tv->toString() << std::endl;
+      for(auto id : loop_domain){
+        if(id->isThreadDim()){
+          expected_bytes = SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
+          std::cout << "revise expected_bytes to " << expected_bytes->toString() << std::endl;
+        }
+      }
+    }
+
     expected_bytes =
         SimplifyingIrBuilder::maybeCastExpr(DataType::UInt32, expected_bytes);
     return expected_bytes;

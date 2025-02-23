@@ -892,7 +892,7 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
-  // std::cout << "\n\n getLinearIndex fot tv: " << tv->toString() << std::endl;
+  std::cout << "\n\n getLinearIndex fot tv: " << tv->toString() << std::endl;
 
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
@@ -1061,8 +1061,8 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         }
       }
     }
-    // std::cout << "loop_id: " << loop_id->toString() 
-    //       << ", cur_index: " << cur_index->toInlineString()  << std::endl;
+    std::cout << "loop_id: " << loop_id->toString() 
+          << ", cur_index: " << cur_index->toInlineString()  << std::endl;
 
     if (replacement_index == nullptr || replacement_index == cur_index) {
       continue;
@@ -1384,8 +1384,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         contig_domain_group->front()->toString());
     Val* idx = idx_it->second;
     Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
-    // std::cout << "get indice idx: " << idx->toInlineString() 
-    //           << ", replaced_idx: " << replaced_idx->toInlineString() << std::endl;
+    std::cout << "get indice idx: " << idx->toInlineString() 
+              << ", replaced_idx: " << replaced_idx->toInlineString() << std::endl;
     result.push_back(replaced_idx);
   }
 

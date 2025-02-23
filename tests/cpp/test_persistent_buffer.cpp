@@ -1588,19 +1588,28 @@ INSTANTIATE_TEST_SUITE_P(
 
     constexpr double abs_tolerance = 1e-3;
     constexpr double rel_tolerance = 1e-3;
+    int output = 0;
     for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
       for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
         double tolerance = abs_tolerance +
             rel_tolerance * fabs((double)reference_cpu[out_pos][in_pos]);
-        if (true || fabs(
+        if (!(fabs(
                 (double)reference_cpu[out_pos][in_pos] -
-                (double)result_cpu[out_pos][in_pos]) > tolerance) {
+                (double)result_cpu[out_pos][in_pos]) < tolerance)) {
           std::cout << "[" << out_pos << ", " << in_pos
                     << "] - result: " << result_cpu[out_pos][in_pos]
                     << " | ref: " << reference_cpu[out_pos][in_pos]
                     << std::endl;
+          if(output++ > 10){
+            std::cout << "skip following errors.\n";
+            break;
+          }
         }
       }
+      if(output++ > 10){
+        std::cout << "skip following errors.\n";
+        break;
+      }      
     }
   }
 using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;

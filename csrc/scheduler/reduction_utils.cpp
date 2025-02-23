@@ -275,9 +275,6 @@ TensorView* scheduleReductionTV(
     //   reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
     // }
 
-
-
-
     if (rparams->vectorize_iter_dom) {
       vectorize(iter_axis, rparams->unroll_factor_iter_dom);
     }
@@ -291,16 +288,18 @@ TensorView* scheduleReductionTV(
         if (rparams->multiple_reds_per_blk) {
           inner_parallel_static(
               iter_axis, rparams->block_dim_iter_dom, rparams->lparams.bdimy());
-        }else{
+        } else {
           inner_parallel(iter_axis, rparams->block_dim_iter_dom);
-        }        
+        }
       }
     }
 
-    if (std::getenv("PERSISTENT")) {
-      reduction_tv->split(iter_axis, rparams->lparams.gdimx(), false);
-      reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
-    }
+    // if (std::getenv("PERSISTENT")) {
+    //   // reduction_tv->split(iter_axis, rparams->lparams.gdimx(), false);
+    //   // reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
+    //   reduction_tv->split(iter_axis, rparams->lparams.gdimx());
+    //   reduction_tv->axis(iter_axis+1)->parallelize(ParallelType::BIDx);
+    // }
 
     if (!rparams->vectorize_iter_dom && rparams->unroll_factor_iter_dom > 1) {
       inner_unroll(iter_axis, rparams->unroll_factor_iter_dom);
@@ -321,7 +320,9 @@ TensorView* scheduleReductionTV(
           outer_parallel(iter_axis, rparams->grid_dim_iter_dom);
         }
       } else if (rparams->split_grid_dim_iter_dom_inner) {
-        inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
+        // inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
+        inner_parallel_static(
+            iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimx());
       } else {
         reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
