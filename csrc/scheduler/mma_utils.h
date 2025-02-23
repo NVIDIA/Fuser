@@ -235,7 +235,8 @@ class MmaSwizzler {
   //! outermost.
   static void scheduleTMALoadForMma(
       TensorView* tv,
-      MmaInputSmemSwizzle swizzle);
+      MmaInputSmemSwizzle swizzle,
+      int64_t multicast);
 
   //! Parallelize all dims as bulk expect the first dims mentioned in the second
   //! param.

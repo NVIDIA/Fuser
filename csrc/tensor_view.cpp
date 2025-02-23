@@ -1410,7 +1410,9 @@ void TensorView::swizzleTMABox(MmaInputSmemSwizzle swizzle) {
   this->swizzle(SwizzleType::XOR, -4, -2);
 }
 
-void TensorView::applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle) {
+void TensorView::applyMmaSwizzleForTMALoad(
+    MmaInputSmemSwizzle swizzle,
+    int64_t multicast) {
   NVF_ERROR(
       getMemoryType() == MemoryType::Shared,
       "Shared memory swizzle is only supported for shared memory");
@@ -1418,7 +1420,7 @@ void TensorView::applyMmaSwizzleForTMALoad(MmaInputSmemSwizzle swizzle) {
       definition()->as<LoadStoreOp>()->opType() ==
           LoadStoreOpType::CpAsyncBulkTensorTile,
       "Operation requires a TMA operation");
-  mma_utils::MmaSwizzler::scheduleTMALoadForMma(this, swizzle);
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(this, swizzle, multicast);
 }
 
 void TensorView::commitLeafToLogical() {
