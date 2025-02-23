@@ -831,6 +831,32 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   NVF_ERROR(
       old_logical.size() == new_logical.size(),
       "Concretized reshape logical size does not match symbolic logical size");
+
+  IterDomainMap old_logical_to_new;
+  for (auto i : c10::irange(old_logical.size())) {
+    old_logical_to_new.emplace(old_logical[i], new_logical[i]);
+  }
+  ReplayTransformations replay(
+      incomplete_out_tv->getLoopDomain(), old_logical_to_new);
+  std::vector<IterDomain*> new_loop;
+  new_loop.reserve(incomplete_out_tv->getLoopDomain().size());
+  for (IterDomain* old_loop_id : incomplete_out_tv->getLoopDomain()) {
+    IterDomain* new_loop_id = replay.getReplay().at(old_loop_id);
+    new_loop_id->parallelize(old_loop_id->getParallelType());
+    new_loop.push_back(new_loop_id);
+  }
+  concrete_reshape_out_tv->setLoopDomain(new_loop);
+  if (incomplete_out_tv->hasAllocation()) {
+    std::vector<IterDomain*> new_alloc;
+    new_alloc.reserve(incomplete_out_tv->getAllocationDomain().size());
+    for (IterDomain* old_alloc_id : incomplete_out_tv->getAllocationDomain()) {
+      IterDomain* new_alloc_id = replay.getReplay().at(old_alloc_id);
+      new_alloc.push_back(new_alloc_id);
+    }
+    concrete_reshape_out_tv->setAllocationDomain(
+        new_alloc, incomplete_out_tv->getContiguity());
+  }
+
   for (auto idx : c10::irange((int64_t)new_logical.size())) {
     auto old_extent = old_logical.at(idx)->extent();
     auto new_extent = new_logical.at(idx)->extent();
