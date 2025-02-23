@@ -11588,7 +11588,7 @@ __device__ __inline__ void wait() {
 // }
 // destroy mbarrier
 __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
-    __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
+        __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         Tensor<__bfloat, 3, 3> T0,
         Tensor<__bfloat, 3, 3> T1,
         Tensor<__bfloat, 3, 3> T2,
@@ -11646,20 +11646,14 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
   // mbarrier init - every iteration
   uint32_t num_threads = blockDim.x * (blockDim.y - 1) * blockDim.z;
   uint64_t* T9 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
-#pragma unroll
-  for (nvfuser_index_t i29 = 0; i29 < 3; ++i29) {
-    if (((Hopper::electSync(4294967295U) && b15) && b16)) {
+  if (((Hopper::electSync(4294967295U) && b15) && b16)) {
+    #pragma unroll
+    for (nvfuser_index_t i29 = 0; i29 < 3; ++i29) {
       mbarrier::init(toSmem((&T9[i29])), 2U);
-    }
-  }
-#pragma unroll
-  for (nvfuser_index_t i30 = 0; i30 < 3; ++i30) {
-    if (((Hopper::electSync(4294967295U) && b15) && b16)) {
-      mbarrier::init(toSmem((&T9[(i30 + 3LL)])), 256U);
+      mbarrier::init(toSmem((&T9[(i29 + 3LL)])), 256U);
     }
   }
   __syncthreads();
-  fenceAsyncProxy();
 
   // warp-specialization
   if (b17) {
@@ -11736,6 +11730,7 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
       i28 = i21 + i24;
       ((*reinterpret_cast<Array<float, 128, 1>*>(&T3[0]))).set(0);
 
+      wgmma::fence();
 #pragma unroll 2
       for (nvfuser_index_t i34 = 0; i34 < i5; ++i34) {
         nvfuser_index_t stage;
@@ -11756,7 +11751,6 @@ __global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384)
           i40 = i36 + i39;
           uint32_t i41;
           i41 = i37 + i39;
-          wgmma::fence();
           wgmma::m64n256k16BF16<1, 1, 0, 0>(
               (*reinterpret_cast<Array<float, 128, 1>*>(&T3[0])),
               (4611686293305294848ULL |
