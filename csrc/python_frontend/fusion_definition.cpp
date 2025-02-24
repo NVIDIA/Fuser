@@ -400,16 +400,22 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   const auto* user_sched = find_user_schedule();
 
   std::vector<at::Tensor> out_tensors;
-  if (use_multidevice_executor) {
-    if (scheds->multi_device_executor == nullptr) {
-      scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
-          std::make_unique<Fusion>(*scheds->auto_gen_schedules->fusion()));
+  if (user_sched == nullptr) {
+    if (use_multidevice_executor) {
+      if (scheds->multi_device_executor == nullptr) {
+        scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
+            std::make_unique<Fusion>(*scheds->auto_gen_schedules->fusion()));
+      }
+      out_tensors = scheds->multi_device_executor->runWithInput(args);
+    } else {
+      out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
+          args, std::nullopt, args.getDeviceIndex());
     }
-    out_tensors = scheds->multi_device_executor->runWithInput(inputs);
-  } else if (user_sched == nullptr) {
-    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
-        args, std::nullopt, args.getDeviceIndex());
   } else {
+    NVF_ERROR(
+        !use_multidevice_executor,
+        "multidevice_executor is not supported "
+        "for user-defined schedules.");
     if (isProfilerEnabledWithCupti()) {
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
