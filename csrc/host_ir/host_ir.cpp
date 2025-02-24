@@ -153,6 +153,27 @@ std::string LaunchKernel::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Can not be printed inline");
 }
 
+Deallocate::Deallocate(
+    IrBuilderPasskey passkey,
+    kir::Allocate* allocate)
+    : Expr(passkey) {
+  addAttribute(allocate);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Deallocate)
+
+std::string Deallocate::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Deallocate {" << std::endl;
+  ss                      <<     allocation()->toString(indent_size + 1);
+  indent(ss, indent_size) << "}" << std::endl;
+  return ss.str();
+}
+
+std::string Deallocate::toInlineString(int indent_size) const {
+  return std::string("Deallocate");
+}
+
 Stream::Stream(IrBuilderPasskey passkey, Val* index)
     : Val(passkey, ValType::Stream), index_(index) {}
 

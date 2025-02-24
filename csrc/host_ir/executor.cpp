@@ -325,24 +325,38 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 }
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
-  KernelArgumentHolder args;
+  KernelArgumentHolder args, outputs;
+  bool preallocated_outputs = true;
   for (auto& input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
+  
+  // If all output buffers are known already, pass them to the executor
+  for (auto& output : launch_kernel->outputs()) {
+    if (expr_evaluator_.isKnown(output)) {
+      outputs.push(expr_evaluator_.evaluate(output));
+    } else {
+      outputs = {};
+      preallocated_outputs = false;
+      break;
+    }
+  }
+
   args.setDeviceIndex();
 
   // run the compiled kernel
-  KernelArgumentHolder outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())
-          ->run(
-              args,
-              {},
-              launch_kernel->launch_params(),
-              launch_kernel->compile_params());
+  outputs = container_->getKernelExecutor(launch_kernel->getIndex())
+              ->run(
+                  args,
+                  outputs,
+                  launch_kernel->launch_params(),
+                  launch_kernel->compile_params());
 
-  // Store the outputs in the context
-  for (auto output_idx : arange(outputs.size())) {
-    bind(launch_kernel->outputs().at(output_idx), outputs[output_idx]);
+  if (!preallocated_outputs) {
+    // Store the outputs in the context
+    for (auto output_idx : arange(outputs.size())) {
+      bind(launch_kernel->outputs().at(output_idx), outputs[output_idx]);
+    }
   }
 }
 
@@ -652,6 +666,12 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       device,
       c10::nullopt);
   bind(tv, tensor);
+}
+
+void HostIrEvaluator::handle(Deallocate* deallocate) {
+  TensorView* tv = deallocate->allocation()->buffer()->as<TensorView>();
+  NVF_ERROR(expr_evaluator_.isKnown(tv), "Tried to free buffer associated with unknown TensorView", tv);
+  expr_evaluator_.invalidate(tv);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
