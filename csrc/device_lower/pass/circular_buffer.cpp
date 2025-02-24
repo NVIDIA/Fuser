@@ -1412,7 +1412,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     kir::Predicate* predicate_val = nullptr;
     Val* raw =
         GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
-    if (raw->isConst() && raw->value().as<int64_t>() == 2) {
+    if((raw->isConst() && raw->value().as<int64_t>() == 2) || warp_specialize_on != ParallelType::TIDx){
       tma_val = SimplifyingIrBuilder::subExpr(
           raw, circular_buffer_loop->fusion()->oneVal());
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(

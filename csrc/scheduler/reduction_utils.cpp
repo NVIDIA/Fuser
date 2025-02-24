@@ -286,8 +286,12 @@ TensorView* scheduleReductionTV(
             iter_axis, rparams->block_dim_iter_dom, rparams->lparams.bdimx());
       } else {
         if (rparams->multiple_reds_per_blk) {
-          inner_parallel_static(
-              iter_axis, rparams->block_dim_iter_dom, rparams->lparams.bdimy());
+          int64_t bdimy = 1;
+          if (std::getenv("BDIMY")) {
+            bdimy = std::atoi(std::getenv("BDIMY"));
+            inner_parallel_static(
+                iter_axis, rparams->block_dim_iter_dom, bdimy);
+          }
         } else {
           inner_parallel(iter_axis, rparams->block_dim_iter_dom);
         }

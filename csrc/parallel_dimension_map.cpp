@@ -163,10 +163,15 @@ void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
     // nodes like addExpr(x, 1), and SimplifyingIrBuilder::addExpr in
     // getRawCompute will be able to simplify find the x when we do
     // addExpr(addExpr(x, 1) - 1).
-    dim_map_[pt] =
-        IrBuilder::addExpr(dim_it->second, IrBuilder::create<Val>(32L, DataType::Index));
-    std::cout << "setWarpSpecializeOn pt " << pt << std::endl;
-        // IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
+    if(pt == ParallelType::TIDx){
+      dim_map_[pt] =
+          IrBuilder::addExpr(dim_it->second, IrBuilder::create<Val>(32L, DataType::Index));
+    }else{
+      dim_map_[pt] =
+          IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
+    }
+
+    std::cout << "setWarpSpecializeOn pt to " << dim_map_[pt]->toInlineString() << std::endl;
   }
   exact_types_.erase(pt);
   warp_specialized_types_.insert(pt);
@@ -198,7 +203,7 @@ Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   Val* raw = getRaw(pt);
   if (warp_specialized_types_.count(pt)) {
     std::cout << "getRawCompute pt " << raw->toInlineString() << std::endl;
-    if(raw->isConst() && raw->value().as<int64_t>() == 2){
+    if((raw->isConst() && raw->value().as<int64_t>() == 2) || pt != ParallelType::TIDx){
       return SimplifyingIrBuilder::addExpr(raw, -1);
     }else{
       return SimplifyingIrBuilder::addExpr(raw, IrBuilder::create<Val>(-32L, DataType::Index));

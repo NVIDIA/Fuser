@@ -790,7 +790,8 @@ void innerPersistentHeuristic2D(
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL,
-      best_heuristic.bdimy,
+      LaunchParams::UNINITIALIZED_VAL,
+      // best_heuristic.bdimy,
       LaunchParams::UNINITIALIZED_VAL);
 }
 
