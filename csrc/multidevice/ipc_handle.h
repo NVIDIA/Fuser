@@ -71,7 +71,7 @@ class P2pIpcHandle {
 // P2PCommunication* pointer.
 class IpcHandleCache {
  public:
-  IpcHandleCache() = default;
+  IpcHandleCache( const ExpressionEvaluator& expr_evaluator) = default;
   ~IpcHandleCache() = default;
 
   // Create IpcHandles, import and export them, and populate the cache. This
