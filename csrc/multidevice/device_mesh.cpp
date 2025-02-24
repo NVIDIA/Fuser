@@ -30,7 +30,7 @@ DeviceMesh::DeviceMesh(
     NVF_ERROR(
         (int64_t)vector_.size() == num_devices,
         "Specified a list of device with ",
-        devices.size(),
+        vector_.size(),
         " elements ",
         " but shape contains ",
         num_devices);
