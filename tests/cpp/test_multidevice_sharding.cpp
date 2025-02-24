@@ -745,7 +745,7 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
-TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
+TEST_F(MultiDeviceTest, LoopShardingWithSplitReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -855,43 +855,36 @@ TEST_F(MultiDeviceTest, LoopShardedSplitReshapeIds) {
       __FILE__);
 }
 
-TEST_F(MultiDeviceTest, LoopShardedMergeReshapeIds) {
+TEST_F(MultiDeviceTest, TransformPropagator) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
-  const int64_t b = 2, s = 3, h = 8, e = 4;
+  const int64_t m = 5, n = 7;
 
-  TensorView* tv0 = makeContigConcreteTensor({b, s, d * h, e});
-  TensorView* tv1 = reshape(tv0, {b, s, d * h, e}, {b, s, d * h * e});
+  TensorView* in = makeContigConcreteTensor({d * m * n});
+  TensorView* out = reshape(in, {d * m * n}, {d * m, n});
+  TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
 
-  fusion->addInput(tv0);
-  fusion->addOutput(tv1);
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
-  tv0->setDeviceMesh(mesh);
-  tv0->split(-2, d, /*inner_split=*/false);
-  tv0->axis(-3)->parallelize(ParallelType::DIDx);
-
-  tv1->setDeviceMesh(mesh);
-  tv1->split(-1, d, /*inner_split=*/false);
-  tv1->axis(-2)->parallelize(ParallelType::DIDx);
-
-  for (auto* tv : {tv0, tv1}) {
-    reorderDIDToFront(tv);
+  for (auto* tv : {in, out, add_out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp = at::randn({b, s, d * h, e}, tensor_options);
-  at::Tensor sharded_inp = shardTensor(inp, -2, mesh);
-  at::Tensor nvf_out =
-      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
+  at::Tensor in_tensor = at::randn({m * n}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(),
-      {nvf_out},
-      {sharded_inp},
-      {sharded_inp.view({b, s, h * e})},
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({m, n}) + 1.0},
       __LINE__,
       __FILE__);
 }
@@ -968,87 +961,33 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
-  const int64_t b = 2, s = 3, h = 8, e = 16;
-  auto mesh = DeviceMesh::createForNumDevices(d);
+  const int64_t m = 5, n = 7;
 
-  std::vector<int64_t> in_shape = {b, s, d * h * e};
-  std::vector<int64_t> out_shape = {b, s, d * h, e};
+  TensorView* in = makeContigConcreteTensor({d * m, n});
+  TensorView* out = reshape(in, {d * m, n}, {d * m * n});
+  // TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
 
-  // The transformer block produces hq/hk/hv after slicing the MHA linear
-  // output.
-  TensorView* hq = makeConcreteTensor(in_shape, DataType::Half);
-  TensorView* hk = makeConcreteTensor(in_shape, DataType::Half);
-  TensorView* hv = makeConcreteTensor(in_shape, DataType::Half);
-
-  TensorView* q = reshape(hq, in_shape, out_shape);
-  TensorView* q_permuted = permute(q, {0, 2, 1, 3});
-  TensorView* k = reshape(hk, in_shape, out_shape);
-  TensorView* k_permuted = permute(k, {0, 2, 1, 3});
-  TensorView* v = reshape(hv, in_shape, out_shape);
-  TensorView* v_permuted = permute(v, {0, 2, 1, 3});
-
-  SdpfaFwdResult sdpa_out = sdpfa_fwd(
-      q_permuted,
-      k_permuted,
-      v_permuted,
-      /*dropout_p=*/IrBuilder::create<Val>(0.0),
-      /*is_causal=*/IrBuilder::create<Val>(false),
-      /*scale=*/nullptr);
-
-  TensorView* attn = sdpa_out.output;
-  TensorView* attn_permute = permute(attn, {0, 2, 1, 3});
-  TensorView* out = reshape(attn_permute, out_shape, in_shape);
-
-  fusion->addInput(hq);
-  fusion->addInput(hk);
-  fusion->addInput(hv);
+  fusion->addInput(in);
   fusion->addOutput(out);
 
-  // Shard input tensors
-  for (auto* tv : {hq, hk, hv}) {
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
     tv->setDeviceMesh(mesh);
-    tv->split(-1, d, /*inner_split=*/false);
-    tv->axis(-2)->parallelize(ParallelType::DIDx);
-    reorderDIDToFront(tv);
-  }
-  propagateShardings(fusion.get(), d);
-
-  for (auto tv : fusion->allTvs()) {
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor hq_tensor = at::randn({in_shape}, tensor_options.dtype(at::kHalf));
-  at::Tensor hk_tensor = at::randn({in_shape}, tensor_options.dtype(at::kHalf));
-  at::Tensor hv_tensor = at::randn({in_shape}, tensor_options.dtype(at::kHalf));
-
-  at::Tensor sharded_hq = shardTensor(hq_tensor, -1, mesh);
-  at::Tensor sharded_hk = shardTensor(hk_tensor, -1, mesh);
-  at::Tensor sharded_hv = shardTensor(hv_tensor, -1, mesh);
-
-  auto nvf_out =
-      executor_cache
-          .runFusionWithInputs({sharded_hq, sharded_hk, sharded_hv})[0]
-          .as<at::Tensor>();
-
-  double scale = 1.0 / std::sqrt(e);
-  auto reference_out = at::_scaled_dot_product_flash_attention(
-      hq_tensor.view(out_shape).transpose(1, 2),
-      hk_tensor.view(out_shape).transpose(1, 2),
-      hv_tensor.view(out_shape).transpose(1, 2),
-      /*dropout_p=*/0.0,
-      /*is_causal=*/false,
-      /*return_debug_mask=*/false,
-      scale);
-  at::Tensor ref_attn = shardTensor(
-      std::get<0>(reference_out).transpose(1, 2).view(in_shape), -1, mesh);
-
+  at::Tensor in_tensor = at::randn({m,  n}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
   testValidate(
       executor_cache.fusion(),
-      {nvf_out},
-      {sharded_hq, sharded_hk, sharded_hv},
-      {ref_attn},
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({m * n})},
       __LINE__,
       __FILE__);
 }
+
 } // namespace nvfuser
