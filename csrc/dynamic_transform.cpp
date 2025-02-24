@@ -1455,12 +1455,6 @@ std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
 
 std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     Fusion* fusion,
-    const std::vector<c10::IValue>& aten_inputs) {
-  return concretizeFusion(fusion, KernelArgumentHolder(aten_inputs));
-}
-
-std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
-    Fusion* fusion,
     const KernelArgumentHolder& args) {
   ExpressionEvaluator expr_eval = executor_utils::bindInputs(args, fusion);
   auto initial_info = getInitialInfo(fusion);
