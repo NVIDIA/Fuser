@@ -20,7 +20,9 @@
 #include <scheduler/utils.h>
 #include <val_graph.h>
 #include <variant>
+#include "dispatch.h"
 #include "options.h"
+#include "type.h"
 
 namespace nvfuser {
 
@@ -1858,64 +1860,82 @@ class MatmulTranslator : public OptInDispatch {
         b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates_) {
       is_cached_ = !pattern_.A->isFusionInput();
-      NVF_ERROR(
-          pattern_.B->isFusionInput() == !is_cached_,
-          "If one pattern operand is cached, they must both be");
-      TensorView* gmem_A = pattern_.A;
-      TensorView* gmem_B = pattern_.B;
-      if (is_cached_) {
-        auto checkOperandCached = [](TensorView* oper) {
-          auto* def = dynamic_cast<LoadStoreOp*>(oper->definition());
+      // There should be one fusion input corresponding to each of pattern_.A
+      // and pattern_.B. For each operand, find that fusion input then create a
+      // domain that is ordered just like pattern_.out. That domain will be the
+      // new logical domain for the fusion input and its existing logical domain
+      // will be moved to the root.
+      Fusion* fusion = FusionGuard::getCurFusion();
+      IdModel id_model(fusion, /*build_graphs=*/false);
+      id_model.buildExactGraph();
+      const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+      std::vector<TensorView*> new_fusion_inputs;
+      OptOutMutator mutator;
+      for (TensorView* op_input : {pattern_.A, pattern_.B}) {
+        const std::vector<Expr*> prologue_exprs =
+            StmtSort::getExprsTo({op_input});
+        for (Expr* e : prologue_exprs) {
           NVF_ERROR(
-              def != nullptr,
-              "Definition of ",
-              oper->toString(),
-              " is not LoadStoreOp but it is not a fusion input");
-          auto* gmem_oper = def->input(0)->as<TensorView>();
-          NVF_ERROR(gmem_oper->isFusionInput());
-          return gmem_oper;
-        };
-        gmem_A = checkOperandCached(pattern_.A);
-        gmem_B = checkOperandCached(pattern_.B);
-      }
-      // Create new A and B with missing broadcasts inserted as root to logical
-      auto cloneWithInsertedBroadcast = [](TensorView* old,
-                                           int64_t new_bcast_pos) {
-        NVF_ERROR(!old->domain()->hasRoot());
-        const std::vector<IterDomain*>& new_root = old->getMaybeRootDomain();
-        std::vector<IterDomain*> new_logical = new_root;
-        new_logical.reserve(new_root.size() + 1);
-        new_bcast_pos = wrapDim(new_bcast_pos, new_root.size() + 1);
-        Fusion* fusion = old->fusion();
-        new_logical.insert(
-            new_logical.begin() + (size_t)new_bcast_pos,
-            IterDomainBuilder(fusion->zeroVal(), fusion->oneVal())
-                .iter_type(IterType::Broadcast)
-                .build());
+              (e->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp>()),
+              "When avoid_intermediates_ is true, cannot have computation in prologue but found ",
+              e->toString());
+        }
+        TensorView* op_fusion_input = nullptr;
+        if (op_input->isFusionInput()) {
+          op_fusion_input = op_input;
+        } else {
+          // op_input is not a fusion input
+          NVF_ERROR(!prologue_exprs.empty());
+          op_fusion_input = prologue_exprs.front()->input(0)->as<TensorView>();
+        }
+        NVF_ERROR(op_fusion_input != nullptr);
+        NVF_ERROR(
+            !op_fusion_input->domain()->hasRoot(),
+            "Expected operand fusion input to not have root domain before translation");
 
-        std::vector<std::optional<bool>> new_contig = old->getContiguity();
-        new_contig.insert(
-            new_contig.begin() + (size_t)new_bcast_pos, std::nullopt);
-
+        std::vector<IterDomain*> new_logical;
+        for (IterDomain* out_id : pattern_.output->getLogicalDomain()) {
+          IterDomain* matching_in_id = nullptr;
+          const ValGroup& target_group = exact_graph.toGroup(out_id);
+          for (IterDomain* in_root_id : op_fusion_input->getLogicalDomain()) {
+            if (exact_graph.toGroup(in_root_id) == target_group) {
+              matching_in_id = in_root_id;
+              break;
+            }
+          }
+          if (matching_in_id == nullptr) {
+            matching_in_id =
+                IterDomainBuilder(fusion->zeroVal(), fusion->oneVal())
+                    .iter_type(IterType::Broadcast)
+                    .build();
+          }
+          new_logical.push_back(matching_in_id);
+        }
         auto* new_td = IrBuilder::create<TensorDomain>(
-            new_root,
+            op_fusion_input->getLogicalDomain(),
             new_logical,
-            /*loop_domain=*/new_logical,
-            new_contig);
-        auto* new_tv = IrBuilder::create<TensorView>(
-            new_td, old->dtype(), old->getMemoryType());
-        return new_tv;
-      };
-      new_A_ = cloneWithInsertedBroadcast(gmem_A, -2);
-      new_B_ = cloneWithInsertedBroadcast(gmem_B, -3);
+            // Set allocation domain as original to prevent transposing it or
+            // mismatching contiguity
+            op_fusion_input->getMaybeAllocationDomain(),
+            new_logical,
+            op_fusion_input->getContiguity());
 
-      FusionGuard::getCurFusion()->replaceInput(gmem_A, new_A_);
-      FusionGuard::getCurFusion()->replaceInput(gmem_B, new_B_);
+        // Swap in the new TD
+        mutator.registerMutation(op_fusion_input->domain(), new_td);
+        mutator.mutate(op_fusion_input);
 
-      fms = fusedMultiplySum(new_A_, new_B_, {-1});
+        new_fusion_inputs.push_back(op_fusion_input);
+      }
+
+      new_A_ = new_fusion_inputs.at(0);
+      new_B_ = new_fusion_inputs.at(1);
+      fms = fusedMultiplySum(new_A_, new_B_, {-1L});
 
       pattern_.A = new_A_;
       pattern_.B = new_B_;
+
+      // Create cast from fms to pattern_.output
+      IrBuilder::create<UnaryOp>(UnaryOpType::Cast, pattern_.output, fms);
     } else {
       std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
       bcast_dim[bcast_dim.size() - 2] = true; // N
@@ -1927,6 +1947,8 @@ class MatmulTranslator : public OptInDispatch {
 
       fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     }
+
+    NVF_ERROR(fms != nullptr);
 
     mma_ = fms->definition()->as<MmaOp>();
 
