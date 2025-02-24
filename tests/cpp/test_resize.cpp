@@ -5822,4 +5822,73 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
   }
 }
 
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeSplit) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{128L * 16L};
+  std::vector<int64_t> shape2{shape1[0] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  // Not sure why, but MarkAliasesPreparePass inserts segment_set
+  // after reshape
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      guard(false);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeMerge) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape2{16, 128L * 16L};
+  std::vector<int64_t> shape1{16, shape2[1] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  // [16, 128 * 16 / 2, 2] -> [16, 128 * 16]. Cancellable reshape.
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  // Not sure why, but MarkAliasesPreparePass inserts segment_set
+  // after reshape
+  preseg_passes::OptimizationPassGuard<preseg_passes::MarkAliasesPreparePass>
+      guard(false);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

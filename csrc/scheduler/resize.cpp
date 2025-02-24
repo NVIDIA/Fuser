@@ -237,7 +237,9 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   // Before applying the vectorization split, any reshape transform of
   // the largest input will be cancelled whenever possible, so the
   // largest input is used as the reference of vectorization.
-  auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
+  // auto vec_ref_tv = largest_input != nullptr ? largest_input :
+  // ref_tv;
+  auto vec_ref_tv = ref_tv;
 
   // Only consider the innermost dimension to vectorize for now.
   // TODO: Consider vectorizing merged IDs, not just the innermost
@@ -300,7 +302,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     // The tensors are going to be reordered to align with the largest
     // input. To make it work, merge operations for reshape should be
     // cancelled.
-    scheduler_tools::cancelReshapeInLoopDomains(largest_input);
+    scheduler_tools::cancelReshapeInLoopDomains(
+        largest_input, /*skip_innermost_id=*/true);
   }
 
   for (auto expr : fusion->exprs()) {
