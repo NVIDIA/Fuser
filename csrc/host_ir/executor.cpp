@@ -441,8 +441,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
   if (backend_type == CommunicatorBackend::kCuda) {
-    const P2pIpcHandle& ipc_handles =
-        ipc_handle_cache_.get(communication);
+    const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(communication);
     const auto current_stream = static_cast<CUstream>(
         c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
     if (communication->type() == P2PCommunicationType::RECV) {
@@ -468,8 +467,7 @@ void HostIrEvaluator::handle(Wait* wait) {
     if (p2p_comm->type() == P2PCommunicationType::SEND) {
       const auto current_stream = static_cast<CUstream>(
           c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
-      const P2pIpcHandle& ipc_handles =
-          ipc_handle_cache_.get(p2p_comm);
+      const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
       getZcopy::SendWait(ipc_handles, current_stream);
     }
   } else {
