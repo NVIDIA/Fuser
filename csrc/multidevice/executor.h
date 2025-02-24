@@ -21,8 +21,8 @@
 namespace nvfuser {
 
 struct MultiDeviceExecutorParams {
-  hir::HostIrEvaluatorParams executor = hir::HostIrEvaluatorParams();
-  HostIrLowerParams lower = HostIrLowerParams();
+  hir::HostIrEvaluatorParams executor;
+  HostIrLowerParams lower;
 };
 
 /*
