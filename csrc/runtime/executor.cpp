@@ -480,9 +480,13 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
         tv->getMaybeAllocationDomain().begin(),
         tv->getMaybeAllocationDomain().end(),
         [](IterDomain* id) { return id->hasExpandedExtent(); });
-    std::tie(info.sizes, info.strides) = has_expanded_domains
+    auto [sizes, strides] = has_expanded_domains
         ? inferShapeOfOutput(tv, expr_eval)
         : inferShapeOfIntermediate(tv, alloc, expr_eval);
+    info.shape_info.allocation_sizes = sizes;
+    info.shape_info.allocation_strides = strides;
+    info.shape_info.logical_sizes = sizes;
+    info.shape_info.logical_strides = strides;
     auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
     info.type = data_type_to_aten(dtype);
 
@@ -664,10 +668,13 @@ void KernelExecutor::initializeExecutorEntry(
     // future uses of this ExecutorEntry may not be provided with
     // allocated outputs
     for (const auto& output : outputs) {
-      output_info.emplace_back(GlobalBufferInfo{
-          .sizes = output.sizes().vec(),
-          .strides = output.strides().vec(),
-          .type = output.scalar_type()});
+      GlobalBufferInfo info;
+      info.type = output.scalar_type();
+      info.shape_info.allocation_sizes = output.sizes().vec();
+      info.shape_info.allocation_strides = output.strides().vec();
+      info.shape_info.logical_sizes = output.sizes().vec();
+      info.shape_info.logical_strides = output.strides().vec();
+      output_info.emplace_back(info);
     }
   }
 
@@ -998,14 +1005,17 @@ std::vector<at::Tensor> KernelExecutor::run(
       const auto& buf_info = executor_entry->intermediates.at(i);
       bool has_expansion = false;
       std::vector<int64_t> unexpanded_sizes;
-      unexpanded_sizes.reserve(buf_info.sizes.size());
-      NVF_ERROR(buf_info.sizes.size() == buf_info.strides.size())
-      for (const auto j : c10::irange(buf_info.sizes.size())) {
-        if (buf_info.strides[j] == 0) {
+      unexpanded_sizes.reserve(buf_info.shape_info.allocation_sizes.size());
+      NVF_ERROR(
+          buf_info.shape_info.allocation_sizes.size() ==
+          buf_info.shape_info.allocation_strides.size())
+      for (const auto j :
+           c10::irange(buf_info.shape_info.allocation_sizes.size())) {
+        if (buf_info.shape_info.allocation_strides[j] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
         } else {
-          unexpanded_sizes.push_back(buf_info.sizes[j]);
+          unexpanded_sizes.push_back(buf_info.shape_info.allocation_sizes[j]);
         }
       }
       at::Tensor intermediate_buffer;
@@ -1036,8 +1046,8 @@ std::vector<at::Tensor> KernelExecutor::run(
         }
       }
       if (has_expansion) {
-        intermediate_buffer =
-            at::native::expand(intermediate_buffer, buf_info.sizes);
+        intermediate_buffer = at::native::expand(
+            intermediate_buffer, buf_info.shape_info.allocation_sizes);
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
@@ -1309,8 +1319,10 @@ flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
-      &data.sizes,
-      &data.strides,
+      &data.shape_info.logical_sizes,
+      &data.shape_info.logical_strides,
+      &data.shape_info.allocation_sizes,
+      &data.shape_info.allocation_strides,
       nvfuser::toUnderlying(data.type),
       data.zero_init,
       data.resets_to_zero,
@@ -1430,13 +1442,25 @@ GlobalBufferInfo KernelExecutor::deserialize(
     info.tv = dynamic_cast<TensorView*>(out_val->buffer());
   }
 
-  for (auto dim_size : *buffer->sizes()) {
-    info.sizes.emplace_back(dim_size);
+  TensorShapeInfo shape_info;
+
+  for (auto dim_size : *buffer->logical_sizes()) {
+    shape_info.logical_sizes.emplace_back(dim_size);
   }
 
-  for (auto dim_stride : *buffer->strides()) {
-    info.strides.emplace_back(dim_stride);
+  for (auto dim_stride : *buffer->logical_strides()) {
+    shape_info.logical_strides.emplace_back(dim_stride);
   }
+
+  for (auto dim_size : *buffer->alloc_sizes()) {
+    shape_info.allocation_sizes.emplace_back(dim_size);
+  }
+
+  for (auto dim_stride : *buffer->alloc_strides()) {
+    shape_info.allocation_strides.emplace_back(dim_stride);
+  }
+
+  info.shape_info = shape_info;
 
   info.type = serde::mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();

@@ -15,10 +15,16 @@
 
 namespace nvfuser {
 
+struct TensorShapeInfo {
+  std::vector<int64_t> logical_sizes;
+  std::vector<int64_t> logical_strides;
+  std::vector<int64_t> allocation_sizes;
+  std::vector<int64_t> allocation_strides;
+};
+
 struct GlobalBufferInfo {
   TensorView* tv = nullptr;
-  std::vector<int64_t> sizes;
-  std::vector<int64_t> strides;
+  TensorShapeInfo shape_info;
   at::ScalarType type = at::ScalarType::Undefined;
   bool zero_init = false;
   bool resets_to_zero = false;
@@ -58,6 +64,11 @@ void fillTensorWithNan(at::Tensor& t);
 
 // Infer the sizes and strides of an output tensor
 std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval);
+
+// Infer the sizes and strides of an output tensor
+TensorShapeInfo inferTensorShapes(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval);
 

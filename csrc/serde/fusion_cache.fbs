@@ -215,8 +215,10 @@ table LaunchParams {
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
   tv : long = -1;
-  sizes : [long];
-  strides : [long];
+  logical_sizes : [long];
+  logical_strides : [long];
+  alloc_sizes : [long];
+  alloc_strides : [long];
   dtype : long;
   zero_init : bool;
   resets_to_zero : bool;

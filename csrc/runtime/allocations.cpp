@@ -284,8 +284,8 @@ at::Tensor allocateTensor(
   switch (alias_info.type) {
     case AllocationType::New: {
       auto alloc_tensor = at::native::empty_strided_cuda(
-          out_info.sizes,
-          out_info.strides,
+          out_info.shape_info.logical_sizes,
+          out_info.shape_info.logical_strides,
           out_info.type,
           c10::nullopt,
           device,
@@ -380,7 +380,7 @@ GlobalBufferInfo getBufferInfo(
   FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfo");
   GlobalBufferInfo info;
   info.tv = tv;
-  std::tie(info.sizes, info.strides) = inferShapeOfOutput(info.tv, expr_eval);
+  info.shape_info = inferTensorShapes(info.tv, expr_eval);
   auto dtype =
       (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
   info.type = data_type_to_aten(dtype);
@@ -711,16 +711,9 @@ at::Tensor transformFromAllocationToLogical(
   return tensor.permute(dims);
 }
 
-} // namespace
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
-  // Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
-
   std::vector<Val*> symbolic_sizes;
   std::vector<bool> expand_flags;
 
@@ -745,8 +738,20 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
       expand_flags.push_back(false);
     }
   }
+  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+}
 
-  auto size_stride = inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
+} // namespace
+
+std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval) {
+  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfOutput");
+  // Fusion outputs do not come with Allocate and
+  // need to be allocated while taking expanded broadcasts into
+  // account.
+
+  auto size_stride = inferAllocationShape(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return size_stride;
   }
@@ -759,6 +764,34 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   // `transformFromAllocationToLogical`
   meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
+}
+
+TensorShapeInfo inferTensorShapes(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval) {
+  auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
+  if (!tv->hasAllocation()) {
+    return TensorShapeInfo{
+        allocation_size_stride.first,
+        allocation_size_stride.second,
+        allocation_size_stride.first,
+        allocation_size_stride.second};
+  }
+
+  auto options =
+      c10::TensorOptions().device(c10::Device(c10::DeviceType::Meta));
+  auto logical_meta_tensor = at::empty_strided(
+      allocation_size_stride.first, allocation_size_stride.second, options);
+  // TODO(jiej): we should refactor it here, there's no need to use
+  // logical_meta_tensor at all, size + stride should be used directly in the
+  // `transformFromAllocationToLogical`
+  logical_meta_tensor =
+      transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
+  return {
+      logical_meta_tensor.sizes().vec(),
+      logical_meta_tensor.strides().vec(),
+      allocation_size_stride.first,
+      allocation_size_stride.second};
 }
 
 } // namespace nvfuser
