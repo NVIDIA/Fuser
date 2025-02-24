@@ -21,21 +21,21 @@ namespace nvfuser {
 DeviceMesh::DeviceMesh(
     std::vector<DeviceIdxType> devices,
     std::vector<int64_t> shape) {
+  setDevices(std::move(devices));
   if (shape.empty()) {
-    shape_ = {(int64_t)devices.size()};
+    shape = {(int64_t)vector_.size()};
   } else {
     int64_t num_devices =
         std::accumulate(shape.begin(), shape.end(), 1, std::multiplies<>());
     NVF_ERROR(
-        (int64_t)devices.size() == num_devices,
+        (int64_t)vector_.size() == num_devices,
         "Specified a list of device with ",
         devices.size(),
         " elements ",
         " but shape contains ",
         num_devices);
-    shape_ = std::move(shape);
   }
-  setDevices(std::move(devices));
+  shape_ = std::move(shape);
 }
 
 DeviceMesh::DeviceMesh(std::initializer_list<DeviceIdxType> devices) {
