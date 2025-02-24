@@ -60,20 +60,14 @@ TEST_P(MultiDeviceReductionTest, UnshardedInput_ShardedOutput) {
   }
 
   auto x0 = at::randn(input_shape, tensor_options);
-  std::vector<c10::IValue> inputs = {x0};
   auto x1 = shardTensor(x0, tv1);
   auto x2 = x1 + x1;
   auto x3 = shardTensor(at::sum(x0 + x0, {sharded_input_dim}), tv3);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({x0});
 
   testValidate(
-      executor_cache.fusion(),
-      outputs,
-      inputs,
-      {x1, x2, x3},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), outputs, {x0}, {x1, x2, x3}, __LINE__, __FILE__);
 }
 
 // Test multidevice fusion with sharded input and replicated intermediates and
@@ -104,12 +98,12 @@ TEST_P(MultiDeviceReductionTest, ShardedInput_ReplicatedOutput) {
   }
 
   auto x1 = at::randn(unsharded_input_shape, tensor_options);
-  std::vector<c10::IValue> inputs = {shardTensor(x1, tv0)};
+  KernelArgumentHolder args = {shardTensor(x1, tv0)};
   auto x2 = x1 * 2;
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, args, {x1, x2}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -179,14 +173,14 @@ TEST_F(MultiDeviceTest, Slice) {
   const auto options = at::TensorOptions().device(communicator_->device());
   auto aten_x = at::randn(input_shape, options);
   auto expected_out = aten_x.split(4, 2);
-  std::vector<c10::IValue> inputs = {{shardTensor(aten_x, x)}};
+  KernelArgumentHolder args = {shardTensor(aten_x, x)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
       __LINE__,
       __FILE__);
@@ -613,10 +607,9 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({b, s, h / d}, tensor_options);
   at::Tensor bias_tensor = at::randn({h / d}, tensor_options);
-  std::vector<c10::IValue> in_tensors({in_tensor, bias_tensor});
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs(in_tensors)[0];
-  testValidate(
-      executor_cache.fusion(), {out_tensor}, in_tensors, __LINE__, __FILE__);
+  KernelArgumentHolder args = {in_tensor, bias_tensor};
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs(args)[0];
+  testValidate(executor_cache.fusion(), {out_tensor}, args, __LINE__, __FILE__);
 }
 
 TEST_F(MultiDeviceTest, ViewWithSplit) {
