@@ -1350,16 +1350,21 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // uses must be privatized.
       const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      if(std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0){
+        std::cout << "== SMEM2REG,still needs reg persistent ==" << std::endl;
+      }else{
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer persistent
+          // similar to project to inputs, here we are projecting to the shared
+          // memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_tv, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
+
     }
   }
   return smem_consumers;
@@ -1663,10 +1668,12 @@ void schedulePersistentKernel(
           {cached_input_outer_broadcast_tvs.begin(),
            cached_input_outer_broadcast_tvs.end()});
       inlineMost(all_tvs_except_special);
-    } else if (std::getenv("PRESMEM") && std::atoi(std::getenv("PRESMEM")) != 0) {
-      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
-          fusion, {smem_consumers.begin(), smem_consumers.end()});
-      inlineMost(all_tvs_except_special);
+    } else if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
+      // std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
+      //     fusion, {smem_consumers.begin(), smem_consumers.end()});
+      // inlineMost(all_tvs_except_special);
+      // inlineSelectedAt({smem_consumers.begin(), smem_consumers.end()}, smem_consumers.at(0), 4);
+      inlineMost();
     } else {
       inlineMost();
     }
