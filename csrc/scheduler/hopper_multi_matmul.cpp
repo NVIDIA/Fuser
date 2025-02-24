@@ -572,16 +572,16 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       blockTileTensors({smem_tv});
       parallelizeBlocks({smem_tv});
 
-      // [..., M, N]
-      smem_tv->split(-2, params_->tile_sizes.warp_tile.m);
-      smem_tv->split(-1, params_->tile_sizes.warp_tile.n);
-      // After Split: [..., Mo, Mw, No, Nw]
-      smem_tv->reorder({{-2, -3}, {-3, -2}});
-      // After Reorder: [..., Mo, No, Mw, Nw]
-      smem_tv->merge(-4, -3);
-      // After Merge: [..., Mo * No, Mw, Nw]
-      smem_tv->axis(-3)->parallelize(ParallelType::TIDy);
+      LoadStoreOpType load_op = params_->async_gmem_load_operands
+          ? LoadStoreOpType::CpAsyncBulkTensorTile
+          : LoadStoreOpType::Set;
+      smem_tv->definition()->as<LoadStoreOp>()->setOpType(load_op);
 
+      MmaInputSmemSwizzle swizzle_type =
+          mma_utils::tmaSwizzleSharedMemory(smem_tv);
+      smem_tv->applyMmaSwizzleForTMALoad(swizzle_type);
+
+      smem_epilogues_.push_back(smem_tv);
       cached_tvs.push_back(smem_tv);
     }
     propagate_to.insert(
