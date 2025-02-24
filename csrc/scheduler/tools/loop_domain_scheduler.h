@@ -111,8 +111,5 @@ void cancelReshapeInLoopDomains(
     TensorView* from_tv,
     bool skip_innermost_id = false);
 
-std::optional<int64_t> getInnermostCancelableReshapePosition(
-    TensorView* from_tv);
-
 } // namespace scheduler_tools
 } // namespace nvfuser
