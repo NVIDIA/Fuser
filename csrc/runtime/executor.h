@@ -233,8 +233,10 @@ class KernelExecutor : public ExecutorAbstract {
   void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
       const;
 
-  void computeArgs2(ExecutorEntry& entry, const std::vector<at::Tensor>& outputs) const;
-  
+  void computeArgs2(
+      ExecutorEntry& entry,
+      const std::vector<at::Tensor>& outputs) const;
+
   // Updates an existing set of arguments based on the current arguments. It is
   // is an error to call this before `computeArgs` has been invoked.
   // recomputeArgs will fail if the arity of the function changes, or the rank

@@ -839,17 +839,22 @@ void KernelExecutor::computeArgs2(
   entry.arg_ptrs.resize(outputs.size() + intermediates.size());
 
   NVF_ERROR(entry.outputs.size() == outputs.size(), "Outputs size mismatch");
-  NVF_ERROR(entry.intermediates.size() == intermediates.size(), "Intermediates size mismatch");
+  NVF_ERROR(
+      entry.intermediates.size() == intermediates.size(),
+      "Intermediates size mismatch");
 
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
   for (size_t out_idx = 0; out_idx < outputs.size(); ++out_idx) {
-    entry.args[out_idx] = getKernelArgument(outputs[out_idx], entry.outputs[out_idx], idx_type);
+    entry.args[out_idx] =
+        getKernelArgument(outputs[out_idx], entry.outputs[out_idx], idx_type);
     entry.arg_ptrs[out_idx] = entry.args[out_idx].data();
   }
 
   for (size_t inter_idx = 0; inter_idx < intermediates.size(); ++inter_idx) {
-    entry.args[out_idx + inter_idx] = getKernelArgument(intermediates[inter_idx], entry.intermediates[inter_idx], idx_type);
-    entry.arg_ptrs[out_idx + inter_idx] = entry.args[out_idx + inter_idx].data();
+    entry.args[out_idx + inter_idx] = getKernelArgument(
+        intermediates[inter_idx], entry.intermediates[inter_idx], idx_type);
+    entry.arg_ptrs[out_idx + inter_idx] =
+        entry.args[out_idx + inter_idx].data();
   }
 }
 
@@ -1043,7 +1048,8 @@ std::vector<at::Tensor> KernelExecutor::run(
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
   // Bind fusion inputs
-  // auto expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
+  // auto expr_eval = executor_utils::bindInputs(args,
+  // compiled_kernel_->kernel());
 
   // only allocate outputs when not given
   if (outputs.empty()) {
