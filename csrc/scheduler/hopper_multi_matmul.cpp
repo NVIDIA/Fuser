@@ -567,9 +567,25 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
     // Load/cache the epilogue inputs if there are any.
     for (auto* c : c_tvs) {
-      cached_tvs.push_back(c->cacheAfter());
+      TensorView* smem_tv = cacheAfter(c);
+      smem_tv->setMemoryType(MemoryType::Shared);
+      blockTileTensors({smem_tv});
+      parallelizeBlocks({smem_tv});
+
+      // [..., M, N]
+      smem_tv->split(-2, params_->tile_sizes.warp_tile.m);
+      smem_tv->split(-1, params_->tile_sizes.warp_tile.n);
+      // After Split: [..., Mo, Mw, No, Nw]
+      smem_tv->reorder({{-2, -3}, {-3, -2}});
+      // After Reorder: [..., Mo, No, Mw, Nw]
+      smem_tv->merge(-4, -3);
+      // After Merge: [..., Mo * No, Mw, Nw]
+      smem_tv->axis(-3)->parallelize(ParallelType::TIDy);
+
+      cached_tvs.push_back(smem_tv);
     }
-    propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
+    propagate_to.insert(
+        propagate_to.end(), cached_tvs.begin(), cached_tvs.end());
   }
 
   if (!params_->use_smem_epilogue) {
