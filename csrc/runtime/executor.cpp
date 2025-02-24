@@ -616,7 +616,7 @@ void dumpKernelArgs(
 } // namespace
 
 void KernelExecutor::initializeExecutorEntry(
-    ExecutorEntry& executor_entry,
+    KernelExecutorEntry& executor_entry,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
@@ -665,13 +665,15 @@ void KernelExecutor::initializeExecutorEntry(
         expr_eval, index_type, compiled_kernel_->kernel()->outputs());
   } else {
     // Need to save the information necessary for allocations as
-    // future uses of this ExecutorEntry may not be provided with
+    // future uses of this KernelExecutorEntry may not be provided with
     // allocated outputs
     for (auto output_idx : c10::irange(outputs.size())) {
       const auto& output = outputs[output_idx];
       GlobalBufferInfo info;
       info.type = output.scalar_type();
-      info.tv = compiled_kernel_->kernel()->outputs()[output_idx];
+      auto out_val = compiled_kernel_->kernel()->outputs()[output_idx];
+      NVF_ERROR(out_val->isA<TensorView>(), "Output is not a TensorView");
+      info.tv = out_val->as<TensorView>();
       NVF_ERROR(
           !info.tv->hasAllocation(),
           "Accepting allocated outputs is not currently supported with allocation domain. ",
@@ -691,7 +693,7 @@ void KernelExecutor::initializeExecutorEntry(
   for (auto output_idx : c10::irange(outputs.size())) {
     auto out_info = output_info[output_idx];
     auto fusion = compiled_kernel_->kernel()->as<Fusion>();
-    auto alias_info = fusion->getOutputAliasInfo(out_info.tv);
+    auto alias_info = fusion->getOutputAlias(out_info.tv);
     NVF_ERROR(
         alias_info.type != AllocationType::Evaluate,
         "Outputs should not be evaluate type for kernels.");
@@ -703,7 +705,7 @@ void KernelExecutor::initializeExecutorEntry(
         std::find(
             fusion->inputs().begin(), fusion->inputs().end(), aliased_to) -
         fusion->inputs().begin();
-    if (aliased_to_idx < fusion->inputs().size()) {
+    if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
       output_aliased_to_input[output_idx] = aliased_to_idx;
     } else {
       output_aliased_to_output[output_idx] =
@@ -711,7 +713,7 @@ void KernelExecutor::initializeExecutorEntry(
               fusion->outputs().begin(), fusion->outputs().end(), aliased_to) -
           fusion->outputs().begin();
       NVF_ERROR(
-          output_aliased_to_output[output_idx] < fusion->outputs().size(),
+          output_aliased_to_output[output_idx] < (int)fusion->outputs().size(),
           "Alias found but is not an output or input of the fusion. ",
           "Aliased to tv: ",
           aliased_to->toString(),
@@ -724,10 +726,11 @@ void KernelExecutor::initializeExecutorEntry(
 
   auto intermediates = getIntermediateBufferInfo(expr_eval, index_type);
 
-  // All information is gathered. Save it to ExecutorEntry
+  // All information is gathered. Save it to KernelExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
-  executor_entry.output_aliased_to = output_aliased_to;
+  executor_entry.output_aliased_to_input = output_aliased_to_input;
+  executor_entry.output_aliased_to_output = output_aliased_to_output;
   executor_entry.intermediates = intermediates;
   executor_entry.init = true;
 }
@@ -750,7 +753,7 @@ void KernelExecutor::initializeExecutorEntry(
 /// @param idx_type_size generally sizeof(int32_t) or sizeof(int64_t); used for
 ///                      computing how large the arrays to copy are.
 static void fillTensorArgMetadata(
-    KernelExecutor::ExecutorEntry& entry,
+    KernelExecutorEntry& entry,
     const PolymorphicValue& tensor_metadata,
     size_t idx,
     size_t idx_type_size) {
@@ -812,7 +815,7 @@ static void fillTensorArgMetadata(
 // It does not need to happen when only shapes change---use recomputeArgs for
 // that.
 void KernelExecutor::computeArgs(
-    ExecutorEntry& entry,
+    KernelExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs");
@@ -830,7 +833,7 @@ void KernelExecutor::computeArgs(
 // set the arguments that we'll pass to cuLaunchKernel
 // TODO: Add to header
 void KernelExecutor::computeArgs2(
-    ExecutorEntry& entry,
+    KernelExecutorEntry& entry,
     const std::vector<at::Tensor>& outputs,
     const std::vector<at::Tensor>& intermediates) const {
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs2");
@@ -851,17 +854,17 @@ void KernelExecutor::computeArgs2(
   }
 
   for (size_t inter_idx = 0; inter_idx < intermediates.size(); ++inter_idx) {
-    entry.args[out_idx + inter_idx] = getKernelArgument(
+    entry.args[outputs.size() + inter_idx] = getKernelArgument(
         intermediates[inter_idx], entry.intermediates[inter_idx], idx_type);
-    entry.arg_ptrs[out_idx + inter_idx] =
-        entry.args[out_idx + inter_idx].data();
+    entry.arg_ptrs[outputs.size() + inter_idx] =
+        entry.args[outputs.size() + inter_idx].data();
   }
 }
 
 // Reset the arguments that we'll pass to cuLaunchKernel. This needs to be
 // invoked on every shape change.
 void KernelExecutor::recomputeArgs(
-    ExecutorEntry& entry,
+    KernelExecutorEntry& entry,
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
   FUSER_PERF_SCOPE("KernelExecutor::recomputeArgs");
@@ -1015,9 +1018,9 @@ std::vector<at::Tensor> KernelExecutor::run(
   NVF_ERROR(compiled_kernel_->lowered());
 
   // Placeholder for the case where parameter cache is not used
-  ExecutorEntry temporary_executor_entry;
+  KernelExecutorEntry temporary_executor_entry;
 
-  ExecutorEntry* executor_entry = args.getCacheId().has_value() &&
+  KernelExecutorEntry* executor_entry = args.getCacheId().has_value() &&
           !compiled_kernel_->disablePaarameterCache()
       ? &executor_entry_lookup_[*args.getCacheId()]
       : &temporary_executor_entry;
@@ -1054,8 +1057,8 @@ std::vector<at::Tensor> KernelExecutor::run(
   // only allocate outputs when not given
   if (outputs.empty()) {
     outputs = allocateKernelOutputs(
-        compiled_kernel_->kernel()->as<Fusion>(),
-        executor_entry->outputs,
+        compiled_kernel_->kernel(),
+        *executor_entry,
         compiled_kernel_->device(),
         args);
   }
@@ -1247,7 +1250,7 @@ std::vector<at::Tensor> KernelExecutor::run(
 flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for KernelExecutor in serde/fusion_cache.fbs
-  using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
+  using fb_executor_entry = flatbuffers::Offset<serde::KernelExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
   // vectors. The key value is the cache_id value in the KernelArgumentHolder.
@@ -1328,10 +1331,10 @@ flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
   return ckb.Finish();
 }
 
-flatbuffers::Offset<serde::ExecutorEntry> KernelExecutor::serialize(
+flatbuffers::Offset<serde::KernelExecutorEntry> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const ExecutorEntry& data) const {
-  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+    const KernelExecutorEntry& data) const {
+  // See table definition for KernelExecutorEntry in serde/fusion_cache.fbs
 
   // Serialize GlobalBufferInfo for outputs.
   // We map the output TensorView pointer to its corresponding position in
@@ -1377,7 +1380,7 @@ flatbuffers::Offset<serde::ExecutorEntry> KernelExecutor::serialize(
         serialize(builder, buffer, tv_position, false /* is_fusion_output */));
   }
 
-  return serde::CreateExecutorEntryDirect(
+  return serde::CreateKernelExecutorEntryDirect(
       builder,
       data.init,
       data.launch_params.serialize(builder),
@@ -1469,13 +1472,13 @@ void KernelExecutor::deserialize(
   }
 }
 
-KernelExecutor::ExecutorEntry KernelExecutor::deserialize(
-    const serde::ExecutorEntry* buffer) {
-  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+KernelExecutorEntry KernelExecutor::deserialize(
+    const serde::KernelExecutorEntry* buffer) {
+  // See table definition for KernelExecutorEntry in serde/fusion_cache.fbs
 
-  NVF_ERROR(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::KernelExecutorEntry is nullptr.");
 
-  ExecutorEntry entry;
+  KernelExecutorEntry entry;
 
   entry.init = buffer->init();
 

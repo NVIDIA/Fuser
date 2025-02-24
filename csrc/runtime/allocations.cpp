@@ -11,6 +11,7 @@
 #include <expr_evaluator.h>
 #include <instrumentation.h>
 #include <polymorphic_value.h>
+#include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
 #include <tensor_metadata.h>
@@ -374,24 +375,23 @@ std::vector<at::Tensor> allocateOutputs(
 
 std::vector<at::Tensor> allocateKernelOutputs(
     const Fusion* fusion,
-    const std::vector<GlobalBufferInfo>& output_infos,
+    const KernelExecutorEntry& entry,
     const c10::Device& device,
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
 
   NVF_ERROR(
       std::any_of(
-          output_infos.output_aliased_to_output.begin(),
-          output_infos.output_aliased_to_output.end(),
+          entry.output_aliased_to_output.begin(),
+          entry.output_aliased_to_output.end(),
           [](int idx) { return idx != -1; }),
       "Kernel's don't support output to output aliasing.");
 
   std::vector<at::Tensor> out_tensors;
-  out_tensors.reserve(output_infos.size());
-  for (auto out_idx : c10::irange(output_infos.size())) {
-    auto out_info = output_infos.at(out_idx);
-    if (output_infos.output_aliased_to_input.at(out_info.tv->startIdx()) ==
-        -1) {
+  out_tensors.reserve(entry.outputs.size());
+  for (auto out_idx : c10::irange(entry.outputs.size())) {
+    auto out_info = entry.outputs.at(out_idx);
+    if (entry.output_aliased_to_input.at(out_idx) == -1) {
       auto alloc_tensor = at::native::empty_strided_cuda(
           out_info.shape_info.logical_sizes,
           out_info.shape_info.logical_strides,
@@ -404,7 +404,7 @@ std::vector<at::Tensor> allocateKernelOutputs(
       }
       out_tensors.emplace_back(alloc_tensor);
     } else {
-      auto input_arg = args[output_infos.output_aliased_to_input.at(out_idx)];
+      auto input_arg = args[entry.output_aliased_to_input.at(out_idx)];
       NVF_ERROR(
           input_arg.is<at::Tensor>(),
           "Aliased input argument is not a tensor.");

@@ -189,7 +189,7 @@ table KernelArgumentHolder {
 
 //
 // =====================================================================================
-// Tables for LaunchParams, GlobalBufferInfo, ExecutorEntry, and TensorShape used in KernelExecutor
+// Tables for LaunchParams, GlobalBufferInfo, KernelExecutorEntry, and TensorShape used in KernelExecutor
 
 // Data representing a tensor shape used in LaunchParam
 table TensorShape {
@@ -226,8 +226,8 @@ table GlobalBufferInfo {
   is_fusion_output : bool;
 }
 
-// This table describes the cached ExecutorEntry for a kernel.
-table ExecutorEntry {
+// This table describes the cached KernelExecutorEntry for a kernel.
+table KernelExecutorEntry {
   init : bool;
   launch_params : LaunchParams;
   outputs : [GlobalBufferInfo];
@@ -370,7 +370,7 @@ table KernelExecutor {
   group_id: long;
   kernel_code: string;
   executor_entry_lookup_keys: [ulong];
-  executor_entry_lookup_values: [ExecutorEntry];
+  executor_entry_lookup_values: [KernelExecutorEntry];
   // Is this kernel being compiled with int32 or int64 indexing?
   index_type : long;
   compiled_kernel: CudaKernel;

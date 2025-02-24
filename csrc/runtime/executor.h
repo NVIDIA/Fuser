@@ -58,6 +58,35 @@ class ExprEvalExecutor : public ExecutorAbstract {
   std::unique_ptr<Fusion> fusion_;
 };
 
+// struct used to hold necessary information to launch compiled kernel on a
+// given input set.
+//
+// TODO: strides would also be important when we handle permutations in
+//       codegen.
+//
+struct KernelExecutorEntry {
+  bool init = false;
+  LaunchParams launch_params;
+  std::vector<GlobalBufferInfo> outputs;
+  // If an output is aliased to an input, this will hold the index of the
+  // input that it is aliased to. If not aliased, it will hold -1.
+  std::vector<int> output_aliased_to_input;
+  std::vector<int> output_aliased_to_output;
+  // Temporary work buffers and intemediate global-memory tensors
+  std::vector<GlobalBufferInfo> intermediates;
+  // The arguments to the kernel. These are configured in computeArgs and
+  // recomputeArgs.
+  // For the common case of a tensor argument, these correspond to the
+  // `struct Tensor` data in runtime/tensor.cu. That means each tensor
+  // element in `args` would be a sizeof(void*) + len(shape)*sizeof(int) +
+  // len(shape)*sizeof(int) byte array (here "int" is used in place of the
+  // index type, which varies in practice).
+  std::vector<std::vector<std::byte>> args;
+  // This is just the data() pointers to the above `args`; cuLaunchKernel
+  // requires an array of this form.
+  std::vector<void*> arg_ptrs;
+};
+
 class KernelExecutor : public ExecutorAbstract {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
@@ -111,35 +140,6 @@ class KernelExecutor : public ExecutorAbstract {
   void evictCache(size_t cache_id) {
     executor_entry_lookup_.erase(cache_id);
   }
-
-  // struct used to hold necessary information to launch compiled kernel on a
-  // given input set.
-  //
-  // TODO: strides would also be important when we handle permutations in
-  //       codegen.
-  //
-  struct ExecutorEntry {
-    bool init = false;
-    LaunchParams launch_params;
-    std::vector<GlobalBufferInfo> outputs;
-    // If an output is aliased to an input, this will hold the index of the
-    // input that it is aliased to. If not aliased, it will hold -1.
-    std::vector<int> output_aliased_to_input;
-    std::vector<int> output_aliased_to_output;
-    // Temporary work buffers and intemediate global-memory tensors
-    std::vector<GlobalBufferInfo> intermediates;
-    // The arguments to the kernel. These are configured in computeArgs and
-    // recomputeArgs.
-    // For the common case of a tensor argument, these correspond to the
-    // `struct Tensor` data in runtime/tensor.cu. That means each tensor
-    // element in `args` would be a sizeof(void*) + len(shape)*sizeof(int) +
-    // len(shape)*sizeof(int) byte array (here "int" is used in place of the
-    // index type, which varies in practice).
-    std::vector<std::vector<std::byte>> args;
-    // This is just the data() pointers to the above `args`; cuLaunchKernel
-    // requires an array of this form.
-    std::vector<void*> arg_ptrs;
-  };
 
   using ExecutorCompileTimeInfoCache =
       executor_utils::caching::ExecutorCompileTimeInfoCache;
@@ -217,9 +217,9 @@ class KernelExecutor : public ExecutorAbstract {
     return &compile_time_info_cache_;
   }
 
-  //! TODO: Consider changing this to a constructor of ExecutorEntry
+  //! TODO: Consider changing this to a constructor of KernelExecutorEntry
   void initializeExecutorEntry(
-      ExecutorEntry& executor_entry,
+      KernelExecutorEntry& executor_entry,
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
@@ -230,35 +230,40 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Creates the initial set of arguments to a kernel, based on the arguments
   // to we have now.
-  void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
-      const;
+  void computeArgs(
+      KernelExecutorEntry&,
+      ExpressionEvaluator&,
+      const kir::Kernel*) const;
 
   void computeArgs2(
-      ExecutorEntry& entry,
-      const std::vector<at::Tensor>& outputs) const;
+      KernelExecutorEntry& entry,
+      const std::vector<at::Tensor>& outputs,
+      const std::vector<at::Tensor>& intermediates) const;
 
   // Updates an existing set of arguments based on the current arguments. It is
   // is an error to call this before `computeArgs` has been invoked.
   // recomputeArgs will fail if the arity of the function changes, or the rank
   // of any tensor changes (as these are compiled-in to the generated kernel
   // and therefore would require us to do a larger recompilation).
-  void recomputeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
-      const;
+  void recomputeArgs(
+      KernelExecutorEntry&,
+      ExpressionEvaluator&,
+      const kir::Kernel*) const;
 
   //! Serialize CompiledKernel using flatbuffers
   flatbuffers::Offset<serde::CudaKernel> serialize(
       flatbuffers::FlatBufferBuilder& builder,
       const executor_utils::CudaExecutable* kernel) const;
 
-  // ExecutorEntry is an internal POD struct for the KernelExecutor class.
-  // We define ExecutorEntry's serialize and deserialize as private methods in
-  // KernelExecutor.
-  flatbuffers::Offset<serde::ExecutorEntry> serialize(
+  // KernelExecutorEntry is an internal POD struct for the KernelExecutor class.
+  // We define KernelExecutorEntry's serialize and deserialize as private
+  // methods in KernelExecutor.
+  flatbuffers::Offset<serde::KernelExecutorEntry> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const ExecutorEntry& data) const;
+      const KernelExecutorEntry& data) const;
 
-  //! Deserialize ExecutorEntry using flatbuffers
-  ExecutorEntry deserialize(const serde::ExecutorEntry* buffer);
+  //! Deserialize KernelExecutorEntry using flatbuffers
+  KernelExecutorEntry deserialize(const serde::KernelExecutorEntry* buffer);
 
   // GlobalBufferInfo is an internal POD struct for the KernelExecutor class.
   // We define GlobalBufferInfo's serialize and deserialize as private methods
@@ -307,7 +312,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   // lookup table to take short cut to retrieve recorded information in order to
   // launch kernels without re-inference parameters.
-  std::unordered_map<size_t, ExecutorEntry> executor_entry_lookup_;
+  std::unordered_map<size_t, KernelExecutorEntry> executor_entry_lookup_;
 
   // Compile time information caching. This is used for shape inference
   //  support. The cache stores graph information that are available

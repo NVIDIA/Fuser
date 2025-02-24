@@ -356,7 +356,8 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
   } else {
     metadata->logical_size = input.sizes();
   }
-  metadata->logical_stride_data = input.strides();
+  metadata->logical_stride_data =
+      std::vector<int64_t>(input.strides().begin(), input.strides().end());
   metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
 
   auto [allocation_sizes, allocation_strides] =

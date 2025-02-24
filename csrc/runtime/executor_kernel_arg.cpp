@@ -8,6 +8,7 @@
 #include <c10/util/irange.h>
 
 // Extract size and strides
+#include <runtime/allocations.h>
 #include <runtime/fusion_executor_cache.h>
 
 #include <instrumentation.h>

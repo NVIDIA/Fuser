@@ -15,6 +15,8 @@
 
 namespace nvfuser {
 
+struct KernelExecutorEntry;
+
 struct TensorShapeInfo {
   std::vector<int64_t> logical_sizes;
   std::vector<int64_t> logical_strides;
@@ -89,7 +91,7 @@ std::vector<at::Tensor> allocateOutputs(
 
 std::vector<at::Tensor> allocateKernelOutputs(
     const Fusion* fusion,
-    const std::vector<GlobalBufferInfo>& output_infos,
+    const KernelExecutorEntry& entry,
     const c10::Device& device,
     const KernelArgumentHolder& args);
 
