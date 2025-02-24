@@ -745,7 +745,7 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
-TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
+TEST_F(MultiDeviceTest, LoopShardingWithSplitReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -805,6 +805,74 @@ TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
       {nvf_out},
       {sharded_inp},
       {sharded_inp.view({b, s, h, e})},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, TransformPropagator) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t m = 5, n = 7;
+
+  TensorView* in = makeContigConcreteTensor({d * m * n});
+  TensorView* out = reshape(in, {d * m * n}, {d * m, n});
+  TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out, add_out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({m * n}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({m, n}) + 1.0},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, LoopSplitWithMergeReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t m = 5, n = 7;
+
+  TensorView* in = makeContigConcreteTensor({d * m, n});
+  TensorView* out = reshape(in, {d * m, n}, {d * m * n});
+  // TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({m,  n}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({m * n})},
       __LINE__,
       __FILE__);
 }

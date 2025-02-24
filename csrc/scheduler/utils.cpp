@@ -320,9 +320,9 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
+    // if (tv->isFusionInput()) {
+    //   continue;
+    // }
     for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
@@ -2285,6 +2285,10 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
+    parallelizeAllLike(tv, (int64_t)old2new.size(), {}, {ParallelType::DIDx});
+  }
+  for (auto tv : fusion->allTvs()) {
+    debug() << tv->toString() << std::endl;
   }
 }
 
