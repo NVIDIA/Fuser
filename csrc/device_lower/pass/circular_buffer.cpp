@@ -916,12 +916,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
       }
     }
 
-    if(ir_utils::isCpAsyncUblk(ldst)){
+    if (ir_utils::isCpAsyncUblk(ldst)) {
       std::cout << "consumer_tv " << consumer_tv->toString() << std::endl;
-      for(auto id : loop_domain){
-        if(id->isThreadDim()){
-          expected_bytes = SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
-          std::cout << "revise expected_bytes to " << expected_bytes->toString() << std::endl;
+      for (auto id : loop_domain) {
+        if (id->isThreadDim()) {
+          expected_bytes =
+              SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
+          std::cout << "revise expected_bytes to " << expected_bytes->toString()
+                    << std::endl;
         }
       }
     }
@@ -1405,17 +1407,26 @@ class CircularBufferInserter : private kir::ExprMutator {
     //             GpuLower::current()->parallelDimensionMap().get(
     //                 warp_specialize_on),
     //             circular_buffer_loop->fusion()->oneVal()))));
+    bool require_nested_ite = false;
     Val* tma_val = nullptr;
-    Val* raw = GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
-    if(raw->isConst() && raw->value().as<int64_t>() == 2){
-      tma_val = SimplifyingIrBuilder::addExpr(raw, -1);
-    }else{
-      tma_val = SimplifyingIrBuilder::addExpr(raw, IrBuilder::create<Val>(-32L, DataType::Index));
-    }    
-    kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
-            NamedScalar::getParallelIndex(warp_specialize_on),
-            tma_val)));
+    kir::Predicate* predicate_val = nullptr;
+    Val* raw =
+        GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
+    if (raw->isConst() && raw->value().as<int64_t>() == 2) {
+      tma_val = SimplifyingIrBuilder::subExpr(
+          raw, circular_buffer_loop->fusion()->oneVal());
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), tma_val));
+    } else {
+      require_nested_ite = true;
+      tma_val = SimplifyingIrBuilder::subExpr(
+          raw, IrBuilder::create<Val>(32L, DataType::Index));
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), tma_val));
+      std::cout << "insertTmaWarpSpecialized pred " << predicate_val->toInlineString() << std::endl;
+    }
+    kir::IfThenElse* warp_dispatch_ite =
+        IrBuilder::create<kir::IfThenElse>(predicate_val);
 
     // Set default value
     auto& circular_buffer_options =
@@ -1450,7 +1461,23 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
+
+    // Nest load loop inside the warp dispatch if-then-else
+    if(require_nested_ite){
+      kir::IfThenElse* load_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
+          IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+              NamedScalar::getParallelIndex(warp_specialize_on),
+              IrBuilder::subExpr(
+                  GpuLower::current()->parallelDimensionMap().get(
+                      warp_specialize_on),
+                  circular_buffer_loop->fusion()->oneVal()))));
+      load_dispatch_ite->thenBody().push_back(load_loop);
+      warp_dispatch_ite->thenBody().push_back(load_dispatch_ite);
+    }else{
+      warp_dispatch_ite->thenBody().push_back(load_loop);
+    }
+
+
 
     if (enable_register_sharing) {
       // Terminate the warp group handling Load loop immediately after

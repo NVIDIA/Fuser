@@ -295,7 +295,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           num_threads_per_cta.has_value(),
           "__launch_bounds__ must be set for register sharing warp specialization");
       code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
-            << num_threads_per_cta.value() << ") ";
+            << num_threads_per_cta.value() << ", 1) ";
     }
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
@@ -3061,7 +3061,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     if (std::getenv("NO_FETCH_UNROLL") == nullptr &&
         loop->circularBufferLoopStage() !=
-            CircularBufferLoopStage::NotApplicable && loop->isUnrolled()) {
+            CircularBufferLoopStage::NotApplicable) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler
       // should maximally unroll such loops leading to very long compiles, we

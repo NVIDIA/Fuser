@@ -668,7 +668,7 @@ void innerPersistentHeuristic2D(
         fusion, properties, rparams, blocks_per_sm);
   }
 
-  if (std::getenv("USE_TMA") != nullptr) {
+  if (std::getenv("USE_TMA") && std::atoi(std::getenv("USE_TMA")) != 0) {
     rparams->use_tma_load = true;
     rparams->smem_persistent_buffers = properties.persistent_buffers;
 
@@ -693,6 +693,10 @@ void innerPersistentHeuristic2D(
 
     if (std::getenv("BDIMY")) {
       best_heuristic.bdimy = std::atoi(std::getenv("BDIMY"));
+    }
+
+    if (std::getenv("BDIMX")) {
+      best_heuristic.persistent_batch_size = ceilDiv(parallel_after_vectorize, std::atoi(std::getenv("BDIMX")));
     }
 
     ParallelType warp_parallel_type = ParallelType::Serial;

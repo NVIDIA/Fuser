@@ -1674,7 +1674,7 @@ void schedulePersistentKernel(
     inlineMost();
   }
 
-  fusion->printMath();
+  // fusion->printMath();
 
   // circular buffer
   if (rparams->use_tma_load && rparams->circular_buffer_options.isEnable()) {

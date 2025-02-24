@@ -1113,7 +1113,7 @@ std::vector<at::Tensor> KernelExecutor::run(
               << ", warps_per_sm=" << warps_per_sm
               << ", occupancy=" << oss.str() << std::endl;
     }
-
+    launch_params_.print();
     if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
       std::cout << "============ ExecutorRunFusion::cuLaunchKernel ========= " << std::endl;
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
