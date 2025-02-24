@@ -320,9 +320,9 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
+    // if (tv->isFusionInput()) {
+    //   continue;
+    // }
     for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
@@ -2247,6 +2247,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             auto split = dynamic_cast<Split*>(
                 tv->getLoopDomain().at(sharded_axis)->definition());
             if (split != nullptr && split->in() == logical_id) {
+              old2new[sharded_axis] = (int64_t)old2new.size();
               find_it = std::find(
                   tv->getLoopDomain().begin(),
                   tv->getLoopDomain().end(),
@@ -2277,6 +2278,10 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
+    parallelizeAllLike(tv, (int64_t)old2new.size(), {}, {ParallelType::DIDx});
+  }
+  for (auto tv : fusion->allTvs()) {
+    debug() << tv->toString() << std::endl;
   }
 }
 
