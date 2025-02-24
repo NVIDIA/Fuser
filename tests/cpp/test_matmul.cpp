@@ -4279,11 +4279,6 @@ class MLPBenchmarkTest
 };
 
 TEST_P(MLPBenchmarkTest, FwdGEMM) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4299,6 +4294,8 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
 
   fusion.addOutput(tv2);
 
+  fusion.print();
+
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
   auto t0 = at::randn({M, K}, options);
   auto t1 = at::randn({N, K}, options);
@@ -4308,6 +4305,8 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
+
+  fusion.print();
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);

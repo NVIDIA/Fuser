@@ -728,9 +728,9 @@ int64_t BestEffortReplay::findFirstMismatchedID(
 ForwardingInfo::ForwardingInfo(
     const TensorView* producer,
     const TensorView* consumer) {
-  // No forwarding unless this is broadcast or squeeze
-  if (!dynamic_cast<BroadcastOp*>(consumer->definition()) &&
-      !dynamic_cast<SqueezeOp*>(consumer->definition())) {
+  // No forwarding unless this is broadcast or squeeze, or if this is an MmaOp
+  // with non-trivial AxisMapping
+  if (!consumer->definition()->isOneOf<BroadcastOp, MmaOp, SqueezeOp>()) {
     return;
   }
 
@@ -743,7 +743,7 @@ ForwardingInfo::ForwardingInfo(
       active_compliment_map = nullptr;
 
   // Either squeeze or broadcast dimension flags depending on operation
-  const std::vector<bool>* active_dim_flags = nullptr;
+  std::vector<bool> active_dim_flags;
 
   // Either producer or consumer depending on operation
   std::vector<IterDomain*> active_logical_dom;
@@ -752,29 +752,42 @@ ForwardingInfo::ForwardingInfo(
   if (auto bop = dynamic_cast<BroadcastOp*>(consumer->definition())) {
     active_forwarding_map = &consumer_forwarding_map;
     active_compliment_map = &consumer_compliment_map;
-    active_dim_flags = &bop->getBroadcastDimFlags();
+    active_dim_flags = bop->getBroadcastDimFlags();
     active_logical_dom = consumer->getLogicalDomain();
     active_tv = consumer;
   } else if (auto sop = dynamic_cast<SqueezeOp*>(consumer->definition())) {
     active_forwarding_map = &producer_forwarding_map;
     active_compliment_map = &producer_compliment_map;
-    active_dim_flags = &sop->getSqueezeDimFlags();
+    active_dim_flags = sop->getSqueezeDimFlags();
     active_logical_dom =
         TensorDomain::noReductions(producer->getLogicalDomain());
     active_tv = producer;
+  } else if (auto mma = dynamic_cast<MmaOp*>(consumer->definition())) {
+    active_forwarding_map = &consumer_forwarding_map;
+    active_compliment_map = &consumer_compliment_map;
+    active_logical_dom = consumer->getLogicalDomain();
+    const std::vector<int64_t>& axis_positions = (producer == mma->inA())
+        ? mma->axisMapping().a_axes
+        : mma->axisMapping().b_axes;
+    for (const size_t prod_pos : c10::irange(axis_positions.size())) {
+      active_dim_flags.push_back(axis_positions.at(prod_pos) == -1L);
+    }
+    std::cout << "MmaOp active_dim_flags = " << active_dim_flags << std::endl;
+    active_tv = consumer;
   } else {
     NVF_THROW("Should not be reachable");
   }
 
-  NVF_ERROR(active_logical_dom.size() == active_dim_flags->size());
+  NVF_ERROR(active_logical_dom.size() == active_dim_flags.size());
 
   // Collect which root ids are only in active_tv but not in the inactive
   // tensor.
   //
   // Initialize which id's should beforwarded.
   std::unordered_set<IterDomain*> forwarded_ids;
-  for (auto i : c10::irange(active_dim_flags->size())) {
-    if (active_dim_flags->at(i)) {
+  for (auto i : c10::irange(active_dim_flags.size())) {
+    if (active_dim_flags.at(i)) {
+      std::cout << "iniitializing " << active_logical_dom.at(i)->toString() << " to forwarded_ids" << std::endl;
       forwarded_ids.emplace(active_logical_dom.at(i));
     }
   }
@@ -795,6 +808,7 @@ ForwardingInfo::ForwardingInfo(
     if (std::all_of(input_ids.begin(), input_ids.end(), isInForwardIdSet)) {
       for (auto output_ids :
            ir_utils::filterByType<IterDomain>(expr->outputs())) {
+          std::cout << "pushing " << output_ids->toString() << " to forwarded_ids" << std::endl;
         forwarded_ids.emplace(output_ids);
       }
     } else if (

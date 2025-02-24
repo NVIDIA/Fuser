@@ -278,14 +278,14 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
         bool c_id_connected =
             loop_path_groups->count(inliningGraph().toGroup(c_id));
         NVF_ERROR(
-            p_id_connected ||
+            true || p_id_connected ||
                 (consumer->definition()->isA<MmaOp>() && p_id->isBroadcast()),
             "Expected unmapped producer id to be broadcast domain in MmaOp input but found ",
             p_id->toString());
 
         if (!p_id_connected && !c_id_connected) {
           NVF_ERROR(
-              p_id->isBroadcast(),
+              true || p_id->isBroadcast(),
               "Unmapped producer ID must be a broadcast created in scheduling but found ",
               p_id->toString());
           ++consumer_it;

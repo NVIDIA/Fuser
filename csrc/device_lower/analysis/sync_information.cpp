@@ -14,6 +14,7 @@
 #include <transform_iter.h>
 
 #include <device_lower/analysis/sync_information.h>
+#include "type.h"
 
 namespace nvfuser {
 
@@ -458,6 +459,7 @@ SyncMap::SyncMap(Fusion* fusion) {
     // but to be conservative for now checking every producer <-> consumer
     // relationship.
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
+      std::cout << "SyncMap\n  producer=" << producer->toString() << std::endl;
       // Parallelization on input tensors have no effect.
       if (producer->isFusionInput()) {
         continue;
@@ -489,10 +491,15 @@ SyncMap::SyncMap(Fusion* fusion) {
                                               .getPredicateInfo(producer)
                                               .redundant_use_types;
 
+      std::cout << "  producer_redundant_types: " << producer_redundant_types.toString() << std::endl;
+      std::cout << "  producer_redundant_use_types: " << producer_redundant_use_types.toString() << std::endl;
+
       // In sync info pass we only consider the parallel types in
       //  producer that are redundantly produced but not redundantly consumed.
       producer_redundant_types =
           producer_redundant_types & (~producer_redundant_use_types);
+
+      std::cout << "  producer_redundant_types: " << producer_redundant_types.toString() << std::endl;
 
       for (const auto producer_i : c10::irange(producer->nDims())) {
         auto producer_axis = producer->getLoopDomain().at(producer_i);
@@ -515,6 +522,7 @@ SyncMap::SyncMap(Fusion* fusion) {
 
       for (auto consumer :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+        std::cout << "SyncMap\n  producer=" << producer->toString() << "\n  consumer=" << consumer->toString() << std::endl;
         // Stash information about parallelized consumer iteration domains
         std::vector<IterDomain*> consumer_parallel_ids(
             ParallelTypeBitmap::kNumParallelTypes, nullptr);
@@ -569,6 +577,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           // TIDx is reserved for lane_id in the case of mma ops.
           //  It is swizzled and handled separately in validateMma.
           if (parallel_type == ParallelType::TIDx && expr->isA<MmaOp>()) {
+            std::cout << "CONTINUE at " << __LINE__ << " isA<MmaOp>" << std::endl;
             continue;
           }
 
@@ -581,6 +590,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           //  sensitive cases, but we could wait until that becomes
           //  a perf limiter to fix.
           if (producer_redundant_types.get(parallel_type)) {
+            std::cout << "SETTING " << parallel_type << " at " << __LINE__ << " producer_redundant_types" << std::endl;
             raw_dims.set(parallel_type);
             continue;
           }
@@ -589,8 +599,20 @@ SyncMap::SyncMap(Fusion* fusion) {
 
           auto p_id = producer_parallel_ids[parallel_type_i];
           auto c_id = consumer_parallel_ids[parallel_type_i];
+          if (p_id == nullptr) {
+            std::cout << "  p_id = nullptr";
+          } else {
+            std::cout << "  p_id = " << p_id->toString();
+          }
+          if (c_id == nullptr) {
+            std::cout << "  c_id = nullptr";
+          } else {
+            std::cout << "  c_id = " << c_id->toString();
+          }
+          std::cout << std::endl;
 
           if (p_id == nullptr && c_id == nullptr) {
+            std::cout << "CONTINUE " << __LINE__ << " p_id and c_id both null" << std::endl;
             continue;
           } else if (p_id != nullptr && c_id == nullptr) {
             auto it = std::find_if(
@@ -605,6 +627,11 @@ SyncMap::SyncMap(Fusion* fusion) {
             // need to assume there's communication across this parallel
             // dimension.
             c_id = it == consumer->getLoopDomain().end() ? nullptr : *it;
+            if (c_id == nullptr) {
+              std::cout << "  reassigned c_id to nullptr" << std::endl;
+            } else {
+              std::cout << "  reassigned c_id to " << c_id->toString() << std::endl;
+            }
             // i.e. if producer is parallelized across threadIdx.x in a
             // certain split, if the consumer doesn't map to this split,
             // then we need to assume it has to be in smem with proper
@@ -620,9 +647,12 @@ SyncMap::SyncMap(Fusion* fusion) {
             if (it == producer->getLoopDomain().end()) {
               // Can't infer anything if producer doesn't have a matching axis
               // to parallel consumer dim.
+              std::cout << "CONTINUE " << __LINE__ << std::endl;
               continue;
             }
             p_id = *it;
+          } else {
+            std::cout << " p_id and c_id both not null" << std::endl;
           }
 
           // Comm pattern options (when parallel types don't have matching
@@ -650,6 +680,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               ? ParallelType::Serial
               : ca_map->getConcreteMappedID(c_id, IdMappingMode::LOOP)
                     ->getParallelType();
+          std::cout << " producer_ptype=" << producer_ptype << " consumer_ptype=" << consumer_ptype << std::endl;
 
           auto producer_parallel_bcast = p_id->isBroadcast() &&
               isParallelTypeThread(producer_ptype) &&
@@ -657,8 +688,13 @@ SyncMap::SyncMap(Fusion* fusion) {
               GpuLower::current()->concretizedBroadcastDomains()->isConcretized(
                   p_id);
 
+          std::cout << "  isParallelTypeThread(producer_ptype)=" << isParallelTypeThread(producer_ptype) << std::endl;
+          std::cout << "  p_id->isBroadcast()=" << p_id->isBroadcast() << std::endl;
+
           auto producer_parallelized = isParallelTypeThread(producer_ptype) &&
               (!p_id->isBroadcast() || producer_parallel_bcast);
+
+          std::cout << "  producer_parallel_bcast=" << producer_parallel_bcast << " producer_parallelized=" << producer_parallelized << std::endl;
 
           // Handle special cases first
 
@@ -672,6 +708,7 @@ SyncMap::SyncMap(Fusion* fusion) {
             if (!ir_utils::getAllSwizzlesBetween(
                      producer->getLogicalDomain(), {p_id})
                      .empty()) {
+              std::cout << "SETTING " << __LINE__ << std::endl;
               raw_dims.set(producer_ptype);
               continue;
             }
@@ -680,6 +717,7 @@ SyncMap::SyncMap(Fusion* fusion) {
           // When the producer axis is not parallelized, no sync is
           // necessary
           if (!producer_parallelized) {
+          std::cout << "CONTINUE " << __LINE__ << std::endl;
             continue;
           }
 
@@ -711,11 +749,32 @@ SyncMap::SyncMap(Fusion* fusion) {
               const auto& id_model = GpuLower::current()->idModel();
               auto producer_loop_id = getLoopPromotion(p_id, id_model);
               auto consumer_loop_id = getLoopPromotion(c_id, id_model);
-              const auto& indexing_traveral_graph =
+              const auto& indexing_traversal_graph =
                   id_model.idGraph(TensorIndexer::traversalGraphType());
-              if (indexing_traveral_graph.disjointValSets().strictAreMapped(
+              if (indexing_traversal_graph.disjointValSets().strictAreMapped(
                       producer_loop_id, consumer_loop_id)) {
+                std::cout << "CONTINUE " << __LINE__ << std::endl;
                 continue;
+              } else if (consumer->definition()->isA<MmaOp>() && false) {
+                std::cout << "KLUDGE at " << __LINE__ << std::endl;
+                // We will check the entire history of producer_loop_id and
+                // consumer_loop_id. When we encounter a logical domain in
+                // consumer, we check whether it is mapped in the pairwise map.
+                // If not, we assert that it is a "loop broadcast" that is
+                // behaving as if it is a logical broadcast. Then we set it as
+                // being mapped to the corresponding consumer and we unwind the
+                // stack to propagate back out as if we are replaying the
+                // permissive map with this new fake logical producer broadcast.
+                std::vector<std::pair<IterDomain*, IterDomain*>> ids_to_process{
+                    {producer_loop_id, consumer_loop_id}};
+                while (!ids_to_process.empty()) {
+                  const auto [p, c] = ids_to_process.back();
+                  ids_to_process.pop_back();
+                  if (!indexing_traversal_graph.disjointValSets()
+                          .strictAreMapped(p, c)) {
+                    // If 
+                  }
+                }
               }
 
               // Case 2
@@ -761,6 +820,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               if (p_id->isBroadcast()) {
                 if (auto it = p2c_map_no_forwarding.find(p_id);
                     it != p2c_map_no_forwarding.end() && it->second == c_id) {
+                  std::cout << "CONTINUE " << __LINE__ << std::endl;
                   continue;
                 }
               }
@@ -775,6 +835,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               // parallel type, no communication is required
               if (producer_ptype == consumer_ptype &&
                   ca_map->areMapped(p_id, c_id, IdMappingMode::PERMISSIVE)) {
+                  std::cout << "CONTINUE " << __LINE__ << std::endl;
                 continue;
               }
               // Can this happen?
@@ -786,11 +847,13 @@ SyncMap::SyncMap(Fusion* fusion) {
             }
             if (producer_ptype == consumer_ptype) {
               if (useSameIndex(producer, p_id, consumer, c_id, indexing_info)) {
+                  std::cout << "CONTINUE " << __LINE__ << std::endl;
                 continue;
               }
             }
           }
 
+          std::cout << "SETTING " << producer_ptype << " at " << __LINE__ << std::endl;
           raw_dims.set(producer_ptype);
         } // end for ptypes
 

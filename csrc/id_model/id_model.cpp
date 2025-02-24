@@ -586,6 +586,29 @@ ValGraph& IdModel::buildPermissiveGraph() {
   auto& graph = idGraph(IdMappingMode::PERMISSIVE);
 
   for (auto expr : tv_exprs_) {
+    if (auto* mma = dynamic_cast<MmaOp*>(expr)) {
+      auto* tv_a = ir_utils::getTv(mma->inA());
+      auto* tv_b = ir_utils::getTv(mma->inB());
+      auto* tv_c = ir_utils::getTv(mma->out());
+      std::cout << "Processing MmaOp" << std::endl;
+      // TODO: find these matching domains in a more sophisticated way
+      const MmaOp::AxisMapping& axis_mapping = mma->axisMapping();
+      NVF_ERROR(axis_mapping.a_axes.size() == axis_mapping.b_axes.size());
+      for (size_t c_pos : c10::irange(axis_mapping.a_axes.size())) {
+        if (axis_mapping.a_axes.at(c_pos) == -1L) {
+          NVF_ERROR(tv_a->domain()->additionalIDs().size() == 1);
+          graph.mapVals(tv_c->getLogicalDomain().at(c_pos), tv_a->domain()->additionalIDs().at(0));
+        }
+        if (axis_mapping.b_axes.at(c_pos) == -1L) {
+          NVF_ERROR(tv_b->domain()->additionalIDs().size() == 1);
+          graph.mapVals(tv_c->getLogicalDomain().at(c_pos), tv_b->domain()->additionalIDs().at(0));
+        }
+      }
+      std::cout << "  A additional IDs: " << mma->inA()->as<TensorView>()->domain()->additionalIDs().at(0)->toString() << std::endl;
+      std::cout << "  B additional IDs: " << mma->inB()->as<TensorView>()->domain()->additionalIDs().at(0)->toString() << std::endl;
+    } else {
+      std::cout << "Processing NON MmaOp" << std::endl;
+    }
     for (TensorView* c_tv :
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
@@ -593,12 +616,17 @@ ValGraph& IdModel::buildPermissiveGraph() {
       // If the loop domain is not generated from the logial domain
       // with not extra IDs, broadcast forwarding is not
       // supported. As such, permissive mappings are not generated.
-      if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
+      if (!expr->isA<MmaOp>() &&
+          !ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
+        std::cout << "skipping c_tv=" << c_tv->toString()
+                  << " because loop not fully derived from logical"
+                  << std::endl;
         continue;
       }
 
       for (auto p_tv : tv_inputs) {
-        if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(p_tv)) {
+        if (!expr->isA<MmaOp>() && !ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(p_tv)) {
+          std::cout << "skipping p_tv=" << p_tv->toString() << " because loop not fully derived from logical" << std::endl;
           continue;
         }
         ForwardingInfo permissive_forwarding(p_tv, c_tv);
@@ -637,6 +665,8 @@ ValGraph& IdModel::buildPermissiveGraph() {
   }
 
   graph.validateConsistency();
+
+  std::cout << "Permissive graph: " << graph.toString() << std::endl;
 
   return graph;
 }
