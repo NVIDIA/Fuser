@@ -108,11 +108,7 @@ class Communication : public Expr {
     return attribute<int64_t>(4);
   }
 
-  CommunicatorBackend& backend() {
-    return attribute<CommunicatorBackend>(5);
-  }
-
-  const CommunicatorBackend& backend() const {
+  CommunicatorBackend backend() const {
     return attribute<CommunicatorBackend>(5);
   }
 
