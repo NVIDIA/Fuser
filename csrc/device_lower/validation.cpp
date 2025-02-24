@@ -721,6 +721,11 @@ class VectorizeValidator : public OptInDispatch {
       if (!input->isA<TensorView>()) {
         continue;
       }
+      if (tv_def->isA<IndexSelectOp>()) {
+         if (producer_tv == tv_def->input(0)) {
+                break;
+         }
+      }
       NVF_ERROR(
           producer_tv == nullptr,
           "Vectorization validation only support op with a single TensorView input");
@@ -858,7 +863,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
       Expr* def = tv->definition();
       NVF_ERROR(
           def == nullptr || def->isA<LoadStoreOp>() || def->isA<SliceOp>() ||
-              def->isA<PadOp>() ||
+              def->isA<PadOp>() || def->isA<IndexSelectOp>() ||
               (def->isA<TernaryOp>() &&
                def->as<TernaryOp>()->getTernaryOpType() ==
                    TernaryOpType::Where) ||
