@@ -122,6 +122,10 @@ class KernelExecutor : public ExecutorAbstract {
     bool init = false;
     LaunchParams launch_params;
     std::vector<GlobalBufferInfo> outputs;
+    // If an output is aliased to an input, this will hold the index of the
+    // input that it is aliased to. If not aliased, it will hold -1.
+    std::vector<int> output_aliased_to_input;
+    std::vector<int> output_aliased_to_output;
     // Temporary work buffers and intemediate global-memory tensors
     std::vector<GlobalBufferInfo> intermediates;
     // The arguments to the kernel. These are configured in computeArgs and
@@ -228,6 +232,9 @@ class KernelExecutor : public ExecutorAbstract {
   // to we have now.
   void computeArgs(ExecutorEntry&, ExpressionEvaluator&, const kir::Kernel*)
       const;
+
+  void computeArgs2(ExecutorEntry& entry, const std::vector<at::Tensor>& outputs) const;
+  
   // Updates an existing set of arguments based on the current arguments. It is
   // is an error to call this before `computeArgs` has been invoked.
   // recomputeArgs will fail if the arity of the function changes, or the rank

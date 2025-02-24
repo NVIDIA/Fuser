@@ -667,9 +667,16 @@ void KernelExecutor::initializeExecutorEntry(
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
     // allocated outputs
-    for (const auto& output : outputs) {
+    for (auto output_idx : c10::irange(outputs.size())) {
+      const auto& output = outputs[output_idx];
       GlobalBufferInfo info;
       info.type = output.scalar_type();
+      info.tv = compiled_kernel_->kernel()->outputs()[output_idx];
+      NVF_ERROR(
+          !info.tv->hasAllocation(),
+          "Accepting allocated outputs is not currently supported with allocation domain. ",
+          "Allocation domain found for tv: ",
+          info.tv->toString());
       info.shape_info.allocation_sizes = output.sizes().vec();
       info.shape_info.allocation_strides = output.strides().vec();
       info.shape_info.logical_sizes = output.sizes().vec();
@@ -678,11 +685,49 @@ void KernelExecutor::initializeExecutorEntry(
     }
   }
 
+  std::vector<int> output_aliased_to_input(outputs.size(), -1);
+  std::vector<int> output_aliased_to_output(outputs.size(), -1);
+
+  for (auto output_idx : c10::irange(outputs.size())) {
+    auto out_info = output_info[output_idx];
+    auto fusion = compiled_kernel_->kernel()->as<Fusion>();
+    auto alias_info = fusion->getOutputAliasInfo(out_info.tv);
+    NVF_ERROR(
+        alias_info.type != AllocationType::Evaluate,
+        "Outputs should not be evaluate type for kernels.");
+    if (alias_info.type == AllocationType::New) {
+      continue;
+    }
+    auto aliased_to = alias_info.aliased_io->as<TensorView>();
+    auto aliased_to_idx =
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), aliased_to) -
+        fusion->inputs().begin();
+    if (aliased_to_idx < fusion->inputs().size()) {
+      output_aliased_to_input[output_idx] = aliased_to_idx;
+    } else {
+      output_aliased_to_output[output_idx] =
+          std::find(
+              fusion->outputs().begin(), fusion->outputs().end(), aliased_to) -
+          fusion->outputs().begin();
+      NVF_ERROR(
+          output_aliased_to_output[output_idx] < fusion->outputs().size(),
+          "Alias found but is not an output or input of the fusion. ",
+          "Aliased to tv: ",
+          aliased_to->toString(),
+          "\nFusion Inputs:\n  ",
+          fusion->inputs(),
+          "\nFusion Outputs:\n  ",
+          fusion->outputs());
+    }
+  }
+
   auto intermediates = getIntermediateBufferInfo(expr_eval, index_type);
 
   // All information is gathered. Save it to ExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
+  executor_entry.output_aliased_to = output_aliased_to;
   executor_entry.intermediates = intermediates;
   executor_entry.init = true;
 }
@@ -779,6 +824,32 @@ void KernelExecutor::computeArgs(
   for (size_t p = 0; p < params.size(); ++p) {
     entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
     entry.arg_ptrs[p] = entry.args[p].data();
+  }
+}
+
+// set the arguments that we'll pass to cuLaunchKernel
+// TODO: Add to header
+void KernelExecutor::computeArgs2(
+    ExecutorEntry& entry,
+    const std::vector<at::Tensor>& outputs,
+    const std::vector<at::Tensor>& intermediates) const {
+  FUSER_PERF_SCOPE("KernelExecutor::computeArgs2");
+
+  entry.args.resize(outputs.size() + intermediates.size());
+  entry.arg_ptrs.resize(outputs.size() + intermediates.size());
+
+  NVF_ERROR(entry.outputs.size() == outputs.size(), "Outputs size mismatch");
+  NVF_ERROR(entry.intermediates.size() == intermediates.size(), "Intermediates size mismatch");
+
+  const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
+  for (size_t out_idx = 0; out_idx < outputs.size(); ++out_idx) {
+    entry.args[out_idx] = getKernelArgument(outputs[out_idx], entry.outputs[out_idx], idx_type);
+    entry.arg_ptrs[out_idx] = entry.args[out_idx].data();
+  }
+
+  for (size_t inter_idx = 0; inter_idx < intermediates.size(); ++inter_idx) {
+    entry.args[out_idx + inter_idx] = getKernelArgument(intermediates[inter_idx], entry.intermediates[inter_idx], idx_type);
+    entry.arg_ptrs[out_idx + inter_idx] = entry.args[out_idx + inter_idx].data();
   }
 }
 
@@ -972,15 +1043,15 @@ std::vector<at::Tensor> KernelExecutor::run(
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
   // Bind fusion inputs
-  auto expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
+  // auto expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
 
   // only allocate outputs when not given
   if (outputs.empty()) {
-    outputs = allocateOutputs(
+    outputs = allocateKernelOutputs(
         compiled_kernel_->kernel()->as<Fusion>(),
         executor_entry->outputs,
         compiled_kernel_->device(),
-        expr_eval);
+        args);
   }
   args.push(outputs);
 
@@ -993,8 +1064,8 @@ std::vector<at::Tensor> KernelExecutor::run(
       // Skip trivially forwarded outputs because they are just placeholders
       continue;
     }
-    expr_eval.bind(
-        output, args[compiled_kernel_->kernel()->inputs().size() + i]);
+    // expr_eval.bind(
+    //     output, args[compiled_kernel_->kernel()->inputs().size() + i]);
   }
 
   std::vector<at::Tensor> intermediates;
@@ -1051,23 +1122,21 @@ std::vector<at::Tensor> KernelExecutor::run(
       }
       args.push(intermediate_buffer);
       intermediates.push_back(intermediate_buffer);
-      expr_eval.bind(
-          compiled_kernel_->kernel()
-              ->summary()
-              .global_allocations.at(i)
-              ->buffer(),
-          args
-              [compiled_kernel_->kernel()->inputs().size() + outputs.size() +
-               i]);
+      // expr_eval.bind(
+      //     compiled_kernel_->kernel()
+      //         ->summary()
+      //         .global_allocations.at(i)
+      //         ->buffer(),
+      //     args
+      //         [compiled_kernel_->kernel()->inputs().size() + outputs.size() +
+      //          i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
     }
   }
 
-  if (executor_entry->args.empty()) {
-    computeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
-  }
+  computeArgs2(*executor_entry, outputs, intermediates);
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
@@ -1093,7 +1162,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
 
-    recomputeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
+    // recomputeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {

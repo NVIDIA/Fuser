@@ -87,6 +87,12 @@ std::vector<at::Tensor> allocateOutputs(
     const c10::Device& device,
     ExpressionEvaluator& ee);
 
+std::vector<at::Tensor> allocateKernelOutputs(
+    const Fusion* fusion,
+    const std::vector<GlobalBufferInfo>& output_infos,
+    const c10::Device& device,
+    const KernelArgumentHolder& args);
+
 //! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
 //! specified by the list of int pairs of input and output indices

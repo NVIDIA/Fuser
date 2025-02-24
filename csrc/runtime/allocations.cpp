@@ -372,6 +372,48 @@ std::vector<at::Tensor> allocateOutputs(
   return out_tensors;
 }
 
+std::vector<at::Tensor> allocateKernelOutputs(
+    const Fusion* fusion,
+    const std::vector<GlobalBufferInfo>& output_infos,
+    const c10::Device& device,
+    const KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
+
+  NVF_ERROR(
+      std::any_of(
+          output_infos.output_aliased_to_output.begin(),
+          output_infos.output_aliased_to_output.end(),
+          [](int idx) { return idx != -1; }),
+      "Kernel's don't support output to output aliasing.");
+
+  std::vector<at::Tensor> out_tensors;
+  out_tensors.reserve(output_infos.size());
+  for (auto out_idx : c10::irange(output_infos.size())) {
+    auto out_info = output_infos.at(out_idx);
+    if (output_infos.output_aliased_to_input.at(out_info.tv->startIdx()) ==
+        -1) {
+      auto alloc_tensor = at::native::empty_strided_cuda(
+          out_info.shape_info.logical_sizes,
+          out_info.shape_info.logical_strides,
+          out_info.type,
+          c10::nullopt,
+          device,
+          c10::nullopt);
+      if (shouldFillAllocationWithNan()) {
+        fillTensorWithNan(alloc_tensor);
+      }
+      out_tensors.emplace_back(alloc_tensor);
+    } else {
+      auto input_arg = args[output_infos.output_aliased_to_input.at(out_idx)];
+      NVF_ERROR(
+          input_arg.is<at::Tensor>(),
+          "Aliased input argument is not a tensor.");
+      out_tensors.emplace_back(input_arg.as<at::Tensor>());
+    }
+  }
+  return out_tensors;
+}
+
 namespace {
 GlobalBufferInfo getBufferInfo(
     ExpressionEvaluator& expr_eval,

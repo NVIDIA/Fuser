@@ -377,6 +377,38 @@ std::vector<std::byte> getKernelArgument(
   return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
 }
 
+std::vector<std::byte> getKernelArgument(
+    at::Tensor tensor,
+    const GlobalBufferInfo& output_info,
+    PrimDataType index_type) {
+  FUSER_PERF_SCOPE("getKernelArgument");
+
+  NVF_ERROR(
+      tensor.is_cuda() || tensor.is_meta(),
+      "GetMetaData expects a CUDA/meta tensor as input, but got: ",
+      tensor);
+
+  std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
+  TensorMetaData* metadata = (TensorMetaData*)struct_.get();
+  metadata->dtype =
+      std::get<PrimDataType>(aten_to_data_type(tensor.scalar_type()).type);
+  metadata->data = tensor.data_ptr();
+
+  metadata->logical_size_data = output_info.shape_info.logical_sizes;
+  metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+  metadata->logical_stride_data = output_info.shape_info.logical_strides;
+  metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
+  metadata->alloc_size_data = output_info.shape_info.allocation_sizes;
+  metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
+  metadata->alloc_stride_data = output_info.shape_info.allocation_strides;
+  metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
+
+  return polymorphicValueToBytes(
+      PolymorphicValue(std::move(struct_)),
+      output_info.tv->dtype(),
+      index_type);
+}
+
 int64_t computeBytes(const KernelArgumentHolder& args) {
   int64_t num_bytes = 0;
   // Figure how many bytes are inputs, outputs, and temporary buffers

@@ -222,6 +222,11 @@ std::vector<std::byte> getKernelArgument(
     Val* parameter,
     PrimDataType index_type);
 
+std::vector<std::byte> getKernelArgument(
+    at::Tensor tensor,
+    const GlobalBufferInfo& output_info,
+    PrimDataType index_type);
+
 int64_t computeBytes(const KernelArgumentHolder& args);
 
 int64_t computeBytes(const std::vector<at::Tensor>& outputs);
