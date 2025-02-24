@@ -1398,13 +1398,24 @@ class CircularBufferInserter : private kir::ExprMutator {
             circular_buffer_loop->iter_domain());
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
 
+    // kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
+    //     IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+    //         NamedScalar::getParallelIndex(warp_specialize_on),
+    //         IrBuilder::subExpr(
+    //             GpuLower::current()->parallelDimensionMap().get(
+    //                 warp_specialize_on),
+    //             circular_buffer_loop->fusion()->oneVal()))));
+    Val* tma_val = nullptr;
+    Val* raw = GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
+    if(raw->isConst() && raw->value().as<int64_t>() == 2){
+      tma_val = SimplifyingIrBuilder::addExpr(raw, -1);
+    }else{
+      tma_val = SimplifyingIrBuilder::addExpr(raw, IrBuilder::create<Val>(-32L, DataType::Index));
+    }    
     kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+        IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
             NamedScalar::getParallelIndex(warp_specialize_on),
-            IrBuilder::subExpr(
-                GpuLower::current()->parallelDimensionMap().get(
-                    warp_specialize_on),
-                circular_buffer_loop->fusion()->oneVal()))));
+            tma_val)));
 
     // Set default value
     auto& circular_buffer_options =

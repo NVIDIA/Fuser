@@ -707,17 +707,22 @@ void innerPersistentHeuristic2D(
     }
     CircularBufferType circular_buffer_type{Pipelined(true)};
     if (warp_parallel_type != ParallelType::Serial) {
-      if (std::getenv("NUMREG")) {
-        int64_t tma_reg = 40L;
-        int64_t num_regs = std::atoi(std::getenv("NUMREG"));
-        std::cout
-            << "TMA thread is set to use 40 registers, compute thread uses register: "
-            << num_regs << std::endl;
-        circular_buffer_type = WarpSpecialized(
-            warp_parallel_type, std::make_pair(tma_reg, num_regs));
-      } else {
-        circular_buffer_type = WarpSpecialized(warp_parallel_type);
+      // cmp: 128 * 4 * 120 = 61440
+      // tma: 128 * 4 * 8   / (32 * 4) = 32
+      if (std::getenv("TMAREG") && std::getenv("CMPREG")) {
+        int64_t tma_reg = 32L;
+        int64_t cmp_reg = 120L;        
+        tma_reg = std::atoi(std::getenv("TMAREG"));
+        cmp_reg = std::atoi(std::getenv("CMPREG"));
+        std::cout << "TMA register usage: " << tma_reg << std::endl;
+        std::cout << "CMP register usage: " << cmp_reg << std::endl;
+        circular_buffer_type =
+            WarpSpecialized(warp_parallel_type, std::make_pair(tma_reg, cmp_reg));
+      }else{
+        circular_buffer_type =
+            WarpSpecialized(warp_parallel_type);        
       }
+
     }
 
     CircularBufferOptions circular_buffer_options{

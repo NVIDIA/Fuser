@@ -164,8 +164,9 @@ void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
     // getRawCompute will be able to simplify find the x when we do
     // addExpr(addExpr(x, 1) - 1).
     dim_map_[pt] =
-        // IrBuilder::addExpr(dim_it->second, IrBuilder::create<Val>(32L, DataType::Index));
-        IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
+        IrBuilder::addExpr(dim_it->second, IrBuilder::create<Val>(32L, DataType::Index));
+    std::cout << "setWarpSpecializeOn pt " << pt << std::endl;
+        // IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
   }
   exact_types_.erase(pt);
   warp_specialized_types_.insert(pt);
@@ -196,7 +197,12 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
 Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   Val* raw = getRaw(pt);
   if (warp_specialized_types_.count(pt)) {
-    return SimplifyingIrBuilder::addExpr(raw, -1);
+    std::cout << "getRawCompute pt " << raw->toInlineString() << std::endl;
+    if(raw->isConst() && raw->value().as<int64_t>() == 2){
+      return SimplifyingIrBuilder::addExpr(raw, -1);
+    }else{
+      return SimplifyingIrBuilder::addExpr(raw, IrBuilder::create<Val>(-32L, DataType::Index));
+    }
   }
   return raw;
 }
