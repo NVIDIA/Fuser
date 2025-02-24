@@ -860,7 +860,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
         new_alloc, incomplete_out_tv->getContiguity());
   }
 
-  for (auto idx : c10::irange((int64_t)new_logical.size())) {
+  for (const auto idx : c10::irange(new_logical.size())) {
     auto old_extent = old_logical.at(idx)->extent();
     auto new_extent = new_logical.at(idx)->extent();
     // If the old extent did not have a definition, we don't need to replace
