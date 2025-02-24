@@ -62,6 +62,7 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
         self.sched.parallelize(self.x, 1, nvfuser.ParallelType.mesh_x)
         self.sched.parallelize(self.out, 0, nvfuser.ParallelType.stream)
 
+
 @pytest.mark.mpi
 def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
     N_WARMUPS, N_ITERATIONS = 5, 15
