@@ -495,7 +495,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
 
   at::Tensor grad_out = at::randn(attn_shape, options);
 
-  std::vector<c10::IValue> sdpa_bwd_inputs = {
+  KernelArgumentHolder sdpa_bwd_inputs = {
       grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -604,7 +604,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
 
   at::Tensor grad_out = at::randn(attn_shape, options);
 
-  std::vector<c10::IValue> sdpa_bwd_inputs = {
+  KernelArgumentHolder sdpa_bwd_inputs = {
       grad_out, q, k, v, output, log_sumexp, philox_seed, philox_offset};
 
   FusionExecutorCache executor_cache(std::move(fusion));
@@ -920,7 +920,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
 
   at::Tensor grad_out = at::randn({n, h / d, l, e}, options);
 
-  std::vector<c10::IValue> sdpa_bwd_inputs = {
+  KernelArgumentHolder sdpa_bwd_inputs = {
       grad_out.unsqueeze(0),
       q.unsqueeze(0),
       k.unsqueeze(0),
