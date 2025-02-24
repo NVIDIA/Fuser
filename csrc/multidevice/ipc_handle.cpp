@@ -111,6 +111,8 @@ void IpcHandleCache::exchangeHandles(
   for (P2PCommunication* communication : non_cached_communications) {
     at::Tensor tensor =
         expr_evaluator_.evaluate(communication->buffer()).as<at::Tensor>();
+    NVF_ERROR(
+        tensor.is_contiguous(), "IpcHandle only supports contiguous tensors");
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
     auto key = get_tcp_store_key(communication, my_rank);
     // TODO: use multiSet
