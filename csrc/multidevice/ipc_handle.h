@@ -36,8 +36,9 @@ class IpcHandle {
 
  private:
   void* ptr_;
-  int64_t storage_offset_;
-  int64_t element_size_;
+  // a cudaIpcMemHandle always points to the base address of the allocated buffer. Therefore we need to store the offset separately
+  void* base_address_;
+  int64_t offset_from_base_address_;
   cudaIpcMemHandle_t ipc_handle_ = {};
   cudaIpcMemHandle_t semaphore_ipc_handle_ = {};
   IpcSemaphore* semaphore_ = nullptr;
@@ -157,7 +158,6 @@ class IpcHandleCache {
 
   std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyHash, KeyEqual>
       handles_;
-  std::unordered_set<std::string> keys_;
 };
 
 } // namespace nvfuser

@@ -29,9 +29,11 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 IpcHandle::IpcHandle(at::Tensor tensor)
     : ptr_(tensor.data_ptr()),
-      storage_offset_(tensor.storage_offset()),
-      element_size_(tensor.element_size()),
       rank_(Communicator::getInstance().deviceId()) {
+  size_t alloc_length;
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange((CUdeviceptr*)&base_address_,
+                &alloc_length, (CUdeviceptr)ptr_));
+  offset_from_base_address_ = static_cast<int64_t>(static_cast<uint8_t*>(ptr_) - static_cast<uint8_t*>(base_address_));
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaIpcGetMemHandle(&ipc_handle_, tensor.data_ptr()));
   NVFUSER_CUDA_RT_SAFE_CALL(
@@ -48,15 +50,14 @@ IpcHandle::IpcHandle(at::Tensor tensor)
 IpcHandle::IpcHandle(std::vector<uint8_t> data) {
   const IpcHandle& imported_buffer = fromBytes<IpcHandle>(data);
 
-  storage_offset_ = imported_buffer.storage_offset_;
-  element_size_ = imported_buffer.element_size_;
+  offset_from_base_address_ = imported_buffer.offset_from_base_address_;
   ipc_handle_ = imported_buffer.ipc_handle_;
   semaphore_ipc_handle_ = imported_buffer.semaphore_ipc_handle_;
   rank_ = imported_buffer.rank_;
 
   NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaIpcOpenMemHandle(&ptr_, ipc_handle_, cudaIpcMemLazyEnablePeerAccess));
-  ptr_ = (void*)((uint8_t*)ptr_ + storage_offset_ * element_size_);
+      cudaIpcOpenMemHandle(&base_address_, ipc_handle_, cudaIpcMemLazyEnablePeerAccess));
+  ptr_ = (void*)((uint8_t*)base_address_ + offset_from_base_address_);
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
       (void**)&semaphore_,
@@ -68,7 +69,7 @@ IpcHandle::~IpcHandle() {
   if (rank_ == Communicator::getInstance().deviceId()) {
     NVFUSER_CUDA_RT_SAFE_CALL(cudaFree((void*)semaphore_));
   } else {
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(ptr_));
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(base_address_));
     NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle((void*)semaphore_));
   }
 }
@@ -114,7 +115,6 @@ void IpcHandleCache::exchangeHandles(
   for (P2PCommunication* communication : non_cached_communications) {
     auto buffer_handle = std::make_unique<IpcHandle>(get_tensor(communication));
     auto key = get_tcp_store_key(communication, my_rank);
-    keys_.insert(key);
     // TODO: use multiSet
     store->set(key, toBytes(*buffer_handle));
     local_ipc_handles.emplace(communication, std::move(buffer_handle));
