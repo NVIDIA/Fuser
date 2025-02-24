@@ -791,7 +791,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion);
-  auto cg_outputs = ke.run({t0}, LaunchParams(X, V, -1, Y, -1, -1));
+  auto cg_outputs = ke.run({t0}, {}, LaunchParams(X, V, -1, Y, -1, -1));
 
   auto t0_double = t0.to(at::kDouble);
 
@@ -2219,12 +2219,12 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
   checker.handle(gpulw.run()->topLevelExprs());
 
   KernelExecutor ke;
-  ke.compile(&fusion, {}, LaunchParams());
+  ke.compile(&fusion);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({X, Y, Y, Z}, options);
 
-  auto cg_outputs = ke.run({t0}, LaunchParams(-1, -1, -1, -1, -1, -1));
+  auto cg_outputs = ke.run({t0}, {}, LaunchParams(-1, -1, -1, -1, -1, -1));
 
   // by default Welford outputs sum of square diff so need to divide to get var
   cg_outputs[1] = cg_outputs[1].div((float)(X * Y * Y));
@@ -4503,7 +4503,7 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-  std::vector<c10::IValue> inputs;
+  KernelArgumentHolder args;
   std::vector<at::Tensor> outputs;
   for (const auto& input_type : data_types) {
     at::Tensor t = at::randn({x, y}, options)
@@ -4511,19 +4511,19 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
                                // unsigned types are equivalent. There is no way
                                // to represent unsigned numbers in PyTorch.
                        .to(data_type_to_aten(input_type));
-    inputs.emplace_back(t);
+    args.push(t);
     for (const auto& output_type : data_types) {
       outputs.emplace_back(t.to(data_type_to_aten(output_type)));
     }
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      inputs,
+      args,
       outputs,
       __LINE__,
       __FILE__,
@@ -5747,7 +5747,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       // the arguments are too large
       CompileParams compile_opts_large = {.index_type = PrimDataType::Int};
       EXPECT_THAT(
-          [&]() { ke.run({t_large}, launch_params, compile_opts_large); },
+          [&]() { ke.run({t_large}, {}, launch_params, compile_opts_large); },
           testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Kernel index type and compilation index type don't match")));
     }
@@ -7452,7 +7452,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
     args.push(std::complex<double>(4.5, 6.7));
     args.push(std::complex<double>(8.9, 10.11));
     args.push(t2.data_ptr<float>());
-    args.push(std::vector<PolymorphicValue>{12.3, 45.0});
+    args.push(PolymorphicValue(std::vector<PolymorphicValue>{12.3, 45.0}));
     if (at::cuda::getCurrentDeviceProperties()->major >= 8) {
       args.push(12.3); // bf16
     }
@@ -7463,7 +7463,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
 
     KernelExecutor ke;
     ke.compile(fusion.get(), args, LaunchParams{}, opt);
-    auto outputs = ke.run(args, LaunchParams{}, opt);
+    auto outputs = ke.run(args, {}, LaunchParams{}, opt);
 
     auto kernel_result = outputs.at(0).item<double>();
     auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();

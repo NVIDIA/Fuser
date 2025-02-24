@@ -33,14 +33,14 @@ MultiDeviceExecutor::MultiDeviceExecutor(
 }
 
 std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const c10::ArrayRef<c10::IValue>& inputs) {
+    const KernelArgumentHolder& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
   NVF_ERROR(error_msg.empty(), error_msg);
 
   // Stores concrete computed values,
-  std::unordered_map<Val*, c10::IValue> val_to_IValue;
+  std::unordered_map<Val*, PolymorphicValue> val_to_PValue;
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
@@ -48,11 +48,11 @@ std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
       "Wrong number of inputs");
   // process input values:
   for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue[host_ir_executor_->inputs().at(input_idx)] =
-        inputs.at(input_idx);
+    val_to_PValue[host_ir_executor_->inputs().at(input_idx)] =
+        inputs[input_idx];
   }
 
-  return host_ir_executor_->runWithInput(val_to_IValue);
+  return host_ir_executor_->runWithInput(val_to_PValue);
 }
 
 std::ostream& MultiDeviceExecutor::print(std::ostream& os) {

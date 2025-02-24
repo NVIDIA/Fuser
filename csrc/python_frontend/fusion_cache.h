@@ -234,14 +234,14 @@ class FusionCache {
   //! Determine if a user schedule exists for given inputs.
   bool existUserSchedule(
       const FusionSchedules* scheds,
-      const c10::ArrayRef<c10::IValue>& inputs,
+      KernelArgumentHolder args,
       int device);
   //! Lookup the User Schedule Id and return null if one does not exist.
   //! NOTE: this method cannot be const because the InputsIdLookup can
   //! cause a modification to that data member for cache eviction.
   std::optional<size_t> queryUserScheduleId(
       const FusionSchedules* scheds,
-      const c10::ArrayRef<c10::IValue>& inputs);
+      const KernelArgumentHolder& args);
   //! Lookup the User Schedule based on Id
   const UserSchedule& queryUserSchedule(
       const FusionSchedules* scheds,
@@ -253,7 +253,7 @@ class FusionCache {
   //! Lookup the User Schedule based on Id
   UserSchedule* createUserSchedule(
       FusionSchedules* scheds,
-      const c10::ArrayRef<c10::IValue>& inputs,
+      KernelArgumentHolder args,
       int device,
       bool overwrite_existing_schedule = false);
   //! Get the root Trie ptr
