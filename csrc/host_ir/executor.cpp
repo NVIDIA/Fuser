@@ -189,6 +189,7 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
+      expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
       ipc_handle_cache_(expr_evaluator_) {
   const DeviceIdxType device_index =
