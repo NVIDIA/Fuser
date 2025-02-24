@@ -41,7 +41,7 @@ std::string toString(LaunchParams lparams);
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     FusionExecutorCache* executor_cache,
-    std::vector<c10::IValue>& aten_inputs);
+    const KernelArgumentHolder& args);
 
 //! Run benchmark iterations with a fusion executor and
 //! inputs. The fusion is assumed to have already been compiled. The
@@ -49,7 +49,7 @@ int64_t runBenchmarkIterations(
 int64_t runBenchmarkIterations(
     benchmark::State& benchmark_state,
     KernelExecutor* ke,
-    std::vector<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints = LaunchParams(),
     CompileParams compile_params = CompileParams());
 
@@ -209,3 +209,17 @@ class BenchmarkGraph : public benchmark::Fixture {
 
 #define NVFUSER_BENCHMARK_RUN(BENCHMARK_NAME) \
   BENCHMARK_REGISTER_F(BENCHMARK_NAME##___GRAPH, BENCHMARK_NAME)
+
+FusionKernelRuntime* getLayerBackwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    KernelArgumentHolder& args,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape);
+
+FusionKernelRuntime* getLayerForwardNormRuntime(
+    std::unique_ptr<Fusion> fusion_ptr,
+    std::unique_ptr<FusionExecutorCache>& executor_cache,
+    KernelArgumentHolder& args,
+    const std::vector<int64_t>& shape,
+    const std::vector<int64_t>& norm_shape);

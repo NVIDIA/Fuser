@@ -38,8 +38,8 @@ class IpcHandle {
   void* ptr_;
   // a cudaIpcMemHandle always points to the base address of the allocated
   // buffer. Therefore we need to store the offset separately
-  void* base_address_;
-  int64_t offset_from_base_address_;
+  void* base_address_ = nullptr;
+  int64_t offset_from_base_address_ = 0;
   cudaIpcMemHandle_t ipc_handle_ = {};
   cudaIpcMemHandle_t semaphore_ipc_handle_ = {};
   IpcSemaphore* semaphore_ = nullptr;

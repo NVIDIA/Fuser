@@ -14,16 +14,20 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_EXPLICIT_ERROR_CHECK "" OFF)
-if (NVFUSER_EXPLICIT_ERROR_CHECK)
+
+if(NVFUSER_EXPLICIT_ERROR_CHECK)
   add_compile_definitions(NVFUSER_EXPLICIT_ERROR_CHECK)
 endif()
+
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 include(CMakeDependentOption)
 cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON "USE_DISTRIBUTED" OFF)
-if (NVFUSER_DISTRIBUTED)
+
+if(NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
+
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
 # We try to update which C++ standard we use together in lockstep across all
@@ -153,6 +157,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
+  ${NVFUSER_SRCS_DIR}/interval_analysis.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/builder.cpp
   ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
@@ -228,6 +233,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
@@ -306,16 +312,17 @@ add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 
 if(NOT MSVC)
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-      target_compile_options(codegen_internal PRIVATE
-          -Wall -Wno-unused-function -Werror
-          # These warnings are not treated as errors because of gcc 12.2 used in
-          # manylinux image. consider enable this when we upgrade.
-          # linking comment:
-          # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-          -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized)
+    target_compile_options(codegen_internal PRIVATE
+      -Wall -Wno-unused-function -Werror
+
+      # These warnings are not treated as errors because of gcc 12.2 used in
+      # manylinux image. consider enable this when we upgrade.
+      # linking comment:
+      # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
+      -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized)
   else()
-      target_compile_options(codegen_internal PRIVATE
-          -Wall -Wno-unused-function -Werror)
+    target_compile_options(codegen_internal PRIVATE
+      -Wall -Wno-unused-function -Werror)
   endif()
 endif()
 
@@ -337,6 +344,7 @@ set_target_properties(codegen_internal PROPERTIES
   CXX_STANDARD ${NVFUSER_CPP_STANDARD}
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
+
   # this is to find pip installed nvrtc/nvtx .so
   INSTALL_RPATH
   "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
@@ -355,8 +363,10 @@ target_link_libraries(codegen_internal PUBLIC
 )
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
+
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
+
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
     # recommends to link asan statically. This is the default with Clang. GCC
@@ -495,6 +505,7 @@ if(BUILD_PYTHON)
     "-DC10_BUILD_MAIN_LIB=1"
     EXTENSION_NAME=_C
   )
+
   if(NOT MSVC)
     target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
     target_compile_options(nvf_py_internal PRIVATE -Werror)
@@ -502,6 +513,7 @@ if(BUILD_PYTHON)
   else()
     set(NVF_LIB_SUFFIX ".pyd")
   endif()
+
   set_target_properties(nvfuser PROPERTIES
     C_STANDARD ${NVFUSER_C_STANDARD}
     CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
@@ -573,6 +585,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
@@ -657,8 +670,8 @@ endfunction()
 
 if(BUILD_TEST)
   set(TEST_BINARIES)
-  add_test(nvfuser_tests "${JIT_TEST_SRCS}" "")
-  list(APPEND TEST_BINARIES nvfuser_tests)
+  add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_nvfuser)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
@@ -706,8 +719,12 @@ if(BUILD_TEST)
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)
 
-  add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
-  list(APPEND TEST_BINARIES tutorial)
+  set(TUTORIAL_SRCS)
+  list(APPEND TUTORIAL_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp)
+  add_test(test_tutorial "${TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES test_tutorial)
 
   set(HOSTIR_TEST_SRCS)
   list(APPEND HOSTIR_TEST_SRCS
@@ -806,7 +823,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   endif()
 
   # multidevice transformer benchmark
-  if (NVFUSER_DISTRIBUTED)
+  if(NVFUSER_DISTRIBUTED)
     set(MULTIDEVICE_BENCHMARK_SRCS)
     list(APPEND MULTIDEVICE_BENCHMARK_SRCS
       ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
@@ -834,11 +851,12 @@ if(BUILD_NVFUSER_BENCHMARK)
       codegen_internal
     )
     add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
+
     if(NOT MSVC)
-    target_compile_options(nvfuser_bench PRIVATE
-      -Wall -Wno-unused-function
-      -Werror -Wno-deprecated-copy
-    )
+      target_compile_options(nvfuser_bench PRIVATE
+        -Wall -Wno-unused-function
+        -Werror -Wno-deprecated-copy
+      )
     endif()
   endif()
 endif()
@@ -900,7 +918,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
 
   # Do not overwrite resource header if it already exists. This avoids unnecessary rebuilds.
   # If ${dst} doesn't exist, this `if` is also true, so header will be generated.
-  if (${src} IS_NEWER_THAN ${dst})
+  if(${src} IS_NEWER_THAN ${dst})
     # also generate the resource headers during the configuration step
     # (so tools like clang-tidy can run w/o requiring a real build)
     execute_process(COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})

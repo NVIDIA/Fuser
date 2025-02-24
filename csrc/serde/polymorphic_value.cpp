@@ -118,21 +118,21 @@ flatbuffers::Offset<Scalar> serializeScalarCpu(
 
 flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
     flatbuffers::FlatBufferBuilder& builder,
-    std::shared_ptr<nvfuser::PolymorphicValue> v) {
-  NVF_ERROR(!v->is<std::monostate>(), "PolymorphicValue is a std::monostate.");
+    const nvfuser::PolymorphicValue& v) {
+  NVF_ERROR(!v.is<std::monostate>(), "PolymorphicValue is a std::monostate.");
   NVF_ERROR(
-      !v->is<StructHandle>(),
+      !v.is<StructHandle>(),
       "Serialization of arbitrary struct is not implemented.");
   NVF_ERROR(
-      !v->is<nvfuser::Opaque>(),
+      !v.is<nvfuser::Opaque>(),
       "Serialization of arbitrary opaque value is not implemented.");
   NVF_ERROR(
-      !v->is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
+      !v.is<nvfuser::Pointer>(), "Serialization of pointer is not allowed.");
   NVF_ERROR(
-      !v->is<std::vector>(), "Serialization of vector is not implemented.");
+      !v.is<std::vector>(), "Serialization of vector is not implemented.");
 
-  if (v->is<at::Tensor>()) {
-    const auto& tensor = v->as<at::Tensor>();
+  if (v.is<at::Tensor>()) {
+    const auto& tensor = v.as<at::Tensor>();
 
     if (tensor.is_cpu() && tensor.numel() == 1) {
       // CPU Scalar
@@ -166,7 +166,7 @@ flatbuffers::Offset<PolymorphicValue> serializePolymorphicValue(
           builder, PolymorphicValueData::TensorArg, data.Union());
     }
   } else {
-    auto data = serializeScalar(builder, *v, getDataType(*v));
+    auto data = serializeScalar(builder, v, getDataType(v));
     return CreatePolymorphicValue(
         builder, PolymorphicValueData::Scalar, data.Union());
   }

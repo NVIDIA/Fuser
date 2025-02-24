@@ -466,7 +466,7 @@ TEST_F(P2PCommunicationTest, CudaComm) {
   at::Tensor send_tensor = at::empty({kTensorSize}, tensor_options);
   at::Tensor recv_tensor = at::empty({kTensorSize}, tensor_options);
 
-  std::unordered_map<Val*, c10::IValue> inputs = {
+  std::unordered_map<Val*, PolymorphicValue> inputs = {
       {send_tv, send_tensor}, {recv_tv, recv_tensor}};
 
   for (auto repetition : c10::irange(kNumRepetitions)) {
