@@ -64,7 +64,14 @@ void lowerToScatter(
     team.push_back(root);
   }
   comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Scatter, output_tv, input_tv, team, root, c10d::ReduceOp::RedOpType::UNUSED, /*scatter_axis=*/-1, params.communicator_backend));
+      CommunicationType::Scatter,
+      output_tv,
+      input_tv,
+      team,
+      root,
+      c10d::ReduceOp::RedOpType::UNUSED,
+      /*scatter_axis=*/-1,
+      params.communicator_backend));
 }
 
 /*
@@ -86,7 +93,14 @@ void lowerToGather(
       team.push_back(root);
     }
     comms.push_back(IrBuilder::create<Communication>(
-        CommunicationType::Gather, output_tv, input_tv, team, root, c10d::ReduceOp::RedOpType::UNUSED, /*scatter_axis=*/-1, params.communicator_backend));
+        CommunicationType::Gather,
+        output_tv,
+        input_tv,
+        team,
+        root,
+        c10d::ReduceOp::RedOpType::UNUSED,
+        /*scatter_axis=*/-1,
+        params.communicator_backend));
   }
 }
 
@@ -98,7 +112,14 @@ void lowerToAllgather(
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Allgather, output_tv, input_tv, mesh.vector(), /*root=*/-1, c10d::ReduceOp::RedOpType::UNUSED, /*scatter_axis=*/-1, params.communicator_backend));
+      CommunicationType::Allgather,
+      output_tv,
+      input_tv,
+      mesh.vector(),
+      /*root=*/-1,
+      c10d::ReduceOp::RedOpType::UNUSED,
+      /*scatter_axis=*/-1,
+      params.communicator_backend));
 }
 
 // Adds one or zero Broadcast communication to the vector 'comms'
@@ -114,7 +135,14 @@ void lowerToBroadcast(
     team.push_back(root);
   }
   comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Broadcast, output_tv, input_tv, team, root, c10d::ReduceOp::RedOpType::UNUSED, /*scatter_axis=*/-1, params.communicator_backend));
+      CommunicationType::Broadcast,
+      output_tv,
+      input_tv,
+      team,
+      root,
+      c10d::ReduceOp::RedOpType::UNUSED,
+      /*scatter_axis=*/-1,
+      params.communicator_backend));
 }
 
 // Adds several Broadcast or SendRecv communications to the vector 'comms'
@@ -148,8 +176,7 @@ void lowerToBroadcastOrSendRecv(
           /*root=*/sender,
           c10d::ReduceOp::RedOpType::UNUSED,
           /*scatter_axis=*/-1,
-          params.communicator_backend
-          ));
+          params.communicator_backend));
     }
   } else {
     // Either of the following two cases is happening.
