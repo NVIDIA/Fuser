@@ -29,7 +29,7 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 IpcHandle::IpcHandle(at::Tensor tensor)
     : ptr_(tensor.data_ptr()), rank_(Communicator::getInstance().deviceId()) {
-  size_t alloc_length;
+  size_t alloc_length = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
       (CUdeviceptr*)&base_address_, &alloc_length, (CUdeviceptr)ptr_));
   offset_from_base_address_ = static_cast<int64_t>(
