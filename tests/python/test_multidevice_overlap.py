@@ -4,12 +4,9 @@
 
 import pytest
 import torch
-from enum import Enum, auto
-from torch.nn.attention import SDPBackend
 
 import multidevice_fixtures
 import nvfuser
-import utils
 from nvfuser import DataType, FusionDefinition
 
 multidevice_test = multidevice_fixtures.multidevice_test
