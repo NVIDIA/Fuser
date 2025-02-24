@@ -28,12 +28,12 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 } // namespace
 
 IpcHandle::IpcHandle(at::Tensor tensor)
-    : ptr_(tensor.data_ptr()),
-      rank_(Communicator::getInstance().deviceId()) {
+    : ptr_(tensor.data_ptr()), rank_(Communicator::getInstance().deviceId()) {
   size_t alloc_length;
-  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange((CUdeviceptr*)&base_address_,
-                &alloc_length, (CUdeviceptr)ptr_));
-  offset_from_base_address_ = static_cast<int64_t>(static_cast<uint8_t*>(ptr_) - static_cast<uint8_t*>(base_address_));
+  NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
+      (CUdeviceptr*)&base_address_, &alloc_length, (CUdeviceptr)ptr_));
+  offset_from_base_address_ = static_cast<int64_t>(
+      static_cast<uint8_t*>(ptr_) - static_cast<uint8_t*>(base_address_));
   NVFUSER_CUDA_RT_SAFE_CALL(
       cudaIpcGetMemHandle(&ipc_handle_, tensor.data_ptr()));
   NVFUSER_CUDA_RT_SAFE_CALL(
@@ -55,8 +55,8 @@ IpcHandle::IpcHandle(std::vector<uint8_t> data) {
   semaphore_ipc_handle_ = imported_buffer.semaphore_ipc_handle_;
   rank_ = imported_buffer.rank_;
 
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaIpcOpenMemHandle(&base_address_, ipc_handle_, cudaIpcMemLazyEnablePeerAccess));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
+      &base_address_, ipc_handle_, cudaIpcMemLazyEnablePeerAccess));
   ptr_ = (void*)((uint8_t*)base_address_ + offset_from_base_address_);
 
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
@@ -82,7 +82,8 @@ void IpcHandleCache::exchangeHandles(
   std::vector<P2PCommunication*> non_cached_communications;
   for (auto communication : communications) {
     NVF_ERROR(
-        expr_evaluator_.evaluate(communication->peer()).as<int64_t>() != my_rank,
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>() !=
+            my_rank,
         "send to self not supported");
     if (find(communication) != nullptr) {
       continue;
@@ -108,7 +109,8 @@ void IpcHandleCache::exchangeHandles(
       local_ipc_handles;
   auto store = communicator->getTcpStore();
   for (P2PCommunication* communication : non_cached_communications) {
-    at::Tensor tensor = expr_evaluator_.evaluate(communication->buffer()).as<at::Tensor>();
+    at::Tensor tensor =
+        expr_evaluator_.evaluate(communication->buffer()).as<at::Tensor>();
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
     auto key = get_tcp_store_key(communication, my_rank);
     // TODO: use multiSet

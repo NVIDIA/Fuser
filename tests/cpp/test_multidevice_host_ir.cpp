@@ -490,15 +490,15 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   auto* recv_tv = makeContigTensor(1, DataType::Int32);
 
   auto send = IrBuilder::create<P2PCommunication>(
-    P2PCommunicationType::SEND,
-    send_tv,
-    IrBuilder::create<Val>(send_peer),
-    CommunicatorBackend::kNccl);
+      P2PCommunicationType::SEND,
+      send_tv,
+      IrBuilder::create<Val>(send_peer),
+      CommunicatorBackend::kNccl);
   auto recv = IrBuilder::create<P2PCommunication>(
-    P2PCommunicationType::RECV,
-    recv_tv,
-    IrBuilder::create<Val>(recv_peer),
-    CommunicatorBackend::kNccl);
+      P2PCommunicationType::RECV,
+      recv_tv,
+      IrBuilder::create<Val>(recv_peer),
+      CommunicatorBackend::kNccl);
   std::vector<P2PCommunication*> grouped_communications = {send, recv};
 
   ExpressionEvaluator expr_evaluator;
@@ -507,7 +507,8 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   auto options =
       at::TensorOptions().dtype(at::kInt).device(communicator_->device());
   auto generate_tensor = [options](int repetition, int rank) {
-    return at::arange(kTensorSize, options) + (repetition + 1) * 10 + 100 * rank;
+    return at::arange(kTensorSize, options) + (repetition + 1) * 10 +
+        100 * rank;
   };
   at::Tensor recv_tensor = at::empty({kTensorSize}, options);
   at::Tensor send_tensor = at::empty({kTensorSize}, options);
@@ -515,12 +516,11 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   expr_evaluator.bind(send_tv, send_tensor);
   expr_evaluator.bind(recv_tv, recv_tensor);
 
-  for (auto repetition: c10::irange(kNumRepetitions)) {
+  for (auto repetition : c10::irange(kNumRepetitions)) {
     // all ranks set `send_tensor`
     send_tensor.copy_(generate_tensor(repetition, my_rank));
     torch::cuda::synchronize();
     communicator_->barrier();
-
 
     // Exchange IpcHandle on the first iteration
     ipc_handle_cache.exchangeHandles(grouped_communications);
@@ -528,15 +528,16 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
     // RDMA put-zcopy
     const P2pIpcHandle& send_ipc_handles = ipc_handle_cache.get(send);
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
-      send_ipc_handles.peer().ptr(),
-      send_ipc_handles.local().ptr(),
-      send_tensor.numel() * send_tensor.element_size(),
-      cudaMemcpyDeviceToDevice));
+        send_ipc_handles.peer().ptr(),
+        send_ipc_handles.local().ptr(),
+        send_tensor.numel() * send_tensor.element_size(),
+        cudaMemcpyDeviceToDevice));
 
     at::Tensor ref_recv_tensor = generate_tensor(repetition, recv_peer);
     EXPECT_TRUE(torch::allclose(recv_tensor, ref_recv_tensor))
         << "Rank " << my_rank << " failed at repetition " << repetition
-        << " with recv tensor " << recv_tensor << " and ref_recv_tensor " << ref_recv_tensor;
+        << " with recv tensor " << recv_tensor << " and ref_recv_tensor "
+        << ref_recv_tensor;
   }
 }
 

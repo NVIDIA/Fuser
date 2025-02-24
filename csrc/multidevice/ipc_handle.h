@@ -36,7 +36,8 @@ class IpcHandle {
 
  private:
   void* ptr_;
-  // a cudaIpcMemHandle always points to the base address of the allocated buffer. Therefore we need to store the offset separately
+  // a cudaIpcMemHandle always points to the base address of the allocated
+  // buffer. Therefore we need to store the offset separately
   void* base_address_;
   int64_t offset_from_base_address_;
   cudaIpcMemHandle_t ipc_handle_ = {};
@@ -71,7 +72,8 @@ class P2pIpcHandle {
 // P2PCommunication* pointer.
 class IpcHandleCache {
  public:
-  IpcHandleCache(const ExpressionEvaluator& expr_evaluator) : expr_evaluator_(expr_evaluator) {}
+  IpcHandleCache(const ExpressionEvaluator& expr_evaluator)
+      : expr_evaluator_(expr_evaluator) {}
   ~IpcHandleCache() = default;
 
   // Create IpcHandles, import and export them, and populate the cache. This
@@ -79,12 +81,10 @@ class IpcHandleCache {
   // to be exported by batch (thus the function taking a vector of
   // P2PCommunication*) to improve performance and to avoid creating deadlocks
   // when imports and exports order differ accross ranks.
-  void exchangeHandles(
-      const std::vector<P2PCommunication*>& communications);
+  void exchangeHandles(const std::vector<P2PCommunication*>& communications);
 
   // Retrieves a cached item and throws if not present
-  const P2pIpcHandle& get(
-      P2PCommunication* communication) const {
+  const P2pIpcHandle& get(P2PCommunication* communication) const {
     auto it = find(communication);
     NVF_ERROR(
         it != nullptr,
@@ -96,22 +96,18 @@ class IpcHandleCache {
  private:
   using KeyType = std::tuple<int64_t, at::Tensor, P2PCommunication*>;
 
-  KeyType getKey(
-      P2PCommunication* comm) const {
+  KeyType getKey(P2PCommunication* comm) const {
     int64_t peer = expr_evaluator_.evaluate(comm->peer()).as<int64_t>();
     at::Tensor buffer =
         expr_evaluator_.evaluate(comm->buffer()).as<at::Tensor>();
     return std::make_tuple(peer, buffer, comm);
   }
 
-  void insert(
-      P2PCommunication* comm,
-      std::unique_ptr<P2pIpcHandle> handle) {
+  void insert(P2PCommunication* comm, std::unique_ptr<P2pIpcHandle> handle) {
     handles_[getKey(comm)] = std::move(handle);
   }
 
-  P2pIpcHandle* find(
-      P2PCommunication* comm) const {
+  P2pIpcHandle* find(P2PCommunication* comm) const {
     auto it = handles_.find(getKey(comm));
     if (it == handles_.end()) {
       return nullptr;

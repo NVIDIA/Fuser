@@ -407,8 +407,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
 }
 
 void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
-  ipc_handle_cache_.exchangeHandles(
-      share_mem_handles->communications());
+  ipc_handle_cache_.exchangeHandles(share_mem_handles->communications());
 }
 
 void HostIrEvaluator::handle(Communication* communication) {
