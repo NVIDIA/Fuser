@@ -501,7 +501,8 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
     CommunicatorBackend::kNccl);
   std::vector<P2PCommunication*> grouped_communications = {send, recv};
 
-  IpcHandleCache ipc_handle_cache;
+  ExpressionEvaluator expr_evaluator;
+  IpcHandleCache ipc_handle_cache(expr_evaluator);
 
   auto options =
       at::TensorOptions().dtype(at::kInt).device(communicator_->device());
@@ -510,22 +511,22 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   };
   at::Tensor recv_tensor = at::empty({kTensorSize}, options);
   at::Tensor send_tensor = at::empty({kTensorSize}, options);
+
+  expr_evaluator.bind(send_tv, send_tensor);
+  expr_evaluator.bind(recv_tv, recv_tensor);
+
   for (auto repetition: c10::irange(kNumRepetitions)) {
+    // all ranks set `send_tensor`
     send_tensor.copy_(generate_tensor(repetition, my_rank));
-
-    ExpressionEvaluator expr_evaluator;
-    expr_evaluator.bind(send_tv, send_tensor);
-    expr_evaluator.bind(recv_tv, recv_tensor);
-
-    // Exchange IpcHandle on the first iteration
-    ipc_handle_cache.exchangeHandles(grouped_communications, expr_evaluator);
-
-    // wait for all rank to finish setting `send_tensor`
     torch::cuda::synchronize();
     communicator_->barrier();
 
+
+    // Exchange IpcHandle on the first iteration
+    ipc_handle_cache.exchangeHandles(grouped_communications);
+
     // RDMA put-zcopy
-    const P2pIpcHandle& send_ipc_handles = ipc_handle_cache.get(send, expr_evaluator);
+    const P2pIpcHandle& send_ipc_handles = ipc_handle_cache.get(send);
     NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
       send_ipc_handles.peer().ptr(),
       send_ipc_handles.local().ptr(),

@@ -75,32 +75,27 @@ IpcHandle::~IpcHandle() {
 }
 
 void IpcHandleCache::exchangeHandles(
-    const std::vector<P2PCommunication*>& communications,
-    const ExpressionEvaluator& expr_evaluator) {
+    const std::vector<P2PCommunication*>& communications) {
   Communicator* communicator = &Communicator::getInstance();
   const int64_t my_rank = communicator->deviceId();
-  auto get_tensor =
-      [&expr_evaluator](P2PCommunication* communication) -> at::Tensor {
-    return expr_evaluator.evaluate(communication->buffer()).as<at::Tensor>();
-  };
 
   std::vector<P2PCommunication*> non_cached_communications;
   for (auto communication : communications) {
     NVF_ERROR(
-        expr_evaluator.evaluate(communication->peer()).as<int64_t>() != my_rank,
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>() != my_rank,
         "send to self not supported");
-    if (find(communication, expr_evaluator) != nullptr) {
+    if (find(communication) != nullptr) {
       continue;
     }
     non_cached_communications.push_back(communication);
   }
 
   // put memhandles to TCP store
-  auto get_tcp_store_key = [my_rank, &expr_evaluator](
+  auto get_tcp_store_key = [my_rank, this](
                                P2PCommunication* communication,
                                int64_t rank) -> std::string {
     const int64_t peer =
-        expr_evaluator.evaluate(communication->peer()).as<int64_t>();
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
     const int64_t src =
         communication->type() == P2PCommunicationType::SEND ? my_rank : peer;
     const int64_t dst =
@@ -113,7 +108,8 @@ void IpcHandleCache::exchangeHandles(
       local_ipc_handles;
   auto store = communicator->getTcpStore();
   for (P2PCommunication* communication : non_cached_communications) {
-    auto buffer_handle = std::make_unique<IpcHandle>(get_tensor(communication));
+    at::Tensor tensor = expr_evaluator_.evaluate(communication->buffer()).as<at::Tensor>();
+    auto buffer_handle = std::make_unique<IpcHandle>(tensor);
     auto key = get_tcp_store_key(communication, my_rank);
     // TODO: use multiSet
     store->set(key, toBytes(*buffer_handle));
@@ -127,7 +123,7 @@ void IpcHandleCache::exchangeHandles(
   // get memhandles from TCP store
   for (P2PCommunication* communication : non_cached_communications) {
     const int64_t peer =
-        expr_evaluator.evaluate(communication->peer()).as<int64_t>();
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
     std::string key = get_tcp_store_key(communication, peer);
     NVF_ERROR(
         store->check({key}),
@@ -143,7 +139,7 @@ void IpcHandleCache::exchangeHandles(
     auto ipc_handles = std::make_unique<P2pIpcHandle>(
         std::move(local_ipc_handle), std::move(peer_ipc_handle));
 
-    insert(communication, expr_evaluator, std::move(ipc_handles));
+    insert(communication, std::move(ipc_handles));
   }
 }
 
