@@ -103,12 +103,7 @@ TEST_P(MultiDeviceReductionTest, ShardedInput_ReplicatedOutput) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
-      executor_cache.fusion(),
-      outputs,
-      args.toC10Array(),
-      {x1, x2},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), outputs, args, {x1, x2}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -185,7 +180,7 @@ TEST_F(MultiDeviceTest, Slice) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      args.toC10Array(),
+      args,
       {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
       __LINE__,
       __FILE__);
@@ -614,12 +609,7 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   at::Tensor bias_tensor = at::randn({h / d}, tensor_options);
   KernelArgumentHolder args = {in_tensor, bias_tensor};
   at::Tensor out_tensor = executor_cache.runFusionWithInputs(args)[0];
-  testValidate(
-      executor_cache.fusion(),
-      {out_tensor},
-      args.toC10Array(),
-      __LINE__,
-      __FILE__);
+  testValidate(executor_cache.fusion(), {out_tensor}, args, __LINE__, __FILE__);
 }
 
 TEST_F(MultiDeviceTest, ViewWithSplit) {

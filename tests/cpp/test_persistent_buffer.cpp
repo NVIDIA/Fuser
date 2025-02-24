@@ -1311,7 +1311,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
     }
   }
   auto cg_outputs =
-      ke.run({t0}, heuristic_params->as<ReductionParams>()->lparams);
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }

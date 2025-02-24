@@ -599,18 +599,20 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
+      NVF_CHECK(
+          !rhs.is<int64_t>() || rhs != 0, "Integer division by zero detected");
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "Modulo zero detected");
       return {lhs % rhs};
       break;
     case BinaryOpType::Fmod:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "Float modulo zero detected");
       return {fmod(lhs, rhs)};
       break;
     case BinaryOpType::CeilDiv:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "CeilDiv by zero detected");
       return {ceildiv(lhs, rhs)};
       break;
     case BinaryOpType::LogicalAnd:
@@ -5221,6 +5223,7 @@ namespace {
 class RuntimeReductionFinder : kir::ConstIrVisitor {
  public:
   static bool exists(const Expr* expr) {
+    NVF_CHECK(expr->container()->isA<kir::Kernel>());
     RuntimeReductionFinder finder;
     finder.handle(std::vector<const Expr*>{expr});
     return finder.is_found_;
@@ -5229,36 +5232,8 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
  private:
   using kir::ConstIrVisitor::handle;
 
-  // For ReductionOp and WelfordOp, look for block and grid reduction.
-  // For other reductions, runtime function is always called.
   void dispatch(const Expr* expr) final {
-    // Lambda that extracts the TensorView from an op's output and
-    // returns true if its domain contains a block or grid reduction.
-    auto checkBlockGridReduction = [](const auto* op) -> bool {
-      TensorView* out_tv = nullptr;
-      if (auto tv_idx = dynamic_cast<kir::TensorIndex*>(op->out())) {
-        out_tv = tv_idx->view();
-      } else if (auto tv = dynamic_cast<TensorView*>(op->out())) {
-        out_tv = tv;
-      }
-      if (out_tv) {
-        const auto domain = out_tv->domain();
-        return domain->hasBlockReduction() || domain->hasGridReduction();
-      }
-      return false;
-    };
-
-    if (auto rop = dynamic_cast<const ReductionOp*>(expr)) {
-      if (checkBlockGridReduction(rop)) {
-        is_found_ = true;
-        return;
-      }
-    } else if (auto wop = dynamic_cast<const WelfordOp*>(expr)) {
-      if (checkBlockGridReduction(wop)) {
-        is_found_ = true;
-        return;
-      }
-    } else if (
+    if (expr->isA<ReductionOp>() || expr->isA<WelfordOp>() ||
         expr->isA<kir::GridReduction>() ||
         expr->isA<kir::GroupedGridReduction>() ||
         expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
@@ -5266,7 +5241,6 @@ class RuntimeReductionFinder : kir::ConstIrVisitor {
       is_found_ = true;
       return;
     }
-
     kir::ConstIrVisitor::dispatch(expr);
   }
 

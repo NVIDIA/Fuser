@@ -130,7 +130,7 @@ void FusionExecutorCache::setCacheId(KernelArgumentHolder& args) {
 }
 
 bool FusionExecutorCache::isCompiled(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    const KernelArgumentHolder& inputs,
     int8_t device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::isCompiled");
 
@@ -212,10 +212,8 @@ std::string FusionExecutorCache::getMostRecentCode(bool intrinsic_code) const {
 }
 
 std::string FusionExecutorCache::getCodeFor(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    KernelArgumentHolder args,
     bool intrinsic_code) {
-  KernelArgumentHolder args(inputs);
-  args.setDeviceIndex();
   setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args);
   return getCode(kernel_runtime, intrinsic_code);
@@ -249,10 +247,8 @@ std::string FusionExecutorCache::getMostRecentScheduledIr(
 }
 
 std::string FusionExecutorCache::getScheduledIrFor(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    KernelArgumentHolder args,
     bool tensor_transforms) {
-  KernelArgumentHolder args(inputs);
-  args.setDeviceIndex();
   setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args);
   return getScheduledIr(kernel_runtime, tensor_transforms);
