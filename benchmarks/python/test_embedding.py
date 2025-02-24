@@ -28,6 +28,8 @@ def test_embedding_fwd_benchmark(
     kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
+    if executor == "thunder":
+        kwargs["nv_enable_embedding"] = True
 
     model, gen_inputs, _, _ = embedding_setup[variation](dtype=torch.bfloat16)
     inputs = gen_inputs()
@@ -59,6 +61,8 @@ def test_embedding_bwd_benchmark(
     kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
+    if executor == "thunder":
+        kwargs["nv_enable_embedding"] = True
 
     model, gen_inputs, grad, iobytes = embedding_setup[variation](dtype=torch.bfloat16)
     fwd_inputs = gen_inputs()
