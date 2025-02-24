@@ -853,21 +853,20 @@ TEST_F(ResizeTest, Cat7) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-    std::vector<at::Tensor> aten_inputs;
+    KernelArgumentHolder aten_inputs;
     for (const auto i : c10::irange(num_tensors_to_concat)) {
       auto shape = base_shape;
       shape[concat_dim] = 10 + (i % 5);
-      aten_inputs.emplace_back(at::randn(shape, options));
+      aten_inputs.push(at::randn(shape, options));
     }
 
-    std::vector<c10::IValue> aten_inputs_ivalue(
-        {aten_inputs.begin(), aten_inputs.end()});
-
     KernelExecutor ke;
-    ke.compile(&fusion, aten_inputs_ivalue);
-    auto cg_outputs = ke.run(aten_inputs_ivalue);
+    ke.compile(&fusion, aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
-    auto ref = at::cat(aten_inputs, concat_dim);
+    auto ref = at::cat(
+        std::vector<at::Tensor>(aten_inputs.begin(), aten_inputs.end()),
+        concat_dim);
 
     NVF_CHECK(ref.equal(cg_outputs[0]));
   }
@@ -1275,10 +1274,10 @@ TEST_F(ResizeTest, SliceInputShmoo) {
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
-    std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = ke.run(aten_inputs);
+    KernelArgumentHolder inputs({t0, start, stop});
+    auto cg_outputs = ke.run(inputs);
 
-    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1308,11 +1307,11 @@ TEST_F(ResizeTest, SliceInputShmooFusionExecutorCache) {
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
-    std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    KernelArgumentHolder inputs({t0, start, stop});
+    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
     testValidate(
-        executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1407,21 +1406,18 @@ TEST_F(ResizeTest, PadReduceScheduler1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::transform(
-      pad_extents.begin(),
-      pad_extents.end(),
-      std::back_inserter(aten_inputs),
-      [](auto pad_extent) { return pad_extent; });
+  KernelArgumentHolder inputs({t0});
+  for (auto pad_extent : pad_extents) {
+    inputs.push(pad_extent);
+  }
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, SliceReduceScheduler1) {
@@ -1451,17 +1447,15 @@ TEST_F(ResizeTest, SliceReduceScheduler1) {
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Different slices.
@@ -1495,17 +1489,15 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Same slices. Should be segmented at the moment.
@@ -1535,17 +1527,15 @@ TEST_F(ResizeTest, FusionSliceReduceScheduler3) {
   std::vector<int64_t> slice_inputs({1, shape[1] - 2});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, CatReduceScheduler1) {
@@ -2442,14 +2432,16 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   auto t1 = at::randn({2, 4, 4, 3, 5}, options);
   // Keep dimension 0, pad to broadcast in dimension 1 and 3. Pad with zero in
   // dimension 2. Trim by one element in dimension 4.
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-  aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
+  KernelArgumentHolder inputs({t0, t1});
+  for (auto pad_width : pad_widths) {
+    inputs.push(pad_width);
+  }
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   auto concretized_fusion = runtime->fusionSegments()->completeFusion();
@@ -2464,7 +2456,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   EXPECT_EQ(conc_t2->axis(3)->getIterType(), IterType::Broadcast);
   EXPECT_EQ(conc_t2->axis(4)->getIterType(), IterType::Iteration);
 
-  testValidate(concretized_fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(concretized_fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/596

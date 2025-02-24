@@ -2568,7 +2568,7 @@ TEST_F(GpuViewTest, GroupNormReshapeMovedToOutput) {
       seg_groups,
       UnorderedElementsAre(
           HeuristicIs(SchedulerType::InnerPersistent),
-          HeuristicIs(SchedulerType::NoOp)));
+          HeuristicIs(SchedulerType::ExprEval)));
 
   testValidate(
       executor_cache.fusion(), cg_outputs, {t0, tw, tb}, __LINE__, __FILE__);

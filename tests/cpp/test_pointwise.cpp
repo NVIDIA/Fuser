@@ -514,7 +514,7 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     at::Tensor t0 = at::randn(input_size, options);
     at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
 
-    std::vector<c10::IValue> sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
+    KernelArgumentHolder sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
 
     auto pwise_scheduler =
         SchedulerEntry::makeSchedulerInstance(SchedulerType::PointWise);

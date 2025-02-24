@@ -91,15 +91,15 @@ __device__ inline bool electSync(const uint32_t& membermask) {
 // Tensor map:
 // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
 
-// TMA Loads:
+// UBLK:
+// https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp#L1400
 
+// UBLK Load:
 struct CpAsyncBulkG2SIndex {
   const void* raw_gmem_addr;
   uint32_t bytes;
   uint32_t mbarrier;
 };
-// cp.async.bulk.shared::cluster.global.mbarrier::complete_tx::bytes [%r14],
-// [%rd5], %r18, [%r12]; // 1a. unicast
 __device__ inline void cpAsyncBulkG2S(
     const CpAsyncBulkG2SIndex& src,
     uint32_t smem_addr) {
@@ -112,6 +112,22 @@ __device__ inline void cpAsyncBulkG2S(
         "r"(src.mbarrier)
       : "memory");
 }
+
+// UBLK Store:
+struct CpAsyncBulkS2GIndex {
+  const void* raw_gmem_addr;
+  uint32_t bytes;
+};
+__device__ inline void cpAsyncBulkS2G(
+    const CpAsyncBulkS2GIndex& dst,
+    uint32_t smem_addr) {
+  asm volatile("cp.async.bulk.global.shared::cta.bulk_group [%0], [%1], %2;\n"
+               :
+               : "l"(dst.raw_gmem_addr), "r"(smem_addr), "r"(dst.bytes)
+               : "memory");
+}
+
+// TMA Loads:
 
 template <int dim>
 struct CpAsyncBulkTensorTileG2SIndex {
