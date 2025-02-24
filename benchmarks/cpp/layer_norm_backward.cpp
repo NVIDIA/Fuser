@@ -100,10 +100,9 @@ static void NvFuserScheduler_LayerNorm_BWD(
   at::Tensor mean = at::randn({input_shape[0], 1}, fp32_options);
   at::Tensor rstd = at::randn({input_shape[0], 1}, fp32_options);
 
-  std::vector<c10::IValue> aten_inputs(
-      {grad_out, input, weight, bias, mean, rstd});
+  KernelArgumentHolder args = {grad_out, input, weight, bias, mean, rstd};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

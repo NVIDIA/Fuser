@@ -2822,30 +2822,16 @@ namespace {
 int getCoresPerSM(int major, int minor) {
   int sm_version = (major << 4) + minor;
   std::unordered_map<int, int> cores_per_sm_map = {
-      {0x30, 192},
-      {0x32, 192},
-      {0x35, 192},
-      {0x37, 192},
-      {0x50, 128},
-      {0x52, 128},
-      {0x53, 128},
-      {0x60, 64},
-      {0x61, 128},
-      {0x62, 128},
-      {0x70, 64},
-      {0x72, 64},
-      {0x75, 64},
-      {0x80, 64},
-      {0x86, 128},
-      {0x87, 128},
-      {0x89, 128},
-      {0x90, 128},
-      {0xa0, 128}};
+      {0x30, 192}, {0x32, 192}, {0x35, 192}, {0x37, 192}, {0x50, 128},
+      {0x52, 128}, {0x53, 128}, {0x60, 64},  {0x61, 128}, {0x62, 128},
+      {0x70, 64},  {0x72, 64},  {0x75, 64},  {0x80, 64},  {0x86, 128},
+      {0x87, 128}, {0x89, 128}, {0x90, 128}, {0xa0, 128}, {0xc0, 128}};
   auto it = cores_per_sm_map.find(sm_version);
   if (it != cores_per_sm_map.end()) {
     return it->second;
   }
-  NVF_THROW("Unknown GPU architecture: ", major, ".", minor);
+  // Use the default value of 128 for any architecture not listed,
+  // applicable to all current Blackwell GPUs.
   return 128;
 }
 } // namespace

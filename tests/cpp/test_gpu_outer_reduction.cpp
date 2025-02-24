@@ -113,10 +113,10 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
 
     const std::vector<int64_t> input_shape{reduction_size, iteration_size};
     auto t0 = at::randn(input_shape, options);
-    std::vector<c10::IValue> aten_inputs = {t0};
+    KernelArgumentHolder inputs({t0});
 
     KernelExecutor ke;
-    ke.compile(&fusion, aten_inputs);
+    ke.compile(&fusion, inputs);
 
     NVF_CHECK(
         ke.compiledKernel()
@@ -134,7 +134,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
         ", ",
         params.bidx);
 
-    auto cg_outputs = ke.run(aten_inputs);
+    auto cg_outputs = ke.run(inputs);
 
     auto t1 = t0;
     auto t2 = params.dtype == DataType::Half ? t1.to(at::kFloat) : t1;
@@ -143,8 +143,7 @@ TEST_F(OuterReductionTest, GroupedGridWelfordOuterOpt) {
     auto t5 = params.dtype == DataType::Half ? t1.to(at::kFloat) : t1;
     auto t6 = t5 - t4;
 
-    testValidate(
-        &fusion, cg_outputs, aten_inputs, {t6}, __LINE__, __FILE__, "");
+    testValidate(&fusion, cg_outputs, inputs, {t6}, __LINE__, __FILE__, "");
   };
 
   std::vector<OuterReductionParams> test_params;
@@ -897,11 +896,11 @@ void grid_persistent_batchnorm_manual(
   auto at_running_mean = at::randn({C}, options_float);
   auto at_running_var = at::randn({C}, options_float);
 
-  std::vector<c10::IValue> aten_inputs(
+  KernelArgumentHolder inputs(
       {at_input_nvfuser, at_weight, at_bias, at_running_mean, at_running_var});
 
   KernelExecutor ke;
-  ke.compile(fusion_ptr.get(), aten_inputs);
+  ke.compile(fusion_ptr.get(), inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -910,7 +909,7 @@ void grid_persistent_batchnorm_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = ke.run(aten_inputs);
+  auto cg_outputs = ke.run(inputs);
   cg_outputs.at(2) = cg_outputs.at(2).permute({0, 3, 1, 2});
 
   auto at_output = at::batch_norm(
@@ -927,7 +926,7 @@ void grid_persistent_batchnorm_manual(
   testValidate(
       ke.compiledKernel()->kernel(),
       {cg_outputs.at(2)},
-      aten_inputs,
+      inputs,
       {at_output},
       __LINE__,
       __FILE__,
@@ -936,7 +935,7 @@ void grid_persistent_batchnorm_manual(
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.run(aten_inputs);
+      cg_outputs = ke.run(inputs);
     }
   }
 }
@@ -1037,10 +1036,10 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  KernelArgumentHolder inputs({t0, t1});
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+  ke.compile(&fusion, inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -1049,12 +1048,12 @@ void grid_persistent_reduction_outer_norm_bwd_like(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  auto cg_outputs = ke.run(aten_inputs);
+  auto cg_outputs = ke.run(inputs);
 
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.run(aten_inputs);
+      cg_outputs = ke.run(inputs);
     }
   }
 
@@ -1076,7 +1075,7 @@ void grid_persistent_reduction_outer_norm_bwd_like(
   auto t16 = t13 - t15;
   auto t17 = t16 - t8;
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {t17}, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, inputs, {t17}, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -1215,7 +1214,7 @@ void grid_persistent_batchnorm_bwd_manual(
   at::Tensor at_save_mean = at::zeros({C}, options_float);
   at::Tensor at_save_var = at::ones({C}, options_float);
 
-  std::vector<c10::IValue> aten_inputs(
+  KernelArgumentHolder inputs(
       {at_input_nvfuser,
        at_grad_out_nvfuser,
        at_weight,
@@ -1227,7 +1226,7 @@ void grid_persistent_batchnorm_bwd_manual(
   std::vector<at::Tensor> cg_outputs;
 
   KernelExecutor ke;
-  ke.compile(fusion_ptr.get(), aten_inputs);
+  ke.compile(fusion_ptr.get(), inputs);
 
   auto bidy = ceilDiv(ceilDiv(N * HW * HW, params.tidy), params.pb);
 
@@ -1236,7 +1235,7 @@ void grid_persistent_batchnorm_bwd_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  cg_outputs = ke.run(aten_inputs);
+  cg_outputs = ke.run(inputs);
   // Permute grad_input output
   cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
 
@@ -1255,7 +1254,7 @@ void grid_persistent_batchnorm_bwd_manual(
   testValidate(
       ke.compiledKernel()->kernel(),
       cg_outputs,
-      aten_inputs,
+      inputs,
       {std::get<0>(at_output), std::get<1>(at_output), std::get<2>(at_output)},
       __LINE__,
       __FILE__,
@@ -1264,7 +1263,7 @@ void grid_persistent_batchnorm_bwd_manual(
   if (benchmark_mode) {
     for (int i = 0; i < 10; ++i) {
       clearL2Cache();
-      cg_outputs = ke.run(aten_inputs);
+      cg_outputs = ke.run(inputs);
     }
   }
 }
@@ -1402,13 +1401,13 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn({C}, options_weight);
-  std::vector<c10::IValue> aten_inputs({t0});
+  KernelArgumentHolder args = {t0};
   if (use_weights) {
-    aten_inputs.push_back(t1);
+    args.push(t1);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
@@ -1430,7 +1429,7 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
         clearL2Cache();
-        cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        cg_outputs = executor_cache.runFusionWithInputs(args);
       }
     }
   }
@@ -1443,7 +1442,7 @@ void grid_persistent_reduction_outer_norm_like_scheduler(
     ref = ref + t1.to(at::kFloat);
   }
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, args, {ref}, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -1560,13 +1559,13 @@ void grid_persistent_welford_outer_norm_like_scheduler(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn({C}, options_weight);
-  std::vector<c10::IValue> aten_inputs({t0});
+  KernelArgumentHolder args = {t0};
   if (use_weights) {
-    aten_inputs.push_back(t1);
+    args.push(t1);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
@@ -1588,7 +1587,7 @@ void grid_persistent_welford_outer_norm_like_scheduler(
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
         clearL2Cache();
-        cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        cg_outputs = executor_cache.runFusionWithInputs(args);
       }
     }
   }
@@ -1601,7 +1600,7 @@ void grid_persistent_welford_outer_norm_like_scheduler(
     ref = ref + t1.to(at::kFloat);
   }
 
-  testValidate(&fusion, cg_outputs, aten_inputs, {ref}, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, args, {ref}, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -1741,11 +1740,11 @@ void grid_persistent_batchnorm_scheduler(
   auto at_running_mean = at::randn({C}, options_float);
   auto at_running_var = at::randn({C}, options_float);
 
-  std::vector<c10::IValue> aten_inputs(
-      {at_input_nvfuser, at_weight, at_bias, at_running_mean, at_running_var});
+  KernelArgumentHolder args = {
+      at_input_nvfuser, at_weight, at_bias, at_running_mean, at_running_var};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
@@ -1767,7 +1766,7 @@ void grid_persistent_batchnorm_scheduler(
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
         clearL2Cache();
-        cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        cg_outputs = executor_cache.runFusionWithInputs(args);
       }
     }
   }
@@ -1785,8 +1784,7 @@ void grid_persistent_batchnorm_scheduler(
 
   cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
 
-  testValidate(
-      &fusion, cg_outputs, aten_inputs, {at_output}, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, args, {at_output}, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -1879,10 +1877,10 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
   const std::vector<int64_t> input_shape{N, HW, HW, C};
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  KernelArgumentHolder args = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
@@ -1904,12 +1902,12 @@ void grid_persistent_reduction_outer_norm_bwd_like_scheduler(
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
         clearL2Cache();
-        cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        cg_outputs = executor_cache.runFusionWithInputs(args);
       }
     }
   }
 
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__, "");
+  testValidate(&fusion, cg_outputs, args, __LINE__, __FILE__, "");
 }
 
 } // namespace
@@ -2044,17 +2042,17 @@ void grid_persistent_batchnorm_bwd_scheduler(
   at::Tensor at_save_mean = at::zeros({C}, options_float);
   at::Tensor at_save_var = at::ones({C}, options_float);
 
-  std::vector<c10::IValue> aten_inputs(
-      {at_input_nvfuser,
-       at_grad_out_nvfuser,
-       at_weight,
-       at_run_mean,
-       at_run_var,
-       at_save_mean,
-       at_save_var});
+  KernelArgumentHolder args = {
+      at_input_nvfuser,
+      at_grad_out_nvfuser,
+      at_weight,
+      at_run_mean,
+      at_run_var,
+      at_save_mean,
+      at_save_var};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
 
@@ -2076,7 +2074,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
     if (benchmark_mode) {
       for (int i = 0; i < 10; ++i) {
         clearL2Cache();
-        cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+        cg_outputs = executor_cache.runFusionWithInputs(args);
       }
     }
   }
@@ -2099,7 +2097,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
+      args,
       {std::get<0>(at_output), std::get<1>(at_output), std::get<2>(at_output)},
       __LINE__,
       __FILE__,
@@ -2165,9 +2163,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
 
-  std::vector<c10::IValue> aten_inputs({t0});
-
-  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0});
   NVF_ERROR(
       Schedule::canSchedule(SchedulerType::Reduction, &fusion, runtime_info));
   auto scheduler =
@@ -2184,8 +2180,8 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
 
   scheduler->schedule(&fusion, rparams);
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs, heuristic_params->lparams);
-  auto cg_outputs = ke.run(aten_inputs, heuristic_params->lparams);
+  ke.compile(&fusion, {t0}, heuristic_params->lparams);
+  auto cg_outputs = ke.run({t0}, {}, heuristic_params->lparams);
 
   // lowering & check iteration grouped reductions
   NVF_CHECK(
@@ -2202,7 +2198,7 @@ TEST_F(OuterReductionTest, IterGroupedBlockReduction) {
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
+      {t0},
       {t0.to(at::kFloat).sum(0)},
       __LINE__,
       __FILE__,
@@ -2291,16 +2287,16 @@ void shmooTestsOfIterGroupedBlockOrGridReduction(
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
+  KernelArgumentHolder inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.run(aten_inputs, lparams);
+  ke.compile(&fusion, inputs, lparams);
+  auto cg_outputs = ke.run(inputs, {}, lparams);
 
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
+      inputs,
       {t0.to(at::kFloat).sum(0)},
       __LINE__,
       __FILE__,
@@ -2447,12 +2443,12 @@ TEST_F(OuterReductionTest, OuterReductionMagicScheduler) {
                        .dtype(data_type_to_aten(dtype))
                        .device(at::kCUDA, 0);
     auto t0 = at::randn(shape, options);
-    std::vector<c10::IValue> inputs({t0});
+    KernelArgumentHolder args = {t0};
     FusionExecutorCache executor_cache(std::move(fusion));
-    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(args);
     auto ref = t0.to(at::kFloat).sum({0});
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, args, {ref}, __LINE__, __FILE__);
   };
 
   maybeClearAllocator(0);
@@ -2549,15 +2545,15 @@ TEST_F(OuterReductionTest, IterGroupedMultipleReductions) {
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
   auto t1 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0, t1});
+  KernelArgumentHolder inputs({t0, t1});
 
-  ke.compile(&fusion, aten_inputs, lparams);
-  auto cg_outputs = ke.run(aten_inputs, lparams);
+  ke.compile(&fusion, inputs, lparams);
+  auto cg_outputs = ke.run(inputs, {}, lparams);
 
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
+      inputs,
       {t0.sum(0), (t0 + t1).sum(0)},
       __LINE__,
       __FILE__,
@@ -2594,12 +2590,12 @@ TEST_F(NVFuserTest, SmallOuterBlockReductionIssue2766) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({shape[0] * shape[1], shape[2]}, options);
-  std::vector<c10::IValue> inputs({t0});
+  KernelArgumentHolder args = {t0};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, args, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
