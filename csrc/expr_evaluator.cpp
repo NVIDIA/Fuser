@@ -60,8 +60,10 @@ void validateValWithConcreteValue(
         ", to be an at::Tensor but got scalar ",
         concrete_value);
     const auto& t = concrete_value.as<at::Tensor>();
-    auto expect_dim =
-        (int64_t)TensorDomain::noReductions(tv->getMaybeRootDomain()).size();
+    auto expect_dim = (int64_t)TensorDomain::noReductions(
+                          tv->isFusionInput() ? tv->getMaybeRootDomain()
+                                              : tv->getLogicalDomain())
+                          .size();
     NVF_CHECK(
         t.dim() == expect_dim,
         "Expected ",
@@ -134,7 +136,8 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
-  auto logical_domain = TensorDomain::noReductions(tv->getMaybeRootDomain());
+  auto logical_domain = TensorDomain::noReductions(
+      tv->isFusionInput() ? tv->getMaybeRootDomain() : tv->getLogicalDomain());
   NVF_ERROR(
       t.dim() == (int64_t)logical_domain.size(),
       "Expected ",
