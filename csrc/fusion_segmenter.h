@@ -574,6 +574,8 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  SegmentGroup* initializeExprGroup(Expr* expr);
+
   // Replicate upcast ops when consumed by multiple expressions. This
   // promotes segmented fusions to share pre-upcast tensors rather
   // than post-upcast tensors. Replicated upcast ops will be reverted
@@ -720,6 +722,8 @@ class SegmentCandidateFinder {
 
   //! List of vals to treat as complete fusion inputs for segmentation
   std::vector<Val*> forwarded_fusion_inputs_;
+  std::unordered_map<Val*, Val*> input_to_forward_val_;
+  std::unordered_map<Val*, Val*> forward_val_to_input_;
 
   //! Keep track of complete fusion input use
   std::unordered_map<Val*, SegmentedGroup*> input2group_;

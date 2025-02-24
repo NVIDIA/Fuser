@@ -4018,6 +4018,44 @@ SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
   return *runtime_info_;
 }
 
+SegmentGroup* SegmentCandidateFinder::initializeExprGroup(Expr* expr) {
+  SegmentedGroup* expr_group = nullptr;
+  if(expr2group.count(expr)) {
+    expr_group = expr2group.at(expr);
+  } else {
+    expr_group = segmented_fusion_->newGroup(expr);
+    expr2group.insert(std::make_pair(expr, expr_group));
+  }
+
+  for (auto inp : expr->inputs()) {
+    if (input2group_.count(inp)) {
+      expr_group->input_vals.push_back(inp);
+      auto aux_group = input2group_.at(inp);
+      auto new_edge = segmented_fusion_->newEdge(aux_group, expr_group, inp);
+      expr_group->producer_edges.push_back(new_edge);
+      aux_group->consumer_edges.push_back(new_edge);
+      continue;
+    }
+
+    // Could be something like a constant scalar, definition is nullptr, but
+    // isn't an "input" to the fusion. At least not one provided by an
+    // external source.
+    if (inp->definition() == nullptr) {
+      continue;
+    }
+
+    auto def_group = expr2group.at(inp->definition());
+    auto new_edge = segmented_fusion_->newEdge(def_group, expr_group, inp);
+    expr_group->producer_edges.push_back(new_edge);
+    def_group->consumer_edges.push_back(new_edge);
+  }
+  for (auto out : expr->outputs()) {
+    if (out->isFusionOutput()) {
+      expr_group->output_vals.push_back(out);
+    }
+  }
+}
+
 void SegmentCandidateFinder::buildInitialSegments() {
   groups().clear();
   edges().clear();
@@ -4026,16 +4064,19 @@ void SegmentCandidateFinder::buildInitialSegments() {
   // Need this for initialization of the DAG that is process
   std::unordered_map<Expr*, SegmentedGroup*> expr2group;
 
-  // Initialize DAG, convert each expr to a segment group
-  auto exprs = completeFusion()->exprs();
-  for (auto expr : exprs) {
-    auto new_group = segmented_fusion_->newGroup(expr);
-    expr2group.insert(std::make_pair(expr, new_group));
-  }
-
   // TODO(wujingyue): remove singleton groups that are forwarded. They are
   // useless and cause duplication.
   forwardInputs();
+
+  // Initialize DAG, convert each expr to a segment group
+  auto exprs = completeFusion()->exprs();
+  for (auto expr : exprs) {
+    if(excluded_inp_unary_exprs_.has(expr)) {
+      continue;
+    }
+    auto new_group = segmented_fusion_->newGroup(expr);
+    expr2group.insert(std::make_pair(expr, new_group));
+  }
 
   // Create edges between the Exprs. Mark inputs and outputs of the fusion.
   for (auto expr : exprs) {
@@ -4045,7 +4086,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
 
     SegmentedGroup* expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
-      if (isFusionInput(inp)) {
+      if (input2group_.count(inp)) {
         expr_group->input_vals.push_back(inp);
         auto aux_group = input2group_.at(inp);
         auto new_edge = segmented_fusion_->newEdge(aux_group, expr_group, inp);
@@ -4111,16 +4152,108 @@ void SegmentCandidateFinder::trySetUpMerge(
 }
 
 void SegmentCandidateFinder::resolveForwardedInputs() {
-  for (Val* forwarded_input : forwarded_fusion_inputs_) {
-    if (forwarded_input->isFusionInput()) {
-      // Nothing to resolve.
-      continue;
-    }
 
-    resolveForwardedInput(forwarded_input);
-    // aux_group will be removed from segmented_fusion_ by
-    // cleanupForwardedInputs.
+  for(auto [forward_val, inp] : forward_val_to_input_) {
+    auto inp_group = input2group_.at(forwarded_val);
+    input2group_.erase(forwarded_val);
+    eraseGroups({inp_group});
+
+    auto new_group = segmented_fusion_->newFusionInputGroup();
+    input2group_.insert({inp, new_group});
+
+    std::vector<SegmentedGroup*> groups_to_resolve;
+    for(auto group : groups()) {
+      if(std::find(group->input_vals.begin(), group->input_vals.end(), forward_val)
+      != group->input_vals.end()) {
+        groups_to_resolve.push_back(group);
+      }
+    }
+    auto exprs = DependencyCheck::getAllExprsBetween(
+      {inp},
+      {forward_val}
+    );
+
+    SegmentedGroup* new_group = nullptr;
+    new_group->input_vals.push_back(inp);
+    new_group->exprs_.insert(new_group->exprs_.begin(), exprs.begin(), exprs.end());
+
+    bool can_merge = true;
+    for(auto group : groups_to_resolve) {
+      group->input_vals.erase(
+        std::remove(group->input_vals.begin(), group->input_vals.end(), forward_val),
+        group->input_vals.end()
+      );
+
+      auto new_edge = segmented_fusion_->newEdge(new_group, group, forward_val);
+      new_group->consumer_edges.push_back(new_edge);
+      group->producer_edges.push_back(new_edge);
+      can_merge = codeGenSupportedMerge(new_group, group);
+      new_group->consumer_edges.pop_back();
+      group->producer_edges.pop_back();
+      edges().erase(std::find(edges().begin(), edges().end(), new_edge));
+    }
+    if(!can_merge) {
+      new_groups.pop_front();
+      break;
+    }
+    if(can_merge) {
+      for(auto group : groups_to_resolve) {
+        if(new_group == nullptr) {
+          new_group = segmented_fusion_->newGroup();
+          new_group->input_vals.push_back(inp);
+          new_group->output_vals.push_back(forward_val);
+          new_group->exprs_.insert(new_group->exprs_.begin(), exprs.begin(), exprs.end());
+        }
+        auto new_edge = segmented_fusion_->newEdge(new_group, group, forward_val);
+        new_group->consumer_edges.push_back(new_edge);
+        group->producer_edges.push_back(new_edge);
+        can_merge = codeGenSupportedMerge(new_group, group);
+        new_group->consumer_edges.pop_back();
+        group->producer_edges.pop_back();
+
+        to_merge_.push_back(new_group);
+        to_merge_.push_back(group);
+        mergeNodes();
+        new_group = nullptr;
+      }
+    } else {
+      // TODO: handle the case where can_merge is false
+    }
   }
+  // for(auto group : groups()) {
+  //   for(auto forward_val : group->input_vals) {
+  //     if(!forward_val_to_input_.count(forward_val)) {
+  //       continue;
+  //     }
+  //     Val* inp = forward_val_to_input_[forward_val];
+  //     group->input_vals.push_back(inp);
+  //     group->input_vals.erase(
+  //       std::remove(group->input_vals.begin(), group->input_vals.end(), forward_val),
+  //       group->input_vals.end()
+  //     );
+  //     auto exprs = DependencyCheck::getAllExprsBetween(
+  //       {inp},
+  //       {forward_val}
+  //     );
+  //     group->exprs_.insert(
+  //       group->exprs_.begin(),
+  //       exprs.begin(),
+  //       exprs.end()
+  //     );
+  //   }
+  // }
+
+  // for (Val* forwarded_input : forwarded_fusion_inputs_) {
+  //   std::cout<<"Forwarded input: "<<forwarded_input->toString()<<std::endl;
+  //   if (forwarded_input->isFusionInput()) {
+  //     // Nothing to resolve.
+  //     continue;
+  //   }
+
+  //   resolveForwardedInput(forwarded_input);
+  //   // aux_group will be removed from segmented_fusion_ by
+  //   // cleanupForwardedInputs.
+  // }
 }
 
 void SegmentCandidateFinder::findSegments() {
@@ -4206,7 +4339,21 @@ void SegmentCandidateFinder::findSegments() {
 
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-
+  std::cout<<"After resolveForwardedInputs"<<std::endl;
+  for(auto group : groups()) {
+    std::cout<<"======================"<<std::endl;
+    std::cout<<"Group: "<<toString(group)<<std::endl;
+    for(auto inp : group->input_vals) {
+      std::cout<<"  Input: "<<inp->toString()<<std::endl;
+    }
+    for(auto out : group->output_vals) {
+      std::cout<<"  Output: "<<out->toString()<<std::endl;
+    }
+    for(auto expr : group->exprs()) {
+      std::cout<<"  Expr: "<<expr->toString()<<std::endl;
+    }
+  }
+  NVF_THROW("TMP");
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
   // from fusion inputs may be shared in multiple groups.
@@ -4236,7 +4383,6 @@ void SegmentCandidateFinder::findSegments() {
     // doesn't happen.
     group->input_vals = VectorOfUniqueEntries<Val*>(group->input_vals).vector();
   }
-  // NVF_THROW("TMP");
   // Do sanity check on the final graph.
   segmented_fusion_->validate(/*require_disjoint=*/false);
 
@@ -4489,59 +4635,40 @@ void SegmentCandidateFinder::forwardInputs() {
 
   // "Terminating" outputs from the excluded input unary exprs, these will be
   // treated as complete fusion inputs.
-  VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
-    std::deque<UnaryOp*> to_visit;
-    for (Val* inp : completeFusion()->inputs()) {
-      if (UnaryOp* unary_use = shouldForward(inp)) {
-        to_visit.push_back(unary_use);
+    for(Val* inp : completeFusion()->inputs()) {
+      if(!shouldForward(inp)) {
+        continue;
       }
-    }
-
-    while (!to_visit.empty()) {
-      UnaryOp* uop = to_visit.front();
-      to_visit.pop_front();
-
-      if (UnaryOp* unary_use = shouldForward(uop->out())) {
-        to_visit.push_back(unary_use);
-      } else {
-        // We cannot extend the chain of unary ops, so we finalize this chain by
-        // saving its output as a forwarded input.
-        forwarded_inputs.pushBack(uop->out());
+      Val* forward_val = inp;
+      while(shouldForward(forward_val)) {
+        auto next_val = forward_val->uses().front()->outputs()[0];
+        if(next_val->isFusionOutput()) {
+          break;
+        }
+        excluded_inp_unary_exprs_.pushBack(forward_val->uses().front()->as<UnaryOp>());
+        forward_val = next_val;
       }
-      // Either way, `uop` is excluded from merging until
-      // `resolveForwardedInput` adds it back to one of the segments.
-      excluded_inp_unary_exprs_.pushBack(uop);
+      if(!forward_val->isFusionOutput()) {
+        input_to_forward_val_[inp] = forward_val;
+        forward_val_to_input_[forward_val] = inp;
+      }
     }
   }
-
-  auto excluded_fusion_inputs = IterVisitor::getInputsTo(
-      {forwarded_inputs.begin(), forwarded_inputs.end()});
-
-  // List of vals to treat as complete fusion inputs for segmentation
-  forwarded_fusion_inputs_ = completeFusion()->inputs();
-
-  forwarded_fusion_inputs_.erase(
-      std::remove_if(
-          forwarded_fusion_inputs_.begin(),
-          forwarded_fusion_inputs_.end(),
-          [&excluded_fusion_inputs](Val* inp) {
-            return std::find(
-                       excluded_fusion_inputs.begin(),
-                       excluded_fusion_inputs.end(),
-                       inp) != excluded_fusion_inputs.end();
-          }),
-      forwarded_fusion_inputs_.end());
-
-  forwarded_fusion_inputs_.insert(
-      forwarded_fusion_inputs_.end(),
-      forwarded_inputs.begin(),
-      forwarded_inputs.end());
-
-  // Insert auxiliary groups to use group dependency on inputs as well
-  for (auto input : forwarded_fusion_inputs_) {
+  
+  for(auto [inp, forward_val] : input_to_forward_val_) {
+    forwarded_fusion_inputs_.push_back(inp);
+    forwarded_fusion_inputs_.push_back(forward_val);
     auto new_group = segmented_fusion_->newFusionInputGroup();
-    input2group_.insert({input, new_group});
+    input2group_.insert({forward_val, new_group});
+  }
+
+  for(Val* inp : completeFusion()->inputs()) {
+    if(input_to_forward_val_.count(inp)) {
+      continue;
+    }
+    auto new_group = segmented_fusion_->newFusionInputGroup();
+    input2group_.insert({inp, new_group});
   }
 }
 
@@ -4658,7 +4785,21 @@ void SegmentCandidateFinder::resolveForwardedInput(Val* forwarded_input) {
       NVF_ERROR(to_merge_.empty());
       to_merge_.push_back(input_group);
       to_merge_.push_back(consumer);
-      mergeNodes();
+      auto merged_group = mergeNodes();
+      std::cout<<"--------------------------------"<<std::endl;
+      std::cout<<toString(merged_group)<<std::endl;
+      std::cout<<"Inputs: "<<std::endl;
+      for(auto inp : merged_group->input_vals) {
+       std::cout<<toString(inp)<<std::endl;
+      }
+      std::cout<<"Exprs: "<<std::endl;
+      for(auto expr : merged_group->exprs()) {
+        std::cout<<toString(expr)<<std::endl;
+      }
+      std::cout<<"Outputs: "<<std::endl;
+      for(auto out : merged_group->output_vals) {
+        std::cout<<toString(out)<<std::endl;
+      }
     }
   }
 }
