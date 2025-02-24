@@ -96,7 +96,7 @@ TEST_F(NVFuserTest, FusionGlobalIntermediate_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {input}, lparams);
-  auto cg_outputs = ke.run({input}, lparams);
+  auto cg_outputs = ke.run({input}, {}, lparams);
 
   auto aten_output = input.to(at::kDouble).sum({1});
   testValidate(
@@ -659,7 +659,7 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   fusion.addOutput(cy);
   fusion.addOutput(hy);
 
-  std::vector<c10::IValue> aten_inputs;
+  KernelArgumentHolder inputs;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor large_tensor0 =
       at::randn({batch_size, hidden_features * 4}, options);
@@ -675,17 +675,16 @@ TEST_F(NVFuserTest, FusionLSTMCell_CUDA) {
   auto chunked2 = large_tensor2.chunk(4, 1);
   auto chunked3 = large_tensor3.chunk(4, 1);
 
-  aten_inputs.insert(aten_inputs.end(), chunked0.begin(), chunked0.end());
-  aten_inputs.insert(aten_inputs.end(), chunked1.begin(), chunked1.end());
-  aten_inputs.insert(aten_inputs.end(), chunked2.begin(), chunked2.end());
-  aten_inputs.insert(aten_inputs.end(), chunked3.begin(), chunked3.end());
+  inputs.push(chunked0);
+  inputs.push(chunked1);
+  inputs.push(chunked2);
+  inputs.push(chunked3);
 
   auto at_cx = at::randn({batch_size, hidden_features}, options);
-  aten_inputs.push_back(at_cx);
+  inputs.push(at_cx);
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, inputs);
+  testValidate(&fusion, cg_outputs.outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionReductionHalf_CUDA) {
@@ -1935,7 +1934,7 @@ TEST_F(NVFuserTest, FusionIssue549_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, lparams);
-  ke.run({t0, t1}, lparams);
+  ke.run({t0, t1}, {}, lparams);
 
   // Make sure bad launch params throws
   // TODO: Re-enable once we have parallelization validation in.
@@ -2590,7 +2589,7 @@ TEST_P(WelfordReduction, Test) {
   // sizeof(int64) = 2, which is wrong since the actual index type is int32
   // and the max vectorization factor is 4.
   ke.compile(&fusion, {aten_input}, lparams, cparams);
-  auto outputs = ke.run({aten_input}, lparams);
+  auto outputs = ke.run({aten_input}, {}, lparams);
 
   // by default Welford outputs sum of square diff so need to divide to
   // get var
@@ -2749,7 +2748,7 @@ TEST_F(NVFuserTest, FusionSimpleGemmTransposed_CUDA) {
   LaunchParams lparams(1, -1, -1, 32, 4, 4);
   KernelExecutor ke;
   ke.compile(&fusion, {t0, t1}, lparams);
-  ke.run({t0, t1}, lparams);
+  ke.run({t0, t1}, {}, lparams);
 
   // Don't specify any launch params
   auto cg_outputs = ke.run({t0, t1});
@@ -5209,11 +5208,11 @@ TEST_F(NVFuserTest, FusionSBAR_CUDA) {
   at::Tensor at_bias = at::zeros({input_shape[3]}, options);
 
   // inputs
-  std::vector<c10::IValue> aten_inputs = {at_x, at_y, at_weight, at_bias};
+  KernelArgumentHolder inputs = {at_x, at_y, at_weight, at_bias};
 
   auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::PointWise, aten_inputs).outputs;
-  testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+      scheduleAndRun(&fusion, SchedulerType::PointWise, inputs).outputs;
+  testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionSingleElement_CUDA) {

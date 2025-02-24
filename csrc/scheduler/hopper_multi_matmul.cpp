@@ -747,23 +747,29 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         break;
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        NVF_ERROR(
-            std::all_of(
-                mma_results_.begin(),
-                mma_results_.end(),
-                [](TensorView* tv) {
-                  IterDomain* ws_axis = tv->axis(-7);
-                  return ws_axis->getParallelType() == ParallelType::TIDy &&
-                      ws_axis->extent()->evaluate().as<int64_t>() <= 2;
-                }),
-            "There can be at most two compute warp groups for register ",
-            "sharing with warp specialization");
-        constexpr int64_t num_registers_load_warp = 40;
-        constexpr int64_t num_registers_compute_warp = 232;
-        cb_type = (CircularBufferType)WarpSpecialized(
-            ParallelType::TIDy,
-            std::make_pair(
-                num_registers_load_warp, num_registers_compute_warp));
+        if (params_->tiling_strategy ==
+            MatmulParams::TilingStrategy::OneTilePerCTA) {
+          NVF_ERROR(
+              std::all_of(
+                  mma_results_.begin(),
+                  mma_results_.end(),
+                  [](TensorView* tv) {
+                    IterDomain* ws_axis = tv->axis(-7);
+                    return ws_axis->getParallelType() == ParallelType::TIDy &&
+                        ws_axis->extent()->evaluate().as<int64_t>() <= 2;
+                  }),
+              "There can be at most two compute warp groups for register ",
+              "sharing with warp specialization");
+          constexpr int64_t num_registers_load_warp = 40;
+          constexpr int64_t num_registers_compute_warp = 232;
+          cb_type = (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_load_warp, num_registers_compute_warp));
+        } else {
+          // Persistent kernels cannot yet use register sharing
+          cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        }
         break;
       }
     }

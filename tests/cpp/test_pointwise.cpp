@@ -514,7 +514,7 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     at::Tensor t0 = at::randn(input_size, options);
     at::Tensor t1 = at::randn({input_size[1], input_size[2]}, options);
 
-    std::vector<c10::IValue> sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
+    KernelArgumentHolder sharded_inputs = {t0.unsqueeze(sharded_dim), t1};
 
     auto pwise_scheduler =
         SchedulerEntry::makeSchedulerInstance(SchedulerType::PointWise);
@@ -549,7 +549,7 @@ TEST_F(PointwiseTest, ShardedPointwise) {
     pwise_scheduler->schedule(&sharded_fusion, sharded_params.get());
     KernelExecutor ke;
     ke.compile(&sharded_fusion, sharded_inputs, sharded_params->lparams);
-    auto cg_outputs = ke.run(sharded_inputs, sharded_params->lparams);
+    auto cg_outputs = ke.run(sharded_inputs, {}, sharded_params->lparams);
     testValidate(
         &sharded_fusion, cg_outputs, sharded_inputs, __LINE__, __FILE__);
   }
@@ -703,7 +703,7 @@ TEST_P(PointwiseParamsTest, UnrollOnTopOfVectorize) {
   scheduler_instance->schedule(fusion.get(), pparams);
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, pparams->lparams);
-  auto cg_outputs = ke.run({t0, t1}, pparams->lparams);
+  auto cg_outputs = ke.run({t0, t1}, {}, pparams->lparams);
   const auto& lparams = ke.lastLaunchParams();
   ASSERT_EQ(lparams.gdimy(), dim0 / unroll_outer);
   ASSERT_EQ(

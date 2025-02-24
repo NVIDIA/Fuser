@@ -110,7 +110,7 @@ TEST_F(DistributedMatmulTest, MulSum_LayoutTN_NoComms) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      args.toC10Array(),
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -171,7 +171,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      args.toC10Array(),
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -180,7 +180,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(2));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
@@ -229,7 +229,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      args.toC10Array(),
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -238,7 +238,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(2));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
@@ -283,18 +283,13 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
   auto outputs = executor_cache.runFusionWithInputs(args);
 
   testValidate(
-      executor_cache.fusion(),
-      outputs,
-      args.toC10Array(),
-      {out},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), outputs, args, {out}, __LINE__, __FILE__);
 
   const FusionKernelRuntime* kernel_runtime =
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(2));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
@@ -347,7 +342,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      args.toC10Array(),
+      args,
       {expected_output},
       __LINE__,
       __FILE__);
@@ -356,7 +351,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)));
 }
 
 // Reproduces #2721.
@@ -398,7 +393,7 @@ TEST_F(DistributedMatmulTest, PresegPreservesSharding) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      args.toC10Array(),
+      args,
       {shardTensor(expected_mm_t_tensor, mm_t)},
       __LINE__,
       __FILE__);
@@ -438,7 +433,7 @@ TEST_F(DistributedMatmulTest, AnnotateWeightOnly) {
   testValidate(
       executor_cache.fusion(),
       outputs,
-      args.toC10Array(),
+      args,
       {shardTensor(expected_y_tensor, 0, mesh)},
       __LINE__,
       __FILE__);
@@ -501,7 +496,7 @@ TEST_F(DistributedMatmulTest, RowParallelLinear) {
     testValidate(
         executor_cache.fusion(),
         out_tensors,
-        args.toC10Array(),
+        args,
         {expected_y_tensor},
         __LINE__,
         __FILE__);

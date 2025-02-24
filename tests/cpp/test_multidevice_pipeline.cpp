@@ -132,7 +132,7 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  outputs = runtime->runWithInput(args.toC10Array());
+  outputs = runtime->runWithInput(args);
 
   if (debug_print) {
     if (!communicator_->deviceId()) {

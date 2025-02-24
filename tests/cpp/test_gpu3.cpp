@@ -791,7 +791,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   KernelExecutor ke;
   ke.compile(&fusion);
-  auto cg_outputs = ke.run({t0}, LaunchParams(X, V, -1, Y, -1, -1));
+  auto cg_outputs = ke.run({t0}, {}, LaunchParams(X, V, -1, Y, -1, -1));
 
   auto t0_double = t0.to(at::kDouble);
 
@@ -2224,7 +2224,7 @@ TEST_F(NVFuserTest, FusionTestReEntrantGridWelford_CUDA) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({X, Y, Y, Z}, options);
 
-  auto cg_outputs = ke.run({t0}, LaunchParams(-1, -1, -1, -1, -1, -1));
+  auto cg_outputs = ke.run({t0}, {}, LaunchParams(-1, -1, -1, -1, -1, -1));
 
   // by default Welford outputs sum of square diff so need to divide to get var
   cg_outputs[1] = cg_outputs[1].div((float)(X * Y * Y));
@@ -4523,7 +4523,7 @@ TEST_F(NVFuserTest, FusionCastings_CUDA) {
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
-      args.toC10Array(),
+      args,
       outputs,
       __LINE__,
       __FILE__,
@@ -5747,7 +5747,7 @@ TEST_F(NVFuserTest, FusionCompileIndexType_CUDA) {
       // the arguments are too large
       CompileParams compile_opts_large = {.index_type = PrimDataType::Int};
       EXPECT_THAT(
-          [&]() { ke.run({t_large}, launch_params, compile_opts_large); },
+          [&]() { ke.run({t_large}, {}, launch_params, compile_opts_large); },
           testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
               "Kernel index type and compilation index type don't match")));
     }
@@ -7463,7 +7463,7 @@ TEST_F(NVFuserTest, AllInputDtypes) {
 
     KernelExecutor ke;
     ke.compile(fusion.get(), args, LaunchParams{}, opt);
-    auto outputs = ke.run(args, LaunchParams{}, opt);
+    auto outputs = ke.run(args, {}, LaunchParams{}, opt);
 
     auto kernel_result = outputs.at(0).item<double>();
     auto expect = ee.evaluate(output).as<at::Tensor>().item<double>();
