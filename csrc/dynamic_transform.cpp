@@ -838,6 +838,8 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   }
   ReplayTransformations replay(
       incomplete_out_tv->getLoopDomain(), old_logical_to_new);
+  replay.setErrorOnFailure(false);
+
   std::vector<IterDomain*> new_loop;
   new_loop.reserve(incomplete_out_tv->getLoopDomain().size());
   for (IterDomain* old_loop_id : incomplete_out_tv->getLoopDomain()) {
@@ -846,6 +848,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
     new_loop.push_back(new_loop_id);
   }
   concrete_reshape_out_tv->setLoopDomain(new_loop);
+
   if (incomplete_out_tv->hasAllocation()) {
     std::vector<IterDomain*> new_alloc;
     new_alloc.reserve(incomplete_out_tv->getAllocationDomain().size());
