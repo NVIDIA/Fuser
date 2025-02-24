@@ -661,6 +661,7 @@ void KernelExecutor::initializeExecutorEntry(
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
+    std::cout << compiled_kernel_->kernel()->outputs() << std::endl;
     output_info = getBufferInfos(
         expr_eval, index_type, compiled_kernel_->kernel()->outputs());
   } else {
@@ -687,10 +688,10 @@ void KernelExecutor::initializeExecutorEntry(
     }
   }
 
-  std::vector<int> output_aliased_to_input(outputs.size(), -1);
-  std::vector<int> output_aliased_to_output(outputs.size(), -1);
+  std::vector<int> output_aliased_to_input(output_info.size(), -1);
+  std::vector<int> output_aliased_to_output(output_info.size(), -1);
 
-  for (auto output_idx : c10::irange(outputs.size())) {
+  for (auto output_idx : c10::irange(output_info.size())) {
     auto out_info = output_info[output_idx];
     auto fusion = compiled_kernel_->kernel()->as<Fusion>();
     auto alias_info = fusion->getOutputAlias(out_info.tv);
@@ -721,6 +722,12 @@ void KernelExecutor::initializeExecutorEntry(
           fusion->inputs(),
           "\nFusion Outputs:\n  ",
           fusion->outputs());
+      TORCH_WARN(
+          "Kernel found with output to output aliasing, this is unsupported in a kernel and will beignored.\n",
+          "Output: ",
+          out_info.tv->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
     }
   }
 

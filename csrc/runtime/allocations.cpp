@@ -380,12 +380,7 @@ std::vector<at::Tensor> allocateKernelOutputs(
     const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
 
-  NVF_ERROR(
-      std::any_of(
-          entry.output_aliased_to_output.begin(),
-          entry.output_aliased_to_output.end(),
-          [](int idx) { return idx != -1; }),
-      "Kernel's don't support output to output aliasing.");
+  // TODO: Figure out if output to output aliasing is needed
 
   std::vector<at::Tensor> out_tensors;
   out_tensors.reserve(entry.outputs.size());
@@ -404,6 +399,9 @@ std::vector<at::Tensor> allocateKernelOutputs(
       }
       out_tensors.emplace_back(alloc_tensor);
     } else {
+      NVF_ERROR(
+          entry.output_aliased_to_input.at(out_idx) <= (int64_t)args.size(),
+          "Tried to grab an out of range input argument.");
       auto input_arg = args[entry.output_aliased_to_input.at(out_idx)];
       NVF_ERROR(
           input_arg.is<at::Tensor>(),
