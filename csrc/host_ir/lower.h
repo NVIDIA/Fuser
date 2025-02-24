@@ -21,7 +21,7 @@ struct HostIrLowerParams {
 class HostIrLower {
  public:
   explicit HostIrLower(HostIrLowerParams params = HostIrLowerParams())
-      : params_(std::move(params)) {}
+      : params_(params) {}
 
   // The flag `ignore_inner_resharding` is useful because the preseg passes
   // `InsertReshardingsPass` and `ReorderShardedAxisPass` want different
