@@ -119,7 +119,7 @@ TEST_F(MovePadTest, BinaryBroadcastOnNonCatDim) {
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
       UnorderedElementsAre(
-          HeuristicIs(SchedulerType::NoOp),
+          HeuristicIs(SchedulerType::ExprEval),
           HeuristicIs(SchedulerType::PointWise)));
 
   testValidate(

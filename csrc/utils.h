@@ -54,7 +54,6 @@ class KernelArgumentHolder;
 int getNumThreads();
 c10::ThreadPool* getThreadPool();
 
-std::string debug_str(const c10::IValue& val);
 std::string debug_str(const at::Tensor& tensor);
 
 bool is_cpu_scalar(const at::Tensor& tensor);

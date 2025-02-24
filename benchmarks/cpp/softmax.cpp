@@ -105,7 +105,7 @@ static void NvFuserScheduler_Softmax_WarpReduceReference(
   scheduler->schedule(fusion, heuristic_params.get());
 
   KernelExecutor ke;
-  ke.compile(fusion, args.toC10Array());
+  ke.compile(fusion, args);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 
@@ -151,7 +151,7 @@ static void NvFuserScheduler_Softmax_WarpReduce(
   }
 
   KernelExecutor ke;
-  ke.compile(fusion, args.toC10Array());
+  ke.compile(fusion, args);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 

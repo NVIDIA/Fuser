@@ -293,10 +293,10 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor idx = at::randint(0, nElem, (nElem_select), options_i);
   at::Tensor output = at::zeros({nElem_select, nFeat}, options);
-  std::vector<c10::IValue> aten_inputs = {input_pre, t1, t0, idx};
+  KernelArgumentHolder inputs({input_pre, t1, t0, idx});
 
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_info(&fusion_fail, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(&fusion_fail, inputs);
   auto sch_fail = Schedule::canSchedule(
       SchedulerType::PointWise, &fusion_fail, runtime_info);
 
@@ -321,9 +321,9 @@ TEST_F(NVFuserTest, FusionIndexSelectCanSch_CUDA) {
   auto tv_sum_3 = sum(tv_sum_add, {1});
   // Register your outputs
   fusion_sum_fail.addOutput(tv_sum_3);
-  std::vector<c10::IValue> aten_sum_inputs = {input_pre, t1, t0, idx};
+  KernelArgumentHolder sum_inputs({input_pre, t1, t0, idx});
   // Schedule through magic scheduler
-  SchedulerRuntimeInfo runtime_sum_info(&fusion_sum_fail, aten_sum_inputs);
+  SchedulerRuntimeInfo runtime_sum_info(&fusion_sum_fail, sum_inputs);
   auto sch_sum_fail = Schedule::canSchedule(
       SchedulerType::Reduction, &fusion_sum_fail, runtime_sum_info);
 
@@ -429,7 +429,7 @@ TEST_F(NVFuserTest, FusionIndexSelectIdxTvFuseable_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
-  testValidate(&fusion, cg_outputs, args.toC10Array(), __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, args, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionIndexSelectDim1InRank2_CUDA) {
