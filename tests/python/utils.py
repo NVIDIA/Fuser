@@ -376,38 +376,43 @@ def nvfusertest_serde_check(test_fn: Callable):
     structure.
     """
     if disable_serde:
-        return test_fn
 
-    def inner_fn(*args, **kwargs):
-        self, fusion_func, inputs = args
+        def inner_fn(*args, **kwargs):
+            kwargs.pop("skip_serde_check")
+            return test_fn(*args, **kwargs)
 
-        # NOTE: For debug purposes, clear FusionCache before running first test
-        # so the behavior is more deterministic (PR #1848).
-        is_new_fusion_expected = kwargs.get("new_fusion_expected", True)
-        if debug_serde and is_new_fusion_expected:
-            FusionCache.reset()
-            assert FusionCache.get().num_fusions() == 0
+    else:
 
-        # skip_serde_check is only used by the decorator so remove it before
-        # running test_fn
-        skip_serde_check = kwargs.pop("skip_serde_check", False)
-        if skip_serde_check:
+        def inner_fn(*args, **kwargs):
+            self, fusion_func, inputs = args
+
+            # NOTE: For debug purposes, clear FusionCache before running first test
+            # so the behavior is more deterministic (PR #1848).
+            is_new_fusion_expected = kwargs.get("new_fusion_expected", True)
+            if debug_serde and is_new_fusion_expected:
+                FusionCache.reset()
+                assert FusionCache.get().num_fusions() == 0
+
+            # skip_serde_check is only used by the decorator so remove it before
+            # running test_fn
+            skip_serde_check = kwargs.pop("skip_serde_check", False)
+            if skip_serde_check:
+                return test_fn(self, fusion_func, inputs, **kwargs)
+
+            # Run test to populate FusionCache. Deep copy inputs for this run but
+            # not the final run. When a fusion output aliases an input, it will
+            # change the input value for subsequent function calls. Therefore, only
+            # the final run should take the original tensors and potentially update
+            # their values.
+            inputs_copy = deepcopy(inputs)
+            test_fn(self, fusion_func, inputs_copy, **kwargs)
+
+            # Serialize and Deserialize FusionCache
+            basic_serde_check()
+
+            # Run test with repopulated FusionCache
+            kwargs["new_fusion_expected"] = False
             return test_fn(self, fusion_func, inputs, **kwargs)
-
-        # Run test to populate FusionCache. Deep copy inputs for this run but
-        # not the final run. When a fusion output aliases an input, it will
-        # change the input value for subsequent function calls. Therefore, only
-        # the final run should take the original tensors and potentially update
-        # their values.
-        inputs_copy = deepcopy(inputs)
-        test_fn(self, fusion_func, inputs_copy, **kwargs)
-
-        # Serialize and Deserialize FusionCache
-        basic_serde_check()
-
-        # Run test with repopulated FusionCache
-        kwargs["new_fusion_expected"] = False
-        return test_fn(self, fusion_func, inputs, **kwargs)
 
     return inner_fn
 
