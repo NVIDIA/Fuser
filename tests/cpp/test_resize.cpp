@@ -5822,4 +5822,36 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
   }
 }
 
+TEST_F(ResizeTest, SliceToZero) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = slice(tv0, {{fusion.zeroVal(), fusion.zeroVal()}});
+  fusion.addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({128}, options);
+  std::vector<c10::IValue> inputs({t0});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_EQ(runtime->fusionSegments()->groups().size(), 1)
+      << "Unexpected segmentation";
+  EXPECT_EQ(
+      runtime->schedulerHeuristics()->at(0)->scheduler_type,
+      SchedulerType::NoOp);
+  // There should be a single TV expr, which is a FullOp
+  const std::vector<Expr*>& exprs =
+      runtime->fusionSegments()->completeFusion()->exprs();
+  ASSERT_EQ(exprs.size(), 1);
+  EXPECT_TRUE(exprs.at(0)->isA<FullOp>());
+}
+
 } // namespace nvfuser
