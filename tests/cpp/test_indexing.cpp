@@ -444,7 +444,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
     // Suppress warnings due to using dynamic register tensors
     testing::internal::CaptureStderr();
     kernel = lower.run();
-    testing::internal::GetCapturedStderr();
+    std::cerr << testing::internal::GetCapturedStderr();
 
     PredicateIndexValidator<GetReference> validator(
         lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
@@ -4458,7 +4458,9 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(PredicateIndexingTest, ParallelDimensionPredicateWithUnswitch) {
+// Test for the conditions where omitting parallel dimension
+// predicates is safe with unswitched loops.
+TEST_F(PredicateIndexingTest, ParallelDimensionPredicateWithUnswitch1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4537,6 +4539,81 @@ TEST_F(PredicateIndexingTest, ParallelDimensionPredicateWithUnswitch) {
         auto min_pred = geExpr(idx, zero);
         auto max_pred = ltExpr(idx, tv->getLogicalDomain().at(0)->extent());
         return andExpr(andExpr(tidx_pred, min_pred), max_pred);
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Similar to ParallelDimensionPredicateWithUnswitch1 but uses other
+// parallelized unswitched IDs, which means the parallel dimension
+// predicate is not safe to omit.
+TEST_F(PredicateIndexingTest, ParallelDimensionPredicateWithUnswitch2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1);
+  fusion.addInput(tv2);
+
+  // Just to make TIDx non unique so the parallel dimension predicate
+  // is required for TIDx
+  auto tv3 = set(tv0);
+  fusion.addOutput(tv3);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+
+  // Just to make TIDx non unique so the parallel dimension predicate
+  // is required for TIDx
+  auto tv4 = set(tv1);
+  fusion.addOutput(tv4);
+  tv4->axis(0)->parallelize(ParallelType::TIDy);
+
+  auto tv5 = set(tv2);
+  fusion.addOutput(tv5);
+
+  // Both TIDx and TIDy are not fully unswitched
+  tv5->split(0, 32);
+  tv5->split(0, 1, false);
+  tv5->axis(0)->parallelize(ParallelType::Unswitch);
+  tv5->axis(1)->parallelize(ParallelType::TIDy);
+  tv5->axis(2)->parallelize(ParallelType::TIDx);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    // The unswitch predicate should look like:
+    //
+    // tv5:
+    // (nvfuser_index_t)threadIdx.x < 32LL
+    // (nvfuser_index_t)threadIdx.y < ceilDiv(T2.logical_size[0LL], 32LL)
+    // (((nvfuser_index_t)threadIdx.y) * 32LL) + ((nvfuser_index_t)threadIdx.x)
+    // >= 0LL
+    // (((nvfuser_index_t)threadIdx.y) * 32LL) + ((nvfuser_index_t)threadIdx.x)
+    // < T2.logical_size[0LL]
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      Val* zero = tv->fusion()->zeroVal();
+
+      if (tv->name() == 5) {
+        auto tidx_pred = ltExpr(loop_indices.at(2), createInt(32));
+        auto tidy_pred = ltExpr(
+            loop_indices.at(1),
+            ceilDiv(tv->getLogicalDomain().at(0)->extent(), createInt(32)));
+        auto idx = addExpr(
+            IrBuilder::mulExpr(loop_indices.at(1), createInt(32)),
+            loop_indices.at(2));
+        auto min_pred = geExpr(idx, zero);
+        auto max_pred = ltExpr(idx, tv->getLogicalDomain().at(0)->extent());
+        return andExpr(
+            andExpr(andExpr(tidx_pred, tidy_pred), min_pred), max_pred);
       } else {
         return nullptr;
       }
