@@ -4755,7 +4755,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 100});
+  std::vector<int64_t> shape({-1, 128});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4781,7 +4781,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   auto tv5 = cat({tv4, tv2}, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 100}, options);
+  auto t0 = at::randn({16, 128}, options);
 
   fusion.addOutput(tv5);
 
