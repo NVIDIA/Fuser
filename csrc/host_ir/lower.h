@@ -20,7 +20,7 @@ struct HostIrLowerParams {
 
 class HostIrLower {
  public:
-  explicit HostIrLower(HostIrLowerParams params = HostIrLowerParams())
+  explicit HostIrLower(const HostIrLowerParams& params = HostIrLowerParams())
       : params_(params) {}
 
   // The flag `ignore_inner_resharding` is useful because the preseg passes
