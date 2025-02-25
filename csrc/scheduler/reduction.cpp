@@ -1586,11 +1586,16 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   // https://github.com/NVIDIA/Fuser/issues/1863
   // grouped welford is only enabled for grid persistent.
   // see validateAndConvertIterDomainGrouping
-  const bool has_welford = ir_utils::hasOpsOfType<WelfordOp>(fusion);
-  const bool use_iter_grouped_reduction = !rparams->fastest_dim &&
-      (has_welford
-           ? rparams->cross_grid_inner_reduction && rparams->persistent_kernel
-           : rparams->cross_block_inner_reduction);
+  bool use_iter_grouped_reduction = false;
+  if (rparams->fastest_dim) {
+    use_iter_grouped_reduction = !rparams->cross_grid_inner_reduction &&
+        rparams->cross_block_inner_reduction &&
+        rparams->unroll_factor_iter_dom > 1;
+  } else {
+    use_iter_grouped_reduction = ir_utils::hasOpsOfType<WelfordOp>(fusion)
+        ? rparams->cross_grid_inner_reduction && rparams->persistent_kernel
+        : rparams->cross_block_inner_reduction;
+  }
 
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 

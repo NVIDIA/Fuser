@@ -21,6 +21,108 @@ __device__ __forceinline__ std::complex<T> shfl_xor(
   return std::complex<T>(real, imag);
 }
 
+// sizeof(T) * K = sizeof(uint64_t)
+// require alginment of sizeof(T) * K to safely cast between T and uint64_t
+// shfl uses uint64_t to reduce number of shuffles
+template <int K, typename T, typename Func>
+__device__ __forceinline__ void packedWarpReduce(
+    Array<T, K, K>& val,
+    Func reduction_op) {
+  constexpr uint32_t FINAL_MASK = 0xffffffff;
+#pragma unroll
+  for (int mask = 16; mask > 0; mask >>= 1) {
+    Array<T, K, K> remote;
+    *reinterpret_cast<uint64_t*>(remote.array) = __shfl_xor_sync(
+        FINAL_MASK, *reinterpret_cast<uint64_t*>(val.array), mask, 32);
+#pragma unroll K
+    for (int i = 0; i < K; i++) {
+      reduction_op(val[i], remote[i]);
+    }
+  }
+}
+
+template <
+    bool SINGLE_WARP,
+    bool Aligned,
+    int N, // Number of elements per input array
+    typename T,
+    typename Func,
+    typename BlockDimT>
+__device__ void iterGroupedWarpReduce(
+    T out[N],
+    const T inp_val[N],
+    Func reduction_op,
+    T* shared_mem,
+    bool read_write_pred,
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
+  // pack T into uint64_t to reduce number of shuffles
+  // sizeof(T) * K = sizeof(uint64_t), e.g. T = float, K = 2.
+  constexpr int K = sizeof(uint64_t) / sizeof(T);
+  Array<T, K, K> packed_reduce_val;
+
+  // original N reductions are reduced to N / K reductions
+  static_assert(N % K == 0, "N must be a multiple of K");
+#pragma unroll N / K
+  for (int i = 0; i < N; i += K) {
+    packed_reduce_val.set(init_val);
+    if (read_write_pred) {
+#pragma unroll K
+      for (int j = 0; j < K; j++) {
+        packed_reduce_val[j] = inp_val[i + j];
+      }
+    }
+    // reduce within each warp
+    packedWarpReduce(packed_reduce_val, reduction_op);
+
+// unpack
+#pragma unroll K
+    for (int j = 0; j < K; j++) {
+      out[i + j] = packed_reduce_val[j];
+    }
+  }
+
+  // short circuit if we only have one warp
+  if (SINGLE_WARP) {
+    return;
+  }
+
+  // cross warp reduction using shared memory
+  constexpr int WARP_SIZE = 32;
+  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+  unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+  unsigned int num_of_warps = block_dim.x / WARP_SIZE;
+  unsigned int smem_offset = N * num_of_warps;
+
+  // [warp_idx, N]
+  if (lane_idx == 0) {
+#pragma unroll N
+    for (int i = 0; i < N; i++) {
+      shared_mem[N * warp_idx + i] = out[i];
+    }
+  }
+  block_sync::sync<Aligned>(block_dim);
+
+// serial outer reduction
+#pragma unroll N
+  for (int j = 0; j < N; j++) {
+    out[j] = shared_mem[j];
+  }
+  for (int i = 1; i < num_of_warps; i++) {
+#pragma unroll N
+    for (int j = 0; j < N; j++) {
+      out[j] += shared_mem[i * N + j];
+    }
+  }
+  // needs sync, otherwise other warps may access shared memory before this
+  // reduction is done.
+  block_sync::sync<Aligned>(block_dim);
+}
+
 template <
     bool SINGLE_WARP,
     bool Aligned,
