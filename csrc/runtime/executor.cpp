@@ -661,7 +661,6 @@ void KernelExecutor::initializeExecutorEntry(
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
-    std::cout << compiled_kernel_->kernel()->outputs() << std::endl;
     output_info = getBufferInfos(
         expr_eval, index_type, compiled_kernel_->kernel()->outputs());
   } else {
@@ -841,30 +840,32 @@ void KernelExecutor::computeArgs(
 // TODO: Add to header
 void KernelExecutor::computeArgs2(
     KernelExecutorEntry& entry,
-    const std::vector<at::Tensor>& outputs,
-    const std::vector<at::Tensor>& intermediates) const {
+    const KernelArgumentHolder& args) const {
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs2");
-
-  entry.args.resize(outputs.size() + intermediates.size());
-  entry.arg_ptrs.resize(outputs.size() + intermediates.size());
-
-  NVF_ERROR(entry.outputs.size() == outputs.size(), "Outputs size mismatch");
-  NVF_ERROR(
-      entry.intermediates.size() == intermediates.size(),
-      "Intermediates size mismatch");
-
-  const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
-  for (size_t out_idx = 0; out_idx < outputs.size(); ++out_idx) {
-    entry.args[out_idx] =
-        getKernelArgument(outputs[out_idx], entry.outputs[out_idx], idx_type);
-    entry.arg_ptrs[out_idx] = entry.args[out_idx].data();
+  if (entry.args.size() != args.size()) {
+    entry.args.resize(args.size());
+    entry.arg_ptrs.resize(args.size());
   }
 
-  for (size_t inter_idx = 0; inter_idx < intermediates.size(); ++inter_idx) {
-    entry.args[outputs.size() + inter_idx] = getKernelArgument(
-        intermediates[inter_idx], entry.intermediates[inter_idx], idx_type);
-    entry.arg_ptrs[outputs.size() + inter_idx] =
-        entry.args[outputs.size() + inter_idx].data();
+  NVF_ERROR(
+      args.size() ==
+              compiled_kernel_->kernel()->inputs().size() +
+                  entry.outputs.size() + entry.intermediates.size() &&
+          args.size() == compiled_kernel_->kernel()->parameters().size(),
+      "Argument size mismatch, expected: ",
+      compiled_kernel_->kernel()->inputs().size() + entry.outputs.size() +
+          entry.intermediates.size(),
+      " got: ",
+      args.size());
+
+  const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
+  for (size_t i = 0; i < args.size(); ++i) {
+    auto bytes = polymorphicValueToBytes(
+        args[i],
+        compiled_kernel_->kernel()->parameters()[i]->dtype(),
+        idx_type);
+    entry.args[i] = bytes;
+    entry.arg_ptrs[i] = entry.args[i].data();
   }
 }
 
@@ -1152,7 +1153,7 @@ std::vector<at::Tensor> KernelExecutor::run(
     }
   }
 
-  computeArgs2(*executor_entry, outputs, intermediates);
+  computeArgs2(*executor_entry, args);
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();

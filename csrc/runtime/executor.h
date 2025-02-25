@@ -237,8 +237,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   void computeArgs2(
       KernelExecutorEntry& entry,
-      const std::vector<at::Tensor>& outputs,
-      const std::vector<at::Tensor>& intermediates) const;
+      const KernelArgumentHolder& args) const;
 
   // Updates an existing set of arguments based on the current arguments. It is
   // is an error to call this before `computeArgs` has been invoked.

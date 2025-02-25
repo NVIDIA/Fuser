@@ -180,25 +180,75 @@ std::vector<std::byte> polymorphicValueToBytes(
   if (argument.is<at::Tensor>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(at::Tensor)");
     const auto& tensor = argument.as<at::Tensor>();
-    NVF_ERROR(
-        tensor.is_cpu() && tensor.numel() == 1,
-        "Only CPU scalar tensors are supported here. ",
-        "For GPU tensors, please use their metadata.");
-    auto scalar_type = tensor.scalar_type();
-    NVF_ERROR(
-        dtype == aten_to_data_type(scalar_type),
-        "Expected ",
-        dtype,
-        " but got ",
-        aten_to_data_type(scalar_type),
-        ".");
-    std::vector<std::byte> buffer;
-    buffer.reserve(tensor.element_size());
-    buffer.insert(
-        buffer.end(),
-        (std::byte*)tensor.data_ptr(),
-        (std::byte*)tensor.data_ptr() + tensor.element_size());
-    return buffer;
+    if (tensor.is_cpu()) {
+      NVF_ERROR(
+          tensor.numel() == 1,
+          "Only CPU scalar tensors are supported here. ",
+          "For GPU tensors, please use their metadata.");
+      auto scalar_type = tensor.scalar_type();
+      NVF_ERROR(
+          dtype == aten_to_data_type(scalar_type),
+          "Expected ",
+          dtype,
+          " but got ",
+          aten_to_data_type(scalar_type),
+          ".");
+      std::vector<std::byte> buffer;
+      buffer.reserve(tensor.element_size());
+      buffer.insert(
+          buffer.end(),
+          (std::byte*)tensor.data_ptr(),
+          (std::byte*)tensor.data_ptr() + tensor.element_size());
+      return buffer;
+    } else {
+      NVF_ERROR(
+          tensor.is_cuda(), "Only accepts CUDA tensors or CPU scalar tensors.");
+
+      std::vector<std::byte> buffer;
+      auto data = tensor.data_ptr();
+      auto logical_size = tensor.sizes();
+      auto alloc_stride = tensor.strides();
+
+      // special handle for TensorMetaData so that CPU overhead is minimal.
+      if (index_type == PrimDataType::Int) {
+        buffer.reserve(
+            sizeof(void*) + sizeof(int64_t) * logical_size.size() +
+            sizeof(int64_t) * alloc_stride.size());
+        buffer.insert(
+            buffer.end(), (std::byte*)data, (std::byte*)data + sizeof(void*));
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)logical_size.data(),
+            (std::byte*)logical_size.data() +
+                sizeof(int64_t) * logical_size.size());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)alloc_stride.data(),
+            (std::byte*)alloc_stride.data() +
+                sizeof(int64_t) * alloc_stride.size());
+      } else {
+        buffer.reserve(
+            sizeof(void*) + sizeof(int32_t) * logical_size.size() +
+            sizeof(int32_t) * alloc_stride.size());
+        buffer.insert(
+            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
+        std::vector<int32_t> logical_size32(
+            logical_size.begin(), logical_size.end());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)logical_size32.data(),
+            (std::byte*)logical_size32.data() +
+                sizeof(int32_t) * logical_size32.size());
+        std::vector<int32_t> alloc_stride32(
+            alloc_stride.begin(), alloc_stride.end());
+        buffer.insert(
+            buffer.end(),
+            (std::byte*)alloc_stride32.data(),
+            (std::byte*)alloc_stride32.data() +
+                sizeof(int32_t) * alloc_stride32.size());
+      }
+      return buffer;
+    }
   } else if (argument.is<Pointer>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(Pointer)");
     NVF_ERROR(
@@ -377,38 +427,6 @@ std::vector<std::byte> getKernelArgument(
     }
   }
   return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
-}
-
-std::vector<std::byte> getKernelArgument(
-    at::Tensor tensor,
-    const GlobalBufferInfo& output_info,
-    PrimDataType index_type) {
-  FUSER_PERF_SCOPE("getKernelArgument");
-
-  NVF_ERROR(
-      tensor.is_cuda() || tensor.is_meta(),
-      "GetMetaData expects a CUDA/meta tensor as input, but got: ",
-      tensor);
-
-  std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
-  TensorMetaData* metadata = (TensorMetaData*)struct_.get();
-  metadata->dtype =
-      std::get<PrimDataType>(aten_to_data_type(tensor.scalar_type()).type);
-  metadata->data = tensor.data_ptr();
-
-  metadata->logical_size_data = output_info.shape_info.logical_sizes;
-  metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-  metadata->logical_stride_data = output_info.shape_info.logical_strides;
-  metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
-  metadata->alloc_size_data = output_info.shape_info.allocation_sizes;
-  metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-  metadata->alloc_stride_data = output_info.shape_info.allocation_strides;
-  metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
-
-  return polymorphicValueToBytes(
-      PolymorphicValue(std::move(struct_)),
-      output_info.tv->dtype(),
-      index_type);
 }
 
 int64_t computeBytes(const KernelArgumentHolder& args) {
