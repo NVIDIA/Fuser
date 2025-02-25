@@ -1102,7 +1102,7 @@ TEST_F(AllocationDomainTest, ContiguityIssue1021) {
   // modify to [4,8] strided [1, 8]
   // Tell nvFuser it's allocated as [4, 8] strided [8, 1]
   at::Tensor t0 = at::randn({8, 8}, options).as_strided({4, 8}, {1, 8});
-  std::cout << debug_str(t0) << std::endl;
+
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 

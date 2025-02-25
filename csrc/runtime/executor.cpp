@@ -669,12 +669,8 @@ void KernelExecutor::initializeExecutorEntry(
        c10::irange(compiled_kernel_->kernel()->inputs().size())) {
     auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
     if (auto input_tv = dynamic_cast<TensorView*>(input)) {
-      std::cout << "Get buffer info for: " << input_tv->toString() << std::endl;
-      std::cout << "Arg: "
-                << PolymorphicValue_functions::toString(args[inp_idx])
-                << std::endl;
-
       auto at_tensor = args[inp_idx].as<at::Tensor>();
+
       std::vector<int64_t> alloc_sizes;
       std::vector<int64_t> alloc_strides;
       if (input_tv->hasAllocation()) {
@@ -692,23 +688,14 @@ void KernelExecutor::initializeExecutorEntry(
           args[inp_idx].as<at::Tensor>().strides().vec();
       shape_info.allocation_sizes = alloc_sizes;
       shape_info.allocation_strides = alloc_strides;
-      auto buffer_info = GlobalBufferInfo(
-          input->as<TensorView>(),
-          shape_info,
-          data_type_to_aten(input->dtype()),
-          false,
-          false,
-          false);
 
-      std::cout << "Buffer info allocation sizes: "
-                << buffer_info.shape_info.allocation_sizes << std::endl;
-      std::cout << "Buffer info allocation strides: "
-                << buffer_info.shape_info.allocation_strides << std::endl;
-      std::cout << "Buffer info logical sizes: "
-                << buffer_info.shape_info.logical_sizes << std::endl;
-      std::cout << "Buffer info logical strides: "
-                << buffer_info.shape_info.logical_strides << std::endl;
-      input_info.emplace_back(buffer_info);
+      input_info.emplace_back(GlobalBufferInfo(
+          input_tv,
+          shape_info,
+          data_type_to_aten(input_tv->dtype()),
+          false,
+          false,
+          false));
     }
   }
 
@@ -748,9 +735,9 @@ void KernelExecutor::initializeExecutorEntry(
     auto out_info = output_info[output_idx];
     auto fusion = compiled_kernel_->kernel()->as<Fusion>();
     auto alias_info = fusion->getOutputAlias(out_info.tv);
-    NVF_ERROR(
+    TORCH_WARN_ONCE(
         alias_info.type != AllocationType::Evaluate,
-        "Outputs should not be evaluate type for kernels.");
+        "Outputs should not be evaluate type for kernels, this will be ignored and a kernel will produce the output tensor.");
     if (alias_info.type == AllocationType::New) {
       continue;
     }
@@ -939,14 +926,7 @@ void KernelExecutor::computeArgs2(
     if (!inp->isA<TensorView>()) {
       continue;
     }
-    std::cout << "Input root: " << inp->as<TensorView>()->getRootDomain()
-              << std::endl;
-    std::cout << "Input logical: " << inp->as<TensorView>()->getLogicalDomain()
-              << std::endl;
-    std::cout << "Input alloc: "
-              << inp->as<TensorView>()->getMaybeAllocationDomain() << std::endl;
   }
-  std::cout << "Args: " << args.toString() << std::endl;
 
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
   int64_t buffer_info_idx = 0;
@@ -964,9 +944,6 @@ void KernelExecutor::computeArgs2(
       const auto& alloc_stride =
           linear_buffer_info_getter(entry, buffer_info_idx)
               .shape_info.allocation_strides;
-      std::cout << "Binding Tensor: " << (int64_t)data
-                << " size: " << logical_size << " stride: " << alloc_stride
-                << std::endl;
       buffer_info_idx++;
       // special handle for TensorMetaData so that CPU overhead is minimal.
       if (idx_type == PrimDataType::Int) {
