@@ -203,6 +203,7 @@ def generate_nvfuser_config(config: NvJetConfig):
     )
 
 
+# How to run: NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval  python profile_nvjet_config.py  hopper_nvjet_matmul_problems_kernel_names.out
 def main():
     import sys
 
