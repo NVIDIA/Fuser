@@ -7359,7 +7359,9 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
   ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
   auto rparams = heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
-  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 4)
+  // On some hardware, the reduction heuristics may choose a
+  // vectorization factor of 2.
+  EXPECT_THAT(rparams->unroll_factor_inner_reduction, testing::AnyOf(2, 4))
       << "Unexpected vectorization factor";
 
   testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
