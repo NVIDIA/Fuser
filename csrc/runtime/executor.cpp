@@ -689,13 +689,7 @@ void KernelExecutor::initializeExecutorEntry(
             false,
             false));
       }
-    } else {
-      input_info.emplace_back(GlobalBufferInfo());
     }
-    std::cout << "input_info.back().shape_info.logical_sizes: "
-              << input_info.back().shape_info.logical_sizes << std::endl;
-    std::cout << "input_info.back().shape_info.allocation_strides: "
-              << input_info.back().shape_info.allocation_strides << std::endl;
   }
 
   std::vector<GlobalBufferInfo> output_info;
@@ -877,28 +871,42 @@ void KernelExecutor::computeArgs(
   }
 }
 
-// set the arguments that we'll pass to cuLaunchKernel
-// TODO: Add to header
+namespace {
+GlobalBufferInfo& linear_buffer_info_getter(
+    KernelExecutorEntry& entry,
+    size_t idx) {
+  if (idx < entry.inputs.size()) {
+    return entry.inputs[idx];
+  } else if (idx < entry.inputs.size() + entry.outputs.size()) {
+    return entry.outputs[idx - entry.inputs.size()];
+  } else if (
+      idx <
+      entry.inputs.size() + entry.outputs.size() + entry.intermediates.size()) {
+    return entry
+        .intermediates[idx - entry.inputs.size() - entry.outputs.size()];
+  } else {
+    NVF_CHECK(
+        0,
+        "Invalid buffer index: ",
+        idx,
+        " input size: ",
+        entry.inputs.size(),
+        " output size: ",
+        entry.outputs.size(),
+        " intermediate size: ",
+        entry.intermediates.size());
+  }
+};
+} // namespace
+
 void KernelExecutor::computeArgs2(
     KernelExecutorEntry& entry,
     const KernelArgumentHolder& args) const {
-  std::cout << "Args: " << args.toString() << std::endl;
-
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs2");
   if (entry.args.size() != args.size()) {
     entry.args.resize(args.size());
     entry.arg_ptrs.resize(args.size());
   }
-
-  NVF_ERROR(
-      args.size() ==
-          compiled_kernel_->kernel()->inputs().size() + entry.outputs.size() +
-              entry.intermediates.size(),
-      "Argument size mismatch, expected: ",
-      compiled_kernel_->kernel()->inputs().size() + entry.outputs.size() +
-          entry.intermediates.size(),
-      " got: ",
-      args.size());
 
   NVF_ERROR(
       args.size() == compiled_kernel_->kernel()->parameters().size(),
@@ -907,31 +915,8 @@ void KernelExecutor::computeArgs2(
       " got: ",
       args.size());
 
-  auto buffer_info = [&](size_t idx) -> GlobalBufferInfo& {
-    if (idx < entry.inputs.size()) {
-      return entry.inputs[idx];
-    } else if (idx < entry.inputs.size() + entry.outputs.size()) {
-      return entry.outputs[idx - entry.inputs.size()];
-    } else if (
-        idx < entry.inputs.size() + entry.outputs.size() +
-            entry.intermediates.size()) {
-      return entry
-          .intermediates[idx - entry.inputs.size() - entry.outputs.size()];
-    } else {
-      NVF_CHECK(
-          0,
-          "Invalid buffer index: ",
-          idx,
-          " input size: ",
-          entry.inputs.size(),
-          " output size: ",
-          entry.outputs.size(),
-          " intermediate size: ",
-          entry.intermediates.size());
-    }
-  };
-
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
+  int64_t buffer_info_idx = 0;
   for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
     std::vector<std::byte> bytes;
     if (args[arg_idx].is<at::Tensor>()) {
@@ -940,17 +925,19 @@ void KernelExecutor::computeArgs2(
           tensor.is_cuda(), "Only accepts CUDA tensors or CPU scalar tensors.");
 
       auto data = tensor.data_ptr();
-      const auto& logical_size = buffer_info(arg_idx).shape_info.logical_sizes;
+      const auto& logical_size =
+          linear_buffer_info_getter(entry, buffer_info_idx)
+              .shape_info.logical_sizes;
       const auto& alloc_stride =
-          buffer_info(arg_idx).shape_info.allocation_strides;
-
+          linear_buffer_info_getter(entry, buffer_info_idx)
+              .shape_info.allocation_strides;
+      buffer_info_idx++;
       // special handle for TensorMetaData so that CPU overhead is minimal.
       if (idx_type == PrimDataType::Int) {
         bytes.reserve(
             sizeof(void*) + sizeof(int64_t) * logical_size.size() +
             sizeof(int64_t) * alloc_stride.size());
-        bytes.insert(
-            bytes.end(), (std::byte*)data, (std::byte*)data + sizeof(void*));
+        bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
         bytes.insert(
             bytes.end(),
             (std::byte*)logical_size.data(),
@@ -965,8 +952,7 @@ void KernelExecutor::computeArgs2(
         bytes.reserve(
             sizeof(void*) + sizeof(int32_t) * logical_size.size() +
             sizeof(int32_t) * alloc_stride.size());
-        bytes.insert(
-            bytes.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
+        bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
         std::vector<int32_t> logical_size32(
             logical_size.begin(), logical_size.end());
         bytes.insert(
@@ -1002,7 +988,6 @@ void KernelExecutor::recomputeArgs(
     ExpressionEvaluator& expr_eval,
     const kir::Kernel* kernel) const {
   FUSER_PERF_SCOPE("KernelExecutor::recomputeArgs");
-  // assert(entry.init && "entry was never initialized");
 
   const std::vector<Val*>& params = kernel->parameters();
   const PrimDataType idx_type = kernel->indexType();
@@ -1105,6 +1090,38 @@ int64_t KernelExecutor::ensureAvailableDynamicSmemSize(
 void KernelExecutor::resetCompiledKernelProperties() {
   available_dynamic_smem_size_.reset();
   static_smem_size_.reset();
+}
+
+KernelArgumentHolder KernelExecutor::resolveTMA(
+    KernelExecutorEntry& entry,
+    const KernelArgumentHolder& args) const {
+  ExpressionEvaluator expr_eval;
+  int64_t arg_idx = 0;
+  NVF_ERROR(
+      entry.inputs.size() == compiled_kernel_->kernel()->inputs().size(),
+      "Input size mismatch");
+  for (auto inp_idx : c10::irange(entry.inputs.size())) {
+    expr_eval.bind(
+        compiled_kernel_->kernel()->inputs()[inp_idx], args[arg_idx++]);
+  }
+
+  NVF_ERROR(
+      entry.outputs.size() == compiled_kernel_->kernel()->outputs().size(),
+      "Output size mismatch");
+  for (auto out_idx : c10::irange(entry.outputs.size())) {
+    expr_eval.bind(
+        compiled_kernel_->kernel()->outputs()[out_idx], args[arg_idx++]);
+  }
+
+  for (auto intermediate_entry : entry.intermediates) {
+    expr_eval.bind(intermediate_entry.tv, args[arg_idx++]);
+  }
+
+  KernelArgumentHolder resolved_args;
+  for (auto param : compiled_kernel_->kernel()->parameters()) {
+    resolved_args.push(expr_eval.evaluate(param));
+  }
+  return resolved_args;
 }
 
 std::vector<at::Tensor> KernelExecutor::run(
@@ -1277,6 +1294,17 @@ std::vector<at::Tensor> KernelExecutor::run(
         profile_buffer = intermediate_buffer;
       }
     }
+  }
+
+  if (args.size() != compiled_kernel_->kernel()->parameters().size()) {
+    std::vector<Expr*> exprs = compiled_kernel_->kernel()->exprs();
+    NVF_ERROR(
+        std::any_of(
+            exprs.begin(),
+            exprs.end(),
+            [](Expr* e) { return ir_utils::isCpAsyncBulk(e); }),
+        "Argument mismatch detected in run, but is not resolveable.");
+    args = resolveTMA(*executor_entry, args);
   }
 
   computeArgs2(*executor_entry, args);

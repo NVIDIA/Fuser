@@ -240,6 +240,10 @@ class KernelExecutor : public ExecutorAbstract {
       KernelExecutorEntry& entry,
       const KernelArgumentHolder& args) const;
 
+  KernelArgumentHolder resolveTMA(
+      KernelExecutorEntry& entry,
+      const KernelArgumentHolder& args) const;
+
   // Updates an existing set of arguments based on the current arguments. It is
   // is an error to call this before `computeArgs` has been invoked.
   // recomputeArgs will fail if the arity of the function changes, or the rank
