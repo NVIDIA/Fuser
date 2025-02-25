@@ -1213,6 +1213,19 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IndexSelectOp* sop) final {
+    if (sop->out()->isA<kir::TensorIndex>()) {
+      // Get vectorization information
+      auto out_tv = sop->out()->as<kir::TensorIndex>()->view();
+      int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
+      bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+      if (is_vector_op) {
+        generateVectorizedLdSt(
+          sop->input(0), sop->output(0), CacheOp::AllLevels, vector_word_size);
+        code_ << ";\n";
+      }
+      return;
+    }
+
     // generate code
     if (!print_inline_) {
       indent() << gen(sop->output(0));
