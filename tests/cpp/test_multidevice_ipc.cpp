@@ -38,12 +38,14 @@ TEST_F(IpcTest, IpcMemHandle) {
   void* d_ptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, kBufferSize));
   const int64_t value = rank;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(d_ptr, &value, kBufferSize, cudaMemcpyHostToDevice));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemcpy(d_ptr, &value, kBufferSize, cudaMemcpyHostToDevice));
 
   // Export Ipc Handle
   cudaIpcMemHandle_t ipc_handle;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcGetMemHandle(&ipc_handle, d_ptr));
-  // As a convenience, we use the TCP store to exchange out-of-band the IPC handle as raw data
+  // As a convenience, we use the TCP store to exchange out-of-band the IPC
+  // handle as raw data
   auto store = communicator_->getTcpStore();
   store->set("ipc_handle_" + std::to_string(rank), toBytes(ipc_handle));
 
@@ -59,7 +61,8 @@ TEST_F(IpcTest, IpcMemHandle) {
 
   // Validate
   int64_t peer_value;
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(&peer_value, peer_d_ptr, kBufferSize, cudaMemcpyDeviceToHost));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemcpy(&peer_value, peer_d_ptr, kBufferSize, cudaMemcpyDeviceToHost));
   EXPECT_EQ((value + 1) % num_devices, peer_value);
 
   // Clean up
@@ -68,7 +71,8 @@ TEST_F(IpcTest, IpcMemHandle) {
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
-  // TL;DR: We can do pointer arithmetic on the importer side. IOW, the pointer can be used as a regular pointer on the importer side.
+  // TL;DR: We can do pointer arithmetic on the importer side. IOW, the pointer
+  // can be used as a regular pointer on the importer side.
 
   // Allocate GPU memory. Set up a buffer with two int values.
   constexpr size_t kBufferSize = 2 * sizeof(int64_t);
@@ -82,7 +86,8 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
   std::vector<int64_t> values;
   values.push_back(2 * rank);
   values.push_back(2 * rank + 1);
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(d_ptr, values.data(), kBufferSize, cudaMemcpyHostToDevice));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemcpy(d_ptr, values.data(), kBufferSize, cudaMemcpyHostToDevice));
 
   // Export Ipc Handle
   cudaIpcMemHandle_t ipc_handle;
@@ -126,7 +131,8 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
   std::vector<int64_t> values;
   values.push_back(2 * rank);
   values.push_back(2 * rank + 1);
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(d_ptr, values.data(), kBufferSize, cudaMemcpyHostToDevice));
+  NVFUSER_CUDA_RT_SAFE_CALL(
+      cudaMemcpy(d_ptr, values.data(), kBufferSize, cudaMemcpyHostToDevice));
 
   // Export Ipc Handle
   cudaIpcMemHandle_t ipc_handle;
@@ -144,10 +150,11 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcOpenMemHandle(
       (void**)&peer_d_ptr, peer_ipc_handle, cudaIpcMemLazyEnablePeerAccess));
 
-  // Validate, noticing that the pointer is not offset by 1, contrarily to the offset used in the exporter side.
+  // Validate, noticing that the pointer is not offset by 1, contrarily to the
+  // offset used in the exporter side.
   int64_t peer_value;
-  NVFUSER_CUDA_RT_SAFE_CALL(
-      cudaMemcpy(&peer_value, peer_d_ptr, kBufferSize / 2, cudaMemcpyDeviceToHost));
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpy(
+      &peer_value, peer_d_ptr, kBufferSize / 2, cudaMemcpyDeviceToHost));
   EXPECT_EQ(
       2 * peer_rank,
       peer_value); // and not 2 * peer_rank + 1 as could be expected!
