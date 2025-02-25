@@ -343,17 +343,42 @@ void PrecomputedValues::validate() {
 void PrecomputedValues::bindTensorMetaData(
     TensorView* tv,
     const at::Tensor& tensor) {
-  const auto logical_domain =
-      TensorDomain::noReductions(tv->getMaybeRootDomain());
   NVF_ERROR(
-      tensor.dim() == static_cast<int64_t>(logical_domain.size()),
+      tv->isFusionInput(),
+      "Attempted to bind non-input tensor to PrecomputedValues");
+
+  const auto root_domain = TensorDomain::noReductions(tv->getMaybeRootDomain());
+  const auto logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+
+  // NOTE: There might be a root->logical permutation and broadcast IDs could
+  // be inserted/removed along that path. In order to ensure that all _logical_
+  // extents are bound, we find the location of each logical ID in the root
+  // domain and use that position for binding
+  NVF_ERROR(
+      tensor.dim() == static_cast<int64_t>(root_domain.size()),
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
-  for (const auto dim :
-       c10::irange(static_cast<int64_t>(logical_domain.size()))) {
-    IterDomain* id = logical_domain[dim];
-    const auto dim_size = logical_sizes.at(dim);
+  for (size_t logical_dim : c10::irange(logical_domain.size())) {
+    IterDomain* id = logical_domain.at(logical_dim);
+    size_t root_dim = logical_dim;
+    if (tv->domain()->hasRoot()) {
+      auto root_it = std::find(root_domain.begin(), root_domain.end(), id);
+      if (root_it == root_domain.end()) {
+        NVF_ERROR(
+            id->isBroadcast(),
+            "Non-broadcast ID ",
+            id->toString(),
+            " is present in logical but not root domain of input ",
+            tv->toString(),
+            ". Input TensorViews can only have permutations, broadcast, and squeeze root->logical");
+        bindValue(id->extent()->evaluatorIndex(), 1L);
+        continue;
+      }
+      root_dim = std::distance(std::begin(root_domain), root_it);
+    }
+    const auto dim_size = logical_sizes.at(root_dim);
     if (id->isBroadcast()) {
       // DIDs are ignored for broadcast. See MultideviceShardingTest.Broadcast
       // and .ExpandedBroadcast.

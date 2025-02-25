@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <iostream>
+#include "ir/internal_nodes.h"
 
 #include <debug.h>
 #include <evaluator_common.h>
@@ -19,6 +20,7 @@
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
 #include <polymorphic_value.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -136,10 +138,15 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
-  auto logical_domain = TensorDomain::noReductions(
-      tv->isFusionInput() ? tv->getMaybeRootDomain() : tv->getLogicalDomain());
+  std::vector<IterDomain*> root_domain;
+  if (tv->isFusionInput()) {
+    root_domain = TensorDomain::noReductions(tv->getMaybeRootDomain());
+  }
+  const std::vector<IterDomain*> logical_domain =
+      TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_ERROR(
-      t.dim() == (int64_t)logical_domain.size(),
+      t.dim() ==
+          (int64_t)(tv->isFusionInput() ? root_domain : logical_domain).size(),
       "Expected ",
       getInputPosString(tv),
       tv->toString(),
@@ -149,14 +156,37 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-  for (auto i : c10::irange(t.dim())) {
-    auto id = logical_domain[i];
+  for (size_t logical_dim : c10::irange(logical_domain.size())) {
+    IterDomain* id = logical_domain.at(logical_dim);
+    size_t actual_dim = logical_dim;
+    if (tv->isFusionInput() && tv->domain()->hasRoot()) {
+      // NOTE: There might be a root->logical permutation and broadcast IDs
+      // could be inserted/removed along that path. In order to ensure that all
+      // _logical_ extents are bound, we find the location of each logical ID in
+      // the root domain and use that position for binding
+      auto root_it = std::find(root_domain.begin(), root_domain.end(), id);
+      if (root_it == root_domain.end()) {
+        NVF_ERROR(
+            id->isBroadcast(),
+            "Non-broadcast ID ",
+            id->toString(),
+            " is present in logical but not root domain of input ",
+            tv->toString(),
+            ". Input TensorViews can only have permutations, broadcast, and squeeze root->logical");
+        bind_(id->extent(), 1L, evaluate_validate);
+        continue;
+      }
+      actual_dim = std::distance(std::begin(root_domain), root_it);
+    }
+    const int64_t dim_size = logical_sizes.at(actual_dim);
+    const int64_t dim_stride = t.stride(actual_dim);
+
     if (id->isBroadcast()) {
       bind_(id->extent(), 1, evaluate_validate);
       if (id->hasExpandedExtent()) {
         // Verify that t is also expanded
         NVF_ERROR(
-            logical_sizes[i] == 1 || t.stride(i) == 0,
+            dim_size == 1 || dim_stride == 0,
             "IterDomain ",
             id->toString(),
             " in ",
@@ -164,15 +194,15 @@ void ExpressionEvaluator::bindTensorDomain(
             "TensorView ",
             tv->toString(),
             " has expanded extent but input tensor has size ",
-            logical_sizes[i],
+            dim_size,
             " and stride ",
-            t.stride(i),
+            dim_stride,
             " in dimension ",
-            i);
-        bind_(id->expandedExtent(), logical_sizes[i], evaluate_validate);
+            actual_dim);
+        bind_(id->expandedExtent(), dim_size, evaluate_validate);
       }
     } else {
-      bind_(id->extent(), logical_sizes[i], evaluate_validate);
+      bind_(id->extent(), dim_size, evaluate_validate);
     }
   }
 }

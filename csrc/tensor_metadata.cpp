@@ -358,21 +358,58 @@ std::vector<PolymorphicValue> GetMetaData::evaluate(
       std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
   metadata->data = input.data_ptr();
 
-  if (isSharded(tv)) {
-    std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes());
-    metadata->logical_size_data = std::move(unsharded_sizes);
-    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
-  } else {
-    metadata->logical_size = input.sizes();
-  }
-  metadata->logical_stride = input.strides();
+  if (tv->isFusionInput() && tv->domain()->hasRoot()) {
+    NVF_ERROR(
+        !isSharded(tv),
+        "Sharded input TVs with root domains not yet supported");
+    std::vector<int64_t> logical_size; // also equal to alloc_size in this case
+    std::vector<int64_t>
+        alloc_stride; // also equal to logical_stride in this case
 
-  auto [allocation_sizes, allocation_strides] =
-      inferAndValidateAllocationSizesAndStrides(input, tv, ee);
-  metadata->alloc_size_data = std::move(allocation_sizes);
-  metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
-  metadata->alloc_stride_data = std::move(allocation_strides);
-  metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
+    std::vector<IterDomain*> root_dom =
+        TensorDomain::noReductions(tv->getMaybeRootDomain());
+    std::vector<IterDomain*> logical_dom =
+        TensorDomain::noReductions(tv->getLogicalDomain());
+
+    for (IterDomain* logical_id : logical_dom) {
+      auto it = std::find(root_dom.begin(), root_dom.end(), logical_id);
+      if (it == root_dom.end()) {
+        NVF_ERROR(
+            logical_id->isBroadcast() && !logical_id->hasExpandedExtent());
+        logical_size.push_back(1L);
+        alloc_stride.push_back(0L);
+      } else {
+        size_t root_pos = std::distance(std::begin(root_dom), it);
+        logical_size.push_back(input.sizes().at(root_pos));
+        alloc_stride.push_back(input.strides().at(root_pos));
+      }
+    }
+
+    metadata->logical_size_data = logical_size;
+    metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+    metadata->logical_stride_data = alloc_stride;
+    metadata->logical_stride = c10::makeArrayRef(metadata->logical_stride_data);
+    metadata->alloc_size_data = std::move(logical_size);
+    metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
+    metadata->alloc_stride_data = std::move(alloc_stride);
+    metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
+  } else {
+    if (isSharded(tv)) {
+      std::vector<int64_t> unsharded_sizes = unshardedSizes(tv, input.sizes());
+      metadata->logical_size_data = std::move(unsharded_sizes);
+      metadata->logical_size = c10::makeArrayRef(metadata->logical_size_data);
+    } else {
+      metadata->logical_size = input.sizes();
+    }
+    metadata->logical_stride = input.strides();
+
+    auto [allocation_sizes, allocation_strides] =
+        inferAndValidateAllocationSizesAndStrides(input, tv, ee);
+    metadata->alloc_size_data = std::move(allocation_sizes);
+    metadata->alloc_size = c10::makeArrayRef(metadata->alloc_size_data);
+    metadata->alloc_stride_data = std::move(allocation_strides);
+    metadata->alloc_stride = c10::makeArrayRef(metadata->alloc_stride_data);
+  }
   return {PolymorphicValue(std::move(struct_))};
 }
 

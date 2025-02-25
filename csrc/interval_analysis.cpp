@@ -589,8 +589,8 @@ void ScalarBoundsCalculator::handle(UnaryOp* uop) {
 }
 
 void ScalarBoundsCalculator::handle(BinaryOp* bop) {
-  BoundedInt a = bounds_.at(bop->lhs());
-  BoundedInt b = bounds_.at(bop->rhs());
+  BoundedInt a = maybeGetBounds(bop->lhs()).value();
+  BoundedInt b = maybeGetBounds(bop->rhs()).value();
   BoundedInt result;
   switch (bop->getBinaryOpType()) {
     case BinaryOpType::Add:

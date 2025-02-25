@@ -44,7 +44,7 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   std::unordered_set<IterDomain*> fusion_input_ids;
   for (Val* v : fusion->inputs()) {
     if (auto* tv = dynamic_cast<TensorView*>(v)) {
-      for (IterDomain* id : tv->getLogicalDomain()) {
+      for (IterDomain* id : tv->getMaybeRootDomain()) {
         fusion_input_ids.insert(id);
       }
     }
