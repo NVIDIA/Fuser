@@ -1646,6 +1646,34 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
+TEST_P(SimpleNormTmaTest, ReductionSimple) {
+  DataType dtype = GetParam();
+  int64_t dim0 = 8192;
+  int64_t dim1 = 4096;
+  const std::vector<int64_t> input_shape = {dim0, dim1};
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(input_shape.size(), dtype);
+  fusion->addInput(tv0);
+  if (dtype == DataType::Half) {
+    tv0 = castOp(DataType::Float, tv0);
+  }
+  auto tv2 = sum(tv0, {1});
+  fusion->addOutput(tv2);
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  auto t0 = at::ones(input_shape, options);
+  std::vector<c10::IValue> aten_inputs = {t0};
+  auto fusion_copy = *fusion;
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+
+  auto aten_output = t0.sum({1});
+  // compare<float>(dim0,dim1,cg_outputs.at(0).to(at::kFloat), aten_output.to(at::kFloat));
+  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+}
+
 TEST_P(SimpleNormTmaTest, tanh) {
   DataType dtype = GetParam();
   int64_t dim1 = 4096;
