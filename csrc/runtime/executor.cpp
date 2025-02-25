@@ -668,40 +668,47 @@ void KernelExecutor::initializeExecutorEntry(
   for (auto inp_idx :
        c10::irange(compiled_kernel_->kernel()->inputs().size())) {
     auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
-    if (input->isA<TensorView>()) {
-      if (input->as<TensorView>()->hasAllocation()) {
-        std::cout << "Get buffer info for: " << input->toString() << std::endl;
-        std::cout << "Arg: "
-                  << PolymorphicValue_functions::toString(args[inp_idx])
-                  << std::endl;
-        auto buffer_info =
-            getInputBufferInfos(expr_eval, index_type, {input->as<TensorView>()})[0];
-        std::cout << "Buffer info allocation sizes: "
-                  << buffer_info.shape_info.allocation_sizes << std::endl;
-        std::cout << "Buffer info allocation strides: "
-                  << buffer_info.shape_info.allocation_strides << std::endl;
-        std::cout << "Buffer info logical sizes: "
-                  << buffer_info.shape_info.logical_sizes << std::endl;
-        std::cout << "Buffer info logical strides: "
-                  << buffer_info.shape_info.logical_strides << std::endl;
-        input_info.emplace_back(buffer_info);
+    if (auto input_tv = dynamic_cast<TensorView*>(input)) {
+      std::cout << "Get buffer info for: " << input_tv->toString() << std::endl;
+      std::cout << "Arg: "
+                << PolymorphicValue_functions::toString(args[inp_idx])
+                << std::endl;
+
+      auto at_tensor = args[inp_idx].as<at::Tensor>();
+      std::vector<int64_t> alloc_sizes;
+      std::vector<int64_t> alloc_strides;
+      if (input_tv->hasAllocation()) {
+        std::tie(alloc_sizes, alloc_strides) =
+            inferAndValidateAllocationSizesAndStrides(
+                at_tensor, input_tv, expr_eval);
       } else {
-        TensorShapeInfo shape_info;
-        shape_info.logical_sizes = args[inp_idx].as<at::Tensor>().sizes().vec();
-        shape_info.logical_strides =
-            args[inp_idx].as<at::Tensor>().strides().vec();
-        shape_info.allocation_sizes =
-            args[inp_idx].as<at::Tensor>().sizes().vec();
-        shape_info.allocation_strides =
-            args[inp_idx].as<at::Tensor>().strides().vec();
-        input_info.emplace_back(GlobalBufferInfo(
-            input->as<TensorView>(),
-            shape_info,
-            data_type_to_aten(input->dtype()),
-            false,
-            false,
-            false));
+        alloc_sizes = at_tensor.sizes().vec();
+        alloc_strides = at_tensor.strides().vec();
       }
+
+      TensorShapeInfo shape_info;
+      shape_info.logical_sizes = args[inp_idx].as<at::Tensor>().sizes().vec();
+      shape_info.logical_strides =
+          args[inp_idx].as<at::Tensor>().strides().vec();
+      shape_info.allocation_sizes = alloc_sizes;
+      shape_info.allocation_strides = alloc_strides;
+      auto buffer_info = GlobalBufferInfo(
+          input->as<TensorView>(),
+          shape_info,
+          data_type_to_aten(input->dtype()),
+          false,
+          false,
+          false);
+
+      std::cout << "Buffer info allocation sizes: "
+                << buffer_info.shape_info.allocation_sizes << std::endl;
+      std::cout << "Buffer info allocation strides: "
+                << buffer_info.shape_info.allocation_strides << std::endl;
+      std::cout << "Buffer info logical sizes: "
+                << buffer_info.shape_info.logical_sizes << std::endl;
+      std::cout << "Buffer info logical strides: "
+                << buffer_info.shape_info.logical_strides << std::endl;
+      input_info.emplace_back(buffer_info);
     }
   }
 

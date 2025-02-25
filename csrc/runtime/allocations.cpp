@@ -832,10 +832,30 @@ std::vector<GlobalBufferInfo> getInputBufferInfos(
     // TODO: Handle input allocation domains that aren't permutes
     // of the logical domain
     if (buffer_info.tv->hasAllocation()) {
-      auto allocation_size_stride = inferAllocationShape(
-          buffer_info.tv, expr_eval);
-      buffer_info.shape_info.allocation_sizes = allocation_size_stride.first;
-      buffer_info.shape_info.allocation_strides = allocation_size_stride.second;
+      auto logical_domain =
+          TensorDomain::noReductions(buffer_info.tv->getLogicalDomain());
+      auto allocation_domain = TensorDomain::noReductions(
+          buffer_info.tv->getMaybeAllocationDomain());
+      std::unordered_map<int64_t, int64_t> logical_to_allocation_map;
+      for (int64_t logical_idx : c10::irange(logical_domain.size())) {
+        auto allocation_id = std::find(
+            allocation_domain.begin(),
+            allocation_domain.end(),
+            logical_domain[logical_idx]);
+        NVF_ERROR(
+            allocation_id != allocation_domain.end(),
+            "Logical domain and allocation domain have different sets of IterDomains, this is not supported yet.");
+        logical_to_allocation_map[logical_idx] =
+            std::distance(allocation_domain.begin(), allocation_id);
+      }
+      std::vector<int64_t> allocation_sizes(allocation_domain.size());
+      std::vector<int64_t> allocation_strides(allocation_domain.size());
+      for (auto i : c10::irange(allocation_domain.size())) {
+        allocation_sizes[i] = logical_sizes[logical_to_allocation_map[i]];
+        allocation_strides[i] = logical_strides[logical_to_allocation_map[i]];
+      }
+      buffer_info.shape_info.allocation_sizes = allocation_sizes;
+      buffer_info.shape_info.allocation_strides = allocation_strides;
     } else {
       buffer_info.shape_info.allocation_sizes = logical_sizes;
       buffer_info.shape_info.allocation_strides = logical_strides;
@@ -844,7 +864,7 @@ std::vector<GlobalBufferInfo> getInputBufferInfos(
     buffer_infos.emplace_back(buffer_info);
   }
   return buffer_infos;
-    }
+}
 
 TensorShapeInfo inferTensorShapes(
     TensorView* tv,
