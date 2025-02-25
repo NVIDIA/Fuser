@@ -2175,7 +2175,7 @@ Val* cancelDivMod(Val* value, const Context& context) {
         Val* lhs_lhs = lhs_def->lhs();
         Val* lhs_rhs = lhs_def->rhs();
         if (lhs_rhs->isConst() && rhs->isConst()) {
-          return IrBuilder::divExpr(lhs_lhs, IrBuilder::mulExpr(lhs_rhs, rhs));
+          return IrBuilder::divExpr(lhs_lhs, SimplifyingIrBuilder::mulExpr(lhs_rhs, rhs));
         }
       }
     }
