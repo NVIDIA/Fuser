@@ -1699,6 +1699,17 @@ void ExprSegmentationSorter::sort() {
   }
 }
 
+bool isTrivialExpr(Expr* expr) {
+  if (expr->isOneOf<BroadcastOp, SqueezeOp>() &&
+      expr->input(0)->as<TensorView>()->getMemoryType() == MemoryType::Global &&
+      expr->output(0)->as<TensorView>()->getMemoryType() ==
+          MemoryType::Global) {
+    return true;
+  }
+  // TODO: Also skip trivial LoadStoreOps when they are S->S Sets?
+  return false;
+}
+
 std::vector<Expr*> ExprSegmentationSorter::getExprs() const {
   // At this stage, there is no data dependency between different groups, so we
   // can interleave their exprs. We choose to put scalar expressions that does
@@ -1715,7 +1726,9 @@ std::vector<Expr*> ExprSegmentationSorter::getExprs() const {
       if (!lower_utils::isScalarExpr(expr)) {
         active_exprs = &remaining_exprs;
       }
-      active_exprs->emplace_back(expr);
+      if (!isTrivialExpr(expr)) {
+        active_exprs->emplace_back(expr);
+      }
     }
   }
   scalar_exprs_without_tv_dep.insert(

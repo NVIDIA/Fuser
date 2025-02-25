@@ -4677,13 +4677,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
   // gmem [K, M, 1] x gmem [K, 1, N] -mma-> register [M, N, rK]
   // register [M, N, rK] -cast-> gmem [M, N]
 
-  auto tv0c = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv0c = tv0b->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv0c->setMemoryType(MemoryType::Shared);
-  auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  auto tv1c = tv1b->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
   tv1c->setMemoryType(MemoryType::Shared);
 
-  tv0b->setMemoryType(MemoryType::Shared);
-  tv1b->setMemoryType(MemoryType::Shared);
+  tv0b->setMemoryType(MemoryType::Global);
+  tv1b->setMemoryType(MemoryType::Global);
 
   TensorView *tv3c = nullptr, *tv3_shmem = nullptr;
   if (use_smem_epilogue) {
@@ -4719,21 +4719,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
   scheduler_utils::parallelizeAllLike(tv2);
 
   // [..., Mi, Ki] -> [..., Ki, Mi]
-  tv0c->reorder({{-2, -1}});
+  tv0c->reorder({{-3, -1}});
   tv0c->applyMmaSwizzleForTMALoad(swizzle);
+  tv0c->axis(-6)->parallelize(ParallelType::Unroll);
   // [..., Ni, Ki] -> [..., Ki, Ni]
   tv1c->reorder({{-1, -2}});
   tv1c->applyMmaSwizzleForTMALoad(swizzle);
-
-  // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
-  tv0b->reorder({{-3, -1}});
-  // skip checks and run scheduleTMALoadForMma directly
-  // tv0b->applyMmaSwizzleForTMALoad(swizzle);
-  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv0b, swizzle);
-  // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
-  tv1b->reorder({{-1, -2}});
-  // tv1b->applyMmaSwizzleForTMALoad(swizzle);
-  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv1b, swizzle);
+  tv1c->axis(-6)->parallelize(ParallelType::Unroll);
 
   // Strip ParallelType::Bulk from the broadcast tensors, since its definition
   // is not a TMA
@@ -4803,7 +4795,9 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
     mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
   }
 
-  inlineMost();
+  inlineMost(ir_utils::allTvsExcept(&fusion, {tv0, tv1, tv0b, tv1b}));
+
+  fusion.print();
 
   if (use_warp_specialization) {
     tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));

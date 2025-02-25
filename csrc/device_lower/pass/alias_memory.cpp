@@ -757,6 +757,17 @@ class AllocationInfoMap : private kir::IrVisitor {
   using kir::IrVisitor::handle;
 
   void dispatch(Expr* expr) final {
+    if (expr->outputs().size() == 1) {
+      // Look for forced aliases
+      auto* out_tv = dynamic_cast<TensorView*>(expr->output(0));
+      if (out_tv) {
+        auto* alias_tv = GpuLower::current()->getTensorProducerAlias(out_tv);
+        if (alias_tv != nullptr) {
+          useInnerAlias(
+              getAllocInfoFromTV(out_tv), getAllocInfoFromTV(alias_tv));
+        }
+      }
+    }
     if (debug_printer_) {
       debug_printer_->pushBack(scope_map_.getExprPos(expr), expr);
     }
