@@ -73,7 +73,14 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 
 namespace {
 
-std::vector<IterDomain*> getFullyUnswitchedLoopIds(
+// For a given loop nest represented by a vector of ForLoops, returns
+// the IDs of all of fully unswitched parallel loops. An ID is
+// considered fully unswitched when all of its dependent loop IDs are
+// unswitched. Similarly, a loop is fully unswitched when all of its
+// dependent predicated IDs are fully unswitched. This information is
+// used to determine if it's safe to omit the predicate for a parallel
+// type.
+std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
     const Expr* expr,
     const std::vector<ForLoop*>& loops,
     ForLoop* unswitched_loop) {
@@ -95,14 +102,7 @@ std::vector<IterDomain*> getFullyUnswitchedLoopIds(
       loops.end(),
       std::back_inserter(loop_ids),
       [&](ForLoop* loop) {
-        const auto& loop_group =
-            id_model.idGraph(IdMappingMode::LOOP).toGroup(loop->iter_domain());
-        auto promotion_it = id_model.loopPromotionMap().find(loop_group);
-        NVF_ERROR(
-            promotion_it != id_model.loopPromotionMap().end(),
-            "Loop promotion not found for ",
-            loop->iter_domain()->toString());
-        return promotion_it->second;
+        return getLoopPromotion(loop->iter_domain(), id_model);
       });
 
   const auto predicate_ids = getPredicateDomains(out_tv, expr);
@@ -113,6 +113,7 @@ std::vector<IterDomain*> getFullyUnswitchedLoopIds(
 
   ValGroups non_unswitch_dep_ids;
   std::vector<IterDomain*> unswitched_loop_ids;
+  // All loops that are right of unswitched_loop are also unswitched
   bool unswitch_found = false;
   for (const auto loop : loops) {
     if (loop == unswitched_loop) {
@@ -126,6 +127,8 @@ std::vector<IterDomain*> getFullyUnswitchedLoopIds(
     }
   }
 
+  // Find all IDs along the predicate indexing path that depend on the
+  // non unswitched loop IDs
   for (const auto& [expr_g, dir] : predicate_path) {
     const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
     const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
@@ -137,19 +140,20 @@ std::vector<IterDomain*> getFullyUnswitchedLoopIds(
     }
   }
 
-  // If none of unswitched_loop_ids is used with the non-unswitched
-  // loop ids,
-
   std::vector<IterDomain*> fully_unswitched_loop_ids;
   for (auto unswitched_loop_id : unswitched_loop_ids) {
+    // Don't care serial loops
     if (!isParallelTypeThread(unswitched_loop_id->getParallelType())) {
       continue;
     }
 
+    // Traverse the predicate indexing path from this unswitched loop
+    // ID. If any expr along the path also uses any of the non
+    // unswitched IDs or their dependent IDs, this loop ID is not
+    // considered fully unswitched.
     ValGroups unswitch_dep_ids;
     unswitch_dep_ids.pushBack(indexing_graph.toGroup(unswitched_loop_id));
-
-    bool conflict_found = false;
+    bool fully_unswitched = true;
     for (const auto& [expr_g, dir] : predicate_path) {
       const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
       const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
@@ -163,12 +167,12 @@ std::vector<IterDomain*> getFullyUnswitchedLoopIds(
       if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
             return non_unswitch_dep_ids.has(input);
           })) {
-        conflict_found = true;
+        fully_unswitched = false;
         break;
       }
     }
 
-    if (!conflict_found) {
+    if (fully_unswitched) {
       fully_unswitched_loop_ids.push_back(unswitched_loop_id);
     }
   }
@@ -205,7 +209,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   std::unordered_set<Val*> non_unswitched_root_domains;
 
   auto fully_unswitched_loop_ids =
-      getFullyUnswitchedLoopIds(expr, loops, unswitched_loop);
+      getFullyUnswitchedParallelLoopIds(expr, loops, unswitched_loop);
 
   for (const auto i : c10::irange(loops.size())) {
     auto loop = loops[i];
