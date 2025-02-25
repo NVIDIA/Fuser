@@ -1259,18 +1259,6 @@ void CompiledKernel::compile(int64_t block_size) {
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
 
-  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
-  // If the loaded external source code is empty, revert to the default
-  // codegen. The external_structured_code is moved to structured_code and
-  // explicitly cleared to avoid use-after-move scenarios. Note: we index
-  // these with getGlobalFusionCount() instead of fusion_id_ in order to match
-  // the numbering of files output with NVFUSER_DUMP=cuda_to_file
-  auto structured_code =
-      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
-  if (structured_code.empty()) {
-    structured_code = getStructuredCode();
-  }
-
   const kir::KernelSummary& kernel_summary = kernel->summary();
 
   std::pair<int64_t, int64_t> target_arch;
@@ -1328,7 +1316,7 @@ void CompiledKernel::compile(int64_t block_size) {
   maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
   compiled_kernel_ = getCudaExecutable(
       kernel_code_,
-      structured_code,
+      getStructuredCode(),
       kernelName(),
       kernel_id_,
       compile_params_,
@@ -1342,6 +1330,17 @@ void CompiledKernel::compile(int64_t block_size) {
 }
 
 std::string CompiledKernel::getStructuredCode() const {
+  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
+  // If the loaded external source code is empty, revert to the default
+  // codegen. The external_structured_code is moved to structured_code and
+  // explicitly cleared to avoid use-after-move scenarios. Note: we index
+  // these with getGlobalFusionCount() instead of fusion_id_ in order to match
+  // the numbering of files output with NVFUSER_DUMP=cuda_to_file
+  auto structured_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
+  if (!structured_code.empty()) {
+    return structured_code;
+  }
   return _getStructuredCode(
       kernelString(), kernel()->indexType(), kernelName());
 }
