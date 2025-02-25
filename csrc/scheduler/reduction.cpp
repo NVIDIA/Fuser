@@ -253,13 +253,21 @@ std::unique_ptr<ReductionParams> inner2dReductionHeuristic(
   }
 
   // Set iteration dims, iter = [BIDy, o-Unroll, TIDy]
-  // outer unroll is not used since test shows lower performance compared with
-  // inner unroll because the lack of a iteration domain grouped warp
-  // reduction. So each block needs to call warp reduction [o-Unroll] times.
   int64_t bdimy = 1, outer_unroll = 1, godim = 1;
-
   // fill bdimy, but don't go over target_threads_per_block
   bdimy = std::min(total_iteration_numel, target_threads_per_block / bdimx);
+
+  // Outer unroll is lowed to use iter grouped warp reduction.
+  // Prefer to set unroll factor to 2 since the reduction shlf packs 2 fp32 into
+  // 1 uint64 and finish 2 value exchanges in one shfl.
+  // Use it to replace bdimy when inner unroll didn't take all the unroll
+  // target.
+  // Didn't benchmark fusion with multiple inputs anf mufu ops, disable for now.
+  if (bdimy > 1 && inner_unroll * 2 <= target_inner_unroll &&
+      !has_mufu_computation && n_tensor_inputs == 1) {
+    outer_unroll = std::min(total_iteration_numel / sm_count, 2L);
+    bdimy = 1;
+  }
 
   // Put what is left to godim
   godim = ceilDiv(ceilDiv(total_iteration_numel, bdimy), outer_unroll);
