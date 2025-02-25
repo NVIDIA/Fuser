@@ -7451,7 +7451,10 @@ __device__ void iterGroupedWarpReduceBcast(
     packed_reduce_val.set(init_val);
     // input
     if (read_write_pred) {
-      packed_reduce_val.set(inp_val[i]);
+      #pragma unroll K
+      for (int j = 0; j < K; j++) {
+        packed_reduce_val[j] = inp_val[i+j];
+      }
     }
     // reduce within each warp
     batchWarpReduceSum<K, T>(packed_reduce_val, reduction_op);
@@ -7460,8 +7463,11 @@ __device__ void iterGroupedWarpReduceBcast(
     #pragma unroll K
     for (int j = 0; j < K; j++) {
       out[i + j] = packed_reduce_val[j];
+      if(blockIdx.x == 0 && threadIdx.x == 0){
+        printf("i: %d, out: %f\n", i + j, out[i + j]);
+      }      
     }
-    if()
+
   }
   // short circuit if we only have one warp
   if(SINGLE_WARP){

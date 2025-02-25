@@ -137,7 +137,7 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
   fusion->addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::ones({256, 10240}, options);
+  at::Tensor t0 = at::range(1, 256*10240, 1, options).reshape({256, 10240});
 
   // Generate heuristics & enforce unroll on top of vectorization
   SchedulerRuntimeInfo runtime_info(fusion.get(), {t0});
