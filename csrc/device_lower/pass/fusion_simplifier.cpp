@@ -16,6 +16,17 @@ namespace nvfuser {
 
 namespace {
 
+bool isTrivialExpr(Expr* expr) {
+  if (expr->isOneOf<BroadcastOp, SqueezeOp>() &&
+      expr->input(0)->as<TensorView>()->getMemoryType() == MemoryType::Global &&
+      expr->output(0)->as<TensorView>()->getMemoryType() ==
+          MemoryType::Global) {
+    return true;
+  }
+  // TODO: Also skip trivial LoadStoreOps when they are G->G Sets?
+  return false;
+}
+
 // Replaces Transpose and View Ops with LoadStoreOps.
 class LoadStoreOpInserter : private kir::ExprMutator {
  public:

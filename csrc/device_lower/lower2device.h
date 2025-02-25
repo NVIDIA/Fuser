@@ -342,9 +342,9 @@ class GpuLower : public NonCopyable {
   //! definition might get codegen'd without an allocation.
   void aliasTensorProducer(TensorView* consumer, TensorView* producer) {
     if (TensorView* old_alias = getTensorProducerAlias(consumer)) {
-      tensor_producer_alias_map_[consumer] = producer;
       aliasTensorProducer(old_alias, producer);
     }
+    tensor_producer_alias_map_[consumer] = producer;
     for (auto& [c, p] : tensor_producer_alias_map_) {
       if (p == consumer) {
         p = producer;
