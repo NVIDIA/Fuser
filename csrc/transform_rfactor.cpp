@@ -116,18 +116,19 @@ class ReplayRFactor : public ReplayTransformations {
     bool static_logical_outputs = static_logical_ids_.count(s->outer()) ||
         static_logical_ids_.count(s->inner());
 
-    // Let IterDomain::split determine the correct IterType, except
-    // when the output is a reduction domain but not part of the
-    // rfactored domains. If it isn't involved in the rfactor, it's no
-    // longer a redunction domain
+    // Let IterDomain::split determine the correct IterType except when a
+    // reduction domain is split into a domain that's not involved in the
+    // rfactor. This happens when a TV is rfactored multiple times, e.g.,
+    // test_communication.py::test_allreduce.
     std::optional<IterType> outer_iter_type;
-    if (!rfactor_dep_ids_.count(s->outer())) {
-      outer_iter_type = IterType::Iteration;
-    }
-
     std::optional<IterType> inner_iter_type;
-    if (!rfactor_dep_ids_.count(s->inner())) {
-      inner_iter_type = IterType::Iteration;
+    if (s->in()->isReduction()) {
+      if (!rfactor_dep_ids_.count(s->outer())) {
+        outer_iter_type = IterType::Iteration;
+      }
+      if (!rfactor_dep_ids_.count(s->inner())) {
+        inner_iter_type = IterType::Iteration;
+      }
     }
 
     auto [ido, idi] = IterDomain::split(
