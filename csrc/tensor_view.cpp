@@ -49,7 +49,7 @@ NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
-  ss << ir_utils::varName(this);
+  indent(ss, indent_size) << ir_utils::varName(this);
   switch (getMemoryType()) {
     case MemoryType::Global:
       ss << "_g";
@@ -66,7 +66,7 @@ std::string TensorView::toString(int indent_size) const {
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
-  ss << "_" << dtype() << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString();
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";
@@ -779,12 +779,6 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       "Error rfactoring ",
       this,
       " its definition is either a nullptr or not a reduction.");
-  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
-  // using commitLeafToLogical. Thus, the original logical domain is moved to
-  // the root domain.
-  NVF_CHECK(
-      definition()->isA<MmaOp>() || !domain()->hasRoot(),
-      "Cannot call rfactor on the same view twice.");
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
@@ -1437,6 +1431,15 @@ void TensorView::commitLeafToLogical() {
       TensorDomain::getContiguityFilledWith(
           (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
           true)));
+}
+
+void TensorView::setTMemDimSepPos(int64_t pos) {
+  int64_t ndims = (int64_t)getMaybeAllocationDomain().size();
+  pos = nvfuser::wrapDim(pos, ndims + 1);
+  NVF_CHECK(
+      pos >= 0 && pos <= ndims,
+      "Invalid position for tensor memory dimension separator");
+  tmem_dim_sep_pos_ = pos;
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(int64_t ndims) {

@@ -31,15 +31,13 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicLookup(
 
   // PreAllocate
   std::unique_ptr<FusionExecutorCache> executor_cache;
-  std::vector<c10::IValue> aten_inputs;
+  KernelArgumentHolder args;
 
   std::vector<int64_t> shape{20, 100, 35, 67};
   std::vector<int64_t> norm_shape{67};
 
   auto runtime = getLayerBackwardNormRuntime(
-      std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
-
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+      std::move(fusion_ptr), executor_cache, args, shape, norm_shape);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
@@ -56,15 +54,13 @@ static void NvFuserScheduler_LayerNormForward_HeuristicLookup(
 
   // PreAllocate
   std::unique_ptr<FusionExecutorCache> executor_cache;
-  std::vector<c10::IValue> aten_inputs;
+  KernelArgumentHolder args;
 
   std::vector<int64_t> shape{20, 100, 35, 67};
   std::vector<int64_t> norm_shape{67};
 
   auto runtime = getLayerForwardNormRuntime(
-      std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
-
-  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
+      std::move(fusion_ptr), executor_cache, args, shape, norm_shape);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
