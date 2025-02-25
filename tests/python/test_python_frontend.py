@@ -3276,6 +3276,16 @@ class TestNvFuserFrontend(NVFuserTest):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
         # self.assertEqual(nvf_out[0], t24)
 
+        # This fusion takes a long time to segment and schedule
+        # because of the resized extents, which seem to stress the
+        # expression simplifier a lot. Serializing this fusion would
+        # significantly increase the test time as it would be
+        # deserialized every time, which includes segmentation and
+        # scheduling. Ideally, we should optimize the expression
+        # simplifier, but for now resetting the cache should avoid the
+        # issue.
+        FusionCache.reset()
+
     # Test that symbolic IterDomains can be concatenated
     # https://github.com/NVIDIA/Fuser/issues/1554
     def test_cat_symbolic(self):
