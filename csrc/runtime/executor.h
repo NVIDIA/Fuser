@@ -74,6 +74,7 @@ struct KernelExecutorEntry {
   std::vector<int> output_aliased_to_output;
   // Temporary work buffers and intemediate global-memory tensors
   std::vector<GlobalBufferInfo> intermediates;
+  std::vector<GlobalBufferInfo> inputs;
   // The arguments to the kernel. These are configured in computeArgs and
   // recomputeArgs.
   // For the common case of a tensor argument, these correspond to the

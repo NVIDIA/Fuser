@@ -658,6 +658,46 @@ void KernelExecutor::initializeExecutorEntry(
       "Expected blockDim.x >= 32 but found ",
       launch_params.bdimx());
 
+  std::vector<GlobalBufferInfo> input_info;
+  NVF_ERROR(
+      compiled_kernel_->kernel()->inputs().size() == args.size(),
+      "Input size mismatch, expected: ",
+      compiled_kernel_->kernel()->inputs().size(),
+      " got: ",
+      args.size());
+  for (auto inp_idx :
+       c10::irange(compiled_kernel_->kernel()->inputs().size())) {
+    auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
+    if (input->isA<TensorView>()) {
+      if (input->as<TensorView>()->hasAllocation()) {
+        input_info.emplace_back(getBufferInfos(
+            expr_eval, index_type, {input->as<TensorView>()})[0]);
+      } else {
+        TensorShapeInfo shape_info;
+        shape_info.logical_sizes = args[inp_idx].as<at::Tensor>().sizes().vec();
+        shape_info.logical_strides =
+            args[inp_idx].as<at::Tensor>().strides().vec();
+        shape_info.allocation_sizes =
+            args[inp_idx].as<at::Tensor>().sizes().vec();
+        shape_info.allocation_strides =
+            args[inp_idx].as<at::Tensor>().strides().vec();
+        input_info.emplace_back(GlobalBufferInfo(
+            input->as<TensorView>(),
+            shape_info,
+            data_type_to_aten(input->dtype()),
+            false,
+            false,
+            false));
+      }
+    } else {
+      input_info.emplace_back(GlobalBufferInfo());
+    }
+    std::cout << "input_info.back().shape_info.logical_sizes: "
+              << input_info.back().shape_info.logical_sizes << std::endl;
+    std::cout << "input_info.back().shape_info.allocation_strides: "
+              << input_info.back().shape_info.allocation_strides << std::endl;
+  }
+
   std::vector<GlobalBufferInfo> output_info;
 
   if (outputs.empty()) {
@@ -738,6 +778,7 @@ void KernelExecutor::initializeExecutorEntry(
   executor_entry.output_aliased_to_input = output_aliased_to_input;
   executor_entry.output_aliased_to_output = output_aliased_to_output;
   executor_entry.intermediates = intermediates;
+  executor_entry.inputs = input_info;
   executor_entry.init = true;
 }
 
@@ -841,6 +882,8 @@ void KernelExecutor::computeArgs(
 void KernelExecutor::computeArgs2(
     KernelExecutorEntry& entry,
     const KernelArgumentHolder& args) const {
+  std::cout << "Args: " << args.toString() << std::endl;
+
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs2");
   if (entry.args.size() != args.size()) {
     entry.args.resize(args.size());
@@ -849,23 +892,106 @@ void KernelExecutor::computeArgs2(
 
   NVF_ERROR(
       args.size() ==
-              compiled_kernel_->kernel()->inputs().size() +
-                  entry.outputs.size() + entry.intermediates.size() &&
-          args.size() == compiled_kernel_->kernel()->parameters().size(),
+          compiled_kernel_->kernel()->inputs().size() + entry.outputs.size() +
+              entry.intermediates.size(),
       "Argument size mismatch, expected: ",
       compiled_kernel_->kernel()->inputs().size() + entry.outputs.size() +
           entry.intermediates.size(),
       " got: ",
       args.size());
 
+  NVF_ERROR(
+      args.size() == compiled_kernel_->kernel()->parameters().size(),
+      "Argument size mismatch, expected: ",
+      compiled_kernel_->kernel()->parameters().size(),
+      " got: ",
+      args.size());
+
+  auto buffer_info = [&](size_t idx) -> GlobalBufferInfo& {
+    if (idx < entry.inputs.size()) {
+      return entry.inputs[idx];
+    } else if (idx < entry.inputs.size() + entry.outputs.size()) {
+      return entry.outputs[idx - entry.inputs.size()];
+    } else if (
+        idx < entry.inputs.size() + entry.outputs.size() +
+            entry.intermediates.size()) {
+      return entry
+          .intermediates[idx - entry.inputs.size() - entry.outputs.size()];
+    } else {
+      NVF_CHECK(
+          0,
+          "Invalid buffer index: ",
+          idx,
+          " input size: ",
+          entry.inputs.size(),
+          " output size: ",
+          entry.outputs.size(),
+          " intermediate size: ",
+          entry.intermediates.size());
+    }
+  };
+
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
-  for (size_t i = 0; i < args.size(); ++i) {
-    auto bytes = polymorphicValueToBytes(
-        args[i],
-        compiled_kernel_->kernel()->parameters()[i]->dtype(),
-        idx_type);
-    entry.args[i] = bytes;
-    entry.arg_ptrs[i] = entry.args[i].data();
+  for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
+    std::vector<std::byte> bytes;
+    if (args[arg_idx].is<at::Tensor>()) {
+      auto tensor = args[arg_idx].as<at::Tensor>();
+      NVF_ERROR(
+          tensor.is_cuda(), "Only accepts CUDA tensors or CPU scalar tensors.");
+
+      auto data = tensor.data_ptr();
+      const auto& logical_size = buffer_info(arg_idx).shape_info.logical_sizes;
+      const auto& alloc_stride =
+          buffer_info(arg_idx).shape_info.allocation_strides;
+
+      // special handle for TensorMetaData so that CPU overhead is minimal.
+      if (idx_type == PrimDataType::Int) {
+        bytes.reserve(
+            sizeof(void*) + sizeof(int64_t) * logical_size.size() +
+            sizeof(int64_t) * alloc_stride.size());
+        bytes.insert(
+            bytes.end(), (std::byte*)data, (std::byte*)data + sizeof(void*));
+        bytes.insert(
+            bytes.end(),
+            (std::byte*)logical_size.data(),
+            (std::byte*)logical_size.data() +
+                sizeof(int64_t) * logical_size.size());
+        bytes.insert(
+            bytes.end(),
+            (std::byte*)alloc_stride.data(),
+            (std::byte*)alloc_stride.data() +
+                sizeof(int64_t) * alloc_stride.size());
+      } else {
+        bytes.reserve(
+            sizeof(void*) + sizeof(int32_t) * logical_size.size() +
+            sizeof(int32_t) * alloc_stride.size());
+        bytes.insert(
+            bytes.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
+        std::vector<int32_t> logical_size32(
+            logical_size.begin(), logical_size.end());
+        bytes.insert(
+            bytes.end(),
+            (std::byte*)logical_size32.data(),
+            (std::byte*)logical_size32.data() +
+                sizeof(int32_t) * logical_size32.size());
+        std::vector<int32_t> alloc_stride32(
+            alloc_stride.begin(), alloc_stride.end());
+        bytes.insert(
+            bytes.end(),
+            (std::byte*)alloc_stride32.data(),
+            (std::byte*)alloc_stride32.data() +
+                sizeof(int32_t) * alloc_stride32.size());
+      }
+      entry.args[arg_idx] = bytes;
+      entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
+    } else {
+      auto bytes = polymorphicValueToBytes(
+          args[arg_idx],
+          compiled_kernel_->kernel()->parameters()[arg_idx]->dtype(),
+          idx_type);
+      entry.args[arg_idx] = bytes;
+      entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
+    }
   }
 }
 
