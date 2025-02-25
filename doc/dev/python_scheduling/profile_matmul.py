@@ -146,7 +146,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         description="""Run through a combination of matmul parameters and compare relative performance against nvjet for a single problem.""",
-        epilog="""How to run script: NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval python single_matmul.py nvjet_pybench.json 1752 4720 584 NN --verbose --validate""",
+        epilog="""How to run script: NVFUSER_ENABLE=fuse_matmul NVFUSER_DISABLE=matmul_expr_eval python profile_matmul.py 1752 4720 584 NN --verbose --validate""",
     )
     parser.add_argument("m", type=int, help="The size of M dimension")
     parser.add_argument("n", type=int, help="The size of N dimension")
