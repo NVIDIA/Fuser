@@ -258,15 +258,20 @@ FusionSchedules::FusionSchedules(int64_t fusion_id)
       last_user_def_scheduled_ir(nullptr),
       last_user_def_executor(nullptr),
       scheds_lock(),
-      fusion_id_{fusion_id} {
-  auto_gen_schedules = std::make_unique<FusionExecutorCache>(
-      std::make_unique<Fusion>(), fusion_id);
+      fusion_id_(fusion_id) {
+  presched_fusion_ = std::make_unique<Fusion>();
 }
 
 Fusion* FusionSchedules::preschedFusion() {
-  auto fusion = auto_gen_schedules->fusion();
-  NVF_CHECK(fusion != nullptr, "Prescheduled Fusion is unexpectedly null!");
-  return fusion;
+  if (presched_fusion_ != nullptr) {
+    return presched_fusion_.get();
+  }
+
+  if (auto_gen_schedules != nullptr) {
+    return auto_gen_schedules->fusion();
+  }
+
+  NVF_THROW("Prescheduled Fusion is unexpectedly null!");
 }
 
 TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
@@ -675,7 +680,7 @@ void FusionCache::serialize(std::string filename) const {
         map_record_functor_to_trie_node_id.at(node->record.get()));
 
     auto schedule = queryFusionSchedules(node->fusion_id);
-    fb_auto_gen_schedules.emplace_back(
+    fb_auto_gen_schedules.push_back(
         schedule->auto_gen_schedules->serialize(builder));
   }
 
@@ -844,6 +849,9 @@ void FusionCache::deserialize(std::string filename) {
 
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
     auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
+    fusion_schedule->auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+        std::move(fusion_schedule->presched_fusion_), trie_node->fusion_id);
+    fusion_schedule->presched_fusion_ = nullptr;
 
     if (!isOptionDisabled(DisableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.

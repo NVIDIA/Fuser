@@ -116,6 +116,8 @@ struct FusionSchedules {
   std::vector<int64_t> outputs_fid_;
   //! Map Fusion Val to its corresponding FusionDefinition index
   std::unordered_map<const Val*, int64_t> map_value_to_fid_;
+
+  std::unique_ptr<Fusion> presched_fusion_;
 };
 
 //! \struct TrieNode

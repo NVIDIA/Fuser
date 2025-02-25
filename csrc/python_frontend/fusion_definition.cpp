@@ -123,6 +123,10 @@ void FusionDefinition::finalizeDefinition() {
     fs->extents_fid_ = extents();
     fs->map_value_to_fid_ = getValueMap();
 
+    fs->auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+        std::move(fs->presched_fusion_), *fusion_id_);
+    fs->presched_fusion_ = nullptr;
+
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
     }
