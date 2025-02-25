@@ -456,9 +456,11 @@ bool haveDifferentShardings(
         return false;
       }
 
-      p_index = simplifyExpr(p_index, {}, assumptions);
-      c_index = simplifyExpr(c_index, {}, assumptions);
-      return p_index->sameAs(c_index);
+      Val* const p_index_simplified = simplifyExpr(p_index, {}, assumptions);
+      Val* const c_index_simplified = simplifyExpr(c_index, {}, assumptions);
+      // I chose to not inline `p_index_simplified` and `c_index_simplified` so
+      // it's easier to print them during debugging.
+      return p_index_simplified->sameAs(c_index_simplified);
     }();
 
     if (!is_equivalent) {
