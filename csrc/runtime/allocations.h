@@ -103,4 +103,10 @@ std::vector<GlobalBufferInfo> getBufferInfos(
     DataType index_dtype,
     const std::vector<Val*>& fusion_outputs);
 
+std::vector<GlobalBufferInfo> getInputBufferInfos(
+    ExpressionEvaluator& expr_eval,
+    DataType index_dtype,
+    const std::vector<Val*>& fusion_outputs,
+    const std::vector<at::Tensor>& inputs);
+
 } // namespace nvfuser

@@ -670,8 +670,21 @@ void KernelExecutor::initializeExecutorEntry(
     auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
     if (input->isA<TensorView>()) {
       if (input->as<TensorView>()->hasAllocation()) {
-        input_info.emplace_back(getBufferInfos(
-            expr_eval, index_type, {input->as<TensorView>()})[0]);
+        std::cout << "Get buffer info for: " << input->toString() << std::endl;
+        std::cout << "Arg: "
+                  << PolymorphicValue_functions::toString(args[inp_idx])
+                  << std::endl;
+        auto buffer_info =
+            getInputBufferInfos(expr_eval, index_type, {input->as<TensorView>()})[0];
+        std::cout << "Buffer info allocation sizes: "
+                  << buffer_info.shape_info.allocation_sizes << std::endl;
+        std::cout << "Buffer info allocation strides: "
+                  << buffer_info.shape_info.allocation_strides << std::endl;
+        std::cout << "Buffer info logical sizes: "
+                  << buffer_info.shape_info.logical_sizes << std::endl;
+        std::cout << "Buffer info logical strides: "
+                  << buffer_info.shape_info.logical_strides << std::endl;
+        input_info.emplace_back(buffer_info);
       } else {
         TensorShapeInfo shape_info;
         shape_info.logical_sizes = args[inp_idx].as<at::Tensor>().sizes().vec();
@@ -915,6 +928,19 @@ void KernelExecutor::computeArgs2(
       " got: ",
       args.size());
 
+  for (auto inp : compiled_kernel_->kernel()->inputs()) {
+    if (!inp->isA<TensorView>()) {
+      continue;
+    }
+    std::cout << "Input root: " << inp->as<TensorView>()->getRootDomain()
+              << std::endl;
+    std::cout << "Input logical: " << inp->as<TensorView>()->getLogicalDomain()
+              << std::endl;
+    std::cout << "Input alloc: "
+              << inp->as<TensorView>()->getMaybeAllocationDomain() << std::endl;
+  }
+  std::cout << "Args: " << args.toString() << std::endl;
+
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
   int64_t buffer_info_idx = 0;
   for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
@@ -931,6 +957,9 @@ void KernelExecutor::computeArgs2(
       const auto& alloc_stride =
           linear_buffer_info_getter(entry, buffer_info_idx)
               .shape_info.allocation_strides;
+      std::cout << "Binding Tensor: " << (int64_t)data
+                << " size: " << logical_size << " stride: " << alloc_stride
+                << std::endl;
       buffer_info_idx++;
       // special handle for TensorMetaData so that CPU overhead is minimal.
       if (idx_type == PrimDataType::Int) {

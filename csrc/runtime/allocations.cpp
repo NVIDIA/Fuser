@@ -806,6 +806,46 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
 }
 
+std::vector<GlobalBufferInfo> getInputBufferInfos(
+    ExpressionEvaluator& expr_eval,
+    DataType index_dtype,
+    const std::vector<Val*>& fusion_inputs,
+    const std::vector<at::Tensor>& inputs) {
+  NVF_ERROR(
+      fusion_inputs.size() == inputs.size(),
+      "Mismatch in inputs provided, expected ",
+      fusion_inputs.size(),
+      " but got ",
+      inputs.size());
+  std::vector<GlobalBufferInfo> buffer_infos;
+  for (auto i : c10::irange(fusion_inputs.size())) {
+    GlobalBufferInfo buffer_info;
+    buffer_info.tv = fusion_inputs[i]->as<TensorView>();
+    auto logical_sizes = inputs[i].sizes().vec();
+    auto logical_strides = inputs[i].strides().vec();
+    TensorShapeInfo shape_info;
+    shape_info.logical_sizes = logical_sizes;
+    shape_info.logical_strides = logical_strides;
+    buffer_info.shape_info = shape_info;
+    buffer_info.type = inputs[i].scalar_type();
+
+    // TODO: Handle input allocation domains that aren't permutes
+    // of the logical domain
+    if (buffer_info.tv->hasAllocation()) {
+      auto allocation_size_stride = inferAllocationShape(
+          buffer_info.tv, expr_eval);
+      buffer_info.shape_info.allocation_sizes = allocation_size_stride.first;
+      buffer_info.shape_info.allocation_strides = allocation_size_stride.second;
+    } else {
+      buffer_info.shape_info.allocation_sizes = logical_sizes;
+      buffer_info.shape_info.allocation_strides = logical_strides;
+    }
+
+    buffer_infos.emplace_back(buffer_info);
+  }
+  return buffer_infos;
+    }
+
 TensorShapeInfo inferTensorShapes(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
