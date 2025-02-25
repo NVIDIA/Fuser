@@ -60,20 +60,14 @@ TEST_P(MultiDeviceReductionTest, UnshardedInput_ShardedOutput) {
   }
 
   auto x0 = at::randn(input_shape, tensor_options);
-  std::vector<c10::IValue> inputs = {x0};
   auto x1 = shardTensor(x0, tv1);
   auto x2 = x1 + x1;
   auto x3 = shardTensor(at::sum(x0 + x0, {sharded_input_dim}), tv3);
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({x0});
 
   testValidate(
-      executor_cache.fusion(),
-      outputs,
-      inputs,
-      {x1, x2, x3},
-      __LINE__,
-      __FILE__);
+      executor_cache.fusion(), outputs, {x0}, {x1, x2, x3}, __LINE__, __FILE__);
 }
 
 // Test multidevice fusion with sharded input and replicated intermediates and
@@ -104,12 +98,12 @@ TEST_P(MultiDeviceReductionTest, ShardedInput_ReplicatedOutput) {
   }
 
   auto x1 = at::randn(unsharded_input_shape, tensor_options);
-  std::vector<c10::IValue> inputs = {shardTensor(x1, tv0)};
+  KernelArgumentHolder args = {shardTensor(x1, tv0)};
   auto x2 = x1 * 2;
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
-      executor_cache.fusion(), outputs, inputs, {x1, x2}, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, args, {x1, x2}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -179,14 +173,14 @@ TEST_F(MultiDeviceTest, Slice) {
   const auto options = at::TensorOptions().device(communicator_->device());
   auto aten_x = at::randn(input_shape, options);
   auto expected_out = aten_x.split(4, 2);
-  std::vector<c10::IValue> inputs = {{shardTensor(aten_x, x)}};
+  KernelArgumentHolder args = {shardTensor(aten_x, x)};
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   testValidate(
       executor_cache.fusion(),
       outputs,
-      inputs,
+      args,
       {shardTensor(expected_out[0], x), shardTensor(expected_out[1], x)},
       __LINE__,
       __FILE__);
@@ -239,7 +233,7 @@ TEST_F(MultiDeviceTest, DivideBySum) {
   auto mesh = DeviceMesh::createForNumDevices(d);
   for (auto* tv : {x, sum_x, sum_x_broadcasted, y}) {
     tv->setDeviceMesh(mesh);
-    tv->split(1, d, /*inner_split=*/false);
+    tv->outer_split(1, d);
     tv->axis(1)->parallelize(ParallelType::DIDx);
     tv->reorder({{1, 0}});
   }
@@ -398,7 +392,7 @@ TEST_F(MultiDeviceTest, LoopSplit) {
   fusion->addOutput(out);
 
   for (auto* tv : {in, out}) {
-    tv->split(0, num_devices, /*inner_split=*/false);
+    tv->outer_split(0, num_devices);
     tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
@@ -432,12 +426,12 @@ TEST_F(MultiDeviceTest, LoopSplitWithReorder) {
 
   // logical: i{2}, i{3D}
   // allocation: iDIDx{D}, i{3}, i{2}
-  in->split(1, num_devices, /*inner_split=*/false);
+  in->outer_split(1, num_devices);
   in->reorder({{0, -1}});
   in->axis(0)->parallelize(ParallelType::DIDx);
   in->setAllocationDomain(in->getLoopDomain(), true);
 
-  out->split(1, num_devices, /*inner_split=*/false);
+  out->outer_split(1, num_devices);
   out->axis(1)->parallelize(ParallelType::DIDx);
   out->setAllocationDomain(out->getLoopDomain(), true);
 
@@ -516,7 +510,7 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
 
   if (parallelizes_broadcast) {
     for (auto* tv : {in, out}) {
-      tv->split(0, num_devices, /*inner_split=*/false);
+      tv->outer_split(0, num_devices);
       tv->axis(0)->parallelize(ParallelType::DIDx);
       tv->setAllocationDomain(tv->getLoopDomain(), true);
     }
@@ -542,7 +536,7 @@ TEST_F(MultiDeviceTest, ShardTensor_OuterSplit) {
 
   TensorView* tv = makeContigConcreteTensor({2, d * 3});
   tv->setDeviceMesh(DeviceMesh::createForNumDevices(d));
-  tv->split(1, d, /*inner_split=*/false);
+  tv->outer_split(1, d);
   tv->axis(1)->parallelize(ParallelType::DIDx);
   tv->setAllocationDomain(tv->getLoopDomain(), true);
 
@@ -568,7 +562,7 @@ TEST_F(MultiDeviceTest, ShardTensor_InnerSplit) {
 
   TensorView* tv = makeContigConcreteTensor({d * 3});
   tv->setDeviceMesh(DeviceMesh::createForNumDevices(d));
-  tv->split(0, d, /*inner_split=*/true);
+  tv->outer_split(0, d);
   tv->axis(-1)->parallelize(ParallelType::DIDx);
   tv->setAllocationDomain(tv->getLoopDomain(), true);
 
@@ -604,7 +598,7 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   auto mesh = DeviceMesh::createForNumDevices(d);
   for (auto* tv : {in, bias, broadcasted_bias, add_out, out}) {
     tv->setDeviceMesh(mesh);
-    tv->split(-1, d, /*inner_split=*/false);
+    tv->outer_split(-1, d);
     tv->axis(-2)->parallelize(ParallelType::DIDx);
     tv->reorder({{-2, 0}});
     tv->setAllocationDomain(tv->getLoopDomain(), true);
@@ -613,10 +607,9 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({b, s, h / d}, tensor_options);
   at::Tensor bias_tensor = at::randn({h / d}, tensor_options);
-  std::vector<c10::IValue> in_tensors({in_tensor, bias_tensor});
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs(in_tensors)[0];
-  testValidate(
-      executor_cache.fusion(), {out_tensor}, in_tensors, __LINE__, __FILE__);
+  KernelArgumentHolder args = {in_tensor, bias_tensor};
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs(args)[0];
+  testValidate(executor_cache.fusion(), {out_tensor}, args, __LINE__, __FILE__);
 }
 
 TEST_F(MultiDeviceTest, ViewWithSplit) {
@@ -634,7 +627,7 @@ TEST_F(MultiDeviceTest, ViewWithSplit) {
   auto mesh = DeviceMesh::createForNumDevices(d);
   for (auto* tv : {in, out}) {
     tv->setDeviceMesh(mesh);
-    tv->split(0, d, /*inner_split=*/false);
+    tv->outer_split(0, d);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
   in->setAllocationDomain(in->getLoopDomain(), true);
@@ -677,7 +670,7 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
   auto mesh = DeviceMesh::createForNumDevices(d);
   for (auto* tv : {in, out}) {
     tv->setDeviceMesh(mesh);
-    tv->split(0, d, /*inner_split=*/false);
+    tv->outer_split(0, d);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
   in->setAllocationDomain(in->getLoopDomain(), true);
@@ -720,7 +713,7 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
 
   for (auto* tv : {in, out}) {
     tv->setDeviceMesh(mesh);
-    tv->split(-1, d, /*inner_split=*/false);
+    tv->outer_split(-1, d);
     tv->axis(-2)->parallelize(ParallelType::DIDx);
     reorderDIDToFront(tv);
     tv->setAllocationDomain(tv->getLoopDomain(), true);

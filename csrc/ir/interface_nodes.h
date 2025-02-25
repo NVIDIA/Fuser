@@ -569,6 +569,16 @@ class NVF_API TensorView : public Val {
   // input, or using a parallel dim from NamedScalar::getParallelDim
   TensorView* split(int64_t axis, Val* factor, bool inner_split = true);
 
+  template <typename FactorType>
+  TensorView* inner_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/true);
+  }
+
+  template <typename FactorType>
+  TensorView* outer_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/false);
+  }
+
   // Merge axis_o and axis_i into 1 IterDomain
   TensorView* merge(int64_t axis_o, int64_t axis_i);
 
@@ -833,6 +843,15 @@ class NVF_API TensorView : public Val {
     return !mesh_.vector().empty();
   }
 
+  // Get/set the "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t getTMemDimSepPos() const {
+    return tmem_dim_sep_pos_;
+  }
+  void setTMemDimSepPos(int64_t pos);
+
  protected:
   void setDomain(TensorDomain* td) {
     domain_ = td;
@@ -900,6 +919,12 @@ class NVF_API TensorView : public Val {
 
   // Device Mesh on which the Tensor is sharded
   DeviceMesh mesh_;
+
+  // The "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t tmem_dim_sep_pos_ = 0;
 };
 
 //! A simple TensorView builder

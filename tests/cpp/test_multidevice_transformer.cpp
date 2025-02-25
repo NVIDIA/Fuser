@@ -328,7 +328,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
   at::manual_seed(getATenRandomSeed());
   std::vector<at::Tensor> reference_outs = reference_mlp(x, w0, b0, w1, b1);
 
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       x,
       shardTensor(w0, 0, mesh).unsqueeze(0),
       shardTensor(b0, 0, mesh).unsqueeze(0),
@@ -343,7 +343,7 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
@@ -410,7 +410,7 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
       reference_mlp(x_, w0_, b0_, w1_, b1_);
   auto mask_ = reference_outs[4];
 
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       shardTensor(x_, 0, mesh).unsqueeze(0),
       shardTensor(w0_, 0, mesh).unsqueeze(0),
       shardTensor(b0_, 0, mesh).unsqueeze(0),
@@ -425,7 +425,7 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   validate(expected_outputs, outputs, {0.01, 0.01, 0.02, 0.02});
 }
 
@@ -472,7 +472,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
 
   at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha(x, w0, b0, w1, b1);
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       x,
       shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
       shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
@@ -487,7 +487,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
   validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
@@ -538,7 +538,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
 
   at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha(x, w0, b0, w1, b1);
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       shardTensor(x, 0, mesh).unsqueeze(0),
       shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
       shardTensor(b0.view({3, E}), 1, mesh).view({1, 3 * E / D}),
@@ -553,7 +553,7 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
 
   FusionExecutorCache fec(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec.runFusionWithInputs(inputs);
+  auto outputs = fec.runFusionWithInputs(args);
   validate(expected_outputs, outputs, {0.02, 0.02, 0.02, 0.02});
 }
 
@@ -609,7 +609,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
   std::vector<at::Tensor> outs =
       reference_mlp_backwards(grad_, x_, mask_, mlp_w0_, mlp_w1_, linear0_);
 
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       grad_,
       x_,
       mask_,
@@ -626,7 +626,7 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
       outs[6]}; // linear0 grad x
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   validate(expected_outputs, outputs, {1e-5, 0.2, 1e-5, 0.01, 0.2, 0.01, 0.02});
 }
@@ -701,7 +701,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 
   at::manual_seed(getATenRandomSeed());
   auto reference_outs = reference_mha_backwards(grad, x, mask, w0, b0, w1);
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       x,
       shardTensor(w0.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
       shardTensor(w1, 1, mesh).unsqueeze(0),
@@ -729,7 +729,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::manual_seed(getATenRandomSeed());
-  auto out = executor_cache.runFusionWithInputs(inputs);
+  auto out = executor_cache.runFusionWithInputs(args);
   validate(
       expected_outputs, out, {1e-5, 0.02, 1e-5, .01, .02, 0.2, 0.2, 0.2, 0.02});
 }
@@ -780,7 +780,7 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
       ln1_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
   auto at_out = (resid0_ + mlp_out_).to(at_dtype);
 
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       shardTensor(x_, 0, mesh).unsqueeze(0),
       ln0_w_,
       ln0_b_,
@@ -804,7 +804,7 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
 
   auto fec = model->forward(dtype, true);
   at::manual_seed(getATenRandomSeed());
-  auto outputs = fec->runFusionWithInputs(inputs);
+  auto outputs = fec->runFusionWithInputs(args);
   validate(expected_outputs, outputs, {1e-4, 0.02, 0.04, 0.04, 0.04});
 }
 
@@ -851,7 +851,7 @@ TEST_P(DistributedTransformerTest, Forward) {
       ln1_out_.to(at_dtype), mlp_w0_, mlp_b0_, mlp_w1_, mlp_b1_)[3];
   auto at_out = (resid0_ + mlp_out_).to(at_dtype);
 
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       x_,
       ln0_w_,
       ln0_b_,
@@ -871,7 +871,7 @@ TEST_P(DistributedTransformerTest, Forward) {
 
   auto executor_cache = model->forward(dtype);
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache->runFusionWithInputs(inputs);
+  auto outputs = executor_cache->runFusionWithInputs(args);
   validate(expected_outputs, outputs, {1e-4, 0.02, 0.04, 0.04, 0.04});
 }
 
@@ -964,7 +964,7 @@ TEST_P(DistributedTransformerTest, Backward) {
       ln0_b_grad_,
       dx_};
 
-  std::vector<c10::IValue> inputs = {
+  KernelArgumentHolder args = {
       x_,
       grad_,
       shardTensor(mha_w0_.view({3, E, E}), 1, mesh).view({1, 3 * E / D, E}),
@@ -992,7 +992,7 @@ TEST_P(DistributedTransformerTest, Backward) {
 
   auto executor_cache = model->backward(dtype);
   at::manual_seed(getATenRandomSeed());
-  auto outputs = executor_cache->runFusionWithInputs(inputs);
+  auto outputs = executor_cache->runFusionWithInputs(args);
   validate(
       expected_outputs,
       outputs,

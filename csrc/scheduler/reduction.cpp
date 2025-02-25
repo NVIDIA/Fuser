@@ -15,6 +15,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -1577,7 +1578,7 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
   NVF_ERROR(
       reference_tv != nullptr && reduction_tv != nullptr,
       "Need these two tensor views to finish the scheduling.");
-  const bool vectorize =
+  const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
 
   // allow iter domain grouped reduction for block and grid outer reductions.
@@ -1594,17 +1595,28 @@ void scheduleReduction(Fusion* fusion, const ReductionParams* rparams) {
 
   scheduler_utils::moveNonConcretizedBroadcastInnermost(fusion, {reference_tv});
 
-  reduction_scheduler_utils::multiReductionInliner(
-      fusion,
+  // Propagate transformations before we rfactor the other reductions
+  reduction_scheduler_utils::propagateTransformation(reference_tv);
+  // If reduction_tv is rfactored, rfactor all reductions.
+  if (reference_tv != reduction_tv) {
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
+  }
+
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          reference_tv, is_vectorize, cached_inputs, cached_outputs);
+
+  reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
       unroll,
-      vectorize,
       use_iter_grouped_reduction,
-      rparams->unroll_factor_inner_reduction,
       reduction_tvs,
-      cached_inputs,
-      cached_outputs);
+      unroll_vectorizable_cached_tvs);
+
+  // Inline the schedule
+  inlineMost();
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 

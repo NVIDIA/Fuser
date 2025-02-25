@@ -87,9 +87,7 @@ class HostIrEvaluator final : public OptOutDispatch {
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
   std::vector<at::Tensor> runWithInput(
-      std::unordered_map<Val*, c10::IValue> val_to_IValue);
-  std::vector<at::Tensor> runWithPolymorphicValues(
-      std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue);
+      const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
   const std::vector<Val*>& inputs() {
     return container_->inputs();
@@ -149,7 +147,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
-  const int64_t my_device_index_;
+  const int64_t my_local_device_index_;
 };
 
 } // namespace hir
