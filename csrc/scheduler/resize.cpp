@@ -233,18 +233,13 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
           });
   TensorView* ref_tv = ref_tv_entry.get()[0];
 
-  // Before applying the vectorization split, any reshape transform of
-  // the largest input will be cancelled whenever possible, so the
-  // largest input is used as the reference of vectorization.
-  auto vec_ref_tv = ref_tv;
-
   // Only consider the innermost dimension to vectorize for now.
   // TODO: Consider vectorizing merged IDs, not just the innermost
   params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
-      vec_ref_tv,
+      ref_tv,
       data_cache,
-      (int64_t)vec_ref_tv->getLogicalDomain().size() - 1,
+      (int64_t)ref_tv->getLogicalDomain().size() - 1,
       {});
 
   return params;
