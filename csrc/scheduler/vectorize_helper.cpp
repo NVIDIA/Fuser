@@ -953,7 +953,23 @@ int64_t getVectorizationFactor(
               Direction::Undefined);
       finder.traverse();
       auto result = finder.getOrderedExprPath();
+      ValGroups vectorized_groups;
+      for (auto it = reference_tv->getLogicalDomain().begin() + break_point;
+           it != reference_tv->getLogicalDomain().end();
+           ++it) {
+        vectorized_groups.pushBack(graph.toGroup(*it));
+      }
       for (const auto& [expr_g, dir] : result.first) {
+        const auto inputs = getInputsOfExprGroup(graph, expr_g, dir);
+        if (std::none_of(
+                inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
+                  return vectorized_groups.has(inp);
+                })) {
+          continue;
+        }
+
+        vectorized_groups.pushBack(getOutputsOfExprGroup(graph, expr_g, dir));
+
         auto resize = dynamic_cast<Resize*>(expr_g->front());
         if (resize == nullptr) {
           continue;
