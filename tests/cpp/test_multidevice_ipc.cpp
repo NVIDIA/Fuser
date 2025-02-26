@@ -164,8 +164,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(d_ptr));
 }
 
+// cuStreamWriteValue32 and cuStreamWaitValue32 are CUDA driver API used in the
+// context of synchronization in p2p communication over cudaIpcHandle
 using StreamOpTest = NVFuserTest;
-
 TEST_F(StreamOpTest, StreamWriteValue32) {
   cudaStream_t stream;
   void* buf;
