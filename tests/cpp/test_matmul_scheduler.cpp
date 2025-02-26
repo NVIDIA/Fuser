@@ -1676,8 +1676,8 @@ TEST_F(MatmulSchedulerTest, EpilogueAlphaBetaBias) {
   // t8 := (alpha * ((A x B) + bias)) + (beta * C)
   auto t8 = at::add(t6, t7);
 
-  auto outputs =
-      executor_cache.runFusionWithInputs({t0, t1, t2, t3, alpha, beta});
+  KernelArgumentHolder args = {t0, t1, t2, t3, alpha, beta};
+  auto outputs = executor_cache.runFusionWithInputs(args);
 
   checkUnsegmentedVectorization(executor_cache, 8, 8, 4);
 
@@ -2092,21 +2092,21 @@ TEST_P(MatmulSchedulerTestWithLayout, MisalignedVectorization) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
               at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
           auto bias = maybeUnalign(at::randn({M, N}, options), align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();
@@ -2287,7 +2287,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
 
         auto tref = atMatmul(t0.to(at::kFloat), t1.to(at::kFloat), layout);
 
-        std::vector<c10::IValue> inputs = {t0, t1};
+        KernelArgumentHolder args = {t0, t1};
 
         if (add_2d_bias) {
           const auto options =
@@ -2295,14 +2295,14 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
           auto bias =
               padAndUnalign2D(at::randn({M, N}, options), pad_bias, align_bias);
           tref = tref + bias;
-          inputs.emplace_back(bias);
+          args.push(bias);
         }
 
         if (downcast_output) {
           tref = tref.to(at::kHalf);
         }
 
-        auto outputs = executor_cache.runFusionWithInputs(inputs);
+        auto outputs = executor_cache.runFusionWithInputs(args);
 
         FusionKernelRuntime* runtime =
             executor_cache.getMostRecentKernelRuntime();
@@ -2763,18 +2763,6 @@ TEST_F(MatmulSchedulerTest, EpilogueFusionInt64Indexing) {
 
   testValidate(
       executor_cache.fusion(), outputs, {t0, t1}, {tref}, __LINE__, __FILE__);
-
-  if (!cudaArchGuardShouldSkip(9, 0)) {
-    // The Hopper matmul scheduler should reject this fusion since it requires
-    // 64-bit indexing.
-    // See https://github.com/NVIDIA/Fuser/issues/3595
-    // TODO: Lift this temporary restriction and remove this check
-    for (const auto& heur : executor_cache.getMostRecentKernelRuntime()
-                                ->schedulerHeuristics()
-                                ->heuristicsList()) {
-      EXPECT_NE(heur->scheduler_type, SchedulerType::Matmul);
-    }
-  }
 }
 
 class MatmulFusionTest
@@ -3379,7 +3367,7 @@ class HopperMatmulSchedulerTest
 
   MatmulParams mparams;
 
-  std::vector<c10::IValue> inputs;
+  KernelArgumentHolder inputs;
 
   // Tests should place the reference tensor here
   at::Tensor tref;

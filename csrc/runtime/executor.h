@@ -76,54 +76,16 @@ class KernelExecutor : public ExecutorAbstract {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compile(
       Fusion* fusion,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      CompileParams compile_params,
+      const KernelArgumentHolder& args = {},
+      const LaunchParams& launch_constraints = LaunchParams(),
+      CompileParams compile_params = CompileParams(),
       SchedulerType sceduler_type = SchedulerType::None);
 
-  // TODO: merge it with the overload above.
-  //! This API is merely here so we don't have to go back and update all cpp
-  //! tests.
-  void compile(
-      Fusion* fusion,
-      const c10::ArrayRef<c10::IValue>& inputs = {},
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams()) {
-    KernelArgumentHolder args(inputs);
-    compile(fusion, args, launch_constraints, compile_params);
-  }
-
-  // TODO: args shouldn't come in a reference here because we will append the
-  // outputs to be able to send it to the kernel. For now none of the users are
-  // reconsuming the args, so it is okay. It isn't done now because changing it
-  // from a reference makes a call as run({}) ambiguous, and that is used
-  // in some places in the codebase.
   NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
+      KernelArgumentHolder args,
+      std::vector<at::Tensor> outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      std::vector<at::Tensor> outputs = {});
-
-  std::vector<at::Tensor> run(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      const std::vector<at::Tensor>& outputs,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      const std::optional<size_t>& opt_code = std::nullopt) {
-    KernelArgumentHolder args(inputs);
-    if (opt_code.has_value()) {
-      args.setCacheId(*opt_code);
-    }
-    return run(args, launch_constraints, compile_params, outputs);
-  }
-
-  std::vector<at::Tensor> run(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      const std::optional<size_t>& opt_code = std::nullopt) {
-    return run(inputs, {}, launch_constraints, compile_params, opt_code);
-  }
+      CompileParams compile_params = CompileParams());
 
   // Register a lowering hooks that are called to modify the GpuLower object
   // before running lowering passes. The main use case is for unit tests to

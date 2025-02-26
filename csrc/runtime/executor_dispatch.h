@@ -40,14 +40,9 @@ class ExecutorDispatch {
   static std::vector<at::Tensor> run(
       ExecutorAbstract* executor,
       KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {});
-
-  static std::vector<at::Tensor> run(
-      ExecutorAbstract* executor,
-      KernelArgumentHolder& args,
+      std::vector<at::Tensor> outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
-      const CompileParams& compile_params = CompileParams(),
-      std::vector<at::Tensor> outputs = {});
+      const CompileParams& compile_params = CompileParams());
 
  private:
 };

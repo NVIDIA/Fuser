@@ -471,8 +471,7 @@ TEST_F(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // welford translate
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder({aten_input, aten_weight, aten_bias});
+  KernelArgumentHolder runtime_inputs({aten_input, aten_weight, aten_bias});
   bool isTranslated =
       SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   NVF_ERROR(isTranslated);
@@ -1308,7 +1307,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
     }
   }
   auto cg_outputs =
-      ke.run({t0}, heuristic_params->as<ReductionParams>()->lparams);
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }

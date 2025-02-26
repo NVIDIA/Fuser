@@ -582,15 +582,15 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   auto t2 = at::randn(input_shape[1], options_half);
   auto t3 = at::randn(input_shape[1], options);
   auto t4 = at::randn(input_shape[1], options);
-  std::vector<c10::IValue> aten_inputs = {t0, t1, t2, t3, t4};
+  KernelArgumentHolder inputs({t0, t1, t2, t3, t4});
 
   GpuLower gpulw(&fusion);
   validateNoParallelBroadcastExist(gpulw.run());
 
   KernelExecutor ke;
   LaunchParams launch_params(2, 2, -1, -1, -1, -1);
-  ke.compile(&fusion, aten_inputs, launch_params);
-  auto cg_outputs = ke.run(aten_inputs, launch_params);
+  ke.compile(&fusion, inputs, launch_params);
+  auto cg_outputs = ke.run(inputs, {}, launch_params);
 
   auto t5 = t0.to(at::kFloat);
   auto t6 = t1.to(at::kFloat);
@@ -621,7 +621,7 @@ TEST_F(NVFuserTest, FusionFusedReductionBatchnorm_CUDA) {
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
+      inputs,
       {t13, t17, t29},
       __LINE__,
       __FILE__,
@@ -1278,13 +1278,13 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
   auto t8 = torch::randint(0, 1000, shape, options_long);
   auto t12 = at::randn(shape, options_complex_float);
   auto t16 = at::randn(shape, options_complex_double);
-  std::vector<c10::IValue> aten_inputs = {t0, t4, t8, t12, t16};
+  KernelArgumentHolder inputs({t0, t4, t8, t12, t16});
 
   std::vector<at::indexing::TensorIndex> indices({at::indexing::Slice(0, 10)});
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, inputs);
+  auto outputs = ke.run(inputs);
 
   auto t3 = t0 / t0.sum({0}).unsqueeze(0).to(at::kComplexDouble);
   auto t7 = t4 / t4.sum({0}).unsqueeze(0).to(at::kComplexDouble);
@@ -1295,7 +1295,7 @@ TEST_F(NVFuserTest, FusionGroupAllreduce5_CUDA) {
   testValidate(
       ke.compiledKernel()->kernel(),
       outputs,
-      aten_inputs,
+      inputs,
       {ref},
       __LINE__,
       __FILE__);
@@ -1445,20 +1445,20 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   auto at_weight = at::randn({shape[c_axis]}, options);
   auto at_save_mean = at::randn({shape[c_axis]}, options);
   auto at_save_invstd = at::randn({shape[c_axis]}, options);
-  std::vector<c10::IValue> aten_inputs(
+  KernelArgumentHolder inputs(
       {at_input, at_grad_output, at_weight, at_save_mean, at_save_invstd});
 
   GpuLower gpulw(&fusion);
   validateNoParallelBroadcastExist(gpulw.run());
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+  ke.compile(&fusion, inputs);
 
   if (bidx * bidy > deviceSMCount()) {
     GTEST_SKIP() << "Not enough SMs to run this test";
   }
 
-  auto outputs = ke.run(aten_inputs);
+  auto outputs = ke.run(inputs);
 
   std::vector<int64_t> at_reduction_axes;
   std::copy(
@@ -1508,7 +1508,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   testValidate(
       ke.compiledKernel()->kernel(),
       outputs,
-      aten_inputs,
+      inputs,
       {at_grad_input},
       __LINE__,
       __FILE__);

@@ -18,18 +18,6 @@
 
 namespace nvfuser {
 
-KernelArgumentHolder::KernelArgumentHolder(
-    const c10::ArrayRef<c10::IValue>& inputs,
-    std::optional<int8_t> device) {
-  if (inputs.empty()) {
-    // default to device 0
-    setDeviceIndex(device.has_value() ? device.value() : (int8_t)0);
-  } else {
-    setDeviceIndex(getCommonDeviceCUDA(inputs, device));
-    push(inputs);
-  }
-}
-
 namespace {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
@@ -46,19 +34,43 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 
 } // namespace
 
-void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
-  // Naive I/O setup, I'm ignoring all the potential transformation (i.e. I/O
-  // allocated here from the subgraph could be, and very likely are, different
-  // from I/O expected by the generated CUDA kernel.
-  for (const auto& arg : args) {
-    push(PolymorphicValue_functions::IValueToPolymorphicValue(arg));
-  }
+void KernelArgumentHolder::push(const std::vector<PolymorphicValue>& args) {
+  arguments_.insert(arguments_.end(), args.begin(), args.end());
 }
 
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   for (const auto& tensor : tensors) {
-    push(tensor);
+    arguments_.emplace_back(PolymorphicValue(tensor));
   }
+}
+
+void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
+  for (const auto& arg : args) {
+    arguments_.emplace_back(
+        PolymorphicValue_functions::IValueToPolymorphicValue(arg));
+  }
+}
+
+void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
+  for (const auto& arg : args) {
+    arguments_.emplace_back(
+        PolymorphicValue_functions::IValueToPolymorphicValue(arg));
+  }
+}
+
+void KernelArgumentHolder::push(at::Tensor tensor) {
+  arguments_.emplace_back(PolymorphicValue(tensor));
+}
+
+void KernelArgumentHolder::push(PolymorphicValue val) {
+  arguments_.emplace_back(std::move(val));
+}
+
+void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
+  NVF_ERROR(
+      tensor.has_value(),
+      "KernelArgumentHolder doesn't support empty optional values, it's expected that when pushed they exist.");
+  arguments_.emplace_back(PolymorphicValue(tensor.value()));
 }
 
 void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
@@ -107,13 +119,21 @@ void KernelArgumentHolder::pushTensorProxy(
   push(meta_tensor);
 }
 
-c10::ArrayRef<c10::IValue> KernelArgumentHolder::toArrayRef() const {
+std::vector<c10::IValue> KernelArgumentHolder::toC10Array() const {
   std::vector<c10::IValue> ival_array;
   ival_array.reserve(arguments_.size());
   for (const auto& arg : arguments_) {
     ival_array.push_back(PolymorphicValue_functions::toIValue(arg));
   }
-  return c10::ArrayRef<c10::IValue>(ival_array);
+  return ival_array;
+}
+
+void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
+  if (index.has_value()) {
+    device_index_ = index.value();
+  } else {
+    device_index_ = getCommonDeviceCUDA(*this);
+  }
 }
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
