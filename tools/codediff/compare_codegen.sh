@@ -20,7 +20,7 @@
 # rest of the command line as the test to run. For example, to compare the
 # generated code for a single binary test, you could use:
 #
-#   tools/compare_codegen.sh -- build/nvfuser_tests --gtest_filter='*TestFoo*'
+#   tools/compare_codegen.sh -- build/test_nvfuser --gtest_filter='*TestFoo*'
 #
 # or to run all benchmarks you can use:
 #
@@ -223,7 +223,7 @@ collect_kernels() {
 
         # binary tests
         "${bashcmd[@]}" -o "$binarytestdir" -- \
-            "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
+            "$nvfuserdir/build/test_nvfuser" --gtest_color=yes
     fi
 }
 

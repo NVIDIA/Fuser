@@ -330,7 +330,7 @@ class LogParser:
 
 
 class LogParserGTest(LogParser):
-    """Parse output of googletest binaries like nvfuser_tests"""
+    """Parse output of googletest binaries like test_nvfuser"""
 
     def parse_line(self, line):
         if super().parse_line(line):
