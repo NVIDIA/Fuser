@@ -15,12 +15,11 @@
 
 #include <gtest/gtest.h>
 
-
 namespace nvfuser {
 
 using RemoveTrivialOpsTest = NVFuserTest;
 
-template<typename OpType>
+template <typename OpType>
 class KernelContainsExpr : kir::IrVisitor {
  public:
   static bool check(const kir::Kernel* kernel) {
@@ -28,6 +27,7 @@ class KernelContainsExpr : kir::IrVisitor {
     checker.handle(kernel->topLevelExprs());
     return checker.has_op_;
   }
+
  private:
   using kir::IrVisitor::handle;
 
@@ -49,7 +49,7 @@ TEST_F(RemoveTrivialOpsTest, Broadcast) {
   auto tv1 = broadcast(tv0, {false, true, false});
   auto tv2 = neg(tv1);
   fusion.addOutput(tv2);
-  
+
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 3}, options);
   std::vector<c10::IValue> inputs{t0};
@@ -118,6 +118,90 @@ TEST_F(RemoveTrivialOpsTest, Broadcast) {
   }
 }
 
-// TODO: tests for permutations, squeeze, and chain of ops
+// Test that we remove a trivial gmem->gmem squeeze at lowering
+TEST_F(RemoveTrivialOpsTest, Squeeze) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 1, 3});
+  fusion.addInput(tv0);
+  auto tv1 = squeeze(tv0, {1});
+  auto tv2 = neg(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 1, 3}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  {
+    // In this case we do not remove the squeeze since it is G->L not G->G
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    // NOTE: SqueezeOp is converted to LoadStoreOp by the loadStoreOpInserter
+    // lowering pass
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+
+  {
+    // Setting tv1 to Global means the BroadcastOp is now G->G. This means that
+    // when we lower it, we will be able to safely remove it
+    tv1->setMemoryType(MemoryType::Global);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_FALSE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    EXPECT_EQ(kernel->summary().global_allocations.size(), 0)
+        << "Expected to have no intermediate global allocations";
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+
+  {
+    NVF_ERROR(tv1->getMemoryType() == MemoryType::Global);
+    // Transpose the input's allocation domain
+    tv0->setAllocationDomain(
+        {
+            tv0->getLogicalDomain().at(2),
+            tv0->getLogicalDomain().at(1),
+            tv0->getLogicalDomain().at(0),
+        },
+        {true, std::nullopt, true});
+
+    KernelExecutor ke;
+
+    std::vector<c10::IValue> transposed_inputs{
+        at::randn({3, 2}, options).t().unsqueeze(1)};
+    ke.compile(&fusion, transposed_inputs);
+    // We do not remove the broadcast because the allocation domains do not
+    // match
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    EXPECT_EQ(kernel->summary().global_allocations.size(), 1)
+        << "Expected to have one intermediate global allocation";
+    auto outputs = ke.run(transposed_inputs);
+    testValidate(&fusion, outputs, transposed_inputs, __LINE__, __FILE__);
+  }
+
+  {
+    // Reset tv0's allocation domain but set tv1 as output
+    tv0->setAllocationDomain(
+        tv0->getLogicalDomain(), {true, std::nullopt, true});
+    fusion.addOutput(tv1);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    // We do not remove the squeeze because the output is a fusion output
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+}
+
+// TODO: tests for permutations and chains of ops
 
 } // namespace nvfuser
