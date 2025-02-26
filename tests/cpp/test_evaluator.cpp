@@ -599,7 +599,7 @@ TEST_F(ExprEvalTest, ReshapePermuteReshape) {
   at::Tensor in_tensor = at::rand({72}).cuda().as_strided({9, 6}, {8, 1});
   ExprEvalExecutor eee;
   eee.compile(&fusion);
-  auto args = KernelArgumentHolder::createKernelArgumentHolder({in_tensor});
+  KernelArgumentHolder args = {in_tensor};
   auto outs = eee.run(args);
   for (auto i : c10::irange(99)) {
     (void)i;

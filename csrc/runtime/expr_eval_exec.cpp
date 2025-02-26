@@ -156,7 +156,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
         fusion_->inputs().size() <= args.size(),
         "KernelArgumentHolder contains less argument than fusion's input.");
     for (auto inp_i : c10::irange(fusion_->inputs().size())) {
-      expr_eval.unsafeBind(fusion_->inputs()[inp_i], *args[inp_i]);
+      expr_eval.unsafeBind(fusion_->inputs()[inp_i], args[inp_i]);
     }
 
     for (auto tv_info : tv_sizes_to_bind) {
@@ -199,7 +199,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
           " dimensions.");
       expr_eval.unsafeBind(
           logical_domain[tv_info.logical_dim_pos]->getMaybeExpandedExtent(),
-          (*args[tv_info.fusion_input_pos])
+          (args[tv_info.fusion_input_pos])
               .as<at::Tensor>()
               .sizes()[tv_info.logical_dim_pos]);
     }
