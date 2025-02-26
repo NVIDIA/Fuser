@@ -11609,6 +11609,11 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   i34 = (((8 + i31) + i17) + i25) + i11;
   nvfuser_index_t i35;
   i35 = ((9 - T1.logical_size[1LL]) + i20) + i8;
+
+  uint64_t* T14 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
+  mbarrier::init(toSmem(T14), 1U);
+  __syncthreads();
+
 #pragma unroll 1
   for (nvfuser_index_t i36 = 0; i36 < i5; ++i36) {
     nvfuser_index_t i37;
@@ -11638,12 +11643,14 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     wgmma::fence();
     fenceAsyncProxy();
     uint64_t* T13 = reinterpret_cast<uint64_t*>(array + smem_offset + 213008);
+
 #pragma unroll
     for (nvfuser_index_t i48 = 0; i48 < 3; ++i48) {
       if (((Hopper::electSync(4294967295U) && b27) && b28)) {
         mbarrier::init(toSmem((&T13[i48])), 2U);
       }
     }
+
 #pragma unroll
     for (nvfuser_index_t i49 = 0; i49 < 3; ++i49) {
       if (((Hopper::electSync(4294967295U) && b27) && b28)) {
@@ -11731,25 +11738,20 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         mbarrier::inval(toSmem((&T13[i65])));
       }
     }
+
+    wgmma::wait<0LL>();
+    if (((Hopper::electSync(4294967295U) && b27) && b28)) {
+      mbarrier::arriveExpectTX(toSmem(T14), 16384U * 4);
 #pragma unroll
-    for (nvfuser_index_t i66 = 0; i66 < 4; ++i66) {
-      Array<int, 2, 1> a67;
-      a67 = Array<int, 2, 1>{(int32_t)((i38 + (64 * i66))), i42};
-      uint64_t* T14 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
-      mbarrier::init(toSmem(T14), 1U);
-      __syncthreads();
-      if (((Hopper::electSync(4294967295U) && b27) && b28)) {
-        uint64_t i68;
-        i68 = mbarrier::arriveExpectTX(toSmem(T14), 16384U);
+      for (nvfuser_index_t i66 = 0; i66 < 4; ++i66) {
+        Array<int, 2, 1> a67;
+        a67 = Array<int, 2, 1>{(int32_t)((i38 + (64 * i66))), i42};
         Hopper::cpAsyncBulkTensorTileG2S(
             (Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ptr14, a67, toSmem(T14)}),
             (i15 + (16384 * i66)));
-        mbarrier::wait(toSmem(T14), i68);
       }
-      __syncthreads();
-      mbarrier::inval(toSmem(T14));
     }
-    wgmma::wait<0LL>();
+    mbarrier::waitParity(toSmem(T14), i36 % 2);
     Array<__bfloat, 128, 8> T10;
 #pragma unroll
     for (nvfuser_index_t i69 = 0; i69 < 32; ++i69) {
@@ -11810,21 +11812,19 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       }
     }
     __syncthreads();
+    fenceAsyncProxy();
 #pragma unroll
     for (nvfuser_index_t i83 = 0; i83 < 4; ++i83) {
-      fenceAsyncProxy();
       if (((Hopper::electSync(4294967295U) && b27) && b30)) {
         Hopper::cpAsyncBulkTensorTileS2G(
             (Hopper::CpAsyncBulkTensorTileS2GIndex<2>{
                 ptr24, (Array<int, 2, 1>{(int32_t)((i38 + (64 * i83))), i43})}),
             (i23 + (8192 * i83)));
+        cpAsyncBulkCommitGroup();
       }
     }
-    __syncthreads();
-    cpAsyncBulkCommitGroup();
     cpAsyncBulkWaitGroup<0LL>();
   }
-  cpAsyncBulkCommitGroup();
-  cpAsyncBulkWaitGroup<0LL>();
+  mbarrier::inval(toSmem(T14));
 }
 } // namespace
