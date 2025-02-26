@@ -2161,12 +2161,27 @@ Val* cancelDivMod(Val* value, const Context& context) {
   if (!divmod) {
     return value;
   }
+
   auto op = divmod->getBinaryOpType();
   if (op != BinaryOpType::Div && op != BinaryOpType::Mod) {
     return value;
   }
   auto lhs = sym_algebra::factorize(divmod->lhs());
   auto rhs = sym_algebra::factorize(divmod->rhs());
+
+  if (op == BinaryOpType::Div) {
+    if (BinaryOp* lhs_def = toDivModOp(lhs->definition())) {
+      if (lhs_def->getBinaryOpType() == BinaryOpType::Div) {
+        Val* lhs_lhs = lhs_def->lhs();
+        Val* lhs_rhs = lhs_def->rhs();
+        if (lhs_rhs->isConst() && rhs->isConst()) {
+          return IrBuilder::divExpr(
+              lhs_lhs, SimplifyingIrBuilder::mulExpr(lhs_rhs, rhs));
+        }
+      }
+    }
+  }
+
   auto gcd = sym_algebra::greatestCommonDivisor({lhs, rhs});
   if (gcd->isOne() || !isValidDenominator(gcd, context)) {
     return value;

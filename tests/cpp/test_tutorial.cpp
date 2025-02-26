@@ -342,11 +342,11 @@ TEST_F(Tutorial, ReductionRFactor) {
 
     // The fusion math should now look like:
     //
-    // tv0: root = logical = [i0]
-    // tv2 = reduction(tv0): root = [i0], logical = [r1/1024, i1024]
-    // tv1 = reduction(tv2): root = logical = [r1024]
+    // tv0: root = logical = [i{i0}]
+    // tv2 = reduction(tv0): root = [r{i0}], logical = [r{i0/1024}, i{1024}]
+    // tv1 = reduction(tv2): root = logical = [r{1024}]
     if (verbose_) {
-      fusion_copy.printMath();
+      fusion_copy.print();
     }
     // Notice that the reduction operation is now split into two
     // operations, where the first one takes care of the first domain, and the

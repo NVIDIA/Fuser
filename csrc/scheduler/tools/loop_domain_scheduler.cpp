@@ -99,6 +99,8 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
   const std::vector<IterDomain*>& output_ids_;
 };
 
+// Replay a given IterDomain transform expression on the loop domain
+// of a given tensor using specified loop IDs as its inputs.
 class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
  public:
   static void replayAs(
@@ -541,7 +543,11 @@ void scheduleLoopDomainsBy(
 
     // When the direction is forward, the TensorView transform
     // APIs, e.g., TensorView::split, can be used, which doesn't need
-    // to use TensorView::setLoopDomain.
+    // to use TensorView::setLoopDomain. This is important as
+    // setLoopDomain may result in losing extra IDs added by prior
+    // scheduleLoopDomain calls, which was indeed the case with the
+    // Llama 3 RoPE backward (see also
+    // https://github.com/NVIDIA/Fuser/issues/3571).
     if (replay_dir_tv == Direction::Forward) {
       ReplayForwardTransformOnLoopDomain::replayAs(tv, input_ids, transform);
       continue;
@@ -582,7 +588,7 @@ void scheduleLoopDomainsBy(
   return;
 }
 
-void cancelReshapeInLoopDomains(TensorView* from_tv) {
+void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
   Fusion* fusion = from_tv->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.buildExactGraph();
@@ -677,12 +683,29 @@ void cancelReshapeInLoopDomains(TensorView* from_tv) {
         {reshape_out->getLogicalDomain().begin(),
          reshape_out->getLogicalDomain().end()});
 
+    std::unordered_set<Expr*> reshape_exprs_with_innermost_logical_id_set;
+    if (skip_innermost_id) {
+      auto reshape_exprs_with_innermost_logical_id =
+          DependencyCheck::getAllExprsBetween(
+              {reshape_out->getRootDomain().begin(),
+               reshape_out->getRootDomain().end()},
+              {reshape_out->getLogicalDomain().back()});
+      reshape_exprs_with_innermost_logical_id_set = {
+          reshape_exprs_with_innermost_logical_id.begin(),
+          reshape_exprs_with_innermost_logical_id.end()};
+    }
+
     auto reshape_out_loop_domain = reshape_out->getLoopDomain();
 
     for (auto reshape_exprs_it = reshape_exprs.rbegin();
          reshape_exprs_it != reshape_exprs.rend();
          ++reshape_exprs_it) {
       auto reshape_expr = *reshape_exprs_it;
+
+      if (skip_innermost_id &&
+          reshape_exprs_with_innermost_logical_id_set.count(reshape_expr)) {
+        continue;
+      }
 
       // If any of the output IDs of reshape_expr is not found in
       // cancellable_ids, that means the expr cannot be cancelled.
