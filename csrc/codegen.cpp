@@ -2957,6 +2957,49 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
+  void genGroupedWarpReduction(
+      const int num_grouped_iterations,
+      kir::TensorIndex* output,
+      kir::TensorIndex* input,
+      const Val* init,
+      BinaryOpType reduction_op_type,
+      kir::Predicate* read_pred,
+      std::pair<IterDomain*, IterDomain*> reduction_dims) {
+    ArgumentBuilder func_args;
+    func_args.arg(genVariableNameConvertAlignedArray(output));
+    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
+    func_args.arg(genInline(read_pred));
+    func_args.arg(genStaticCast(output->dtype(), genInline(init)));
+    func_args.arg(genComputeBlockDim());
+
+    ArgumentBuilder template_args;
+    if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+        reduction_dims.second == nullptr) {
+      template_args.arg(
+          kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+      template_args.arg(isAligned());
+      template_args.arg(num_grouped_iterations);
+      indent() << genCall(
+                      "warp::iterGroupedWarpReduce", template_args, func_args)
+               << ";\n";
+    } else if (
+        reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+        reduction_dims.second->getParallelType() == ParallelType::TIDy) {
+      auto bdimx = reduction_dims.first->extent()->evaluate();
+      auto bdimy = reduction_dims.second->extent()->evaluate();
+      template_args.arg(bdimx);
+      template_args.arg(bdimy);
+      template_args.arg(isAligned());
+      indent() << genCall("warp::warpReduceTIDXY", template_args, func_args)
+               << ";\n";
+    } else {
+      NVF_ERROR(false, "Invalid warp reduction dims");
+    }
+  }
+
   void handle(const GroupedReductionOp* grouped_rop) final {
     const auto num_grouped_iterations =
         getGroupedLoopIndexConcreteIntSets().size();
@@ -2977,14 +3020,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           has_block_reduce,
           "To use IterGroupedBlockReduction, must have block reduce!");
-      return genIterGroupedBlockReduction(
-          (int)num_grouped_iterations,
-          output,
-          input,
-          grouped_rop->initVal(0),
-          op_type,
-          grouped_rop->predicate(),
-          grouped_rop->writePredicate());
+      if (auto reduction_ids =
+              ir_utils::getMaybeWarpReductionDim(output, input)) {
+        return genGroupedWarpReduction(
+            (int)num_grouped_iterations,
+            output,
+            input,
+            grouped_rop->initVal(0),
+            op_type,
+            grouped_rop->predicate(),
+            reduction_ids.value());
+      } else {
+        return genIterGroupedBlockReduction(
+            (int)num_grouped_iterations,
+            output,
+            input,
+            grouped_rop->initVal(0),
+            op_type,
+            grouped_rop->predicate(),
+            grouped_rop->writePredicate());
+      }
     }
 
     for (const auto i : c10::irange(num_grouped_exprs)) {

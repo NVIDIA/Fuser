@@ -511,6 +511,20 @@ void clearUnrollVectorizationAddGroupReduction(
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs) {
   std::vector<TensorView*> rfactor_and_reduction_tvs = {
       reference_tv, reduction_tv};
+
+  bool is_inner_reduction =
+      scheduler_utils::isFastestDimReduction(reduction_tv);
+  auto convertParallelToGrouped = [&is_inner_reduction](IterDomain* id) {
+    auto pt = id->getParallelType();
+    // For inner reduction, convert outer dim unroll to group.
+    // For outer reduction, convert inner dim vectorization to group.
+    if (is_inner_reduction) {
+      return pt == ParallelType::Unroll && !id->isReduction();
+    } else {
+      return pt == ParallelType::Vectorize;
+    }
+  };
+
   for (auto tv : rfactor_and_reduction_tvs) {
     if (unroll_vectorizable_cached_tvs.count(tv) != 0) {
       continue;
@@ -520,7 +534,7 @@ void clearUnrollVectorizationAddGroupReduction(
       if (use_grouped_reduction &&
           std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
               reduction_tvs.end() &&
-          id->getParallelType() == ParallelType::Vectorize) {
+          convertParallelToGrouped(id)) {
         tv->axis(i)->parallelize(ParallelType::Group);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
           sibling->axis(i)->parallelize(ParallelType::Group);
