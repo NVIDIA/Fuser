@@ -5063,8 +5063,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
 
   inlineMost(ir_utils::allTvsExcept(&fusion, {tv0, tv1, tv0b, tv1b}));
 
-  fusion.print();
-
   if (use_warp_specialization) {
     tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
     tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
@@ -5072,8 +5070,6 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
     tv0c->circularBuffer(stages, prefetch);
     tv1c->circularBuffer(stages, prefetch);
   }
-
-  fusion.print();
 
   auto inputs =
       matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
@@ -5086,6 +5082,12 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
   EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+
+  // The following check fails if the BroadcastOps are not removed at lowering
+  // time, resulting in two intermediate global allocations.
+  const kir::KernelSummary& summary = ke.compiledKernel()->kernel()->summary();
+  EXPECT_EQ(summary.global_allocations.size(), 0)
+      << "Expected to have no intermediate global allocations";
 }
 
 } // namespace nvfuser
