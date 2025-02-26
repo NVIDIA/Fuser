@@ -11536,7 +11536,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     const __grid_constant__ TensorMap var1,
     const __grid_constant__ TensorMap var2,
     const __grid_constant__ TensorMap var3,
-    Tensor<__bfloat, 2, 2> T12) {
+    Tensor<__bfloat, 2, 2> T6) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i4;
@@ -11549,23 +11549,23 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   ptr7 = &var0;
   nvfuser_index_t i8;
   i8 = 256 * (((nvfuser_index_t)blockIdx.x) % 8);
-  __bfloat* T14 = reinterpret_cast<__bfloat*>(array + smem_offset + 114688);
+  __bfloat* T8 = reinterpret_cast<__bfloat*>(array + smem_offset + 114688);
   uint32_t i9;
-  i9 = toSmem(T14);
+  i9 = toSmem(T8);
   const TensorMap* ptr10;
   ptr10 = &var1;
   nvfuser_index_t i11;
   i11 = 128 * (((nvfuser_index_t)blockIdx.x) / 8);
-  __bfloat* T13 = reinterpret_cast<__bfloat*>(array + smem_offset + 65536);
+  __bfloat* T7 = reinterpret_cast<__bfloat*>(array + smem_offset + 65536);
   uint32_t i12;
-  i12 = toSmem(T13);
+  i12 = toSmem(T7);
   uint32_t i13;
   i13 = i12 + (8192 * ((nvfuser_index_t)threadIdx.y));
   const TensorMap* ptr14;
   ptr14 = &var2;
-  __bfloat* T17 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
+  __bfloat* T11 = reinterpret_cast<__bfloat*>(array + smem_offset + 0);
   uint32_t i15;
-  i15 = toSmem(T17);
+  i15 = toSmem(T11);
   nvfuser_index_t i16;
   i16 = ((nvfuser_index_t)threadIdx.x) / 4;
   nvfuser_index_t i17;
@@ -11582,9 +11582,9 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   i22 = ((((nvfuser_index_t)threadIdx.x) / 32) * 16) +
       ((((nvfuser_index_t)threadIdx.x) % 32) % 16);
   // Alias Allocation - shared
-  auto& T18 = T17;
+  auto& T12 = T11;
   uint32_t i23;
-  i23 = toSmem(T18) + (32768 * ((nvfuser_index_t)threadIdx.y));
+  i23 = toSmem(T12) + (32768 * ((nvfuser_index_t)threadIdx.y));
   const TensorMap* ptr24;
   ptr24 = &var3;
   nvfuser_index_t i25;
@@ -11609,13 +11609,6 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   i34 = (((8 + i31) + i17) + i25) + i11;
   nvfuser_index_t i35;
   i35 = ((9 - T1.logical_size[1LL]) + i20) + i8;
-
-  uint64_t* T20 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
-  if (((Hopper::electSync(4294967295U) && b27) && b28)) {
-    mbarrier::init(toSmem(T20), 1U);
-  }
-  __syncthreads();
-
 #pragma unroll 1
   for (nvfuser_index_t i36 = 0; i36 < i5; ++i36) {
     nvfuser_index_t i37;
@@ -11644,35 +11637,21 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     ((*reinterpret_cast<Array<float, 128, 1>*>(&T3[0]))).set(0);
     wgmma::fence();
     fenceAsyncProxy();
-    uint64_t* T19 = reinterpret_cast<uint64_t*>(array + smem_offset + 213008);
+    uint64_t* T13 = reinterpret_cast<uint64_t*>(array + smem_offset + 213008);
 #pragma unroll
     for (nvfuser_index_t i48 = 0; i48 < 3; ++i48) {
       if (((Hopper::electSync(4294967295U) && b27) && b28)) {
-        mbarrier::init(toSmem((&T19[i48])), 2U);
+        mbarrier::init(toSmem((&T13[i48])), 2U);
       }
     }
 #pragma unroll
     for (nvfuser_index_t i49 = 0; i49 < 3; ++i49) {
       if (((Hopper::electSync(4294967295U) && b27) && b28)) {
-        mbarrier::init(toSmem((&T19[(i49 + 3LL)])), 256U);
+        mbarrier::init(toSmem((&T13[(i49 + 3LL)])), 256U);
       }
     }
     __syncthreads();
-
     if (b29) {
-      if ((Hopper::electSync(4294967295U) && b27)) {
-        mbarrier::arriveExpectTX(toSmem(T20), 16384U * 4);
-#pragma unroll
-        for (nvfuser_index_t i66 = 0; i66 < 4; ++i66) {
-          Array<int, 2, 1> a67;
-          a67 = Array<int, 2, 1>{(int32_t)((i38 + (64 * i66))), i42};
-          Hopper::cpAsyncBulkTensorTileG2S(
-              (Hopper::CpAsyncBulkTensorTileG2SIndex<2>{
-                  ptr14, a67, toSmem(T20)}),
-              (i15 + (16384 * i66)));
-        }
-      }
-
 #pragma unroll 2
       for (nvfuser_index_t i50 = 0; i50 < i6; ++i50) {
         nvfuser_index_t i51;
@@ -11683,22 +11662,22 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         i53 = i12 + (16384 * i51);
         if ((Hopper::electSync(4294967295U) && b27)) {
           mbarrier::waitParity(
-              toSmem((&T19[((i50 % 3) + 3LL)])), (uint32_t)(((i50 / 3) % 2)));
-          mbarrier::arriveExpectTX(toSmem((&T19[(i50 % 3)])), 32768U);
+              toSmem((&T13[((i50 % 3) + 3LL)])), (uint32_t)(((i50 / 3) % 2)));
+          mbarrier::arriveExpectTX(toSmem((&T13[(i50 % 3)])), 32768U);
           Hopper::cpAsyncBulkTensorTileG2S(
               (Hopper::CpAsyncBulkTensorTileG2SIndex<2>{
                   ptr7,
                   (Array<int, 2, 1>{(int32_t)((64 * i50)), i39}),
-                  toSmem((&T19[(i50 % 3)]))}),
+                  toSmem((&T13[(i50 % 3)]))}),
               (i9 + (32768 * i51)));
-          mbarrier::arriveExpectTX(toSmem((&T19[(i50 % 3)])), 16384U);
+          mbarrier::arriveExpectTX(toSmem((&T13[(i50 % 3)])), 16384U);
 #pragma unroll
           for (nvfuser_index_t i54 = 0; i54 < 2; ++i54) {
             Hopper::cpAsyncBulkTensorTileG2S(
                 (Hopper::CpAsyncBulkTensorTileG2SIndex<2>{
                     ptr10,
                     (Array<int, 2, 1>{i52, (int32_t)((i41 + (64 * i54)))}),
-                    toSmem((&T19[(i50 % 3)]))}),
+                    toSmem((&T13[(i50 % 3)]))}),
                 (i53 + (8192 * i54)));
           }
         }
@@ -11706,7 +11685,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     } else {
 #pragma unroll
       for (nvfuser_index_t i55 = 0; i55 < 3; ++i55) {
-        mbarrier::arrive(toSmem((&T19[(i55 + 3LL)])));
+        mbarrier::arrive(toSmem((&T13[(i55 + 3LL)])));
       }
 #pragma unroll 2
       for (nvfuser_index_t i56 = 0; i56 < i6; ++i56) {
@@ -11717,7 +11696,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         uint32_t i59;
         i59 = i9 + (32768 * i57);
         mbarrier::waitParity(
-            toSmem((&T19[(i56 % 3)])), (uint32_t)(((i56 / 3) % 2)));
+            toSmem((&T13[(i56 % 3)])), (uint32_t)(((i56 / 3) % 2)));
 #pragma unroll
         for (nvfuser_index_t i60 = 0; i60 < 4; ++i60) {
           nvfuser_index_t i61;
@@ -11737,76 +11716,79 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         }
         wgmma::commit();
         wgmma::wait<0LL>();
-        mbarrier::arrive(toSmem((&T19[((i56 % 3) + 3LL)])));
+        mbarrier::arrive(toSmem((&T13[((i56 % 3) + 3LL)])));
       }
     }
 #pragma unroll
     for (nvfuser_index_t i64 = 0; i64 < 3; ++i64) {
       if (((Hopper::electSync(4294967295U) && b27) && b28)) {
-        mbarrier::inval(toSmem((&T19[(i64 + 3LL)])));
+        mbarrier::inval(toSmem((&T13[(i64 + 3LL)])));
       }
     }
 #pragma unroll
     for (nvfuser_index_t i65 = 0; i65 < 3; ++i65) {
       if (((Hopper::electSync(4294967295U) && b27) && b28)) {
-        mbarrier::inval(toSmem((&T19[i65])));
+        mbarrier::inval(toSmem((&T13[i65])));
       }
     }
-
-    mbarrier::waitParity(toSmem(T20), (uint32_t)(i36 % 2));
-    __syncthreads();
+#pragma unroll
+    for (nvfuser_index_t i66 = 0; i66 < 4; ++i66) {
+      Array<int, 2, 1> a67;
+      a67 = Array<int, 2, 1>{(int32_t)((i38 + (64 * i66))), i42};
+      uint64_t* T14 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
+      mbarrier::init(toSmem(T14), 1U);
+      __syncthreads();
+      if (((Hopper::electSync(4294967295U) && b27) && b28)) {
+        uint64_t i68;
+        i68 = mbarrier::arriveExpectTX(toSmem(T14), 16384U);
+        Hopper::cpAsyncBulkTensorTileG2S(
+            (Hopper::CpAsyncBulkTensorTileG2SIndex<2>{ptr14, a67, toSmem(T14)}),
+            (i15 + (16384 * i66)));
+        mbarrier::wait(toSmem(T14), i68);
+      }
+      __syncthreads();
+      mbarrier::inval(toSmem(T14));
+    }
     wgmma::wait<0LL>();
-    Array<__bfloat, 128, 8> T16;
+    Array<__bfloat, 128, 8> T10;
 #pragma unroll
     for (nvfuser_index_t i69 = 0; i69 < 32; ++i69) {
       nvfuser_index_t i70;
-      i70 = 4 * i69;
+      i70 = 8 * i69;
       nvfuser_index_t i71;
-      i71 = 8 * i69;
+      i71 = i20 + i70;
       nvfuser_index_t i72;
-      i72 = i20 + i71;
+      i72 = 4 * i69;
       nvfuser_index_t i73;
-      i73 = -i71;
+      i73 = -i70;
 #pragma unroll
       for (nvfuser_index_t i74 = 0; i74 < 2; ++i74) {
         nvfuser_index_t i75;
-        i75 = i70 + (2 * i74);
+        i75 = i19 + (512 * i74);
         nvfuser_index_t i76;
-        i76 = i19 + (512 * i74);
+        i76 = i72 + (2 * i74);
         bool b77;
         b77 = b30 && (i44 < (-(8 * i74)));
 #pragma unroll
         for (nvfuser_index_t i78 = 0; i78 < 2; ++i78) {
           nvfuser_index_t i79;
-          i79 = i75 + i78;
+          i79 = i71 + i78;
           nvfuser_index_t i80;
-          i80 = i72 + i78;
+          i80 = i79 % 64;
           nvfuser_index_t i81;
-          i81 = i80 % 64;
-          Array<float, 1, 1> T4;
-          T4[0] = T3[i79];
-          Array<float, 1, 1> T5;
-          T5[0] = -T4[0];
-          Array<float, 1, 1> T6;
-          T6[0] = expf(T5[0]);
-          Array<float, 1, 1> T7;
-          T7[0] = 1.000000000e+00f + T6[0];
-          Array<float, 1, 1> T8;
-          T8[0] = reciprocal(T7[0]);
-          Array<float, 1, 1> T9;
-          T9[0] = T4[0] * T8[0];
-          Array<__bfloat, 1, 1> T15;
-          T15[0] = 0;
+          i81 = i76 + i78;
+          Array<__bfloat, 1, 1> T9;
+          T9[0] = 0;
           if ((b77 && (i45 < (i73 - i78)))) {
-            T15[0] = T17[(
-                ((i76 + (8192 * (i80 / 64))) + (8 * (i21 ^ (i81 / 8)))) +
-                (i81 % 8))];
+            T9[0] = T11[(
+                ((i75 + (8192 * (i79 / 64))) + (8 * (i21 ^ (i80 / 8)))) +
+                (i80 % 8))];
           }
-          Array<float, 1, 1> T10;
-          T10[0] = __bfloat2float(T15[0]);
-          Array<float, 1, 1> T11;
-          T11[0] = T9[0] * T10[0];
-          T16[i79] = __float2bfloat(T11[0]);
+          Array<float, 1, 1> T4;
+          T4[0] = __bfloat2float(T9[0]);
+          Array<float, 1, 1> T5;
+          T5[0] = T3[i81] + T4[0];
+          T10[i81] = __float2bfloat(T5[0]);
         }
       }
     }
@@ -11816,7 +11798,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       if ((b46 && (i47 < (-(16 * i82))))) {
         stmatrix4(
             (uint32_t)((
-                toSmem(T18) +
+                toSmem(T12) +
                 ((((nvfuser_index_t)threadIdx.y) * 32768) +
                  (((i82 / 4) * 8192) +
                   ((i22 * 128) +
@@ -11824,7 +11806,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
                       ((i82 % 4) * 2)) ^
                      (i22 % 8)) *
                     16)))))),
-            (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T16[(8 * i82)])));
+            (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T10[(8 * i82)])));
       }
     }
     __syncthreads();
@@ -11842,6 +11824,7 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
     cpAsyncBulkCommitGroup();
     cpAsyncBulkWaitGroup<0LL>();
   }
-  mbarrier::inval(toSmem(T20));
+  cpAsyncBulkCommitGroup();
+  cpAsyncBulkWaitGroup<0LL>();
 }
 } // namespace

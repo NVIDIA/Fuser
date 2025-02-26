@@ -4881,7 +4881,7 @@ TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
       at::allclose(cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
 }
 
-TEST_F(HopperMatmulTest, EpiloguePersistentBroadcastInputs) {
+TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
 
@@ -4899,25 +4899,15 @@ TEST_F(HopperMatmulTest, EpiloguePersistentBroadcastInputs) {
   fusion.addInput(tv2);
 
   auto tv3 = fusedMultiplySum(tv0, tv1, {2});
-  auto tv4 = castOp(DataType::Float, tv3);
-  auto tv5 = neg(tv4);
-  auto tv6 = exp(tv5);
-  auto tv7 = add(fusion.oneVal(DataType::Float), tv6);
-  auto tv8 = reciprocal(tv7);
-  auto tv9 = mul(tv4, tv8);
-  auto tv10 = mul(tv9, tv2);
-  auto tv11 = castOp(DataType::BFloat16, tv10);
-  fusion.addOutput(tv11);
+  auto tv4 = add(tv3, tv2);
+  auto tv5 = castOp(DataType::BFloat16, tv4);
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
   auto t0 = at::randn({M, 1, K}, options);
   auto t1 = at::randn({1, N, K}, options);
   auto t2 = at::randn({M, N}, options);
-
-  auto tv3_ref = at::linear(t0.squeeze(), t1.squeeze());
-  auto tv4_ref = tv3_ref.to(at::kFloat);
-  auto tv11_ref =
-      (tv4_ref * (1. / (1.0 + at::exp(-tv4_ref))) * t2).to(at::kBFloat16);
+  auto tv3_ref = at::linear(t0.squeeze(), t1.squeeze(), t2);
 
   std::vector<c10::IValue> inputs = {t0, t1, t2};
 
