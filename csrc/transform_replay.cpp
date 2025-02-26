@@ -233,6 +233,63 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_self_root->contiguity());
 }
 
+// Self allocation replay.
+TensorDomain* TransformReplay::selfAllocationReplay(
+    const TensorDomain* new_self_root,
+    const TensorDomain* self) {
+  FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
+
+  if (!self->hasAllocation()) {
+    return new_self_root->domain();
+  }
+
+  NVF_ERROR(
+      new_self_root->logical().size() == self->logical().size(),
+      "Invalid number of IterDomains provided.");
+
+  // Map for replay, should be pretty simple.
+  id_map axis_map;
+  {
+    int64_t i = 0;
+    for (auto id : self->logical()) {
+      NVF_ERROR(
+          new_self_root->logical()[i]->isReduction() == id->isReduction() &&
+              new_self_root->logical()[i]->isRFactorProduct() ==
+                  id->isRFactorProduct() &&
+              new_self_root->logical()[i]->isBroadcast() == id->isBroadcast(),
+          "Axes ",
+          id,
+          " and ",
+          new_self_root->logical()[i],
+          " do not match for self replay.");
+      axis_map[id] = new_self_root->logical()[i];
+      i++;
+    }
+  }
+
+  // Replay producer dimensions.
+  ReplaySelf replay(self->allocation(), axis_map);
+  std::vector<IterDomain*> new_alloc_domain(self->nDims(), nullptr);
+
+  int64_t i = 0;
+  for (auto id : self->allocation()) {
+    auto it = replay.getReplay().find(id);
+    NVF_ERROR(
+        it != replay.getReplay().end(),
+        "Error during replay, didn't replay an axis.");
+    new_alloc_domain[i++] = it->second;
+  }
+
+  return IrBuilder::createInContainer<TensorDomain>(
+      new_self_root->container(),
+      new_self_root->maybeRoot(),
+      new_self_root->logical(),
+      new_alloc_domain,
+      new_self_root->loop(),
+      self->contiguity(),
+      new_self_root->additionalIDs());
+}
+
 namespace {
 
 // Grab all IterDomains of producer or consumer that may not be mapped

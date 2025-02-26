@@ -23,6 +23,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <runtime/executor_params.h>
+#include <transform_replay.h>
 
 #include <iterator>
 
@@ -779,6 +780,11 @@ void Fusion::aliasOutputToInput(
   NVF_ERROR(
       input->getDataType().has_value() && output->getDataType().has_value(),
       "requires DataType to be available for aliased output to input");
+
+  // replays the allocation domain and contiguity of input on output
+  NVF_CHECK(output->isA<TensorView>() && input->isA<TensorView>(),
+            "aliasing output to input is only supported for TensorView");
+  TransformReplay::selfAllocationReplay(output->as<TensorView>()->domain(), input->as<TensorView>()->domain());
 
   if (output->isFusionInput()) {
     // ensure that codegen produce a write operation on the buffer.
