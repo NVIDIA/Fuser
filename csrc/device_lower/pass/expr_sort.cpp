@@ -1706,7 +1706,8 @@ bool isTrivialExpr(Expr* expr) {
           MemoryType::Global) {
     return true;
   }
-  // TODO: Also skip trivial LoadStoreOps when they are S->S Sets?
+  // TODO: Also skip trivial LoadStoreOps when they are G->G Sets? Need to still
+  // ensure no data movement.
   return false;
 }
 
