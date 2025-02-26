@@ -30,6 +30,8 @@ class FindAllPaths {
   struct Edge {
     NodeType from;
     NodeType to;
+    Edge(const ValT& from, const ExprT& to) : from(from), to(to) {}
+    Edge(const ExprT& from, const ValT& to) : from(from), to(to) {}
     bool operator==(const Edge& other) const {
       return from == other.from && to == other.to;
     }
@@ -77,12 +79,12 @@ class FindAllPaths {
     for (const auto& from_node : from_nodes_) {
       if (const ValT* from_val = std::get_if<ValT>(&from_node)) {
         for (const auto& use_expr : uses_(*from_val)) {
-          Edge e(from_node, use_expr);
+          Edge e(*from_val, use_expr);
           setVisited(e);
           addNewNeighbors(e);
         }
         for (const auto& def_expr : definition_(*from_val)) {
-          Edge e(from_node, def_expr);
+          Edge e(*from_val, def_expr);
           setVisited(e);
           addNewNeighbors(e);
         }
@@ -281,15 +283,12 @@ class FindAllPaths {
   // {
   virtual void addNewNeighbors(const Edge& edge) {
     // TODO: Change the signature to receipt edge?
-    auto add_to_visit_list = [&](const NodeType& from,
-                                 const NodeType& to) -> void {
-      // TODO:
-      // if (!excludeFromTraversal(n)) {
+    auto add_to_visit_list = [&](const auto& from, const auto& to) -> void {
+      Edge neighbor_edge(from, to);
       // Don't traverse back
-      if (edge.from == to && edge.to == from) {
+      if (edge.from == neighbor_edge.to && edge.to == neighbor_edge.from) {
         return;
       }
-      Edge neighbor_edge(from, to);
       addToToVisitList(neighbor_edge);
       std::cerr << "Added to new neighbor: " << neighbor_edge.toString()
                 << "\n";
@@ -426,13 +425,13 @@ class FindAllPaths {
     for (const NodeType& to_node : to_nodes_) {
       if (const ValT* to_val = std::get_if<ValT>(&to_node)) {
         for (const auto& use_expr : uses_(*to_val)) {
-          Edge e{use_expr, to_node};
+          Edge e{use_expr, *to_val};
           if (isVisited(e)) {
             initial_edges.emplace_back(e);
           }
         }
         for (const auto& def_expr : definition_(*to_val)) {
-          Edge e{def_expr, to_node};
+          Edge e{def_expr, *to_val};
           if (isVisited(e)) {
             initial_edges.emplace_back(e);
           }
