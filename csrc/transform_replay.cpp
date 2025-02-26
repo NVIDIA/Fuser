@@ -239,8 +239,8 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     const TensorDomain* self) {
   FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
 
-  auto new_self_logical = TensorDomain::noReductions(new_self_root->logical())
-  auto self_logical = TensorDomain::noReductions(self->logical())
+  auto new_self_logical = TensorDomain::noReductions(new_self_root->logical());
+  auto self_logical = TensorDomain::noReductions(self->logical());
 
   NVF_ERROR(
       new_self_logical.size() == self_logical.size(),
