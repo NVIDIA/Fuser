@@ -43,7 +43,7 @@ class MultideviceTest:
             "for unit tests to create unsharded data on CPU to reduce GPU "
             "memory footprint."
         )
-        return mesh.shard_tensor(t, dim, self.rank).cuda(self.local_rank)
+        return mesh.shard_tensor(t, dim, self.rank).cuda(self.rank)
 
 
 @pytest.fixture(scope="session")

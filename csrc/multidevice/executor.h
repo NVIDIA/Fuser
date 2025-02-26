@@ -79,7 +79,7 @@ class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
-      Communicator& comm,
+      Communicator& comm = Communicator::getInstance(),
       MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
@@ -102,6 +102,10 @@ class MultiDeviceExecutor {
   const auto& getFusionExecutorCaches() {
     return host_ir_executor_->getFusionExecutorCaches();
   };
+
+  hir::HostIrEvaluator* hirEvaluator() {
+    return host_ir_executor_.get();
+  }
 
  private:
   // holds the Communicator to be used for execution
