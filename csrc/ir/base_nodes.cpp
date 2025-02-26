@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <dispatch.h>
-#include <expr_evaluator.h>
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <ir/all_nodes.h>
@@ -200,20 +199,6 @@ bool Val::isConstInt() const {
   return ir_utils::dependenciesSatisfied(this) && isIntegralScalar();
 }
 
-PolymorphicValue Val::evaluate() {
-  if (this->value().hasValue()) {
-    return this->value();
-  }
-
-  ExpressionEvaluator ee;
-  auto evaluated_val = ee.evaluate(this);
-  NVF_ERROR(
-      evaluated_val.hasValue(),
-      "Detected a const value but failed to infer its value: ",
-      toInlineString());
-  return evaluated_val;
-}
-
 bool Val::isZero() const {
   return value().hasValue() && (bool)(value() == 0.0);
 }
@@ -374,35 +359,6 @@ Expr* Expr::withWritePredicate(kir::Predicate* predicate) {
   auto result = shallowCopy();
   result->setWritePredicate(predicate);
   return result;
-}
-
-std::vector<PolymorphicValue> Expr::evaluate(
-    const ExpressionEvaluator& ee,
-    const std::vector<PolymorphicValue>& inputs) const {
-  NVF_THROW(
-      "`evaluate` method for expression ",
-      getOpString(),
-      " is not defined. ",
-      "Please override the evaluate method");
-}
-
-std::vector<PolymorphicValue> Expr::evaluate(
-    const ExpressionEvaluator& ee,
-    std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
-  std::vector<PolymorphicValue> expr_inputs;
-  expr_inputs.reserve(inputs().size());
-  for (auto inp : inputs()) {
-    const auto& eval_i = ee.evaluate(inp, known_values);
-    if (!eval_i.hasValue()) {
-      return {std::monostate{}};
-    }
-    expr_inputs.emplace_back(eval_i);
-  }
-  return this->evaluate(ee, expr_inputs);
-}
-
-void Expr::addDataAttribute(PolymorphicValue attr) {
-  addAttribute(IrBuilder::createInContainer<Val>(container(), std::move(attr)));
 }
 
 } // namespace nvfuser

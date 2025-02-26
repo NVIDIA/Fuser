@@ -134,6 +134,7 @@ void ExpressionEvaluator::bindTensorDomain(
     const TensorView* tv,
     const at::Tensor& t,
     const bool evaluate_validate) {
+  FUSER_PERF_SCOPE("ExpressionEvaluator::bindTensorDomain");
   auto logical_domain = TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_ERROR(
       t.dim() == (int64_t)logical_domain.size(),
@@ -174,10 +175,17 @@ void ExpressionEvaluator::bindTensorDomain(
   }
 }
 
+void ExpressionEvaluator::unsafeBind(
+    const Val* value,
+    PolymorphicValue concrete_value) {
+  known_values_[value] = concrete_value;
+}
+
 void ExpressionEvaluator::bind_(
     const Val* value,
     PolymorphicValue concrete_value,
     bool evaluate_validate) {
+  FUSER_PERF_SCOPE("ExpressionEvaluator::bind_");
   using namespace PolymorphicValue_functions;
   NVF_CHECK(concrete_value.hasValue(), "Cannot bind to undefined value");
   if (value->isConst()) {
@@ -257,6 +265,10 @@ PolymorphicValue ExpressionEvaluator::evaluate(const Val* value) const {
 const PolymorphicValue& ExpressionEvaluator::evaluate(
     const Val* value,
     std::unordered_map<const Val*, PolymorphicValue>& known_values) const {
+  // FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
+  // It's tempting to time this function, the issue is it's a recursive function
+  // so timings produced by it can be accumulatively longer than the actual time
+  // spent
   if (precomputed_values_ && precomputed_values_->hasValidValues()) {
     if (precomputed_values_->getMaybeValueFor(value).hasValue()) {
       return precomputed_values_->getMaybeValueFor(value);
@@ -267,7 +279,6 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
       getValue(value, known_values);
   if (!maybe_concrete_value.get().hasValue()) {
     if (auto def = value->definition()) {
-      FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       auto outputs = def->evaluate(*this, known_values);
       for (auto i : c10::irange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
@@ -275,6 +286,12 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
       maybe_concrete_value = getValue(value, known_values);
     }
   }
+  // TODO: Evaluate if an error like below could work
+  // NVF_ERROR(
+  //     maybe_concrete_value.get().hasValue(),
+  //     "Error evaluating a value in expression evaluator. Likely ",
+  //     value->toString(),
+  //     " needs to be bound to a value.");
   return maybe_concrete_value;
 }
 
