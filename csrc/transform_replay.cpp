@@ -270,7 +270,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
   // Replay producer dimensions.
   ReplaySelf replay(self->maybeAllocation(), axis_map);
   std::vector<IterDomain*> new_alloc_domain(self->maybeAllocation().size(), nullptr);
-  std::vector<std::optional<bool>> contiguity = self->contiguity();
+  std::vector<std::optional<bool>> new_contiguity = self->contiguity();
 
   int64_t i = 0;
   for (auto id : self->maybeAllocation()) {
@@ -278,9 +278,9 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     NVF_ERROR(
         it != replay.getReplay().end(),
         "Error during replay, didn't replay an axis.");
-    if (it->second->isBroadcast() != (contiguity[i] == std::nullopt)) {
+    if (it->second->isBroadcast() == new_contiguity[i].has_value()) {
       // whether we resolve to true or false shouldn't matter since it's going to be concretized as a broadcast dimension
-      contiguity[i] = it->second->isBroadcast() ? std::nullopt : true;
+      new_contiguity[i] = it->second->isBroadcast() ? std::nullopt : std::make_optional(true);
     }
     new_alloc_domain[i++] = it->second;
   }
@@ -291,7 +291,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
       new_self_root->logical(),
       new_alloc_domain,
       new_self_root->loop(),
-      self->contiguity(),
+      new_contiguity,
       new_self_root->additionalIDs());
 }
 
