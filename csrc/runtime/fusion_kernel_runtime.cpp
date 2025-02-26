@@ -10,8 +10,11 @@
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
+#include <host_ir/lower.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
+#include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -194,6 +197,23 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
       args_metadata_.serialize(builder),
       &executors_fb,
       segmented_fusion_fb);
+}
+
+namespace {
+std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group) {
+  std::vector<Expr*> sorted_exprs;
+  {
+    auto [/*IrCloner*/group_ir_cloner, /*std::unique_ptr<Fusion>*/group_fusion] = fusion->makeFusion(group);
+    std::unordered_map<Expr*, Expr*> inverse_clone_map;
+    for (auto expr: group->exprs()) { // Sorts the exprs in the group
+      inverse_clone_map[group_ir_cloner.clone(expr)] = expr;
+    }
+    for (auto cloned_expr : group_fusion->exprs()) {
+      sorted_exprs.push_back(inverse_clone_map[cloned_expr]);
+    }
+  }
+  return sorted_exprs;
+}
 }
 
 void FusionKernelRuntime::deserialize(
@@ -425,6 +445,17 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
   }
 
+  if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
+    // Wait until all segments finish compiling
+    getThreadPool()->waitWorkComplete();
+    NVF_ERROR(
+        !detect_exception_in_thread_pool.load(),
+        "Detected exception while compiling fusion segments in parallel. ",
+        "Error messages from all threads are printed below.\n",
+        thread_pool_error_message,
+        "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
+  }
+
   // add all expressions and compiled kernels to the host ir container
   if (hic != nullptr) {
     IrCloner ir_cloner(hic.get());
@@ -443,10 +474,38 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
             std::vector<Val*>{out_clone});
         hic->pushBackTopLevelExprs(launch_kernel);
       } else {
-        // push back segment's exprs into the container as top level expressions
-        for (auto* expr : group_to_run->exprs()) {
-          auto cloned_expr = ir_cloner.clone(expr);
-          hic->pushBackTopLevelExprs(cloned_expr);
+        if (group_to_run->schedulerType() == SchedulerType::Communication) {
+          auto deviceid = Communicator::getInstance().deviceId();
+          NVF_ERROR(
+              group_to_run->exprs().size() == 1,
+              "Communication segments must contain only one Expr");
+          HostIrLower lower;
+          for (auto* expr :
+               lower.lower(ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+            // Allocate the recv buffers of communications
+            if (expr->isA<Communication>()) {
+              auto* communication = expr->as<Communication>();
+              TensorView* tv = communication->out();
+              if (tv->getDeviceMesh().has(deviceid)) {
+                auto* allocate =
+                    IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+                hic->pushBackTopLevelExprs(allocate);
+              }
+            }
+            hic->pushBackTopLevelExprs(expr);
+            if (expr->isA<Communication>()) {
+              auto wait =
+                  IrBuilder::create<hir::Wait>(expr->as<Communication>());
+              hic->pushBackTopLevelExprs(wait);
+            }
+          }
+        } else {
+          // push back segment's exprs into the container as top level
+          // expressions
+          for (auto* expr : toposortExprs(segmented_fusion_.get(), group_to_run)) {
+            auto cloned_expr = ir_cloner.clone(expr);
+            hic->pushBackTopLevelExprs(cloned_expr);
+          }
         }
       }
     }
@@ -456,22 +515,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const Val* out : segmented_fusion_->outputs()) {
       hic->addOutput(ir_cloner.clone(out));
     }
-  }
 
-  if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
-    // Wait until all segments finish compiling
-    getThreadPool()->waitWorkComplete();
-    NVF_ERROR(
-        !detect_exception_in_thread_pool.load(),
-        "Detected exception while compiling fusion segments in parallel. ",
-        "Error messages from all threads are printed below.\n",
-        thread_pool_error_message,
-        "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
-  }
-
-  if (hic != nullptr) {
     hie_ = std::make_unique<hir::HostIrEvaluator>(
-        hir::HostIrEvaluator(std::move(hic)));
+        hir::HostIrEvaluator(std::move(hic), &Communicator::getInstance()));
   }
 
   if (isProfilerEnabled()) {

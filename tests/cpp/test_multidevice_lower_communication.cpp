@@ -26,14 +26,18 @@ namespace {
 void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->executors().size(), 1);
-  EXPECT_THAT(
-      runtime->executors(),
-      Each(Pointer(Property(
-          "is a HostIrExecutor",
-          &ExecutorAbstract::isA<HostIrExecutor>,
-          IsTrue()))))
-      << "failed to compile to a HostIrContainer with Communications";
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    EXPECT_EQ(runtime->getHostIrEvaluator()->canRun(), "");
+  } else {
+    EXPECT_EQ(runtime->executors().size(), 1);
+    EXPECT_THAT(
+        runtime->executors(),
+        Each(Pointer(Property(
+            "is a HostIrExecutor",
+            &ExecutorAbstract::isA<HostIrExecutor>,
+            IsTrue()))))
+        << "failed to compile to a HostIrContainer with Communications";
+  }
 }
 } // namespace
 
@@ -57,10 +61,17 @@ using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
 static constexpr int kTensorSize = 4;
 
 class LowerGatherTest : public MultiDeviceTest,
-                        public testing::WithParamInterface<InOutMesh> {};
+                        public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerGatherTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
+  EnableOptionsGuard opt_guard;
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+  
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
@@ -91,19 +102,47 @@ TEST_P(LowerGatherTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    HostIrLowering,
     LowerGatherTest,
-    // Trick to enforce clang-format to break lines for readability.
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0, 1}, {0}}, //
-         {{0, 1}, {1}}, //
-         {{1, 2}, {0, 2}}})));
+    // Create product of InOutMesh configurations and HostIrLowering options
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0, 1}, {0}},
+             {{0, 1}, {1}},
+             {{1, 2}, {0, 2}}})),
+        testing::Bool()),
+    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+      const auto& meshes = std::get<0>(info.param);
+      const auto& in_mesh = meshes.first;
+      const auto& out_mesh = meshes.second;
+      const auto enable_hir = std::get<1>(info.param);
+      
+      std::stringstream ss;
+      ss << "InMesh";
+      for (auto id : in_mesh.vector()) {
+        ss << "_" << id;
+      }
+      ss << "_OutMesh";
+      for (auto id : out_mesh.vector()) {
+        ss << "_" << id;
+      }
+      ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
+      
+      return ss.str();
+    });
 
 class LowerScatterTest : public MultiDeviceTest,
-                         public testing::WithParamInterface<InOutMesh> {};
+                         public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerScatterTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
+  EnableOptionsGuard opt_guard;
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+  
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
@@ -134,18 +173,46 @@ TEST_P(LowerScatterTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    HostIrLowering,
     LowerScatterTest,
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0}, {0, 1}}, //
-         {{1}, {0, 1}}, //
-         {{0, 2}, {1, 2}}})));
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {0, 1}}, //
+             {{1}, {0, 1}}, //
+             {{0, 2}, {1, 2}}})),
+        testing::Bool()),
+    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+      const auto& meshes = std::get<0>(info.param);
+      const auto& in_mesh = meshes.first;
+      const auto& out_mesh = meshes.second;
+      const auto enable_hir = std::get<1>(info.param);
+      
+      std::stringstream ss;
+      ss << "InMesh";
+      for (auto id : in_mesh.vector()) {
+        ss << "_" << id;
+      }
+      ss << "_OutMesh";
+      for (auto id : out_mesh.vector()) {
+        ss << "_" << id;
+      }
+      ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
+      
+      return ss.str();
+    });
 
 class LowerSendRecvTest : public MultiDeviceTest,
-                          public testing::WithParamInterface<InOutMesh> {};
+                          public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerSendRecvTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
+  EnableOptionsGuard opt_guard;
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+  
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
@@ -178,17 +245,46 @@ TEST_P(LowerSendRecvTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    HostIrLowering,
     LowerSendRecvTest,
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0}, {1}}, //
-         {{1}, {0}}, //
-         {{1, 2}, {0, 1}}, //
-         {{1, 2}, {1, 0}}})));
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {1}},
+             {{1}, {0}},
+             {{1, 2}, {0, 1}},
+             {{1, 2}, {1, 0}}})),
+        testing::Bool()),
+    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+      const auto& meshes = std::get<0>(info.param);
+      const auto& in_mesh = meshes.first;
+      const auto& out_mesh = meshes.second;
+      const auto enable_hir = std::get<1>(info.param);
+      
+      std::stringstream ss;
+      ss << "InMesh";
+      for (auto id : in_mesh.vector()) {
+        ss << "_" << id;
+      }
+      ss << "_OutMesh";
+      for (auto id : out_mesh.vector()) {
+        ss << "_" << id;
+      }
+      ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
+      
+      return ss.str();
+    });
 
-using LowerCollectiveTest = MultiDeviceTest;
+class LowerCollectiveTest : public MultiDeviceTest,
+                          public testing::WithParamInterface<bool> {};
 
-TEST_F(LowerCollectiveTest, Allgather) {
+TEST_P(LowerCollectiveTest, Allgather) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -215,7 +311,15 @@ TEST_F(LowerCollectiveTest, Allgather) {
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
 
-TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
+TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    // Skip this test when HostIrLowering is enabled
+    GTEST_SKIP() << "Disabled for HostIrLowering enabled configuration";
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -248,10 +352,14 @@ TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
 }
 
-// This currently fails due to getShardingChanges reads root/logical only:
-// https://github.com/NVIDIA/Fuser/blob/1dda106a946adcfd1526b83e4f2d4abebb9e32e4/csrc/multidevice/utils.cpp#L77.
-// Will try to fix this in a follow-up PR and reenable the test.
-TEST_F(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
+TEST_P(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -284,7 +392,14 @@ TEST_F(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
 }
 
-TEST_F(LowerCollectiveTest, Broadcast) {
+TEST_P(LowerCollectiveTest, Broadcast) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -307,6 +422,7 @@ TEST_F(LowerCollectiveTest, Broadcast) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  
   if (num_devices > 1) {
     assertIsCompiledToHostIrContainer(executor_cache);
   }
@@ -315,7 +431,14 @@ TEST_F(LowerCollectiveTest, Broadcast) {
       at::equal(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
 
-TEST_F(LowerCollectiveTest, Reduce) {
+TEST_P(LowerCollectiveTest, Reduce) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -347,7 +470,14 @@ TEST_F(LowerCollectiveTest, Reduce) {
   }
 }
 
-TEST_F(LowerCollectiveTest, Allreduce) {
+TEST_P(LowerCollectiveTest, Allreduce) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -374,7 +504,14 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
+TEST_P(LowerCollectiveTest, Allreduce_Concrete) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -405,7 +542,14 @@ TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_F(LowerCollectiveTest, ReduceScatter) {
+TEST_P(LowerCollectiveTest, ReduceScatter) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -434,7 +578,14 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
 }
 
-TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
+TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
+  EnableOptionsGuard opt_guard;
+  const bool enable_host_ir_lowering = GetParam();
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+  
   // Allreduce = ReduceScatter + Allgather
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -465,5 +616,13 @@ TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
 
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
+
+INSTANTIATE_TEST_SUITE_P(
+    HostIrLowering,
+    LowerCollectiveTest,
+    testing::Bool(),
+    [](const testing::TestParamInfo<bool>& info) {
+      return info.param ? "HirLowerEnabled" : "HirLowerDisabled";
+    });
 
 } // namespace nvfuser
