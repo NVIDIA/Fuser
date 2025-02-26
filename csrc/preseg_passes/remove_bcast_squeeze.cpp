@@ -13,6 +13,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
