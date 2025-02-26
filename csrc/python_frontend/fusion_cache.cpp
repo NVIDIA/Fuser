@@ -676,10 +676,17 @@ void FusionCache::serialize(std::string filename) const {
   fb_auto_gen_schedules.reserve(terminal_nodes_.size());
 
   for (auto node : terminal_nodes_) {
+    if (node->getException().has_value()) {
+      continue;
+    }
+
     terminal_node_idx.push_back(
         map_record_functor_to_trie_node_id.at(node->record.get()));
 
     auto schedule = queryFusionSchedules(node->fusion_id);
+    NVF_ERROR(
+        schedule->auto_gen_schedules != nullptr,
+        "We should only cache FusionDefinitions that pass finalizeDefinition, which creates auto_gen_schedules.");
     fb_auto_gen_schedules.push_back(
         schedule->auto_gen_schedules->serialize(builder));
   }
