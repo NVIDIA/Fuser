@@ -12,6 +12,7 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
+#include <graph_traversal.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -19,6 +20,7 @@
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/resize_utils.h>
 #include <val_graph_visitor.h>
 
 #include <c10/util/irange.h>
@@ -884,6 +886,13 @@ int64_t getVectorizationFactor(
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
 
+  bool has_resize = scheduler_tools::hasResizeBasedOps(reference_tv->fusion());
+  std::unique_ptr<IdModel> id_model;
+  if (has_resize) {
+    id_model = std::make_unique<IdModel>(reference_tv->fusion());
+    id_model->buildExactGraph();
+  }
+
   for (auto inp_or_out : vectorizable_inputs_outputs) {
     // factor <= max_factor / dtype_size
     const auto dtype_size =
@@ -918,6 +927,70 @@ int64_t getVectorizationFactor(
     max_vec_size = std::min(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
         max_vec_size);
+
+    if (has_resize) {
+      std::cerr << "Without resize fix: " << max_vec_size << "\n";
+      const auto& graph = id_model->idGraph(IdMappingMode::EXACT);
+      const auto ref_groups = graph.toGroups(reference_tv->getLogicalDomain());
+      const auto inp_or_out_groups =
+          graph.toGroups(inp_or_out->getLogicalDomain());
+      FindAllPaths<
+          ExprGroup,
+          ValGroup,
+          ValGraphDefinitions,
+          ValGraphUses,
+          ValGraphInputs,
+          ValGraphOutputs>
+          finder(
+              ValGraphDefinitions(graph),
+              ValGraphUses(graph),
+              ValGraphInputs(graph),
+              ValGraphOutputs(graph),
+              {ref_groups.vector().begin(), ref_groups.vector().end()},
+              {inp_or_out_groups.vector().begin(),
+               inp_or_out_groups.vector().end()},
+              /*require_all_to_visited=*/false,
+              Direction::Undefined);
+      finder.traverse();
+      auto result = finder.getOrderedExprPath();
+      for (const auto& [expr_g, dir] : result.first) {
+        auto resize = dynamic_cast<Resize*>(expr_g->front());
+        if (resize == nullptr) {
+          continue;
+        }
+
+        std::cerr << dir << ", " << nvfuser::toString(expr_g)
+                  << expr_g->front()->toString();
+
+        auto left_expand_val =
+            runtime_info.expressionEvaluator().evaluate(resize->leftExpand());
+        if (!left_expand_val.hasValue()) {
+          return 1;
+        }
+        auto right_expand_val =
+            runtime_info.expressionEvaluator().evaluate(resize->rightExpand());
+        if (!right_expand_val.hasValue()) {
+          return 1;
+        }
+
+        auto output_extent = dir == Direction::Forward ? resize->out()->extent()
+                                                       : resize->in()->extent();
+        auto output_extent_val =
+            runtime_info.expressionEvaluator().evaluate(output_extent);
+        if (!output_extent_val.hasValue()) {
+          return 1;
+        }
+
+        auto resize_safe_factor = std::gcd(
+            std::gcd(
+                left_expand_val.as<int64_t>(), right_expand_val.as<int64_t>()),
+            output_extent_val.as<int64_t>());
+        std::cerr << "Safe vec factor: " << resize_safe_factor << "\n";
+        max_vec_size = std::gcd(max_vec_size, resize_safe_factor);
+      }
+
+      std::cerr << "With resize fix: " << max_vec_size << "\n";
+    }
   }
 
   return max_vec_size;
