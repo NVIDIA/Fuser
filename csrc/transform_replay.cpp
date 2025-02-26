@@ -239,15 +239,18 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     const TensorDomain* self) {
   FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
 
+  auto new_self_logical = TensorDomain::noReductions(new_self_root->logical())
+  auto self_logical = TensorDomain::noReductions(self->logical())
+
   NVF_ERROR(
-      new_self_root->logical().size() == self->logical().size(),
+      new_self_logical.size() == self_logical.size(),
       "Invalid number of IterDomains provided.");
 
   // Map for replay, should be pretty simple.
   id_map axis_map;
   {
     int64_t i = 0;
-    for (auto id : self->logical()) {
+    for (auto id : self_logical) {
       NVF_ERROR(
           new_self_root->logical()[i]->isReduction() == id->isReduction() &&
               new_self_root->logical()[i]->isRFactorProduct() ==
@@ -265,7 +268,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
 
   // Replay producer dimensions.
   ReplaySelf replay(self->maybeAllocation(), axis_map);
-  std::vector<IterDomain*> new_alloc_domain(self->nDims(), nullptr);
+  std::vector<IterDomain*> new_alloc_domain(self->maybeAllocation().size(), nullptr);
 
   int64_t i = 0;
   for (auto id : self->maybeAllocation()) {
