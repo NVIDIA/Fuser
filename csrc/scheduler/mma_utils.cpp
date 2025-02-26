@@ -15,12 +15,15 @@
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
+#include <type.h>
 #include <val_graph.h>
 #include <variant>
-#include "options.h"
+
+#include <ranges>
 
 namespace nvfuser {
 
@@ -1946,49 +1949,82 @@ class MatmulTranslator : public OptInDispatch {
         "Cannot translate MatmulOp with 1D input");
     TensorView* fms = nullptr;
     if (avoid_intermediates_) {
-      MmaOp::AxisMapping axis_mapping;
-      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims()) + 1;
+      // TODO: pass in graph as a parameter to avoid rebuilding
+      IdModel id_model(mop->fusion(), /*build_graphs=*/false);
+      id_model.buildBroadcastGraph();
+      const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
 
-      axis_mapping.a_axes.resize((size_t)out_dims, -1);
-      axis_mapping.b_axes.resize((size_t)out_dims, -1);
-
-      for (size_t a_axis : c10::irange((size_t)pattern_.A->nDims() - 1)) {
-        // Output is [ ... M, N, K ]
-        // This loop maps everything but N and K to A
-        int64_t out_axis =
-            (int64_t)a_axis + (out_dims - 1 - pattern_.A->nDims());
-        axis_mapping.a_axes.at((size_t)out_axis) = (int64_t)a_axis;
+      // Find ValGroups of each dimension in output. We will use the broadcast
+      // map to determine equivalence for each operand.
+      std::vector<const ValGroup*> output_groups;
+      output_groups.reserve(pattern_.output->getLogicalDomain().size());
+      for (IterDomain* id : pattern_.output->getLogicalDomain()) {
+        output_groups.push_back(&graph.toGroup(id));
       }
-      // Map the K dim, skipping one position
-      axis_mapping.a_axes.at((size_t)out_dims - 1) = pattern_.A->nDims() - 1;
 
-      for (size_t b_axis : c10::irange((size_t)pattern_.B->nDims() - 2)) {
-        // Output is [ ... M, N, K ]
-        // This loop maps everything before M to B, skipping the output M dim
-        int64_t out_axis =
-            (int64_t)b_axis + (out_dims - pattern_.B->nDims()) - 1;
-        axis_mapping.b_axes.at((size_t)out_axis) = (int64_t)b_axis;
-      }
-      // Skip the K dim and map N and K
-      axis_mapping.b_axes.at((size_t)out_dims - 2) = pattern_.B->nDims() - 1;
-      axis_mapping.b_axes.at((size_t)out_dims - 1) = pattern_.B->nDims() - 2;
+      // For each operand
+      // 1. find the fusion input
+      // 2. broadcast to create missing dims
+      // 3. permute into ...BMNK
+      // 4. set all intermediate tensors to Global
+      // 5. set all intermediate tensor allocation domains to match input's
+      // 6. if already cached, cache the output
+      //
+      // After that, create the MmaOp
+      const auto process_operand = [&graph,
+                                    &output_groups](TensorView* orig_operand) {
+        const std::vector<Val*> inputs = InputsOf::output(orig_operand);
+        NVF_ERROR(inputs.size() == 1);
+        auto* fusion_input = inputs.front()->as<TensorView>();
+        // TODO: should we verify that all ops between fusion_input and
+        // orig_operand are trivial?
 
-      fms = fusedMultiplySum(
-          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
+        // Save the fusion input's allocation domain so we can set the
+        // intermediate TVs' allocation domains and contiguity to match.
+        std::vector<const ValGroup*> input_alloc_groups;
+        input_alloc_groups.reserve(
+            fusion_input->getMaybeAllocationDomain().size());
+        for (IterDomain* id : fusion_input->getMaybeAllocationDomain()) {
+          input_alloc_groups.push_back(&graph.toGroup(id));
+        }
 
-      int64_t num_M_dims =
-          std::max(1 + pattern_.A->nDims() - pattern_.B->nDims(), (int64_t)1);
+        // Build a mapping from ValGroup to position. We will update this
+        // mapping when we broadcast then use it to perform a permute if
+        // necessary.
+        std::unordered_map<const ValGroup*, size_t> group_position;
+        for (size_t pos : std::ranges::views::iota(
+                 orig_operand->getLogicalDomain().size())) {
+          IterDomain* operand_id = orig_operand->getLogicalDomain().at(pos);
+          group_position[&graph.toGroup(operand_id)] = pos;
+        }
 
-      // Reorder to BMNK.
-      // Add loop broadcasts to A and B to mimick logical broadcasts for
-      // simpler scheduling
-      pattern_.A->broadcast(-2);
+        // Look for axes that we need to broadcast
+        size_t num_broadcasts = 0;
+        for (const ValGraph& g : output_groups) {
+          if (group_position.count(&g) == 0) {
+            group_position[&g] =
+                orig_operand->getLogicalDomain().size() + num_broadcasts++;
+          }
+        }
 
-      pattern_.B->reorder({{-2, -1}});
-      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-        // Broadcast B for every M dimension in A
-        pattern_.B->broadcast(-3);
-      }
+        TensorView* new_operand = fusion_input;
+        if (num_broadcasts > 0) {
+          std::vector<bool> flags(group_position.size(), false);
+          std::fill(flags.end() - num_broadcasts, flags.end(), true);
+          new_operand = broadcast(new_operand, flags);
+
+          // Set allocation domain of new_operand to match that of fusion_input
+          // (aside from new broadcasts)
+          new_operand->setMemoryType(MemoryType::Global);
+        }
+
+        // Now call permute if necessary
+      };
+
+      pattern_.A = process_operand(pattern_.A);
+      pattern_.B = process_operand(pattern_.B);
+
+      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     } else {
       TensorView* Btrans = transpose(pattern_.B, -2, -1);
       pattern_.A = unsqueeze(pattern_.A, -2);
