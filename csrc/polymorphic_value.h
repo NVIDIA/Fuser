@@ -8,6 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
+#include <python_frontend/distributed_tensor.h>
 #include <any>
 #include <complex>
 #include <cstddef>
@@ -213,6 +214,7 @@ using PolymorphicValue = dynamic_type::DynamicType<
     StructHandle,
     Pointer,
     Opaque,
+    python_frontend::DistributedTensor,
     at::Tensor,
     std::complex<double>,
     double,
@@ -245,191 +247,39 @@ inline bool isSameNanSensitive(const T& a, const T& b) {
   return a == b;
 }
 
-inline bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
-  if (a.type() != b.type()) {
-    return false;
-  }
-  if (a.is<at::Tensor>()) {
-    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
-  }
-  if (a.is<double>()) {
-    return isSameNanSensitive(a.as<double>(), b.as<double>());
-  }
-  if (a.is<std::complex<double>>()) {
-    return isSameNanSensitive(
-        a.as<std::complex<double>>(), b.as<std::complex<double>>());
-  }
-  return a == b;
-}
-
-inline PolymorphicValue signbit(const PolymorphicValue& a) {
-  if (a.is<int64_t>()) {
-    return PolymorphicValue(std::signbit(a.as<int64_t>()));
-  }
-  if (a.is<double>()) {
-    return PolymorphicValue(std::signbit(a.as<double>()));
-  }
-  if (a.is<at::Tensor>()) {
-    return PolymorphicValue(a.as<at::Tensor>().signbit());
-  }
-  NVF_THROW("PolymorphicValue signbit not implemented for ", a.type().name());
-}
-
-inline PolymorphicValue fmod(
-    const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  // TODO: relax the type check
-  NVF_ERROR(
-      a.is<at::Tensor>() || a.type() == b.type(),
-      "fmod is not implemented for mismatch dtypes");
-  if (a.is<int64_t>()) {
-    if (b.is<int64_t>()) {
-      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<int64_t>()));
-    }
-    if (b.is<double>()) {
-      return PolymorphicValue(std::fmod(a.as<int64_t>(), b.as<double>()));
-    }
-  }
-  if (a.is<double>()) {
-    if (b.is<int64_t>()) {
-      return PolymorphicValue(std::fmod(a.as<double>(), b.as<int64_t>()));
-    }
-    if (b.is<double>()) {
-      return PolymorphicValue(std::fmod(a.as<double>(), b.as<double>()));
-    }
-  }
-  if (a.is<at::Tensor>()) {
-    if (b.is<int64_t>()) {
-      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<int64_t>()));
-    }
-    if (b.is<double>()) {
-      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<double>()));
-    }
-    if (b.is<at::Tensor>()) {
-      return PolymorphicValue(a.as<at::Tensor>().fmod(b.as<at::Tensor>()));
-    }
-  }
-  NVF_THROW(
-      "PolymorphicValue fmod not implemented for ",
-      a.type().name(),
-      " , ",
-      b.type().name());
-}
-
-inline PolymorphicValue ceildiv(
-    const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  if (a.is<int64_t>() && b.is<int64_t>()) {
-    auto aa = a.as<int64_t>();
-    auto bb = b.as<int64_t>();
-    if (bb > 0) {
-      return PolymorphicValue((aa + bb - 1) / bb);
-    } else {
-      return PolymorphicValue((aa + bb + 1) / bb);
-    }
-  }
-  return PolymorphicValue(std::ceil((a / b).as<double>()));
-}
-
-inline PolymorphicValue max(
-    const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  return PolymorphicValue(a > b ? a : b);
-}
-
-inline PolymorphicValue min(
-    const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  return PolymorphicValue(a < b ? a : b);
-}
-
-inline PolymorphicValue gcd(
-    const PolymorphicValue& a,
-    const PolymorphicValue& b) {
-  return PolymorphicValue(std::gcd(a.as<int64_t>(), b.as<int64_t>()));
-}
-
-inline PolymorphicValue abs(const PolymorphicValue& a) {
-  if (a.is<int64_t>()) {
-    return PolymorphicValue(std::abs(a.as<int64_t>()));
-  }
-  if (a.is<double>()) {
-    return PolymorphicValue(std::abs(a.as<double>()));
-  }
-  if (a.is<bool>()) {
-    return a;
-  }
-  if (a.is<std::complex<double>>()) {
-    return std::abs(a.as<std::complex<double>>());
-  }
-  if (a.is<at::Tensor>()) {
-    return a.as<at::Tensor>().abs();
-  }
-  NVF_THROW("PolymorphicValue abs not implemented for ", a.type().name());
-}
-
-inline PolymorphicValue erf(const PolymorphicValue& a) {
-  if (a.is<at::Tensor>()) {
-    return PolymorphicValue(a.as<at::Tensor>().erf());
-  }
-  NVF_THROW("PolymorphicValue erf not implemented for ", a.type().name());
-}
+bool isSame(const PolymorphicValue& a, const PolymorphicValue& b);
 
 // Convert scalars, vector of scalars, vector of vector of scalars, etc., into
 // an at::Tensor. device argument allows for the creation of CPU Scalars.
-inline PolymorphicValue toTensor(
+PolymorphicValue toTensor(
     const PolymorphicValue& x,
     at::DeviceType device_type = at::kCUDA,
-    int8_t device_index = 0) {
-  if (x.is<at::Tensor>()) {
-    return x;
-  }
-  auto options = at::TensorOptions().device(device_type, device_index);
-  if (x.is<int64_t>()) {
-    return PolymorphicValue(
-        at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());
-  }
-  if (x.is<double>()) {
-    return PolymorphicValue(
-        at::tensor(x.as<double>(), options.dtype(at::kDouble)).squeeze());
-  }
-  if (x.is<bool>()) {
-    return PolymorphicValue(
-        at::tensor(x.as<bool>(), options.dtype(at::kBool)).squeeze());
-  }
-  if (x.is<std::complex<double>>()) {
-    return PolymorphicValue(
-        at::tensor(
-            (c10::complex<double>)x.as<std::complex<double>>(),
-            options.dtype(at::kComplexDouble))
-            .squeeze());
-  }
-  if (x.is<std::vector>()) {
-    auto vec = x.as<std::vector>();
-    std::vector<at::Tensor> tensors;
-    tensors.reserve(vec.size());
-    for (const auto& elem : vec) {
-      tensors.push_back(toTensor(elem).as<at::Tensor>());
-    }
-    return PolymorphicValue(at::stack(tensors));
-  }
-  NVF_THROW("PolymorphicValue toTensor not implemented for ", x.type().name());
+    int8_t device_index = 0);
+
+constexpr bool isScalar(const PolymorphicValue& x) {
+  return x.is<int64_t>() || x.is<double>() || x.is<bool>() ||
+      x.is<std::complex<double>>();
 }
 
 // Convert PolymorphicValue to c10::Scalar.
 inline c10::Scalar toScalar(const PolymorphicValue& x) {
-  if (x.is<std::complex<double>>()) {
+  if (x.is<double>()) {
+    return (c10::Scalar)x.as<double>();
+  } else if (x.is<int64_t>()) {
+    return (c10::Scalar)x.as<int64_t>();
+  } else if (x.is<bool>()) {
+    return (c10::Scalar)x.as<bool>();
+  } else if (x.is<std::complex<double>>()) {
     return (c10::complex<double>)x.as<std::complex<double>>();
-  } else {
-    return (c10::Scalar)x;
   }
+  NVF_THROW("Cannot convert ", x, " to a scalar.");
 }
 
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
 
-inline bool isScalar(const PolymorphicValue& x);
-
 c10::IValue toIValue(const PolymorphicValue& x);
+
+PolymorphicValue castToDtype(PolymorphicValue value, const DataType& dtype);
 
 } // namespace PolymorphicValue_functions
 

@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <multidevice/device_mesh.h>
 #include <polymorphic_value.h>
 #include <type.h>
 #include <utils.h>
@@ -70,6 +71,75 @@ std::string toString(const PolymorphicValue& v) {
   return ss.str();
 }
 
+bool isSame(const PolymorphicValue& a, const PolymorphicValue& b) {
+  if (a.type() != b.type()) {
+    return false;
+  }
+  if (a.is<at::Tensor>()) {
+    return (a.as<at::Tensor>().is_same(b.as<at::Tensor>()));
+  }
+  if (a.is<double>()) {
+    return isSameNanSensitive(a.as<double>(), b.as<double>());
+  }
+  if (a.is<std::complex<double>>()) {
+    return isSameNanSensitive(
+        a.as<std::complex<double>>(), b.as<std::complex<double>>());
+  }
+  if (a.is<python_frontend::DistributedTensor>()) {
+    if (a.as<python_frontend::DistributedTensor>().mesh() ==
+        b.as<python_frontend::DistributedTensor>().mesh()) {
+      return a.as<python_frontend::DistributedTensor>().local() ==
+          b.as<python_frontend::DistributedTensor>().local();
+    }
+    return false;
+  }
+  return a == b;
+}
+
+// Convert scalars, vector of scalars, vector of vector of scalars, etc., into
+// an at::Tensor. device argument allows for the creation of CPU Scalars.
+PolymorphicValue toTensor(
+    const PolymorphicValue& x,
+    at::DeviceType device_type,
+    int8_t device_index) {
+  if (x.is<at::Tensor>()) {
+    return x;
+  }
+  auto options = at::TensorOptions().device(device_type, device_index);
+  if (x.is<int64_t>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<int64_t>(), options.dtype(at::kLong)).squeeze());
+  }
+  if (x.is<double>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<double>(), options.dtype(at::kDouble)).squeeze());
+  }
+  if (x.is<bool>()) {
+    return PolymorphicValue(
+        at::tensor(x.as<bool>(), options.dtype(at::kBool)).squeeze());
+  }
+  if (x.is<std::complex<double>>()) {
+    return PolymorphicValue(
+        at::tensor(
+            (c10::complex<double>)x.as<std::complex<double>>(),
+            options.dtype(at::kComplexDouble))
+            .squeeze());
+  }
+  if (x.is<std::vector>()) {
+    auto vec = x.as<std::vector>();
+    std::vector<at::Tensor> tensors;
+    tensors.reserve(vec.size());
+    for (const auto& elem : vec) {
+      tensors.push_back(toTensor(elem).as<at::Tensor>());
+    }
+    return PolymorphicValue(at::stack(tensors));
+  }
+  if (x.is<python_frontend::DistributedTensor>()) {
+    return x.as<python_frontend::DistributedTensor>().local();
+  }
+  NVF_THROW("PolymorphicValue toTensor not implemented for ", x.type().name());
+}
+
 PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
   if (val.isTensor()) {
     return val.toTensor();
@@ -90,11 +160,6 @@ PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val) {
   }
 }
 
-inline bool isScalar(const PolymorphicValue& x) {
-  return x.is<int64_t>() || x.is<double>() || x.is<bool>() ||
-      x.is<std::complex<double>>();
-}
-
 c10::IValue toIValue(const PolymorphicValue& x) {
   if (x.is<at::Tensor>()) {
     return c10::IValue(x.as<at::Tensor>());
@@ -102,6 +167,27 @@ c10::IValue toIValue(const PolymorphicValue& x) {
     return c10::IValue(toScalar(x));
   }
   NVF_THROW("Cannot convert provided PolymorphicValue to a c10::IValue.");
+}
+
+PolymorphicValue castToDtype(PolymorphicValue value, const DataType& dtype) {
+  if (!value.hasValue()) {
+    return value;
+  }
+  // Cast the given value to the given data type. This enables interface
+  // like: IrBuilder::create<Val>(0, DataType::Double) where value is
+  // an integer but the desired data type is double.
+  if (!hasCompatibleDataType(value, dtype)) {
+    PolymorphicValue::for_all_types([&](auto _) {
+      using T = typename decltype(_)::type;
+      if constexpr (IsPrimitiveNativeType<T>::value) {
+        if (isCompatibleDataType(NativeTypeToDataType<T>::type, dtype)) {
+          value = PolymorphicValue(static_cast<T>(value));
+        }
+      }
+      // TODO: support arrays and pointers
+    });
+  }
+  return value;
 }
 
 } // namespace PolymorphicValue_functions

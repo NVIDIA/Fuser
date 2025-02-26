@@ -10,10 +10,10 @@
 
 #include <ATen/core/TensorBody.h>
 
-#include <multidevice/device_mesh.h>
-#include <type.h>
-
-namespace nvfuser::python_frontend {
+namespace nvfuser {
+class DeviceMesh;
+enum class ParallelType;
+namespace python_frontend {
 
 // A class that represents a distributed tensor. It wraps a local tensor, a
 // mesh, and a mapping from mesh axes to tensor axes. If the mesh is empty,
@@ -22,16 +22,13 @@ class DistributedTensor {
  public:
   explicit DistributedTensor(
       at::Tensor local_tensor,
-      DeviceMesh mesh = DeviceMesh())
-      : local_(std::move(local_tensor)), mesh_(std::move(mesh)) {}
-  DistributedTensor(const DistributedTensor&) = delete;
-  DistributedTensor& operator=(const DistributedTensor&) = delete;
+      const DeviceMesh* mesh = nullptr);
+  DistributedTensor(const DistributedTensor&);
+  DistributedTensor& operator=(const DistributedTensor&);
   DistributedTensor(DistributedTensor&&) = default;
   DistributedTensor& operator=(DistributedTensor&&) = default;
-
-  const DeviceMesh& mesh() const {
-    return mesh_;
-  }
+  ~DistributedTensor();
+  const DeviceMesh& mesh() const;
 
   at::Tensor local() const {
     return local_;
@@ -43,8 +40,9 @@ class DistributedTensor {
 
  private:
   at::Tensor local_;
-  DeviceMesh mesh_;
+  std::unique_ptr<DeviceMesh> mesh_;
   std::unordered_map<ParallelType, int64_t> axis_sharded_on_;
 };
 
-} // namespace nvfuser::python_frontend
+} // namespace python_frontend
+} // namespace nvfuser
