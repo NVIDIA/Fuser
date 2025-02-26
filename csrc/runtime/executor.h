@@ -314,13 +314,16 @@ class KernelExecutor : public ExecutorAbstract {
 
   int64_t warp_size_ = 0;
 
-  // Has an RNG kernel and therefore needs to infer RNG state through expression evaluator
+  // Has an RNG kernel and therefore needs to infer RNG state through expression
+  // evaluator
   bool has_rng_ = false;
 
-  // Has a TMA kernel and therefore needs to infer TMA inputs through expression evaluator
+  // Has a TMA kernel and therefore needs to infer TMA inputs through expression
+  // evaluator
   bool has_TMA_ = false;
 
-  // Has a dynamic alias and therefore needs to infer what they are through expression evaluator
+  // Has a dynamic alias and therefore needs to infer what they are through
+  // expression evaluator
   bool has_dynamic_alias_ = false;
 
   // lookup table to take short cut to retrieve recorded information in order to

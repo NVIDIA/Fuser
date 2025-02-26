@@ -410,7 +410,7 @@ std::vector<at::Tensor> allocateKernelOutputs(
           fusion->inputs()[entry.output_aliased_to_input.at(out_idx)],
           input_arg);
       std::cout << "Input arg: " << debug_str(input_arg.as<at::Tensor>())
-              << std::endl;
+                << std::endl;
       std::cout << "Aliased output tensor: "
                 << debug_str(ee.evaluate(out_info.tv).as<at::Tensor>())
                 << std::endl;
@@ -909,25 +909,23 @@ std::vector<GlobalBufferInfo> getInputBufferInfos(
 TensorShapeInfo inferTensorShapes(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
-  
   // Alias handling:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
-  if(alias_info.type != AllocationType::New){
-    auto tensor = expr_eval.evaluate(tv);
-    std::pair<std::vector<int64_t>, std::vector<int64_t>> logical_size_stride = {tensor.sizes().vec(), tensor.strides().vec()};
-    if(!tv->hasAllocation()){
+  if (alias_info.type != AllocationType::New) {
+    auto val = expr_eval.evaluate(tv);
+    auto tensor = val.as<at::Tensor>();
+    if (!tv->hasAllocation()) {
       return TensorShapeInfo{
-        logical_size_stride.first,
-        logical_size_stride.second,
-        logical_size_stride.first,
-        logical_size_stride.second};
+          tensor.sizes().vec(),
+          tensor.strides().vec(),
+          tensor.sizes().vec(),
+          tensor.strides().vec()};
     }
-
-    auto allocation_size_stride = inferAndValidateAllocationSizesAndStrides(
-        tensor, tv, expr_eval);
+    auto allocation_size_stride =
+        inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
     return TensorShapeInfo{
-        logical_size_stride.first,
-        logical_size_stride.second,
+        tensor.sizes().vec(),
+        tensor.strides().vec(),
         allocation_size_stride.first,
         allocation_size_stride.second};
   }

@@ -283,30 +283,30 @@ void KernelExecutor::compile(
     FusionProfiler::segment(group_id_).stopCompile();
   }
 
-  for(auto expr : exprs){
+  for (auto expr : exprs) {
     if (ir_utils::isCpAsyncBulk(expr)) {
-      has_tma_ = true;
+      has_TMA_ = true;
     }
     if (expr->isA<RNGOp>()) {
       has_rng_ = true;
     }
   }
 
-  for(auto output : fusion->outputs()){
-    if(output->isA<TensorView>()){
+  for (auto output : fusion->outputs()) {
+    if (output->isA<TensorView>()) {
       auto out_tv = output->as<TensorView>();
       auto alias_info = fusion->getOutputAlias(out_tv);
-      if(alias_info.type == AllocationType::New){
+      if (alias_info.type == AllocationType::New) {
         continue;
       }
       auto aliased_to = alias_info.aliased_io->as<TensorView>();
       auto inputs = InputsOf::output(out_tv);
-      for(auto input : inputs){
-        if(input->isA<TensorView>() && input->sameAs(aliased_to)){
+      for (auto input : inputs) {
+        if (input->isA<TensorView>() && input->sameAs(aliased_to)) {
           continue;
         }
       }
-      if(val->isConst()){
+      if (out_tv->isConst()) {
         continue;
       }
       has_dynamic_alias_ = true;
@@ -654,10 +654,9 @@ void KernelExecutor::initializeExecutorEntry(
     DataType index_type) {
   FUSER_PERF_SCOPE("KernelExecutor::initializeExecutorEntry");
 
-  ExpressionEvaluator expr_eval;
-  evaluatorPrecomputedValues()->bindInputs(args);
+  ExpressionEvaluator expr_eval =
+      executor_utils::bindInputs(args, compiled_kernel_->kernel());
   expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
-
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
@@ -1206,7 +1205,7 @@ std::vector<at::Tensor> KernelExecutor::run(
   }
 
   ExpressionEvaluator expr_eval;
-  if(has_dynamic_alias_ || has_tma_){
+  if (has_dynamic_alias_ || has_TMA_) {
     expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
   }
 
@@ -1360,10 +1359,12 @@ std::vector<at::Tensor> KernelExecutor::run(
   }
 
   if (args.size() != compiled_kernel_->kernel()->parameters().size()) {
-    NVF_ERROR(has_tma_ || has_rng_, "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
+    NVF_ERROR(
+        has_TMA_ || has_rng_,
+        "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
     // If args don't match one of two things is happening. We need to add TMA
     // related args or RNG related args. Resolve these scenarios.
-    if (has_tma_) {
+    if (has_TMA_) {
       // Resolving TMA requires binding all values and evaluating the TMA
       // arguments
       args = resolveTMA(*executor_entry, args);
