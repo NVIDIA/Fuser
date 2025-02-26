@@ -282,6 +282,36 @@ void KernelExecutor::compile(
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).stopCompile();
   }
+
+  for(auto expr : exprs){
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      has_tma_ = true;
+    }
+    if (expr->isA<RNGOp>()) {
+      has_rng_ = true;
+    }
+  }
+
+  for(auto output : fusion->outputs()){
+    if(output->isA<TensorView>()){
+      auto out_tv = output->as<TensorView>();
+      auto alias_info = fusion->getOutputAlias(out_tv);
+      if(alias_info.type == AllocationType::New){
+        continue;
+      }
+      auto aliased_to = alias_info.aliased_io->as<TensorView>();
+      auto inputs = InputsOf::output(out_tv);
+      for(auto input : inputs){
+        if(input->isA<TensorView>() && input->sameAs(aliased_to)){
+          continue;
+        }
+      }
+      if(val->isConst()){
+        continue;
+      }
+      has_dynamic_alias_ = true;
+    }
+  }
 }
 
 LaunchParams KernelExecutor::computeLaunchParams(
@@ -487,7 +517,7 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     info.shape_info.allocation_strides = strides;
     info.shape_info.logical_sizes = sizes;
     info.shape_info.logical_strides = strides;
-    auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
+    auto dtype = tv->dtype() == DataType::Index ? index_type : tv->dtype();
     info.type = data_type_to_aten(dtype);
 
     // Remember the tensor buffer used for storing kernel profile
@@ -688,14 +718,14 @@ void KernelExecutor::initializeExecutorEntry(
           args[inp_idx].as<at::Tensor>().strides().vec();
       shape_info.allocation_sizes = alloc_sizes;
       shape_info.allocation_strides = alloc_strides;
-
-      input_info.emplace_back(GlobalBufferInfo(
+      GlobalBufferInfo info(
           input_tv,
           shape_info,
           data_type_to_aten(input_tv->dtype()),
           false,
           false,
-          false));
+          false);
+      input_info.emplace_back(info);
     }
   }
 
@@ -932,10 +962,9 @@ void KernelExecutor::computeArgs2(
   int64_t buffer_info_idx = 0;
   for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
     std::vector<std::byte> bytes;
-    if (args[arg_idx].is<at::Tensor>()) {
+    if (args[arg_idx].is<at::Tensor>() &&
+        args[arg_idx].as<at::Tensor>().is_cuda()) {
       auto tensor = args[arg_idx].as<at::Tensor>();
-      NVF_ERROR(
-          tensor.is_cuda(), "Only accepts CUDA tensors or CPU scalar tensors.");
 
       auto data = tensor.data_ptr();
       const auto& logical_size =
@@ -1105,6 +1134,26 @@ void KernelExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
+namespace {
+KernelArgumentHolder resolveRNGSeed(
+    const kir::Kernel* kernel,
+    KernelArgumentHolder& args) {
+  ExpressionEvaluator expr_eval;
+  KernelArgumentHolder resolved_args;
+  resolved_args.reserve(args.size());
+  int64_t arg_idx = 0;
+  for (auto param : kernel->parameters()) {
+    if (param->definition() &&
+        param->definition()->isA<kir::GetRNGSeedAndOffsetFromHost>()) {
+      resolved_args.push(expr_eval.evaluate(param));
+    } else {
+      resolved_args.push(args[arg_idx++]);
+    }
+  }
+  return resolved_args;
+}
+} // namespace
+
 KernelArgumentHolder KernelExecutor::resolveTMA(
     KernelExecutorEntry& entry,
     const KernelArgumentHolder& args) const {
@@ -1154,6 +1203,11 @@ std::vector<at::Tensor> KernelExecutor::run(
     sprof.scheduler(toString(compiledKernel()->schedulerType()));
     FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
     sprof.startKernel();
+  }
+
+  ExpressionEvaluator expr_eval;
+  if(has_dynamic_alias_ || has_tma_){
+    expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
   }
 
   NVF_ERROR(isCompiled());
@@ -1213,10 +1267,6 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
-
-  // Bind fusion inputs
-  // auto expr_eval = executor_utils::bindInputs(args,
-  // compiled_kernel_->kernel());
 
   // only allocate outputs when not given
   if (outputs.empty()) {
@@ -1310,14 +1360,20 @@ std::vector<at::Tensor> KernelExecutor::run(
   }
 
   if (args.size() != compiled_kernel_->kernel()->parameters().size()) {
-    std::vector<Expr*> exprs = compiled_kernel_->kernel()->exprs();
-    NVF_ERROR(
-        std::any_of(
-            exprs.begin(),
-            exprs.end(),
-            [](Expr* e) { return ir_utils::isCpAsyncBulk(e); }),
-        "Argument mismatch detected in run, but is not resolveable.");
-    args = resolveTMA(*executor_entry, args);
+    NVF_ERROR(has_tma_ || has_rng_, "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
+    // If args don't match one of two things is happening. We need to add TMA
+    // related args or RNG related args. Resolve these scenarios.
+    if (has_tma_) {
+      // Resolving TMA requires binding all values and evaluating the TMA
+      // arguments
+      args = resolveTMA(*executor_entry, args);
+    }
+    if (has_rng_) {
+      // Resolving RNG seed requires evaluating and adding those values, but
+      // doesn't require binding all values as getting RNG seed and offset
+      // doesn't depend on other values
+      args = resolveRNGSeed(compiled_kernel_->kernel(), args);
+    }
   }
 
   computeArgs2(*executor_entry, args);
@@ -1418,7 +1474,6 @@ std::vector<at::Tensor> KernelExecutor::run(
     sprof.stopKernel();
     sprof.outputBytesAccessed(computeBytes(outputs));
   }
-
   return outputs;
 }
 

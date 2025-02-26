@@ -394,6 +394,8 @@ std::vector<at::Tensor> allocateKernelOutputs(
           c10::nullopt,
           device,
           c10::nullopt);
+      std::cout << "Allocating output tensor: " << debug_str(alloc_tensor)
+                << std::endl;
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
@@ -403,10 +405,38 @@ std::vector<at::Tensor> allocateKernelOutputs(
           entry.output_aliased_to_input.at(out_idx) <= (int64_t)args.size(),
           "Tried to grab an out of range input argument.");
       auto input_arg = args[entry.output_aliased_to_input.at(out_idx)];
+      ExpressionEvaluator ee;
+      ee.bind(
+          fusion->inputs()[entry.output_aliased_to_input.at(out_idx)],
+          input_arg);
+      std::cout << "Input arg: " << debug_str(input_arg.as<at::Tensor>())
+              << std::endl;
+      std::cout << "Aliased output tensor: "
+                << debug_str(ee.evaluate(out_info.tv).as<at::Tensor>())
+                << std::endl;
       NVF_ERROR(
           input_arg.is<at::Tensor>(),
           "Aliased input argument is not a tensor.");
-      out_tensors.emplace_back(input_arg.as<at::Tensor>());
+      if (input_arg.as<at::Tensor>().sizes() !=
+              out_info.shape_info.logical_sizes ||
+          input_arg.as<at::Tensor>().strides() !=
+              out_info.shape_info.logical_strides) {
+        out_tensors.emplace_back(input_arg.as<at::Tensor>().as_strided(
+            out_info.shape_info.logical_sizes,
+            out_info.shape_info.logical_strides));
+      } else {
+        out_tensors.emplace_back(input_arg.as<at::Tensor>());
+      }
+      std::cout
+          << "Aliasing T" << out_info.tv->name() << " to T"
+          << fusion->inputs()[entry.output_aliased_to_input.at(out_idx)]->name()
+          << std::endl;
+      std::cout << "Aliased output tensor: " << debug_str(out_tensors.back())
+                << std::endl;
+      std::cout << "Aliased output tensor logical sizes: "
+                << out_info.shape_info.logical_sizes << std::endl;
+      std::cout << "Aliased output tensor logical strides: "
+                << out_info.shape_info.logical_strides << std::endl;
     }
   }
   return out_tensors;
@@ -424,10 +454,20 @@ GlobalBufferInfo getBufferInfo(
   auto dtype =
       (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
   info.type = data_type_to_aten(dtype);
+  std::cout << " Getting global buffer info for T" << tv->name() << " "
+            << tv->getLogicalDomain() << std::endl;
+  std::cout << "Logical sizes: " << info.shape_info.logical_sizes << std::endl;
+  std::cout << "Allocation sizes: " << info.shape_info.allocation_sizes
+            << std::endl;
+  std::cout << "Logical strides: " << info.shape_info.logical_strides
+            << std::endl;
+  std::cout << "Allocation strides: " << info.shape_info.allocation_strides
+            << std::endl;
   return info;
 }
 
 } // namespace
+
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
@@ -869,6 +909,30 @@ std::vector<GlobalBufferInfo> getInputBufferInfos(
 TensorShapeInfo inferTensorShapes(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
+  
+  // Alias handling:
+  auto alias_info = tv->fusion()->getOutputAlias(tv);
+  if(alias_info.type != AllocationType::New){
+    auto tensor = expr_eval.evaluate(tv);
+    std::pair<std::vector<int64_t>, std::vector<int64_t>> logical_size_stride = {tensor.sizes().vec(), tensor.strides().vec()};
+    if(!tv->hasAllocation()){
+      return TensorShapeInfo{
+        logical_size_stride.first,
+        logical_size_stride.second,
+        logical_size_stride.first,
+        logical_size_stride.second};
+    }
+
+    auto allocation_size_stride = inferAndValidateAllocationSizesAndStrides(
+        tensor, tv, expr_eval);
+    return TensorShapeInfo{
+        logical_size_stride.first,
+        logical_size_stride.second,
+        allocation_size_stride.first,
+        allocation_size_stride.second};
+  }
+
+  // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
   if (!tv->hasAllocation()) {
     return TensorShapeInfo{

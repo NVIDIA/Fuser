@@ -74,6 +74,10 @@ class NVF_API KernelArgumentHolder {
     }
   }
 
+  void reserve(size_t size) {
+    arguments_.reserve(size);
+  }
+
   void push(const std::vector<at::Tensor>& tensors);
   void push(const c10::ArrayRef<c10::IValue>& args);
   void push(std::initializer_list<c10::IValue> args) {

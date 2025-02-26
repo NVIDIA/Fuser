@@ -4302,6 +4302,16 @@ TEST_F(NVFuserTest, FusionIssue2068_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
 
+  std::cout << "Generated outputs:" << std::endl;
+  for (auto output : cg_outputs) {
+    std::cout << "  " << debug_str(output) << std::endl;
+  }
+
+  for (auto output : fusion.outputs()) {
+    std::cout << "T" << output->name() << " "
+              << output->as<TensorView>()->getLogicalDomain() << std::endl;
+  }
+
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
