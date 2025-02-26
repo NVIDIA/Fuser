@@ -295,7 +295,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           num_threads_per_cta.has_value(),
           "__launch_bounds__ must be set for register sharing warp specialization");
       code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
-            << num_threads_per_cta.value() << ") ";
+            << num_threads_per_cta.value() << ", /*MAX_BLOCKS_PER_SM=*/ 1) ";
     }
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
