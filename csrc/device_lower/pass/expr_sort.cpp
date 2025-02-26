@@ -1715,6 +1715,11 @@ std::vector<Expr*> ExprSegmentationSorter::getExprs() const {
       if (!lower_utils::isScalarExpr(expr)) {
         active_exprs = &remaining_exprs;
       }
+      if (expr->outputs().size() == 1L && expr->output(0)->isA<TensorView>() &&
+          GpuLower::current()->getTensorProducerAlias(
+              expr->output(0)->as<TensorView>()) != nullptr) {
+        continue;
+      }
       active_exprs->emplace_back(expr);
     }
   }
