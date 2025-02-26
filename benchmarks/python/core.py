@@ -86,7 +86,7 @@ class NVFBenchmark:
     A wrapper class around pytest-benchmark to support
     torchprofiler-based timer and metric computation.
     """
-
+    active_profilers = set()
     def __init__(
         self, benchmark_fixture, device: str = "cuda", precision: float = 1e-6
     ):
@@ -102,7 +102,8 @@ class NVFBenchmark:
             self.benchmark: Underlying pytest-benchmark fixture with timer modified to use torchprofile_timer
             self.current_time: Global montonic clock incremented based on elapsed CUDA time
         """
-
+        self.profiler_id = id(self)
+        NVFBenchmark.active_profilers.add(self.profiler_id)
         self.device = device
         self.fd = None  # Set through setup() for host benchmarking.
         self.benchmark = benchmark_fixture
@@ -201,10 +202,11 @@ class NVFBenchmark:
         """
         Stops a running torchprofiler instance if found.
         """
-        try:
-            self.prof.stop()
-        except AssertionError:
-            pass
+        if self.device == "cuda":
+          if self.profiler_id not in NVFBenchmark.active_profilers:
+            raise RuntimeError(f"Profiler {self.profiler_id} not found in active profilers! Possible premature cleanup.")
+          NVFBenchmark.active_profilers.remove(self.profiler_id)
+          torch.cuda.synchronize()
 
     def set_metrics(
         self,
@@ -253,7 +255,7 @@ class NVFBenchmark:
 
 
 def run_benchmark(
-    benchmark: pytest_benchmark.fixture.BenchmarkFixture,
+    benchmark,
     benchmark_fn: Callable | None,
     inputs: Union[torch.Tensor, List],
     iobytes: int = None,
@@ -279,7 +281,9 @@ def run_benchmark(
     Returns:
         outputs: Output of the target function
     """
-
+    
+    assert len(NVFBenchmark.active_profilers) == 0, f"Found {len(NVFBenchmark.active_profilers)} active profilers before test start!"
+    
     # Check that the device is `cuda` or `host:{compile/steady/dynamic}`.
     assert device.split(":")[0] in [
         "cuda",
@@ -333,6 +337,7 @@ def run_benchmark(
         if device == "cuda":
             for inp in inputs:
                 if isinstance(inp, torch.Tensor):
+                    assert inp.is_cuda, "Input tensor is not on CUDA!"
                     inp.grad = None
             return [inputs], {}
 
@@ -378,17 +383,17 @@ def run_benchmark(
         return fd.execute(inputs, profile=True)
 
     benchmark_fn = benchmark_fn if benchmark_fn is not None else host_benchmark_fn
-    outputs = nvf_benchmark.pedantic(
-        benchmark_fn,
-        setup=setup,
-        rounds=BENCHMARK_CONFIG["rounds"],
-        warmup_rounds=warmup_rounds,
-    )
-
-    if device == "cuda":
-        # Record additional metrics (IOBytes, Bandwidth)
+    
+    try:
+      outputs = nvf_benchmark.pedantic(
+          benchmark_fn,
+          setup=setup,
+          rounds=BENCHMARK_CONFIG["rounds"],
+          warmup_rounds=warmup_rounds,
+      )
+      if device == "cuda":
         nvf_benchmark.set_metrics(inputs, outputs, iobytes)
-        # Stop torch.profiler instance
-        nvf_benchmark.cleanup()
+    finally:
+      nvf_benchmark.cleanup()
 
     return outputs

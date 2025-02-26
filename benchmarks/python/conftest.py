@@ -4,7 +4,9 @@
 import pytest
 from .core import BENCHMARK_CONFIG
 from nvfuser.pytorch_utils import DEVICE_PROPERTIES
-
+from pytest import hookimpl, TestReport, Item, Parser
+import multiprocessing as mp
+import subprocess
 
 def pytest_addoption(parser):
     parser.addoption(
@@ -137,3 +139,78 @@ def pytest_collection_modifyitems(session, config, items):
                     reason=f"need --benchmark-{test_executor} option to run."
                 )
             )
+
+def launch_benchmark(target_file, target_name: str):
+    # with open(target_log, "w") as target_log_file:
+    subprocess.run(
+        [
+            "pytest",
+            f"{target_file}::{target_name}",
+            "-vs"
+        ],
+        check=True,
+        text=True,
+        stderr=subprocess.STDOUT,
+        stdout=subprocess.STDOUT
+    )
+
+
+def run_in_isolation(item) -> TestReport:
+    process = mp.Process(
+        target=launch_benchmark,
+        args=(
+            item.location[0],
+            item.name,
+        ),
+    )
+    process.start()
+    process.join()
+
+    # # Will mark skip as passed because pytest returns error only if there are failed tests.
+    outcome = "failed" if process.exitcode != 0 else "passed"
+    # target_filename = item.name.replace("/", "_")
+
+    # if outcome == "passed":
+    #     test_log = path.join(FAILED_BENCHMARK_LOGS_DIR, f"{target_filename}.log")
+    #     os.remove(test_log)
+
+    # benchmark_json = path.join(BENCHMARK_JSON_DIR, f"{target_filename}.json")
+    # if outcome == "failed" or path.getsize(benchmark_json) == 0:
+    #     os.remove(benchmark_json)
+
+    return TestReport(item.nodeid, item.location, keywords=item.keywords, outcome=outcome, longrepr=None, when="call")
+
+
+@hookimpl(tryfirst=True)
+def pytest_runtest_protocol(item, nextitem):
+    # # If the option was not passed, let pytest manage the run.
+    # if not item.config.getoption("--isolate-benchmarks"):
+    #     return None
+
+    ihook = item.ihook
+    ihook.pytest_runtest_logstart(nodeid=item.nodeid, location=item.location)
+    test_report = run_in_isolation(item)
+
+    ihook.pytest_runtest_logreport(report=test_report)
+    ihook.pytest_runtest_logfinish(nodeid=item.nodeid, location=item.location)
+    return True
+def pytest_runtestloop(session):
+    # global BENCHMARK_JSON_DIR, FAILED_BENCHMARK_LOGS_DIR
+
+    # if not session.config.getoption("--isolate-benchmarks"):
+    #     return None
+
+    mp.set_start_method("spawn")
+
+    # from _pytest.terminal import TerminalReporter
+
+    # terminal: TerminalReporter = session.config.pluginmanager.get_plugin("terminalreporter")
+
+    # custom_report_dir = os.getenv("THUNDER_BENCH_DIR")
+    # BENCHMARK_JSON_DIR = custom_report_dir if custom_report_dir else BENCHMARK_JSON_DIR
+
+    # os.makedirs(BENCHMARK_JSON_DIR, exist_ok=True)
+    # os.makedirs(FAILED_BENCHMARK_LOGS_DIR, exist_ok=True)
+
+    # terminal.write_line(f"Saving failed benchmarks logs in {FAILED_BENCHMARK_LOGS_DIR}")
+    # terminal.write_line(f"Saving benchmarks reports in {BENCHMARK_JSON_DIR}")
