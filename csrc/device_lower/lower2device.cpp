@@ -664,4 +664,28 @@ Val* GpuLower::getLoopIndexVariable(
   }
 }
 
+void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
+  if (TensorView* producer_alias = getTensorProducerAlias(producer)) {
+    // Chase reference. If producer itself is an alias, then get the tensor it
+    // is aliased to.
+    NVF_ERROR(
+        getTensorProducerAlias(producer_alias) == nullptr,
+        "Found unsimplified alias from ",
+        producer->toString(),
+        " to ",
+        producer_alias->toString(),
+        " which is then aliased to ",
+        getTensorProducerAlias(producer_alias)->toString());
+    producer = producer_alias;
+  }
+  tensor_producer_alias_map_[consumer] = producer;
+  for (auto& [c, p] : tensor_producer_alias_map_) {
+    // If anything was previously aliased _to_ consumer, update those links to
+    // point to producer
+    if (p == consumer) {
+      p = producer;
+    }
+  }
+}
+
 } // namespace nvfuser

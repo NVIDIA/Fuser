@@ -340,17 +340,7 @@ class GpuLower : public NonCopyable {
   //!
   //! Omitting one of these aliases might cause errors since that tensor's
   //! definition might get codegen'd without an allocation.
-  void aliasTensorProducer(TensorView* consumer, TensorView* producer) {
-    if (TensorView* old_alias = getTensorProducerAlias(consumer)) {
-      aliasTensorProducer(old_alias, producer);
-    }
-    tensor_producer_alias_map_[consumer] = producer;
-    for (auto& [c, p] : tensor_producer_alias_map_) {
-      if (p == consumer) {
-        p = producer;
-      }
-    }
-  }
+  void aliasTensorProducer(TensorView* consumer, TensorView* producer);
 
   //! Return producer that this tensor should be aliased to. Returns nullptr if
   //! no alias exists, i.e. that we should codegen tv's definition.
