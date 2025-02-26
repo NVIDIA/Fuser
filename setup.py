@@ -15,7 +15,7 @@
 #     Skips python API target `libnvfuser.so`, i.e. `_C.cpython-xxx.so`
 #
 #   --no-test
-#     Skips cpp tests `nvfuser_tests`
+#     Skips cpp tests `test_nvfuser`
 #
 #   --no-benchmark
 #     Skips benchmark target `nvfuser_bench`
@@ -414,7 +414,7 @@ def main():
             "contrib/nn/*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
-            # "bin/nvfuser_tests",
+            # "bin/test_nvfuser",
             # "bin/nvfuser_bench"
         ]
 
