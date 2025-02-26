@@ -478,16 +478,13 @@ void clearUnrollVectorizationAddGroupReduction(
       scheduler_utils::isFastestDimReduction(reduction_tv);
   auto convertParallelToGrouped = [&is_inner_reduction](IterDomain* id) {
     auto pt = id->getParallelType();
-    // For outer reduction, convert inner dim vectorization to group.
     // For inner reduction, convert outer dim unroll to group.
-    if (!is_inner_reduction && pt == ParallelType::Vectorize) {
-      return true;
-    } else if (
-        is_inner_reduction && pt == ParallelType::Unroll &&
-        !id->isReduction()) {
-      return true;
+    // For outer reduction, convert inner dim vectorization to group.
+    if (is_inner_reduction) {
+      return pt == ParallelType::Unroll && !id->isReduction();
+    } else {
+      return pt == ParallelType::Vectorize;
     }
-    return false;
   };
 
   for (auto tv : rfactor_and_reduction_tvs) {
