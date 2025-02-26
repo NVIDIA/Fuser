@@ -1219,6 +1219,9 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
       continue;
     }
 
+    std::cout << "Grouped tv: "
+              << tv->toString() << std::endl;
+
     // Must be defined by ReductionOp
     auto def = tv->definition();
     NVF_CHECK(
@@ -1237,6 +1240,8 @@ void validateAndConvertIterDomainGrouping(Fusion* fusion) {
 
     // Convert ReductionOp to GroupedReductionOp
     if (tv->definition()->isA<ReductionOp>()) {
+      std::cout << "ReductionOp: "
+                << def->toString() << std::endl;
       auto rop = def->as<ReductionOp>();
       auto is_allreduce = rop->isAllreduce();
 

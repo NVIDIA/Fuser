@@ -44,6 +44,7 @@ __device__ __forceinline__ void packedWarpReduce(
 template <
     bool SINGLE_WARP,
     bool Aligned,
+    bool is_all_reduce,
     int N, // Number of elements per input array
     typename T,
     typename Func,
@@ -106,6 +107,20 @@ __device__ void iterGroupedWarpReduce(
   }
   block_sync::sync<Aligned>(block_dim);
 
+  if constexpr (is_all_reduce){
+    #pragma unroll N
+    for (int j = 0; j < N; j++) {
+      out[j] = shared_mem[j];
+    }
+    for (int i = 1; i < num_of_warps; i++) {
+#pragma unroll N
+      for (int j = 0; j < N; j++) {
+        out[j] += shared_mem[i * N + j];
+      }
+    }
+    return;
+  }
+
   if (warp_idx == 0) {
     // assuming N = 4, num_of_warps = 4, the warp reduction results are written
     // to smem: [a0 b0 c0 d0, a1 b1 c1 d1, a2 b2 c2 d2, a3 b3 c3 d3] we need
@@ -126,18 +141,17 @@ __device__ void iterGroupedWarpReduce(
           out[i] = peer;
         }
       }
-    } else {
-// serial reduction
-#pragma unroll N
+    }else{
+      #pragma unroll N
       for (int j = 0; j < N; j++) {
         out[j] = shared_mem[j];
       }
       for (int i = 1; i < num_of_warps; i++) {
-#pragma unroll N
+  #pragma unroll N
         for (int j = 0; j < N; j++) {
           out[j] += shared_mem[i * N + j];
         }
-      }
+      }      
     }
   }
   // needs sync, otherwise other warps may access shared memory before this

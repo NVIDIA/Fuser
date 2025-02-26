@@ -540,12 +540,6 @@ void GpuLower::analysis(Fusion* fusion) {
   thread_pred_map_.build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
 
-  // Fuse cetain patterns of reductions, such as a grid reduction
-  // followed by a grid broadcast. Only depends on parallelization and
-  // thread predicate map.
-  fuseReductionsAndBroadcasts(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
-
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
@@ -555,6 +549,12 @@ void GpuLower::analysis(Fusion* fusion) {
   // validateAndConvertIterDomainGrouping
   validateGroupedReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
+
+  // Fuse cetain patterns of reductions, such as a grid reduction
+  // followed by a grid broadcast. Only depends on parallelization and
+  // thread predicate map.
+  fuseReductionsAndBroadcasts(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
   // Want to run this after parallel map is created.
   // Needs info about grouped reductions.

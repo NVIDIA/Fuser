@@ -2964,7 +2964,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const Val* init,
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred,
-      std::pair<IterDomain*, IterDomain*> reduction_dims) {
+      std::pair<IterDomain*, IterDomain*> reduction_dims,
+      bool is_all_reduce) {
     ArgumentBuilder func_args;
     func_args.arg(genVariableNameConvertAlignedArray(output));
     func_args.arg(genVariableNameConvertAlignedArray(input));
@@ -2981,6 +2982,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(isAligned());
+      template_args.arg(is_all_reduce);
       template_args.arg(num_grouped_iterations);
       indent() << genCall(
                       "warp::iterGroupedWarpReduce", template_args, func_args)
@@ -3015,6 +3017,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const auto domain = output->view()->domain();
       const bool has_block_reduce = domain->hasBlockReduction();
       const bool has_grid_reduce = domain->hasGridReduction();
+      const bool is_all_reduce = grouped_rop->isAllreduce();
       NVF_ERROR(
           !has_grid_reduce, "IterGroupedGridReduction not implemented yet");
       NVF_ERROR(
@@ -3029,7 +3032,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             grouped_rop->initVal(0),
             op_type,
             grouped_rop->predicate(),
-            reduction_ids.value());
+            reduction_ids.value(),
+            is_all_reduce);
       } else {
         return genIterGroupedBlockReduction(
             (int)num_grouped_iterations,

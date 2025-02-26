@@ -68,7 +68,6 @@ class FusionInspector : private IterVisitor {
     // this reduction.
     // Only consider when out is on register as that is assumed in the
     // fused reduction kernel.
-    std::cout << "Try to fuse bcast with ReductionOp: " << rop->toString() << std::endl;
     auto out = ir_utils::getTvOutput(rop);
     if (out->getMemoryType() == MemoryType::Local &&
         out->domain()->hasGridReduction()) {
@@ -108,8 +107,9 @@ class FusionInspector : private IterVisitor {
 
     // Keep track of all output TVs if grid parallelized
     auto out = ir_utils::getTvOutput(grouped_rop);
-    std::cout << "Try to fuse bcast with grouped reduction: " << grouped_rop->toString() << std::endl;
-    if (true || out->domain()->hasGridReduction()) {
+    bool fuse_bcast = std::getenv("FUSE_BCAST") != nullptr;
+    if (fuse_bcast || out->domain()->hasGridReduction()) {
+      std::cout << "Try to fuse bcast with grouped reduction: " << grouped_rop->toString() << std::endl;
       for (auto out : out_tvs) {
         reduction_dep_[out].insert(grouped_rop);
       }
@@ -165,7 +165,6 @@ class FusionInspector : private IterVisitor {
       } else {
         NVF_THROW("Invalid preceding expr: ", preceding_expr->toString());
       }
-
       fused_exprs_.insert(preceding_expr);
     }
   }
