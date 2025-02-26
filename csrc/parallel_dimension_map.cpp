@@ -165,7 +165,7 @@ void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
     // addExpr(addExpr(x, 1) - 1).
     if(pt == ParallelType::TIDx){
       dim_map_[pt] =
-          IrBuilder::addExpr(dim_it->second, IrBuilder::create<Val>(32L, DataType::Index));
+          IrBuilder::addExpr(dim_it->second, IrBuilder::create<Val>(128L, DataType::Index));
     }else{
       dim_map_[pt] =
           IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
@@ -206,7 +206,7 @@ Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
     if((raw->isConst() && raw->value().as<int64_t>() == 2) || pt != ParallelType::TIDx){
       return SimplifyingIrBuilder::addExpr(raw, -1);
     }else{
-      return SimplifyingIrBuilder::addExpr(raw, IrBuilder::create<Val>(-32L, DataType::Index));
+      return SimplifyingIrBuilder::addExpr(raw, IrBuilder::create<Val>(-128L, DataType::Index));
     }
   }
   return raw;

@@ -1420,7 +1420,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     } else {
       require_nested_ite = true;
       tma_val = SimplifyingIrBuilder::subExpr(
-          raw, IrBuilder::create<Val>(32L, DataType::Index));
+          raw, IrBuilder::create<Val>(128L, DataType::Index));
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
           NamedScalar::getParallelIndex(warp_specialize_on), tma_val));
       std::cout << "insertTmaWarpSpecialized pred " << predicate_val->toInlineString() << std::endl;

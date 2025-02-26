@@ -266,6 +266,7 @@ void KernelExecutor::compile(
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
+
   // Now that we have launch parameters we can compile the kernel. It's a bit
   // odd we need launch parameters for compilation, need to go back and check
   // why this is the case.
@@ -422,6 +423,15 @@ LaunchParams KernelExecutor::computeLaunchParams(
         grouped_iter_factor * welford_factor * launch_params.bdimx() *
         launch_params.bdimy() * launch_params.bdimz();
 
+
+
+    if(std::getenv("CMP_WGROUPS")){
+      int warp_groups = std::stoi(std::getenv("CMP_WGROUPS"));
+      reduction_broadcast_workspace *= warp_groups;
+      std::cout << "Setting reduction_broadcast_workspace to " << reduction_broadcast_workspace << std::endl;
+    }
+  
+
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
           reduction_broadcast_workspace,
@@ -444,6 +454,15 @@ LaunchParams KernelExecutor::computeLaunchParams(
   }
 
   launch_params.setSmem(dynamic_smem_size);
+
+
+  if(std::getenv("CMP_WGROUPS")){
+    int warp_groups = std::stoi(std::getenv("CMP_WGROUPS"));
+    int tma_bimdx = 128;
+    int cmp_bimdx = launch_params.bdimx() - tma_bimdx;
+    launch_params.bindUnsafe(cmp_bimdx * warp_groups + tma_bimdx, ParallelType::TIDx);
+    std::cout << "Setting TIDx to " << launch_params.bdimx() << std::endl;
+  }
 
   return launch_params;
 }
