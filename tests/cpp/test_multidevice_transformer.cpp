@@ -59,7 +59,7 @@ namespace {
 // dtypes.
 void validate(
     const std::vector<at::Tensor>& expected_outputs,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& outputs,
     const std::vector<double>& atols) {
   using testing::SizeIs;
   const auto num_outputs = outputs.size();
@@ -69,14 +69,20 @@ void validate(
   for (const auto i : c10::irange(num_outputs)) {
     // allclose can catch this as well. However, it would throw an exception,
     // not showing which output was problematic.
-    ASSERT_EQ(outputs[i].dtype(), expected_outputs[i].dtype())
-        << "Output " << i << " has a mismatching data type.";
+    NVF_ERROR(
+        outputs[i].is<at::Tensor>(), "Output is not a tensor at index ", i);
+    auto output_tensor = outputs[i].as<at::Tensor>();
+    NVF_ERROR(
+        output_tensor.dtype() == expected_outputs[i].dtype(),
+        "Output ",
+        i,
+        " has a mismatching data type.");
 
     const double atol = atols[i];
     // These default rtols are copied from
     // https://github.com/pytorch/pytorch/blob/951c21d6790334d57862e94a3f582ac724147a53/torch/testing/_comparison.py#L65-L73.
     double rtol;
-    switch (outputs[i].scalar_type()) {
+    switch (output_tensor.scalar_type()) {
       case at::kBFloat16:
         rtol = 1.6e-2;
         break;
@@ -113,11 +119,11 @@ void validate(
       return oss.str();
     };
 
-    EXPECT_TRUE(outputs[i].allclose(expected_outputs[i], rtol, atol))
+    EXPECT_TRUE(at::allclose(output_tensor, expected_outputs[i], rtol, atol))
         << "Output " << i << " mismatches with atol " << atol << ":"
         << std::endl
         << generate_comparison_details(
-               expected_outputs[i], outputs[i], atol, rtol);
+               expected_outputs[i], output_tensor, atol, rtol);
   }
 }
 

@@ -660,7 +660,7 @@ TEST_F(
 
     auto outputs = hie.runWithInput(std::move(inputs));
     tc_ = at::reshape(
-        outputs.at(0),
+        outputs[0].as<at::Tensor>(),
         {params.S, params.M / (params.S * num_devices_), params.N});
   }
 }

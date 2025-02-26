@@ -214,7 +214,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  NVF_CHECK(output_ref.equal(outputs[0]));
+  NVF_CHECK(output_ref.equal(outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionCopy_CUDA) {
@@ -816,7 +816,7 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   KernelExecutor ke;
   ke.compile(&fusion);
   auto outputs = ke.run({});
-  const auto& output = outputs.at(0);
+  const auto& output = outputs[0].as<at::Tensor>();
 
   at::Tensor output_ref = at::ones_like(output, options);
   output_ref = output_ref + 2.0 + 3.0;
@@ -858,7 +858,7 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   KernelExecutor ke;
   ke.compile(&fusion);
   auto outputs = ke.run({});
-  const auto& output = outputs.at(0);
+  const auto& output = outputs[0].as<at::Tensor>();
 
   at::Tensor output_ref = at::ones_like(output, options);
   output_ref = output_ref + 2.0 + 3.0;
@@ -906,7 +906,7 @@ TEST_F(NVFuserTest, FusionCodeGen2_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  NVF_CHECK(output_ref.equal(outputs[0]));
+  NVF_CHECK(output_ref.equal(outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionSimplePWise_CUDA) {
@@ -1068,8 +1068,7 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   auto outputs = ke.run({input1, input2});
 
   at::Tensor check = at::full({1, 128}, 4, options);
-  ;
-  NVF_CHECK(outputs[0].equal(check));
+  NVF_CHECK(outputs[0].as<at::Tensor>().equal(check));
 }
 
 int ceilDiv_(int a, int b) {
@@ -2010,7 +2009,7 @@ TEST_F(NVFuserTest, FusionLoopUnroll_CUDA) {
   ke.compile(&fusion, {input0, input1});
   auto outputs = ke.run({input0, input1});
 
-  NVF_CHECK(outputs[0].equal(input0.add(input1.add(2.0))));
+  NVF_CHECK(outputs[0].as<at::Tensor>().equal(input0.add(input1.add(2.0))));
 }
 
 /*
@@ -2715,10 +2714,10 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            outputs[0].equal(ref_output),
+            outputs[0].as<at::Tensor>().equal(ref_output),
             "cast to fp8 and back had a mismatch.\n",
             "\nABS MAX DIFF: ",
-            outputs[0].sub(ref_output).abs().max(),
+            outputs[0].as<at::Tensor>().sub(ref_output).abs().max(),
             "\n");
       }
     }
@@ -5054,7 +5053,8 @@ TEST_F(NVFuserTest, FusionSumTo_CUDA) {
   auto cg_outputs = ke.run({aten_input});
 
   NVF_CHECK(
-      cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
+      cg_outputs[0].as<at::Tensor>().dim() ==
+          static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
   testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
@@ -5096,7 +5096,8 @@ TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
   auto cg_outputs = ke.run({aten_input});
 
   NVF_CHECK(
-      cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
+      cg_outputs[0].as<at::Tensor>().dim() ==
+          static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
   testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
@@ -6667,7 +6668,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
       outputs_forward[2]};
   auto outputs_backward =
       executor_cache_backward.runFusionWithInputs(args_backwards);
-  outputs_backward[0] = outputs_backward[0].permute({0, 4, 1, 2, 3});
+  outputs_backward[0] =
+      outputs_backward[0].as<at::Tensor>().permute({0, 4, 1, 2, 3});
   testValidate(
       executor_cache_backward.fusion(),
       outputs_backward,

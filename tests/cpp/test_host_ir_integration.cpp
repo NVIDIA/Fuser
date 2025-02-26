@@ -58,7 +58,7 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
   auto outputs = hie.runWithInput({{hic_in, t0}});
 
-  EXPECT_TRUE(outputs[0].equal(t0));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
 TEST_F(HostIrIntegrationTest, Set) {

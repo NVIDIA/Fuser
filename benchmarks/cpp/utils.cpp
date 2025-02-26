@@ -145,9 +145,9 @@ std::string toString(LaunchParams lparams) {
 
 namespace {
 
-int64_t getSizeOfInputs(const KernelArgumentHolder& inputs) {
+int64_t getSizeOfArgs(const KernelArgumentHolder& args) {
   int64_t bytes = 0;
-  for (const auto& inp : inputs) {
+  for (const auto& inp : args) {
     if (!inp.is<at::Tensor>()) {
       continue;
     }
@@ -158,14 +158,6 @@ int64_t getSizeOfInputs(const KernelArgumentHolder& inputs) {
   return bytes;
 }
 
-int64_t getSizeOfOutputs(const std::vector<at::Tensor>& outputs) {
-  int64_t bytes = 0;
-  for (const auto& tensor : outputs) {
-    bytes += tensor.numel() *
-        (int64_t)dataTypeSize(aten_to_data_type(tensor.scalar_type()));
-  }
-  return bytes;
-}
 } // namespace
 
 int64_t runBenchmarkIterations(
@@ -175,12 +167,12 @@ int64_t runBenchmarkIterations(
   c10::cuda::CUDACachingAllocator::emptyCache();
   executor_cache->profile(true);
 
-  int64_t io_bytes = getSizeOfInputs(args);
+  int64_t io_bytes = getSizeOfArgs(args);
 
   // Segment and compile the fusion
   {
     auto cg_outputs = executor_cache->runFusionWithInputs(args);
-    io_bytes += getSizeOfOutputs(cg_outputs);
+    io_bytes += getSizeOfArgs(cg_outputs);
   }
 
   bool segmented =
@@ -228,11 +220,11 @@ int64_t runBenchmarkIterations(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
-  int64_t io_bytes = getSizeOfInputs(args);
+  int64_t io_bytes = getSizeOfArgs(args);
   {
     // Warm-up run
     auto cg_outputs = ke->run(args, {}, launch_constraints, compile_params);
-    io_bytes += getSizeOfOutputs(cg_outputs);
+    io_bytes += getSizeOfArgs(cg_outputs);
   }
 
   auto lparams = toString(ke->lastLaunchParams());

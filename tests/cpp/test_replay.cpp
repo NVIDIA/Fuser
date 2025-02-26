@@ -57,7 +57,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
        slices[1].view({2, 2, 3}).permute({1, 0, 2})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
 }
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
@@ -95,7 +95,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
       {-slices[0].view({2, 2, 2}), -slices[1].view({2, 2, 3})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
 }
 
 } // namespace nvfuser

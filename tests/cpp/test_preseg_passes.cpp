@@ -635,10 +635,10 @@ TEST_F(PresegTest, ReplaceOutput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({10}, at::device(at::kCUDA));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
 
   testValidate(
-      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, ExtentSubstitution) {
@@ -1169,7 +1169,8 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
   auto t0 = at::randn({2, 3, 4}, options);
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
-  ASSERT_TRUE(outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 

@@ -37,10 +37,10 @@ class ExecutorDispatch {
 
   static bool isCompiled(const ExecutorAbstract* executor);
 
-  static std::vector<at::Tensor> run(
+  static KernelArgumentHolder run(
       ExecutorAbstract* executor,
       KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {},
+      KernelArgumentHolder outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       const CompileParams& compile_params = CompileParams());
 

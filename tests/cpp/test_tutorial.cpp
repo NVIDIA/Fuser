@@ -94,7 +94,7 @@ TEST_F(Tutorial, Memcpy) {
     // equal to the input as this is just a copy fusion. More commonly,
     // though, testValidate is used to validate outputs while
     // automatically adjusting thresholds of valid deviations
-    ASSERT_TRUE(outputs[0].equal(t0));
+    ASSERT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 
     // Next, instead of just running the fusion as is, we manually
     // schedule it so that it runs in parallel. In this case, we only
@@ -168,7 +168,7 @@ TEST_F(Tutorial, Memcpy) {
   // with NVFUSER_DUMP=launch_param
   auto outputs = ke.run({t0});
 
-  ASSERT_TRUE(outputs[0].equal(t0));
+  ASSERT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
 TEST_F(Tutorial, Reduction) {
@@ -786,7 +786,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -870,7 +870,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -953,7 +953,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -1033,7 +1033,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -1138,7 +1138,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -1244,7 +1244,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 }
 
@@ -1552,7 +1552,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   CompileParams index32bit{DataType::Int32, 255, false};
   ke.compile(&fusion, {t}, {}, index32bit);
   auto outputs = ke.run({t});
-  ASSERT_TRUE(at::equal(t.t(), outputs[0]));
+  ASSERT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
 }
 
 } // namespace nvfuser

@@ -173,7 +173,7 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Iter domain cannot have multiple definitions, whereas ValGroup can.
@@ -341,7 +341,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     auto cg_outputs = ke.run({t0});
 
     auto ref = t0 * 2;
-    EXPECT_TRUE(ref.equal(cg_outputs[0]));
+    EXPECT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
   }
 }
 

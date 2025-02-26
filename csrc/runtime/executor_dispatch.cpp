@@ -98,10 +98,10 @@ bool ExecutorDispatch::isCompiled(const ExecutorAbstract* executor) {
   NVF_THROW("Unsupported Executor detected.");
 }
 
-std::vector<at::Tensor> ExecutorDispatch::run(
+KernelArgumentHolder ExecutorDispatch::run(
     ExecutorAbstract* executor,
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs,
+    KernelArgumentHolder outputs,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params) {
   FUSER_PERF_SCOPE("ExecutorDispatch::run2");

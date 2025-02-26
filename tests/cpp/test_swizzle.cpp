@@ -531,7 +531,8 @@ at::Tensor getSwizzledTensor(
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({size_x, size_y});
 
-  return input.index_put({outputs[0], outputs[1]}, input);
+  return input.index_put(
+      {outputs[0].as<at::Tensor>(), outputs[1].as<at::Tensor>()}, input);
 }
 
 } // namespace
@@ -739,7 +740,7 @@ TEST_F(SwizzleTest, Transpose1) {
   ke.compile(&fusion, {t});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto outputs = ke.run({t});
-  EXPECT_TRUE(at::equal(t.t(), outputs[0]));
+  EXPECT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
 }
 
 } // namespace nvfuser
