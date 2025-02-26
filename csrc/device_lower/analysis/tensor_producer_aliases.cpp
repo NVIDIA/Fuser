@@ -103,7 +103,7 @@ bool isTrivialExpr(Expr* expr) {
 
 } // namespace
 
-void findTensorProducerAliases(Fusion *fusion) {
+void findTensorProducerAliases(Fusion* fusion) {
   for (Expr* expr : fusion->exprs()) {
     if (isTrivialExpr(expr)) {
       GpuLower::current()->aliasTensorProducer(
