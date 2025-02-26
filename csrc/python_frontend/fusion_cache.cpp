@@ -263,27 +263,18 @@ FusionSchedules::FusionSchedules(int64_t fusion_id)
 }
 
 Fusion* FusionSchedules::preschedFusion() {
-  if (presched_fusion_ != nullptr) {
-    return presched_fusion_.get();
-  }
-
-  // Ideally, we shouldn't have to access FusionExecutorCache::fusion() so
-  // FusionExecutorCache has the flexibility to modify it in place or even
-  // delete it. Currently, this is only needed for cloning an
-  // nvfuser.FusionDefinition. See exec_nvfuser's is_clonable parameter. After
-  // FusionDefinition.__exit__, FusionSchedules.presched_fusion_ is moved to
-  // FusionExecutorCache and therefore becomes null.
-  if (auto_gen_schedules != nullptr) {
-    return auto_gen_schedules->fusion();
-  }
-
-  NVF_THROW("Prescheduled Fusion is unexpectedly null!");
+  NVF_ERROR(
+      presched_fusion_ != nullptr, "Prescheduled Fusion is unexpectedly null!");
+  return presched_fusion_.get();
 }
 
 void FusionSchedules::createExecutorCache() {
-  auto_gen_schedules = std::make_unique<FusionExecutorCache>(
-      std::move(presched_fusion_), fusion_id_);
-  presched_fusion_ = nullptr;
+  std::cerr << "createExecutorCache for " << (void*)this << " with fusion ID "
+            << fusion_id_ << std::endl;
+  if (auto_gen_schedules == nullptr) {
+    auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+        std::make_unique<Fusion>(*presched_fusion_), fusion_id_);
+  }
 }
 
 TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
@@ -698,7 +689,7 @@ void FusionCache::serialize(std::string filename) const {
     terminal_node_idx.push_back(
         map_record_functor_to_trie_node_id.at(node->record.get()));
 
-    auto schedule = queryFusionSchedules(node->fusion_id);
+    FusionSchedules* schedule = queryFusionSchedules(node->fusion_id);
     NVF_ERROR(
         schedule->auto_gen_schedules != nullptr,
         "We should only cache FusionDefinitions that pass finalizeDefinition, which creates auto_gen_schedules.");
@@ -878,6 +869,7 @@ void FusionCache::deserialize(std::string filename) {
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
     FusionSchedules* fusion_schedule =
         queryFusionSchedules(trie_node->fusion_id);
+    // Create a FusionExecutorCache here so we can deserialize it.
     fusion_schedule->createExecutorCache();
 
     if (!isOptionDisabled(DisableOption::ParallelSerde)) {

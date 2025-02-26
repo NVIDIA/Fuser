@@ -191,6 +191,7 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void setupMultideviceSchedule();
   //! A hook that gets called right after FusionDefinition.multidevice_schedule.
   NVF_API void finalizeMultideviceSchedule();
+  NVF_API void createExecutorCache();
   //! Prints a python function representing the definition
   NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior.

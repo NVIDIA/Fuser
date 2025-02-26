@@ -1103,6 +1103,9 @@ void initNvFuserPythonBindings(PyObject* module) {
             inst::Trace::instance()->endEvent(nullptr);
           })
       .def(
+          "_create_executor_cache",
+          [](FusionDefinition& self) { self.createExecutorCache(); })
+      .def(
           "_exist_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
             KernelArgumentHolder args;

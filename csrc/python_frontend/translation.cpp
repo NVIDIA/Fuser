@@ -291,6 +291,7 @@ class FusionTranslator : public OptInConstDispatch {
     }
 
     fd_->finalizeDefinition();
+    fd_->createExecutorCache();
   }
 
   // =================================================================================

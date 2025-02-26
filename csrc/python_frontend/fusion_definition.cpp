@@ -122,7 +122,6 @@ void FusionDefinition::finalizeDefinition() {
     fs->outputs_fid_ = outputs();
     fs->extents_fid_ = extents();
     fs->map_value_to_fid_ = getValueMap();
-    fs->createExecutorCache();
 
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
@@ -154,6 +153,12 @@ void FusionDefinition::finalizeDefinition() {
       num_recording_states_presched_ == 0,
       "Expected number of recording states for prescheduled fusion to be uninitialized.");
   num_recording_states_presched_ = (int64_t)recording_state_.size();
+}
+
+void FusionDefinition::createExecutorCache() {
+  FUSER_PERF_SCOPE("FusionDefinition::createExecutorCache");
+  FusionSchedules* fs = fusionCache()->queryFusionSchedules(fusion_id_.value());
+  fs->createExecutorCache();
 }
 
 void FusionDefinition::findHiddenTensorViews(Fusion* fusion) {

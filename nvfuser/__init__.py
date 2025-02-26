@@ -103,6 +103,8 @@ class FusionDefinition(_C._FusionDefinition):
     def __exit__(self, type, value, traceback):
         try:
             self._finalize_definition()
+            print("__exit__ -> _create_executor_cache:", self.id())
+            self._create_executor_cache()
         except Exception as err:
             logger.exception(self._repro_error_str("defining"))
             raise
@@ -259,12 +261,6 @@ class FusionDefinition(_C._FusionDefinition):
             ), "If device argument is passed it must be a CUDA device"
             device = device.index
 
-        # if definition is not defined by a context manager, try a child class
-        if self.id() is None:
-            self._setup_definition()
-            self.definition()
-            self._finalize_definition()
-
         defined_multidevice_schedule = hasattr(
             self, "multidevice_schedule"
         ) and isinstance(self.multidevice_schedule, Callable)
@@ -275,18 +271,27 @@ class FusionDefinition(_C._FusionDefinition):
             defined_multidevice_schedule and defined_schedule
         ), "I haven't tested what if both are defined. We don't plan to support this use case although it may just work."
 
-        if defined_multidevice_schedule:
-            # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
-            # scheduling, The scheduling is done before concretization and therefore
-            # before pre-segmentation. `schedule` however assumes the FusionDefinition
-            # has been concretized and pre-segmented, and therefore requires
-            # `_setup_schedule` and `_finalize_schedule` to be called before and after.
-            #
-            # Note: there's a plan to embed multidevice schedules into FusionDefinition
-            # as annotating nodes. This may eventually replace `multidevice_schedule`.
-            self._setup_multidevice_schedule()
-            self.multidevice_schedule()
-            self._finalize_multidevice_schedule()
+        # if definition is not defined by a context manager, try a child class
+        if self.id() is None:
+            self._setup_definition()
+            self.definition()
+            self._finalize_definition()
+
+            if defined_multidevice_schedule:
+                # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
+                # scheduling, The scheduling is done before concretization and therefore
+                # before pre-segmentation. `schedule` however assumes the FusionDefinition
+                # has been concretized and pre-segmented, and therefore requires
+                # `_setup_schedule` and `_finalize_schedule` to be called before and after.
+                #
+                # Note: there's a plan to embed multidevice schedules into FusionDefinition
+                # as annotating nodes. This may eventually replace `multidevice_schedule`.
+                self._setup_multidevice_schedule()
+                self.multidevice_schedule()
+                self._finalize_multidevice_schedule()
+
+            print("execute -> _create_executor_cache:", self.id())
+            self._create_executor_cache()
 
         # If schedule is defined by child class and schedule is not defined for
         # inputs, make a schedule.
