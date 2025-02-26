@@ -252,10 +252,11 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     int64_t i = 0;
     for (auto id : self_logical) {
       NVF_ERROR(
-          new_self_root->logical()[i]->isReduction() == id->isReduction() &&
+          new_self_root->logical()[i]->isSymbolic() || id->isSymbolic() ||
+          (new_self_root->logical()[i]->isReduction() == id->isReduction() &&
               new_self_root->logical()[i]->isRFactorProduct() ==
                   id->isRFactorProduct() &&
-              new_self_root->logical()[i]->isBroadcast() == id->isBroadcast(),
+              new_self_root->logical()[i]->isBroadcast() == id->isBroadcast()),
           "Axes ",
           id,
           " and ",
@@ -269,6 +270,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
   // Replay producer dimensions.
   ReplaySelf replay(self->maybeAllocation(), axis_map);
   std::vector<IterDomain*> new_alloc_domain(self->maybeAllocation().size(), nullptr);
+  std::vector<std::optional<bool>> contiguity = self->contiguity();
 
   int64_t i = 0;
   for (auto id : self->maybeAllocation()) {
@@ -276,6 +278,10 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     NVF_ERROR(
         it != replay.getReplay().end(),
         "Error during replay, didn't replay an axis.");
+    if (it->second->isBroadcast() != (contiguity[i] == std::nullopt)) {
+      // whether we resolve to true or false shouldn't matter since it's going to be concretized as a broadcast dimension
+      contiguity[i] = it->second->isBroadcast() ? std::nullopt : true;
+    }
     new_alloc_domain[i++] = it->second;
   }
 
