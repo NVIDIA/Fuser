@@ -239,10 +239,6 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     const TensorDomain* self) {
   FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
 
-  if (!self->hasAllocation()) {
-    return new_self_root->domain();
-  }
-
   NVF_ERROR(
       new_self_root->logical().size() == self->logical().size(),
       "Invalid number of IterDomains provided.");
@@ -268,11 +264,11 @@ TensorDomain* TransformReplay::selfAllocationReplay(
   }
 
   // Replay producer dimensions.
-  ReplaySelf replay(self->allocation(), axis_map);
+  ReplaySelf replay(self->maybeAllocation(), axis_map);
   std::vector<IterDomain*> new_alloc_domain(self->nDims(), nullptr);
 
   int64_t i = 0;
-  for (auto id : self->allocation()) {
+  for (auto id : self->maybeAllocation()) {
     auto it = replay.getReplay().find(id);
     NVF_ERROR(
         it != replay.getReplay().end(),
