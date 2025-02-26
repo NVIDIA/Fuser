@@ -122,6 +122,7 @@ void FusionDefinition::finalizeDefinition() {
     fs->outputs_fid_ = outputs();
     fs->extents_fid_ = extents();
     fs->map_value_to_fid_ = getValueMap();
+    fs->createExecutorCache();
 
     if (isDebugDumpEnabled(DebugDumpOption::FusionIrOriginal)) {
       printIr();
