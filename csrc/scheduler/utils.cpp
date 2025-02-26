@@ -2339,9 +2339,6 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
     parallelizeAllLike(tv, (int64_t)old2new.size(), {}, {ParallelType::DIDx});
   }
-  for (auto tv : fusion->allTvs()) {
-    debug() << tv->toString() << std::endl;
-  }
 }
 
 bool isFastestDimReduction(TensorView* tv) {
