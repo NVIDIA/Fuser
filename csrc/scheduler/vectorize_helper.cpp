@@ -942,10 +942,10 @@ int64_t getVectorizationFactor(
           ValGraphInputs,
           ValGraphOutputs>
           finder(
-              ValGraphDefinitions(graph),
-              ValGraphUses(graph),
-              ValGraphInputs(graph),
-              ValGraphOutputs(graph),
+              ValGraphDefinitions{graph},
+              ValGraphUses{graph},
+              ValGraphInputs{graph},
+              ValGraphOutputs{graph},
               {ref_groups.vector().begin(), ref_groups.vector().end()},
               {inp_or_out_groups.vector().begin(),
                inp_or_out_groups.vector().end()},
