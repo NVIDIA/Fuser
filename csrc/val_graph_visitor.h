@@ -276,4 +276,20 @@ class ValGraphPermissiveBFS : public BFSWithPermissiveDependence<
   }
 };
 
+inline std::vector<ValGroup> getInputsOfExprGroup(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return getInputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+}
+
+inline std::vector<ValGroup> getOutputsOfExprGroup(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return getOutputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+}
+
 } // namespace nvfuser

@@ -4755,7 +4755,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 128});
+  std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4781,7 +4781,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   auto tv5 = cat({tv4, tv2}, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 128}, options);
+  auto t0 = at::randn({16, 100}, options);
 
   fusion.addOutput(tv5);
 
@@ -4887,7 +4887,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   // slicing paths as well. For now, in order to avoid the error due
   // to issue #3640, use a size that is divisible by 8.
   // std::vector<int64_t> shape({16, 100});
-  std::vector<int64_t> shape({16, 96});
+  std::vector<int64_t> shape({16, 100});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -5900,6 +5900,42 @@ TEST_F(ResizeTest, VectorizeInnermostWithReshapeMerge) {
   EXPECT_EQ(
       tv3->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
   EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 4);
+}
+
+TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t size = 128;
+
+  auto tv0 = makeContigConcreteTensor({size});
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 =
+      slice(tv1, {{IrBuilder::create<Val>(4L), IrBuilder::create<Val>(size)}});
+  auto tv3 = slice(
+      tv1, {{IrBuilder::create<Val>(2L), IrBuilder::create<Val>(size - 2)}});
+  auto tv4 = slice(
+      tv1, {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(size - 4)}});
+  auto tv5 = add(tv2, tv3);
+  auto tv6 = add(tv5, tv4);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({size}, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 4. If the reshape were canceled,
+  // it should have been 2, but in this case since it involves the
+  // innermost logical ID of tv2, it is not canceled, thus
+  // vectorization by 4 should be chosen.
+  EXPECT_EQ(
+      tv6->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv6->getLoopDomain().back()->extent()->evaluate(), 2);
 }
 
 } // namespace nvfuser

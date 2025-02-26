@@ -9,15 +9,13 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <graph_traversal.h>
 #include <ops/all_ops.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <val_graph_visitor.h>
-
-#include <fstream>
-#include <iostream>
 
 namespace nvfuser {
 
@@ -575,6 +573,175 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
                    {iS6},
                    /*require_all_to_visited=*/false)
                    .second);
+}
+
+using FindAllPathsTest = NVFuserTest;
+
+TEST_F(FindAllPathsTest, Test1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  // tv0: [i0, i1]
+  // tv1: [i0, i1]
+  // tv2: [i0, i1]
+
+  // Schedule tv0 and tv1 in the same way
+  tv0->merge(0, 1)->split(0, 4);
+  tv1->merge(0, 1)->split(0, 4);
+  // Schedule tv1 similarly but with a reordered merge
+  tv2->merge(1, 0)->split(0, 4);
+
+  // tv0: [i0*i1/4, 4]
+  // tv1: [i0*i1/4, 4]
+  // tv2: [i1*i0/4, 4]
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  std::cerr << graph.toString();
+
+  graph.dumpGraphvizDotGraph("graph.dot");
+
+  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
+  ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
+  ValGroups tv2_loop_groups = graph.toGroups(tv2->getLoopDomain());
+
+  FindAllPaths<
+      ExprGroup,
+      ValGroup,
+      ValGraphDefinitions,
+      ValGraphUses,
+      ValGraphInputs,
+      ValGraphOutputs>
+      finder(
+          ValGraphDefinitions(graph),
+          ValGraphUses(graph),
+          ValGraphInputs(graph),
+          ValGraphOutputs(graph),
+          {tv2_loop_groups.vector().begin(), tv2_loop_groups.vector().end()},
+          {tv1_loop_groups.vector().begin(), tv1_loop_groups.vector().end()},
+          /*require_all_to_visited=*/true,
+          Direction::Undefined);
+  finder.traverse();
+  auto result = finder.getOrderedExprPath();
+  std::cerr << "All traversed? " << result.second << "\n";
+  for (const auto& [expr_g, dir] : result.first) {
+    std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
+  }
+}
+
+TEST_F(FindAllPathsTest, Test2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {10}, {2, 5});
+  auto tv2 = reshape(tv1, {2, 5}, {10});
+  auto tv3 = reshape(tv0, {10}, {5, 2});
+  auto tv4 = reshape(tv3, {5, 2}, {10});
+  auto tv5 = add(tv0, tv2);
+  auto tv6 = add(tv5, tv4);
+  fusion.addOutput(tv6);
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  std::cerr << graph.toString();
+
+  graph.dumpGraphvizDotGraph("graph.dot");
+
+  ValGroups tv6_loop_groups = graph.toGroups(tv6->getLoopDomain());
+  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
+
+  FindAllPaths<
+      ExprGroup,
+      ValGroup,
+      ValGraphDefinitions,
+      ValGraphUses,
+      ValGraphInputs,
+      ValGraphOutputs>
+      finder(
+          ValGraphDefinitions(graph),
+          ValGraphUses(graph),
+          ValGraphInputs(graph),
+          ValGraphOutputs(graph),
+          {tv6_loop_groups.vector().begin(), tv6_loop_groups.vector().end()},
+          {tv0_loop_groups.vector().begin(), tv0_loop_groups.vector().end()},
+          /*require_all_to_visited=*/true,
+          Direction::Undefined);
+  finder.traverse();
+  auto result = finder.getOrderedExprPath();
+  std::cerr << "All traversed? " << result.second << "\n";
+  for (const auto& [expr_g, dir] : result.first) {
+    std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
+  }
+}
+
+TEST_F(FindAllPathsTest, Test3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+  auto tv1 = reshape(tv0, {10}, {2, 5});
+  auto tv2 = reshape(tv1, {2, 5}, {10});
+  auto tv3 = reshape(tv0, {10}, {5, 2});
+  auto tv4 = reshape(tv3, {5, 2}, {10});
+  auto tv5 = add(tv0, tv2);
+  auto tv6 = add(tv5, tv4);
+  fusion.addOutput(tv6);
+
+  tv6->split(0, 4);
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  std::cerr << graph.toString();
+
+  graph.dumpGraphvizDotGraph("graph.dot");
+
+  ValGroups tv6_loop_groups = graph.toGroups(tv6->getLoopDomain());
+  ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
+
+  FindAllPaths<
+      ExprGroup,
+      ValGroup,
+      ValGraphDefinitions,
+      ValGraphUses,
+      ValGraphInputs,
+      ValGraphOutputs>
+      finder(
+          ValGraphDefinitions(graph),
+          ValGraphUses(graph),
+          ValGraphInputs(graph),
+          ValGraphOutputs(graph),
+          {tv6_loop_groups.vector().begin(), tv6_loop_groups.vector().end()},
+          {tv0_logical_groups.vector().begin(),
+           tv0_logical_groups.vector().end()},
+          /*require_all_to_visited=*/true,
+          Direction::Undefined);
+  finder.traverse();
+  auto result = finder.getOrderedExprPath();
+  std::cerr << "All traversed? " << result.second << "\n";
+  for (const auto& [expr_g, dir] : result.first) {
+    std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
+  }
 }
 
 } // namespace nvfuser
