@@ -569,6 +569,16 @@ class NVF_API TensorView : public Val {
   // input, or using a parallel dim from NamedScalar::getParallelDim
   TensorView* split(int64_t axis, Val* factor, bool inner_split = true);
 
+  template <typename FactorType>
+  TensorView* inner_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/true);
+  }
+
+  template <typename FactorType>
+  TensorView* outer_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/false);
+  }
+
   // Merge axis_o and axis_i into 1 IterDomain
   TensorView* merge(int64_t axis_o, int64_t axis_i);
 
