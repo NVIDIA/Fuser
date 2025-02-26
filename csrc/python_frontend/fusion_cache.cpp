@@ -274,6 +274,12 @@ Fusion* FusionSchedules::preschedFusion() {
   NVF_THROW("Prescheduled Fusion is unexpectedly null!");
 }
 
+void FusionSchedules::createExecutorCache() {
+  auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+      std::move(presched_fusion_), fusion_id_);
+  presched_fusion_ = nullptr;
+}
+
 TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
     : record(rec),
       children(),
@@ -483,7 +489,7 @@ std::optional<TrieNode*> FusionCache::queryChildren(
 FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   NVF_CHECK(
       fusion_id < fusions_.size(),
-      "Invalid scheduler query for id:",
+      "Invalid scheduler query for id: ",
       fusion_id);
   FusionSchedules* ptr = fusions_.at(fusion_id).get();
   NVF_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
@@ -675,8 +681,11 @@ void FusionCache::serialize(std::string filename) const {
   std::vector<fb_fusion_executor_cache> fb_auto_gen_schedules;
   fb_auto_gen_schedules.reserve(terminal_nodes_.size());
 
-  for (auto node : terminal_nodes_) {
+  for (TrieNode* node : terminal_nodes_) {
     if (node->getException().has_value()) {
+      // Skip error nodes, which don't map to any FusionSchedules in the cache.
+      // Without this, queryFusionSchedules creates an empty FusionSchedules
+      // that's not executable.
       continue;
     }
 
@@ -745,10 +754,16 @@ void FusionCache::deserialize(std::string filename) {
   max_fusions_ = fusion_cache_buffer->max_fusions();
 
   // 2. Deserialize fusions: (Fusion) and structure: (TrieNode) fields
-  std::generate_n(
-      std::back_inserter(fusions_),
-      fusion_cache_buffer->terminal_nodes()->size(),
-      [] { return std::make_unique<FusionSchedules>(); });
+  int64_t num_fusions = 0;
+  for (const auto i :
+       c10::irange(fusion_cache_buffer->auto_gen_schedules()->size())) {
+    num_fusions = std::max(
+        num_fusions,
+        fusion_cache_buffer->auto_gen_schedules()->Get(i)->fusion_id() + 1);
+  }
+  std::generate_n(std::back_inserter(fusions_), num_fusions, [] {
+    return std::make_unique<FusionSchedules>();
+  });
 
   serde::RecordFunctorFactory record_functor_factory;
 
@@ -849,16 +864,15 @@ void FusionCache::deserialize(std::string filename) {
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : c10::irange(fusions_.size())) {
+  for (auto idx : c10::irange(fusion_cache_buffer->terminal_nodes()->size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
     auto trie_node = bfs_order.at(node_idx);
     terminal_nodes_.push_back(trie_node);
 
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
-    auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
-    fusion_schedule->auto_gen_schedules = std::make_unique<FusionExecutorCache>(
-        std::move(fusion_schedule->presched_fusion_), trie_node->fusion_id);
-    fusion_schedule->presched_fusion_ = nullptr;
+    FusionSchedules* fusion_schedule =
+        queryFusionSchedules(trie_node->fusion_id);
+    fusion_schedule->createExecutorCache();
 
     if (!isOptionDisabled(DisableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.
