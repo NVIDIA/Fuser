@@ -3779,13 +3779,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     fusion.manage("st_matrix_m", getM(macro));
     fusion.manage("st_matrix_n", getN(macro));
 
-    MmaInputSmemSwizzle store_swizzle =
-        mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
-
     // This internally calls
     // Schedule shared memory cache; Output from StMatrix
     mma_utils::scheduleStMatrixForMmaOutput(
-        tv3_shmem, store_swizzle, stmatrix_tile_m, stmatrix_tile_n);
+        tv3_shmem, stmatrix_tile_m, stmatrix_tile_n);
+
+    MmaInputSmemSwizzle store_swizzle =
+        mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
 
     // Schedule global memory output; Output from TMA Store
     mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
