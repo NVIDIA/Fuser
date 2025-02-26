@@ -1701,6 +1701,7 @@ void ExprSegmentationSorter::sort() {
 
 bool isTrivialExpr(Expr* expr) {
   if (expr->isOneOf<BroadcastOp, SqueezeOp>() &&
+      !expr->output(0)->isFusionOutput() &&
       expr->input(0)->as<TensorView>()->getMemoryType() == MemoryType::Global &&
       expr->output(0)->as<TensorView>()->getMemoryType() ==
           MemoryType::Global) {
