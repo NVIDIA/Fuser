@@ -11,6 +11,7 @@
 #include <debug.h>
 #include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
+#include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
@@ -565,6 +566,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // all of the lookup TVs are fusion inputs
   validateLookupTV(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
+
+  // Find trivial global to global broadcast, squeeze, and set operations and
+  // mark their outputs as aliases of their inputs.
+  findTensorProducerAliases(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "findTensorProducerAliases");
 
   // Depends on thread_pred_map_, validates parallelization collects which
   // tensor views need WAR or RAW syncs

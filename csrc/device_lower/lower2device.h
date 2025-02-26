@@ -349,6 +349,12 @@ class GpuLower : public NonCopyable {
     return it != tensor_producer_alias_map_.end() ? it->second : nullptr;
   }
 
+  //! Return producer alias for tv or tv itself if it is unaliased
+  TensorView* getMaybeTensorProducerAlias(TensorView* tv) const {
+    TensorView* alias_tv = getTensorProducerAlias(tv);
+    return alias_tv == nullptr ? tv : alias_tv;
+  }
+
  private:
   void analysis(Fusion* fusion);
 
