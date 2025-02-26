@@ -389,6 +389,10 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     }
   }
 
+  // replays the allocation domain and contiguity of orig on replacement
+  auto new_domain = TransformReplay::selfAllocationReplay(replacement->domain(), orig->domain());
+  replacement->setAllocationDomain(new_domain->maybeAllocation(), new_domain->contiguity());
+
   if (needs_resharding) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, orig, replacement);
     return orig;

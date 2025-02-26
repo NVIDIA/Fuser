@@ -38,9 +38,7 @@ bool isSimpleTVSet(Expr* expr) {
 
   return ldst->opType() == LoadStoreOpType::Set &&
       // The hasRoot() check is to prevent picking up Set.Permute ops here
-      !out_tv->hasRoot() &&
-      // The hasAllocation() check is to prevent picking up restriding ops
-      !out_tv->hasAllocation();
+      !out_tv->hasRoot();
 }
 
 std::vector<int64_t> normalizeNew2Old(
