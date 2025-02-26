@@ -345,7 +345,7 @@ set_target_properties(codegen_internal PROPERTIES
 
   # this is to find pip installed nvrtc/nvtx .so
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib:$ORIGIN/../nvfuser:$ORIGIN/../nvfuser/lib"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
@@ -395,7 +395,7 @@ set_target_properties(nvfuser_codegen PROPERTIES
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib:$ORIGIN/../../nvfuser:$ORIGIN/../../nvfuser/lib"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
@@ -518,7 +518,7 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib:$ORIGIN/../nvfuser:$ORIGIN/../nvfuser/lib"
     POSITION_INDEPENDENT_CODE Yes
     SUFFIX ${NVF_LIB_SUFFIX}
     VISIBILITY_INLINES_HIDDEN Yes
@@ -530,7 +530,7 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib:$ORIGIN/../nvfuser:$ORIGIN/../nvfuser/lib"
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
