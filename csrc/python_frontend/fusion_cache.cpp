@@ -267,6 +267,12 @@ Fusion* FusionSchedules::preschedFusion() {
     return presched_fusion_.get();
   }
 
+  // Ideally, we shouldn't have to access FusionExecutorCache::fusion() so
+  // FusionExecutorCache has the flexibility to modify it in place or even
+  // delete it. Currently, this is only needed for cloning an
+  // nvfuser.FusionDefinition. See exec_nvfuser's is_clonable parameter. After
+  // FusionDefinition.__exit__, FusionSchedules.presched_fusion_ is moved to
+  // FusionExecutorCache and therefore becomes null.
   if (auto_gen_schedules != nullptr) {
     return auto_gen_schedules->fusion();
   }
