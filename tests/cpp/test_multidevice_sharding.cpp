@@ -746,7 +746,7 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
-TEST_F(MultiDeviceTest, LoopShardingWithSplitReshape) {
+TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -810,95 +810,158 @@ TEST_F(MultiDeviceTest, LoopShardingWithSplitReshape) {
       __FILE__);
 }
 
-TEST_F(MultiDeviceTest, TransformPropagator) {
+TEST_F(MultiDeviceTest, LoopShardedSplitReshapeIds) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
   const int64_t b = 2, s = 3, h = 8, e = 4;
 
-  std::vector<int64_t> in_shape = {b, s, d * h * e};
-  std::vector<int64_t> out_shape = {b, s, d * h, e};
-  TensorView* in = makeContigConcreteTensor(in_shape);
-  TensorView* out = reshape(in, in_shape, out_shape);
-  // TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
+  TensorView* tv0 = makeContigConcreteTensor({b, s, d * h * e});
+  TensorView* tv1 = reshape(tv0, {b, s, d * h * e}, {b, s, d * h, e});
 
-  fusion->addInput(in);
-  fusion->addOutput(out);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
 
-  in->setDeviceMesh(mesh);
-  in->split(-1, d, /*inner_split=*/false);
-  in->axis(-2)->parallelize(ParallelType::DIDx);
-  reorderDIDToFront(in);
-  in->setAllocationDomain(in->getLoopDomain(), true);
+  tv0->setDeviceMesh(mesh);
+  tv0->split(-1, d, /*inner_split=*/false);
+  tv0->axis(-2)->parallelize(ParallelType::DIDx);
 
-  out->setDeviceMesh(mesh);
-  out->split(-2, d, /*inner_split=*/false);
-  out->axis(-3)->parallelize(ParallelType::DIDx);
-  reorderDIDToFront(out);
-  out->setAllocationDomain(out->getLoopDomain(), true);
+  tv1->setDeviceMesh(mesh);
+  tv1->split(-2, d, /*inner_split=*/false);
+  tv1->axis(-3)->parallelize(ParallelType::DIDx);
 
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor = at::randn(in_shape, tensor_options);
-  at::Tensor sharded_in = shardTensor(in_tensor, -1, mesh);
-
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({sharded_in})[0];
-  testValidate(
-      executor_cache.fusion(),
-      {out_tensor},
-      {sharded_in},
-      {sharded_in.view({b, s, h, e})},
-      __LINE__,
-      __FILE__);
-
-}
-
-TEST_F(MultiDeviceTest, LoopSplitWithMergeReshape) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const int d = communicator_->size();
-  const int64_t m = 5, n = 7;
-
-  TensorView* in = makeContigConcreteTensor({d * m, n});
-  TensorView* out = reshape(in, {d * m, n}, {d * m * n});
-  // TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
-
-  fusion->addInput(in);
-  fusion->addOutput(out);
-
-  auto mesh = DeviceMesh::createForNumDevices(d);
-  for (auto* tv : {in, out}) {
-    tv->setDeviceMesh(mesh);
-    tv->split(0, d, /*inner_split=*/false);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
+  for (auto* tv : {tv0, tv1}) {
+    reorderDIDToFront(tv);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor = at::randn({m,  n}, tensor_options);
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options);
+  at::Tensor sharded_inp= shardTensor(inp, tv0);
+
+  at::Tensor nvf_out = executor_cache.runFusionWithInputs({sharded_inp})[0];
   testValidate(
       executor_cache.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor.view({m * n})},
+      {nvf_out},
+      {sharded_inp},  
+      {sharded_inp.view({b, s, h, e})},
+      __LINE__,
+      __FILE__);
+
+}
+
+TEST_F(MultiDeviceTest, LoopShardedMergeReshapeIds) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 3, h = 8, e = 4;
+
+  TensorView* tv0 = makeContigConcreteTensor({b, s, d * h, e});
+  TensorView* tv1 = reshape(tv0, {b, s, d * h, e}, {b, s, d * h * e});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  tv0->setDeviceMesh(mesh);
+  tv0->split(-2, d, /*inner_split=*/false);
+  tv0->axis(-3)->parallelize(ParallelType::DIDx);
+
+  tv1->setDeviceMesh(mesh);
+  tv1->split(-1, d, /*inner_split=*/false);
+  tv1->axis(-2)->parallelize(ParallelType::DIDx);
+
+  for (auto* tv : {tv0, tv1}) {
+    reorderDIDToFront(tv);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp = at::randn({b, s, d * h, e}, tensor_options);
+  at::Tensor sharded_inp = shardTensor(inp, tv0);
+  at::Tensor nvf_out = executor_cache.runFusionWithInputs({sharded_inp})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {nvf_out},
+      {sharded_inp},
+      {inp.view({b, s, h * e})},
       __LINE__,
       __FILE__);
 }
+
+namespace {
+// This is a simplified version of what we will eventually do in the pre-segmentation pass
+void propagateShardings(Fusion* fusion, int64_t num_devices) {
+  for (Expr* expr: fusion->exprs()) {
+    if (expr->isA<SliceOp>()) {
+      NVF_THROW("SliceOp is not currently supported");
+    }
+
+    if (expr->isA<ViewOp>()) {
+      // TransformPropagator cannot be directly used. 
+      // It raises an error for conflicting transformations from root domain to logical domain.
+      // Instead, we manually find the reshaped iterdomain and outer split DID.
+      // This might have to be extended further in the presegmentation pass.
+      TensorView* reshaped_tv = expr->as<ViewOp>()->out();
+      auto transform_exprs = StmtSort::getExprsBetween(
+          {reshaped_tv->getMaybeRootDomain().begin(), reshaped_tv->getMaybeRootDomain().end()},
+          {reshaped_tv->getLogicalDomain().begin(), reshaped_tv->getLogicalDomain().end()});
+      NVF_CHECK(transform_exprs.size() == 1);
+      auto transform = transform_exprs[0];
+      NVF_CHECK(transform->isA<Split>() || transform->isA<Merge>());
+
+      // Get the sharded ID and its axis position
+      IterDomain* sharded_id = transform->isA<Split>() ? 
+          transform->as<Split>()->outer() : 
+          transform->as<Merge>()->out();
+
+      auto sharded_it = std::find(reshaped_tv->getLoopDomain().begin(), reshaped_tv->getLoopDomain().end(), sharded_id);
+      int64_t sharded_axis = std::distance(reshaped_tv->getLoopDomain().begin(), sharded_it);
+
+      // Apply sharding to the reshaped tensor
+      reshaped_tv->split(sharded_axis, num_devices, false);
+      reshaped_tv->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+      reorderDIDToFront(reshaped_tv);
+      continue;
+    }
+    
+    // For other ops, propagate sharding from input to outputs
+    auto input_tv = expr->input(0)->as<TensorView>();
+    std::vector<TensorView*> output_tvs;
+    for (auto output : expr->outputs()) {
+      output_tvs.push_back(output->as<TensorView>());
+    }
+
+    TransformPropagator propagator(input_tv);
+    
+    // Note: We will finally propagate from each input iteratively.
+    SetSelector selector(std::unordered_set<TensorView*>(output_tvs.begin(), output_tvs.end()));
+    MaxLogicalDomainInfoSpanningTree(input_tv, &selector).traverse(&propagator);
+    scheduler_utils::parallelizeAllLike(
+        input_tv,
+        /*pos=*/-1,
+        /*selected_tv=*/output_tvs);
+  }
+}
+  
+} // namespace
 
 TEST_F(MultiDeviceTest, TransformerFwd) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
-  const int64_t b = 1, s = 3, h = 8, e = 16;
+  const int64_t b = 2, s = 3, h = 8, e = 16;
   auto mesh = DeviceMesh::createForNumDevices(d);
 
   std::vector<int64_t> in_shape = {b, s, d*h*e};
   std::vector<int64_t> out_shape = {b, s, d*h, e};
+
+  // The transformer block produces hq/hk/hv after slicing the MHA linear output.
   TensorView* hq = makeConcreteTensor(in_shape, DataType::Half);
   TensorView* hk = makeConcreteTensor(in_shape, DataType::Half);
   TensorView* hv = makeConcreteTensor(in_shape, DataType::Half);
@@ -934,66 +997,8 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
     tv->axis(-2)->parallelize(ParallelType::DIDx);
     reorderDIDToFront(tv);
   }
+  propagateShardings(fusion.get(), d);
 
-  // Emulate what we will eventually do in the pre-segmentation pass
-  for (Expr* expr: fusion->exprs()) {
-    debug() << "expr: " << expr->toString() << std::endl;
-    debug() << "Before: " << std::endl;
-    for (auto out: expr->outputs()) {
-      auto tv = out->as<TensorView>();
-      debug() << "output: " << tv->toString() << std::endl;
-      debug() << tv->domain()->toString(0, false) << std::endl;
-    }
-
-    if (expr->isA<ViewOp>()) {
-      // TransformPropagator cannot be directly used. It raises an error for conflicting transformations from root domain to logical domain.
-      // Instead, we manually find the reshaped iterdomain and outer split DID.
-      // This might have to be extended further.
-      TensorView* reshaped_tv = expr->as<ViewOp>()->out();
-      auto transform_exprs = StmtSort::getExprsBetween(
-          {reshaped_tv->getMaybeRootDomain().begin(), reshaped_tv->getMaybeRootDomain().end()},
-          {reshaped_tv->getLogicalDomain().begin(), reshaped_tv->getLogicalDomain().end()});
-      NVF_CHECK(transform_exprs.size() == 1);
-      NVF_CHECK(transform_exprs.at(0)->isA<Split>() || transform_exprs.at(0)->isA<Merge>());
-
-      IterDomain* sharded_id = transform_exprs.at(0)->isA<Split>() ? transform_exprs.at(0)->as<Split>()->outer() : transform_exprs.at(0)->as<Merge>()->out();
-
-      int64_t sharded_axis = -1;
-      for (const auto i : c10::irange(reshaped_tv->nDims())) {
-        if (reshaped_tv->axis(i) == sharded_id) {
-          sharded_axis = i;
-          break;
-        }
-      }
-      NVF_CHECK(sharded_axis != -1);
-      reshaped_tv->split(sharded_axis, d, /*inner_split=*/false);
-      reshaped_tv->axis(sharded_axis)->parallelize(ParallelType::DIDx);
-      reorderDIDToFront(reshaped_tv);
-    }
-    else {
-      std::vector<TensorView*> output_tvs;
-      for (auto output : expr->outputs()) {
-        output_tvs.push_back(output->as<TensorView>());
-      }
-
-      TransformPropagator propagator_c2p(expr->input(0)->as<TensorView>());
-      
-      // Note: We will finally propagate from each input iteratively.
-      SetSelector selector(std::unordered_set<TensorView*>(output_tvs.begin(), output_tvs.end()));
-      MaxLogicalDomainInfoSpanningTree(expr->input(0)->as<TensorView>(), &selector).traverse(&propagator_c2p);
-      scheduler_utils::parallelizeAllLike(
-          expr->input(0)->as<TensorView>(),
-          /*pos=*/-1,
-          /*selected_tv=*/output_tvs);
-    }
-    debug() << "After: " << std::endl;
-    for (auto out: expr->outputs()) {
-      auto tv = out->as<TensorView>();
-      debug() << "output: " << tv->toString() << std::endl;
-      debug() << tv->domain()->toString(0, false) << std::endl;
-    }
-
-  }
   for (auto tv: fusion->allTvs()) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
@@ -1030,4 +1035,4 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
       {ref_attn},
       __LINE__, __FILE__);
 }
-} // namespace nvfuser
+} // namespace
