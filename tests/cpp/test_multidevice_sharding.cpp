@@ -743,22 +743,22 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
-TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
+TEST_F(MultiDeviceTest, ShardedSplitReshapeIds) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
   const int64_t b = 2, s = 2, h = 4, e = 3;
 
-  TensorView* in = makeContigConcreteTensor(
+  TensorView* tv0 = makeContigConcreteTensor(
       {b, s, d * h * e}); // in: loop domain: {b, s, d*h*e}
-  TensorView* out = reshape(
-      in,
+  TensorView* tv1 = reshape(
+      tv0,
       {b, s, d * h * e},
       {b, s, d * h, e}); // out: loop domain: {b, s, d*h, e}
 
-  fusion->addInput(in);
-  fusion->addOutput(out);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
 
@@ -766,39 +766,40 @@ TEST_F(MultiDeviceTest, TransformPropagatorWithReshape) {
   // Without this propagation, the two DID axes on `in` and `out` will not be
   // mapped in together in ID model. This causes scheduling to fail due to
   // resharding.
-  TransformPropagator propagator_c2p(out);
-  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator_c2p);
+  TransformPropagator propagator_c2p(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator_c2p);
   // in: loop domain: {b, s, d*h, e} after transform propagation
 
   // Loop split and parallelize input
-  in->setDeviceMesh(mesh);
-  in->split(-2, d, /*inner_split=*/false);
-  in->axis(-3)->parallelize(ParallelType::DIDx);
+  tv0->setDeviceMesh(mesh);
+  tv0->split(-2, d, /*inner_split=*/false);
+  tv0->axis(-3)->parallelize(ParallelType::DIDx);
   // in: loop domain: {b, s, DIDx{d}, h, e}
 
   // Propagate DID loop split to output
-  TransformPropagator propagator_p2c(in);
-  MaxLogicalDomainInfoSpanningTree(in).traverse(&propagator_p2c);
+  TransformPropagator propagator_p2c(tv0);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
   // out: loop domain: {b, s, d, h, e} after transform propagation
 
   // Parallelize output
   scheduler_utils::parallelizeAllLike(
-      in,
+      tv0,
       /*pos=*/-1,
-      /*selected_tv=*/{out});
+      /*selected_tv=*/{tv1});
   // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
 
-  in->setAllocationDomain(in->getLoopDomain(), true);
-  out->setAllocationDomain(out->getLoopDomain(), true);
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor = at::randn({b, s, h * e}, tensor_options);
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options);
+  at::Tensor sharded_inp = shardTensor(inp, tv0);
+  at::Tensor nvf_out = executor_cache.runFusionWithInputs({sharded_inp})[0];
   testValidate(
       executor_cache.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {in_tensor.view({b, s, h, e})},
+      {nvf_out},
+      {sharded_inp},
+      {sharded_inp.view({b, s, h, e})},
       __LINE__,
       __FILE__);
 }

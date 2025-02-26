@@ -2240,6 +2240,12 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
         // If not found directly and there is a sharded loop ID,
         // check if the logical ID is the same as the producer of the DID split.
+        // For example, Consider the split reshape: `[h]->[a, h/a]`
+        // `h` and `a` are both sharded by `d`. The loop domain of the consumer
+        // is `[DIDx(d), a/d, h/a]`. Hence, we cannot directly find logical ID
+        // `a` in the loop domain. Similarly, for merge reshape: `[a,
+        // h/a]->[h]`, we cannot directly find `h` in the loop domain when `h`
+        // is sharded by `d`.
         if (find_it == tv->getLoopDomain().end()) {
           int64_t sharded_axis = getShardedLoopAxis(tv, ParallelType::DIDx);
           if (sharded_axis != -1) {
@@ -2247,6 +2253,10 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
             auto split = dynamic_cast<Split*>(
                 tv->getLoopDomain().at(sharded_axis)->definition());
             if (split != nullptr && split->in() == logical_id) {
+              // Move the DIDx dimension to the front
+              old2new[sharded_axis] = (int64_t)old2new.size();
+              // Find the inner iterdomain of the split in loop domain for
+              // reordering.
               find_it = std::find(
                   tv->getLoopDomain().begin(),
                   tv->getLoopDomain().end(),
