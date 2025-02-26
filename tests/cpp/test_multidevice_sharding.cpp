@@ -733,4 +733,132 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
+TEST_F(MultiDeviceTest, LoopShardingWithSplitReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 2, h = 4, e = 3;
+
+  TensorView* in = makeContigConcreteTensor(
+      {b, s, d * h * e}); // in: loop domain: {b, s, d*h*e}
+  TensorView* out = reshape(
+      in,
+      {b, s, d * h * e},
+      {b, s, d * h, e}); // out: loop domain: {b, s, d*h, e}
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  // Propagate transform from reshaped output to input.
+  // Without this propagation, the two DID axes on `in` and `out` will not be
+  // mapped in together in ID model. This causes scheduling to fail due to
+  // resharding.
+  TransformPropagator propagator_c2p(out);
+  MaxLogicalDomainInfoSpanningTree(out).traverse(&propagator_c2p);
+  // in: loop domain: {b, s, d*h, e} after transform propagation
+
+  // Loop split and parallelize input
+  in->setDeviceMesh(mesh);
+  in->split(-2, d, /*inner_split=*/false);
+  in->axis(-3)->parallelize(ParallelType::DIDx);
+  // in: loop domain: {b, s, DIDx{d}, h, e}
+
+  // Propagate DID loop split to output
+  TransformPropagator propagator_p2c(in);
+  MaxLogicalDomainInfoSpanningTree(in).traverse(&propagator_p2c);
+  // out: loop domain: {b, s, d, h, e} after transform propagation
+
+  // Parallelize output
+  scheduler_utils::parallelizeAllLike(
+      in,
+      /*pos=*/-1,
+      /*selected_tv=*/{out});
+  // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
+
+  in->setAllocationDomain(in->getLoopDomain(), true);
+  out->setAllocationDomain(out->getLoopDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({b, s, h * e}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({b, s, h, e})},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, TransformPropagator) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t m = 5, n = 7;
+
+  TensorView* in = makeContigConcreteTensor({d * m * n});
+  TensorView* out = reshape(in, {d * m * n}, {d * m, n});
+  TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
+
+  fusion->addInput(in);
+  fusion->addOutput(add_out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out, add_out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({m * n}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({m, n}) + 1.0},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, LoopSplitWithMergeReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t m = 5, n = 7;
+
+  TensorView* in = makeContigConcreteTensor({d * m, n});
+  TensorView* out = reshape(in, {d * m, n}, {d * m * n});
+  // TensorView* add_out = add(out, IrBuilder::create<Val>(1.0));
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(0, d, /*inner_split=*/false);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor = at::randn({m,  n}, tensor_options);
+  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {in_tensor.view({m * n})},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
