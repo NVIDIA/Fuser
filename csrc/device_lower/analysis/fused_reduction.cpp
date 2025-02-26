@@ -107,7 +107,8 @@ class FusionInspector : private IterVisitor {
 
     // Keep track of all output TVs if grid parallelized
     auto out = ir_utils::getTvOutput(grouped_rop);
-    if (out->domain()->hasGridReduction()) {
+    std::cout << "Try to fuse bcast with grouped reduction: " << grouped_rop->toString() << std::endl;
+    if (true || out->domain()->hasGridReduction()) {
       for (auto out : out_tvs) {
         reduction_dep_[out].insert(grouped_rop);
       }

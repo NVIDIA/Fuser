@@ -316,7 +316,8 @@ TensorView* scheduleReductionTV(
     // Do not unswitch interation domain in the case of outer grid
     // persistence as it's unclear if it's beneficial.
     if (rparams->unroll_factor_iter_dom > 1 && !is_outer_grid_persistence) {
-      inner_unswitch(iter_axis);
+      std::cout << "============== unswitching iter axis is disabled ===========" << std::endl;
+      // inner_unswitch(iter_axis);
     }
 
     if (isParallelTypeThread(rparams->grid_dim_iter_dom)) {

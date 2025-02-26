@@ -696,7 +696,8 @@ void innerPersistentHeuristic2D(
     }
 
     if (std::getenv("BDIMX")) {
-      best_heuristic.persistent_batch_size = ceilDiv(parallel_after_vectorize, std::atoi(std::getenv("BDIMX")));
+      best_heuristic.persistent_batch_size =
+          ceilDiv(parallel_after_vectorize, std::atoi(std::getenv("BDIMX")));
     }
 
     ParallelType warp_parallel_type = ParallelType::Serial;
@@ -715,18 +716,16 @@ void innerPersistentHeuristic2D(
       // tma: 128 * 4 * 8   / (32 * 4) = 32
       if (std::getenv("TMAREG") && std::getenv("CMPREG")) {
         int64_t tma_reg = 32L;
-        int64_t cmp_reg = 120L;        
+        int64_t cmp_reg = 120L;
         tma_reg = std::atoi(std::getenv("TMAREG"));
         cmp_reg = std::atoi(std::getenv("CMPREG"));
         std::cout << "TMA register usage: " << tma_reg << std::endl;
         std::cout << "CMP register usage: " << cmp_reg << std::endl;
-        circular_buffer_type =
-            WarpSpecialized(warp_parallel_type, std::make_pair(tma_reg, cmp_reg));
-      }else{
-        circular_buffer_type =
-            WarpSpecialized(warp_parallel_type);        
+        circular_buffer_type = WarpSpecialized(
+            warp_parallel_type, std::make_pair(tma_reg, cmp_reg));
+      } else {
+        circular_buffer_type = WarpSpecialized(warp_parallel_type);
       }
-
     }
 
     CircularBufferOptions circular_buffer_options{
@@ -754,6 +753,14 @@ void innerPersistentHeuristic2D(
   // otherwise rfactor can fail
   rparams->unroll_factor_inner_reduction = properties.vectorize_factor;
   rparams->vectorize_inner_reduction = properties.vectorize_factor > 1;
+
+  int64_t iter_unroll_factor = 1;
+  if (std::getenv("IUNROLL")) {
+    iter_unroll_factor = std::atoi(std::getenv("IUNROLL"));
+  }
+  if (iter_unroll_factor > 1) {
+    rparams->unroll_factor_iter_dom = iter_unroll_factor;
+  }
 
   // Iter domain
   rparams->multiple_reds_per_blk = best_heuristic.bdimy > 1;

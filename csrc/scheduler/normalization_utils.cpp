@@ -1350,21 +1350,20 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // uses must be privatized.
       const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      if(std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0){
+      if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
         std::cout << "== SMEM2REG,still needs reg persistent ==" << std::endl;
-      }else{
+      } else {
         for (auto i = 1; i < (int)consumers.size(); i++) {
           auto consumer = consumers.at(i);
-          // recompute cached_tv for each consumer, so it is no longer persistent
-          // similar to project to inputs, here we are projecting to the shared
-          // memory buffer.
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
           auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
           ir_utils::replaceValInExprInputs(
               consumer->definition(), cached_tv, cached_tv_replicate);
           smem_consumers.push_back(cached_tv_replicate);
         }
       }
-
     }
   }
   return smem_consumers;
@@ -1502,8 +1501,13 @@ void schedulePersistentKernel(
   const bool is_unroll_or_vectorization = rparams->isUnrolled();
   const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-  const bool use_grouped_reduction = rparams->persistent_kernel &&
+  bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
+
+  if(rparams->unroll_factor_iter_dom > 1){
+    use_grouped_reduction = true;
+  }
+
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
@@ -1622,7 +1626,7 @@ void schedulePersistentKernel(
     int64_t vectorization_factor = rparams->unroll_factor_inner_reduction;
     reduction_scheduler_utils::sharedMemoryConsumerVectorization(
         smem_consumers, vectorization_factor);
-    for(auto tv : tma_store_tvs) {
+    for (auto tv : tma_store_tvs) {
       auto smem_tv = ir_utils::getSoleProducerTv(tv);
       smem_tv->axis(-1)->parallelize(ParallelType::Vectorize);
     }
@@ -1638,6 +1642,9 @@ void schedulePersistentKernel(
       // tv->split(-1, 256);
       tv->axis(-1)->parallelize(ParallelType::Bulk);
     }
+
+    std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
+
     if (std::getenv("PRELDG") && std::atoi(std::getenv("PRELDG")) != 0) {
       // If a cached input is used by outer broadcast tvs e.g. weights and bias
       // in layer norm, don't inline them. We want to prefetch them into
@@ -1661,22 +1668,26 @@ void schedulePersistentKernel(
                   return DependencyCheck::isDependencyOf(tv, bcast_tv);
                 })) {
           cached_input_outer_broadcast_tvs.push_back(tv);
+          tv_inline_pos_map.emplace(tv, 0);          
         }
       }
-      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
-          fusion,
-          {cached_input_outer_broadcast_tvs.begin(),
-           cached_input_outer_broadcast_tvs.end()});
-      inlineMost(all_tvs_except_special);
-    } else if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
-      // std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
-      //     fusion, {smem_consumers.begin(), smem_consumers.end()});
-      // inlineMost(all_tvs_except_special);
-      // inlineSelectedAt({smem_consumers.begin(), smem_consumers.end()}, smem_consumers.at(0), 4);
-      inlineMost();
-    } else {
-      inlineMost();
     }
+    if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
+      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
+          fusion, {smem_consumers.begin(), smem_consumers.end()});
+      for(auto tv : smem_consumers){
+        tv_inline_pos_map.emplace(tv, 2);
+      }
+    }
+    // special inline & inline most
+    std::unordered_set<TensorView*> exclude_tvs;
+    for(auto [k,v] : tv_inline_pos_map){
+      exclude_tvs.insert(k);
+      inlineSelectedAt({k}, k, v);
+    }
+    std::vector<TensorView*> inline_most_tvs = ir_utils::allTvsExcept(
+        fusion, exclude_tvs);  
+    inlineMost(inline_most_tvs);
   } else {
     inlineMost();
   }
