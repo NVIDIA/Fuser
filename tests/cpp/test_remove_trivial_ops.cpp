@@ -202,6 +202,93 @@ TEST_F(RemoveTrivialOpsTest, Squeeze) {
   }
 }
 
+// Test that we remove a gmem->gmem permute whose allocation domain is
+// unpermuted at lowering
+TEST_F(RemoveTrivialOpsTest, Permute) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3});
+  fusion.addInput(tv0);
+  // This is a logical transpose. It implies data shuffling unless the
+  // allocation domain is also transposed.
+  auto tv1 = transpose(tv0);
+  auto tv2 = neg(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  tv1->setAllocationDomain(
+      {
+          tv1->getLogicalDomain().at(1),
+          tv1->getLogicalDomain().at(0),
+      },
+      {true, true});
+
+  {
+    // In this case we do not remove the permute since it is G->L not G->G
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+
+  {
+    // Setting tv1 to Global means the LoadStoreOp is now G->G. This means that
+    // when we lower it, we will be able to safely remove it
+    tv1->setMemoryType(MemoryType::Global);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_FALSE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    EXPECT_EQ(kernel->summary().global_allocations.size(), 0)
+        << "Expected to have no intermediate global allocations";
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+
+  {
+    NVF_ERROR(tv1->getMemoryType() == MemoryType::Global);
+    tv1->setAllocationDomain(tv1->getLogicalDomain(), {true, true});
+
+    KernelExecutor ke;
+
+    ke.compile(&fusion, inputs);
+    // We do not remove the transpose because the allocation domains do not
+    // match
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    EXPECT_EQ(kernel->summary().global_allocations.size(), 1)
+        << "Expected to have one intermediate global allocation";
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+
+  {
+    // Reset tv1's allocation domain but also set it as an output
+    tv1->setAllocationDomain(
+        {
+            tv1->getLogicalDomain().at(1),
+            tv1->getLogicalDomain().at(0),
+        },
+        {true, true});
+    fusion.addOutput(tv1);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    // We do not remove the transpose because the output is a fusion output
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+}
+
 // Test that we remove a gmem->gmem->gmem broadcast+squeeze at lowering
 TEST_F(RemoveTrivialOpsTest, BroadcastSqueeze) {
   Fusion fusion;
@@ -290,7 +377,5 @@ TEST_F(RemoveTrivialOpsTest, BroadcastSqueeze) {
     testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
   }
 }
-
-// TODO: tests for permutations
 
 } // namespace nvfuser
