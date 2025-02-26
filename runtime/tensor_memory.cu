@@ -21,8 +21,8 @@ struct TMemTensor {
   uint32_t static add(uint32_t base, Array<uint16_t, 2> offset) {
     // Mentally, it makes more sense to think of TMem address as (lane, column)
     // but because GPUs are little-endian, the address is stored in reverse
-    // order as (column, lane). So we swap the order of the offset before adding it
-    // to the base address.
+    // order as (column, lane). So we swap the order of the offset before adding
+    // it to the base address.
     uint16_t tmp = offset[0];
     offset[0] = offset[1];
     offset[1] = tmp;
