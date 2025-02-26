@@ -22,6 +22,8 @@
 
 namespace nvfuser {
 
+class GlobalBufferInfo;
+
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
 //! for both compilation as well as kernel execution. It takes ownership of
@@ -220,6 +222,11 @@ std::vector<std::byte> polymorphicValueToBytes(
 std::vector<std::byte> getKernelArgument(
     ExpressionEvaluator& ee,
     Val* parameter,
+    PrimDataType index_type);
+
+std::vector<std::byte> getKernelArgument(
+    at::Tensor tensor,
+    const GlobalBufferInfo& output_info,
     PrimDataType index_type);
 
 int64_t computeBytes(const KernelArgumentHolder& args);
