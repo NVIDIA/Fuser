@@ -717,6 +717,11 @@ void KernelExecutor::initializeExecutorEntry(
           args[inp_idx].as<at::Tensor>().strides().vec();
       shape_info.allocation_sizes = alloc_sizes;
       shape_info.allocation_strides = alloc_strides;
+      std::cout<<"Input shape info: "<<std::endl;
+      std::cout<<"Logical sizes: "<<shape_info.logical_sizes<<std::endl;
+      std::cout<<"Allocation sizes: "<<shape_info.allocation_sizes<<std::endl;
+      std::cout<<"Logical strides: "<<shape_info.logical_strides<<std::endl;
+      std::cout<<"Allocation strides: "<<shape_info.allocation_strides<<std::endl;
       GlobalBufferInfo info(
           input_tv,
           shape_info,
