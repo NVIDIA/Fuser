@@ -11,10 +11,12 @@
 #include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <options.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <type.h>
 #include <utils.h>
 
+#include <ranges>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -188,6 +190,11 @@ std::pair<
     std::unordered_map<TensorView*, TMemRegisterDataPath>,
     std::unordered_map<TensorView*, TMemRegisterDataPath>>
 computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
+  // This function uses simplifyExpr extensively. If we have disable expression
+  // simplification in order to help inspect generated kernels then we will get
+  // incorrect results here. Instead, we ensure it is enabled using this guard.
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
   // In the CUDA programming model, each CTA has TIDx, TIDy, and TIDz.
   // Unfortunatly, the mapping of these TIDs to hardware concepts like warp,
   // warp group, are not clear and depend on the kernel launch configuration.
@@ -224,10 +231,10 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
   DPMap store_data_path;
   for (auto expr : fusion->exprs()) {
     auto ldst = dynamic_cast<LoadStoreOp*>(expr);
-    TensorView* tmem_tv = nullptr;
     if (ldst == nullptr) {
       continue;
     }
+    TensorView* tmem_tv = nullptr;
     DPMap* target = nullptr;
     if (ldst->opType() == LoadStoreOpType::LdTMem) {
       tmem_tv = ir_utils::getTvInput(ldst);
@@ -295,7 +302,9 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
       static std::pair<Contiguity, Contiguity> split(Contiguity x) {
         return {{true}, x};
       }
-      static std::pair<Contiguity, Contiguity> swizzle(Contiguity x, Contiguity y) {
+      static std::pair<Contiguity, Contiguity> swizzle(
+          Contiguity x,
+          Contiguity y) {
         NVF_THROW("Should not reach here");
       }
     };
@@ -316,7 +325,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
 
     // Merge contiguous parallel types
     int64_t index = 0;
-    while (index < (int64_t)pdims.size()) {
+    while (index < (int64_t)pdims.size() - 1) {
       if (pdims.info(index).contiguity) {
         pdims.merge(index);
       } else {

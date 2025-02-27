@@ -9,8 +9,8 @@
 
 #include <type.h>
 
-#include <vector>
 #include <unordered_map>
+#include <vector>
 
 namespace nvfuser {
 

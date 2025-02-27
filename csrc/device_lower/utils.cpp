@@ -1951,7 +1951,9 @@ Val* proveLinearAndGetStride(
   // how linear_g lives in the current propagation front.
   Projection frontier = linear_g;
   auto path =
-      ValGraphBFS::getExprGroupsBetween(id_graph, domain, {linear_g}).first;
+      ValGraphBFS::getExprGroupsBetween(
+          id_graph, domain, {linear_g}, /*require_all_to_visited=*/false)
+          .first;
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
     path.pop_back();
