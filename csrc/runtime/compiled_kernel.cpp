@@ -165,7 +165,7 @@ class NvrtcCompileDriver {
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
       // Print CUDA starting at generated utility
-      size_t kernel_start = src.find("// Codegen generated utilities");
+      size_t kernel_start = src.find("// Codegen generated code");
       NVF_THROW(
           "\n",
           src.substr(kernel_start),
