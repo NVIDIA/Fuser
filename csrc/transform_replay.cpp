@@ -255,15 +255,15 @@ TensorDomain* TransformReplay::selfAllocationReplay(
       // could replay Allocation of the output of a reduction to a later
       // consumer tensor, which would not have the rfactor flag on.
       NVF_ERROR(
-          new_self_logical()[i]->isSymbolic() || id->isSymbolic() ||
-              (new_self_logical()[i]->isReduction() == id->isReduction() &&
-               new_self_logical()[i]->isBroadcast() == id->isBroadcast()),
+          new_self_logical[i]->isSymbolic() || id->isSymbolic() ||
+              (new_self_logical[i]->isReduction() == id->isReduction() &&
+               new_self_logical[i]->isBroadcast() == id->isBroadcast()),
           "Axes ",
           id,
           " and ",
-          new_self_logical()[i],
+          new_self_logical[i],
           " do not match for self replay.");
-      axis_map[id] = new_self_logical()[i];
+      axis_map[id] = new_self_logical[i];
       i++;
     }
   }
