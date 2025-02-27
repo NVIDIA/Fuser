@@ -401,9 +401,21 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   std::vector<at::Tensor> out_tensors;
   if (user_sched == nullptr) {
-    out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
-        args, std::nullopt, args.getDeviceIndex());
+    if (use_multidevice_executor) {
+      if (scheds->multi_device_executor == nullptr) {
+        scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
+            std::make_unique<Fusion>(*scheds->auto_gen_schedules->fusion()));
+      }
+      out_tensors = scheds->multi_device_executor->runWithInput(args);
+    } else {
+      out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
+          args, std::nullopt, args.getDeviceIndex());
+    }
   } else {
+    NVF_ERROR(
+        !use_multidevice_executor,
+        "multidevice_executor is not supported "
+        "for user-defined schedules.");
     if (isProfilerEnabledWithCupti()) {
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
@@ -456,10 +468,13 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
   out_dtensors.reserve(out_tensors.size());
+  // if (user_sched == nullptr && use_multidevice_executor == false) {
   if (user_sched == nullptr) {
-    FusionKernelRuntime* runtime =
-        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
-    Fusion* fusion = runtime->fusionSegments()->completeFusion();
+    Fusion* fusion = use_multidevice_executor
+        ? scheds->multi_device_executor->hirEvaluator()->container()
+        : scheds->auto_gen_schedules->getMostRecentKernelRuntime()
+              ->fusionSegments()
+              ->completeFusion();
 
     int64_t tensor_index = 0;
     for (Val* out_val : fusion->outputs()) {
