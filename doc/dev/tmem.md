@@ -1172,8 +1172,12 @@ TEST_F(TMemTutorialR, Vectorization) {
 
       KernelExecutor ke;
 
-      // Check that tv2 is allocated 256 columns.
-      checkAllocationSize(ke, 256);
+      // Check the allocation size of tv2. When the load and store vectorization
+      // factors are the same, the inlining position is one larger than the
+      // case when they are different.
+      const int64_t expected_ncols =
+          st_vec == ld_vec ? std::max<int64_t>(st_vec, 32) : 256;
+      checkAllocationSize(ke, expected_ncols);
 
       ke.compile(&fusion);
 

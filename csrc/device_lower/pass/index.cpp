@@ -2156,7 +2156,9 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         // operand must be viewed as a vector of 32-bit elements.
         // See:
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
-        as_type = ArrayType{std::make_shared<DataType>(ldst->in()->dtype()), 1};
+        as_type = ArrayType{
+            std::make_shared<DataType>(ldst->in()->dtype()),
+            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {

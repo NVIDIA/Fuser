@@ -1980,7 +1980,6 @@ Val* proveLinearAndGetStride(
   path.insert(path.begin(), path2.begin(), path2.end());
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
-    std::cout << "Path: " << eg->toString() << std::endl;
     path.pop_back();
     auto from = fromGroups(id_graph, eg, direction);
     frontier = propagate(frontier, id_graph, eg, direction);
