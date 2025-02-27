@@ -1948,14 +1948,39 @@ Val* proveLinearAndGetStride(
     return linear_g->front()->fusion()->zeroVal();
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
-  // how linear_g lives in the current propagation front.
+  // how linear_g lives in the current propagation front. Note that domain
+  // may not contain all the dependency of linear_g, so we need to be
+  // "permissive" otherwise the traversal may not happen at all. But we don't
+  // want to be too permissive. For example, if we have
+  //    x  y  z   t
+  //     \  \  \ /
+  //      \  \  a
+  //       \  \ /
+  //        \  b
+  //         \ /
+  //       linear_g
+  // and domain is [y, z, t], for this case, if we use ValGraphBFS, the
+  // traversal will not reach linear_g because one of its dependency x is not
+  // visited. If we use ValGraphPermissiveBFS, then the traversal will not visit
+  // a, because after visiting y, ValGraphPermissiveBFS will be satisfied and
+  // stop the traversal because at least one of b's dependency is visited.
+  // Ideally, we should design a new traversal algorithm that can handle this
+  // case, but for now, we just combine ValGraphBFS and ValGraphPermissiveBFS
+  // hoping that combining them would be sufficient for covering all the cases
+  // we care about.
   Projection frontier = linear_g;
   auto path =
       ValGraphBFS::getExprGroupsBetween(
           id_graph, domain, {linear_g}, /*require_all_to_visited=*/false)
           .first;
+  auto path2 =
+      ValGraphPermissiveBFS::getExprGroupsBetween(
+          id_graph, domain, {linear_g}, /*require_all_to_visited=*/false)
+          .first;
+  path.insert(path.begin(), path2.begin(), path2.end());
   while (!path.empty()) {
     const auto& [eg, direction] = path.back();
+    std::cout << "Path: " << eg->toString() << std::endl;
     path.pop_back();
     auto from = fromGroups(id_graph, eg, direction);
     frontier = propagate(frontier, id_graph, eg, direction);

@@ -323,13 +323,10 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
           ValGroupAndItsGraph{val_group, &id_graph}, Contiguity{contiguity[i]});
     }
 
-    // Merge contiguous parallel types
-    int64_t index = 0;
-    while (index < (int64_t)pdims.size() - 1) {
+    // Merge contiguous parallel types from inner to outer
+    for (int64_t index = (int64_t)pdims.size() - 2; index >= 0; index--) {
       if (pdims.info(index).contiguity) {
         pdims.merge(index);
-      } else {
-        index++;
       }
     }
 

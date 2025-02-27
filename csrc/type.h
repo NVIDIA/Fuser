@@ -1130,4 +1130,6 @@ enum class TMemRegisterDataPath {
   Path16x32bx2,
 };
 
+std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
+
 } // namespace nvfuser

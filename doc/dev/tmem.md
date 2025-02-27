@@ -656,7 +656,6 @@ is not allowed.
 Now, let's take a look at some valid examples:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpXYZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -685,6 +684,7 @@ TEST_F(TMemTutorialR, WarpXYZ) {
   KernelExecutor ke;
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({2, 4, 4, 2}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
@@ -697,7 +697,6 @@ accesses a 32x1 box of the tensor memory. This is a valid 32x32b pattern
 .<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -726,6 +725,7 @@ TEST_F(TMemTutorialR, WarpGroupXYZ) {
   KernelExecutor ke;
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({2, 8, 8, 2}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
@@ -737,7 +737,6 @@ This entire warp group is accessing a whole column, with each warp accessing its
 subpartition of 32 lanes. This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYColZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -766,6 +765,7 @@ TEST_F(TMemTutorialR, WarpGroupXYColZ) {
   KernelExecutor ke;
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({8, 16, 8}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
@@ -777,7 +777,6 @@ whole column. Warp group `i` is accessing column `i`.
 This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXColYZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -806,6 +805,7 @@ TEST_F(TMemTutorialR, WarpGroupXColYZ) {
   KernelExecutor ke;
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({128, 2, 2}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
@@ -823,7 +823,6 @@ shown in the table below:
 This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -852,6 +851,7 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
   KernelExecutor ke;
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({1, 128, 2}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
@@ -910,7 +910,6 @@ void checkAllocationSize(KernelExecutor& ke, int64_t expected_ncols) {
 Here comes the example 1:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated1) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -987,6 +986,8 @@ TEST_F(TMemTutorialR, Complicated1) {
   checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
+
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
@@ -996,7 +997,6 @@ TEST_F(TMemTutorialR, Complicated1) {
 Here comes the example 2:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated2) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1068,6 +1068,8 @@ TEST_F(TMemTutorialR, Complicated2) {
   checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
+  NOT_IMPLEMENTED
+
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
@@ -1080,7 +1082,6 @@ pattern. The following example shows how to use tensor memory to do a transpose
 :<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Transpose) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1110,6 +1111,7 @@ TEST_F(TMemTutorialR, Transpose) {
   KernelExecutor ke;
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({128, 2, 2}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0.transpose(1, 2)));
@@ -1129,7 +1131,6 @@ Tensor memory load and store can be vectorized as a power of 2, from 1 all the
 way to 128:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Vectorization) {
-  NOT_IMPLEMENTED
   const std::vector<int64_t> vec_factors = {1, 2, 4, 8, 16, 32, 64, 128};
   for (int64_t st_vec : vec_factors) {
     for (int64_t ld_vec : vec_factors) {
@@ -1176,6 +1177,7 @@ TEST_F(TMemTutorialR, Vectorization) {
 
       ke.compile(&fusion);
 
+      NOT_IMPLEMENTED
       at::Tensor t0 = at::rand({128, 256}, at::kCUDA);
       auto out = ke.run({t0});
       EXPECT_TRUE(at::equal(out[0], t0));
@@ -1202,7 +1204,6 @@ gmem -> register -> tmem -> register -> gmem with vectorization 4 and unroll
 factor 2:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, PerformantVectorizedCopy) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1261,6 +1262,7 @@ TEST_F(TMemTutorialR, PerformantVectorizedCopy) {
 
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({256 * 1024 * 1024}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0], t0));
