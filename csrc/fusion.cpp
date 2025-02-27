@@ -786,7 +786,10 @@ void Fusion::aliasOutputToInput(
     output = set(output);
   }
 
-  // replays the allocation domain and contiguity of input on output
+  // We need to replay the allocation domain and contiguity of input on output,
+  // this is because these two share the data buffer and should interpret it
+  // identically. Technically these two don't have to be identical, but rather
+  // compatible.
   NVF_CHECK(
       output->isA<TensorView>() && input->isA<TensorView>(),
       "aliasing output to input is only supported for TensorView");

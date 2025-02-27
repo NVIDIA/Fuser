@@ -227,7 +227,7 @@ class NVF_API TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
-  // allocation replay.
+  // Self replay only the allocation transformation.
   static TensorDomain* selfAllocationReplay(
       const TensorDomain* new_self_root,
       const TensorDomain* self);

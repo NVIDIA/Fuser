@@ -390,11 +390,15 @@ TensorView* maybeDoReplacement(TensorView* orig) {
     }
   }
 
-  // replays the allocation domain and contiguity of orig on replacement
-  auto new_domain = TransformReplay::selfAllocationReplay(
-      replacement->domain(), orig->domain());
-  replacement->setAllocationDomain(
-      new_domain->maybeAllocation(), new_domain->contiguity());
+  // If we are replacing an output, we need to preserve the memory layout by
+  // replaying the allocation domain. Otherwise it might alter user semantics,
+  // violating memory layout required by aliasing
+  if (orig->isFusionOutput()) {
+    auto new_domain = TransformReplay::selfAllocationReplay(
+        replacement->domain(), orig->domain());
+    replacement->setAllocationDomain(
+        new_domain->maybeAllocation(), new_domain->contiguity());
+  }
 
   if (needs_resharding) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, orig, replacement);

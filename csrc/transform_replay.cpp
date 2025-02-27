@@ -233,12 +233,17 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_self_root->contiguity());
 }
 
-// Self allocation replay.
 TensorDomain* TransformReplay::selfAllocationReplay(
     const TensorDomain* new_self_root,
     const TensorDomain* self) {
   FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
 
+  // NOTE: We could also have reduction IDs involved in transformation that
+  // leads to allocation domain, so technically we should have included
+  // reduction IDs in the replay as well. The reason that we skipped them here
+  // is because this function is used by `RemoveBcastSqueeze`, where we could
+  // have mismatch reduction IDs on the logical between `self` and
+  // `new_self_root`.
   auto new_self_logical = TensorDomain::noReductions(new_self_root->logical());
   auto self_logical = TensorDomain::noReductions(self->logical());
 
@@ -246,7 +251,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
       new_self_logical.size() == self_logical.size(),
       "Invalid number of IterDomains provided.");
 
-  // Map for replay, should be pretty simple.
+  // Map for replay
   id_map axis_map;
   {
     int64_t i = 0;
@@ -268,14 +273,14 @@ TensorDomain* TransformReplay::selfAllocationReplay(
   }
 
   // Replay producer dimensions.
-  ReplaySelf replay(self->maybeAllocation(), axis_map);
-  std::vector<IterDomain*> mapped_alloc_domain(
-      self->maybeAllocation().size(), nullptr);
+  auto self_allocation = TensorDomain::noReductions(self->maybeAllocation());
+  ReplaySelf replay(self_allocation, axis_map);
+  std::vector<IterDomain*> mapped_alloc_domain(self_allocation.size(), nullptr);
   std::vector<std::optional<bool>> mapped_contiguity = self->contiguity();
 
   {
     int64_t i = 0;
-    for (auto id : self->maybeAllocation()) {
+    for (auto id : self_allocation) {
       auto it = replay.getReplay().find(id);
       NVF_ERROR(
           it != replay.getReplay().end(),
@@ -290,11 +295,11 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     }
   }
 
+  // We need to put back the reduction IDs that are not mapped
   std::vector<IterDomain*> new_alloc_domain;
   new_alloc_domain.reserve(new_self_root->logical().size());
   std::vector<std::optional<bool>> new_contiguity;
-  new_alloc_domain.reserve(new_self_root->logical().size());
-  // We need to squeeze reduction back there that's not mapped
+  new_contiguity.reserve(new_self_root->logical().size());
   {
     size_t i = 0;
     for (auto id : new_self_root->logical()) {
