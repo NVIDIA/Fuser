@@ -300,7 +300,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     for (auto id : new_self_root->logical()) {
       if (id->isReduction()) {
         new_alloc_domain.push_back(id);
-        new_contiguity.push_back(std::nullopt);
+        new_contiguity.emplace_back(std::nullopt);
       } else if (i < mapped_contiguity.size()) {
         new_alloc_domain.push_back(mapped_alloc_domain[i]);
         new_contiguity.push_back(mapped_contiguity[i]);
