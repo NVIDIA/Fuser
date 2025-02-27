@@ -1313,6 +1313,34 @@ Val* extent(const Projection& proj) {
       [&](const auto& proj) { return extent(proj); }, proj);
 }
 
+// Utilities to get the related ValGroups of a projection.
+ValGroups valgroups(const Projection& proj);
+
+ValGroups valgroups(const ValGroup& group) {
+  return {group};
+}
+
+ValGroups valgroups(const PartOf<Projection>& part) {
+  return valgroups(*part.what);
+}
+
+ValGroups valgroups(const Composition<Projection>& comp) {
+  ValGroups result;
+  for (const auto& g : comp) {
+    result.pushBack(valgroups(g));
+  }
+  return result;
+}
+
+ValGroups valgroups(const std::monostate&) {
+  return {};
+}
+
+ValGroups valgroups(const Projection& proj) {
+  return Projection::dispatch(
+      [&](const auto& proj) { return valgroups(proj); }, proj);
+}
+
 // Simplify the abstract syntax tree so that it is easier to be pattern
 // matched. Defined below.
 Projection simplify(Projection proj);
@@ -1948,20 +1976,51 @@ Val* proveLinearAndGetStride(
     return linear_g->front()->fusion()->zeroVal();
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
-  // how linear_g lives in the current propagation front.
+  // how linear_g lives in the current propagation front. Note that domain
+  // may not contain all the dependency of linear_g, so we need to be
+  // "permissive" otherwise the traversal may not happen at all. But we don't
+  // want to be too permissive. For example, if we have
+  //    x  y  z   t
+  //     \  \  \ /
+  //      \  \  a
+  //       \  \ /
+  //        \  b
+  //         \ /
+  //       linear_g
+  // and domain is [y, z, t], for this case, if we use ValGraphBFS, the
+  // traversal will not reach linear_g because one of its dependency x is not
+  // visited. If we use ValGraphPermissiveBFS, then the traversal will not visit
+  // a, because after visiting y, ValGraphPermissiveBFS will be satisfied and
+  // stop the traversal because at least one of b's dependency is visited.
+  // Ideally, we should design a new traversal algorithm that can handle this
+  // case, but for now, we just combine ValGraphBFS and ValGraphPermissiveBFS
+  // and repeat the traverse until no path found.
   Projection frontier = linear_g;
-  auto path =
-      ValGraphBFS::getExprGroupsBetween(id_graph, domain, {linear_g}).first;
-  while (!path.empty()) {
-    const auto& [eg, direction] = path.back();
-    path.pop_back();
-    auto from = fromGroups(id_graph, eg, direction);
-    frontier = propagate(frontier, id_graph, eg, direction);
-    if (!frontier.hasValue()) {
-      // Not representable (or don't know how to represent) by the language of
-      // the dynamic type Projection.
-      return nullptr;
+  ValGroups traverse_to{linear_g};
+  while (true) {
+    auto path =
+        ValGraphBFS::getExprGroupsBetween(
+            id_graph, domain, traverse_to, /*require_all_to_visited=*/false)
+            .first;
+    auto path2 =
+        ValGraphPermissiveBFS::getExprGroupsBetween(
+            id_graph, domain, traverse_to, /*require_all_to_visited=*/false)
+            .first;
+    path.insert(path.begin(), path2.begin(), path2.end());
+    if (path.empty()) {
+      break;
     }
+    while (!path.empty()) {
+      const auto& [eg, direction] = path.back();
+      path.pop_back();
+      frontier = propagate(frontier, id_graph, eg, direction);
+      if (!frontier.hasValue()) {
+        // Not representable (or don't know how to represent) by the language of
+        // the dynamic type Projection.
+        return nullptr;
+      }
+    }
+    traverse_to = valgroups(frontier);
   }
   // After propagation, we should have the information about how linear_g lives
   // in domain. Parse this information to check if linear_g is linear in domain.
