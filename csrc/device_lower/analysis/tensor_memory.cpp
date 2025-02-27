@@ -12,6 +12,7 @@
 #include <ir/all_nodes.h>
 #include <type.h>
 
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -34,12 +35,14 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
     std::vector<IterDomain*>& target = i < dimsep ? lane : column;
     IterDomain* id = raw_allocation_domain[i];
     ParallelType p_type = id->getParallelType();
+    if (id->isBroadcast() || id->isReduction() || id->extent()->isOneInt()) {
+      continue;
+    }
     if (ir_utils::isMemorySharedAcross(MemoryType::Tensor, p_type)) {
       target.push_back(id);
       continue;
     }
-    if (id->isBroadcast() || id->isReduction() || id->extent()->isOneInt() ||
-        ir_utils::isMemoryPartitionedAcross(MemoryType::Tensor, p_type) ||
+    if (ir_utils::isMemoryPartitionedAcross(MemoryType::Tensor, p_type) ||
         ca_ids.count(id)) {
       continue;
     }
@@ -50,9 +53,6 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
 
 Val* productOfExtents(const std::vector<IterDomain*>& domain) {
   Fusion* fusion = FusionGuard::getCurFusion();
-  if (domain.empty()) {
-    return fusion->oneVal();
-  }
   Val* product = fusion->oneVal();
   for (IterDomain* id : domain) {
     product = SimplifyingIrBuilder::mulExpr(product, id->extent());
