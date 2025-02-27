@@ -4943,10 +4943,13 @@ fd.execute(inputs)
 
         ref_inp = inputs[0].clone()
 
+        # is_clonable is not supported yet, because the print out would explicitly mark output
+        # with stride_order and overwrite its contiguity flag. This would violates the memory 
+        # layout required by the alias.
         nvf_out, _ = self.exec_nvfuser(
             fusion_func,
             inputs,
-            skip_serde_check=True,
+            is_clonable=False,
         )
 
         assert len(nvf_out) == 1
