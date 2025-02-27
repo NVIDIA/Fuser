@@ -22,6 +22,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <system_error>
 
 namespace nvfuser {
@@ -1631,48 +1632,52 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
   Fusion fusion;
   FusionGuard fg(&fusion);
+  for (auto _ : c10::irange(100)) {
+    // [16, 8, 2, 4]
+    auto id16 =
+        IterDomainBuilder(
+            fusion.zeroVal(), IrBuilder::create<Val>(16, DataType::Index))
+            .build();
+    auto id8 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(8, DataType::Index))
+                   .build();
+    auto id2 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                   .build();
+    auto id4 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                   .build();
 
-  // [16, 8, 2, 4]
-  auto id16 = IterDomainBuilder(
-                  fusion.zeroVal(), IrBuilder::create<Val>(16, DataType::Index))
-                  .build();
-  auto id8 = IterDomainBuilder(
-                 fusion.zeroVal(), IrBuilder::create<Val>(8, DataType::Index))
-                 .build();
-  auto id2 = IterDomainBuilder(
-                 fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
-                 .build();
-  auto id4 = IterDomainBuilder(
-                 fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
-                 .build();
+    ValGraph g;
+    g.initializeVal(id16);
+    g.initializeVal(id8);
+    g.initializeVal(id2);
+    g.initializeVal(id4);
+    ValGroup g16{g.toGroup(id16)};
+    ValGroup g8{g.toGroup(id8)};
+    ValGroup g2{g.toGroup(id2)};
+    ValGroup g4{g.toGroup(id4)};
+    ValGroupAndItsGraph gg16{g16, &g};
+    ValGroupAndItsGraph gg8{g8, &g};
+    ValGroupAndItsGraph gg2{g2, &g};
+    ValGroupAndItsGraph gg4{g4, &g};
 
-  ValGraph g;
-  g.initializeVal(id16);
-  g.initializeVal(id8);
-  g.initializeVal(id2);
-  g.initializeVal(id4);
-  ValGroup g16{g.toGroup(id16)};
-  ValGroup g8{g.toGroup(id8)};
-  ValGroup g2{g.toGroup(id2)};
-  ValGroup g4{g.toGroup(id4)};
-  ValGroupAndItsGraph gg16{g16, &g};
-  ValGroupAndItsGraph gg8{g8, &g};
-  ValGroupAndItsGraph gg2{g2, &g};
-  ValGroupAndItsGraph gg4{g4, &g};
+    AbstractTensor v({gg16, gg8, gg2, gg4});
+    // Merge all dims in random order
+    while (v.size() > 1) {
+      v.merge(std::rand() % (v.size() - 1));
+    }
+    v.split(0, 32);
 
-  AbstractTensor v({gg16, gg8, gg2, gg4});
-  v.merge(-2);
-  v.merge(-2);
-  v.merge(-2);
-  v.split(0, 32);
-
-  ValGroup linear_g = v[1].as<ValGroupAndItsGraph>().group;
-  // Although linear_g depend on g16, whether it is linear w.r.t. [8, 2, 4] is
-  // not relevant to g16. So we should not require g16 to exist in order to
-  // prove linearity.
-  Val* stride = lower_utils::proveLinearAndGetStride(g, linear_g, {g8, g2, g4});
-  ASSERT_NE(stride, nullptr);
-  EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+    ValGroup linear_g = v[1].as<ValGroupAndItsGraph>().group;
+    // Although linear_g depend on g16, whether it is linear w.r.t. [8, 2, 4] is
+    // not relevant to g16. So we should not require g16 to exist in order to
+    // prove linearity.
+    Val* stride =
+        lower_utils::proveLinearAndGetStride(g, linear_g, {g8, g2, g4});
+    ASSERT_NE(stride, nullptr);
+    EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+  }
 }
 
 } // namespace nvfuser

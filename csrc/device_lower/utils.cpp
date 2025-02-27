@@ -1346,23 +1346,21 @@ ValGroups valgroups(const Projection& proj) {
 Projection simplify(Projection proj);
 
 // Given an expression on the traversal path and its direction, get the from
-// and to groups. Note that the traversal path is obtained by running BFS from
-// domain to linear_g, so the direction is flipped with respect to how we
-// propagate from linear_g to domain.
+// and to groups.
 auto fromGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.outputGroups(eg)
-                                         : id_graph.inputGroups(eg);
+  return direction == Direction::Backward ? id_graph.outputGroups(eg)
+                                          : id_graph.inputGroups(eg);
 }
 
 auto toGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.inputGroups(eg)
-                                         : id_graph.outputGroups(eg);
+  return direction == Direction::Backward ? id_graph.inputGroups(eg)
+                                          : id_graph.outputGroups(eg);
 }
 
 // Do the propagation to project linear_g on domain through the given
@@ -1976,51 +1974,20 @@ Val* proveLinearAndGetStride(
     return linear_g->front()->fusion()->zeroVal();
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
-  // how linear_g lives in the current propagation front. Note that domain
-  // may not contain all the dependency of linear_g, so we need to be
-  // "permissive" otherwise the traversal may not happen at all. But we don't
-  // want to be too permissive. For example, if we have
-  //    x  y  z   t
-  //     \  \  \ /
-  //      \  \  a
-  //       \  \ /
-  //        \  b
-  //         \ /
-  //       linear_g
-  // and domain is [y, z, t], for this case, if we use ValGraphBFS, the
-  // traversal will not reach linear_g because one of its dependency x is not
-  // visited. If we use ValGraphPermissiveBFS, then the traversal will not visit
-  // a, because after visiting y, ValGraphPermissiveBFS will be satisfied and
-  // stop the traversal because at least one of b's dependency is visited.
-  // Ideally, we should design a new traversal algorithm that can handle this
-  // case, but for now, we just combine ValGraphBFS and ValGraphPermissiveBFS
-  // and repeat the traverse until no path found.
+  // how linear_g lives in the current propagation front. Note that linear_g may
+  // not contain full dependency of domain.
   Projection frontier = linear_g;
-  ValGroups traverse_to{linear_g};
-  while (true) {
-    auto path =
-        ValGraphBFS::getExprGroupsBetween(
-            id_graph, domain, traverse_to, /*require_all_to_visited=*/false)
-            .first;
-    auto path2 =
-        ValGraphPermissiveBFS::getExprGroupsBetween(
-            id_graph, domain, traverse_to, /*require_all_to_visited=*/false)
-            .first;
-    path.insert(path.begin(), path2.begin(), path2.end());
-    if (path.empty()) {
-      break;
+  auto path =
+      ValGraphPermissiveBFS::getExprGroupsBetween(
+          id_graph, {linear_g}, domain, /*require_all_to_visited=*/false)
+          .first;
+  for (const auto& [eg, direction] : path) {
+    frontier = propagate(frontier, id_graph, eg, direction);
+    if (!frontier.hasValue()) {
+      // Not representable (or don't know how to represent) by the language of
+      // the dynamic type Projection.
+      return nullptr;
     }
-    while (!path.empty()) {
-      const auto& [eg, direction] = path.back();
-      path.pop_back();
-      frontier = propagate(frontier, id_graph, eg, direction);
-      if (!frontier.hasValue()) {
-        // Not representable (or don't know how to represent) by the language of
-        // the dynamic type Projection.
-        return nullptr;
-      }
-    }
-    traverse_to = valgroups(frontier);
   }
   // After propagation, we should have the information about how linear_g lives
   // in domain. Parse this information to check if linear_g is linear in domain.
