@@ -1313,34 +1313,6 @@ Val* extent(const Projection& proj) {
       [&](const auto& proj) { return extent(proj); }, proj);
 }
 
-// Utilities to get the related ValGroups of a projection.
-ValGroups valgroups(const Projection& proj);
-
-ValGroups valgroups(const ValGroup& group) {
-  return {group};
-}
-
-ValGroups valgroups(const PartOf<Projection>& part) {
-  return valgroups(*part.what);
-}
-
-ValGroups valgroups(const Composition<Projection>& comp) {
-  ValGroups result;
-  for (const auto& g : comp) {
-    result.pushBack(valgroups(g));
-  }
-  return result;
-}
-
-ValGroups valgroups(const std::monostate&) {
-  return {};
-}
-
-ValGroups valgroups(const Projection& proj) {
-  return Projection::dispatch(
-      [&](const auto& proj) { return valgroups(proj); }, proj);
-}
-
 // Simplify the abstract syntax tree so that it is easier to be pattern
 // matched. Defined below.
 Projection simplify(Projection proj);
