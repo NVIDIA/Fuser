@@ -310,8 +310,6 @@ inferAndValidateAllocationSizesAndStrides(
   std::vector<int64_t> allocation_strides;
   allocation_sizes.reserve(alloc.size());
   allocation_strides.reserve(alloc.size());
-  std::cout << "Processing allocation domain for: " << tv->name() << "\n";
-  std::cout << tv->getMaybeAllocationDomain() << std::endl;
   for (IterDomain* id : TensorDomain::noReductions(alloc)) {
     if (id->isDeviceDim()) {
       allocation_sizes.push_back(1);
@@ -319,10 +317,7 @@ inferAndValidateAllocationSizesAndStrides(
       allocation_sizes.push_back(active_ids.at(id).first);
     }
     allocation_strides.push_back(active_ids.at(id).second);
-    std::cout << allocation_sizes.back() << " " << allocation_strides.back()
-              << " for ID: " << id->toString() << "\n";
   }
-  std::cout << std::endl;
 
   // Only validate final sizes and strides when we have a non-empty tensor.
   if (tensor.numel() != 0) {

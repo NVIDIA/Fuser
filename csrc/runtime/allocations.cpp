@@ -263,8 +263,6 @@ at::Tensor allocateTensor(
   // Handle a fusion with duplicated outputs.
   TensorView* out_tv = out_info.tv;
   if (ee.isKnown(out_tv)) {
-    std::cout << "Evaluated 2: \n"
-              << ee.evaluate(out_tv).as<at::Tensor>() << std::endl;
     return ee.evaluate(out_tv).as<at::Tensor>();
   }
 
@@ -297,7 +295,6 @@ at::Tensor allocateTensor(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
-      std::cout << "Allocated 0: \n" << alloc_tensor << std::endl;
       return alloc_tensor;
     }
     case AllocationType::ReuseBuffer:
@@ -318,7 +315,6 @@ at::Tensor allocateTensor(
             aliased_io->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
       }
-      std::cout << "Evaluated 1: \n" << out_tensor << std::endl;
       return out_tensor;
     }
     default:
@@ -399,8 +395,6 @@ std::vector<at::Tensor> allocateKernelOutputs(
           c10::nullopt,
           device,
           c10::nullopt);
-      std::cout << "Allocating output tensor:\n"
-                << debug_str(alloc_tensor) << std::endl;
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
@@ -415,11 +409,6 @@ std::vector<at::Tensor> allocateKernelOutputs(
           fusion->inputs()[entry.output_aliased_to_input.at(out_idx)],
           input_arg);
       auto output = ee.evaluate(out_info.tv).as<at::Tensor>();
-      std::cout << "Input arg: " << debug_str(input_arg.as<at::Tensor>())
-                << std::endl;
-      std::cout << "Aliased output tennsor: "
-                << fusion->outputs()[out_idx]->toString() << std::endl;
-      std::cout << "Aliased output tensor: " << debug_str(output) << std::endl;
       NVF_ERROR(
           input_arg.is<at::Tensor>(),
           "Aliased input argument is not a tensor.");
@@ -427,28 +416,12 @@ std::vector<at::Tensor> allocateKernelOutputs(
               out_info.shape_info.logical_sizes ||
           input_arg.as<at::Tensor>().strides() !=
               out_info.shape_info.logical_strides) {
-        std::cout << "As strided?" << std::endl;
-        std::cout << "Aliasing output tensor: \n"
-                  << output.as_strided(
-                         out_info.shape_info.logical_sizes,
-                         out_info.shape_info.logical_strides)
-                  << std::endl;
         out_tensors.emplace_back(output.as_strided(
             out_info.shape_info.logical_sizes,
             out_info.shape_info.logical_strides));
       } else {
         out_tensors.emplace_back(output);
       }
-      std::cout
-          << "Aliasing T" << out_info.tv->name() << " to T"
-          << fusion->inputs()[entry.output_aliased_to_input.at(out_idx)]->name()
-          << std::endl;
-      std::cout << "Aliased output tensor: " << debug_str(out_tensors.back())
-                << std::endl;
-      std::cout << "Aliased output tensor logical sizes: "
-                << out_info.shape_info.logical_sizes << std::endl;
-      std::cout << "Aliased output tensor logical strides: "
-                << out_info.shape_info.logical_strides << std::endl;
     }
   }
   return out_tensors;
@@ -466,15 +439,6 @@ GlobalBufferInfo getBufferInfo(
   auto dtype =
       (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
   info.type = data_type_to_aten(dtype);
-  std::cout << " Getting global buffer info for T" << tv->name() << " "
-            << tv->getLogicalDomain() << std::endl;
-  std::cout << "Logical sizes: " << info.shape_info.logical_sizes << std::endl;
-  std::cout << "Allocation sizes: " << info.shape_info.allocation_sizes
-            << std::endl;
-  std::cout << "Logical strides: " << info.shape_info.logical_strides
-            << std::endl;
-  std::cout << "Allocation strides: " << info.shape_info.allocation_strides
-            << std::endl;
   return info;
 }
 
