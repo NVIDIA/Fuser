@@ -20,6 +20,7 @@ struct KernelExecutorEntry;
 struct TensorShapeInfo {
   std::vector<int64_t> logical_sizes;
   std::vector<int64_t> logical_strides;
+  std::vector<int64_t> unsharded_logical_sizes;
   std::vector<int64_t> allocation_sizes;
   std::vector<int64_t> allocation_strides;
 };

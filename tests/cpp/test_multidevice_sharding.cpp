@@ -241,18 +241,18 @@ TEST_F(MultiDeviceTest, DivideBySum) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
   x->setContiguity({false, false, true, true, true});
-  const int64_t b = 1;
-  const int64_t h = d * 2;
-  const int64_t s = 2;
+  const int64_t b = 7;
+  const int64_t h = d * 5;
+  const int64_t s = 3;
   at::Tensor unsharded_x_tensor = at::randint(5, {b, h, s, s}, tensor_options);
-  
+
   // at::Tensor x_tensor = shardTensor(unsharded_x_tensor, x);
-  at::Tensor x_tensor = at::randint(5, {b, h/d, s, s}, tensor_options);
-  std::cout<<"Properties: "<<debug_str(x_tensor)<<"\n";
-  std::cout<<"input:"<<x_tensor<<std::endl;
+  at::Tensor x_tensor = at::randint(5, {b, h / d, s, s}, tensor_options);
+  std::cout << "Properties: " << debug_str(x_tensor) << "\n";
+  // std::cout<<"input:"<<x_tensor<<std::endl;
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor y_tensor = executor_cache.runFusionWithInputs({x_tensor})[0];
-  std::cout<<"output:"<<y_tensor<<std::endl;
+  // std::cout<<"output:"<<y_tensor<<std::endl;
   testValidate(
       executor_cache.fusion(),
       {y_tensor},

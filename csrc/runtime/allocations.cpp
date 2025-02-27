@@ -10,6 +10,7 @@
 
 #include <expr_evaluator.h>
 #include <instrumentation.h>
+#include <multidevice/utils.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -262,6 +263,8 @@ at::Tensor allocateTensor(
   // Handle a fusion with duplicated outputs.
   TensorView* out_tv = out_info.tv;
   if (ee.isKnown(out_tv)) {
+    std::cout << "Evaluated 2: \n"
+              << ee.evaluate(out_tv).as<at::Tensor>() << std::endl;
     return ee.evaluate(out_tv).as<at::Tensor>();
   }
 
@@ -294,6 +297,7 @@ at::Tensor allocateTensor(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
+      std::cout << "Allocated 0: \n" << alloc_tensor << std::endl;
       return alloc_tensor;
     }
     case AllocationType::ReuseBuffer:
@@ -314,6 +318,7 @@ at::Tensor allocateTensor(
             aliased_io->toString());
         inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
       }
+      std::cout << "Evaluated 1: \n" << out_tensor << std::endl;
       return out_tensor;
     }
     default:
@@ -394,8 +399,8 @@ std::vector<at::Tensor> allocateKernelOutputs(
           c10::nullopt,
           device,
           c10::nullopt);
-      std::cout << "Allocating output tensor: " << debug_str(alloc_tensor)
-                << std::endl;
+      std::cout << "Allocating output tensor:\n"
+                << debug_str(alloc_tensor) << std::endl;
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
@@ -414,8 +419,7 @@ std::vector<at::Tensor> allocateKernelOutputs(
                 << std::endl;
       std::cout << "Aliased output tennsor: "
                 << fusion->outputs()[out_idx]->toString() << std::endl;
-      std::cout << "Aliased output tensor: "
-                << debug_str(output) << std::endl;
+      std::cout << "Aliased output tensor: " << debug_str(output) << std::endl;
       NVF_ERROR(
           input_arg.is<at::Tensor>(),
           "Aliased input argument is not a tensor.");
@@ -423,7 +427,12 @@ std::vector<at::Tensor> allocateKernelOutputs(
               out_info.shape_info.logical_sizes ||
           input_arg.as<at::Tensor>().strides() !=
               out_info.shape_info.logical_strides) {
-                std::cout<<"As strided?"<<std::endl;
+        std::cout << "As strided?" << std::endl;
+        std::cout << "Aliasing output tensor: \n"
+                  << output.as_strided(
+                         out_info.shape_info.logical_sizes,
+                         out_info.shape_info.logical_strides)
+                  << std::endl;
         out_tensors.emplace_back(output.as_strided(
             out_info.shape_info.logical_sizes,
             out_info.shape_info.logical_strides));
@@ -869,6 +878,10 @@ std::vector<GlobalBufferInfo> getInputBufferInfos(
     TensorShapeInfo shape_info;
     shape_info.logical_sizes = logical_sizes;
     shape_info.logical_strides = logical_strides;
+    if (isSharded(buffer_info.tv)) {
+      shape_info.unsharded_logical_sizes =
+          unshardedSizes(buffer_info.tv, logical_sizes);
+    }
     buffer_info.shape_info = shape_info;
     buffer_info.type = inputs[i].scalar_type();
 
@@ -921,6 +934,8 @@ TensorShapeInfo inferTensorShapes(
       return TensorShapeInfo{
           tensor.sizes().vec(),
           tensor.strides().vec(),
+          isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+                        : tensor.sizes().vec(),
           tensor.sizes().vec(),
           tensor.strides().vec()};
     }
@@ -929,6 +944,8 @@ TensorShapeInfo inferTensorShapes(
     return TensorShapeInfo{
         tensor.sizes().vec(),
         tensor.strides().vec(),
+        isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
+                      : tensor.sizes().vec(),
         allocation_size_stride.first,
         allocation_size_stride.second};
   }
@@ -939,6 +956,8 @@ TensorShapeInfo inferTensorShapes(
     return TensorShapeInfo{
         allocation_size_stride.first,
         allocation_size_stride.second,
+        isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first)
+                      : allocation_size_stride.first,
         allocation_size_stride.first,
         allocation_size_stride.second};
   }
@@ -955,6 +974,8 @@ TensorShapeInfo inferTensorShapes(
   return {
       logical_meta_tensor.sizes().vec(),
       logical_meta_tensor.strides().vec(),
+      isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
+                    : logical_meta_tensor.sizes().vec(),
       allocation_size_stride.first,
       allocation_size_stride.second};
 }

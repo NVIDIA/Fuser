@@ -20,6 +20,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <runtime/allocations.h>
@@ -172,7 +173,24 @@ void KernelExecutor::compile(
     CompileParams compile_params,
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("KernelExecutor::compile");
-
+  for (auto input : fusion->inputs()) {
+    if (input->isA<TensorView>()) {
+      auto tv = input->as<TensorView>();
+      tv->setContiguity(std::vector<std::optional<bool>>(
+          TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size(),
+          false));
+    }
+  }
+  for (auto output : fusion->outputs()) {
+    if (output->isA<TensorView>()) {
+      auto tv = output->as<TensorView>();
+      tv->setContiguity(std::vector<std::optional<bool>>(
+          TensorDomain::noReductions(tv->getMaybeAllocationDomain()).size(),
+          false));
+    }
+  }
+  fusion->print();
+  fusion->printKernel();
   NVF_ERROR(
       supported(fusion),
       "KernelExecutor does not support the Fusion provided.");
@@ -360,7 +378,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
         parallel_iter_extents, launch_constraints);
     expr_eval.precomputedValues()->evaluate();
   }
-
+  std::cout << "====================" << std::endl;
   // If any dimension was set in launch constraints we need to run through
   // IterDomains that have been parallelized, and bind those values. Or make
   // sure if they could be inferred the inference matches what was set.
@@ -371,6 +389,9 @@ LaunchParams KernelExecutor::computeLaunchParams(
       for (auto extent : parallel_extents) {
         auto inferred_val = expr_eval.evaluate(extent);
         if (inferred_val.hasValue()) {
+          std::cout << "Inferring val: " << extent->toInlineString()
+                    << std::endl;
+          std::cout << inferred_val.as<int64_t>() << std::endl;
           // This value could have been inferred, make sure it was set right.
           bool valid =
               inferred_val.as<int64_t>() == launch_constraints.getDim(p_type) ||
@@ -381,9 +402,13 @@ LaunchParams KernelExecutor::computeLaunchParams(
                 "this may be due to mixed broadcast axes that are parallelized.");
           }
         } else if (!expr_eval.precomputedValues()) {
+          std::cout << "Binding val: " << extent->toInlineString() << std::endl;
+          std::cout << launch_constraints.getDim(p_type) << std::endl;
           expr_eval.bind(extent, launch_constraints.getDim(p_type));
         }
         if (!launch_params.hasDim(p_type)) {
+          std::cout << "Binding val: " << p_type << std::endl;
+          std::cout << launch_constraints.getDim(p_type) << std::endl;
           // Bind the launch constraint into our evaluation context
           launch_params.bind(launch_constraints.getDim(p_type), p_type);
           // Makes sure the p-types bound to evaluators are the
@@ -396,10 +421,13 @@ LaunchParams KernelExecutor::computeLaunchParams(
     }
   }
 
+  std::cout << "====================" << std::endl;
   // Run through the rest of the parallel IterDomains and infer their size
   for (auto [p_type, extent] : simplified_parallel_iter_extents) {
     FUSER_PERF_SCOPE("KernelExecutor::ParallelBindingResolution");
     auto val = expr_eval.evaluate(extent);
+    std::cout << "Evaluating val: " << extent->toInlineString() << std::endl;
+    std::cout << val.as<int64_t>() << std::endl;
     NVF_ERROR(
         val.hasValue(),
         "Tried to evaluate the extent, ",
@@ -414,6 +442,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
     }
   }
 
+  std::cout << "====================" << std::endl;
   // Re-run the integer machine with all
   //  the thread sizes now determined.
   if (expr_eval.precomputedValues()) {
@@ -659,7 +688,13 @@ void KernelExecutor::initializeExecutorEntry(
   expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
+  std::cout << "Constraints: " << launch_constraints.toString() << std::endl;
+  std::cout << "Launch params: " << launch_params.toString() << std::endl;
 
+  std::cout << "Expr eval:\n";
+  expr_eval.print();
+
+  // NVF_THROW("Stop here");
   for (const auto& entry : compiled_kernel_->kernel()->summary().validations) {
     NVF_CHECK(expr_eval.evaluate(entry.first).as<bool>(), entry.second);
   }
@@ -715,13 +750,23 @@ void KernelExecutor::initializeExecutorEntry(
       shape_info.logical_sizes = args[inp_idx].as<at::Tensor>().sizes().vec();
       shape_info.logical_strides =
           args[inp_idx].as<at::Tensor>().strides().vec();
+      if (isSharded(input_tv)) {
+        std::cout << "input_tv is sharded" << std::endl;
+        shape_info.unsharded_logical_sizes =
+            unshardedSizes(input_tv, shape_info.logical_sizes);
+        std::cout << "unsharded_logical_sizes: "
+                  << shape_info.unsharded_logical_sizes << std::endl;
+      }
       shape_info.allocation_sizes = alloc_sizes;
       shape_info.allocation_strides = alloc_strides;
-      std::cout<<"Input shape info: "<<std::endl;
-      std::cout<<"Logical sizes: "<<shape_info.logical_sizes<<std::endl;
-      std::cout<<"Allocation sizes: "<<shape_info.allocation_sizes<<std::endl;
-      std::cout<<"Logical strides: "<<shape_info.logical_strides<<std::endl;
-      std::cout<<"Allocation strides: "<<shape_info.allocation_strides<<std::endl;
+      std::cout << "Input shape info: " << std::endl;
+      std::cout << "Logical sizes: " << shape_info.logical_sizes << std::endl;
+      std::cout << "Allocation sizes: " << shape_info.allocation_sizes
+                << std::endl;
+      std::cout << "Logical strides: " << shape_info.logical_strides
+                << std::endl;
+      std::cout << "Allocation strides: " << shape_info.allocation_strides
+                << std::endl;
       GlobalBufferInfo info(
           input_tv,
           shape_info,
@@ -971,12 +1016,21 @@ void KernelExecutor::computeArgs2(
       auto tensor = args[arg_idx].as<at::Tensor>();
 
       auto data = tensor.data_ptr();
-      const auto& logical_size =
-          linear_buffer_info_getter(entry, buffer_info_idx)
-              .shape_info.logical_sizes;
-      const auto& alloc_stride =
-          linear_buffer_info_getter(entry, buffer_info_idx)
-              .shape_info.allocation_strides;
+      const auto& buffer_info =
+          linear_buffer_info_getter(entry, buffer_info_idx);
+      const auto& logical_size = buffer_info.shape_info.logical_sizes.size() ==
+              buffer_info.shape_info.unsharded_logical_sizes.size()
+          ? buffer_info.shape_info.unsharded_logical_sizes
+          : buffer_info.shape_info.logical_sizes;
+      const auto& alloc_stride = buffer_info.shape_info.allocation_strides;
+      std::cout << "Populating buffer info for tensor";
+      std::cout << " pointer: " << data;
+      std::cout << " logical size: " << buffer_info.shape_info.logical_sizes
+                << "\n";
+      std::cout << " unsharded logical size: "
+                << buffer_info.shape_info.unsharded_logical_sizes << "\n";
+      std::cout << " Unsharded logical size: " << logical_size << "\n";
+      std::cout << " alloc stride: " << alloc_stride << "\n";
       buffer_info_idx++;
       // special handle for TensorMetaData so that CPU overhead is minimal.
       if (idx_type == PrimDataType::Int) {
@@ -1438,6 +1492,10 @@ std::vector<at::Tensor> KernelExecutor::run(
               << ", warps_per_sm=" << warps_per_sm
               << ", occupancy=" << oss.str() << std::endl;
     }
+    std::cout << "Running KE with args:\n";
+    for (const auto& arg : args) {
+      std::cout << debug_str(arg.as<at::Tensor>()) << "\n";
+    }
 
     if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
@@ -1480,6 +1538,37 @@ std::vector<at::Tensor> KernelExecutor::run(
     sprof.stopKernel();
     sprof.outputBytesAccessed(computeBytes(outputs));
   }
+  std::cout << "\n\n";
+  std::cout << "Entry input info:\n";
+  for (auto entry : executor_entry->inputs) {
+    std::cout << "T" << entry.tv->name() << "\n";
+    std::cout << "  Logical sizes: " << entry.shape_info.logical_sizes << "\n";
+    std::cout << "  Logical strides: " << entry.shape_info.logical_strides
+              << "\n";
+    std::cout << "  Allocation sizes: " << entry.shape_info.allocation_sizes
+              << "\n";
+    std::cout << "  Allocation strides: " << entry.shape_info.allocation_strides
+              << "\n";
+  }
+
+  std::cout << "Entry output info:\n";
+  for (auto entry : executor_entry->outputs) {
+    std::cout << "T" << entry.tv->name() << "\n";
+    std::cout << "  Logical sizes: " << entry.shape_info.logical_sizes << "\n";
+    std::cout << "  Logical strides: " << entry.shape_info.logical_strides
+              << "\n";
+    std::cout << "  Allocation sizes: " << entry.shape_info.allocation_sizes
+              << "\n";
+    std::cout << "  Allocation strides: " << entry.shape_info.allocation_strides
+              << "\n";
+  }
+
+  std::cout << "Ran KE with args:\n";
+  for (const auto& arg : args) {
+    std::cout << debug_str(arg.as<at::Tensor>()) << "\n";
+  }
+  std::cout << "Launch params: " << launch_params_.toString() << "\n";
+  std::cout << std::endl;
   return outputs;
 }
 
@@ -1635,6 +1724,7 @@ flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
       tv_position,
       &data.shape_info.logical_sizes,
       &data.shape_info.logical_strides,
+      &data.shape_info.unsharded_logical_sizes,
       &data.shape_info.allocation_sizes,
       &data.shape_info.allocation_strides,
       nvfuser::toUnderlying(data.type),
@@ -1764,6 +1854,10 @@ GlobalBufferInfo KernelExecutor::deserialize(
 
   for (auto dim_stride : *buffer->logical_strides()) {
     shape_info.logical_strides.emplace_back(dim_stride);
+  }
+
+  for (auto dim_size : *buffer->unsharded_logical_sizes()) {
+    shape_info.unsharded_logical_sizes.emplace_back(dim_size);
   }
 
   for (auto dim_size : *buffer->alloc_sizes()) {

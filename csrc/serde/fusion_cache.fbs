@@ -217,6 +217,7 @@ table GlobalBufferInfo {
   tv : long = -1;
   logical_sizes : [long];
   logical_strides : [long];
+  unsharded_logical_sizes : [long];
   alloc_sizes : [long];
   alloc_strides : [long];
   dtype : long;
