@@ -281,9 +281,11 @@ Fusion* FusionSchedules::preschedFusion() {
 }
 
 void FusionSchedules::createExecutorCache() {
-  auto_gen_schedules = std::make_unique<FusionExecutorCache>(
-      std::move(presched_fusion_), fusion_id_);
-  presched_fusion_ = nullptr;
+  if (auto_gen_schedules == nullptr) {
+    auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+        std::move(presched_fusion_), fusion_id_);
+    presched_fusion_ = nullptr;
+  }
 }
 
 TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
@@ -695,13 +697,16 @@ void FusionCache::serialize(std::string filename) const {
       continue;
     }
 
+    FusionSchedules* schedule = queryFusionSchedules(node->fusion_id);
+    if (schedule->auto_gen_schedules == nullptr) {
+      // This fusion has been created but never executed. It doesn't save us
+      // anything to serialize that.
+      continue;
+    }
+
     terminal_node_idx.push_back(
         map_record_functor_to_trie_node_id.at(node->record.get()));
 
-    auto schedule = queryFusionSchedules(node->fusion_id);
-    NVF_ERROR(
-        schedule->auto_gen_schedules != nullptr,
-        "We should only cache FusionDefinitions that pass finalizeDefinition, which creates auto_gen_schedules.");
     fb_auto_gen_schedules.push_back(
         schedule->auto_gen_schedules->serialize(builder));
   }
