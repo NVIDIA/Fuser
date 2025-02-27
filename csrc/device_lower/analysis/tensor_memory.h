@@ -160,7 +160,7 @@ struct TMemAlllocationInfo {
   };
   std::vector<Region> regions;
 
-  const TVInfo& getTVInfo(TensorView* tv) const;
+  const Region::TVInfo& getTVInfo(TensorView* tv) const;
 };
 
 // The actual definition of TensorMemoryInfo.

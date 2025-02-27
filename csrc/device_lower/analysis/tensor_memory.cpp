@@ -21,9 +21,8 @@
 
 namespace nvfuser {
 
-const TMemAlllocationInfo::TVInfo& TMemAlllocationInfo::getTVInfo(
-    TensorView* tv) const;
-{
+const TMemAlllocationInfo::Region::TVInfo& TMemAlllocationInfo::getTVInfo(
+    TensorView* tv) const {
   for (const auto& region : regions) {
     for (const auto& tv_info : region.covered_tensors) {
       if (tv_info.tensor == tv) {
@@ -241,17 +240,17 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
     }
     const auto& loop_domain = ir_utils::getTvOutput(ldst)->getLoopDomain();
     const auto& tmem_tv_info = allocation.getTVInfo(tmem_tv);
+    auto& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
     ValGroups lane_allocation_valgroups =
-        id_graph.toGroups(tmem_tv_info.lane_allocation)
+        id_graph.toGroups(tmem_tv_info.lane_allocation);
 
-        // Get the contiguity of tid_ptypes in the loop domain.
-        // The contiguity of each item in tid_ptypes are defined as follows:
-        // - The inner tid_ptypes are always contiguous.
-        // - The item at index i is contiguous if the item at index i+1 is
-        //   exact(its extent in the loop domain is the same as parallel
-        //   dimension size of the kernel).
-        std::vector<bool>
-            contiguity;
+    // Get the contiguity of tid_ptypes in the loop domain.
+    // The contiguity of each item in tid_ptypes are defined as follows:
+    // - The inner tid_ptypes are always contiguous.
+    // - The item at index i is contiguous if the item at index i+1 is
+    //   exact(its extent in the loop domain is the same as parallel
+    //   dimension size of the kernel).
+    std::vector<bool> contiguity;
     contiguity.reserve(tid_ptypes.size());
     bool prev_exact = true;
     for (ParallelType pt : std::views::reverse(tid_ptypes)) {
@@ -301,8 +300,6 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
       }
     };
     AbstractTensorWithInfo<Contiguity> pdims;
-    const auto& id_graph =
-        GpuLower::current()->tensorIndexer().traversalGraph();
     for (auto [i, pt] : enumerate(tid_ptypes)) {
       auto id_it = std::find_if(
           loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
