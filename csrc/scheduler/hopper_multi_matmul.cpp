@@ -408,7 +408,9 @@ void HopperMultipleMatmulScheduler::inspectPrologues() const {
       // might be introduced when translating a MatmulOp or LinearOp to MmaOp.
       Expr* def = op_input->definition();
       NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
-      NVF_ERROR(def->input(0)->isFusionInput());
+      NVF_ERROR(
+          def->input(0)->as<TensorView>()->getMemoryType() ==
+          MemoryType::Global);
     }
   }
 }

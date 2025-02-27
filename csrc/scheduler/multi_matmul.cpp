@@ -65,6 +65,31 @@ void MultipleMatmulScheduler::findRoles() {
 
   as_ = tensor_roles_.at(MatmulTensorRole::OPERAND_A);
   bs_ = tensor_roles_.at(MatmulTensorRole::OPERAND_B);
+  // When translating MatmulOp or LinearOp with avoid_intermediates, we
+  // introduce some intermediate Global tensors which will be ignored during
+  // lowering. We update as_ and bs_ to point at the last of these tensors
+  // before their next consumer is in local memory.
+  for (std::vector<TensorView*>* tensors : {&as_, &bs_}) {
+    for (TensorView*& tv : *tensors) {
+      while (true) {
+        if (tv->uses().size() != 1) {
+          break;
+        }
+        Expr* use = tv->uses().front();
+        if (use->outputs().size() != 1) {
+          break;
+        }
+        TensorView* consumer = dynamic_cast<TensorView*>(use->output(0));
+        if (consumer == nullptr) {
+          break;
+        }
+        if (consumer->getMemoryType() != MemoryType::Global) {
+          break;
+        }
+        tv = consumer;
+      }
+    }
+  }
 
   countDims();
 }
