@@ -8819,7 +8819,7 @@ TEST_F(NVFuserTest, RAWSync) {
   EXPECT_THAT(
       [&]() { GpuLower(&fusion).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-          "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
+          "Producer is required to be in Global, Shared or Tensor Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
 // Test `DistributedTransformerTest.Backward/__bfloat` has bool type tensor
