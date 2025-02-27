@@ -19,6 +19,7 @@
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
+#include <preseg_passes/stream_parallel_type.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <limits>
 
@@ -649,6 +650,9 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   for (auto output : staged_fusion->outputs()) {
     hic->addOutput(ir_cloner.clone(output));
   }
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::LowerStreamParallelTypePass>::runPass(fusion.get());
 
   return hic;
 }
