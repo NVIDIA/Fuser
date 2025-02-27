@@ -1,4 +1,4 @@
-# SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
@@ -37,7 +37,7 @@ def test_embedding_fwd_benchmark(
     def fwd_call(inp):
         return model(**inp)
 
-    # Compile the fwd fn for torchcompile
+    # Compile the fwd fn
     benchmark_fn = with_executor(executor, fwd_call, **kwargs)
     run_benchmark(benchmark, benchmark_fn, inputs)
 
@@ -76,8 +76,6 @@ def test_embedding_bwd_benchmark(
 
     assert len(outputs) == 1
 
-    # NOTE: the iobytes is computed based on how thunder autograd worked. So this is just
-    # a reference point for torchcompile and eager executor for comparison.
     # NOTE: passing in *list(model.parameters()), so we would clear all computed grad before
     # calling backwards, this avoid the accumulation kernel
     run_benchmark(
