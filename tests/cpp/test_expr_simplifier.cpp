@@ -681,6 +681,10 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
   expectSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
 }
 
+TEST_F(ExprSimplifierTest, DoubleDiv) {
+  EXPECT_TRUE(isEquivalent("i0 / 2 / 3"_, "i0 / 6"_));
+}
+
 TEST_F(ExprSimplifierTest, SignProve) {
   auto assertProvedPositive = [](Val* x,
                                  const std::vector<Val*>& assumptions = {}) {

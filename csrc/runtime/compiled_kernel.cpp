@@ -1259,18 +1259,6 @@ void CompiledKernel::compile(int64_t block_size) {
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
 
-  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
-  // If the loaded external source code is empty, revert to the default
-  // codegen. The external_structured_code is moved to structured_code and
-  // explicitly cleared to avoid use-after-move scenarios. Note: we index
-  // these with getGlobalFusionCount() instead of fusion_id_ in order to match
-  // the numbering of files output with NVFUSER_DUMP=cuda_to_file
-  auto structured_code =
-      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
-  if (structured_code.empty()) {
-    structured_code = getStructuredCode();
-  }
-
   const kir::KernelSummary& kernel_summary = kernel->summary();
 
   std::pair<int64_t, int64_t> target_arch;
@@ -1328,7 +1316,7 @@ void CompiledKernel::compile(int64_t block_size) {
   maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
   compiled_kernel_ = getCudaExecutable(
       kernel_code_,
-      structured_code,
+      getStructuredCode(),
       kernelName(),
       kernel_id_,
       compile_params_,
@@ -1342,6 +1330,17 @@ void CompiledKernel::compile(int64_t block_size) {
 }
 
 std::string CompiledKernel::getStructuredCode() const {
+  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
+  // If the loaded external source code is empty, revert to the default
+  // codegen. The external_structured_code is moved to structured_code and
+  // explicitly cleared to avoid use-after-move scenarios. Note: we index
+  // these with getGlobalFusionCount() instead of fusion_id_ in order to match
+  // the numbering of files output with NVFUSER_DUMP=cuda_to_file
+  auto structured_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
+  if (!structured_code.empty()) {
+    return structured_code;
+  }
   return _getStructuredCode(
       kernelString(), kernel()->indexType(), kernelName());
 }
@@ -1396,7 +1395,7 @@ void RtcKernel::compile(
 
 float RtcKernel::run(
     const LaunchParams& launch_params,
-    const std::vector<at::Tensor>& args,
+    const KernelArgumentHolder& args,
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("RtcKernel::run");
 
@@ -1417,18 +1416,19 @@ float RtcKernel::run(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    auto dtype =
-        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
-    DataType metadata_type = globalTensorMetaData(dtype, input.dim());
+    const auto& input_tensor = input.as<at::Tensor>();
+    auto dtype = std::get<PrimDataType>(
+        aten_to_data_type(input_tensor.scalar_type()).type);
+    DataType metadata_type = globalTensorMetaData(dtype, input_tensor.dim());
 
     std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
     TensorMetaData* metadata = (TensorMetaData*)struct_.get();
     metadata->dtype = dtype;
-    metadata->data = input.data_ptr();
-    metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
-    metadata->alloc_size = input.sizes();
-    metadata->alloc_stride = input.strides();
+    metadata->data = input_tensor.data_ptr();
+    metadata->logical_size = input_tensor.sizes();
+    metadata->logical_stride = input_tensor.strides();
+    metadata->alloc_size = input_tensor.sizes();
+    metadata->alloc_stride = input_tensor.strides();
 
     data.emplace_back(polymorphicValueToBytes(
         PolymorphicValue(std::move(struct_)), metadata_type, index_type));

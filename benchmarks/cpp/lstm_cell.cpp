@@ -173,7 +173,7 @@ static void NvFuserScheduler_LstmCell_RunFusion(
   KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
@@ -248,7 +248,7 @@ static void NvFuserScheduler_LstmCell_RunFusion_CpuOnly(
   KernelArgumentHolder args = setupInputs(hidden_features, batch_size);
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
