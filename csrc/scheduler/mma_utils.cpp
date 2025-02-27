@@ -1956,10 +1956,10 @@ class MatmulTranslator : public OptInDispatch {
 
       // Find ValGroups of each dimension in output. We will use the broadcast
       // map to determine equivalence for each operand.
-      std::vector<const ValGroup*> output_groups;
+      std::vector<ValGroup> output_groups;
       output_groups.reserve(pattern_.output->getLogicalDomain().size());
       for (IterDomain* id : pattern_.output->getLogicalDomain()) {
-        output_groups.push_back(&graph.toGroup(id));
+        output_groups.push_back(graph.toGroup(id));
       }
 
       // For each operand
@@ -1981,28 +1981,28 @@ class MatmulTranslator : public OptInDispatch {
 
         // Save the fusion input's allocation domain so we can set the
         // intermediate TVs' allocation domains and contiguity to match.
-        std::vector<const ValGroup*> input_alloc_groups;
+        std::vector<ValGroup> input_alloc_groups;
         input_alloc_groups.reserve(
             fusion_input->getMaybeAllocationDomain().size());
         for (IterDomain* id : fusion_input->getMaybeAllocationDomain()) {
-          input_alloc_groups.push_back(&graph.toGroup(id));
+          input_alloc_groups.push_back(graph.toGroup(id));
         }
 
         // Build a mapping from ValGroup to position. We will update this
         // mapping when we broadcast then use it to perform a permute if
         // necessary.
-        std::unordered_map<const ValGroup*, size_t> group_position;
+        std::unordered_map<ValGroup, size_t> group_position;
         for (size_t pos : std::ranges::views::iota(
-                 orig_operand->getLogicalDomain().size())) {
+                 (size_t)0, orig_operand->getLogicalDomain().size())) {
           IterDomain* operand_id = orig_operand->getLogicalDomain().at(pos);
-          group_position[&graph.toGroup(operand_id)] = pos;
+          group_position[graph.toGroup(operand_id)] = pos;
         }
 
         // Look for axes that we need to broadcast
         size_t num_broadcasts = 0;
-        for (const ValGraph& g : output_groups) {
-          if (group_position.count(&g) == 0) {
-            group_position[&g] =
+        for (const ValGroup& g : output_groups) {
+          if (group_position.count(g) == 0) {
+            group_position[g] =
                 orig_operand->getLogicalDomain().size() + num_broadcasts++;
           }
         }
@@ -2019,10 +2019,15 @@ class MatmulTranslator : public OptInDispatch {
         }
 
         // Now call permute if necessary
+
+        return new_operand;
       };
 
       pattern_.A = process_operand(pattern_.A);
       pattern_.B = process_operand(pattern_.B);
+
+      std::cout << "Fusion before fusedMultiplySum:" << std::endl;
+      pattern_.A->fusion()->printMath(0);
 
       fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     } else {
