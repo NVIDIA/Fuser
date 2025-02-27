@@ -454,7 +454,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
-  out_dtensor.reserve(out_tensors.size());
+  out_dtensors.reserve(outputs.size());
   if (user_sched == nullptr) {
     FusionKernelRuntime* runtime =
         scheds->auto_gen_schedules->getMostRecentKernelRuntime();
