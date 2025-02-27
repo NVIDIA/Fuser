@@ -296,7 +296,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
   new_alloc_domain.reserve(new_self_root->logical().size());
   // We need to squeeze reduction back there that's not mapped
   {
-    int64_t i = 0;
+    size_t i = 0;
     for (auto id : new_self_root->logical()) {
       if (id->isReduction()) {
         new_alloc_domain.push_back(id);
