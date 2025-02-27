@@ -17,7 +17,7 @@
 namespace nvfuser {
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -79,8 +79,16 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t2 = t0 + t1;
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("'setmaxnreg' ignored"), std::string::npos)
+      << "'setmaxnreg' ignored!";
 
   auto cg_outputs = ke.run({t0, t1});
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);

@@ -510,6 +510,11 @@ class AbstractTensorWithInfo {
 
   virtual ~AbstractTensorWithInfo() = default;
 
+  const Info& info(int64_t i) const {
+    i = wrapDim(i, (int64_t)info_.size());
+    return info_.at(i);
+  }
+
   template <typename T>
   std::vector<T> as() const {
     std::vector<T> result;
@@ -594,6 +599,10 @@ class AbstractTensorWithInfo {
 
   decltype(auto) crend() const {
     return domain_.crend();
+  }
+
+  decltype(auto) back() const {
+    return domain_.back();
   }
 
   AbstractTensorWithInfo& pushBack(AbstractId id) {
