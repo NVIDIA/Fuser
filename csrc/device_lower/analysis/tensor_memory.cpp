@@ -221,10 +221,6 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
     }
     tid_ptypes.push_back(pt);
   }
-  NVF_CHECK(
-      !tid_ptypes.empty(),
-      "Invalid data access pattern in TMem load/store: ",
-      "TMem load/store must be warp-collective, but CTA size is one.");
   // For all expressions in the fusion, find the data path
   using DPMap = std::unordered_map<TensorView*, TMemRegisterDataPath>;
   DPMap load_data_path;
@@ -250,6 +246,11 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
     auto& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
     ValGroups lane_allocation_valgroups =
         id_graph.toGroups(tmem_tv_info.lane_allocation);
+
+    NVF_CHECK(
+        !tid_ptypes.empty(),
+        "Invalid data access pattern in TMem load/store: ",
+        "TMem load/store must be warp-collective, but CTA size is one.");
 
     // Get the contiguity of tid_ptypes in the loop domain.
     // The contiguity of each item in tid_ptypes are defined as follows:
