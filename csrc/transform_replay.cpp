@@ -256,8 +256,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
       // consumer tensor, which would not have the rfactor flag on.
       NVF_ERROR(
           new_self_logical[i]->isSymbolic() || id->isSymbolic() ||
-              (new_self_logical[i]->isReduction() == id->isReduction() &&
-               new_self_logical[i]->isBroadcast() == id->isBroadcast()),
+              new_self_logical[i]->isBroadcast() == id->isBroadcast(),
           "Axes ",
           id,
           " and ",
@@ -270,23 +269,44 @@ TensorDomain* TransformReplay::selfAllocationReplay(
 
   // Replay producer dimensions.
   ReplaySelf replay(self->maybeAllocation(), axis_map);
-  std::vector<IterDomain*> new_alloc_domain(
+  std::vector<IterDomain*> mapped_alloc_domain(
       self->maybeAllocation().size(), nullptr);
-  std::vector<std::optional<bool>> new_contiguity = self->contiguity();
+  std::vector<std::optional<bool>> mapped_contiguity = self->contiguity();
 
-  int64_t i = 0;
-  for (auto id : self->maybeAllocation()) {
-    auto it = replay.getReplay().find(id);
-    NVF_ERROR(
-        it != replay.getReplay().end(),
-        "Error during replay, didn't replay an axis.");
-    if (it->second->isBroadcast() == new_contiguity[i].has_value()) {
-      // whether we resolve to true or false shouldn't matter since it's going
-      // to be concretized as a broadcast dimension
-      new_contiguity[i] =
-          it->second->isBroadcast() ? std::nullopt : std::make_optional(true);
+  {
+    int64_t i = 0;
+    for (auto id : self->maybeAllocation()) {
+      auto it = replay.getReplay().find(id);
+      NVF_ERROR(
+          it != replay.getReplay().end(),
+          "Error during replay, didn't replay an axis.");
+      if (it->second->isBroadcast() == mapped_contiguity[i].has_value()) {
+        // whether we resolve to true or false shouldn't matter since it's going
+        // to be concretized as a broadcast dimension
+        mapped_contiguity[i] =
+            it->second->isBroadcast() ? std::nullopt : std::make_optional(true);
+      }
+      mapped_alloc_domain[i++] = it->second;
     }
-    new_alloc_domain[i++] = it->second;
+  }
+
+  std::vector<IterDomain*> new_alloc_domain;
+  new_alloc_domain.reserve(new_self_root->logical().size());
+  std::vector<std::optional<bool>> new_contiguity;
+  new_alloc_domain.reserve(new_self_root->logical().size());
+  // We need to squeeze reduction back there that's not mapped
+  {
+    int64_t i = 0;
+    for (auto id : new_self_root->logical()) {
+      if (id->isReduction()) {
+        new_alloc_domain.push_back(id);
+        new_contiguity.push_back(true);
+      } else if (i < mapped_contiguity.size()) {
+        new_alloc_domain.push_back(mapped_alloc_domain[i]);
+        new_contiguity.push_back(mapped_contiguity[i]);
+        i++;
+      }
+    }
   }
 
   return IrBuilder::createInContainer<TensorDomain>(
