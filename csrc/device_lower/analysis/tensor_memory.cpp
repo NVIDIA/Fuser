@@ -18,6 +18,18 @@
 
 namespace nvfuser {
 
+const TMemAlllocationInfo::Region::TVInfo& TMemAlllocationInfo::getTVInfo(
+    TensorView* tv) const {
+  for (const auto& region : regions) {
+    for (const auto& tv_info : region.covered_tensors) {
+      if (tv_info.tensor == tv) {
+        return tv_info;
+      }
+    }
+  }
+  NVF_ERROR(false, "TensorView not found in TMemAlllocationInfo");
+}
+
 // Returns the lane and column allocation domain that is actually allocated.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
     TensorView* tv) {
@@ -48,7 +60,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
     }
     target.push_back(id);
   }
-  return {lane, column};
+  return {std::move(lane), std::move(column)};
 }
 
 Val* productOfExtents(const std::vector<IterDomain*>& domain) {
@@ -61,8 +73,8 @@ Val* productOfExtents(const std::vector<IterDomain*>& domain) {
 }
 
 // See note [Tensor Memory Allocation] for the overall design.
-TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
-  TensorMemoryInfo result;
+TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
+  TMemAlllocationInfo result;
 
   // Step 1: partition the tensors. Each partition of tensors will become a
   // region, so we use the term partition and region interchangeably. The user
@@ -106,7 +118,7 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   // information.
   Val* total_num_columns = fusion->zeroVal();
   using Region = TMemAlllocationInfo::Region;
-  std::vector<Region>& regions = result.allocation.regions;
+  std::vector<Region>& regions = result.regions;
   for (const auto& partition : partitions) {
     regions.emplace_back();
     auto& region = regions.back();
@@ -166,6 +178,92 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
       max_columns,
       " available.");
 
+  return result;
+}
+
+std::pair<
+    std::unordered_map<TensorView*, TMemRegisterDataPath>,
+    std::unordered_map<TensorView*, TMemRegisterDataPath>>
+computeTMemLdStDataPath(Fusion* fusion) {
+  // For all expressions in the fusion, find the data path
+  using DPMap = std::unordered_map<TensorView*, TMemRegisterDataPath>;
+  DPMap load_data_path;
+  DPMap store_data_path;
+  for (auto expr : fusion->exprs()) {
+    auto ldst = dynamic_cast<LoadStoreOp*>(expr);
+    if (ldst == nullptr) {
+      continue;
+    }
+    TensorView* tmem_tv = nullptr;
+    DPMap* target = nullptr;
+    if (ldst->opType() == LoadStoreOpType::LdTMem) {
+      tmem_tv = ir_utils::getTvInput(ldst);
+      target = &load_data_path;
+    } else if (ldst->opType() == LoadStoreOpType::StTMem) {
+      tmem_tv = ir_utils::getTvOutput(ldst);
+      target = &store_data_path;
+    } else {
+      continue;
+    }
+
+    // Start pattern matching:
+    // fail_reasons will be used to store the reasons why the pattern does
+    // not match for each pattern.
+    std::vector<std::string> fail_reasons;
+    bool matched = false;
+    // Pattern match 32x32b
+    if (!matched) {
+      std::string reason_32x32b = "";
+      if (true) { // TODO: Implement the pattern matching
+        (*target)[tmem_tv] = TMemRegisterDataPath::Path32x32b;
+        continue;
+      }
+      fail_reasons.push_back(std::move(reason_32x32b));
+    }
+    // TODO: Pattern match 16x64b
+    if (!matched) {
+      std::string reason_16x64b =
+          "Not 16x64b because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x64b));
+    }
+    // TODO: Pattern match 16x128b
+    if (!matched) {
+      std::string reason_16x128b =
+          "Not 16x128b because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x128b));
+    }
+    // TODO: Pattern match 16x256b
+    if (!matched) {
+      std::string reason_16x256b =
+          "Not 16x256b because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x256b));
+    }
+    // TODO: Pattern match 16x32bx2
+    if (!matched) {
+      std::string reason_16x32bx2 =
+          "Not 16x32bx2 because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x32bx2));
+    }
+    // If none of the patterns match, throw an error.
+    if (!matched) {
+      std::stringstream error;
+      error << "Invalid data access pattern in TMem load/store:";
+      NVF_ERROR(fail_reasons.size() == 5);
+      for (const std::string& reason : fail_reasons) {
+        error << "\n  " << reason;
+      }
+      NVF_THROW(error.str());
+    }
+    // TODO: Validate that we are accessing the correct sub-partition
+  }
+  return {std::move(load_data_path), std::move(store_data_path)};
+}
+
+TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
+  TensorMemoryInfo result;
+  result.allocation = computeTMemAlllocationInfo(fusion);
+  std::tie(result.load_data_path, result.store_data_path) =
+      computeTMemLdStDataPath(fusion);
   return result;
 }
 
