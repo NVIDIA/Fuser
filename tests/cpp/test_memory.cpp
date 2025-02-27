@@ -99,9 +99,9 @@ TEST_P(MemoryTest, LoadCache) {
   std::filesystem::remove(compiled_kernel->ptx_filename);
 
   // Verify output tensors.
-  std::vector<at::Tensor> actual_ts = ke.run({input});
+  auto cg_outputs = ke.run({input});
   testValidate(
-      &fusion, actual_ts, {input}, {expected_output}, __LINE__, __FILE__);
+      &fusion, cg_outputs, {input}, {expected_output}, __LINE__, __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -172,7 +172,7 @@ TEST_F(MemoryTest, RefineCachePolicy) {
   debug() << "Removing " << compiled_kernel->ptx_filename << std::endl;
   std::filesystem::remove(compiled_kernel->ptx_filename);
 
-  std::vector<at::Tensor> actual_outputs = ke.run({a, b});
+  auto actual_outputs = ke.run({a, b});
   testValidate(&fusion, actual_outputs, {a, b}, {c}, __LINE__, __FILE__);
 }
 
@@ -1682,7 +1682,7 @@ TEST_F(TMAMiscTest, LoadStrongCorrectness) {
   // pass. The result is actually wrong.
   expect.flatten(0, 2).select(0, 1) = at::arange(17, 33, options);
 
-  EXPECT_TRUE(at::equal(cg_outputs[0], expect));
+  EXPECT_TRUE(cg_outputs[0].as<at::Tensor>().equal(expect));
 }
 #endif
 
@@ -2823,6 +2823,9 @@ TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
 
   scheduler_utils::parallelizeAllLike(tv4, {tv1, tv2, tv3});
 
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(-1);
+
   inlineMost();
 
   KernelExecutor ke;
@@ -2874,7 +2877,12 @@ void testTMemAddKernel(bool same_region) {
   tv9->axis(0)->parallelize(ParallelType::BIDx);
   tv9->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::parallelizeAllLike(tv9, {tv1, tv2});
+  scheduler_utils::parallelizeAllLike(tv9);
+
+  for (auto tv : {tv2, tv6}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    tv->setTMemDimSepPos(-1);
+  }
 
   inlineMost();
 

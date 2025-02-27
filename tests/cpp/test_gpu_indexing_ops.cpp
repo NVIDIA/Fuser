@@ -602,7 +602,7 @@ TEST_F(NVFuserTest, IndexSelectBroadcastIndex_CUDA) {
 
   auto ref = at::index_select(t1, 0, t0);
 
-  ASSERT_TRUE(cg_outputs[0].equal(ref));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().equal(ref));
 }
 
 // See #1049

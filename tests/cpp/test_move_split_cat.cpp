@@ -44,7 +44,7 @@ TEST_F(MoveSplitCatTest, Cancellable_SplitImmediatelyFollowedByCat) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_DifferentOrder) {
@@ -66,7 +66,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_DifferentOrder) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Cancellable_SetWithoutPermute) {
@@ -90,7 +90,7 @@ TEST_F(MoveSplitCatTest, Cancellable_SetWithoutPermute) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_SliceAmountAndPaddingAmountMismatch) {
@@ -116,7 +116,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_SliceAmountAndPaddingAmountMismatch) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_CatOnlySubsetOfSplitOutputs) {
@@ -141,7 +141,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_CatOnlySubsetOfSplitOutputs) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Cancellable_PermuteInBetween) {
@@ -168,7 +168,7 @@ TEST_F(MoveSplitCatTest, Cancellable_PermuteInBetween) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 namespace {
@@ -211,7 +211,7 @@ TEST_F(MoveSplitCatTest, Cancellable_IncompatibleAllocationOrder) {
 
   // Due to the incompatible output allocation order, the output can't be an
   // alias.
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Cancellable_MultiplePermutesInBetween) {
@@ -244,7 +244,7 @@ TEST_F(MoveSplitCatTest, Cancellable_MultiplePermutesInBetween) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_WrongAxis) {
@@ -271,7 +271,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_WrongAxis) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_SomeButNotAllArePermuted) {
@@ -297,7 +297,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_SomeButNotAllArePermuted) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_PermutedDifferently) {
@@ -326,7 +326,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_PermutedDifferently) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Noncancellable_UnsupportedOps) {
@@ -354,7 +354,7 @@ TEST_F(MoveSplitCatTest, Noncancellable_UnsupportedOps) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Cancellable_ReshapeInBetween) {
@@ -381,7 +381,7 @@ TEST_F(MoveSplitCatTest, Cancellable_ReshapeInBetween) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Cancellable_ReshapeAndPermuteInBetween) {
@@ -411,7 +411,7 @@ TEST_F(MoveSplitCatTest, Cancellable_ReshapeAndPermuteInBetween) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
@@ -464,8 +464,8 @@ TEST_F(MoveSplitCatTest, Cancellable_Issue1768) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
-  EXPECT_TRUE(out_tensors[2].is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[2].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, OuterSplit) {
@@ -491,7 +491,7 @@ TEST_F(MoveSplitCatTest, OuterSplit) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 TEST_F(MoveSplitCatTest, MultiplePairs) {
@@ -586,8 +586,8 @@ TEST_F(MoveSplitCatTest, MultipleCatsOnSameSplit) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_FALSE(out_tensors[0].is_alias_of(in_tensor));
-  EXPECT_TRUE(out_tensors[1].is_alias_of(in_tensor));
+  EXPECT_FALSE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().is_alias_of(in_tensor));
 }
 
 } // namespace nvfuser

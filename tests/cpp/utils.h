@@ -38,7 +38,7 @@
 namespace nvfuser {
 
 struct CGResultsPackage {
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
   std::unique_ptr<HeuristicParams> heuristic_params;
   std::unique_ptr<KernelExecutor> kernel_executor;
 };
@@ -565,7 +565,7 @@ class NVFuserTest : public ::testing::Test {
       auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
       std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
                 << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
-                << " nvfuser_tests --gtest_filter='"
+                << " test_nvfuser --gtest_filter='"
                 << test_info->test_suite_name() << "." << test_info->name()
                 << "'" << std::endl;
     }
