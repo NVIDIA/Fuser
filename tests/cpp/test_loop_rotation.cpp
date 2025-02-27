@@ -33,6 +33,7 @@ TEST_F(LoopRotationTest, RotateInner) {
   scheduler_utils::rotateLoop(tv4, -1, {tv1, tv2});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   #pragma unroll 1
@@ -99,6 +100,7 @@ TEST_F(LoopRotationTest, RotateOuter) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   Array<float, 3LL, 1> T1;
@@ -196,6 +198,7 @@ TEST_F(LoopRotationTest, NonDivisibleSplit) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
@@ -302,6 +305,7 @@ TEST_F(LoopRotationTest, CircularBuffered) {
   scheduler_utils::rotateLoop(tv4, 0, {tv2});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
@@ -413,6 +417,7 @@ TEST_F(LoopRotationTest, SelectCircularBufferLoad) {
   scheduler_utils::rotateLoop(tv4, 0, {tv1, tv2});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T4) {
   NVFUSER_DEFINE_MAGIC_ZERO;
   nvfuser_index_t i0;
@@ -563,6 +568,7 @@ TEST_F(LoopRotationTest, MultipleCircularBuffer) {
   scheduler_utils::rotateLoop(tv3, 0, {tv1});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T3) {
   alignas(16) extern __shared__ char array[];

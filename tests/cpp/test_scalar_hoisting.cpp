@@ -295,6 +295,7 @@ TEST_F(ScalarHoistTest, IndexHoist3) {
   auto cg_outputs = ke.run({t0});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 __global__ void CUDAGeneratedKernel(Tensor<float, 2, 2> T0, Tensor<float, 2, 2> T2) {
   nvfuser_index_t i0;
   i0 = ((nvfuser_index_t)threadIdx.x) + (256LL * ((nvfuser_index_t)blockIdx.x));
@@ -374,6 +375,7 @@ TEST_F(ScalarHoistTest, ARange) {
   auto cg_outputs = ke.run({start, end, step});
 
   const std::string expected_kernel = R"(
+// Codegen generated utilities
 __global__ void CUDAGeneratedKernel(int64_t i0, int64_t i1, int64_t i2, Tensor<int64_t, 1, 1> T0, Tensor<int64_t, 1, 1> T1) {
   int64_t i3;
   i3 = i1 - i0;
