@@ -251,12 +251,13 @@ TensorDomain* TransformReplay::selfAllocationReplay(
   {
     int64_t i = 0;
     for (auto id : self_logical) {
+      // Note: we don't want to check for equal `isRFactorProduct`, since we
+      // could replay Allocation of the output of a reduction to a later
+      // consumer tensor, which would not have the rfactor flag on.
       NVF_ERROR(
           new_self_root->logical()[i]->isSymbolic() || id->isSymbolic() ||
               (new_self_root->logical()[i]->isReduction() ==
                    id->isReduction() &&
-               new_self_root->logical()[i]->isRFactorProduct() ==
-                   id->isRFactorProduct() &&
                new_self_root->logical()[i]->isBroadcast() == id->isBroadcast()),
           "Axes ",
           id,
