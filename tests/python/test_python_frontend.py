@@ -4928,7 +4928,7 @@ fd.execute(inputs)
     def test_inplace_update_on_non_contiguous_inputs(self):
         inputs = [
             torch.randn(5, dtype=torch.float32, device="cuda:0").as_strided(
-                (2, 2), (3, 1)
+                (2, 2), (1, 3)
             ),
         ]
 
@@ -4938,7 +4938,7 @@ fd.execute(inputs)
                 contiguity=[False, True],
                 dtype=DataType.Float,
                 is_cpu=False,
-                stride_order=[1, 0],
+                stride_order=[0, 1],
             )
             S1 = fd.define_scalar(0.00000, dtype=DataType.Double)
             T2 = fd.ops.gt(T0, S1)
