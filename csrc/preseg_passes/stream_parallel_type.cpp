@@ -6,184 +6,21 @@
  */
 // clang-format on
 
+#include <host_ir/container.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
-#include <ops/all_ops.h>
-#include <ir/internal_base_nodes.h>
 #include <ir/builder.h>
-#include <preseg_passes/stream_parallel_type.h>
+#include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
+#include <ops/all_ops.h>
+#include <preseg_passes/stream_parallel_type.h>
 
 
 namespace nvfuser::preseg_passes {
 
-bool haveDifferentShardings(
-    const TensorView* producer,
-    const TensorView* consumer,
-    const IdModel& id_model) {
-  // cpu scalars are not required to have a mesh
-  if (producer->isCpuScalar() || consumer->isCpuScalar()) {
-    return false;
-  }
-
-  // The rest of this function tries to do the following: for each pair of
-  // logical-domain-mapped IterDomains (i.e. those mapped by
-  // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,
-  // returns true. For example,
-  //
-  //   a: iDIDx{M}, iK
-  //   b: iK, iDIDy{N}
-  //   c = matmul(a, b): iDIDx{M}, iDIDy{N}
-  //
-  // haveDifferentShardings(a, c) only cares about iM, which is
-  // logical-domain-mapped, but not iK or iN, which are not
-  // logical-domain-mapped.
-  //
-  // One challenge is that DID parallelization doesn't always
-  // happen on the root/logical IterDomains. For example, a root/logical
-  // IterDomain may be outer-split by the number of devices, and only the outer
-  // split gets parallelized on DID.
-  //
-  //   logical: iM
-  //   loop: iDIDx{D}, iM/D
-  //
-  // Therefore, we collect all the loop IterDomains that depend on the
-  // logical-domain-mapped IterDomains, and check if they are DID-parallelized
-  // consistently.
-  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
-      PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  std::unordered_set<IterDomain*> mapped_p_logical_ids;
-  mapped_p_logical_ids.reserve(p2c.size());
-  std::unordered_set<IterDomain*> mapped_c_root_ids;
-  mapped_c_root_ids.reserve(p2c.size());
-  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
-    const auto i = p2c.find(p_logical_id);
-    if (i == p2c.end()) {
-      // This happens e.g. when `p_logical_id` is squeezed or is a product of a
-      // reduction. Even if `p_logical_id` is parallelized on DID, the
-      // dimension is size-1 and doesn't trigger resharding.
-      continue;
-    }
-    mapped_p_logical_ids.insert(p_logical_id);
-    mapped_c_root_ids.insert(i->second);
-  }
-
-  // In practice, only loop IterDomains can be parallelized, and no two loop
-  // IterDomains in a TensorView can have the same parallel type. Therefore, we
-  // do the check in reverse order for efficiency and simplicity:
-  // 1. For each DID parallel type, find the loop IterDomain in producer and the
-  // one in consumer that have the type.
-  // 2. Find what IterDomains they come from in producer's logical or
-  // consumer's root domain. If that input IterDomain is not
-  // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
-  // parallelized but just not a concern for this producer-consumer pair.
-  // 3. Check if the two loop IterDomains are almost-exactly mapped in the
-  // IdModel.
-  std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
-      mapDeviceParallelTypeToId(producer->getLoopDomain());
-  std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
-      mapDeviceParallelTypeToId(consumer->getLoopDomain());
-
-  for (const auto parallel_type : kParallelTypeDIDs) {
-    IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
-    if (p_loop_id != nullptr) {
-      auto p_inputs =
-          getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain());
-      if (!overlaps(p_inputs, mapped_p_logical_ids)) {
-        p_loop_id = nullptr;
-      }
-    }
-
-    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
-    if (c_loop_id != nullptr) {
-      auto c_inputs =
-          getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain());
-      if (!overlaps(c_inputs, mapped_c_root_ids)) {
-        c_loop_id = nullptr;
-      }
-    }
-
-    auto is_mapped_in_id_model =
-        [](IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
-      if (a == nullptr && b == nullptr) {
-        return true;
-      }
-
-      if (a == nullptr || b == nullptr) {
-        return false;
-      }
-
-      // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
-      // would be flagged by ALMOSTEXACT as a false positive.
-      if (id_model.idGraph(IdMappingMode::BROADCAST)
-              .disjointValSets()
-              .strictAreMapped(a, b)) {
-        return true;
-      }
-
-      // Check ALMOSTEXACT so iDIDx{N}*b{1} and iDIDx{N} are mapped.
-      return id_model.idGraph(IdMappingMode::ALMOSTEXACT)
-          .disjointValSets()
-          .strictAreMapped(a, b);
-    };
-
-    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-class StreamParallelTypeHelper {
- public:
-  StreamParallelTypeHelper(Fusion* fusion): container_(dynamic_cast<hir::HostIrContainer*>(fusion)), id_model_(fusion) {
-    NVF_CHECK(host_ir_container, "Expected HostIrContainer");
-    id_model.buildAlmostExactGraph();
-    id_model.buildBroadcastGraph();
-  }
-
-  void runPass() {
-    for (auto* expr : fusion_->topLevelExprs()) {
-      if (isChangingStreamParallelType(expr)) {
-        segments_.push_back({expr});
-      } else {
-        segments_.back().push_back(expr);
-      }
-    }
-  }
-
- private:
-  void findSegments () {
-
-  }
-
-  bool isChangingStreamParallelType(Expr* expr) {
-    if (!ir_utils::isTvOp(expr)) {
-      return false;
-    }
-
-    for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // exit early in the unsharded case for performance
-        if (haveDifferentShardings(input, output, id_model)) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
- private:
-  hir::HostIrContainer* container_;
-  std::vector<std::vector<Expr*>> segments_;
-  IdModel id_model_;
-}
-
 // returns the first stream axis in the domain, or nullptr if there is none. Throws if two axis are stream parallelized
-IterDomain* getStreamAxisIndex(const std::vector<IterDomain*>& domain) {
-  IterDomain* ret = nullptr
+IterDomain* getStreamAxis(const std::vector<IterDomain*>& domain) {
+  IterDomain* ret = nullptr;
   for (auto id : domain) {
     if (id->getParallelType() == ParallelType::Stream) {
       NVF_CHECK(ret == nullptr, "Expected at most one stream axis in the domain, but found ", id, " and ", ret);
@@ -203,17 +40,16 @@ void StreamParallelType::runPass(Fusion* fusion) {
   }), "Expected no stream axis in the TensorView inputs.");
 
   FusionGuard fg(fusion); // set as current container to register the newly created for-loops
-  hir::HostIrContainer* container = dynamic_cast<hir::HostIrContainer*>(fusion);
-  NVF_CHECK(container, "Expected HostIrContainer");
+  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  NVF_CHECK(hic, "Expected HostIrContainer");
   // needed ?
-  IdModel id_model_;
+  IdModel id_model(fusion);
   id_model.buildAlmostExactGraph();
 
-  const std::vector<Expr*>& exprs = ;
-  auto new_top_level_exprs;
+  std::vector<Expr*> new_top_level_exprs;
   // Step 1. Find the segments of expressions that can be merged into a single stream for-loop
   // At the end of this step, new_top_level_exprs contains a list of expressions including newly created for-loops that will represent the stream parallelization, and the relevant expressions grouped inside the for-loops bodies.
-  for (auto expr : container->topLevelExprs()) {
+  for (auto expr : hic->topLevelExprs()) {
     // we only support exprs having 0 or 1 output for now
     if (expr->outputs().size() == 0) {
       // If the expr has no output, we try to merge it with the previous for loop
@@ -225,7 +61,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
       }
     }
     NVF_CHECK(expr->outputs().size() == 1, "Each expr should have at most one output.");
-    TensorView* output = expr->outputs().at(0)->as<TensorView>();
+    TensorView* output = expr->output(0)->as<TensorView>();
     // retrieves the Loop IterDomain that is stream parallelized, if any
     IterDomain* stream_axis = getStreamAxis(output->getLoopDomain());
     if (stream_axis == nullptr) {
@@ -248,7 +84,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
     // We consider the previous expression to check whether the expr should create a new stream for-loop or be integrated into the previous one
     auto prev_expr = new_top_level_exprs.back();
     // check if the current expr can be merged with the previous stream for-loop
-    if (auto prev_for_loop = dynamic_cast<ForLoop*>(prev_expr); prev_for_loop && id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().strictAreMapped(stream_axis, prev_for_loop->id())) {
+    if (auto prev_for_loop = dynamic_cast<ForLoop*>(prev_expr); prev_for_loop && id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().strictAreMapped(stream_axis, prev_for_loop->iterDomain())) {
       // merge with previous for-loop
       prev_for_loop->body().push_back(expr);
     } else {
@@ -275,8 +111,9 @@ void StreamParallelType::runPass(Fusion* fusion) {
     }
   }
 
-  // Step 2. Setup each for loop's body
+  // Step 2. Setup each for loop's body by Slicing the tensors.
   for (auto* top_level_expr : new_top_level_exprs) {
+    // TODO: change in place? consr issue
     if (!top_level_expr->isA<ForLoop>()) {
       continue;
     }
@@ -284,70 +121,127 @@ void StreamParallelType::runPass(Fusion* fusion) {
     // this will contain the new body of the current for-loop
     std::vector<Expr*> new_loop_body;
 
+
+    // std::vector<TensorView*> tvs;
+    // for (auto expr: for_loop->body()) {
+    //   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    //     tvs.push_back(input);
+    //   }
+    //   for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    //     tvs.push_back(output);
+    //   }
+    // }
+
+    std::vector<Expr*> current_loop_body = for_loop->body().exprs();
+    for (auto it_expr = current_loop_body.begin(); it_expr != current_loop_body.end(); ++it_expr) {
+      Expr* expr = *it_expr;
+      for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        int64_t input_stream_id_logical_index = -1;
+        for (auto id : input->getLoopDomain()) {
+          if (id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().strictAreMapped(for_loop->iterDomain(), id)) {
+            NVF_CHECK(input_stream_id_logical_index == -1, "Expected at most one axis mapping to the stream axis ", for_loop->iterDomain(), " in the tensor ", input, " loop's domain ", input->getLoopDomain());
+            auto it_input_stream_id_logical = std::find(input->getLogicalDomain().begin(), input->getLogicalDomain().end(), id);
+            NVF_CHECK(it_input_stream_id_logical != input->getLogicalDomain().end(), "Expected to find ", id, " in ", input, "'s logical domain ", input->getLogicalDomain());
+            input_stream_id_logical_index = std::distance(input->getLogicalDomain().begin(), it_input_stream_id_logical);
+          }
+        }
+        if (input_stream_id_logical_index == -1) {
+          continue;
+        }
+        TensorView* input_j = select(input, input_stream_id_logical_index, for_loop->index());
+        new_loop_body.push_back(input_j->definition());
+        for (auto it_running_expr = current_loop_body.begin(); it_running_expr != current_loop_body.end(); ++it_running_expr) {
+          Expr* running_expr = *it_running_expr;
+          for (auto* running_input : ir_utils::filterByType<TensorView>(running_expr->inputs())) {
+            if (running_input == input) {
+              *it_running_expr = ir_utils::replaceValInExprInputs(running_expr, input, input_j);
+            }
+          }
+        }
+      }
+
+      for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        int64_t output_stream_id_logical_index = -1;
+        for (auto id : output->getLoopDomain()) {
+          if (id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().strictAreMapped(for_loop->iterDomain(), id)) {
+            NVF_CHECK(output_stream_id_logical_index == -1, "Expected at most one axis mapping to the stream axis ", for_loop->iterDomain(), " in the tensor ", output, " loop's domain ", output->getLoopDomain());
+            auto it_output_stream_id_logical = std::find(output->getLogicalDomain().begin(), output->getLogicalDomain().end(), id);
+            NVF_CHECK(it_output_stream_id_logical != output->getLogicalDomain().end(), "Expected to find ", id, " in ", output, "'s logical domain ", output->getLogicalDomain());
+            output_stream_id_logical_index = std::distance(output->getLogicalDomain().begin(), it_output_stream_id_logical);
+          }
+        }
+        if (output_stream_id_logical_index == -1) {
+          continue;
+        }
+        TensorView* output_j = select(output, output_stream_id_logical_index, for_loop->index());
+        new_loop_body.push_back(output_j->definition());
+        for (auto it_running_expr = current_loop_body.begin(); it_running_expr != current_loop_body.end(); ++it_running_expr) {
+          Expr* running_expr = *it_running_expr;
+          for (auto* running_output : ir_utils::filterByType<TensorView>(running_expr->outputs())) {
+            if (running_output == output) {
+              *it_running_expr = ir_utils::transferDefinitionToNewOutputs(running_expr, {output_j});
+            }
+          }
+        }
+      }
+    }
+    // reseting the for-loop body
+    for_loop->body().clear();
+    for (auto* expr : new_loop_body) {
+      for_loop->body().push_back(expr);
+    }
+  }
+
+
+  // Step 3. Finalize the for-loop bodies by adding the stream setup and synchronization
+  for (auto* top_level_expr : new_top_level_exprs) {
+    if (!top_level_expr->isA<ForLoop>()) {
+      continue;
+    }
+    auto* for_loop = top_level_expr->as<ForLoop>();
+    std::vector<Expr*> new_loop_body;
+
+    // Get the current stream to later synchronize subsequent new streams
+    auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
+    hir::Stream* original_stream = get_current_stream->stream();
+    new_loop_body.push_back(get_current_stream);
+
+    // set the stream to the one corresponding to the current for-loop index
     auto* j = for_loop->index();
     auto* number_of_streams =
         IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
     auto* stream_index = mod(j, number_of_streams);
     auto* stream = IrBuilder::create<hir::Stream>(stream_index);
     auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
+    new_loop_body.push_back(set_stream);
+
+    // sync the new stream with the original stream
     auto* initial_sync_stream =
         IrBuilder::create<hir::Synchronize>(original_stream);
-
-    new_loop_body.push_back(set_stream);
     new_loop_body.push_back(initial_sync_stream);
 
-    std::vector<TensorView*> tvs;
-    for (auto expr: for_loop->body()) {
-      for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        tvs.push_back(input);
-      }
-      for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        tvs.push_back(output);
-      }
+    // add the actual exprs to the for-loop body
+    for (auto* expr : for_loop->body().exprs()) {
+      new_loop_body.push_back(expr);
     }
 
-
-    Expr* current_expr = expr;
-    for (auto input: ir_utils::filterByType<TensorView>(expr->inputs())) {
-      int64_t input_stream_id_logical_index = -1;
-      for (auto id : input->getLoopDomain()) {
-        if (id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().strictAreMapped(stream_axis, id)) {
-          NVF_CHECK(input_stream_id_logical_index == -1, "Expected at most one axis mapping to the stream axis ", stream_axis, " in the tensor ", input, " loop's domain ", expr->getLoopDomain());
-          auto it2 = std::find(input->getLogicalDomain().begin(), input->getLogicalDomain().end(), id);
-          NVF_CHECK(it2 != input->getLogicalDomain().end(), "Expected to find ", id, " in ", input, "'s logical domain ", input->getLogicalDomain());
-          input_stream_id_logical_index = std::distance(input->getLogicalDomain().begin(), it2);
-        }
-      if (input_stream_id_logical_index == -1) {
-        continue;
-      }
-      TensorView* input_j = select(input, input_stream_id_logical_index, j);
-      loop_body.push_back(input_j->definition());
-      current_expr = ir_utils::replaceValInExprInputs(current_expr, input, input_j);
-      }
-    }
-
-    int64_t output_stream_id_logical_index = -1;
-
-    auto it2 = std::find(input->getLogicalDomain().begin(), input->getLogicalDomain().end(), id);
-    NVF_CHECK(it2 != input->getLogicalDomain().end(), "Expected to find ", id, " in ", input, "'s logical domain ", input->getLogicalDomain());
-    index = std::distance(input->getLogicalDomain().begin(), it2);
-
-    if (index == -1) {
-      continue;
-    }
-    TensorView* input_j = select(input, index, j);
-    loop_body.push_back(input_j->definition());
-    current_expr = ir_utils::replaceValInExprInputs(current_expr, input, input_j);
-
-
-
+    // set back the original stream
     auto* set_back_original_stream =
         IrBuilder::create<hir::SetCurrentStream>(original_stream);
-    auto* sync_stream = IrBuilder::create<hir::Synchronize>(stream);
-
     new_loop_body.push_back(set_back_original_stream);
+    // synchronize original stream with the for-loop's streams
+    auto* sync_stream = IrBuilder::create<hir::Synchronize>(stream);
     new_loop_body.push_back(sync_stream);
+
+    // reset the for-loop's body to the one we constructed.
+    for_loop->body().clear();
+    for (auto* expr : new_loop_body) {
+      for_loop->body().push_back(expr);
+    }
   }
+
+  // reset hic topLevelExprs to new_top_level_exprs
+
 }
 
 } // namespace nvfuser::preseg_passes

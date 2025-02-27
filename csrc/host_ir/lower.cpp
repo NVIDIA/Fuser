@@ -652,7 +652,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   }
 
   preseg_passes::OptimizationPass<
-      preseg_passes::LowerStreamParallelTypePass>::runPass(fusion.get());
+      preseg_passes::StreamParallelType>::runPass(fusion.get());
 
   return hic;
 }
