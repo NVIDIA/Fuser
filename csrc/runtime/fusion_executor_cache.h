@@ -293,7 +293,7 @@ class FusionExecutorCache {
   std::unordered_map<size_t, FusionKernelRuntime*> id_to_kernel_runtime_;
 
   //! This is cached to speed up finding concretization info
-  std::unique_ptr<ExactLogicalDomainMap> exact_map_;
+  ExactLogicalDomainMap exact_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
