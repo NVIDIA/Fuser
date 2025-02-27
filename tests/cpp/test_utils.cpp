@@ -1633,6 +1633,7 @@ TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   for (auto _ : c10::irange(100)) {
+    (void)_;
     // [16, 8, 2, 4]
     auto id16 =
         IterDomainBuilder(
