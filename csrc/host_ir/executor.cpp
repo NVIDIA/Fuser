@@ -190,7 +190,9 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
+      expr_evaluator_(),
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
+      ipc_handle_cache_(expr_evaluator_) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -397,6 +399,10 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
     expr_evaluator_.bind(
         post_ir->outputs().at(output_idx), outputs[output_idx]);
   }
+}
+
+void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
+  ipc_handle_cache_.exchangeHandles(share_mem_handles->communications());
 }
 
 void HostIrEvaluator::handle(Communication* communication) {
