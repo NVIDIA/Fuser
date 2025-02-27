@@ -454,6 +454,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
+  out_dtensor.reserve(out_tensors.size());
   if (user_sched == nullptr) {
     FusionKernelRuntime* runtime =
         scheds->auto_gen_schedules->getMostRecentKernelRuntime();
@@ -470,7 +471,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       }
       const at::Tensor& out_tensor = outputs[tensor_index++].as<at::Tensor>();
       const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      out_dtensors.emplace_back(DistributedTensor(out_tensor, mesh));
+      out_dtensors.emplace_back(out_tensor, mesh);
 
       if (mesh.size() > 0) {
         for (const ParallelType parallel_type : kParallelTypeDIDs) {
