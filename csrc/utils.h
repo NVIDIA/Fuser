@@ -20,8 +20,10 @@
 
 #include <c10/core/thread_pool.h>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -615,6 +617,135 @@ void checkAllEqual(std::initializer_list<T> elements) {
         toDelimitedString(elements),
         "]");
   }
+}
+
+#if __cplusplus >= 202302L
+
+using std::views::zip;
+
+#else
+
+namespace views {
+#if !defined(__clang__) || (__clang_major__ > 14)
+using std::views::iota;
+#else
+// Workaround for Clang 14
+class iota {
+ public:
+  class iterator {
+   public:
+    using value_type = int;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::input_iterator_tag;
+    int64_t value;
+    iterator(int64_t start) : value(start) {}
+    int64_t operator*() const {
+      return value;
+    }
+    iterator& operator++() {
+      ++value;
+      return *this;
+    }
+    iterator operator++(int) {
+      iterator temp = *this;
+      ++value;
+      return temp;
+    }
+    template <typename T>
+    bool operator==(T) const {
+      return false;
+    }
+  };
+
+  iterator begin() const {
+    return iterator(start);
+  }
+  auto end() const {
+    return std::unreachable_sentinel;
+  }
+  int64_t start;
+  iota(int64_t start) : start(start) {}
+};
+#endif
+
+template <std::ranges::input_range... Rs>
+#if !defined(__clang__) || (__clang_major__ > 14)
+class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
+#else
+// Workaround for Clang 14
+class zip_view {
+#endif
+ private:
+  std::tuple<Rs...> bases;
+
+  // Iterator for begin()
+  struct begin_iterator {
+    std::tuple<std::ranges::iterator_t<Rs>...> iterators;
+
+    using value_type = std::tuple<std::ranges::range_value_t<Rs>...>;
+    using reference = std::tuple<std::ranges::range_reference_t<Rs>...>;
+    using difference_type = std::ptrdiff_t;
+
+    begin_iterator& operator++() {
+      std::apply([](auto&... it) { ((++it), ...); }, iterators);
+      return *this;
+    }
+
+    reference operator*() const {
+      return std::apply(
+          [](auto&... it) -> reference { return {*it...}; }, iterators);
+    }
+
+    bool operator==(const begin_iterator& other) const {
+      return iterators == other.iterators;
+    }
+  };
+
+  // Sentinel for end()
+  struct end_iterator {
+    std::tuple<std::ranges::sentinel_t<Rs>...> sentinels;
+
+    bool operator==(const begin_iterator& it) const {
+      return compare(it, std::make_index_sequence<sizeof...(Rs)>{});
+    }
+
+   private:
+    template <std::size_t... I>
+    bool compare(const begin_iterator& it, std::index_sequence<I...>) const {
+      return ((std::get<I>(it.iterators) == std::get<I>(sentinels)) || ...);
+    }
+  };
+
+ public:
+  explicit zip_view(Rs&&... ranges)
+      : bases{std::forward<Rs>(ranges)...} {} // Ensure perfect forwarding
+
+  auto begin() {
+    return begin_iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::begin(r)...}; },
+        bases)};
+  }
+
+  auto end() {
+    return end_iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::end(r)...}; }, bases)};
+  }
+};
+
+template <std::ranges::input_range... Rs>
+zip_view(Rs&&...) -> zip_view<Rs...>;
+
+template <std::ranges::input_range... Rs>
+auto zip(Rs&&... rs) {
+  return zip_view{std::forward<Rs>(rs)...};
+}
+} // namespace views
+using views::zip;
+
+#endif
+
+auto enumerate(auto&& range) {
+  return zip(views::iota((int64_t)0), std::forward<decltype(range)>(range));
 }
 
 } // namespace nvfuser
