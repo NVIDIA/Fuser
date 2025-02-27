@@ -4674,8 +4674,6 @@ fd.execute(inputs)
                 with FusionDefinition() as fd:
                     fusion_func(fd)
 
-        FusionCache.get().reset()
-
     def test_slice_api(self):
         x = torch.randn((2, 5, 10), dtype=torch.float32, device="cuda:0")
 

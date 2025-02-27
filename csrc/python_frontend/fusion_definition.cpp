@@ -401,7 +401,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   std::vector<at::Tensor> out_tensors;
   if (user_sched == nullptr) {
-    scheds->createExecutorCache();
+    scheds->createExecutorIfNotExists();
     out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
         args, std::nullopt, args.getDeviceIndex());
   } else {

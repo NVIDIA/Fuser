@@ -280,7 +280,7 @@ Fusion* FusionSchedules::preschedFusion() {
   NVF_THROW("Prescheduled Fusion is unexpectedly null!");
 }
 
-void FusionSchedules::createExecutorCache() {
+void FusionSchedules::createExecutorIfNotExists() {
   if (auto_gen_schedules == nullptr) {
     auto_gen_schedules = std::make_unique<FusionExecutorCache>(
         std::move(presched_fusion_), fusion_id_);
@@ -883,7 +883,8 @@ void FusionCache::deserialize(std::string filename) {
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
     FusionSchedules* fusion_schedule =
         queryFusionSchedules(trie_node->fusion_id);
-    fusion_schedule->createExecutorCache();
+    // Create an executor so the following code can deserialize it.
+    fusion_schedule->createExecutorIfNotExists();
 
     if (!isOptionDisabled(DisableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.
