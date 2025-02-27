@@ -45,7 +45,7 @@ class RtcKernel : public NonCopyable {
   //! milliseconds.
   NVF_API float run(
       const LaunchParams& launch_params,
-      const std::vector<at::Tensor>& args,
+      const KernelArgumentHolder& args,
       PrimDataType indextype);
 
  private:

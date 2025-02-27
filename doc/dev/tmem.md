@@ -87,7 +87,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // T1 is allocated in full size
     EXPECT_EQ(ke.lastLaunchParams().smem(), 8 * sizeof(float));
   }
@@ -114,7 +114,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Because smem is distributed across different CTAs, only the first
     // dimension of T1 is allocated.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 2 * sizeof(float));
@@ -141,7 +141,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Because the first dimension of T1 is inlined, inside the outer loop, T1
     // is consumed right after it is produced. So the first dimension of T1 is
     // not allocated.
@@ -171,7 +171,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Due to inlining, the first dimension of T1 is not allocated. Due to
     // BIDx parallelization, the second dimension of T1 is not allocated. So T1
     // is only allocated in size 1.
@@ -201,7 +201,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Although the first dimension of T1 is inlined, because shared memory is
     // shared by threads, the TIDx parallelization will override the inlining,
     // and make the first dimension of T1 allocated. The second dimension of T1
@@ -235,7 +235,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Although the first dimension of T1 is inlined, because shared memory is
     // shared by threads, the TIDx parallelization will override the inlining,
     // and make the first dimension of T1 allocated. The second dimension of T1
@@ -671,7 +671,7 @@ TEST_F(TMemTutorialR, WarpXYZ) {
 
   at::Tensor t0 = at::rand({2, 4, 4, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -710,7 +710,7 @@ TEST_F(TMemTutorialR, WarpGroupXYZ) {
 
   at::Tensor t0 = at::rand({2, 8, 8, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -748,7 +748,7 @@ TEST_F(TMemTutorialR, WarpGroupXYColZ) {
 
   at::Tensor t0 = at::rand({8, 16, 8}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -786,7 +786,7 @@ TEST_F(TMemTutorialR, WarpGroupXColYZ) {
 
   at::Tensor t0 = at::rand({128, 2, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -830,7 +830,7 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
 
   at::Tensor t0 = at::rand({1, 128, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -963,7 +963,7 @@ TEST_F(TMemTutorialR, Complicated1) {
   ke.compile(&fusion);
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -1042,7 +1042,7 @@ TEST_F(TMemTutorialR, Complicated2) {
   ke.compile(&fusion);
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -1082,7 +1082,7 @@ TEST_F(TMemTutorialR, Transpose) {
 
   at::Tensor t0 = at::rand({128, 2, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0.transpose(1, 2)));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0.transpose(1, 2)));
 } /*
 ```
 
@@ -1146,7 +1146,7 @@ TEST_F(TMemTutorialR, Vectorization) {
 
       at::Tensor t0 = at::rand({128, 256}, at::kCUDA);
       auto out = ke.run({t0});
-      EXPECT_TRUE(at::equal(out[0], t0));
+      EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 
       // Check that vectorized PTX instructions are used
       GpuLower gpulw(&fusion);
@@ -1229,7 +1229,7 @@ TEST_F(TMemTutorialR, PerformantVectorizedCopy) {
 
   at::Tensor t0 = at::rand({256 * 1024 * 1024}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 
   // Check that vectorized PTX instructions are used
   GpuLower gpulw(&fusion);
