@@ -37,7 +37,7 @@ CGResultsPackage scheduleAndRun(
   ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
   auto cg_outputs = ke->run(runtime_inputs, {}, heuristic_params->lparams);
   CGResultsPackage results = {
-      .outputs = cg_outputs,
+      .outputs = std::move(cg_outputs),
       .heuristic_params = std::move(heuristic_params),
       .kernel_executor = std::move(ke)};
   return results;

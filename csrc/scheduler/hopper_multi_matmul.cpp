@@ -672,7 +672,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       if (store_with_stmatrix) {
         // Schedule shared memory cache; Output from StMatrix
         mma_utils::scheduleStMatrixForMmaOutput(
-            d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+            d_smem, stmatrix_tile_m, stmatrix_tile_n);
       }
 
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
