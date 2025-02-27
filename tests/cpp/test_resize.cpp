@@ -853,21 +853,20 @@ TEST_F(ResizeTest, Cat7) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-    std::vector<at::Tensor> aten_inputs;
+    KernelArgumentHolder aten_inputs;
     for (const auto i : c10::irange(num_tensors_to_concat)) {
       auto shape = base_shape;
       shape[concat_dim] = 10 + (i % 5);
-      aten_inputs.emplace_back(at::randn(shape, options));
+      aten_inputs.push(at::randn(shape, options));
     }
 
-    std::vector<c10::IValue> aten_inputs_ivalue(
-        {aten_inputs.begin(), aten_inputs.end()});
-
     KernelExecutor ke;
-    ke.compile(&fusion, aten_inputs_ivalue);
-    auto cg_outputs = ke.run(aten_inputs_ivalue);
+    ke.compile(&fusion, aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
-    auto ref = at::cat(aten_inputs, concat_dim);
+    auto ref = at::cat(
+        std::vector<at::Tensor>(aten_inputs.begin(), aten_inputs.end()),
+        concat_dim);
 
     NVF_CHECK(ref.equal(cg_outputs[0]));
   }
@@ -1275,10 +1274,10 @@ TEST_F(ResizeTest, SliceInputShmoo) {
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
-    std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = ke.run(aten_inputs);
+    KernelArgumentHolder inputs({t0, start, stop});
+    auto cg_outputs = ke.run(inputs);
 
-    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1308,11 +1307,11 @@ TEST_F(ResizeTest, SliceInputShmooFusionExecutorCache) {
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
-    std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    KernelArgumentHolder inputs({t0, start, stop});
+    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
     testValidate(
-        executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1368,7 +1367,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
   // By default, the extent of the tv1 domain is:
   //   i0 + ( ( fmax(0, ( fmin(i0, 1) )) ) + ( -i0 ) )
   // This should be simplified to just:
-  //   fmax(0, ( fmin(i0, 1) ))
+  //   fmin(i0, 1)
 
   fusion.addOutput(tv1);
 
@@ -1376,7 +1375,7 @@ TEST_F(ResizeTest, SliceExtentSimplification) {
   auto bop = dynamic_cast<BinaryOp*>(resize_extent->definition());
   ASSERT_TRUE(bop != nullptr)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
-  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::Max)
+  EXPECT_EQ(bop->getBinaryOpType(), BinaryOpType::Min)
       << "Unexpected resize output extent: " << resize_extent->toInlineString();
 }
 
@@ -1407,21 +1406,18 @@ TEST_F(ResizeTest, PadReduceScheduler1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::transform(
-      pad_extents.begin(),
-      pad_extents.end(),
-      std::back_inserter(aten_inputs),
-      [](auto pad_extent) { return pad_extent; });
+  KernelArgumentHolder inputs({t0});
+  for (auto pad_extent : pad_extents) {
+    inputs.push(pad_extent);
+  }
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, SliceReduceScheduler1) {
@@ -1451,17 +1447,15 @@ TEST_F(ResizeTest, SliceReduceScheduler1) {
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Different slices.
@@ -1495,17 +1489,15 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Same slices. Should be segmented at the moment.
@@ -1535,17 +1527,15 @@ TEST_F(ResizeTest, FusionSliceReduceScheduler3) {
   std::vector<int64_t> slice_inputs({1, shape[1] - 2});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, CatReduceScheduler1) {
@@ -2442,14 +2432,16 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   auto t1 = at::randn({2, 4, 4, 3, 5}, options);
   // Keep dimension 0, pad to broadcast in dimension 1 and 3. Pad with zero in
   // dimension 2. Trim by one element in dimension 4.
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-  aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
+  KernelArgumentHolder inputs({t0, t1});
+  for (auto pad_width : pad_widths) {
+    inputs.push(pad_width);
+  }
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   auto concretized_fusion = runtime->fusionSegments()->completeFusion();
@@ -2464,7 +2456,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   EXPECT_EQ(conc_t2->axis(3)->getIterType(), IterType::Broadcast);
   EXPECT_EQ(conc_t2->axis(4)->getIterType(), IterType::Iteration);
 
-  testValidate(concretized_fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(concretized_fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/596
@@ -2492,7 +2484,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastIssue596) {
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
-  auto args = KernelArgumentHolder({t0, t1});
+  KernelArgumentHolder args({t0, t1});
   FusionKernelRuntime runtime(std::move(fusion), args);
   runtime.compileFusionParallel(args);
   auto cg_outputs = runtime.runWithInputs(args);
@@ -4763,7 +4755,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 100});
+  std::vector<int64_t> shape({-1, 128});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4789,7 +4781,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   auto tv5 = cat({tv4, tv2}, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 100}, options);
+  auto t0 = at::randn({16, 128}, options);
 
   fusion.addOutput(tv5);
 
@@ -5828,6 +5820,86 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
 
     EXPECT_NE(has_resize, has_index_op);
   }
+}
+
+// Split-based reshape followed by a slice. The reshape is not
+// cancelable. The vectorization factor based on the innermost logical
+// ID of the input is not a valid factor as the fusion is scheduled
+// based on the post-reshape shape.
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeSplit) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{128L * 16L};
+  std::vector<int64_t> shape2{shape1[0] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 2 because the resize scheduler
+  // only uses the innermost logical ID, and the extent of the output
+  // tensor is just 2. Before PR #3955, the resize scheduler
+  // attempted to vectorize by 4. Note that the slice op itself does
+  // not matter for the vectorization as the sliced ID is not involved
+  // in the vectorization.
+  EXPECT_EQ(
+      tv3->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 2);
+}
+
+// Merge-based reshape followed by a slice. The reshape is
+// cancelable. If the output is used as the reference but the reshape
+// is canceled, the valid vectorization factor should be 2. The WAR of
+// PR #3955 gives up canceling any reshape that involves innermost
+// logical IDs to avoid this inconsistency.
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeMerge) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape2{16, 128L * 16L};
+  std::vector<int64_t> shape1{16, shape2[1] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  // [16, 128 * 16 / 2, 2] -> [16, 128 * 16]. Cancelable reshape.
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 4. If the reshape were canceled,
+  // it should have been 2, but in this case since it involves the
+  // innermost logical ID of tv2, it is not canceled, thus
+  // vectorization by 4 should be chosen.
+  EXPECT_EQ(
+      tv3->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 4);
 }
 
 } // namespace nvfuser

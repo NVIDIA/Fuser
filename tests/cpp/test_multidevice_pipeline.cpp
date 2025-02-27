@@ -48,14 +48,14 @@ class PipelineTest : public MultiDeviceTest {
   // (sharded) outputs with ref_unsharded_outputs. if
   // validate_with_prescribed_values is true, ref_unsharded_outputs is assumed
   // to be set manually in the test body. Otherwise, ref_unsharded_outputs is
-  // computed by running a Fusion on a single device with the unsharded_inputs
+  // computed by running a Fusion on a single device with the unsharded_args.
   void validate(bool validate_with_prescribed_values = false);
   void executeAndValidate(bool validate_with_prescribed_values = false);
 
   std::unique_ptr<MultiDeviceExecutor> runtime;
   std::unique_ptr<Fusion> fusion;
-  std::vector<c10::IValue> inputs;
-  std::vector<c10::IValue> unsharded_inputs;
+  KernelArgumentHolder args;
+  KernelArgumentHolder unsharded_args;
   std::vector<at::Tensor> outputs;
   std::vector<at::Tensor> ref_unsharded_outputs;
   hir::HostIrEvaluatorParams host_ir_executor_params;
@@ -67,7 +67,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     auto fusion_copy = std::make_unique<Fusion>(*fusion);
     unshard(fusion_copy.get());
     FusionExecutorCache unsharded_fec(std::move(fusion_copy));
-    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_inputs);
+    ref_unsharded_outputs = unsharded_fec.runFusionWithInputs(unsharded_args);
   }
 
   if (debug_print) {
@@ -102,12 +102,12 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
 // Run and validate a pipeline
 // with given (possibly sharded) inputs
 void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
-  ASSERT_EQ(unsharded_inputs.size(), fusion->inputs().size());
+  ASSERT_EQ(unsharded_args.size(), fusion->inputs().size());
   for (int i : c10::irange(fusion->inputs().size())) {
     ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
-    auto input_tv = fusion->inputs().at(i)->as<TensorView>();
-    auto input = shardTensor(unsharded_inputs.at(i).toTensor(), input_tv);
-    inputs.push_back(input);
+    args.push(shardTensor(
+        unsharded_args[i].as<at::Tensor>(),
+        fusion->inputs().at(i)->as<TensorView>()));
   }
 
   if (debug_print) {
@@ -116,23 +116,23 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
     }
     std::stringstream ss;
     std::string indent = "  ";
-    ss << "Device " << communicator_->deviceId() << "'s inputs:{\n";
-    for (auto& t : inputs) {
+    ss << "Device " << communicator_->deviceId() << "'s args:{\n";
+    for (auto& t : args) {
       ss << indent << t;
     }
     ss << "\n}";
     std::cout << ss.str() << std::endl;
   }
 
+  MultiDeviceExecutorParams params;
+  params.executor = host_ir_executor_params;
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::make_unique<Fusion>(*fusion),
-      *communicator_,
-      host_ir_executor_params);
+      std::make_unique<Fusion>(*fusion), *communicator_, params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
   }
-  outputs = runtime->runWithInput(inputs);
+  outputs = runtime->runWithInput(args);
 
   if (debug_print) {
     if (!communicator_->deviceId()) {
@@ -152,7 +152,6 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
 
 PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
-  communicator_->setDefaultBackend(CommunicatorBackend::kNccl);
 }
 
 // To run the following tests on several devices, pytorch must be installed with
@@ -233,7 +232,7 @@ TEST_F(PipelineTest, Pipeline) {
   // Create input tensors.
   // Note: each process is binded to a different GPU
   // Note: the concrete values are only used at the relevant ranks
-  unsharded_inputs = {
+  unsharded_args = {
       at::randn(input_shape1, tensor_options),
       at::randn(input_shape2, tensor_options)};
 
@@ -311,7 +310,7 @@ TEST_P(PipelineTestTwoStages, Communication) {
     tv3->axis(sharded_dim)->parallelize(ParallelType::DIDx);
   }
 
-  unsharded_inputs = {at::randn(unsharded_input_sizes, tensor_options)};
+  unsharded_args = {at::randn(unsharded_input_sizes, tensor_options)};
 
   if (use_fusion_executor_cache) {
     host_ir_executor_params.use_fusion_executor_cache = true;
@@ -573,7 +572,7 @@ TEST_P(PipelineTestStagedReduction, StagedReduction) {
       at::randn({num_devices, B, C}, tensor_options);
   at::Tensor ref_unsharded_output_tensor =
       unsharded_input_tensor.sum(at::IntArrayRef({0, 2}));
-  unsharded_inputs = {unsharded_input_tensor};
+  unsharded_args = {unsharded_input_tensor};
   ref_unsharded_outputs = {ref_unsharded_output_tensor};
 
   executeAndValidate(/* validate_with_prescribed_values */ true);

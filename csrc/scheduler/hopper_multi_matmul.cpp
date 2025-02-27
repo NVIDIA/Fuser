@@ -13,6 +13,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
@@ -113,11 +114,6 @@ void HopperMultipleMatmulScheduler::validate() const {
         params_->splitk_factor == 1,
         "Hopper matmul scheduler does not support scheduling persistent split-K kernels");
   }
-
-  NVF_CHECK(
-      params_->tiling_strategy !=
-          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs,
-      "Hopper matmul scheduler TEMPORARILY does not support persistent scheduling of tiles yet");
 
   NVF_CHECK(
       params_->tiling_strategy !=
@@ -383,6 +379,21 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
         }
       }
     }
+
+    if (params_->tiling_strategy ==
+        MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+      // Persistent kernel scheduling
+      if (params_->cta_order ==
+          MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        tv->reorder(
+            {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
+      }
+      tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
+
+      const int64_t num_sms =
+          at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      tv->split(num_device_and_batch_dims_, num_sms);
+    }
   }
   return all_merged_roles;
 }
@@ -427,21 +438,35 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
-    switch (params_->cta_order) {
-      // TODO: Should we instead check the roles of these dimensions to take the
-      // outermost two M or N axes?
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
-        tv->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDy);
+    switch (params_->tiling_strategy) {
+      case MatmulParams::TilingStrategy::OneTilePerCTA:
+        // Data-parallel kernels are parallelized BIDx BIDy
+        switch (params_->cta_order) {
+          // TODO: Should we instead check the roles of these dimensions to take
+          // the outermost two M or N axes?
+          case MatmulParams::TileRasterizationOrder::RowMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDy);
+            break;
+          case MatmulParams::TileRasterizationOrder::ColumnMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDx);
+            break;
+          default:
+            NVF_THROW(
+                "Invalid TileRasterizationOrder passed to Matmul scheduler");
+        }
         break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
+      case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
+      case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
+        // For persistent kernels, we just parallelize the SM dimension
         tv->axis(num_device_and_batch_dims_ + 1)
             ->parallelize(ParallelType::BIDx);
         break;
-      default:
-        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
     }
   }
 }
@@ -722,23 +747,29 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         break;
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        NVF_ERROR(
-            std::all_of(
-                mma_results_.begin(),
-                mma_results_.end(),
-                [](TensorView* tv) {
-                  IterDomain* ws_axis = tv->axis(-7);
-                  return ws_axis->getParallelType() == ParallelType::TIDy &&
-                      ws_axis->extent()->evaluate().as<int64_t>() <= 2;
-                }),
-            "There can be at most two compute warp groups for register ",
-            "sharing with warp specialization");
-        constexpr int64_t num_registers_load_warp = 40;
-        constexpr int64_t num_registers_compute_warp = 232;
-        cb_type = (CircularBufferType)WarpSpecialized(
-            ParallelType::TIDy,
-            std::make_pair(
-                num_registers_load_warp, num_registers_compute_warp));
+        if (params_->tiling_strategy ==
+            MatmulParams::TilingStrategy::OneTilePerCTA) {
+          NVF_ERROR(
+              std::all_of(
+                  mma_results_.begin(),
+                  mma_results_.end(),
+                  [](TensorView* tv) {
+                    IterDomain* ws_axis = tv->axis(-7);
+                    return ws_axis->getParallelType() == ParallelType::TIDy &&
+                        ws_axis->extent()->evaluate().as<int64_t>() <= 2;
+                  }),
+              "There can be at most two compute warp groups for register ",
+              "sharing with warp specialization");
+          constexpr int64_t num_registers_load_warp = 40;
+          constexpr int64_t num_registers_compute_warp = 232;
+          cb_type = (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_load_warp, num_registers_compute_warp));
+        } else {
+          // Persistent kernels cannot yet use register sharing
+          cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        }
         break;
       }
     }

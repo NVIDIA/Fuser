@@ -54,6 +54,7 @@ inline c10d::ReduceOp::RedOpType getC10dReduceOpType(BinaryOpType op) {
 void lowerToScatter(
     TensorView* input_tv,
     TensorView* output_tv,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
@@ -63,7 +64,14 @@ void lowerToScatter(
     team.push_back(root);
   }
   comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Scatter, output_tv, input_tv, team, root));
+      CommunicationType::Scatter,
+      output_tv,
+      input_tv,
+      team,
+      root,
+      c10d::ReduceOp::RedOpType::UNUSED,
+      /*scatter_axis=*/-1,
+      params.communicator_backend));
 }
 
 /*
@@ -75,6 +83,7 @@ need multiple Gather if the tensor is replicated in the receiver mesh.
 void lowerToGather(
     TensorView* input_tv,
     TensorView* output_tv,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -84,7 +93,14 @@ void lowerToGather(
       team.push_back(root);
     }
     comms.push_back(IrBuilder::create<Communication>(
-        CommunicationType::Gather, output_tv, input_tv, team, root));
+        CommunicationType::Gather,
+        output_tv,
+        input_tv,
+        team,
+        root,
+        c10d::ReduceOp::RedOpType::UNUSED,
+        /*scatter_axis=*/-1,
+        params.communicator_backend));
   }
 }
 
@@ -92,10 +108,18 @@ void lowerToGather(
 void lowerToAllgather(
     TensorView* input_tv,
     TensorView* output_tv,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Allgather, output_tv, input_tv, mesh.vector()));
+      CommunicationType::Allgather,
+      output_tv,
+      input_tv,
+      mesh.vector(),
+      /*root=*/-1,
+      c10d::ReduceOp::RedOpType::UNUSED,
+      /*scatter_axis=*/-1,
+      params.communicator_backend));
 }
 
 // Adds one or zero Broadcast communication to the vector 'comms'
@@ -103,6 +127,7 @@ void lowerToBroadcast(
     TensorView* input_tv,
     TensorView* output_tv,
     DeviceIdxType root,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
   Team team = mesh.vector();
@@ -110,7 +135,14 @@ void lowerToBroadcast(
     team.push_back(root);
   }
   comms.push_back(IrBuilder::create<Communication>(
-      CommunicationType::Broadcast, output_tv, input_tv, team, root));
+      CommunicationType::Broadcast,
+      output_tv,
+      input_tv,
+      team,
+      root,
+      c10d::ReduceOp::RedOpType::UNUSED,
+      /*scatter_axis=*/-1,
+      params.communicator_backend));
 }
 
 // Adds several Broadcast or SendRecv communications to the vector 'comms'
@@ -120,6 +152,7 @@ void lowerToBroadcast(
 void lowerToBroadcastOrSendRecv(
     TensorView* input_tv,
     TensorView* output_tv,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
@@ -140,7 +173,10 @@ void lowerToBroadcastOrSendRecv(
           output_tv,
           input_tv,
           Team({sender, receiver}),
-          /*root=*/sender));
+          /*root=*/sender,
+          c10d::ReduceOp::RedOpType::UNUSED,
+          /*scatter_axis=*/-1,
+          params.communicator_backend));
     }
   } else {
     // Either of the following two cases is happening.
@@ -153,6 +189,7 @@ void lowerToBroadcastOrSendRecv(
         input_tv,
         output_tv,
         /*root=*/sender_mesh.at(0),
+        params,
         comms);
   }
 }
@@ -161,6 +198,7 @@ void lowerToReduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
@@ -177,7 +215,9 @@ void lowerToReduce(
         input_tv,
         team,
         root,
-        reduce_op_type));
+        reduce_op_type,
+        /*scatter_axis=*/-1,
+        params.communicator_backend));
   }
 }
 
@@ -185,6 +225,7 @@ void lowerToAllreduce(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   comms.push_back(IrBuilder::create<Communication>(
@@ -193,13 +234,16 @@ void lowerToAllreduce(
       input_tv,
       mesh.vector(),
       /*root=*/-1,
-      getC10dReduceOpType(op_type)));
+      getC10dReduceOpType(op_type),
+      /*scatter_axis=*/-1,
+      params.communicator_backend));
 }
 
 void lowerToReduceScatter(
     TensorView* input_tv,
     TensorView* output_tv,
     BinaryOpType op_type,
+    const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
   auto reduction_axis = output_tv->getReductionAxis().value();
@@ -219,7 +263,8 @@ void lowerToReduceScatter(
       /*team=*/mesh.vector(),
       /*root=*/-1,
       getC10dReduceOpType(op_type),
-      scattered_axis));
+      scattered_axis,
+      params.communicator_backend));
 }
 
 } // namespace
@@ -283,27 +328,28 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
           same_mesh,
           "ReduceScatter operation must have the same sender and receiver device mesh. "
           "Insert a Set operation before or after the reduction to reshard ot another device mesh");
-      lowerToReduceScatter(input_tv, output_tv, op_type, comms);
+      lowerToReduceScatter(input_tv, output_tv, op_type, params_, comms);
     } else {
       if (same_mesh) {
-        lowerToAllreduce(input_tv, output_tv, op_type, comms);
+        lowerToAllreduce(input_tv, output_tv, op_type, params_, comms);
       } else {
-        lowerToReduce(input_tv, output_tv, op_type, comms);
+        lowerToReduce(input_tv, output_tv, op_type, params_, comms);
       }
     }
   } else {
     if (!is_input_sharded && is_output_sharded) {
-      lowerToScatter(input_tv, output_tv, comms);
+      lowerToScatter(input_tv, output_tv, params_, comms);
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, comms);
+        lowerToAllgather(input_tv, output_tv, params_, comms);
       } else {
-        lowerToGather(input_tv, output_tv, comms);
+        lowerToGather(input_tv, output_tv, params_, comms);
       }
     } else {
-      lowerToBroadcastOrSendRecv(input_tv, output_tv, comms);
+      lowerToBroadcastOrSendRecv(input_tv, output_tv, params_, comms);
     }
   }
+
   return comms;
 }
 
@@ -473,7 +519,11 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       CommunicationType::Allgather,
       /*out=*/tva_allgathered_j,
       /*in=*/tva_j,
-      /*team=*/tva->getDeviceMesh().vector());
+      /*team=*/tva->getDeviceMesh().vector(),
+      /*root=*/-1,
+      /*red_op=*/RedOpType::UNUSED,
+      /*scattered_axis=*/-1,
+      params_.communicator_backend);
   auto* wait = IrBuilder::create<hir::Wait>(communication);
 
   Expr* compute = nullptr;

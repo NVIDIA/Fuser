@@ -2823,6 +2823,9 @@ TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
 
   scheduler_utils::parallelizeAllLike(tv4, {tv1, tv2, tv3});
 
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(-1);
+
   inlineMost();
 
   KernelExecutor ke;
@@ -2874,7 +2877,12 @@ void testTMemAddKernel(bool same_region) {
   tv9->axis(0)->parallelize(ParallelType::BIDx);
   tv9->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::parallelizeAllLike(tv9, {tv1, tv2});
+  scheduler_utils::parallelizeAllLike(tv9);
+
+  for (auto tv : {tv2, tv6}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    tv->setTMemDimSepPos(-1);
+  }
 
   inlineMost();
 
@@ -3167,6 +3175,8 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   auto tv2b = tv2->cacheBefore();
   tv0a->setMemoryType(MemoryType::Shared);
   tv1a->setMemoryType(MemoryType::Shared);
+  tv2b->setMemoryType(MemoryType::Shared);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
 
   tv2->merge(0);
   tv2->split(0, 512);
@@ -3177,7 +3187,7 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   scheduler_utils::parallelizeAllLike(tv2);
 
   /// TIDx for computation, Bulk for load
-  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
   tv2b->axis(-1)->parallelize(ParallelType::TIDx);
   tv0a->axis(-1)->parallelize(ParallelType::Bulk);
   tv1a->axis(-1)->parallelize(ParallelType::Bulk);
