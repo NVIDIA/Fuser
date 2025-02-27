@@ -22,6 +22,7 @@
 #include <deque>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -614,6 +615,11 @@ void checkAllEqual(std::initializer_list<T> elements) {
         toDelimitedString(elements),
         "]");
   }
+}
+
+template <std::ranges::range R>
+auto enumerate(R&& range) {
+    return std::views::zip(std::views::iota(0), std::forward<R>(range));
 }
 
 } // namespace nvfuser

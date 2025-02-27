@@ -481,7 +481,6 @@ With the above restrictions in mind, let's take a look at a few examples of how
 NOT to schedule TMem load and store:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotWarpCollective) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -510,7 +509,6 @@ The above example is invalid because there are only 16 threads in the kernel.
 Warp collective operations require at least a whole warp to run.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotContiguous) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -544,7 +542,6 @@ patterns requires the warp to access a contiguous 32 or 16 lanes of data
 .<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, OneLane) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 

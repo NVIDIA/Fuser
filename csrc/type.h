@@ -1122,4 +1122,12 @@ constexpr auto toUnderlying(E e) noexcept {
 
 enum class AsyncOpType { NotAsync, CpAsync, CpAsyncBulk, WgMma };
 
+enum class TMemRegisterDataPath {
+  Path32x32b,
+  Path16x64b,
+  Path16x128b,
+  Path16x256b,
+  Path16x32bx2,
+};
+
 } // namespace nvfuser

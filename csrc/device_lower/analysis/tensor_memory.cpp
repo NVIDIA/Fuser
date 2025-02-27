@@ -8,14 +8,30 @@
 
 #include <device_lower/analysis/tensor_memory.h>
 #include <device_lower/lower2device.h>
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <type.h>
 
+#include <ranges>
 #include <utility>
 #include <vector>
 
 namespace nvfuser {
+
+const TMemAlllocationInfo::TVInfo& TMemAlllocationInfo::getTVInfo(
+    TensorView* tv) const;
+{
+  for (const auto& region : regions) {
+    for (const auto& tv_info : region.covered_tensors) {
+      if (tv_info.tensor == tv) {
+        return tv_info;
+      }
+    }
+  }
+  NVF_ERROR(false, "TensorView not found in TMemAlllocationInfo");
+}
 
 // Returns the lane and column allocation domain that is actually allocated.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
@@ -45,7 +61,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
     }
     target.push_back(id);
   }
-  return {lane, column};
+  return {std::move(lane), std::move(column)};
 }
 
 Val* productOfExtents(const std::vector<IterDomain*>& domain) {
@@ -61,8 +77,8 @@ Val* productOfExtents(const std::vector<IterDomain*>& domain) {
 }
 
 // See note [Tensor Memory Allocation] for the overall design.
-TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
-  TensorMemoryInfo result;
+TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
+  TMemAlllocationInfo result;
 
   // Step 1: partition the tensors. Each partition of tensors will become a
   // region, so we use the term partition and region interchangeably. The user
@@ -106,7 +122,7 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   // information.
   Val* total_num_columns = fusion->zeroVal();
   using Region = TMemAlllocationInfo::Region;
-  std::vector<Region>& regions = result.allocation.regions;
+  std::vector<Region>& regions = result.regions;
   for (const auto& partition : partitions) {
     regions.emplace_back();
     auto& region = regions.back();
@@ -166,6 +182,233 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
       max_columns,
       " available.");
 
+  return result;
+}
+
+std::pair<
+    std::unordered_map<TensorView*, TMemRegisterDataPath>,
+    std::unordered_map<TensorView*, TMemRegisterDataPath>>
+computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
+  // In the CUDA programming model, each CTA has TIDx, TIDy, and TIDz.
+  // Unfortunatly, the mapping of these TIDs to hardware concepts like warp,
+  // warp group, are not clear and depend on the kernel launch configuration.
+  // Here, we try to not assume anything like "TIDx must be a multiple of 32",
+  // but still, we must be able to validate and pattern match the data access
+  // of the tensor memory load/store.
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  // TID Parallel types that we are interested in. We ignore parallel types that
+  // are not used in the kernel, and the ones that have size 1.
+  std::vector<ParallelType> tid_ptypes;
+  for (auto pt : {
+           ParallelType::TIDz,
+           ParallelType::TIDy,
+           ParallelType::TIDx,
+       }) {
+    Val* size = pdim_map.getRaw(pt);
+    if (size == nullptr) {
+      continue;
+    }
+    Val* size_is_one =
+        simplifyExpr(SimplifyingIrBuilder::eqExpr(size, fusion->oneVal()));
+    if (size_is_one->isTrue()) {
+      continue;
+    }
+    tid_ptypes.push_back(pt);
+  }
+  NVF_CHECK(
+      !tid_ptypes.empty(),
+      "Invalid data access pattern in TMem load/store: ",
+      "TMem load/store must be warp-collective, but CTA size is one.");
+  // For all expressions in the fusion, find the data path
+  using DPMap = std::unordered_map<TensorView*, TMemRegisterDataPath>;
+  DPMap load_data_path;
+  DPMap store_data_path;
+  for (auto expr : fusion->exprs()) {
+    auto ldst = dynamic_cast<LoadStoreOp*>(expr);
+    TensorView* tmem_tv = nullptr;
+    if (ldst == nullptr) {
+      continue;
+    }
+    DPMap* target = nullptr;
+    if (ldst->opType() == LoadStoreOpType::LdTMem) {
+      tmem_tv = ir_utils::getTvInput(ldst);
+      target = &load_data_path;
+    } else if (ldst->opType() == LoadStoreOpType::StTMem) {
+      tmem_tv = ir_utils::getTvOutput(ldst);
+      target = &store_data_path;
+    } else {
+      continue;
+    }
+    const auto& loop_domain = ir_utils::getTvOutput(ldst)->getLoopDomain();
+    const auto& tmem_tv_info = allocation.getTVInfo(tmem_tv);
+    ValGroups lane_allocation_valgroups =
+        id_graph.toGroups(tmem_tv_info.lane_allocation)
+
+        // Get the contiguity of tid_ptypes in the loop domain.
+        // The contiguity of each item in tid_ptypes are defined as follows:
+        // - The inner tid_ptypes are always contiguous.
+        // - The item at index i is contiguous if the item at index i+1 is
+        //   exact(its extent in the loop domain is the same as parallel
+        //   dimension size of the kernel).
+        std::vector<bool>
+            contiguity;
+    contiguity.reserve(tid_ptypes.size());
+    bool prev_exact = true;
+    for (ParallelType pt : std::views::reverse(tid_ptypes)) {
+      contiguity.push_back(prev_exact);
+      // Update prev_exact
+      if (pdim_map.isExact(pt)) {
+        // If the parallel dimension map says exact, then all IDs with this
+        // parallel type have the same extent, so we can skip the equality check
+        // below.
+        prev_exact = true;
+        continue;
+      }
+      // If the parallel dimension map does not say exact, then pt could still
+      // be exact in this loop domain if the corresponding ID's extent is the
+      // same as the parallel dimension size of the kernel.
+      Val* pt_extent = pdim_map.getRaw(pt);
+      auto pt_in_loop_domain_it = std::find_if(
+          loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
+            return id->getParallelType() == pt;
+          });
+      if (pt_in_loop_domain_it == loop_domain.end()) {
+        prev_exact = false;
+        continue;
+      }
+      IterDomain* pt_in_loop_domain = *pt_in_loop_domain_it;
+      Val* extent_in_loop_domain = pt_in_loop_domain->extent();
+      // If we can not symbolically prove that the extents are the same, then
+      // we assume that they are not the same.
+      prev_exact = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                                    pt_extent, extent_in_loop_domain))
+                       ->isTrue();
+    }
+    std::reverse(contiguity.begin(), contiguity.end());
+
+    // Grab ValGroups for each parallel type, store it in AbstractTensor
+    struct Contiguity {
+      bool contiguity;
+      Contiguity merge(Contiguity x, Contiguity y) {
+        NVF_ERROR(x.contiguity);
+        return {y.contiguity};
+      }
+      std::pair<Contiguity, Contiguity> split(Contiguity x) {
+        return {{true}, x};
+      }
+      std::pair<Contiguity, Contiguity> swizzle(Contiguity x, Contiguity y) {
+        NVF_THROW("Should not reach here");
+      }
+    };
+    AbstractTensorWithInfo<Contiguity> pdims;
+    const auto& id_graph =
+        GpuLower::current()->tensorIndexer().traversalGraph();
+    for (auto [i, pt] : enumerate(tid_ptypes)) {
+      auto id_it = std::find_if(
+          loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
+            return id->getParallelType() == pt;
+          });
+      if (id_it == loop_domain.end()) {
+        continue;
+      }
+      IterDomain* id = *id_it;
+      const ValGroup& val_group = id_graph.toGroup(id);
+      pdims.pushBack(
+          ValGroupAndItsGraph{val_group, &id_graph}, Contiguity{contiguity[i]});
+    }
+
+    // Merge contiguous parallel types
+    int64_t index = 0;
+    while (index < pdims.size()) {
+      if (pdims.info(index).contiguity) {
+        pdims.merge(index);
+      } else {
+        index++;
+      }
+    }
+
+    // The innermost merged parallel type must be a multiple of 32, otherwise
+    // the expr won't be warp-collective.
+    Val* inner_extent =
+        pdims.back().as<ValGroupAndItsGraph>().group->front()->extent();
+    Val* inner_extent_is_multiple_of_32 = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(inner_extent, fusion->createVal(32)),
+        fusion->zeroVal());
+    GpuLower::current()->validate(
+        inner_extent_is_multiple_of_32,
+        "Invalid data access pattern in TMem load/store: ",
+        "TMem load/store must be warp-collective, but the innermost extent is not a multiple of 32.");
+
+    // Start pattern matching:
+    // fail_reasons will be used to store the reasons why the pattern does
+    // not match for each pattern.
+    std::vector<std::string> fail_reasons;
+    bool matched = false;
+    // Pattern match 32x32b
+    if (!matched) {
+      std::string reason_32x32b = "";
+      AbstractTensorWithInfo<Contiguity> t = pdims;
+      t.split(-1, 32);
+      const ValGroup& warp = t.back().as<ValGroupAndItsGraph>().group;
+      Val* stride = lower_utils::proveLinearAndGetStride(
+          id_graph, warp, lane_allocation_valgroups);
+      if (stride == nullptr) {
+        reason_32x32b =
+            "Not 32x32b because warps are not linearly accessing the lane allocation.";
+      } else {
+        GpuLower::current()->validate(
+            SimplifyingIrBuilder::eqExpr(stride, fusion->oneVal()),
+            "Invalid data access pattern in TMem load/store: ",
+            "Warp linearly accessing lanes, but not with stride 1.");
+        (*target)[tmem_tv] = TMemRegisterDataPath::Path32x32b;
+        continue;
+      }
+      fail_reasons.push_back(std::move(reason_32x32b));
+    }
+    // TODO: Pattern match 16x64b
+    if (!matched) {
+      std::string reason_16x64b =
+          "Not 16x64b because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x64b));
+    }
+    // TODO: Pattern match 16x128b
+    if (!matched) {
+      std::string reason_16x128b =
+          "Not 16x128b because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x128b));
+    }
+    // TODO: Pattern match 16x256b
+    if (!matched) {
+      std::string reason_16x256b =
+          "Not 16x256b because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x256b));
+    }
+    // TODO: Pattern match 16x32bx2
+    if (!matched) {
+      std::string reason_16x32bx2 =
+          "Not 16x32bx2 because it is not implemented in NVFuser yet.";
+      fail_reasons.push_back(std::move(reason_16x32bx2));
+    }
+    // If none of the patterns match, throw an error.
+    if (!matched) {
+      std::stringstream error;
+      error << "Invalid data access pattern in TMem load/store:";
+      NVF_ERROR(fail_reasons.size() == 5);
+      for (const std::string& reason : fail_reasons) {
+        error << "\n  " << reason;
+      }
+      NVF_THROW(error.str());
+    }
+    // TODO: Validate that we are accessing the correct sub-partition
+  }
+  return {std::move(load_data_path), std::move(store_data_path)};
+}
+
+TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
+  TensorMemoryInfo result;
+  result.allocation = computeTMemAlllocationInfo(fusion);
+  std::tie(result.load_data_path, result.store_data_path) =
+      computeTMemLdStDataPath(fusion, result.allocation);
   return result;
 }
 

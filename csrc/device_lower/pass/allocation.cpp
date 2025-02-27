@@ -479,7 +479,6 @@ class AllocationInserter : public kir::ExprMutator {
     // Fill in the base address, lane offset, and column offset for tensor
     // memory allocations
     if (memory_type == MemoryType::Tensor) {
-      const auto& regions = GpuLower::current()->tmemInfo().allocation.regions;
       for (const auto& region : regions) {
         auto tv_info_it = std::find_if(
             region.covered_tensors.begin(),
