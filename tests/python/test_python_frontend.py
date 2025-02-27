@@ -4914,3 +4914,41 @@ fd.execute(inputs)
 
         assert len(nvf_out) == 1
         self.assertEqual(nvf_out[0], inputs[0].squeeze(1))
+
+    # See https://github.com/NVIDIA/Fuser/issues/3957
+    # This test checks that our alias update keeps the output layout consistency
+    def test_inplace_update_on_non_contiguous_inputs(self):
+        inputs = [
+            torch.randn(5, dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (3, 1)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[2, 2],
+                contiguity=[False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            S1 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T2 = fd.ops.gt(T0, S1)
+            S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T4 = fd.ops.where(T2, T0, S3)
+            T5 = fd.ops.cast(T4, dtype=DataType.Float)
+            T6 = fd.ops.set(T5)
+            fd.add_output(T6, T0)
+            fd.add_output(T6)
+
+        ref_inp = inputs[0].clone()
+
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func,
+            inputs,
+            skip_serde_check=True,
+        )
+
+        assert len(nvf_out) == 1
+        self.assertEqual(nvf_out[0], inputs[0])
+        self.assertEqual(nvf_out[0], ref_inp.relu())
