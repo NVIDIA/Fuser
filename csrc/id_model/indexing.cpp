@@ -120,7 +120,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
       // Not yet set. This must be an input tensor.
       NVF_ERROR(
-          producer_tv->isFusionInput(),
+          producer_tv->isFusionInput() ||
+              GpuLower::current()->getTensorProducerAlias(producer_tv) !=
+                  nullptr,
           "Expected a fusion input: ",
           producer_tv->toString());
 
