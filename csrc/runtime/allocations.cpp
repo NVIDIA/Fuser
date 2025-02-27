@@ -409,11 +409,13 @@ std::vector<at::Tensor> allocateKernelOutputs(
       ee.bind(
           fusion->inputs()[entry.output_aliased_to_input.at(out_idx)],
           input_arg);
+      auto output = ee.evaluate(out_info.tv).as<at::Tensor>();
       std::cout << "Input arg: " << debug_str(input_arg.as<at::Tensor>())
                 << std::endl;
+      std::cout << "Aliased output tennsor: "
+                << fusion->outputs()[out_idx]->toString() << std::endl;
       std::cout << "Aliased output tensor: "
-                << debug_str(ee.evaluate(out_info.tv).as<at::Tensor>())
-                << std::endl;
+                << debug_str(output) << std::endl;
       NVF_ERROR(
           input_arg.is<at::Tensor>(),
           "Aliased input argument is not a tensor.");
@@ -421,11 +423,12 @@ std::vector<at::Tensor> allocateKernelOutputs(
               out_info.shape_info.logical_sizes ||
           input_arg.as<at::Tensor>().strides() !=
               out_info.shape_info.logical_strides) {
-        out_tensors.emplace_back(input_arg.as<at::Tensor>().as_strided(
+                std::cout<<"As strided?"<<std::endl;
+        out_tensors.emplace_back(output.as_strided(
             out_info.shape_info.logical_sizes,
             out_info.shape_info.logical_strides));
       } else {
-        out_tensors.emplace_back(input_arg.as<at::Tensor>());
+        out_tensors.emplace_back(output);
       }
       std::cout
           << "Aliasing T" << out_info.tv->name() << " to T"
