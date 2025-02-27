@@ -233,6 +233,72 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_self_root->contiguity());
 }
 
+// Self allocation replay.
+TensorDomain* TransformReplay::selfAllocationReplay(
+    const TensorDomain* new_self_root,
+    const TensorDomain* self) {
+  FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
+
+  auto new_self_logical = TensorDomain::noReductions(new_self_root->logical());
+  auto self_logical = TensorDomain::noReductions(self->logical());
+
+  NVF_ERROR(
+      new_self_logical.size() == self_logical.size(),
+      "Invalid number of IterDomains provided.");
+
+  // Map for replay, should be pretty simple.
+  id_map axis_map;
+  {
+    int64_t i = 0;
+    for (auto id : self_logical) {
+      // Note: we don't want to check for equal `isRFactorProduct`, since we
+      // could replay Allocation of the output of a reduction to a later
+      // consumer tensor, which would not have the rfactor flag on.
+      NVF_ERROR(
+          new_self_logical[i]->isSymbolic() || id->isSymbolic() ||
+              (new_self_logical[i]->isReduction() == id->isReduction() &&
+               new_self_logical[i]->isBroadcast() == id->isBroadcast()),
+          "Axes ",
+          id,
+          " and ",
+          new_self_logical[i],
+          " do not match for self replay.");
+      axis_map[id] = new_self_logical[i];
+      i++;
+    }
+  }
+
+  // Replay producer dimensions.
+  ReplaySelf replay(self->maybeAllocation(), axis_map);
+  std::vector<IterDomain*> new_alloc_domain(
+      self->maybeAllocation().size(), nullptr);
+  std::vector<std::optional<bool>> new_contiguity = self->contiguity();
+
+  int64_t i = 0;
+  for (auto id : self->maybeAllocation()) {
+    auto it = replay.getReplay().find(id);
+    NVF_ERROR(
+        it != replay.getReplay().end(),
+        "Error during replay, didn't replay an axis.");
+    if (it->second->isBroadcast() == new_contiguity[i].has_value()) {
+      // whether we resolve to true or false shouldn't matter since it's going
+      // to be concretized as a broadcast dimension
+      new_contiguity[i] =
+          it->second->isBroadcast() ? std::nullopt : std::make_optional(true);
+    }
+    new_alloc_domain[i++] = it->second;
+  }
+
+  return IrBuilder::createInContainer<TensorDomain>(
+      new_self_root->container(),
+      new_self_root->maybeRoot(),
+      new_self_root->logical(),
+      new_alloc_domain,
+      new_self_root->loop(),
+      new_contiguity,
+      new_self_root->additionalIDs());
+}
+
 namespace {
 
 // Grab all IterDomains of producer or consumer that may not be mapped

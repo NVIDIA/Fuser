@@ -13,6 +13,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -388,6 +389,12 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       break;
     }
   }
+
+  // replays the allocation domain and contiguity of orig on replacement
+  auto new_domain = TransformReplay::selfAllocationReplay(
+      replacement->domain(), orig->domain());
+  replacement->setAllocationDomain(
+      new_domain->maybeAllocation(), new_domain->contiguity());
 
   if (needs_resharding) {
     IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, orig, replacement);

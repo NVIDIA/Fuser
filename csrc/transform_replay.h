@@ -227,6 +227,11 @@ class NVF_API TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
+  // allocation replay.
+  static TensorDomain* selfAllocationReplay(
+      const TensorDomain* new_self_root,
+      const TensorDomain* self);
+
   // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used
   // to test if replay is needed for getting matching outer dims. This function
