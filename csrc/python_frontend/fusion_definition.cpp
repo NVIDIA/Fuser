@@ -400,6 +400,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   KernelArgumentHolder outputs;
   if (user_sched == nullptr) {
+    scheds->createExecutorIfNotExists();
     outputs = scheds->auto_gen_schedules->runFusionWithInputs(
         args, std::nullopt, args.getDeviceIndex());
   } else {
@@ -535,6 +536,11 @@ std::string FusionDefinition::lastCudaCode(
       result = user_exec->compiledKernel()->kernelString();
     }
   } else {
+    NVF_CHECK(
+        scheds->auto_gen_schedules != nullptr,
+        "Fusion ",
+        *id(),
+        " has never been executed via FusionExecutorCache.");
     result = scheds->auto_gen_schedules->getMostRecentCode(intrinsic_code);
   }
   return result;
@@ -563,6 +569,11 @@ std::string FusionDefinition::cudaCodeFor(
       }
     }
   }
+  NVF_CHECK(
+      scheds->auto_gen_schedules != nullptr,
+      "Fusion ",
+      *id(),
+      " has never been executed via FusionExecutorCache.");
   return scheds->auto_gen_schedules->getCodeFor(args, intrinsic_code);
 }
 
@@ -579,6 +590,11 @@ std::string FusionDefinition::lastScheduledFusionIr(
     user_sched_ir->print(ss, tensor_transforms);
     result = ss.str();
   } else {
+    NVF_CHECK(
+        scheds->auto_gen_schedules != nullptr,
+        "Fusion ",
+        *id(),
+        " has never been executed via FusionExecutorCache.");
     result =
         scheds->auto_gen_schedules->getMostRecentScheduledIr(tensor_transforms);
   }
@@ -607,6 +623,11 @@ std::string FusionDefinition::scheduledFusionIrFor(
       return ss.str();
     }
   }
+  NVF_CHECK(
+      scheds->auto_gen_schedules != nullptr,
+      "Fusion ",
+      *id(),
+      " has never been executed via FusionExecutorCache.");
   return scheds->auto_gen_schedules->getScheduledIrFor(args, tensor_transforms);
 }
 
