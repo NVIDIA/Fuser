@@ -164,8 +164,8 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      // Print CUDA starting at first global function
-      size_t kernel_start = src.find("__global__");
+      // Print CUDA starting at generated utility
+      size_t kernel_start = src.find("// Codegen generated utilities");
       NVF_THROW(
           "\n",
           src.substr(kernel_start),
