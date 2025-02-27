@@ -9,7 +9,6 @@
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
-#include <graph_traversal.h>
 #include <ops/all_ops.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -577,6 +576,22 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
 
 using FindAllPathsTest = NVFuserTest;
 
+#define VALIDATE_EXPR_PATH(actual, ref)                             \
+  do {                                                              \
+    ASSERT_EQ(actual.size(), ref.size());                           \
+    for (const auto i : c10::irange(actual.size())) {               \
+      EXPECT_EQ(actual.at(i).first, ref.at(i).first)                \
+          << "Mismathed expr at " << i                              \
+          << ". Expected: " << nvfuser::toString(ref.at(i).first)   \
+          << ". Actual: " << nvfuser::toString(actual.at(i).first); \
+      EXPECT_EQ(actual.at(i).second, ref.at(i).second)              \
+          << "Mismathed direction at " << i                         \
+          << ". Expected: " << ref.at(i).second                     \
+          << ". Actual: " << actual.at(i).second;                   \
+    }                                                               \
+  } while (0);
+
+// Traversing backward and then forward
 TEST_F(FindAllPathsTest, Test1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -585,108 +600,148 @@ TEST_F(FindAllPathsTest, Test1) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
-  auto tv2 = set(tv1);
-  fusion.addOutput(tv2);
+  fusion.addOutput(tv1);
 
   // tv0: [i0, i1]
   // tv1: [i0, i1]
-  // tv2: [i0, i1]
 
-  // Schedule tv0 and tv1 in the same way
+  // Use different merge orderings
   tv0->merge(0, 1)->split(0, 4);
-  tv1->merge(0, 1)->split(0, 4);
-  // Schedule tv1 similarly but with a reordered merge
-  tv2->merge(1, 0)->split(0, 4);
+  tv1->merge(1, 0)->split(0, 4);
 
   // tv0: [i0*i1/4, 4]
-  // tv1: [i0*i1/4, 4]
-  // tv2: [i1*i0/4, 4]
-
-  fusion.print();
+  // tv1: [i1*i0/4, 4]
 
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
 
-  std::cerr << graph.toString();
-
-  graph.dumpGraphvizDotGraph("graph.dot");
-
   ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
   ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
-  ValGroups tv2_loop_groups = graph.toGroups(tv2->getLoopDomain());
 
-  FindAllPaths<
-      ExprGroup,
-      ValGroup,
-      ValGraphDefinitions,
-      ValGraphUses,
-      ValGraphInputs,
-      ValGraphOutputs>
-      finder(
-          ValGraphDefinitions(graph),
-          ValGraphUses(graph),
-          ValGraphInputs(graph),
-          ValGraphOutputs(graph),
-          {tv2_loop_groups.vector().begin(), tv2_loop_groups.vector().end()},
-          {tv1_loop_groups.vector().begin(), tv1_loop_groups.vector().end()},
-          /*require_all_to_visited=*/true,
-          Direction::Undefined);
-  finder.traverse();
-  auto result = finder.getOrderedExprPath();
-  std::cerr << "All traversed? " << result.second << "\n";
-  for (const auto& [expr_g, dir] : result.first) {
-    std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
-  }
+  auto result =
+      getAllExprGroupsBetween(graph, tv0_loop_groups, tv1_loop_groups).first;
+
+  ExprGroupPath reference_path{
+      {graph.toGroup(tv0->getLoopDomain().at(0)->definition()),
+       Direction::Backward},
+      {graph.toGroup(
+           tv0->getLoopDomain().at(0)->definition()->input(0)->definition()),
+       Direction::Backward},
+      {graph.toGroup(
+           tv1->getLoopDomain().at(0)->definition()->input(0)->definition()),
+       Direction::Forward},
+      {graph.toGroup(tv1->getLoopDomain().at(0)->definition()),
+       Direction::Forward},
+  };
+
+  VALIDATE_EXPR_PATH(result, reference_path);
 }
 
+// Traversing a cyclic graph
 TEST_F(FindAllPathsTest, Test2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
 
+  // Create an ID graph with two cycles
   auto tv0 = makeConcreteTensor({10});
   fusion.addInput(tv0);
+  // One cycle from tv0 to tv1 and then tv2
   auto tv1 = reshape(tv0, {10}, {2, 5});
   auto tv2 = reshape(tv1, {2, 5}, {10});
+  // Another cycle from tv0 to tv3 and then tv4
   auto tv3 = reshape(tv0, {10}, {5, 2});
   auto tv4 = reshape(tv3, {5, 2}, {10});
+  // Merge tv0, tv2 and tv4 to form cycles
   auto tv5 = add(tv0, tv2);
   auto tv6 = add(tv5, tv4);
   fusion.addOutput(tv6);
 
-  fusion.print();
+  // Effectiely, the ID graph looks like:
+  //
+  // {tv0, tv2, tv4, tv5, tv6}
+  //      ^    ^
+  //      |    +---------------> {tv1}
+  //      |
+  //      +----------------> {tv3}
 
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
 
-  std::cerr << graph.toString();
-
-  graph.dumpGraphvizDotGraph("graph.dot");
-
-  ValGroups tv6_loop_groups = graph.toGroups(tv6->getLoopDomain());
   ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
 
-  FindAllPaths<
-      ExprGroup,
-      ValGroup,
-      ValGraphDefinitions,
-      ValGraphUses,
-      ValGraphInputs,
-      ValGraphOutputs>
-      finder(
-          ValGraphDefinitions(graph),
-          ValGraphUses(graph),
-          ValGraphInputs(graph),
-          ValGraphOutputs(graph),
-          {tv6_loop_groups.vector().begin(), tv6_loop_groups.vector().end()},
-          {tv0_loop_groups.vector().begin(), tv0_loop_groups.vector().end()},
-          /*require_all_to_visited=*/true,
-          Direction::Undefined);
-  finder.traverse();
-  auto result = finder.getOrderedExprPath();
-  std::cerr << "All traversed? " << result.second << "\n";
-  for (const auto& [expr_g, dir] : result.first) {
-    std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
+  // Forward traversal from the tv0 groups. Should visit both tv1 and
+  // tv3
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv0_loop_groups,
+                      tv0_loop_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Forward)
+                      .first;
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+
+  // Back traversal from the tv0 groups. Should visit both tv1 and tv3
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv0_loop_groups,
+                      tv0_loop_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Backward)
+                      .first;
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+
+  // Forward and backward traversal from the tv0 groups. Should visit
+  // both tv1 and tv3
+  {
+    auto result =
+        getAllExprGroupsBetween(graph, tv0_loop_groups, tv0_loop_groups).first;
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
   }
 }
 
@@ -697,48 +752,44 @@ TEST_F(FindAllPathsTest, Test3) {
 
   auto tv0 = makeConcreteTensor({10});
   fusion.addInput(tv0);
-  auto tv1 = reshape(tv0, {10}, {2, 5});
-  auto tv2 = reshape(tv1, {2, 5}, {10});
-  auto tv3 = reshape(tv0, {10}, {5, 2});
-  auto tv4 = reshape(tv3, {5, 2}, {10});
-  auto tv5 = add(tv0, tv2);
-  auto tv6 = add(tv5, tv4);
+  auto tv1 =
+      slice(tv0, {{fusion.oneVal(), tv0->getLogicalDomain().at(0)->extent()}});
+  auto tv2 =
+      slice(tv1, {{fusion.oneVal(), tv1->getLogicalDomain().at(0)->extent()}});
+  auto tv3 =
+      slice(tv2, {{fusion.oneVal(), tv2->getLogicalDomain().at(0)->extent()}});
+  auto tv4 =
+      slice(tv3, {{fusion.oneVal(), tv3->getLogicalDomain().at(0)->extent()}});
+  fusion.addOutput(tv4);
+  auto tv5 = pad(tv3, {IrBuilder::create<Val>(2L), fusion.zeroVal()});
+  auto tv6 = add(tv1, tv5);
   fusion.addOutput(tv6);
 
-  tv6->split(0, 4);
-
+  fusion.printMath();
   fusion.print();
 
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
 
+  graph.dumpGraphvizDotGraph("graph4.dot");
+
   std::cerr << graph.toString();
 
-  graph.dumpGraphvizDotGraph("graph.dot");
-
-  ValGroups tv6_loop_groups = graph.toGroups(tv6->getLoopDomain());
   ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
+  ValGroups tv4_logical_groups = graph.toGroups(tv4->getLogicalDomain());
 
-  FindAllPaths<
-      ExprGroup,
-      ValGroup,
-      ValGraphDefinitions,
-      ValGraphUses,
-      ValGraphInputs,
-      ValGraphOutputs>
-      finder(
-          ValGraphDefinitions(graph),
-          ValGraphUses(graph),
-          ValGraphInputs(graph),
-          ValGraphOutputs(graph),
-          {tv6_loop_groups.vector().begin(), tv6_loop_groups.vector().end()},
-          {tv0_logical_groups.vector().begin(),
-           tv0_logical_groups.vector().end()},
-          /*require_all_to_visited=*/true,
-          Direction::Undefined);
-  finder.traverse();
-  auto result = finder.getOrderedExprPath();
-  std::cerr << "All traversed? " << result.second << "\n";
+#if 1
+  auto result = getAllExprGroupsBetween(
+      graph, tv0_logical_groups, tv4_logical_groups, false, Direction::Forward);
+#else
+  auto result = getAllExprGroupsBetween(
+      graph,
+      tv0_logical_groups,
+      tv4_logical_groups,
+      false,
+      Direction::Undefined);
+#endif
+  std::cerr << "Expr path result\n";
   for (const auto& [expr_g, dir] : result.first) {
     std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
   }
