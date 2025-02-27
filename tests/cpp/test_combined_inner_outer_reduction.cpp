@@ -121,7 +121,7 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
 
   testValidate(
       executor_cache.fusion(),
-      {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
+      cg_outputs,
       args,
       {std::get<0>(aten_gradients),
        std::get<1>(aten_gradients),

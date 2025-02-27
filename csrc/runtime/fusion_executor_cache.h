@@ -135,7 +135,7 @@ class FusionExecutorCache {
   //! WARING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
-  NVF_API std::vector<at::Tensor> runFusionWithInputs(
+  NVF_API KernelArgumentHolder runFusionWithInputs(
       KernelArgumentHolder args,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
