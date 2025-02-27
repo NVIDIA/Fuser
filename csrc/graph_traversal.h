@@ -11,6 +11,22 @@
 
 namespace nvfuser {
 
+// Find all exprs between given nodes. Edges are visitd only once,
+// but nodes may be visited multiple times. Edges are always between
+// ExprT and ValT and are directed, e.g., an edge from an ExprGroup to
+// a ValGroup is differentiated from an edge from the ValGroup to the
+// ExprGroup, and both of them may be visited.
+//
+// When there's a cycle, exprs in the cycle are also included. For
+// example, given a graph like (each symbol represents an expr):
+//
+//   A -> B -> C -> D -> E
+//        ^         |
+//        +--- F ---+
+//
+// Exprs of {A_fwd, F_bwd, B_fwd, C_fwd, D_fwd, E_fwd} would be
+// returened. Note that there's no guarantee of ordering, although it
+// is at least partially sorted in a topological order.
 template <
     typename ExprT,
     typename ValT,
@@ -18,7 +34,7 @@ template <
     typename UsesT,
     typename InputsT,
     typename OutputsT>
-class FindAllPaths {
+class FindAllExprs {
  public:
   using ExprType = ExprT;
   using ValType = ValT;
@@ -27,6 +43,8 @@ class FindAllPaths {
   using InputsType = InputsT;
   using OutputsType = OutputsT;
 
+  // Edge represents an edge in the graph. By definition, it must be
+  // between an expr and a val.
   struct Edge {
     NodeType from;
     NodeType to;
@@ -41,9 +59,6 @@ class FindAllPaths {
          << "}";
       return ss.str();
     }
-    Edge reverse() const {
-      return Edge{to, from};
-    }
   };
 
   struct EdgeHash {
@@ -52,10 +67,12 @@ class FindAllPaths {
     }
   };
 
-  virtual ~FindAllPaths() = default;
+  using EdgeSet = std::unordered_set<Edge, EdgeHash>;
+
+  virtual ~FindAllExprs() = default;
 
  public:
-  FindAllPaths(
+  FindAllExprs(
       DefinitionT definition,
       UsesT uses,
       InputsT inputs,
@@ -73,20 +90,24 @@ class FindAllPaths {
         require_all_to_visited_(require_all_to_visited),
         allowed_direction_(allowed_direction) {}
 
-  // Traverse from from_ to to_, recording each taken
-  // path to generate the shortest path after the travesal
   virtual void traverse() {
+    std::deque<Edge> to_visit_;
+
     for (const auto& from_node : from_nodes_) {
       if (const ValT* from_val = std::get_if<ValT>(&from_node)) {
         for (const auto& use_expr : uses_(*from_val)) {
           Edge e(*from_val, use_expr);
           setVisited(e);
-          addNewNeighbors(e);
+          for (const auto& next_edge : getNextEdges(e, allowed_direction_)) {
+            to_visit_.push_back(next_edge);
+          }
         }
         for (const auto& def_expr : definition_(*from_val)) {
           Edge e(*from_val, def_expr);
           setVisited(e);
-          addNewNeighbors(e);
+          for (const auto& next_edge : getNextEdges(e, allowed_direction_)) {
+            to_visit_.push_back(next_edge);
+          }
         }
       } else {
         NVF_THROW(
@@ -97,7 +118,6 @@ class FindAllPaths {
 
     bool something_was_processed = true;
     while (something_was_processed) {
-      std::cerr << "Something was progressed\n";
       std::deque<Edge> not_ready;
       something_was_processed = false;
 
@@ -129,13 +149,11 @@ class FindAllPaths {
 
         std::cerr << "Visiting " << edge_to_visit.toString() << "\n";
 
-        // Visit this node and add its neighbors to to_visit if not
-        // visited yet
         setVisited(edge_to_visit);
-        setPrevEdges(edge_to_visit, *prev_edges);
-        // TODO: update the edges from the to node by adding this edge
-        // to their prev sets
-        addNewNeighbors(edge_to_visit);
+        for (const auto& next_edge :
+             getNextEdges(edge_to_visit, allowed_direction_)) {
+          to_visit_.push_back(next_edge);
+        }
         something_was_processed = true;
       }
 
@@ -203,7 +221,7 @@ class FindAllPaths {
       decltype(auto) inputs = inputs_(from_expr);
       if (std::all_of(
               inputs.begin(), inputs.end(), [&](const ValT& input) -> bool {
-                return isDependencySatisfied(Edge(input, from_expr));
+                return isVisited(Edge(input, from_expr));
               })) {
         std::vector<Edge> prev_edges;
         for (const ValT& input : inputs) {
@@ -215,7 +233,7 @@ class FindAllPaths {
       decltype(auto) outputs = outputs_(from_expr);
       if (std::all_of(
               outputs.begin(), outputs.end(), [&](const ValT& output) -> bool {
-                return isDependencySatisfied(Edge(output, from_expr));
+                return isVisited(Edge(output, from_expr));
               })) {
         std::vector<Edge> prev_edges;
         for (const ValT& output : outputs) {
@@ -246,7 +264,7 @@ class FindAllPaths {
     decltype(auto) def = definition_(from_val);
     if (!def.empty()) {
       for (const ExprT& def_e : def) {
-        if (def_e != to_expr && isDependencySatisfied(Edge(def_e, from_val))) {
+        if (def_e != to_expr && isVisited(Edge(def_e, from_val))) {
           prev_edges.emplace_back(Edge(def_e, from_val));
         }
       }
@@ -254,7 +272,7 @@ class FindAllPaths {
 
     decltype(auto) uses = uses_(from_val);
     for (const ExprT& use_e : uses) {
-      if (use_e != to_expr && isDependencySatisfied(Edge(use_e, from_val))) {
+      if (use_e != to_expr && isVisited(Edge(use_e, from_val))) {
         prev_edges.emplace_back(Edge(use_e, from_val));
       }
     }
@@ -262,71 +280,157 @@ class FindAllPaths {
     return prev_edges.empty() ? std::nullopt : std::make_optional(prev_edges);
   }
 
-  // If another node depends on a given node, check if that
-  // dependency is considered satisfied. If the given node is already
-  // visited, that should mean the dependency is satisfied.
-  virtual bool isDependencySatisfied(const Edge& edge) const {
-    return isVisited(edge);
-  }
-
   // Check if a given node is already visited
   virtual bool isVisited(const Edge& edge) const {
-    return visited_.find(edge) != visited_.end();
+    return visited_edges_.find(edge) != visited_edges_.end();
   }
 
   virtual void setVisited(const Edge& edge) {
-    visited_.emplace(edge);
+    if (visited_edges_.emplace(edge).second) {
+      partially_ordered_visited_edges_.push_back(edge);
+    }
   }
 
-  // Add new neighbors of a given node to the to_visit list
-  // const std::vector<std::pair<Direction, std::vector<NodeType>>>& prev_nodes)
-  // {
-  virtual void addNewNeighbors(const Edge& edge) {
-    // TODO: Change the signature to receipt edge?
-    auto add_to_visit_list = [&](const auto& from, const auto& to) -> void {
+  virtual std::vector<Edge> getNextEdges(
+      const Edge& edge,
+      Direction allowed_direction = Direction::Undefined) const {
+    std::vector<Edge> neighbor_edges;
+
+    auto add_to_neighbor_list = [&](const auto& from, const auto& to) -> void {
       Edge neighbor_edge(from, to);
-      // Don't traverse back
-      if (edge.from == neighbor_edge.to && edge.to == neighbor_edge.from) {
+
+      if (edge == neighbor_edge ||
+          // Don't traverse back
+          (edge.from == neighbor_edge.to && edge.to == neighbor_edge.from)) {
         return;
       }
-      addToToVisitList(neighbor_edge);
-      std::cerr << "Added to new neighbor: " << neighbor_edge.toString()
-                << "\n";
+
+      if (excludeFromTraversal(neighbor_edge)) {
+        return;
+      }
+
+      auto neighbor_edge_dir = getDirection(neighbor_edge);
+      if ((allowed_direction == Direction::Forward &&
+           neighbor_edge_dir == Direction::Backward) ||
+          (allowed_direction == Direction::Backward &&
+           neighbor_edge_dir == Direction::Forward)) {
+        return;
+      }
+
+      neighbor_edges.push_back(neighbor_edge);
     };
 
     Direction edge_dir = getDirection(edge);
+    NVF_ERROR(
+        edge_dir == Direction::Forward || edge_dir == Direction::Backward);
 
     if (const ExprT* e = std::get_if<ExprT>(&edge.to)) {
+      // The from node must be a Val.
+
+      // In the case of Expr, only consider edges of the same
+      // direction
       if (edge_dir == Direction::Forward) {
+        // This edge is from an input Val to its use Expr. Traverse
+        // from the use Expr to its outputs.
         for (const auto& v : outputs_(*e)) {
-          add_to_visit_list(*e, v);
+          add_to_neighbor_list(*e, v);
         }
       } else if (edge_dir == Direction::Backward) {
+        // This edge is from an output Val to its defining Expr. Traverse
+        // from the defining Expr to its inputs.
         for (const auto& v : inputs_(*e)) {
-          add_to_visit_list(*e, v);
+          add_to_neighbor_list(*e, v);
         }
-      } else {
-        NVF_THROW();
       }
     } else if (const ValT* v = std::get_if<ValT>(&edge.to)) {
+      // The from node must be an Expr.
+
       // In the case of Val, no matter what direction this node is, it
       // should be valid to traverse both directions. Just don't
-      // traverse back to the same node
-      if (allowed_direction_ == Direction::Forward ||
-          allowed_direction_ == Direction::Undefined) {
-        for (const auto& e : uses_(*v)) {
-          add_to_visit_list(*v, e);
-        }
+      // traverse back to the same node.
+
+      for (const auto& e : uses_(*v)) {
+        add_to_neighbor_list(*v, e);
       }
-      if (allowed_direction_ == Direction::Backward ||
-          allowed_direction_ == Direction::Undefined) {
-        for (const auto& e : definition_(*v)) {
-          add_to_visit_list(*v, e);
-        }
+
+      for (const auto& e : definition_(*v)) {
+        add_to_neighbor_list(*v, e);
       }
-    } else {
-      NVF_THROW();
     }
+
+    return neighbor_edges;
+  }
+
+  virtual std::vector<Edge> getPrevEdges(
+      const Edge& edge,
+      Direction allowed_direction = Direction::Undefined) const {
+    std::vector<Edge> neighbor_edges;
+
+    auto add_to_neighbor_list = [&](const auto& from, const auto& to) -> void {
+      Edge neighbor_edge(from, to);
+
+      if (edge == neighbor_edge ||
+          // Don't traverse back
+          (edge.from == neighbor_edge.to && edge.to == neighbor_edge.from)) {
+        return;
+      }
+
+      if (excludeFromTraversal(neighbor_edge)) {
+        return;
+      }
+
+      auto neighbor_edge_dir = getDirection(neighbor_edge);
+      if ((allowed_direction == Direction::Forward &&
+           neighbor_edge_dir == Direction::Backward) ||
+          (allowed_direction == Direction::Backward &&
+           neighbor_edge_dir == Direction::Forward)) {
+        return;
+      }
+
+      neighbor_edges.push_back(neighbor_edge);
+    };
+
+    Direction edge_dir = getDirection(edge);
+    NVF_ERROR(
+        edge_dir == Direction::Forward || edge_dir == Direction::Backward);
+
+    if (const ExprT* e = std::get_if<ExprT>(&edge.from)) {
+      // The to node must be a Val.
+
+      // In the case of Expr, only consider edges of the same
+      // direction
+      if (edge_dir == Direction::Forward) {
+        // This edge is from a defining expr to one of its
+        // outputs. The previous edges consist of the inputs of the
+        // expr to the expr.
+        for (const auto& v : inputs_(*e)) {
+          add_to_neighbor_list(v, *e);
+        }
+      } else if (edge_dir == Direction::Backward) {
+        // This edge is from a use Expr to one of its inputs. The
+        // previous edges consist of the ouputs of the expr to the
+        // expr.
+        for (const auto& v : outputs_(*e)) {
+          add_to_neighbor_list(v, *e);
+        }
+      }
+    } else if (const ValT* v = std::get_if<ValT>(&edge.from)) {
+      // The to node must be an Expr.
+
+      // In the case of Val, no matter what direction this edge is, it
+      // should be valid to traverse both directions. Just don't
+      // traverse back to the same node.
+
+      for (const auto& e : definition_(*v)) {
+        add_to_neighbor_list(e, *v);
+      }
+
+      for (const auto& e : uses_(*v)) {
+        add_to_neighbor_list(e, *v);
+      }
+    }
+
+    return neighbor_edges;
   }
 
   // Check if all to_ are visited
@@ -337,31 +441,6 @@ class FindAllPaths {
           return visited_nodes.count(node);
         });
   };
-
-  // Set the previous nodes of a given node that is visited in a
-  // given direction
-  virtual void setPrevEdges(
-      const Edge& edge,
-      const std::vector<Edge>& prev_edges) {
-    auto& cur_edges = prev_edge_map_[edge];
-    std::cerr << "Setting prev edges of: " << edge.toString() << "\n";
-    for (const auto& prev_edge : prev_edges) {
-      // Avoid duplicates
-      if (std::find(cur_edges.begin(), cur_edges.end(), prev_edge) ==
-          cur_edges.end()) {
-        std::cerr << "New prev edge: ";
-        std::cerr << " " << prev_edge.toString();
-        std::cerr << "\n";
-        cur_edges.push_back(prev_edge);
-      }
-    }
-  }
-
-  virtual void addToToVisitList(const Edge& edge) {
-    if (!excludeFromTraversal(edge)) {
-      to_visit_.push_back(edge);
-    }
-  }
 
   // Hook to exclude certain graph edges.
   virtual bool excludeFromTraversal(const Edge& edge) const {
@@ -399,41 +478,61 @@ class FindAllPaths {
 
   virtual std::unordered_set<NodeType> getVisitedNodes() const {
     std::unordered_set<NodeType> visited_nodes;
-    for (const auto& visited_edge : visited_) {
+    for (const auto& visited_edge : visited_edges_) {
       visited_nodes.emplace(visited_edge.from);
       visited_nodes.emplace(visited_edge.to);
     }
     return visited_nodes;
   }
 
-  virtual std::pair<ExprPath, bool> getOrderedExprPath() {
+  virtual std::pair<ExprPath, bool> getPartiallyOrderedExprs() const {
+    const auto used_edges = getUsedEdges();
+
+    VectorOfUniqueEntries<std::pair<ExprT, Direction>> expr_path;
+
+    for (const Edge& ordered_visited_edge : partially_ordered_visited_edges_) {
+      if (!used_edges.count(ordered_visited_edge)) {
+        continue;
+      }
+
+      std::cerr << ordered_visited_edge.toString() << "\n";
+
+      Direction edge_dir = getDirection(ordered_visited_edge);
+
+      // Append the expr of this edge
+      const ExprT& expr =
+          std::get_if<ExprT>(&(ordered_visited_edge.from)) != nullptr
+          ? std::get<ExprT>(ordered_visited_edge.from)
+          : std::get<ExprT>(ordered_visited_edge.to);
+      expr_path.pushBack(std::make_pair(expr, edge_dir));
+    }
+
+    return std::make_pair(expr_path.vector(), allToNodesVisited());
+  }
+
+  virtual EdgeSet getUsedEdges() const {
     NVF_ERROR(
         !require_all_to_visited_ || allToNodesVisited(),
         "Traveral is either not done or failed");
 
-    std::cerr << "getShortestExprPath\n";
+    // Traverse back from to_ nodes to from_ nodes by traversing
+    // through visted edges
     std::deque<Edge> to_visit;
 
-    auto add_to_to_visit_list = [&](const std::vector<Edge>& next_edges) {
-      for (const Edge& edge : next_edges) {
-        to_visit.emplace_back(edge);
-        std::cerr << "Added to visit: " << edge.toString() << "\n";
-      }
-    };
-
-    std::vector<Edge> initial_edges;
+    // Gather all visited edges to the to_ nodes. These edges are used
+    // as initial edges for the traversal below
     for (const NodeType& to_node : to_nodes_) {
       if (const ValT* to_val = std::get_if<ValT>(&to_node)) {
-        for (const auto& use_expr : uses_(*to_val)) {
+        for (const ExprT& use_expr : uses_(*to_val)) {
           Edge e{use_expr, *to_val};
           if (isVisited(e)) {
-            initial_edges.emplace_back(e);
+            to_visit.emplace_back(e);
           }
         }
-        for (const auto& def_expr : definition_(*to_val)) {
+        for (const ExprT& def_expr : definition_(*to_val)) {
           Edge e{def_expr, *to_val};
           if (isVisited(e)) {
-            initial_edges.emplace_back(e);
+            to_visit.emplace_back(e);
           }
         }
       } else {
@@ -442,74 +541,28 @@ class FindAllPaths {
             toString(to_node));
       }
     }
-    add_to_to_visit_list(initial_edges);
 
-    ExprPath expr_path;
-
-    std::unordered_set<Edge, EdgeHash> visited_edges;
+    EdgeSet used_edges;
 
     while (!to_visit.empty()) {
       const auto edge_to_visit = to_visit.front();
       to_visit.pop_front();
 
-      if (visited_edges.count(edge_to_visit)) {
+      if (used_edges.count(edge_to_visit)) {
         continue;
       }
 
-      Direction edge_dir = getDirection(edge_to_visit);
-
-      std::cerr << "(getShortest) Visiting " << edge_to_visit.toString() << ", "
-                << edge_dir << "\n";
-
-      if (const ExprT* from_expr = std::get_if<ExprT>(&edge_to_visit.from)) {
-        expr_path.emplace_back(*from_expr, edge_dir);
-      }
-
-      auto prev_edge_map_it = prev_edge_map_.find(edge_to_visit);
-      if (prev_edge_map_it != prev_edge_map_.end()) {
-        add_to_to_visit_list(prev_edge_map_it->second);
-      }
-
-      visited_edges.insert(edge_to_visit);
-    }
-
-    std::cerr << "Current expr path:\n";
-    for (const auto& [e, d] : expr_path) {
-      std::cerr << d << ", " << toString(e) << "\n";
-    }
-
-    std::unordered_set<ValT> visited_vals;
-    for (const auto& from_node : from_nodes_) {
-      // from_nodes_ and val_nodes_ are assume to be ValT
-      visited_vals.insert(std::get<ValT>(from_node));
-    }
-    std::deque<int64_t> path_offsets(expr_path.size());
-    std::iota(path_offsets.begin(), path_offsets.end(), 0);
-    VectorOfUniqueEntries<std::pair<ExprT, Direction>> unique_sorted_path;
-
-    while (!path_offsets.empty()) {
-      int64_t offset = path_offsets.front();
-      path_offsets.pop_front();
-
-      const auto& [expr, dir] = expr_path.at(offset);
-      std::cerr << "Visiting " << dir << ", " << toString(expr) << "\n";
-      const auto inputs = getInputsOfExpr(expr, dir, inputs_, outputs_);
-      if (std::all_of(inputs.begin(), inputs.end(), [&](const ValT& inp) {
-            return visited_vals.count(inp);
-          })) {
-        std::cerr << "Appended to final list\n";
-        unique_sorted_path.pushBack(std::make_pair(expr, dir));
-        for (const auto& output :
-             getOutputsOfExpr(expr, dir, inputs_, outputs_)) {
-          visited_vals.insert(output);
+      auto prev_edges = getPrevEdges(edge_to_visit);
+      for (const Edge& prev_edge : prev_edges) {
+        if (isVisited(prev_edge)) {
+          to_visit.emplace_back(prev_edge);
         }
-      } else {
-        std::cerr << "Dep not yet satisfied\n";
-        path_offsets.push_back(offset);
       }
+
+      used_edges.insert(edge_to_visit);
     }
 
-    return std::make_pair(unique_sorted_path.vector(), allToNodesVisited());
+    return used_edges;
   }
 
  protected:
@@ -522,9 +575,8 @@ class FindAllPaths {
   bool require_all_to_visited_ = true;
   Direction allowed_direction_ = Direction::Undefined;
 
-  std::deque<Edge> to_visit_;
-  std::unordered_set<Edge, EdgeHash> visited_;
-  std::unordered_map<Edge, std::vector<Edge>, EdgeHash> prev_edge_map_;
+  EdgeSet visited_edges_;
+  std::vector<Edge> partially_ordered_visited_edges_;
 };
 
 } // namespace nvfuser

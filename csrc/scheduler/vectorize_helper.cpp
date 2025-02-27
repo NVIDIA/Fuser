@@ -12,7 +12,6 @@
 #include <device_lower/analysis/divisible_split.h>
 #include <expr_evaluator.h>
 #include <expr_simplifier.h>
-#include <graph_traversal.h>
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
@@ -934,25 +933,11 @@ int64_t getVectorizationFactor(
       const auto ref_groups = graph.toGroups(reference_tv->getLogicalDomain());
       const auto inp_or_out_groups =
           graph.toGroups(inp_or_out->getLogicalDomain());
-      FindAllPaths<
-          ExprGroup,
-          ValGroup,
-          ValGraphDefinitions,
-          ValGraphUses,
-          ValGraphInputs,
-          ValGraphOutputs>
-          finder(
-              ValGraphDefinitions{graph},
-              ValGraphUses{graph},
-              ValGraphInputs{graph},
-              ValGraphOutputs{graph},
-              {ref_groups.vector().begin(), ref_groups.vector().end()},
-              {inp_or_out_groups.vector().begin(),
-               inp_or_out_groups.vector().end()},
-              /*require_all_to_visited=*/false,
-              Direction::Undefined);
-      finder.traverse();
-      auto result = finder.getOrderedExprPath();
+      auto result = getAllExprGroupsBetween(
+          graph,
+          ref_groups,
+          inp_or_out_groups,
+          /*require_all_to_visited=*/false);
       ValGroups vectorized_groups;
       for (auto it = reference_tv->getLogicalDomain().begin() + break_point;
            it != reference_tv->getLogicalDomain().end();
