@@ -3206,26 +3206,4 @@ TEST_F(TMATest, CpAsyncBulk1D) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
-void testZip() {
-  std::vector<int64_t> integer{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-  // https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers
-  struct SetTheoreticNaturalNumber {
-    std::vector<NaturalNumber> content;
-    NaturalNumber() = default;
-    NaturalNumber(std::vector<NaturalNumber> x): content(x) {}
-    NaturalNumber operator++() {
-      NaturalNumber result = *this; // zero
-      result.emplace_back(std::vector{*this});
-      return result;
-    }
-    bool operator==(const NaturalNumber& other) const {
-      return content == other.content;
-    }
-    bool operator!=()(const NaturalNumber& other) const {
-      return !operator==(other);
-    }
-  };
-  
-}
-
 } // namespace nvfuser

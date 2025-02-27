@@ -15,7 +15,7 @@
 #include <type.h>
 #include <utils.h>
 
-#include <ranges>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -288,14 +288,14 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
     // Grab ValGroups for each parallel type, store it in AbstractTensor
     struct Contiguity {
       bool contiguity;
-      Contiguity merge(Contiguity x, Contiguity y) {
+      static Contiguity merge(Contiguity x, Contiguity y) {
         NVF_ERROR(x.contiguity);
         return {y.contiguity};
       }
-      std::pair<Contiguity, Contiguity> split(Contiguity x) {
+      static std::pair<Contiguity, Contiguity> split(Contiguity x) {
         return {{true}, x};
       }
-      std::pair<Contiguity, Contiguity> swizzle(Contiguity x, Contiguity y) {
+      static std::pair<Contiguity, Contiguity> swizzle(Contiguity x, Contiguity y) {
         NVF_THROW("Should not reach here");
       }
     };
@@ -316,7 +316,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
 
     // Merge contiguous parallel types
     int64_t index = 0;
-    while (index < pdims.size()) {
+    while (index < (int64_t)pdims.size()) {
       if (pdims.info(index).contiguity) {
         pdims.merge(index);
       } else {
@@ -326,10 +326,14 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
 
     // The innermost merged parallel type must be a multiple of 32, otherwise
     // the expr won't be warp-collective.
-    Val* inner_extent =
-        pdims.back().as<ValGroupAndItsGraph>().group->front()->extent();
+    Val* inner_extent = pdims.back()
+                            .as<ValGroupAndItsGraph>()
+                            .group->front()
+                            ->as<IterDomain>()
+                            ->extent();
     Val* inner_extent_is_multiple_of_32 = SimplifyingIrBuilder::eqExpr(
-        SimplifyingIrBuilder::modExpr(inner_extent, fusion->createVal(32)),
+        SimplifyingIrBuilder::modExpr(
+            inner_extent, IrBuilder::create<Val>(32, DataType::Index)),
         fusion->zeroVal());
     GpuLower::current()->validate(
         inner_extent_is_multiple_of_32,
