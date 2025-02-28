@@ -252,7 +252,6 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle);
 //! registers to shared memory.
 void scheduleStMatrixForMmaOutput(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
     int64_t tile_m,
     int64_t tile_n);
 
