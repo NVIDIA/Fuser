@@ -1642,7 +1642,7 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto aten_output = t0 + t0.sum({1}, true);
-  compare<float>(dim0,dim1,cg_outputs.at(0).to(at::kFloat), aten_output.to(at::kFloat));
+  // compare<float>(dim0,dim1,cg_outputs.at(0).to(at::kFloat), aten_output.to(at::kFloat));
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

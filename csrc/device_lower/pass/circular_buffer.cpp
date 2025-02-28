@@ -1176,10 +1176,6 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     validateCircularBufferLoop(circular_buffer_loop);
 
     insertion_info_[circular_buffer_loop].push_back(expr);
-
-    std::cout << "Found circular buffer loop:\n"
-              << circular_buffer_loop->toString() << std::endl;
-    std::cout << "expr: " << expr->toString() << std::endl;
   }
 
   void handle(UnaryOp* uop) final {
@@ -1746,72 +1742,63 @@ kir::TensorIndex* TmaCircularBufferInfo::getTensorIndex(const Expr* expr) {
 class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
  public:
   static std::vector<Expr*> run(const std::vector<Expr*>& exprs) {
-    return MoveTopExprsToComputeWarpLoop(exprs).exprs_;
+    // insert to a new location
+    std::vector<Expr*> after_insert =
+        MoveTopExprsToComputeWarpLoop(exprs, true).exprs_;
+    // remove original exprs
+    return MoveTopExprsToComputeWarpLoop(after_insert, false).exprs_;
   }
 
  private:
-  bool processing_warp_compute_loop_ = false;
+  bool is_insert_ = false;
+  bool is_within_grid_loop_ = false;
   std::vector<Expr*> exprs_before_grid_loop_;
   kir::IfThenElse* warp_specialized_ite_ = nullptr;
-  std::unordered_set<Expr*> exprs_to_be_moved_;
-
-  void setExprsTobeMoved() {
-    auto isValUsedByExpr = [](Val* tv, Expr* expr) {
-      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
-        for (auto nested_expr :
-             ir_utils::flattenScopedExprs(fl->body().exprs())) {
-          for (auto input : nested_expr->inputs()) {
-            if (input == tv) {
-              return true;
-            }
-          }
-          for (auto output : nested_expr->outputs()) {
-            if (output == tv) {
-              return true;
-            }
-          }
-        }
-      }
-      for (auto input : expr->inputs()) {
-        if (input == tv) {
-          return true;
-        }
-      }
-      for (auto output : expr->outputs()) {
-        if (output == tv) {
-          return true;
-        }
-      }
-      return false;
-    };
-    int num_exprs = (int)exprs_before_grid_loop_.size();
-    for (int i = 0; i < num_exprs; i++) {
-      auto expr = exprs_before_grid_loop_.at(i);
-      if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
-        if (alloc->memoryType() == MemoryType::Local &&
-            alloc->size()->value().as<int64_t>() > 1) {
-          exprs_to_be_moved_.insert(expr);
-          for (int j = i + 1; j < num_exprs; j++) {
-            auto expr2 = exprs_before_grid_loop_.at(j);
-            if (isValUsedByExpr(alloc->buffer(), expr2)) {
-              exprs_to_be_moved_.insert(expr2);
-            }
-          }
-        }
+  std::vector<Expr*> exprs_to_be_moved_;
+  std::vector<Val*> vals_being_moved_;
+  // Returns true if this forloop is for the init or load of the buffer
+  bool isBufferInitOrLoad(Val* val, ForLoop* fl) {
+    const auto& flattened_exprs = ir_utils::flattenScopedExprs(fl->body().exprs());
+    for(auto expr : flattened_exprs) {
+      if(!(expr->isA<LoadStoreOp>() && expr->output(0) == val)) {
+        return false;
       }
     }
+    return true;
   }
+  // void setExprsTobeMoved() {
 
-  MoveTopExprsToComputeWarpLoop(const std::vector<Expr*>& exprs) {
-    for (auto expr : exprs) {
-      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
-        if (fl->iter_domain()->isBlockDim()) {
-          break;
-        }
-      }
-      exprs_before_grid_loop_.emplace_back(expr);
-    }
-    setExprsTobeMoved();
+  //   int num_exprs = (int)exprs_before_grid_loop_.size();
+  //   for (int i = 0; i < num_exprs; i++) {
+  //     auto expr = exprs_before_grid_loop_.at(i);
+  //     if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
+  //       if (alloc->memoryType() == MemoryType::Local &&
+  //           alloc->size()->value().as<int64_t>() > 1) {
+  //         exprs_to_be_moved_.push_back(expr);
+  //         for (int j = i + 1; j < num_exprs; j++) {
+  //           auto expr2 = exprs_before_grid_loop_.at(j);
+  //           if (isValUsedByExpr(alloc->buffer(), expr2)) {
+  //             exprs_to_be_moved_.push_back(expr2);
+  //           }
+  //         }
+  //       }
+  //     }
+  //   }
+  // }
+
+  MoveTopExprsToComputeWarpLoop(
+      const std::vector<Expr*>& exprs,
+      const bool is_insert) {
+    // is_insert_ = is_insert;
+    // for (auto expr : exprs) {
+    //   if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+    //     if (fl->iter_domain()->isBlockDim()) {
+    //       break;
+    //     }
+    //   }
+    //   exprs_before_grid_loop_.emplace_back(expr);
+    // }
+    // setExprsTobeMoved();
 
     traverseAndInsert(exprs);
   }
@@ -1819,27 +1806,52 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   void handle(ForLoop* loop) final {
-    kir::ExprMutator::handle(loop);
+    if (loop->iter_domain()->isBlockDim()) {
+      is_within_grid_loop_ = true;
+    }
+
+    if (!is_within_grid_loop_) {
+      std::cout << "toplevelloop is loop:\n" << loop->toString() << std::endl;
+    }
+
+    if (!is_within_grid_loop_ &&
+        std::any_of(
+            vals_being_moved_.begin(),
+            vals_being_moved_.end(),
+            [loop, this](Val* val) { return isBufferInitOrLoad(val, loop); })) {
+      exprs_to_be_moved_.push_back(loop);
+      registerRemove(loop);
+    }
 
     if (loop->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp) {
       std::cout << "processing_warp_compute_loop_ is loop:\n"
                 << loop->toString() << std::endl;
-      for(auto expr : exprs_to_be_moved_){
+      for (auto expr : exprs_to_be_moved_) {
         std::cout << "exprs_to_be_moved_ is: " << expr->toString() << std::endl;
+
         registerInsertBefore(loop, expr);
-        // registerRemove(expr);
       }
-      processing_warp_compute_loop_ = true;
+    }
+
+    // recursively visit nested loops
+    if (is_within_grid_loop_) {
+      kir::ExprMutator::handle(loop);
+      is_within_grid_loop_ = false;
+      std::cout << "=========== set is_within_grid_loop_ to false" << std::endl;
     }
   }
-  // void handle(kir::Allocate* allocate) final {
-  //   if (auto buffer_tv = dynamic_cast<TensorView*>(allocate->buffer())) {
-  //     if (dead_tvs_.count(buffer_tv)) {
-  //       registerRemove(allocate);
-  //     }
-  //   }
-  // }
+  void handle(kir::Allocate* allocate) final {
+    if (is_within_grid_loop_) {
+      return;
+    }
+    if (allocate->memoryType() == MemoryType::Local &&
+        allocate->size()->value().as<int64_t>() > 1) {
+      vals_being_moved_.push_back(allocate->buffer());
+      exprs_to_be_moved_.push_back(allocate);
+      registerRemove(allocate);
+    }
+  }
 };
 
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
