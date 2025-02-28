@@ -478,6 +478,7 @@ class FindAllExprs {
 
   virtual std::unordered_set<NodeType> getVisitedNodes() const {
     std::unordered_set<NodeType> visited_nodes;
+    visited_nodes.insert(from_nodes_.begin(), from_nodes_.end());
     for (const auto& visited_edge : visited_edges_) {
       visited_nodes.emplace(visited_edge.from);
       visited_nodes.emplace(visited_edge.to);

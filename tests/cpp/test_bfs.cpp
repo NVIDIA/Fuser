@@ -708,7 +708,7 @@ TEST_F(FindAllExprsTest, Test2) {
                       Direction::Backward)
                       .first;
 
-    for (const auto& [e, d]: result) {
+    for (const auto& [e, d] : result) {
       std::cerr << d << ", " << nvfuser::toString(e) << "\n";
     }
 
@@ -731,7 +731,7 @@ TEST_F(FindAllExprsTest, Test2) {
     auto result =
         getAllExprGroupsBetween(graph, tv0_loop_groups, tv0_loop_groups).first;
 
-    for (const auto& [e, d]: result) {
+    for (const auto& [e, d] : result) {
       std::cerr << d << ", " << nvfuser::toString(e) << "\n";
     }
     ExprGroupPath reference_path{
@@ -881,6 +881,91 @@ TEST_F(FindAllExprsTest, Test3) {
         {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
         {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+}
+
+TEST_F(FindAllExprsTest, Rotation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({16, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[1] / 2)}});
+
+  auto tv3 = sin(tv0);
+
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(shape[1] / 2),
+        IrBuilder::create<Val>(shape[1])}});
+
+  auto tv5 = cat({tv4, tv2}, 1);
+
+  auto tv6 = add(tv0, tv5);
+
+  fusion.addOutput(tv6);
+
+  fusion.printMath();
+  fusion.print();
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  graph.dumpGraphvizDotGraph("graph4.dot");
+
+  std::cerr << graph.toString();
+
+  ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
+  ValGroups tv6_logical_groups = graph.toGroups(tv6->getLogicalDomain());
+
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv6_logical_groups,
+                      tv0_logical_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Undefined)
+                      .first;
+    std::cerr << "Expr path result\n";
+    for (const auto& [expr_g, dir] : result) {
+      std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
+    }
+
+    auto tv4_pad = tv5->definition()->input(0)->as<TensorView>();
+    auto tv2_pad = tv5->definition()->input(1)->as<TensorView>();
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv2->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(1)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2->getLogicalDomain().at(1)->definition()),
          Direction::Backward}};
 
     VALIDATE_EXPR_PATH(result, reference_path);
