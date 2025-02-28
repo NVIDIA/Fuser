@@ -394,10 +394,8 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   // replaying the allocation domain. Otherwise it might alter user semantics,
   // violating memory layout required by aliasing
   if (orig->isFusionOutput()) {
-    auto new_domain = TransformReplay::selfAllocationReplay(
+    TransformReplay::selfAllocationReplay(
         replacement->domain(), orig->domain());
-    replacement->setAllocationDomain(
-        new_domain->maybeAllocation(), new_domain->contiguity());
   }
 
   if (needs_resharding) {

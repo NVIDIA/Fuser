@@ -170,7 +170,10 @@ TensorDomain* TransformReplay::fullSelfReplay(
 
   NVF_ERROR(
       new_self_root->maybeRoot().size() == self->maybeRoot().size(),
-      "Invalid number of IterDomains provided.");
+      "Invalid number of IterDomains provided: ",
+      new_self_root->maybeRoot().size(),
+      " vs ",
+      self->maybeRoot().size());
 
   // Map for replay, should be pretty simple.
   id_map axis_map;
@@ -233,8 +236,8 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_self_root->contiguity());
 }
 
-TensorDomain* TransformReplay::selfAllocationReplay(
-    const TensorDomain* new_self_root,
+void TransformReplay::selfAllocationReplay(
+    TensorDomain* new_self_root,
     const TensorDomain* self) {
   FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
 
@@ -249,7 +252,10 @@ TensorDomain* TransformReplay::selfAllocationReplay(
 
   NVF_ERROR(
       new_self_logical.size() == self_logical.size(),
-      "Invalid number of IterDomains provided.");
+      "Invalid number of IterDomains provided: ",
+      new_self_logical.size(),
+      " vs ",
+      self_logical.size());
 
   // Map for replay
   id_map axis_map;
@@ -314,14 +320,7 @@ TensorDomain* TransformReplay::selfAllocationReplay(
     }
   }
 
-  return IrBuilder::createInContainer<TensorDomain>(
-      new_self_root->container(),
-      new_self_root->maybeRoot(),
-      new_self_root->logical(),
-      new_alloc_domain,
-      new_self_root->loop(),
-      new_contiguity,
-      new_self_root->additionalIDs());
+  return new_self_root->setAllocationDomain(new_alloc_domain, new_contiguity);
 }
 
 namespace {

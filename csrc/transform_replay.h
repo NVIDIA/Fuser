@@ -227,9 +227,10 @@ class NVF_API TransformReplay {
       const TensorDomain* new_self_root,
       const TensorDomain* self);
 
-  // Self replay only the allocation transformation.
-  static TensorDomain* selfAllocationReplay(
-      const TensorDomain* new_self_root,
+  // Self replay the transformation on `self` from logical to allocation onto
+  // `new_self_root`.
+  static void selfAllocationReplay(
+      TensorDomain* new_self_root,
       const TensorDomain* self);
 
   // Returns the loop position in producer that matches with `consumer_pos` in
