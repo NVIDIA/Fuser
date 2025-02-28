@@ -12,6 +12,7 @@
 #include <regex>
 
 #include <debug.h>
+#include <device_lower/analysis/bank_conflict.h>
 #include <fusion.h>
 #include <ir/utils.h>
 #include <mma_type.h>
@@ -3203,6 +3204,95 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   auto at_output = at_tv0 + at_tv1;
   testValidate(
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, LdStMatrixSet) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  const auto dtype = DataType::BFloat16;
+
+  // Fusion Overview:
+  // tv0 - None (global memory)
+  // tv0_smem - Tma load with swizzle 128B (shared memory)
+  // tv0_reg - LdMatrix (registers)
+  // tv1_smem - StMatrix (shared memory)
+  // tv1 - Tma store with swizzle 128B (global memory)
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
+  fusion.addInput(tv0);
+  TensorView* tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // The definition for tv0_smem is tma load, which moves data from shared to
+  // global memory.
+  TensorView* tv0_smem = tv0->cacheAfter();
+  tv0_smem->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0_smem->setMemoryType(MemoryType::Shared);
+
+  // TODO Add ldmatrix support
+  // The definition for tv0_reg is ldmatrix, which moves data from shared memory
+  // to registers.
+  [[maybe_unused]] TensorView* tv0_reg = tv0_smem->cacheAfter();
+
+  // The definition for tv1_smem is stmatrix, which moves data from registers to
+  // shared memory.
+  TensorView* tv1_smem = tv1->cacheBefore();
+  // tv1_smem->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv1_smem->setMemoryType(MemoryType::Shared);
+
+  // The definition for tv1 is tma store, which moves data from shared to global
+  // memory.
+  tv1->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::CpAsyncBulkTensorTile);
+
+  constexpr int dim0 = 8192, dim1 = 8192;
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {at_tv0});
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  EXPECT_TRUE(getBankConflictInfo(kernel).empty());
+  auto cg_outputs = ke.run({at_tv0});
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
+
+  // 2D block tile, Parallelize
+  // (M, N)
+  // (GM, BM, GN, BN) // split
+  // (GM, GN, BM(128), BN(256)) // reorder
+  // transformAllLike
+  // parallelizeAllLike
+  //
+  // (GM, GN, 2, 4, 64, 64)  // split 2d tile by (64, 64) sub-tile for ldst
+  // matrix (GM, GN, 2, 4, 64*64)  // merge 2d tile into 1d vector (GM, GN, 2,
+  // 4, 512, 8(V))  // vectorize (GM, GN, 2, 4, 4, 128(TDX), 8(V))  // 128
+  // threads Move data from tv0_smem to tv0_reg using 128 threads - ldmatrix
+  // Move data from tv0_reg to tv1_smem using 128 threads - stmatrix
+  //
+  // Schedule output from TMA Load
+  // MmaInputSmemSwizzle input_swizzle =
+  // mma_utils::tmaSwizzleSharedMemory(tv0_smem);
+  // tv0_smem->applyMmaSwizzleForTMALoad(input_swizzle);
+  //
+  // Schedule global memory output from TMA Store
+  // MmaInputSmemSwizzle output_swizzle =
+  // mma_utils::tmaSwizzleSharedMemory(tv0_smem);
+  // mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
+  //
+  // TODO Add ldmatrix scheduling
+  //
+  // Schedule shared memory output from stmatrix
+  // if (swizzle != MmaInputSmemSwizzle::None) {
+  //   // Create tma store allocation domain with swizzle
+  //   mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, swizzle);
+  // }
+  // tv1_smem->setLoopDomain(s.as<IterDomain*>());
+  // mma_utils::scheduleStMatrixForMmaOutput(tv1_smem, stmatrix_tile_m,
+  // stmatrix_tile_n);
 }
 
 } // namespace nvfuser
