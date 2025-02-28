@@ -687,6 +687,7 @@ class VectorizeValidator : public OptInDispatch {
 
     // Except for TMem, allow half2, float2, float4 and same sized vtypes.
     std::vector<int64_t> allowed_vector_sizes = {2, 4, 8, 16};
+    // TMem can vectorize up to 512 bytes.
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
         (ldst->opType() == LoadStoreOpType::LdTMem ||
          ldst->opType() == LoadStoreOpType::StTMem)) {
