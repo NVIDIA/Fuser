@@ -257,10 +257,10 @@ std::pair<ExprGroupPath, bool> getAllExprGroupsBetween(
       ValGraphInputs,
       ValGraphOutputs>
       finder(
-          ValGraphDefinitions(graph),
-          ValGraphUses(graph),
-          ValGraphInputs(graph),
-          ValGraphOutputs(graph),
+          ValGraphDefinitions{graph},
+          ValGraphUses{graph},
+          ValGraphInputs{graph},
+          ValGraphOutputs{graph},
           {from.vector().begin(), from.vector().end()},
           {to.vector().begin(), to.vector().end()},
           require_all_to_visited,
