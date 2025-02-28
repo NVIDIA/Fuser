@@ -574,7 +574,7 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
                    .second);
 }
 
-using FindAllPathsTest = NVFuserTest;
+using FindAllExprsTest = NVFuserTest;
 
 #define VALIDATE_EXPR_PATH(actual, ref)                             \
   do {                                                              \
@@ -592,7 +592,7 @@ using FindAllPathsTest = NVFuserTest;
   } while (0);
 
 // Traversing backward and then forward
-TEST_F(FindAllPathsTest, Test1) {
+TEST_F(FindAllExprsTest, Test1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -638,7 +638,7 @@ TEST_F(FindAllPathsTest, Test1) {
 }
 
 // Traversing a cyclic graph
-TEST_F(FindAllPathsTest, Test2) {
+TEST_F(FindAllExprsTest, Test2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -657,6 +657,8 @@ TEST_F(FindAllPathsTest, Test2) {
   auto tv6 = add(tv5, tv4);
   fusion.addOutput(tv6);
 
+  fusion.print();
+
   // Effectiely, the ID graph looks like:
   //
   // {tv0, tv2, tv4, tv5, tv6}
@@ -667,6 +669,8 @@ TEST_F(FindAllPathsTest, Test2) {
 
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
+
+  graph.dumpGraphvizDotGraph("graph2.dot");
 
   ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
 
@@ -682,13 +686,13 @@ TEST_F(FindAllPathsTest, Test2) {
                       .first;
 
     ExprGroupPath reference_path{
-        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
-         Direction::Forward},
         {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
-        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
         {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
          Direction::Forward}};
 
     VALIDATE_EXPR_PATH(result, reference_path);
@@ -704,14 +708,18 @@ TEST_F(FindAllPathsTest, Test2) {
                       Direction::Backward)
                       .first;
 
+    for (const auto& [e, d]: result) {
+      std::cerr << d << ", " << nvfuser::toString(e) << "\n";
+    }
+
     ExprGroupPath reference_path{
-        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
-         Direction::Backward},
         {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
          Direction::Backward},
-        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
          Direction::Backward},
         {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
          Direction::Backward}};
 
     VALIDATE_EXPR_PATH(result, reference_path);
@@ -723,23 +731,26 @@ TEST_F(FindAllPathsTest, Test2) {
     auto result =
         getAllExprGroupsBetween(graph, tv0_loop_groups, tv0_loop_groups).first;
 
+    for (const auto& [e, d]: result) {
+      std::cerr << d << ", " << nvfuser::toString(e) << "\n";
+    }
     ExprGroupPath reference_path{
-        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
-         Direction::Backward},
-        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
-         Direction::Backward},
-        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
-         Direction::Forward},
         {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
-        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
-         Direction::Backward},
         {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
          Direction::Backward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
         {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
-        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
-         Direction::Forward}};
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
 
     VALIDATE_EXPR_PATH(result, reference_path);
   }
@@ -750,7 +761,7 @@ TEST_F(FindAllPathsTest, Test2) {
 //  A ----> B ----> D
 //      ^       |
 //      +-- C <-+
-TEST_F(FindAllPathsTest, Test3) {
+TEST_F(FindAllExprsTest, Test3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
@@ -833,9 +844,9 @@ TEST_F(FindAllPathsTest, Test3) {
          Direction::Backward},
         {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
          Direction::Backward},
-        {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
-         Direction::Backward},
         {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
          Direction::Backward}};
 
     VALIDATE_EXPR_PATH(result, reference_path);
@@ -859,12 +870,18 @@ TEST_F(FindAllPathsTest, Test3) {
          Direction::Forward},
         {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
+        {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
         {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
         {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
-        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
-         Direction::Forward}};
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
 
     VALIDATE_EXPR_PATH(result, reference_path);
   }
