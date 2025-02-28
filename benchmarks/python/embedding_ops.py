@@ -2,8 +2,6 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import torch
-from functools import partial
-
 
 from .model_configs import configs
 
