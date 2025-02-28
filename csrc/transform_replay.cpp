@@ -279,44 +279,47 @@ void TransformReplay::selfAllocationReplay(
   }
 
   // Replay producer dimensions.
-  auto self_allocation = TensorDomain::noReductions(self->maybeAllocation());
-  ReplaySelf replay(self_allocation, axis_map);
-  std::vector<IterDomain*> mapped_alloc_domain(self_allocation.size(), nullptr);
-  std::vector<std::optional<bool>> mapped_contiguity = self->contiguity();
+  const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
+  const std::vector<std::optional<bool>>& self_contiguity = self->contiguity();
 
-  {
-    int64_t i = 0;
-    for (auto id : self_allocation) {
-      auto it = replay.getReplay().find(id);
-      NVF_ERROR(
-          it != replay.getReplay().end(),
-          "Error during replay, didn't replay an axis.");
-      if (it->second->isBroadcast() == mapped_contiguity[i].has_value()) {
-        // whether we resolve to true or false shouldn't matter since it's going
-        // to be concretized as a broadcast dimension
-        mapped_contiguity[i] =
-            it->second->isBroadcast() ? std::nullopt : std::make_optional(true);
-      }
-      mapped_alloc_domain[i++] = it->second;
-    }
-  }
-
-  // We need to put back the reduction IDs that are not mapped
+  // we replay only non-reduction IDs. The reason is that, we might have
+  // non-mapping reduction IDs between self and new_self_root. This is used in
+  // `RemoveBcastSqueeze`.
+  ReplaySelf replay(TensorDomain::noReductions(self_allocation), axis_map);
   std::vector<IterDomain*> new_alloc_domain;
-  new_alloc_domain.reserve(new_self_root->logical().size());
   std::vector<std::optional<bool>> new_contiguity;
+  new_alloc_domain.reserve(new_self_root->logical().size());
   new_contiguity.reserve(new_self_root->logical().size());
+
   {
-    size_t i = 0;
+    // Push back the reduction IDs that are not mapped
     for (auto id : new_self_root->logical()) {
       if (id->isReduction()) {
         new_alloc_domain.push_back(id);
         new_contiguity.emplace_back(std::nullopt);
-      } else if (i < mapped_contiguity.size()) {
-        new_alloc_domain.push_back(mapped_alloc_domain[i]);
-        new_contiguity.push_back(mapped_contiguity[i]);
-        i++;
       }
+    }
+
+    // Pushing the mapped IDs and corresponding contiguity flags
+    for (size_t i = 0; i < self_contiguity.size(); i++) {
+      IterDomain* id = self_allocation[i];
+      if (id->isReduction()) {
+        continue;
+      }
+      auto it = replay.getReplay().find(id);
+      NVF_ERROR(
+          it != replay.getReplay().end(),
+          "Error during replay, didn't replay an axis.");
+      if (it->second->isBroadcast() == self_contiguity[i].has_value()) {
+        // whether we resolve to true or false shouldn't matter since it's going
+        // to be concretized as a broadcast dimension
+        new_contiguity.push_back(
+            it->second->isBroadcast() ? std::nullopt
+                                      : std::make_optional(true));
+      } else {
+        new_contiguity.push_back(self_contiguity[i]);
+      }
+      new_alloc_domain[i++] = it->second;
     }
   }
 
