@@ -4279,11 +4279,6 @@ class MLPBenchmarkTest
 };
 
 TEST_P(MLPBenchmarkTest, FwdGEMM) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
