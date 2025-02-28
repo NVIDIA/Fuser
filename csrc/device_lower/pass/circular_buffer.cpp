@@ -1176,6 +1176,10 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
     validateCircularBufferLoop(circular_buffer_loop);
 
     insertion_info_[circular_buffer_loop].push_back(expr);
+
+    std::cout << "Found circular buffer loop:\n"
+              << circular_buffer_loop->toString() << std::endl;
+    std::cout << "expr: " << expr->toString() << std::endl;
   }
 
   void handle(UnaryOp* uop) final {
@@ -1412,7 +1416,8 @@ class CircularBufferInserter : private kir::ExprMutator {
     kir::Predicate* predicate_val = nullptr;
     Val* raw =
         GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
-    if((raw->isConst() && raw->value().as<int64_t>() == 2) || warp_specialize_on != ParallelType::TIDx){
+    if ((raw->isConst() && raw->value().as<int64_t>() == 2) ||
+        warp_specialize_on != ParallelType::TIDx) {
       tma_val = SimplifyingIrBuilder::subExpr(
           raw, circular_buffer_loop->fusion()->oneVal());
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
@@ -1423,7 +1428,8 @@ class CircularBufferInserter : private kir::ExprMutator {
           raw, IrBuilder::create<Val>(128L, DataType::Index));
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
           NamedScalar::getParallelIndex(warp_specialize_on), tma_val));
-      std::cout << "insertTmaWarpSpecialized pred " << predicate_val->toInlineString() << std::endl;
+      std::cout << "insertTmaWarpSpecialized pred "
+                << predicate_val->toInlineString() << std::endl;
     }
     kir::IfThenElse* warp_dispatch_ite =
         IrBuilder::create<kir::IfThenElse>(predicate_val);
@@ -1463,7 +1469,7 @@ class CircularBufferInserter : private kir::ExprMutator {
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
 
     // Nest load loop inside the warp dispatch if-then-else
-    if(require_nested_ite){
+    if (require_nested_ite) {
       kir::IfThenElse* load_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
               NamedScalar::getParallelIndex(warp_specialize_on),
@@ -1473,11 +1479,9 @@ class CircularBufferInserter : private kir::ExprMutator {
                   circular_buffer_loop->fusion()->oneVal()))));
       load_dispatch_ite->thenBody().push_back(load_loop);
       warp_dispatch_ite->thenBody().push_back(load_dispatch_ite);
-    }else{
+    } else {
       warp_dispatch_ite->thenBody().push_back(load_loop);
     }
-
-
 
     if (enable_register_sharing) {
       // Terminate the warp group handling Load loop immediately after
@@ -1493,6 +1497,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
+
     warp_dispatch_ite->elseBody().push_back(compute_loop);
 
     registerReplace(circular_buffer_loop, warp_dispatch_ite);
@@ -1720,9 +1725,128 @@ kir::TensorIndex* TmaCircularBufferInfo::getTensorIndex(const Expr* expr) {
   return ldst_mbarrier_index_map_.at(expr);
 }
 
+// // Traverse lowered loop-nests and find all circular buffer loops and
+// // associated load expressions.
+// class GetWarpSpecializedIfThenElse : private kir::IrVisitor {
+//  public:
+//   static kir::IfThenElse run(const std::vector<Expr*>& exprs) {
+//     GetWarpSpecializedIfThenElse worker(exprs);
+//     return worker.insertion_info_;
+//   }
+
+//  private:
+//   CircularBufferLoopNestInspector(const std::vector<Expr*>& exprs) {
+//     handle(exprs);
+//   }
+
+//   using kir::IrVisitor::handle;
+
+// };
+
+class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
+ public:
+  static std::vector<Expr*> run(const std::vector<Expr*>& exprs) {
+    return MoveTopExprsToComputeWarpLoop(exprs).exprs_;
+  }
+
+ private:
+  bool processing_warp_compute_loop_ = false;
+  std::vector<Expr*> exprs_before_grid_loop_;
+  kir::IfThenElse* warp_specialized_ite_ = nullptr;
+  std::unordered_set<Expr*> exprs_to_be_moved_;
+
+  void setExprsTobeMoved() {
+    auto isValUsedByExpr = [](Val* tv, Expr* expr) {
+      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+        for (auto nested_expr :
+             ir_utils::flattenScopedExprs(fl->body().exprs())) {
+          for (auto input : nested_expr->inputs()) {
+            if (input == tv) {
+              return true;
+            }
+          }
+          for (auto output : nested_expr->outputs()) {
+            if (output == tv) {
+              return true;
+            }
+          }
+        }
+      }
+      for (auto input : expr->inputs()) {
+        if (input == tv) {
+          return true;
+        }
+      }
+      for (auto output : expr->outputs()) {
+        if (output == tv) {
+          return true;
+        }
+      }
+      return false;
+    };
+    int num_exprs = (int)exprs_before_grid_loop_.size();
+    for (int i = 0; i < num_exprs; i++) {
+      auto expr = exprs_before_grid_loop_.at(i);
+      if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
+        if (alloc->memoryType() == MemoryType::Local &&
+            alloc->size()->value().as<int64_t>() > 1) {
+          exprs_to_be_moved_.insert(expr);
+          for (int j = i + 1; j < num_exprs; j++) {
+            auto expr2 = exprs_before_grid_loop_.at(j);
+            if (isValUsedByExpr(alloc->buffer(), expr2)) {
+              exprs_to_be_moved_.insert(expr2);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  MoveTopExprsToComputeWarpLoop(const std::vector<Expr*>& exprs) {
+    for (auto expr : exprs) {
+      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+        if (fl->iter_domain()->isBlockDim()) {
+          break;
+        }
+      }
+      exprs_before_grid_loop_.emplace_back(expr);
+    }
+    setExprsTobeMoved();
+
+    traverseAndInsert(exprs);
+  }
+
+  using kir::ExprMutator::handle;
+
+  void handle(ForLoop* loop) final {
+    kir::ExprMutator::handle(loop);
+
+    if (loop->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp) {
+      std::cout << "processing_warp_compute_loop_ is loop:\n"
+                << loop->toString() << std::endl;
+      for(auto expr : exprs_to_be_moved_){
+        std::cout << "exprs_to_be_moved_ is: " << expr->toString() << std::endl;
+        registerInsertBefore(loop, expr);
+        // registerRemove(expr);
+      }
+      processing_warp_compute_loop_ = true;
+    }
+  }
+  // void handle(kir::Allocate* allocate) final {
+  //   if (auto buffer_tv = dynamic_cast<TensorView*>(allocate->buffer())) {
+  //     if (dead_tvs_.count(buffer_tv)) {
+  //       registerRemove(allocate);
+  //     }
+  //   }
+  // }
+};
+
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
   InsertionInfo insertion_info = CircularBufferLoopNestInspector::run(exprs);
-  return CircularBufferInserter::run(exprs, insertion_info);
+  std::vector<Expr*> exprs_circular_buffer =
+      CircularBufferInserter::run(exprs, insertion_info);
+  return MoveTopExprsToComputeWarpLoop::run(exprs_circular_buffer);
 }
 
 } // namespace nvfuser
