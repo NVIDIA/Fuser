@@ -36,10 +36,28 @@ void MultipleMatmulScheduler::translatePatterns() {
       }
     }
 
-    MmaOp* mma = pattern.translateToMmaOp(
+    mma_utils::MatmulPattern::TranslationResult res = pattern.translateToMmaOp(
         /*avoid_intermediates=*/!isAmpere(params_->mma_macro) &&
         !isTuring(params_->mma_macro));
-    mma_results_.push_back(mma->out()->as<TensorView>());
+    mma_results_.push_back(res.mma->out()->as<TensorView>());
+
+    // During MatmulPattern translation, we might replace some tensors in the
+    // fusion. If those replaced tensors were themselves the A or B members of
+    // another MatmulPattern, we should update the pattern to point to the
+    // replacement.
+    for (mma_utils::MatmulPattern& other_pattern : patterns_) {
+      if (&other_pattern == &pattern) {
+        continue;
+      }
+      if (auto it = res.replacements.find(other_pattern.A);
+          it != res.replacements.end()) {
+        other_pattern.A = it->second;
+      }
+      if (auto it = res.replacements.find(other_pattern.B);
+          it != res.replacements.end()) {
+        other_pattern.B = it->second;
+      }
+    }
   }
 
   // Build IdModel graphs now since translateToMmaOp creates new TVs. Before

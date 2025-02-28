@@ -323,6 +323,13 @@ struct MatmulPattern {
   // LinearOp.
   TensorView* output;
 
+  struct TranslationResult {
+    MmaOp* mma = nullptr;
+    // This is useful for replaying replacements of TVs in MatmulPatterns when
+    // there are multiple patterns in a single fusion.
+    std::unordered_map<TensorView*, TensorView*> replacements;
+  };
+
   //! If the pattern is not already represented by an MmaOp, for example if
   //! there is a MatmulOp instead, this function modifies the fusion to insert
   //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
@@ -331,7 +338,7 @@ struct MatmulPattern {
   //! If avoid_intermediates is true, this function will use an
   //! MmaOp::AxisMapping instead of broadcasting and permuting axes, in order to
   //! avoid introducing unnecessary copies on Hopper and above.
-  MmaOp* translateToMmaOp(bool avoid_intermediates = false);
+  TranslationResult translateToMmaOp(bool avoid_intermediates = false);
 
   //! Given an IdModel, map groups of IterDomains to dimension roles
   //! (MatmulDimRole). Note that ValGroup is a shared_ptr to a
