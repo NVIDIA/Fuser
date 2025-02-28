@@ -281,11 +281,13 @@ void TransformReplay::selfAllocationReplay(
   // Replay producer dimensions.
   const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
   const std::vector<std::optional<bool>>& self_contiguity = self->contiguity();
+  const std::vector<IterDomain*>& self_allocation_no_reduction =
+      TensorDomain::noReductions(self_allocation);
 
   // we replay only non-reduction IDs. The reason is that, we might have
   // non-mapping reduction IDs between self and new_self_root. This is used in
   // `RemoveBcastSqueeze`.
-  ReplaySelf replay(TensorDomain::noReductions(self_allocation), axis_map);
+  ReplaySelf replay(self_allocation_no_reduction, axis_map);
   std::vector<IterDomain*> new_alloc_domain;
   std::vector<std::optional<bool>> new_contiguity;
   new_alloc_domain.reserve(new_self_root->logical().size());
