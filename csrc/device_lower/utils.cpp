@@ -1960,10 +1960,18 @@ Val* proveLinearAndGetStride(
       // the dynamic type Projection.
       return nullptr;
     }
+    // Try to prove linear and get stride with the current frontier. We may not
+    // have finished the propagation yet, but because ValGraphPermissiveBFS
+    // supports missing dependency, and with missing dependency, we only have
+    // partial information on how to reach to a state that is easiest for our
+    // proof. It is possible that the easiest state is not the final state of the
+    // propagation. So we need to try the proof each step of the propagation.
+    Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+    if (stride != nullptr) {
+      return stride;
+    }
   }
-  // After propagation, we should have the information about how linear_g lives
-  // in domain. Parse this information to check if linear_g is linear in domain.
-  return proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  return nullptr;
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
