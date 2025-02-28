@@ -319,7 +319,7 @@ void TransformReplay::selfAllocationReplay(
       } else {
         new_contiguity.push_back(self_contiguity[i]);
       }
-      new_alloc_domain[i++] = it->second;
+      new_alloc_domain.push_back(it->second);
     }
   }
 
