@@ -12,6 +12,7 @@
 #include <disjoint_set.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
+#include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
@@ -23,9 +24,6 @@
 #include <type.h>
 #include <val_graph.h>
 #include <variant>
-
-#include <ranges>
-#include "ir/utils.h"
 
 namespace nvfuser {
 
@@ -1936,8 +1934,7 @@ class MatmulTranslator : public OptInDispatch {
       // mapping when we broadcast then use it to perform a permute if
       // necessary.
       std::unordered_map<ValGroup, size_t> group_position;
-      for (size_t pos : std::ranges::views::iota(
-               (size_t)0, orig_operand->getLogicalDomain().size())) {
+      for (size_t pos : c10::irange(orig_operand->getLogicalDomain().size())) {
         IterDomain* operand_id = orig_operand->getLogicalDomain().at(pos);
         group_position[graph.toGroup(operand_id)] = pos;
       }
@@ -1986,8 +1983,12 @@ class MatmulTranslator : public OptInDispatch {
 
       TensorView* new_operand = fusion_input;
       if (num_broadcasts > 0) {
+        NVF_ERROR(num_broadcasts <= group_position.size());
         std::vector<bool> flags(group_position.size(), false);
-        std::fill(flags.end() - num_broadcasts, flags.end(), true);
+        std::fill(
+            flags.begin() + (group_position.size() - num_broadcasts),
+            flags.end(),
+            true);
         new_operand = broadcast(new_operand, flags);
         set_up_intermediate(new_operand);
       }
