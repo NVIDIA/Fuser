@@ -186,10 +186,10 @@ void IrContainer::registerVal(Val* val) {
     return;
   }
 
-  vals_up_.emplace_back(std::unique_ptr<Val>(val));
-  vals_.emplace(vals_up_.back().get());
-  val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
-  raw_ptrs_.emplace((void*)vals_up_.back().get());
+  vals_up_.emplace_back(val);
+  vals_.insert(val);
+  val->setName(IrContainerPasskey(), getValName(val->vtype()));
+  raw_ptrs_.insert((void*)val);
 }
 
 //! Register expr with this container.
@@ -197,10 +197,10 @@ void IrContainer::registerExpr(Expr* expr) {
   if (inContainer(expr)) {
     return;
   }
-  exprs_up_.emplace_back(std::unique_ptr<Expr>(expr));
-  exprs_.emplace(exprs_up_.back().get());
+  exprs_up_.emplace_back(expr);
+  exprs_.insert(expr);
   expr->setName(IrContainerPasskey(), getExprName());
-  raw_ptrs_.emplace((void*)exprs_up_.back().get());
+  raw_ptrs_.insert((void*)expr);
 }
 
 void IrContainer::clear() noexcept {
