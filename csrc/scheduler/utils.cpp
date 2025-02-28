@@ -2227,55 +2227,58 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
     std::unordered_map<int64_t, int64_t> old2new;
     // Make sure rfactor dims we need are in domain, and reorder them in domain
-    // so they're consecutive starting from the left of domain. TODO: We could
-    // improve this so that if there's transformations replayed after the
-    // rfactor dims we could try and pull those through the fusion instead of
-    // enforcing rfactor dims are in domain.
+    // so they're consecutive starting from the left of domain.
+    // The reordering is to limit the propagation to only the view
+    // transformations.
     for (auto logical_id : tv->getLogicalDomain()) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
-        // Check if logical ID is directly in the loop domain
-        auto find_it = std::find(
-            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), logical_id);
+        // The rfactor dims are not in the loop domain directly if they are
+        // sharded. For example, Consider the split reshape: `[h]->[a, h/a]` `h`
+        // and `a` are both sharded by `d`. The loop domain of the consumer is
+        // `[DIDx(d), a/d, h/a]`. Hence, we cannot directly find logical ID `a`
+        // in the loop domain. Similarly, for merge reshape: `[a, h/a]->[h]`, we
+        // cannot directly find `h` in the loop domain when `h` is sharded by
+        // `d`.
 
-        // If not found directly and there is a sharded loop ID,
-        // check if the logical ID is the same as the producer of the DID split.
-        // For example, Consider the split reshape: `[h]->[a, h/a]`
-        // `h` and `a` are both sharded by `d`. The loop domain of the consumer
-        // is `[DIDx(d), a/d, h/a]`. Hence, we cannot directly find logical ID
-        // `a` in the loop domain. Similarly, for merge reshape: `[a,
-        // h/a]->[h]`, we cannot directly find `h` in the loop domain when `h`
-        // is sharded by `d`.
-        if (find_it == tv->getLoopDomain().end()) {
-          int64_t sharded_axis = getShardedLoopAxis(tv, ParallelType::DIDx);
-          if (sharded_axis != -1) {
-            // Get the split operation that created the DIDx dimension
-            auto split = dynamic_cast<Split*>(
-                tv->getLoopDomain().at(sharded_axis)->definition());
-            if (split != nullptr && split->in() == logical_id) {
-              // Move the DIDx dimension to the front
-              old2new[sharded_axis] = (int64_t)old2new.size();
-              // Find the inner iterdomain of the split in loop domain for
-              // reordering.
-              find_it = std::find(
-                  tv->getLoopDomain().begin(),
-                  tv->getLoopDomain().end(),
-                  split->inner());
-            }
+        // Find all reachable ids between the logical id and the loop domain.
+        // If the ids are in the loop domain, reorder them to the front.
+        auto transforms = DependencyCheck::getAllExprsBetween(
+            {logical_id},
+            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+        std::vector<IterDomain*> reachable_ids;
+        // Add the logical id for the case where it is directly in the loop
+        // domain.
+        reachable_ids.push_back(logical_id);
+
+        for (auto expr : transforms) {
+          auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
+          std::copy(
+              outputs.begin(),
+              outputs.end(),
+              std::back_inserter(reachable_ids));
+        }
+
+        bool has_reachable_loop_id = false;
+        for (auto id : reachable_ids) {
+          auto find_it = std::find(
+              tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
+          if (find_it == tv->getLoopDomain().end()) {
+            continue;
           }
+          has_reachable_loop_id = true;
+          // Reorder the reshape dimensions to the front of the domain
+          int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
+          old2new[old_pos] = (int64_t)old2new.size();
         }
 
         NVF_ERROR(
-            find_it != tv->getLoopDomain().end(),
+            has_reachable_loop_id,
             "Require ",
             logical_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-
-        // Reorder the reshape dimensions to the front of the domain
-        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
-        old2new[old_pos] = (int64_t)old2new.size();
       }
     }
 
