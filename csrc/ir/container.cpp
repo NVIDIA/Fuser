@@ -209,27 +209,32 @@ void IrContainer::clear() noexcept {
   expr_name_counter_ = 0;
 }
 
-bool IrContainer::inContainer(const Statement* stmt) const {
-  const void* const_raw_ptr = reinterpret_cast<const void*>(stmt);
-  void* raw_ptr = const_cast<void*>(const_raw_ptr);
+bool IrContainer::inContainer(const Statement* const_stmt) const {
+  // We don't use dynamic_cast here because `const_stmt` may be an invalid
+  // pointer. Specifically a pointer to a Statement owned by another container
+  // that has been freed.
+
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  void* raw_ptr = const_cast<void*>(reinterpret_cast<const void*>(const_stmt));
   if (exprs_.count(reinterpret_cast<Expr*>(raw_ptr)) == 0 &&
       vals_.count(reinterpret_cast<Val*>(raw_ptr)) == 0) {
     return false;
   }
 
   NVF_ERROR(
-      stmt->container() == this,
+      const_stmt->container() == this,
       "Container claims to own stmt, but stmt disagrees.");
 
-  Statement* nonconst_stmt = const_cast<Statement*>(stmt); // NOLINT
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  auto* stmt = const_cast<Statement*>(const_stmt);
   if (stmt->isExpr()) {
     NVF_ERROR(
-        exprs_.find(nonconst_stmt->as<Expr>()) != exprs_.end(),
+        exprs_.find(stmt->as<Expr>()) != exprs_.end(),
         "Somehow container claims to and not to own an Expr.");
   }
   if (stmt->isVal()) {
     NVF_ERROR(
-        vals_.find(nonconst_stmt->as<Val>()) != vals_.end(),
+        vals_.find(stmt->as<Val>()) != vals_.end(),
         "Somehow container claims to and not to own an Val.");
   }
 
