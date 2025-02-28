@@ -32,7 +32,7 @@ def test_embedding_fwd_benchmark(
         kwargs["nv_enable_embedding"] = True
 
     test_case = embedding_setup[variation](dtype=torch.bfloat16)
-    inputs = test_case.input()
+    inputs = test_case.inputs()
     model = test_case.model()
 
     def fwd_call(inp):
@@ -66,7 +66,7 @@ def test_embedding_bwd_benchmark(
         kwargs["nv_enable_embedding"] = True
 
     test_case = embedding_setup[variation](dtype=torch.bfloat16)
-    fwd_inputs = test_case.input()
+    fwd_inputs = test_case.inputs()
     model = test_case.model()
 
     def fwd_call(inp):
