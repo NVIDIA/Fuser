@@ -89,7 +89,7 @@ void exactMappedExtentSubstitution(Fusion* fusion) {
   std::unordered_map<Val*, Val*> replacement_map;
 
   // Build the exact graph
-  IdModel id_model(fusion, false, false, false);
+  IdModel id_model(fusion);
   id_model.buildExactGraph();
   const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
   const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
