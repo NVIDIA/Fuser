@@ -10,8 +10,6 @@
 #include <device_lower/lower2device.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <id_model/indexing_traversal.h>
-#include <id_model/predicate_indexing.h>
 #include <id_model/utils.h>
 #include <index_compute.h>
 #include <instrumentation.h>
@@ -73,249 +71,52 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 
 namespace {
 
-// For a given loop nest represented by a vector of ForLoops, returns
-// all unswitched parallel loop IDs that do not require parallel type
-// predicates. An ID is considered fully unswitched when all of its
-// dependent loop IDs are unswitched. Similarly, a loop is fully
-// unswitched when all of its dependent predicated IDs are fully
-// unswitched. This information is used to determine if it's safe to
-// omit the predicate for a parallel type.
-std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
-    const Expr* expr,
+std::unordered_set<Val*> getNonUnswitchedRootDomains(
     const std::vector<ForLoop*>& loops,
-    ForLoop* unswitched_loop) {
-  if (unswitched_loop == nullptr) {
-    return {};
-  }
-
-  const auto& id_model = GpuLower::current()->idModel();
-  const auto& indexing_graph =
-      id_model.idGraph(TensorIndexer::traversalGraphType());
-
-  auto out_tv = ir_utils::getTvOutput(expr);
-  NVF_ERROR(out_tv != nullptr);
-
-  std::vector<IterDomain*> loop_ids;
-  loop_ids.reserve(loops.size());
+    size_t unswitched_loop_index) {
+  std::vector<Val*> non_unswited_loop_domains;
   std::transform(
       loops.begin(),
-      loops.end(),
-      std::back_inserter(loop_ids),
-      [&](ForLoop* loop) {
-        return getLoopPromotion(loop->iter_domain(), id_model);
+      loops.begin() + (int64_t)unswitched_loop_index,
+      std::back_inserter(non_unswited_loop_domains),
+      [&](ForLoop* loop) { return loop->iter_domain(); });
+
+  auto non_unswitched_inputs =
+      IterVisitor::getInputsTo(non_unswited_loop_domains);
+
+  auto non_unswitched_root_doms =
+      ir_utils::filterByType<IterDomain>(non_unswitched_inputs);
+
+  std::unordered_set<Val*> non_unswitched_concrete_root_domains;
+
+  std::transform(
+      non_unswitched_root_doms.begin(),
+      non_unswitched_root_doms.end(),
+      std::inserter(
+          non_unswitched_concrete_root_domains,
+          non_unswitched_concrete_root_domains.end()),
+      [&](auto root_dom) {
+        return GpuLower::current()->caMap()->getConcreteMappedID(
+            root_dom, IdMappingMode::EXACT);
       });
 
-  const auto predicate_ids = getPredicateDomains(out_tv, expr);
-
-  const IndexingTraversal::ExprPath predicate_path =
-      IndexingTraversal::getExprsBetween(
-          expr, indexing_graph, loop_ids, predicate_ids);
-
-  // All loops that are right of unswitched_loop are also unswitched,
-  // except when they are parallelized. We don't assign maximum possible
-  // index values to unswitched parallel loops (e.g., threadIdx.x, not
-  // blockDim.x - 1), so parallelized loops are not considered
-  // unswitched for the sake of this analysis.
-  ValGroups non_unswitch_dep_ids;
-  bool unswitch_found = false;
-  for (const auto loop : loops) {
-    if (loop == unswitched_loop) {
-      unswitch_found = true;
-    }
-    if (!unswitch_found ||
-        isParallelTypeThread(loop->iter_domain()->getParallelType())) {
-      non_unswitch_dep_ids.pushBack(
-          indexing_graph.toGroup(loop->iter_domain()));
-    }
-  }
-
-  // Find all IDs along the predicate indexing path that depend on the
-  // non unswitched loop IDs.
-  for (const auto& [expr_g, dir] : predicate_path) {
-    const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
-    const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
-    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
-          return non_unswitch_dep_ids.has(input);
-        })) {
-      // Depends on non-unswitched ids
-      non_unswitch_dep_ids.pushBack(outputs);
-    }
-  }
-
-  std::vector<IterDomain*> unswitch_protected_loop_ids;
-  unswitch_found = false;
-  for (const auto loop : loops) {
-    if (loop == unswitched_loop) {
-      unswitch_found = true;
-    }
-
-    if (!unswitch_found) {
-      continue;
-    }
-
-    const auto unswitched_loop_id = loop->iter_domain();
-    const ParallelType pt = unswitched_loop_id->getParallelType();
-
-    // Don't care serial loops
-    if (!isParallelTypeThread(pt)) {
-      continue;
-    }
-
-    // Traverse the predicate indexing path from this unswitched loop
-    // ID. If any expr along the path also uses any of the non
-    // unswitched IDs or their dependent IDs, this loop ID is not
-    // considered fully unswitched. Also, even if unswitched,
-    // parallelized loop IDs do not use the maximum possible value as
-    // their indices (e.g., not (blockDim.x - 1) but threadIdx.x), so
-    // there must be no use of any of other parallel types than this
-    // parallel type.
-
-    // Keep track of IDs that have dependencies with unswitched_loop_id
-    ValGroups unswitch_dep_ids;
-    unswitch_dep_ids.pushBack(indexing_graph.toGroup(unswitched_loop_id));
-
-    bool protected_by_unswitch = true;
-
-    for (const auto& [expr_g, dir] : predicate_path) {
-      const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
-      const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
-
-      // If none of the inputs depends on unswitched_loop_id and its
-      // dependents, this expr should not matter.
-      if (std::none_of(
-              inputs.begin(), inputs.end(), [&](const ValGroup& input) {
-                return unswitch_dep_ids.has(input);
-              })) {
-        continue;
-      }
-
-      // If any of the non unswitched IDs is used, this is not
-      // protected. Note that non_unswitch_dep_ids contains all
-      // parallelized unswitched IDs and their dependents, including
-      // unswitched_loop_id itself. Use of unswitched_loop_id and its
-      // dependents should not make unswitched_loop_id not fully
-      // unswitched.
-      if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
-            return non_unswitch_dep_ids.has(input) &&
-                !unswitch_dep_ids.has(input);
-          })) {
-        protected_by_unswitch = false;
-        break;
-      }
-
-      // Continue to keep track of the dependencies from unswitched_loop_id
-      unswitch_dep_ids.pushBack(outputs);
-    }
-
-    if (protected_by_unswitch) {
-      unswitch_protected_loop_ids.push_back(unswitched_loop_id);
-    }
-  }
-
-  return unswitch_protected_loop_ids;
+  return non_unswitched_concrete_root_domains;
 }
 
-std::vector<IterDomain*> getFullyUnswitchedLoopIds(
-    const Expr* expr,
-    const std::vector<ForLoop*>& loops,
-    ForLoop* unswitched_loop) {
-  if (unswitched_loop == nullptr) {
-    return {};
-  }
+bool isFullyUnswitched(
+    IterDomain* loop_id,
+    const std::unordered_set<Val*>& non_unswitched_root_domains) {
+  auto root_vals = IterVisitor::getInputsTo({loop_id});
 
-  const auto& id_model = GpuLower::current()->idModel();
-  const auto& indexing_graph =
-      id_model.idGraph(TensorIndexer::traversalGraphType());
+  auto root_domains = ir_utils::filterByType<IterDomain>(root_vals);
 
-  auto out_tv = ir_utils::getTvOutput(expr);
-  NVF_ERROR(out_tv != nullptr);
-
-  std::vector<IterDomain*> loop_ids;
-  loop_ids.reserve(loops.size());
-  std::transform(
-      loops.begin(),
-      loops.end(),
-      std::back_inserter(loop_ids),
-      [&](ForLoop* loop) {
-        const auto& loop_group =
-            id_model.idGraph(IdMappingMode::LOOP).toGroup(loop->iter_domain());
-        auto promotion_it = id_model.loopPromotionMap().find(loop_group);
-        NVF_ERROR(
-            promotion_it != id_model.loopPromotionMap().end(),
-            "Loop promotion not found for ",
-            loop->iter_domain()->toString());
-        return promotion_it->second;
+  return std::none_of(
+      root_domains.begin(), root_domains.end(), [&](auto root_dom) {
+        auto concrete_root_dom =
+            GpuLower::current()->caMap()->getConcreteMappedID(
+                root_dom, IdMappingMode::EXACT);
+        return non_unswitched_root_domains.count(concrete_root_dom) > 0;
       });
-
-  const auto predicate_ids = getPredicateDomains(out_tv, expr);
-
-  const IndexingTraversal::ExprPath predicate_path =
-      IndexingTraversal::getExprsBetween(
-          expr, indexing_graph, loop_ids, predicate_ids);
-
-  ValGroups non_unswitch_dep_ids;
-  std::vector<IterDomain*> unswitched_loop_ids;
-  bool unswitch_found = false;
-  for (const auto loop : loops) {
-    if (loop == unswitched_loop) {
-      unswitch_found = true;
-    }
-    if (unswitch_found) {
-      unswitched_loop_ids.push_back(loop->iter_domain());
-    } else {
-      non_unswitch_dep_ids.pushBack(
-          indexing_graph.toGroup(loop->iter_domain()));
-    }
-  }
-
-  for (const auto& [expr_g, dir] : predicate_path) {
-    const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
-    const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
-    if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
-          return non_unswitch_dep_ids.has(input);
-        })) {
-      // Depends on non-unswitched ids
-      non_unswitch_dep_ids.pushBack(outputs);
-    }
-  }
-
-  // If none of unswitched_loop_ids is used with the non-unswitched
-  // loop ids,
-
-  std::vector<IterDomain*> fully_unswitched_loop_ids;
-  for (auto unswitched_loop_id : unswitched_loop_ids) {
-    if (!isParallelTypeThread(unswitched_loop_id->getParallelType())) {
-      continue;
-    }
-
-    ValGroups unswitch_dep_ids;
-    unswitch_dep_ids.pushBack(indexing_graph.toGroup(unswitched_loop_id));
-
-    bool conflict_found = false;
-    for (const auto& [expr_g, dir] : predicate_path) {
-      const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
-      const auto outputs = getOutputsOfExprGroup(indexing_graph, expr_g, dir);
-      if (std::none_of(
-              inputs.begin(), inputs.end(), [&](const ValGroup& input) {
-                return unswitch_dep_ids.has(input);
-              })) {
-        continue;
-      }
-
-      if (std::any_of(inputs.begin(), inputs.end(), [&](const ValGroup& input) {
-            return non_unswitch_dep_ids.has(input);
-          })) {
-        conflict_found = true;
-        break;
-      }
-    }
-
-    if (!conflict_found) {
-      fully_unswitched_loop_ids.push_back(unswitched_loop_id);
-    }
-  }
-
-  return fully_unswitched_loop_ids;
 }
 
 } // namespace
@@ -346,15 +147,13 @@ ParallelizedDomainPredicate::getPredicateMap(
   bool within_unswitch = false;
   std::unordered_set<Val*> non_unswitched_root_domains;
 
-  auto unswitch_protected_loop_ids =
-      getUnswitchProtectedParallelLoopIds(expr, loops, unswitched_loop);
-
   for (const auto i : c10::irange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.
     if (loop == unswitched_loop) {
       within_unswitch = true;
+      non_unswitched_root_domains = getNonUnswitchedRootDomains(loops, i);
     }
 
     auto loop_id = loop->iter_domain();
@@ -367,23 +166,9 @@ ParallelizedDomainPredicate::getPredicateMap(
     }
     auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
 
-    // If protected by unswitch, the unswitch predicate is enough without
-    // predicating the parallel type. For example, suppose a logical
-    // ID is inner split by a factor of K and both of the two outputs
-    // are unswitched. Also suppose the inner output IDs is
-    // parallelized with TIDx but the other output is not. The logical
-    // ID would be predicated by something like:
-    //
-    //   threadIdx.x + (ceilDiv(N, K) - 1) * K < N
-    //
-    // where N is the extent of the logical ID. As you can see, since
-    // the other output is assigned with the maximum index, this
-    // predicate is sufficient even when blockDim.x > K.
+    // Parallel dimensions need not be predicated if fully unswitched.
     if (within_unswitch &&
-        std::find(
-            unswitch_protected_loop_ids.begin(),
-            unswitch_protected_loop_ids.end(),
-            loop_id) != unswitch_protected_loop_ids.end()) {
+        isFullyUnswitched(loop_id, non_unswitched_root_domains)) {
       continue;
     }
 
@@ -553,7 +338,7 @@ UnswitchPredicateKey::UnswitchPredicateKey(
   }
 
   // Find the corresponding concrete id for each parallel type
-  for (IterDomain* consumer_loop : parallelized_consumer_loop_ids) {
+  for (auto consumer_loop : parallelized_consumer_loop_ids) {
     auto pt = consumer_loop->getParallelType();
     auto concrete_loop = GpuLower::current()->caMap()->getConcreteMappedID(
         consumer_loop, IdMappingMode::EXACT);
@@ -943,7 +728,7 @@ void UnswitchPredicate::predicateOn(Expr* tv_expr) {
     UnswitchPredicateKey first_key;
     bool first_key_set = false;
 
-    for (IterDomain* root_id : root_ids) {
+    for (auto root_id : root_ids) {
       auto concrete_root_id = gpu_lower->caMap()->getConcreteMappedID(
           root_id, IdMappingMode::EXACT);
 
