@@ -444,7 +444,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
     // Suppress warnings due to using dynamic register tensors
     testing::internal::CaptureStderr();
     kernel = lower.run();
-    std::cerr << testing::internal::GetCapturedStderr();
+    testing::internal::GetCapturedStderr();
 
     PredicateIndexValidator<GetReference> validator(
         lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
