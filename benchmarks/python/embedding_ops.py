@@ -56,7 +56,7 @@ class EmbeddingBase:
 
 class HfQwen2(EmbeddingBase):
     def __init__(self, dtype):
-        super().__init__(self, "hf_qwen2", dtype)
+        super().__init__("hf_qwen2", dtype)
 
     def model(self):
         from transformers.models.qwen2.modeling_qwen2 import Qwen2PreTrainedModel
@@ -81,7 +81,7 @@ class HfQwen2(EmbeddingBase):
 
 class HfPhi3(EmbeddingBase):
     def __init__(self, dtype):
-        super().__init__(self, "hf_phi3", dtype)
+        super().__init__("hf_phi3", dtype)
 
     def model(self):
         from transformers.models.phi3 import Phi3PreTrainedModel
@@ -106,7 +106,7 @@ class HfPhi3(EmbeddingBase):
 
 class HfMistralNemo(EmbeddingBase):
     def __init__(self, dtype):
-        super().__init__(self, "hf_mistral_nemo", dtype)
+        super().__init__("hf_mistral_nemo", dtype)
 
     def model(self):
         from transformers.models.mistral import MistralPreTrainedModel
