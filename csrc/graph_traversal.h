@@ -9,6 +9,10 @@
 
 #include <bfs.h>
 
+namespace {
+bool _debug = false;
+}
+
 namespace nvfuser {
 
 // Find all exprs between given nodes. Edges are visitd only once,
@@ -125,11 +129,11 @@ class FindAllExprs {
         const auto edge_to_visit = to_visit_.front();
         to_visit_.pop_front();
 
-        std::cerr << "Next edge: " << edge_to_visit.toString() << "\n";
+        if (_debug)
+          std::cerr << "Next edge: " << edge_to_visit.toString() << "\n";
 
         // Don't visit edges multiple times even when traversing all paths
         if (isVisited(edge_to_visit)) {
-          std::cerr << "Already visited\n";
           continue;
         }
 
@@ -143,11 +147,13 @@ class FindAllExprs {
           // break the inner while loop. The something_was_processed
           // flag is used to remember if there's any progress.
           not_ready.emplace_back(edge_to_visit);
-          std::cerr << "Not ready\n";
+          if (_debug)
+            std::cerr << "Not ready\n";
           continue;
         }
 
-        std::cerr << "Visiting " << edge_to_visit.toString() << "\n";
+        if (_debug)
+          std::cerr << "Visiting " << edge_to_visit.toString() << "\n";
 
         setVisited(edge_to_visit);
         for (const auto& next_edge :
@@ -184,7 +190,8 @@ class FindAllExprs {
       NVF_THROW("BFS traversal could not visit some nodes: ", ss.str());
     }
 
-    std::cerr << "Traversal done\n";
+    if (_debug)
+      std::cerr << "Traversal done\n";
   }
 
   // Check if a node is ready to visit. If yes, return the direction
@@ -496,7 +503,8 @@ class FindAllExprs {
         continue;
       }
 
-      std::cerr << ordered_visited_edge.toString() << "\n";
+      if (_debug)
+        std::cerr << ordered_visited_edge.toString() << "\n";
 
       Direction edge_dir = getDirection(ordered_visited_edge);
 
