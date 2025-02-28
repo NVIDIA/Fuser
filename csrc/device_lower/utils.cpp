@@ -1953,6 +1953,17 @@ Val* proveLinearAndGetStride(
       ValGraphPermissiveBFS::getExprGroupsBetween(
           id_graph, {linear_g}, domain, /*require_all_to_visited=*/false)
           .first;
+  // Try to prove linear and get stride with the current frontier. We may not
+  // have finished the propagation yet, but because ValGraphPermissiveBFS
+  // supports missing dependency, and with missing dependency, we only have
+  // partial information on how to reach to a state that is easiest for our
+  // proof. It is possible that the easiest state is not the final state of
+  // the propagation. So we need to try the proof each step of the
+  // propagation.
+  Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  if (stride != nullptr) {
+    return stride;
+  }
   for (const auto& [eg, direction] : path) {
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
@@ -1960,13 +1971,7 @@ Val* proveLinearAndGetStride(
       // the dynamic type Projection.
       return nullptr;
     }
-    // Try to prove linear and get stride with the current frontier. We may not
-    // have finished the propagation yet, but because ValGraphPermissiveBFS
-    // supports missing dependency, and with missing dependency, we only have
-    // partial information on how to reach to a state that is easiest for our
-    // proof. It is possible that the easiest state is not the final state of
-    // the propagation. So we need to try the proof each step of the
-    // propagation.
+    // Try the proof each step of the propagation.
     Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
     if (stride != nullptr) {
       return stride;
