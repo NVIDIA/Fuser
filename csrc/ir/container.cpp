@@ -26,8 +26,6 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   swap(a.exprs_up_, b.exprs_up_);
   swap(a.exprs_, b.exprs_);
 
-  swap(a.raw_ptrs_, b.raw_ptrs_);
-
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
 
@@ -150,7 +148,6 @@ void IrContainer::removeExpr(Expr* expr) {
 
   exprs_.erase(expr);
   exprs_up_.erase(expr_in_deque);
-  raw_ptrs_.erase((void*)expr);
 }
 
 //! Completely remove val from the fusion, break all dependencies associated
@@ -177,7 +174,6 @@ void IrContainer::removeVal(Val* val) {
 
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
-  raw_ptrs_.erase((void*)val);
 }
 
 //! Register the Val with this container
@@ -189,7 +185,6 @@ void IrContainer::registerVal(Val* val) {
   vals_up_.emplace_back(std::unique_ptr<Val>(val));
   vals_.emplace(vals_up_.back().get());
   val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
-  raw_ptrs_.emplace((void*)vals_up_.back().get());
 }
 
 //! Register expr with this container.
@@ -200,7 +195,6 @@ void IrContainer::registerExpr(Expr* expr) {
   exprs_up_.emplace_back(std::unique_ptr<Expr>(expr));
   exprs_.emplace(exprs_up_.back().get());
   expr->setName(IrContainerPasskey(), getExprName());
-  raw_ptrs_.emplace((void*)exprs_up_.back().get());
 }
 
 void IrContainer::clear() noexcept {
@@ -209,7 +203,6 @@ void IrContainer::clear() noexcept {
   vals_up_.clear();
   exprs_.clear();
   exprs_up_.clear();
-  raw_ptrs_.clear();
   axioms_.reset();
   val_type_name_map_.clear();
   metadata_.clear();
@@ -217,9 +210,10 @@ void IrContainer::clear() noexcept {
 }
 
 bool IrContainer::inContainer(const Statement* stmt) const {
-  const void* const_void = (const void*)(stmt);
-  void* nonconst_void = const_cast<void*>(const_void); // NOLINT
-  if (raw_ptrs_.find(nonconst_void) == raw_ptrs_.end()) {
+  const void* const_raw_ptr = reinterpret_cast<const void*>(stmt);
+  void* raw_ptr = const_cast<void*>(const_raw_ptr);
+  if (exprs_.count(reinterpret_cast<Expr*>(raw_ptr)) == 0 &&
+      vals_.count(reinterpret_cast<Val*>(raw_ptr)) == 0) {
     return false;
   }
 
