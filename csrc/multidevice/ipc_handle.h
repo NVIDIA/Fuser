@@ -1,6 +1,6 @@
 // clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -94,14 +94,40 @@ class IpcHandleCache {
   }
 
  private:
-  using KeyType = std::tuple<int64_t, at::Tensor, P2PCommunication*>;
+  struct KeyType {
+    int64_t peer;
+    at::Tensor buffer;
+    P2PCommunication* comm;
 
-  KeyType getKey(P2PCommunication* comm) const {
-    int64_t peer = expr_evaluator_.evaluate(comm->peer()).as<int64_t>();
-    at::Tensor buffer =
-        expr_evaluator_.evaluate(comm->buffer()).as<at::Tensor>();
-    return std::make_tuple(peer, buffer, comm);
-  }
+    bool operator==(const KeyType& other) const {
+      return peer == other.peer && TensorEqual{}(buffer, other.buffer) &&
+          comm == other.comm;
+    }
+
+    struct Hash {
+      std::size_t operator()(const KeyType& key) const {
+        return (std::hash<int64_t>()(key.peer)) ^ (TensorHash{}(key.buffer)) ^
+            (std::hash<P2PCommunication*>()(key.comm));
+      }
+    };
+
+    struct TensorHash {
+      std::size_t operator()(const at::Tensor& tensor) const {
+        auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
+        auto offset = tensor.storage_offset();
+        auto element_size = tensor.element_size();
+        auto numel = tensor.numel();
+        return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
+            std::hash<int64_t>()(element_size) ^ std::hash<int64_t>()(numel);
+      }
+    };
+
+    struct TensorEqual {
+      bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
+        return lhs.equal(rhs);
+      }
+    };
+  };
 
   void insert(P2PCommunication* comm, std::unique_ptr<P2pIpcHandle> handle) {
     handles_[getKey(comm)] = std::move(handle);
@@ -115,40 +141,17 @@ class IpcHandleCache {
     return it->second.get();
   }
 
-  struct TensorHash {
-    std::size_t operator()(const at::Tensor& tensor) const {
-      auto ptr = reinterpret_cast<std::uintptr_t>(tensor.data_ptr());
-      auto offset = tensor.storage_offset();
-      auto element_size = tensor.element_size();
-      return std::hash<std::uintptr_t>()(ptr) ^ std::hash<int64_t>()(offset) ^
-          std::hash<int64_t>()(element_size);
-    }
-  };
+  KeyType getKey(P2PCommunication* comm) const {
+    auto peer = expr_evaluator_.evaluate(comm->peer()).as<int64_t>();
+    auto buffer = expr_evaluator_.evaluate(comm->buffer()).as<at::Tensor>();
+    return KeyType{peer, buffer, comm};
+  }
 
-  struct TensorEqual {
-    bool operator()(const at::Tensor& lhs, const at::Tensor& rhs) const {
-      return lhs.equal(rhs);
-    }
-  };
-
-  struct KeyHash {
-    std::size_t operator()(const KeyType& key) const {
-      return (std::hash<int64_t>()(std::get<0>(key))) ^
-          (TensorHash{}(std::get<1>(key))) ^
-          (std::hash<P2PCommunication*>()(std::get<2>(key)));
-    }
-  };
-
-  struct KeyEqual {
-    bool operator()(const KeyType& lhs, const KeyType& rhs) const {
-      return std::get<0>(lhs) == std::get<0>(rhs) &&
-          TensorEqual{}(std::get<1>(lhs), std::get<1>(rhs)) &&
-          std::get<2>(lhs) == std::get<2>(rhs);
-    }
-  };
+  std::string getTcpStoreKey(P2PCommunication* communication, int64_t rank)
+      const;
 
   const ExpressionEvaluator& expr_evaluator_;
-  std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyHash, KeyEqual>
+  std::unordered_map<KeyType, std::unique_ptr<P2pIpcHandle>, KeyType::Hash>
       handles_;
 };
 

@@ -1,6 +1,6 @@
 // clang-format off
 /*
- * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
  * SPDX-License-Identifier: BSD-3-Clause
  */
@@ -29,9 +29,9 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 
 IpcHandle::IpcHandle(at::Tensor tensor)
     : ptr_(tensor.data_ptr()), rank_(Communicator::getInstance().deviceId()) {
-  size_t alloc_length = 0;
+  size_t psize = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
-      (CUdeviceptr*)&base_address_, &alloc_length, (CUdeviceptr)ptr_));
+      (CUdeviceptr*)&base_address_, &psize, (CUdeviceptr)ptr_));
   offset_from_base_address_ = static_cast<int64_t>(
       static_cast<uint8_t*>(ptr_) - static_cast<uint8_t*>(base_address_));
   NVFUSER_CUDA_RT_SAFE_CALL(
@@ -74,6 +74,23 @@ IpcHandle::~IpcHandle() {
   }
 }
 
+// retrieves a key for the TCP store corresponding to a `communication` and the
+// exporter `rank`
+std::string IpcHandleCache::getTcpStoreKey(
+    P2PCommunication* communication,
+    int64_t rank) const {
+  const int64_t my_rank = Communicator::getInstance().deviceId();
+  const int64_t peer =
+      expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
+  const int64_t src =
+      communication->type() == P2PCommunicationType::SEND ? my_rank : peer;
+  const int64_t dst =
+      communication->type() == P2PCommunicationType::SEND ? peer : my_rank;
+
+  return "nvfuser_ipc_handle_info_P2PComm_dst=" + std::to_string(dst) +
+      "_src=" + std::to_string(src) + "_rank=" + std::to_string(rank);
+}
+
 void IpcHandleCache::exchangeHandles(
     const std::vector<P2PCommunication*>& communications) {
   Communicator* communicator = &Communicator::getInstance();
@@ -92,19 +109,6 @@ void IpcHandleCache::exchangeHandles(
   }
 
   // put memhandles to TCP store
-  auto get_tcp_store_key = [my_rank, this](
-                               P2PCommunication* communication,
-                               int64_t rank) -> std::string {
-    const int64_t peer =
-        expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
-    const int64_t src =
-        communication->type() == P2PCommunicationType::SEND ? my_rank : peer;
-    const int64_t dst =
-        communication->type() == P2PCommunicationType::SEND ? peer : my_rank;
-
-    return "nvfuser_ipc_handle_info_P2PComm_dst=" + std::to_string(dst) +
-        "_src=" + std::to_string(src) + "_rank=" + std::to_string(rank);
-  };
   std::unordered_map<P2PCommunication*, std::unique_ptr<IpcHandle>>
       local_ipc_handles;
   auto store = communicator->getTcpStore();
@@ -114,7 +118,7 @@ void IpcHandleCache::exchangeHandles(
     NVF_ERROR(
         tensor.is_contiguous(), "IpcHandle only supports contiguous tensors");
     auto buffer_handle = std::make_unique<IpcHandle>(tensor);
-    auto key = get_tcp_store_key(communication, my_rank);
+    auto key = getTcpStoreKey(communication, my_rank);
     // TODO: use multiSet
     store->set(key, toBytes(*buffer_handle));
     local_ipc_handles.emplace(communication, std::move(buffer_handle));
@@ -128,7 +132,7 @@ void IpcHandleCache::exchangeHandles(
   for (P2PCommunication* communication : non_cached_communications) {
     const int64_t peer =
         expr_evaluator_.evaluate(communication->peer()).as<int64_t>();
-    std::string key = get_tcp_store_key(communication, peer);
+    std::string key = getTcpStoreKey(communication, peer);
     NVF_ERROR(
         store->check({key}),
         "key ",

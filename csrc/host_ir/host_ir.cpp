@@ -352,7 +352,7 @@ std::string ShareMemHandles::toString(int indent_size) const {
 }
 
 std::string ShareMemHandles::toInlineString(int indent_size) const {
-  NVF_CHECK(false, "Cannot be printed inline");
+  NVF_THROW("Cannot be printed inline");
 }
 
 } // namespace hir

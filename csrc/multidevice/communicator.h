@@ -123,8 +123,8 @@ class Communicator {
     return false;
   }
 
-  auto getTcpStore() {
-    return store_;
+  c10d::TCPStore* getTcpStore() {
+    return store_.get();
   }
 
  private:

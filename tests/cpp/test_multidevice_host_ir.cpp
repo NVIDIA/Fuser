@@ -477,7 +477,7 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   }
 
   const DeviceIdxType my_rank = communicator_->deviceId();
-  const DeviceIdxType size = communicator_->size();
+  const int64_t size = communicator_->size();
   const DeviceIdxType send_peer = (my_rank + 1) % size;
   const DeviceIdxType recv_peer = (size + my_rank - 1) % size;
 
@@ -517,8 +517,6 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
   for (auto repetition : c10::irange(kNumRepetitions)) {
     // all ranks set `send_tensor`
     send_tensor.copy_(generate_tensor(repetition, my_rank));
-    torch::cuda::synchronize();
-    communicator_->barrier();
 
     // Exchange IpcHandle on the first iteration
     ipc_handle_cache.exchangeHandles(grouped_communications);
@@ -531,6 +529,8 @@ TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
         send_tensor.numel() * send_tensor.element_size(),
         cudaMemcpyDeviceToDevice));
 
+    torch::cuda::synchronize();
+    communicator_->barrier();
     at::Tensor ref_recv_tensor = generate_tensor(repetition, recv_peer);
     EXPECT_TRUE(torch::allclose(recv_tensor, ref_recv_tensor))
         << "Rank " << my_rank << " failed at repetition " << repetition
