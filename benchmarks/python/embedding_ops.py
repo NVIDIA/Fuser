@@ -54,7 +54,7 @@ class EmbeddingBase:
         return n_elements * self.dtype.itemsize
 
 
-def HfQwen2(EmbeddingBase):
+class HfQwen2(EmbeddingBase):
     def __init__(self, dtype):
         super().__init__(self, "hf_qwen2", dtype)
 
@@ -79,7 +79,7 @@ def HfQwen2(EmbeddingBase):
         return (MyModel().cuda().to(self.dtype),)
 
 
-def HfPhi3(EmbeddingBase):
+class HfPhi3(EmbeddingBase):
     def __init__(self, dtype):
         super().__init__(self, "hf_phi3", dtype)
 
@@ -104,7 +104,7 @@ def HfPhi3(EmbeddingBase):
         return (MyModel().cuda().to(self.dtype),)
 
 
-def HfMistralNemo(EmbeddingBase):
+class HfMistralNemo(EmbeddingBase):
     def __init__(self, dtype):
         super().__init__(self, "hf_mistral_nemo", dtype)
 
