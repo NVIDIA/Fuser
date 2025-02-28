@@ -14,6 +14,7 @@ namespace nvfuser {
 class Val;
 class TensorView;
 class Fusion;
+class IterDomain;
 
 // Information used to lower tensor memory. So far, it is just about allocation.
 struct TensorMemoryInfo;
@@ -141,8 +142,14 @@ struct TMemAlllocationInfo {
     // The TMem TensorViews covered by this region. Each region can be used to
     // store multiple TensorViews. The (lane_offset, column_offset) specifies
     // the starting offset of each TensorView in this region.
+    // The lane_allocation is the part of allocation domain on the left of the
+    // TMem dimsep position that is actually being allocated.
+    // The column_allocation is the part of allocation domain on the right of
+    // the TMem dimsep position that is actually being allocated.
     struct TVInfo {
       TensorView* tensor;
+      std::vector<IterDomain*> lane_allocation;
+      std::vector<IterDomain*> column_allocation;
       Val* lane_offset;
       Val* column_offset;
     };

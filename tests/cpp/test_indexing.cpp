@@ -357,12 +357,9 @@ class PredicateIndexValidator : public kir::IrVisitor {
 
     NVF_ERROR(!scope_exprs_.empty());
     auto inline_ite = dynamic_cast<kir::IfThenElse*>(scope_exprs_.back());
-    NVF_ERROR(
-        inline_ite != nullptr,
-        "No inline predicate detected: ",
-        expr->toString());
-
-    validateInlinePredicate(out_ti, inline_ite->predicate()->value());
+    if (inline_ite != nullptr) {
+      validateInlinePredicate(out_ti, inline_ite->predicate()->value());
+    }
 
     // If there's an other IfThenElse in the scope stack, validate the
     // predicate as well. The predicate should be for unswitch/unroll
@@ -427,8 +424,7 @@ class PredicateIndexValidator : public kir::IrVisitor {
       bool enable_contig_indexing,
       Args... args) {
     EnableOptionsGuard enable_options_guard;
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModel, {"predicate"});
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
     // Disable simplifications to make the pattern matching of sameAs work
     DisableOptionsGuard disable_options_guard;
@@ -4460,6 +4456,268 @@ TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
   auto outputs = ke.run({t0, t1});
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Test for the conditions where omitting parallel dimension
+// predicates is safe with unswitched loops.
+TEST_F(PredicateIndexingTest, ParallelDimensionPredicateWithUnswitch1) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1);
+  fusion.addInput(tv2);
+
+  // Just to make TIDx non unique so the parallel dimension predicate
+  // is required for TIDx
+  auto tv3 = set(tv0);
+  fusion.addOutput(tv3);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+
+  auto tv4 = set(tv1);
+  fusion.addOutput(tv4);
+
+  auto tv5 = set(tv2);
+  fusion.addOutput(tv5);
+
+  // TIDx-parallelized ID is fully unswitched
+  tv4->split(0, 128);
+  tv4->split(0, 1, false);
+  tv4->axis(0)->parallelize(ParallelType::Unswitch);
+  tv4->axis(-1)->parallelize(ParallelType::TIDx);
+
+  // TIDx-parallelized ID is not fully unswitched. The unswitch
+  // predicate should have (threadIdx.x < 128)
+  tv5->split(0, 128);
+  tv5->split(0, 1);
+  tv5->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv5->axis(-1)->parallelize(ParallelType::TIDx);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    // The unswitch predicate should look like:
+    //
+    // tv4:
+    // ((nvfuser_index_t)threadIdx.x) >= 0LL &&
+    // (ceilDiv(T4.logical_size[0LL], 128LL)) - 1LL) * 128LL) +
+    // ((nvfuser_index_t)threadIdx.x)) < T4.logical_size[0LL]
+    //
+    // tv5:
+    //  ((nvfuser_index_t)threadIdx.x) < 128LL &&
+    // (i1 * 128LL) + ((nvfuser_index_t)threadIdx.x) >= 0LL &&
+    // (i1 * 128LL) + ((nvfuser_index_t)threadIdx.x) < T5.logical_size[0LL]
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      Val* zero = tv->fusion()->zeroVal();
+      Val* one = tv->fusion()->oneVal();
+
+      if (tv->name() == 4) {
+        auto min_idx = addExpr(
+            IrBuilder::mulExpr(zero, createInt(128)), loop_indices.back());
+        auto min_pred = geExpr(min_idx, zero);
+        auto max_idx = addExpr(
+            IrBuilder::mulExpr(
+                subExpr(
+                    ceilDivExpr(
+                        tv->getLogicalDomain().at(0)->extent(), createInt(128)),
+                    one),
+                createInt(128)),
+            loop_indices.back());
+        auto max_pred = ltExpr(max_idx, tv->getLogicalDomain().at(0)->extent());
+        return andExpr(min_pred, max_pred);
+      } else if (tv->name() == 5) {
+        auto tidx_pred = ltExpr(loop_indices.back(), createInt(128));
+        auto idx = addExpr(
+            IrBuilder::mulExpr(loop_indices.at(0), createInt(128)),
+            loop_indices.back());
+        auto min_pred = geExpr(idx, zero);
+        auto max_pred = ltExpr(idx, tv->getLogicalDomain().at(0)->extent());
+        return andExpr(andExpr(tidx_pred, min_pred), max_pred);
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Similar to ParallelDimensionPredicateWithUnswitch1 but uses other
+// parallelized unswitched IDs, which means the parallel dimension
+// predicate is not safe to omit.
+TEST_F(PredicateIndexingTest, ParallelDimensionPredicateWithUnswitch2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1);
+  fusion.addInput(tv2);
+
+  // Just to make TIDx non unique so the parallel dimension predicate
+  // is required for TIDx
+  auto tv3 = set(tv0);
+  fusion.addOutput(tv3);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+
+  // Just to make TIDx non unique so the parallel dimension predicate
+  // is required for TIDx
+  auto tv4 = set(tv1);
+  fusion.addOutput(tv4);
+  tv4->axis(0)->parallelize(ParallelType::TIDy);
+
+  auto tv5 = set(tv2);
+  fusion.addOutput(tv5);
+
+  // Both TIDx and TIDy are not fully unswitched
+  tv5->split(0, 32);
+  tv5->split(0, 1, false);
+  tv5->axis(0)->parallelize(ParallelType::Unswitch);
+  tv5->axis(1)->parallelize(ParallelType::TIDy);
+  tv5->axis(2)->parallelize(ParallelType::TIDx);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    // The unswitch predicate should look like:
+    //
+    // tv5:
+    // (nvfuser_index_t)threadIdx.x < 32LL
+    // (nvfuser_index_t)threadIdx.y < ceilDiv(T2.logical_size[0LL], 32LL)
+    // (((nvfuser_index_t)threadIdx.y) * 32LL) + ((nvfuser_index_t)threadIdx.x)
+    // >= 0LL
+    // (((nvfuser_index_t)threadIdx.y) * 32LL) + ((nvfuser_index_t)threadIdx.x)
+    // < T2.logical_size[0LL]
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      Val* zero = tv->fusion()->zeroVal();
+
+      if (tv->name() == 5) {
+        auto tidx_pred = ltExpr(loop_indices.at(2), createInt(32));
+        auto tidy_pred = ltExpr(
+            loop_indices.at(1),
+            ceilDiv(tv->getLogicalDomain().at(0)->extent(), createInt(32)));
+        auto idx = addExpr(
+            IrBuilder::mulExpr(loop_indices.at(1), createInt(32)),
+            loop_indices.at(2));
+        auto min_pred = geExpr(idx, zero);
+        auto max_pred = ltExpr(idx, tv->getLogicalDomain().at(0)->extent());
+        return andExpr(
+            andExpr(andExpr(tidx_pred, tidy_pred), min_pred), max_pred);
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+}
+
+// Check if a parallel dimension predicate is propertly used with a
+// loop domain set as the producer of a logical domain. Because of the
+// reversed depency, BFS traversal is required. This test resulted in
+// a validation failure before PR #3938.
+TEST_F(
+    PredicateIndexingTest,
+    ParallelDimensionPredicateWithUnswitchAndSetLoopDomain) {
+  // EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor({4, 8});
+  fusion.addInput(tv1);
+
+  // Just to make TIDx non unique so the parallel dimension predicate
+  // is required for TIDx
+  auto tv2 = set(tv0);
+  fusion.addOutput(tv2);
+  tv2->axis(0)->parallelize(ParallelType::TIDx);
+
+  auto tv3 = reshape(tv1, {4, 8}, {32});
+  auto tv4 = sum(tv3, {0});
+  fusion.addOutput(tv4);
+
+  // Cancel the reshape in the loop domain [4, 8]
+  tv3->setLoopDomain(tv3->getRootDomain());
+
+  // Make the loop domain of tv4 look like that of tv3.
+  // TODO: use scheduler_tools::scheduleLoopDomainsLike, which doesn't
+  // seem to propertly set the IterType of the new IDs.
+  auto tv4_loop_id0 = IterDomainBuilder(tv3->getLoopDomain().at(0))
+                          .iter_type(IterType::Reduction)
+                          .build();
+  auto tv4_loop_id1 = IterDomainBuilder(tv3->getLoopDomain().at(1))
+                          .iter_type(IterType::Reduction)
+                          .build();
+  IrBuilder::create<Merge>(
+      tv4->getLogicalDomain().at(0), tv4_loop_id0, tv4_loop_id1);
+  tv4->setLoopDomain({tv4_loop_id0, tv4_loop_id1});
+
+  // Schedule tv3 and tv4 as:
+  // [Serial(4), Unswitch(1), TIDx(8)]
+  for (auto tv : {tv3, tv4}) {
+    tv->split(1, 1, false);
+  }
+
+  tv3->inlineAt(-1);
+
+  tv4->axis(-2)->parallelize(ParallelType::Unswitch);
+  tv4->axis(-1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({128}, options);
+  at::Tensor t1 = at::randn({4, 8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto outputs = ke.run({t0, t1});
+
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    // The unswitch predicate should look like:
+    //
+    // tv3:
+    // ((nvfuser_index_t)threadIdx.x) < 8LL &&
+    // ((i0 * 8LL) + ((nvfuser_index_t)threadIdx.x)) >= 0LL
+    // ((i0 * 8LL) + ((nvfuser_index_t)threadIdx.x)) < 32LL
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      Val* zero = tv->fusion()->zeroVal();
+
+      if (tv->name() == 3) {
+        auto tidx = loop_indices.back();
+        auto tid_pred = ltExpr(tidx, createInt(8));
+        auto idx = addExpr(mulExpr(loop_indices.front(), createInt(8)), tidx);
+        auto min_pred = geExpr(idx, zero);
+        auto max_pred = ltExpr(idx, createInt(32));
+        return andExpr(andExpr(tid_pred, min_pred), max_pred);
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
 }
 
 // Same fusion as SimplePointwise1 but with contig indexing

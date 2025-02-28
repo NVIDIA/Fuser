@@ -55,20 +55,22 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 
 } // namespace
 
-void IdModel::assertNoSelfMapping() {
-  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
   for (TensorView* tv : tvs_) {
-    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, exact_graph);
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, graph);
+    if (self_mapping.has_value()) {
+      tv->fusion()->print();
+    }
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
-        tv,
+        tv->toString(),
         ". ",
         self_mapping->where,
         " domains, ",
-        self_mapping->id1,
+        self_mapping->id1->toString(),
         " and ",
-        self_mapping->id2,
+        self_mapping->id2->toString(),
         ", are mapped with each other.");
   }
 }
@@ -413,6 +415,12 @@ ValGraph& IdModel::buildExactGraph() {
 
   graph.validateConsistency();
 
+  // Make sure there's no self mapping in the Exact graph as that
+  // would invalidate lowering assumptions.
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(graph);
+  }
+
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     checkStaticExtentGroups(graph);
   }
@@ -495,6 +503,22 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
+  // Even when EXACT has no self mapping, there was a case ALMOSTEXACT
+  // had self mapping (see issue #3919). ALMOSTEXACT is used in
+  // indexing, which assumes the graph has no self mapping. To avoid
+  // self mapping, mark each of the root, logical and loop domains of
+  // all tensors unmappable
+  for (TensorView* tv : tvs_) {
+    if (tv->hasRoot()) {
+      almost_exact_graph.setUnmappable(
+          {tv->getRootDomain().begin(), tv->getRootDomain().end()});
+    }
+    almost_exact_graph.setUnmappable(
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+    almost_exact_graph.setUnmappable(
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  }
+
   // Maps iter domain pairs returned by calling that return mappings from
   // isTrivialExpr on every expression in the graph.
 
@@ -514,7 +538,6 @@ ValGraph& IdModel::buildAlmostExactGraph() {
       // Map through trivial expressions
       for (auto mapped_id_group : mapped_ids) {
         for (auto id : mapped_id_group) {
-          // almost_exact_graph.mapVals(mapped_id_group.front(), id);
           ids_to_map.emplace_back(mapped_id_group.front(), id);
         }
       }
@@ -526,6 +549,10 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(almost_exact_graph);
+  }
 
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     checkStaticExtentGroups(almost_exact_graph);
@@ -851,15 +878,7 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  // Make sure there's no self mapping in the Exact graph as that
-  // would invalidate lowering assumptions.
-  if (!allow_self_mapping_) {
-    assertNoSelfMapping();
-  }
-
   buildAlmostExactGraph();
-  // Skip validating the almost exact graph as the IdModel graph also
-  // maps non-size-one broadcast domains
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled

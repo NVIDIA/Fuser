@@ -38,7 +38,7 @@
 namespace nvfuser {
 
 struct CGResultsPackage {
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
   std::unique_ptr<HeuristicParams> heuristic_params;
   std::unique_ptr<KernelExecutor> kernel_executor;
 };

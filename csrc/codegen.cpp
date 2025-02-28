@@ -168,6 +168,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.endBlock();
     NVF_CHECK(codegen.block_nest_level_ == 0);
     std::stringstream final_code;
+    final_code << "// Codegen generated code\n";
     for (const auto& [ns, code] : codegen.utilities_) {
       if (!ns.empty()) {
         final_code << "namespace " << ns << " {\n"
