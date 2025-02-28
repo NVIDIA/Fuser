@@ -30,6 +30,8 @@ const TMemAlllocationInfo::Region::TVInfo& TMemAlllocationInfo::getTVInfo(
   NVF_ERROR(false, "TensorView not found in TMemAlllocationInfo");
 }
 
+namespace {
+
 // Returns the lane and column allocation domain that is actually allocated.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
     TensorView* tv) {
@@ -181,6 +183,13 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
   return result;
 }
 
+// Infer the data path of TMem load/store operations from the loop domain of
+// the consumer and the allocation domain of the TMem tensor. Based on the
+// parallelization of the loop domain and the IterDomain transformations between
+// the loop domain and the lane-allocation domain, we can tell which thread
+// accesses which part of the TMem tensor. This information is used to check if
+// the data access falls into one of the supported patterns, and if so, which
+// pattern it is.
 std::pair<
     std::unordered_map<TensorView*, TMemRegisterDataPath>,
     std::unordered_map<TensorView*, TMemRegisterDataPath>>
@@ -258,6 +267,8 @@ computeTMemLdStDataPath(Fusion* fusion) {
   }
   return {std::move(load_data_path), std::move(store_data_path)};
 }
+
+} // namespace
 
 TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   TensorMemoryInfo result;
