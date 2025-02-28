@@ -62,12 +62,12 @@ class HfQwen2(EmbeddingBase):
         from transformers.models.qwen2.modeling_qwen2 import Qwen2PreTrainedModel
 
         class MyModel(Qwen2PreTrainedModel):
-            def __init__(self):
-                super().__init__(self.config)
+            def __init__(self, config):
+                super().__init__(config)
                 self.embed_tokens = torch.nn.Embedding(
-                    self.config.vocab_size,
-                    self.config.hidden_size,
-                    self.config.pad_token_id,
+                    config.vocab_size,
+                    config.hidden_size,
+                    config.pad_token_id,
                 )
                 # Initialize weights and apply final processing
                 self.post_init()
@@ -76,7 +76,7 @@ class HfQwen2(EmbeddingBase):
                 inputs_embeds = self.embed_tokens(input_ids)
                 return (inputs_embeds,)
 
-        return (MyModel().cuda().to(self.dtype),)
+        return MyModel(self.config).cuda().to(self.dtype)
 
 
 class HfPhi3(EmbeddingBase):
@@ -87,11 +87,11 @@ class HfPhi3(EmbeddingBase):
         from transformers.models.phi3 import Phi3PreTrainedModel
 
         class MyModel(Phi3PreTrainedModel):
-            def __init__(self):
-                super().__init__(self.config)
-                self.padding_idx = self.config.pad_token_id
+            def __init__(self, config):
+                super().__init__(config)
+                self.padding_idx = config.pad_token_id
                 self.embed_tokens = torch.nn.Embedding(
-                    self.config.vocab_size, self.config.hidden_size, self.padding_idx
+                    config.vocab_size, config.hidden_size, self.padding_idx
                 )
 
                 # Initialize weights and apply final processing
@@ -101,7 +101,7 @@ class HfPhi3(EmbeddingBase):
                 inputs_embeds = self.embed_tokens(input_ids)
                 return (inputs_embeds,)
 
-        return (MyModel().cuda().to(self.dtype),)
+        return MyModel(self.config).cuda().to(self.dtype)
 
 
 class HfMistralNemo(EmbeddingBase):
@@ -112,10 +112,10 @@ class HfMistralNemo(EmbeddingBase):
         from transformers.models.mistral import MistralPreTrainedModel
 
         class MyModel(MistralPreTrainedModel):
-            def __init__(self):
-                super().__init__(self.config)
+            def __init__(self, config):
+                super().__init__(config)
                 self.embed_tokens = torch.nn.Embedding(
-                    self.config.vocab_size, self.config.hidden_size, self.config.pad_token_id
+                    config.vocab_size, config.hidden_size, config.pad_token_id
                 )
                 # Initialize weights and apply final processing
                 self.post_init()
@@ -124,7 +124,7 @@ class HfMistralNemo(EmbeddingBase):
                 inputs_embeds = self.embed_tokens(input_ids)
                 return (inputs_embeds,)
 
-        return (MyModel().cuda().to(self.dtype),)
+        return MyModel(self.config).cuda().to(self.dtype)
 
 
 embedding_setup = {
