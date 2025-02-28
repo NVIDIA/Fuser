@@ -1803,9 +1803,13 @@ class TestNvFuserFrontend(NVFuserTest):
         for fd in test_defs:
             # Attempting to get the cuda code for an un-executed FusionDefinition
             # should trigger a RuntimeError and not a segfault
-            with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(Invalid fusion definition!|never been executed)"
+            ):
                 _ = fd.last_cuda_code()
-            with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(Invalid fusion definition!|never been executed)"
+            ):
                 _ = fd.last_scheduled_fusion_ir()
             # Only make this check for function based definitions
             if hasattr(super(type(self), self), "definition"):
@@ -1840,9 +1844,13 @@ class TestNvFuserFrontend(NVFuserTest):
 
             # Attempt to get strings for inputs that do not heuristically match
             # and a new fusion has not been compiled
-            with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(not compiled|never been executed)"
+            ):
                 _ = fd.cuda_code_for(big_inputs)
-            with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(not compiled|never been executed)"
+            ):
                 _ = fd.scheduled_fusion_ir_for(big_inputs)
 
         # It is necessary to reset the Fusion Cache

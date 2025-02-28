@@ -2797,7 +2797,7 @@ Val* simplifyExpr(
     std::vector<Val*> assumptions,
     bool preserve_error) {
   FusionGuard fg(value->fusion());
-  const Context context(variables, assumptions, preserve_error);
+  const Context context(variables, std::move(assumptions), preserve_error);
   auto logger = debug_print::createLogger(value);
 
   // nullptr -> disable nothing
