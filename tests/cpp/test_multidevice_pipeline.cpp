@@ -56,8 +56,8 @@ class PipelineTest : public MultiDeviceTest {
   std::unique_ptr<Fusion> fusion;
   KernelArgumentHolder args;
   KernelArgumentHolder unsharded_args;
-  std::vector<at::Tensor> outputs;
-  std::vector<at::Tensor> ref_unsharded_outputs;
+  KernelArgumentHolder outputs;
+  KernelArgumentHolder ref_unsharded_outputs;
   hir::HostIrEvaluatorParams host_ir_executor_params;
 };
 
@@ -89,8 +89,9 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
     if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
       continue;
     }
-    auto ref_output = shardTensor(ref_unsharded_outputs.at(i), output_tv);
-    auto obtained_output = outputs.at(i);
+    auto ref_output =
+        shardTensor(ref_unsharded_outputs[i].as<at::Tensor>(), output_tv);
+    auto obtained_output = outputs[i].as<at::Tensor>();
     EXPECT_TRUE(torch::allclose(ref_output, obtained_output))
         << "Device " << communicator_->deviceId() << " has unexpected output "
         << i << " corresponding to tv " << output_tv
@@ -124,10 +125,10 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
     std::cout << ss.str() << std::endl;
   }
 
+  MultiDeviceExecutorParams params;
+  params.executor = host_ir_executor_params;
   runtime = std::make_unique<MultiDeviceExecutor>(
-      std::make_unique<Fusion>(*fusion),
-      *communicator_,
-      host_ir_executor_params);
+      std::make_unique<Fusion>(*fusion), *communicator_, params);
   auto error_msg = runtime->validate();
   if (error_msg != "") {
     GTEST_SKIP() << error_msg;
@@ -152,7 +153,6 @@ void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
 
 PipelineTest::PipelineTest() {
   fusion = std::make_unique<Fusion>();
-  communicator_->setDefaultBackend(CommunicatorBackend::kNccl);
 }
 
 // To run the following tests on several devices, pytorch must be installed with

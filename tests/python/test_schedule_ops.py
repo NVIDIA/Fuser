@@ -1135,3 +1135,21 @@ class TestScheduleOps(TestCase):
             torch_ref = inputs[0].sum(-1)
             nvf_out = fd.execute(inputs)
             self.assertEqual(nvf_out[0], torch_ref)
+
+    def test_rfactor_twice(self):
+        class Model(FusionDefinition):
+            def definition(self):
+                self.inp = fd.define_tensor([30])
+                self.out = fd.ops.sum(self.inp, [0])
+                self.add_output(self.out)
+
+            def schedule(self):
+                self.sched.split(self.out, 0, 2, False)
+                self.sched.split(self.out, -1, 5, True)
+                self.sched.rfactor(self.out, [-1])
+                self.sched.rfactor(self.out, [0])
+
+        fd = Model()
+        inp = torch.randint(5, [30], dtype=torch.float32, device="cuda")
+        (out,) = fd.execute([inp])
+        self.assertEqual(out, inp.sum())

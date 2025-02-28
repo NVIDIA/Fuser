@@ -38,7 +38,7 @@ at::Tensor sinh_nvfuser(const at::Tensor& input) {
   ke.compile(&fusion, {input}, heuristic_params->lparams);
   auto outputs = ke.run({input}, {}, heuristic_params->lparams);
 
-  return outputs[0];
+  return outputs[0].as<at::Tensor>();
 }
 
 TORCH_LIBRARY(myop, m) {
