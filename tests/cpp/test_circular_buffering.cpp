@@ -17,7 +17,7 @@
 namespace nvfuser {
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -79,8 +79,16 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t2 = t0 + t1;
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("'setmaxnreg' ignored"), std::string::npos)
+      << "'setmaxnreg' ignored!";
 
   auto cg_outputs = ke.run({t0, t1});
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -1208,7 +1216,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1276,7 +1284,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   }
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1344,7 +1352,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   }
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1417,7 +1425,8 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1493,7 +1502,8 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   ke.compile(fusion.get(), {t0, t1});
 
   auto cg_outputs = ke.run({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -1568,7 +1578,8 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   ke.compile(fusion.get(), {t0, t1});
 
   auto cg_outputs = ke.run({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -1638,7 +1649,7 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_outer_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1697,10 +1708,10 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   // Please note that, serial reduction has larger error than parallel reduction
   // This is the nature of the algorithm, not a bug in the implementation.
-  EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3, 1e-3), true);
+  EXPECT_EQ(at::allclose(cg_outputs[0].as<at::Tensor>(), t1, 1e-3, 1e-3), true);
 }
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
@@ -1967,7 +1978,10 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
   auto cg_outputs = ke.run({t0, t1});
   compare<float>(
-      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+      tensor_outer_dim,
+      tensor_inner_dim,
+      cg_outputs[0].as<at::Tensor>(),
+      aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
@@ -2094,7 +2108,10 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 
   auto cg_outputs = ke.run({t0, t1});
   compare<float>(
-      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+      tensor_outer_dim,
+      tensor_inner_dim,
+      cg_outputs[0].as<at::Tensor>(),
+      aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }

@@ -168,6 +168,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.endBlock();
     NVF_CHECK(codegen.block_nest_level_ == 0);
     std::stringstream final_code;
+    final_code << "// Codegen generated code\n";
     for (const auto& [ns, code] : codegen.utilities_) {
       if (!ns.empty()) {
         final_code << "namespace " << ns << " {\n"
@@ -294,8 +295,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           num_threads_per_cta.has_value(),
           "__launch_bounds__ must be set for register sharing warp specialization");
-      code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
-            << num_threads_per_cta.value() << ", 1) ";
+      // leave a space between launch bound and kernel name
+      code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
+            << num_threads_per_cta.value()
+            << ", /*minBlocksPerMultiprocessor=*/1) ";
     }
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
