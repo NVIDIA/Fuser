@@ -31,8 +31,9 @@ def test_embedding_fwd_benchmark(
     if executor == "thunder":
         kwargs["nv_enable_embedding"] = True
 
-    model, gen_inputs, _, _ = embedding_setup[variation](dtype=torch.bfloat16)
-    inputs = gen_inputs()
+    test_case = embedding_setup[variation](dtype=torch.bfloat16)
+    inputs = test_case.input()
+    model = test_case.model()
 
     def fwd_call(inp):
         return model(**inp)
@@ -64,8 +65,9 @@ def test_embedding_bwd_benchmark(
     if executor == "thunder":
         kwargs["nv_enable_embedding"] = True
 
-    model, gen_inputs, grad, iobytes = embedding_setup[variation](dtype=torch.bfloat16)
-    fwd_inputs = gen_inputs()
+    test_case = embedding_setup[variation](dtype=torch.bfloat16)
+    fwd_inputs = test_case.input()
+    model = test_case.model()
 
     def fwd_call(inp):
         return model(**inp)
@@ -81,6 +83,6 @@ def test_embedding_bwd_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs[0], grad(), *list(model.parameters())],
-        iobytes=iobytes(),
+        [outputs[0], test_case.grads(), *list(model.parameters())],
+        iobytes=test_case.grad_iobytes(),
     )
