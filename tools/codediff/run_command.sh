@@ -29,7 +29,7 @@ directory.
 The diff_report.py tool will parse the STDOUT of these commands to collect
 information about CUDA kernels and group them appropriately. It must know what
 type of command this is in order to do so properly. By default, we look for
-nvfuser_tests, nvfuser_bench, pytest, and python_tests as substrings in the
+test_nvfuser, nvfuser_bench, pytest, and python_tests as substrings in the
 given command. If this fails, you may provide the -t option to record a
 different command type. See diff_report.py (CommandType) for possible types.
 EOF
@@ -209,7 +209,7 @@ echo "$testcmd" > "$testdir/command"
 if [[ -z $commandtype ]]
 then
     case "$testcmd" in
-        *nvfuser_tests*)
+        *test_nvfuser*)
             commandtype="GOOGLETEST"
             ;;
         *nvfuser_bench*)

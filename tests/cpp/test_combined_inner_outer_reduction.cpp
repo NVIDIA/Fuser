@@ -121,8 +121,8 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
 
   testValidate(
       executor_cache.fusion(),
-      {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
-      args.toC10Array(),
+      cg_outputs,
+      args,
       {std::get<0>(aten_gradients),
        std::get<1>(aten_gradients),
        std::get<2>(aten_gradients)},
@@ -294,7 +294,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     testValidate(
         &fusion,
         cg_outputs,
-        args.toC10Array(),
+        args,
         {aten_out_linked,
          std::get<0>(aten_gradients),
          std::get<1>(aten_gradients),
@@ -479,7 +479,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     testValidate(
         &fusion,
         cg_outputs,
-        args.toC10Array(),
+        args,
         __LINE__,
         __FILE__,
         "",
@@ -989,7 +989,7 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
     }
   }
   auto cg_outputs =
-      ke.run({t0}, heuristic_params->as<ReductionParams>()->lparams);
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 

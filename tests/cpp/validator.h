@@ -34,8 +34,8 @@ namespace nvfuser {
 // hides outputs that are inputs in-place updated.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
     std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
@@ -47,8 +47,8 @@ void testValidate(
 // of the exprs in the fusion must be overriden to handle at::Tensor.
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
-    const c10::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& fusion_outputs,
+    const KernelArgumentHolder& aten_inputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",

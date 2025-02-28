@@ -376,7 +376,12 @@ def nvfusertest_serde_check(test_fn: Callable):
     structure.
     """
     if disable_serde:
-        return test_fn
+
+        def inner_fn(*args, **kwargs):
+            kwargs.pop("skip_serde_check")
+            return test_fn(*args, **kwargs)
+
+        return inner_fn
 
     def inner_fn(*args, **kwargs):
         self, fusion_func, inputs = args

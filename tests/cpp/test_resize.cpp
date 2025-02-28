@@ -112,7 +112,7 @@ TEST_F(ResizeTest, Pad1) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad + split
@@ -143,7 +143,7 @@ TEST_F(ResizeTest, Pad2) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad, merge + split, inlineMost
@@ -220,7 +220,7 @@ TEST_F(ResizeTest, Pad4) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad + parallelization + RAW sync
@@ -270,7 +270,7 @@ TEST_F(ResizeTest, Pad5) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // pad + merge + split parallelization
@@ -434,7 +434,7 @@ TEST_F(ResizeTest, PadScheduler1) {
 
   auto ref = at::pad(t0, {1, 1});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(ResizeTest, PadScheduler2) {
@@ -608,7 +608,7 @@ TEST_F(ResizeTest, Cat1) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Trivial 2D inner cat
@@ -639,7 +639,7 @@ TEST_F(ResizeTest, Cat2) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Trivial 2D outer cat
@@ -679,7 +679,7 @@ TEST_F(ResizeTest, Cat3) {
 
   auto ref = at::cat({t0, t1}, 1);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Cat + merge + split + parallelization + inlineMost
@@ -722,7 +722,7 @@ TEST_F(ResizeTest, Cat4) {
 
   auto ref = at::cat({t0, t1}, 1);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Cat + arith op
@@ -813,7 +813,7 @@ TEST_F(ResizeTest, Cat6) {
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Cat many tensors
@@ -853,23 +853,22 @@ TEST_F(ResizeTest, Cat7) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
-    std::vector<at::Tensor> aten_inputs;
+    KernelArgumentHolder aten_inputs;
     for (const auto i : c10::irange(num_tensors_to_concat)) {
       auto shape = base_shape;
       shape[concat_dim] = 10 + (i % 5);
-      aten_inputs.emplace_back(at::randn(shape, options));
+      aten_inputs.push(at::randn(shape, options));
     }
 
-    std::vector<c10::IValue> aten_inputs_ivalue(
-        {aten_inputs.begin(), aten_inputs.end()});
-
     KernelExecutor ke;
-    ke.compile(&fusion, aten_inputs_ivalue);
-    auto cg_outputs = ke.run(aten_inputs_ivalue);
+    ke.compile(&fusion, aten_inputs);
+    auto cg_outputs = ke.run(aten_inputs);
 
-    auto ref = at::cat(aten_inputs, concat_dim);
+    auto ref = at::cat(
+        std::vector<at::Tensor>(aten_inputs.begin(), aten_inputs.end()),
+        concat_dim);
 
-    NVF_CHECK(ref.equal(cg_outputs[0]));
+    NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
   }
 }
 
@@ -901,7 +900,7 @@ TEST_F(ResizeTest, CatScheduler1) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Auto scheduled version of Cat5
@@ -969,7 +968,7 @@ TEST_F(ResizeTest, CatScheduler3) {
 
   auto ref = at::cat({t0, t1, t2}, 0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Trivial slice
@@ -999,7 +998,7 @@ TEST_F(ResizeTest, Slice1) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Split a tensor to half and add them up
@@ -1275,10 +1274,10 @@ TEST_F(ResizeTest, SliceInputShmoo) {
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
-    std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = ke.run(aten_inputs);
+    KernelArgumentHolder inputs({t0, start, stop});
+    auto cg_outputs = ke.run(inputs);
 
-    testValidate(&fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1308,11 +1307,11 @@ TEST_F(ResizeTest, SliceInputShmooFusionExecutorCache) {
 
   auto t0 = at::randn(shape, options);
   for (auto [start, stop] : slice_cases) {
-    std::vector<c10::IValue> aten_inputs({t0, start, stop});
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    KernelArgumentHolder inputs({t0, start, stop});
+    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
     testValidate(
-        executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
   }
 }
 
@@ -1352,7 +1351,7 @@ TEST_F(ResizeTest, SliceScheduler1) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(ResizeTest, SliceExtentSimplification) {
@@ -1407,21 +1406,18 @@ TEST_F(ResizeTest, PadReduceScheduler1) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::transform(
-      pad_extents.begin(),
-      pad_extents.end(),
-      std::back_inserter(aten_inputs),
-      [](auto pad_extent) { return pad_extent; });
+  KernelArgumentHolder inputs({t0});
+  for (auto pad_extent : pad_extents) {
+    inputs.push(pad_extent);
+  }
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, SliceReduceScheduler1) {
@@ -1451,17 +1447,15 @@ TEST_F(ResizeTest, SliceReduceScheduler1) {
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Different slices.
@@ -1495,17 +1489,15 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
   std::vector<int64_t> slice_inputs({1, shape[0] - 2, 3, shape[1] - 4});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // Multiple slice+reduction. Same slices. Should be segmented at the moment.
@@ -1535,17 +1527,15 @@ TEST_F(ResizeTest, FusionSliceReduceScheduler3) {
   std::vector<int64_t> slice_inputs({1, shape[1] - 2});
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
-  std::copy(
-      slice_inputs.begin(),
-      slice_inputs.end(),
-      std::back_inserter(aten_inputs));
+  KernelArgumentHolder inputs({t0});
+  for (auto slice_input : slice_inputs) {
+    inputs.push(slice_input);
+  }
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 TEST_F(ResizeTest, CatReduceScheduler1) {
@@ -1720,7 +1710,7 @@ TEST_F(ResizeTest, PadWithValue) {
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Same as Pad1 but pad by negative value to create an empty tensor
@@ -1753,7 +1743,7 @@ TEST_F(ResizeTest, PadToEmptyTensor) {
 
   auto ref = at::pad(t0, {-1, -1}, "constant", 2);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Test that padding Half tensor by Double does not promote output
@@ -1785,8 +1775,8 @@ TEST_F(ResizeTest, PadHalfWithDoubleValue) {
 
   auto ref = at::pad(t0, {1, 1}, "constant", 2.5);
 
-  NVF_CHECK(ref.dtype() == cg_outputs[0].dtype());
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.dtype() == cg_outputs[0].as<at::Tensor>().dtype());
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(ResizeTest, FusionSliceForNanoGPT1) {
@@ -2140,12 +2130,12 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplitSchedule) {
   auto ref4 = t0.index({at::indexing::Slice(6, 6)});
   auto ref5 = t0.index({at::indexing::Slice(6, 8)});
 
-  NVF_CHECK(ref0.equal(cg_outputs[0]));
-  NVF_CHECK(ref1.equal(cg_outputs[1]));
-  NVF_CHECK(ref2.equal(cg_outputs[2]));
-  NVF_CHECK(ref3.equal(cg_outputs[3]));
-  NVF_CHECK(ref4.equal(cg_outputs[4]));
-  NVF_CHECK(ref5.equal(cg_outputs[5]));
+  NVF_CHECK(ref0.equal(cg_outputs[0].as<at::Tensor>()));
+  NVF_CHECK(ref1.equal(cg_outputs[1].as<at::Tensor>()));
+  NVF_CHECK(ref2.equal(cg_outputs[2].as<at::Tensor>()));
+  NVF_CHECK(ref3.equal(cg_outputs[3].as<at::Tensor>()));
+  NVF_CHECK(ref4.equal(cg_outputs[4].as<at::Tensor>()));
+  NVF_CHECK(ref5.equal(cg_outputs[5].as<at::Tensor>()));
 }
 
 // In this test, we split and merge with size-zero dimensions directly.
@@ -2184,7 +2174,7 @@ TEST_F(ResizeTest, FusionSizeZeroSliceSplit) {
 
   auto ref0 = t0.index({at::indexing::Slice(2, 2), at::indexing::Slice(0, 5)});
 
-  NVF_CHECK(ref0.equal(cg_outputs[0]));
+  NVF_CHECK(ref0.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Test squeezing a symbolic dimension
@@ -2222,7 +2212,7 @@ TEST_F(ResizeTest, FusionSqueezeSymbolic) {
 
   auto ref0 = t0.flatten();
 
-  NVF_CHECK(ref0.equal(cg_outputs[0]));
+  NVF_CHECK(ref0.equal(cg_outputs[0].as<at::Tensor>()));
 
   EXPECT_THAT(
       [&]() { executor_cache.runFusionWithInputs({t0, 10}); },
@@ -2268,8 +2258,8 @@ TEST_F(ResizeTest, MultiSliceEmpty) {
   auto ref0 = t0.index({at::indexing::Slice(0, 1)});
   auto ref1 = t0.index({at::indexing::Slice(0, 0)});
 
-  NVF_CHECK(ref0.equal(cg_outputs[0]));
-  NVF_CHECK(ref1.equal(cg_outputs[1]));
+  NVF_CHECK(ref0.equal(cg_outputs[0].as<at::Tensor>()));
+  NVF_CHECK(ref1.equal(cg_outputs[1].as<at::Tensor>()));
 
   // Check that tv2 is replaced by a FullOp
   const auto runtime = executor_cache.getMostRecentKernelRuntime();
@@ -2310,7 +2300,8 @@ TEST_F(ResizeTest, SliceVectorization) {
   at::Tensor t0 = at::randn(N + 8, options);
   at::Tensor t1 = at::randn(N, options);
 
-  auto cg_outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1});
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1}).outputs;
   // check that we vectorize 4
   bool found_vectorize = false;
   for (auto id : fusion.outputs().at(0)->as<TensorView>()->getLoopDomain()) {
@@ -2325,8 +2316,8 @@ TEST_F(ResizeTest, SliceVectorization) {
   auto ref = t0.narrow(0, 1, N) + t1;
 
   // testValidate does not check that dtypes match
-  EXPECT_EQ(cg_outputs.outputs[0].dtype(), ref.dtype());
-  testValidate(&fusion, cg_outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+  EXPECT_EQ(cg_outputs[0].as<at::Tensor>().dtype(), ref.dtype());
+  testValidate(&fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Concretize a symbolic pad that results in a broadcast (static pads)
@@ -2442,14 +2433,16 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   auto t1 = at::randn({2, 4, 4, 3, 5}, options);
   // Keep dimension 0, pad to broadcast in dimension 1 and 3. Pad with zero in
   // dimension 2. Trim by one element in dimension 4.
-  std::vector<c10::IValue> aten_inputs({t0, t1});
-  aten_inputs.insert(aten_inputs.end(), pad_widths.begin(), pad_widths.end());
+  KernelArgumentHolder inputs({t0, t1});
+  for (auto pad_width : pad_widths) {
+    inputs.push(pad_width);
+  }
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   auto concretized_fusion = runtime->fusionSegments()->completeFusion();
@@ -2464,7 +2457,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastDynamic) {
   EXPECT_EQ(conc_t2->axis(3)->getIterType(), IterType::Broadcast);
   EXPECT_EQ(conc_t2->axis(4)->getIterType(), IterType::Iteration);
 
-  testValidate(concretized_fusion, cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(concretized_fusion, cg_outputs, inputs, __LINE__, __FILE__);
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/596
@@ -2536,7 +2529,7 @@ TEST_F(ResizeTest, SliceAndReshape1) {
        at::indexing::Slice(1, shape[0] - 1)});
   auto ref = t1.reshape({-1});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // An input is sliced and also separately reshaped
@@ -2571,8 +2564,8 @@ TEST_F(ResizeTest, SliceAndReshape2) {
        at::indexing::Slice(1, shape[0] - 1)});
   auto t2 = t0.reshape({-1});
 
-  NVF_CHECK(t1.equal(cg_outputs[0]));
-  NVF_CHECK(t2.equal(cg_outputs[1]));
+  NVF_CHECK(t1.equal(cg_outputs[0].as<at::Tensor>()));
+  NVF_CHECK(t2.equal(cg_outputs[1].as<at::Tensor>()));
 }
 
 // Trivial case of slice vectorization. Just slicing a fusion input
@@ -2703,8 +2696,8 @@ TEST_F(ResizeTest, Slice1DVectorize2Manual) {
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
   auto ref_t2 = t0.index(
       {at::indexing::Slice(slice_offset * 2, shape[0] - slice_offset * 2)});
-  ASSERT_TRUE(ref_t1.equal(cg_outputs.at(0)));
-  ASSERT_TRUE(ref_t2.equal(cg_outputs.at(1)));
+  ASSERT_TRUE(ref_t1.equal(cg_outputs[0].as<at::Tensor>()));
+  ASSERT_TRUE(ref_t2.equal(cg_outputs[1].as<at::Tensor>()));
 }
 
 // An input is sliced and also entirely read. Both should be vectorizable.
@@ -2788,8 +2781,8 @@ TEST_F(ResizeTest, Slice1DVectorize3Manual) {
 
   auto ref =
       t0.index({at::indexing::Slice(slice_offset, shape[0] - slice_offset)});
-  ASSERT_TRUE(ref.equal(cg_outputs.at(0)));
-  ASSERT_TRUE(t0.equal(cg_outputs.at(1)));
+  ASSERT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
+  ASSERT_TRUE(t0.equal(cg_outputs[1].as<at::Tensor>()));
 }
 
 // TODO: this is a case not yet supported by vectorization analysis
@@ -2828,7 +2821,7 @@ TEST_F(ResizeTest, Slice1DVectorizeManual4) {
 
   auto ref_aligned = t0_aligned.index({at::indexing::Slice(1, -3)});
 
-  ASSERT_TRUE(ref_aligned.equal(cg_outputs.at(0)));
+  ASSERT_TRUE(ref_aligned.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Contig merged vectorization with slice
@@ -3014,7 +3007,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
          at::indexing::Slice(0, at::indexing::None),
          at::indexing::Slice(i * 1024, (i + 1) * 1024)});
     auto ref = at::native::view(slice_out_ref, {16, 128, 16, 64});
-    ASSERT_TRUE(ref.equal(cg_outputs.at(i)));
+    ASSERT_TRUE(ref.equal(cg_outputs[i].as<at::Tensor>()));
   }
 }
 
@@ -3139,7 +3132,7 @@ TEST_F(ResizeTest, CatOfBroadcast) {
 
   auto ref = at::cat({t0, t1}, 0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Test that we can cat along broadcast dims that have been expanded
@@ -3175,7 +3168,7 @@ TEST_F(ResizeTest, CatOfExpandedBroadcast) {
 
   auto ref = at::cat({at::expand_copy(t0, shape0e), t1}, 0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Test that an empty input which is expanded in some non-zero directions can be
@@ -3453,7 +3446,7 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
     auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
     EXPECT_EQ(cg_outputs.size(), 1);
-    EXPECT_EQ(cg_outputs[0].dtype(), data_type_to_aten(dtype));
+    EXPECT_EQ(cg_outputs[0].as<at::Tensor>().dtype(), data_type_to_aten(dtype));
 
     // note cat doesn't support fp8 types, running reference with floating point
     // instead.
@@ -3463,7 +3456,7 @@ TEST_F(ResizeTest, CatMemoryPromotionReducedFloating) {
 
     testValidate(
         executor_cache.fusion(),
-        {cg_outputs[0].to(at::kFloat)},
+        {cg_outputs[0].as<at::Tensor>().to(at::kFloat)},
         {t0, t1},
         {ref},
         __LINE__,
@@ -3580,7 +3573,7 @@ TEST_F(ResizeTest, Chunk_SizeZero) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_EQ(out_tensors.back().numel(), 0);
+  EXPECT_EQ(out_tensors.back().as<at::Tensor>().numel(), 0);
 }
 
 TEST_F(ResizeTest, Chunk_Uneven) {
@@ -3600,7 +3593,7 @@ TEST_F(ResizeTest, Chunk_Uneven) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_EQ(out_tensors.back().numel(), 1);
+  EXPECT_EQ(out_tensors.back().as<at::Tensor>().numel(), 1);
 }
 
 // Schedule a slice with the loop domain derived from the producer
@@ -3653,7 +3646,7 @@ TEST_F(ResizeTest, SliceScheduledLikeProducer) {
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(ResizeTest, PadScheduledLikeConsumer) {
@@ -3700,7 +3693,7 @@ TEST_F(ResizeTest, PadScheduledLikeConsumer) {
 
   auto ref = at::pad(t0 + 1, {1, 1}) + 1;
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Slicing the left half and pad it to the original extent
@@ -3752,7 +3745,7 @@ TEST_F(ResizeTest, SliceThenPadLeftHalf) {
   auto ref = at::pad(
       t0.index({at::indexing::Slice(0, shape[0] / 2)}), {0, shape[0] / 2});
 
-  EXPECT_TRUE(ref.equal(cg_outputs[0]));
+  EXPECT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Slicing the right half and pad it to the original extent
@@ -3807,7 +3800,7 @@ TEST_F(ResizeTest, SliceThenPadRightHalf) {
       t0.index({at::indexing::Slice(shape[0] / 2, shape[0])}),
       {shape[0] / 2, 0});
 
-  EXPECT_TRUE(ref.equal(cg_outputs[0]));
+  EXPECT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(ResizeTest, SliceThenConcat) {
@@ -3866,7 +3859,7 @@ TEST_F(ResizeTest, SliceThenConcat) {
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
 
-  EXPECT_TRUE(t0.equal(cg_outputs[0]));
+  EXPECT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // RoPE pattern except for the rotation
@@ -3965,7 +3958,7 @@ TEST_F(ResizeTest, SliceSliceConcatConcat) {
        at::slice(t0, 0, rope_size)},
       0);
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Consumer-based scheduling of slice
@@ -4763,7 +4756,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 100});
+  std::vector<int64_t> shape({-1, 128});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4789,7 +4782,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   auto tv5 = cat({tv4, tv2}, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 100}, options);
+  auto t0 = at::randn({16, 128}, options);
 
   fusion.addOutput(tv5);
 
@@ -5347,7 +5340,7 @@ TEST_F(ResizeTest, VectorizePadLowering) {
   auto cg_outputs = ke.run({t0});
 
   auto ref = at::pad(t0, {4, 4});
-  ASSERT_TRUE(ref.equal(cg_outputs[0]));
+  ASSERT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // manual scheduling that should have vectorized load.
@@ -5382,7 +5375,7 @@ TEST_F(ResizeTest, VectorizeWhereLowering) {
 
   // Note: we cannot use at::where, because aten only support tensor as
   // predicate.
-  ASSERT_TRUE(t0.equal(cg_outputs[0]));
+  ASSERT_TRUE(t0.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(ResizeTest, VectorizeFactorFour) {
@@ -5620,7 +5613,7 @@ TEST_F(ResizeTest, PadAndCacheUses) {
 //
 //   auto ref = at::pad(t0.relu(), {0, 0, 4, 4, 0, 0});
 //
-//   NVF_CHECK(ref.equal(cg_outputs.outputs[0]));
+//   NVF_CHECK(ref.equal(cg_outputs.outputs[0].as<at::Tensor>()));
 //   // TODO: check vectorization factor
 // }
 
@@ -5828,6 +5821,86 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
 
     EXPECT_NE(has_resize, has_index_op);
   }
+}
+
+// Split-based reshape followed by a slice. The reshape is not
+// cancelable. The vectorization factor based on the innermost logical
+// ID of the input is not a valid factor as the fusion is scheduled
+// based on the post-reshape shape.
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeSplit) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{128L * 16L};
+  std::vector<int64_t> shape2{shape1[0] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 2 because the resize scheduler
+  // only uses the innermost logical ID, and the extent of the output
+  // tensor is just 2. Before PR #3955, the resize scheduler
+  // attempted to vectorize by 4. Note that the slice op itself does
+  // not matter for the vectorization as the sliced ID is not involved
+  // in the vectorization.
+  EXPECT_EQ(
+      tv3->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 2);
+}
+
+// Merge-based reshape followed by a slice. The reshape is
+// cancelable. If the output is used as the reference but the reshape
+// is canceled, the valid vectorization factor should be 2. The WAR of
+// PR #3955 gives up canceling any reshape that involves innermost
+// logical IDs to avoid this inconsistency.
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeMerge) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape2{16, 128L * 16L};
+  std::vector<int64_t> shape1{16, shape2[1] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  // [16, 128 * 16 / 2, 2] -> [16, 128 * 16]. Cancelable reshape.
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 4. If the reshape were canceled,
+  // it should have been 2, but in this case since it involves the
+  // innermost logical ID of tv2, it is not canceled, thus
+  // vectorization by 4 should be chosen.
+  EXPECT_EQ(
+      tv3->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 4);
 }
 
 } // namespace nvfuser
