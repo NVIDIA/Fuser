@@ -2106,15 +2106,15 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
           "We only support 2D inputs stmatrix");
 
       NVF_ERROR(
-          ldst->fusion()->hasManaged("st_matrix_m_tile") &&
-              ldst->fusion()->hasManaged("st_matrix_n_tile") &&
-              ldst->fusion()->hasManaged("st_matrix_m") &&
-              ldst->fusion()->hasManaged("st_matrix_n"),
+          ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
+              ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
+              ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
+              ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
           "We support stmatrix only when tiling information is passed via fusion managed cache");
-      auto m_tile = ldst->fusion()->getManaged<int64_t>("st_matrix_m_tile");
-      auto n_tile = ldst->fusion()->getManaged<int64_t>("st_matrix_n_tile");
-      auto m = ldst->fusion()->getManaged<int64_t>("st_matrix_m");
-      auto n = ldst->fusion()->getManaged<int64_t>("st_matrix_n");
+      auto m_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
+      auto n_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
+      auto m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
+      auto n = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
 
       // Get the index for the output of stmatrix.
       NVF_ERROR(ldst->out()->isA<TensorView>());
