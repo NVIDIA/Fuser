@@ -74,13 +74,13 @@ Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
 namespace {
 
 // For a given loop nest represented by a vector of ForLoops, returns
-// the IDs of all of fully unswitched parallel loops. An ID is
-// considered fully unswitched when all of its dependent loop IDs are
-// unswitched. Similarly, a loop is fully unswitched when all of its
-// dependent predicated IDs are fully unswitched. This information is
-// used to determine if it's safe to omit the predicate for a parallel
-// type.
-std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
+// all unswitched parallel loop IDs that do not require parallel type
+// predicates. An ID is considered fully unswitched when all of its
+// dependent loop IDs are unswitched. Similarly, a loop is fully
+// unswitched when all of its dependent predicated IDs are fully
+// unswitched. This information is used to determine if it's safe to
+// omit the predicate for a parallel type.
+std::vector<IterDomain*> getUnswitchProtectedParallelLoopIds(
     const Expr* expr,
     const std::vector<ForLoop*>& loops,
     ForLoop* unswitched_loop) {
@@ -111,8 +111,8 @@ std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
       IndexingTraversal::getExprsBetween(
           expr, indexing_graph, loop_ids, predicate_ids);
 
-  // All loops that are right of unswitched_loop are also unswitched
-  // if they are parallelized. We don't assign maximum possible
+  // All loops that are right of unswitched_loop are also unswitched,
+  // except when they are parallelized. We don't assign maximum possible
   // index values to unswitched parallel loops (e.g., threadIdx.x, not
   // blockDim.x - 1), so parallelized loops are not considered
   // unswitched for the sake of this analysis.
@@ -142,7 +142,7 @@ std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
     }
   }
 
-  std::vector<IterDomain*> fully_unswitched_loop_ids;
+  std::vector<IterDomain*> unswitch_protected_loop_ids;
   unswitch_found = false;
   for (const auto loop : loops) {
     if (loop == unswitched_loop) {
@@ -174,7 +174,7 @@ std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
     ValGroups unswitch_dep_ids;
     unswitch_dep_ids.pushBack(indexing_graph.toGroup(unswitched_loop_id));
 
-    bool fully_unswitched = true;
+    bool protected_by_unswitch = true;
 
     for (const auto& [expr_g, dir] : predicate_path) {
       const auto inputs = getInputsOfExprGroup(indexing_graph, expr_g, dir);
@@ -189,8 +189,8 @@ std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
         continue;
       }
 
-      // If any of the non unswitched IDs is used, this is not fully
-      // unswitched. Note that non_unswitch_dep_ids contains all
+      // If any of the non unswitched IDs is used, this is not
+      // protected. Note that non_unswitch_dep_ids contains all
       // parallelized unswitched IDs and their dependents, including
       // unswitched_loop_id itself. Use of unswitched_loop_id and its
       // dependents should not make unswitched_loop_id not fully
@@ -199,7 +199,7 @@ std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
             return non_unswitch_dep_ids.has(input) &&
                 !unswitch_dep_ids.has(input);
           })) {
-        fully_unswitched = false;
+        protected_by_unswitch = false;
         break;
       }
 
@@ -207,12 +207,12 @@ std::vector<IterDomain*> getFullyUnswitchedParallelLoopIds(
       unswitch_dep_ids.pushBack(outputs);
     }
 
-    if (fully_unswitched) {
-      fully_unswitched_loop_ids.push_back(unswitched_loop_id);
+    if (protected_by_unswitch) {
+      unswitch_protected_loop_ids.push_back(unswitched_loop_id);
     }
   }
 
-  return fully_unswitched_loop_ids;
+  return unswitch_protected_loop_ids;
 }
 
 } // namespace
@@ -243,8 +243,8 @@ ParallelizedDomainPredicate::getPredicateMap(
   bool within_unswitch = false;
   std::unordered_set<Val*> non_unswitched_root_domains;
 
-  auto fully_unswitched_loop_ids =
-      getFullyUnswitchedParallelLoopIds(expr, loops, unswitched_loop);
+  auto unswitch_protected_loop_ids =
+      getUnswitchProtectedParallelLoopIds(expr, loops, unswitched_loop);
 
   for (const auto i : c10::irange(loops.size())) {
     auto loop = loops[i];
@@ -264,7 +264,7 @@ ParallelizedDomainPredicate::getPredicateMap(
     }
     auto parallel_dim = gpu_lower->parallelDimensionMap().getRaw(loop_ptype);
 
-    // If fully unswitched, the unswitch predicate is enough without
+    // If protected by unswitch, the unswitch predicate is enough without
     // predicating the parallel type. For example, suppose a logical
     // ID is inner split by a factor of K and both of the two outputs
     // are unswitched. Also suppose the inner output IDs is
@@ -278,9 +278,9 @@ ParallelizedDomainPredicate::getPredicateMap(
     // predicate is sufficient even when blockDim.x > K.
     if (within_unswitch &&
         std::find(
-            fully_unswitched_loop_ids.begin(),
-            fully_unswitched_loop_ids.end(),
-            loop_id) != fully_unswitched_loop_ids.end()) {
+            unswitch_protected_loop_ids.begin(),
+            unswitch_protected_loop_ids.end(),
+            loop_id) != unswitch_protected_loop_ids.end()) {
       continue;
     }
 
