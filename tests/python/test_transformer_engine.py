@@ -102,10 +102,7 @@ def test_transformer_layer(
     overlap: bool,
 ):
     if overlap and parallelism == Parallelism.TENSOR_PARALLEL:
-        pytest.skip("Tensor parallelism doesn't support overlapping.")
-
-    if overlap:
-        pytest.skip("Temporarily avoid an ongoing bug in TE (http://nv/evJ).")
+        pytest.skip("Tensor parallelism doesn't support overlapping")
 
     # Hyperparameters for GPT-3
     hidden_size = 12288
