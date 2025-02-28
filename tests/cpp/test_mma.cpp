@@ -494,10 +494,10 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   // This is a temporary way to pass this information
   // to the custom index generator for stmatrix.
   // TODO: remove the need for fusion managed cache.
-  fusion.manage("st_matrix_m_tile", tile_m);
-  fusion.manage("st_matrix_n_tile", tile_n);
-  fusion.manage("st_matrix_m", getM(macro));
-  fusion.manage("st_matrix_n", getN(macro));
+  fusion.manage("ldst_matrix_m_tile", tile_m);
+  fusion.manage("ldst_matrix_n_tile", tile_n);
+  fusion.manage("ldst_matrix_m_smem", getM(macro));
+  fusion.manage("ldst_matrix_n_smem", getN(macro));
 
   tv0->merge(1);
   tv0->merge(1);
