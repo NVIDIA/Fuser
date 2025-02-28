@@ -335,9 +335,10 @@ struct MatmulPattern {
   //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
   //! updated to reflect the replacement tensor.
   //!
-  //! If avoid_intermediates is true, this function will use an
-  //! MmaOp::AxisMapping instead of broadcasting and permuting axes, in order to
-  //! avoid introducing unnecessary copies on Hopper and above.
+  //! If avoid_intermediates is true, this function will set intermediate
+  //! tensors between the fusion inputs and MmaOp as Global and rearrange their
+  //! allocation domains to match the input tensor in order to guarantee that
+  //! their definitions do not appear in the generated kernel.
   TranslationResult translateToMmaOp(bool avoid_intermediates = false);
 
   //! Given an IdModel, map groups of IterDomains to dimension roles
