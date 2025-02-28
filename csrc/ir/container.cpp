@@ -26,8 +26,6 @@ void swap(IrContainer& a, IrContainer& b) noexcept {
   swap(a.exprs_up_, b.exprs_up_);
   swap(a.exprs_, b.exprs_);
 
-  swap(a.raw_ptrs_, b.raw_ptrs_);
-
   swap(a.val_type_name_map_, b.val_type_name_map_);
   swap(a.expr_name_counter_, b.expr_name_counter_);
 
@@ -150,7 +148,6 @@ void IrContainer::removeExpr(Expr* expr) {
 
   exprs_.erase(expr);
   exprs_up_.erase(expr_in_deque);
-  raw_ptrs_.erase((void*)expr);
 }
 
 //! Completely remove val from the fusion, break all dependencies associated
@@ -177,7 +174,6 @@ void IrContainer::removeVal(Val* val) {
 
   vals_.erase(val);
   vals_up_.erase(val_in_deque);
-  raw_ptrs_.erase((void*)val);
 }
 
 //! Register the Val with this container
@@ -189,7 +185,6 @@ void IrContainer::registerVal(Val* val) {
   vals_up_.emplace_back(std::unique_ptr<Val>(val));
   vals_.emplace(vals_up_.back().get());
   val->setName(IrContainerPasskey(), getValName(vals_up_.back()->vtype()));
-  raw_ptrs_.emplace((void*)vals_up_.back().get());
 }
 
 //! Register expr with this container.
@@ -200,7 +195,6 @@ void IrContainer::registerExpr(Expr* expr) {
   exprs_up_.emplace_back(std::unique_ptr<Expr>(expr));
   exprs_.emplace(exprs_up_.back().get());
   expr->setName(IrContainerPasskey(), getExprName());
-  raw_ptrs_.emplace((void*)exprs_up_.back().get());
 }
 
 void IrContainer::clear() noexcept {
@@ -209,7 +203,6 @@ void IrContainer::clear() noexcept {
   vals_up_.clear();
   exprs_.clear();
   exprs_up_.clear();
-  raw_ptrs_.clear();
   axioms_.reset();
   val_type_name_map_.clear();
   metadata_.clear();
@@ -217,27 +210,22 @@ void IrContainer::clear() noexcept {
 }
 
 bool IrContainer::inContainer(const Statement* stmt) const {
-  const void* const_void = (const void*)(stmt);
-  void* nonconst_void = const_cast<void*>(const_void); // NOLINT
-  if (raw_ptrs_.find(nonconst_void) == raw_ptrs_.end()) {
-    return false;
+  auto* nonconst_stmt = const_cast<Statement*>(stmt); // NOLINT
+  if (stmt->isExpr()) {
+    auto* expr = nonconst_stmt->as<Expr>();
+    if (exprs_.count(expr) == 0) {
+      return false;
+    }
+  } else if (stmt->isVal()) {
+    auto* val = nonconst_stmt->as<Val>();
+    if (vals_.count(val) == 0) {
+      return false;
+    }
   }
 
   NVF_ERROR(
       stmt->container() == this,
       "Container claims to own stmt, but stmt disagrees.");
-
-  Statement* nonconst_stmt = const_cast<Statement*>(stmt); // NOLINT
-  if (stmt->isExpr()) {
-    NVF_ERROR(
-        exprs_.find(nonconst_stmt->as<Expr>()) != exprs_.end(),
-        "Somehow container claims to and not to own an Expr.");
-  }
-  if (stmt->isVal()) {
-    NVF_ERROR(
-        vals_.find(nonconst_stmt->as<Val>()) != vals_.end(),
-        "Somehow container claims to and not to own an Val.");
-  }
 
   return true;
 }
