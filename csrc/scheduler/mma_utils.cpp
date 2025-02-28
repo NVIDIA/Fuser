@@ -1789,8 +1789,7 @@ namespace {
 // with `MmaOp` and pointwise `add`.
 // 4. `MatmulOp` -- This expression is `y = A[M, K] @ B[K, N]`. The `MmaOp`
 // expression requires `[M, N, K]` ordering, so it requires transposing the
-// `B` operand. It also support batch matrix multiplication, which is
-// tracked by `MmaOp::AxisMapping`.
+// `B` operand. It also support batch matrix multiplication.
 //
 // `finalizeMatmulOrLinearOp`
 //  * Fused-Multiply-Sum (FMS) is the output from MmaOp.
@@ -1828,8 +1827,7 @@ class MatmulTranslator : public OptInDispatch {
         pattern_.output,
         pattern_.A,
         pattern_.B,
-        init,
-        MmaOp::AxisMapping::trivialMapping(pattern_.output->nDims()));
+        init);
   }
 
   //! Replace a TV, recording it in replacements_

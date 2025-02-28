@@ -2022,24 +2022,12 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 //==============================================================================================================================
 
-MmaOp::AxisMapping MmaOp::AxisMapping::trivialMapping(size_t dimension) {
-  AxesData a_axes, b_axes;
-  a_axes.reserve(dimension);
-  b_axes.reserve(dimension);
-  for (size_t i : c10::irange(dimension)) {
-    a_axes.push_back((int64_t)i);
-    b_axes.push_back((int64_t)i);
-  }
-  return {a_axes, b_axes};
-}
-
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in_a,
     Val* in_b,
-    Val* init,
-    const AxisMapping& axis_mapping)
+    Val* init)
     : Expr(passkey) {
   NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
@@ -2082,7 +2070,6 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const AxisMapping& axis_mapping,
     const MmaMacro& macro)
     : MmaOp(passkey, out, in_a, in_b, init, axis_mapping) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
