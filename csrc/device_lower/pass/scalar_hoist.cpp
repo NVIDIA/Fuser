@@ -584,6 +584,7 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
   bool is_insert_ = false;
   bool is_within_grid_loop_ = false;
   std::vector<Expr*> exprs_before_grid_loop_;
+  std::unordered_set<Expr*> exprs_cannot_be_moved_;
   kir::IfThenElse* warp_specialized_ite_ = nullptr;
   std::unordered_set<Expr*> uops_to_be_moved_;
   std::unordered_set<Val*> allocs_to_be_moved_;
@@ -591,64 +592,61 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
   std::vector<Val*> vals_being_moved_;
   int current_nested_layer_ = -1;
   int grid_loop_nested_layer_ = -1;
-  // Returns true if this forloop is for the init or load of the buffer
-  // bool isBufferInitOrLoad(Val* val, ForLoop* fl) {
-  //   const auto& flattened_exprs =
-  //       ir_utils::flattenScopedExprs(fl->body().exprs());
-  //   for (auto expr : flattened_exprs) {
-  //     if (!(expr->isA<LoadStoreOp>() && expr->output(0) == val)) {
-  //       return false;
-  //     }
-  //   }
-  //   return true;
-  // }
+  bool isLogicalOpTidWithConst(Val* alloc_buffer) {
+    if (!alloc_buffer->isABool()) {
+      return false;
+    }
+    if (auto bop = dynamic_cast<BinaryOp*>(alloc_buffer->definition());
+        bop && isLogicalOp(bop->getBinaryOpType())) {
+      if (auto ls = dynamic_cast<NamedScalar*>(bop->lhs());
+          ls && ls->isThreadIdx()) {
+        if (bop->rhs()->isConstScalar()) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  bool isBinaryComputeGridLoopIterDomain(Val* alloc_buffer) {
+    int64_t sm_count = 148;
+    if (auto bop = dynamic_cast<BinaryOp*>(alloc_buffer->definition())) {
+      if (bop->rhs()->isConstScalar() &&
+          bop->rhs()->value().as<int64_t>() == sm_count) {
+        return true;
+      }
+    }
+    return false;
+  }
 
   MoveTopExprsToComputeWarpLoop(const std::vector<Expr*>& exprs) {
-    // std::unordered_set<Val*> alloc_buffers;
-    // for(auto expr : exprs){
-    //   if(auto fl = dynamic_cast<ForLoop*>(expr)){
-    //     if (fl->iter_domain()->isBlockDim()) {
-    //       break;
-    //     }
-    //   }
-    //   if(auto alloc = dynamic_cast<kir::Allocate*>(expr)){
-    //     alloc_buffers.insert(alloc->buffer());
-    //   }
-    //   exprs_before_grid_loop_.push_back(expr);
-    // }
-    // // reverse visit to trace back from consumer to allocator
-    // for(auto it = exprs_before_grid_loop_.rbegin(); it !=
-    // exprs_before_grid_loop_.rend(); ++it){
-    //   auto expr = *it;
-    //   if(auto uop = dynamic_cast<UnaryOp*>(expr)){
-    //     std::cout << "uops_to_be_moved_ is: " << uop->toString() <<
-    //     std::endl; std::cout << "allocs_to_be_moved_ is: " <<
-    //     uop->output(0)->toString() << std::endl;
-    //     uops_to_be_moved_.insert(expr);
-    //     allocs_to_be_moved_.insert(uop->output(0));
-    //     auto val = uop->input(0);
-    //     while(val->definition() && val->definition()->isA<UnaryOp>()){
-    //       val = val->definition()->as<UnaryOp>()->input(0);
-    //       std::cout << "uops_to_be_moved_ is: " <<
-    //       val->definition()->toString() << std::endl; std::cout <<
-    //       "allocs_to_be_moved_ is: " <<
-    //       val->definition()->as<UnaryOp>()->output(0)->toString() <<
-    //       std::endl; uops_to_be_moved_.insert(val->definition());
-    //       allocs_to_be_moved_.insert(val->definition()->as<UnaryOp>()->output(0));
-    //     }
-    //     // if(alloc_buffers.count(val)){
-    //     //   std::cout << "allocs_to_be_moved_ is: " <<
-    //     val->definition()->toString() << std::endl;
-    //     //   allocs_to_be_moved_.insert(val->definition());
-    //     // }
-    //   }
-    // }
+    for (auto expr : exprs) {
+      if (auto fl = dynamic_cast<ForLoop*>(expr)) {
+        if (fl->iter_domain()->isBlockDim()) {
+          break;
+        }
+      }
+      std::cout << "exprs_before_grid_loop_: " << expr->getOpString() << ", "
+                << expr->toString() << std::endl;
+      exprs_before_grid_loop_.push_back(expr);
+    }
 
-    std::cout << "============== beg traverseAndInsert =========== "
-              << std::endl;
+    // mark the exprs that cannot be moved
+    for (auto expr : exprs_before_grid_loop_) {
+      if (auto alloc = dynamic_cast<kir::Allocate*>(expr)) {
+        if (alloc->memoryType() != MemoryType::Local) {
+          exprs_cannot_be_moved_.insert(expr);
+          continue;
+        }
+        if (isLogicalOpTidWithConst(alloc->buffer()) ||
+            isBinaryComputeGridLoopIterDomain(alloc->buffer())) {
+          exprs_cannot_be_moved_.insert(expr);
+          exprs_cannot_be_moved_.insert(alloc->buffer()->definition());
+          continue;
+        }
+      }
+    }
     traverseAndInsert(exprs);
-    std::cout << "============== end traverseAndInsert =========== "
-              << std::endl;
   }
 
   using kir::ExprMutator::handle;
@@ -681,18 +679,21 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
   void dispatch(Expr* expr) override {
     // only dispatch top level exprs
     if (for_loops_.empty()) {
-      std::cout << "dispatch is:\n" << expr->toString() << std::endl;
       // handle grid stride ForLoop
       if (auto fl = dynamic_cast<ForLoop*>(expr);
           fl && fl->iter_domain()->isBlockDim()) {
         kir::ExprMutator::dispatch(fl);
       } else {
-        registerRemove(expr);
-        exprs_to_be_moved_.push_back(expr);
+        if (exprs_cannot_be_moved_.count(expr) == 0) {
+          std::cout << "registerRemove: " << expr->getOpString() << ", "
+                    << expr->toString() << std::endl;
+          registerRemove(expr);
+          exprs_to_be_moved_.push_back(expr);
+        }
       }
     } else {
-      // Dispatch nested exprs in grid-stride ForLoop
-      // If it is a ForLoop, will be handled by handle(ForLoop* loop)
+      // Dispatch nested exprs within grid-stride ForLoop
+      // If expr is a ForLoop, will be handled by handle(ForLoop* loop)
       kir::ExprMutator::dispatch(expr);
     }
   }
@@ -743,6 +744,11 @@ std::vector<Expr*> allocateCommonScalars(const std::vector<Expr*>& exprs) {
 
   auto exprs_after_hoist =
       CommonScalarInserter::run(exprs, GpuLower::current()->commonScalarMap());
+
+  std::cout << "\n==============exprs after hoist: " << std::endl;
+  for (auto expr : exprs_after_hoist) {
+    std::cout << expr->toString() << std::endl;
+  }
 
   return MoveTopExprsToComputeWarpLoop::run(exprs_after_hoist);
 }
