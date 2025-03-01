@@ -928,7 +928,6 @@ int64_t getVectorizationFactor(
         max_vec_size);
 
     if (has_resize) {
-      std::cerr << "Without resize fix: " << max_vec_size << "\n";
       const auto& graph = id_model->idGraph(IdMappingMode::EXACT);
       const auto ref_groups = graph.toGroups(reference_tv->getLogicalDomain());
       const auto inp_or_out_groups =
@@ -960,9 +959,6 @@ int64_t getVectorizationFactor(
           continue;
         }
 
-        std::cerr << dir << ", " << nvfuser::toString(expr_g)
-                  << expr_g->front()->toString();
-
         auto left_expand_val =
             runtime_info.expressionEvaluator().evaluate(resize->leftExpand());
         if (!left_expand_val.hasValue()) {
@@ -986,11 +982,8 @@ int64_t getVectorizationFactor(
             std::gcd(
                 left_expand_val.as<int64_t>(), right_expand_val.as<int64_t>()),
             output_extent_val.as<int64_t>());
-        std::cerr << "Safe vec factor: " << resize_safe_factor << "\n";
         max_vec_size = std::gcd(max_vec_size, resize_safe_factor);
       }
-
-      std::cerr << "With resize fix: " << max_vec_size << "\n";
     }
   }
 
