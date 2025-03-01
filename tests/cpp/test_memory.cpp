@@ -3225,6 +3225,20 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
 
+  // ===========================================================================
+
+  // Constants
+  constexpr int64_t mma_m = 128;
+  constexpr int64_t mma_n = 256;
+  constexpr int64_t ldst_matrix_tile_m = 16;
+  constexpr int64_t ldst_matrix_tile_n = 16;
+  fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
+  fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
+  fusion.manage("ldst_matrix_m_smem", mma_m);
+  fusion.manage("ldst_matrix_n_smem", mma_n);
+
+  // ===========================================================================
+
   // The definition for tv0_smem is tma load, which moves data from shared to
   // global memory.
   TensorView* tv0_smem = tv0->cacheAfter();
@@ -3240,7 +3254,7 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // The definition for tv1_smem is stmatrix, which moves data from registers to
   // shared memory.
   TensorView* tv1_smem = tv1->cacheBefore();
-  // tv1_smem->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv1_smem->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
   tv1_smem->setMemoryType(MemoryType::Shared);
 
   // The definition for tv1 is tma store, which moves data from shared to global
@@ -3251,9 +3265,6 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // ===========================================================================
 
   // Create 2D block tile
-  constexpr int64_t mma_m = 128;
-  constexpr int64_t mma_n = 256;
-
   // (M, N)
   tv1->split(0, mma_m);
   tv1->split(-1, mma_n);
@@ -3305,8 +3316,10 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
 
   tv1_smem->axis(-2)->parallelize(ParallelType::TIDx);
   // (GM, GN, 2, 16, 128(TDX), 8)
+  tv1_smem->axis(-4)->parallelize(ParallelType::TIDy);
+  // (GM, GN, 2(TDY), 16, 128(TDX), 8)
   // tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-  // (GM, GN, 2, 16, 128(TDX), 8(V))
+  // (GM, GN, 2(TDY), 16, 128(TDX), 8(V))
 
   // TODO Add ldmatrix scheduling
   // Move data from tv0_smem to tv0_reg using 128 threads - LdMatrix
@@ -3321,6 +3334,8 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // (GM, GN, 2, 16, 128, 8)
   tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
   // (GM, GN, 2, 16, 128(TDX), 8)
+  tv0_reg->axis(-4)->parallelize(ParallelType::TIDy);
+  // (GM, GN, 2(TDY), 16, 128(TDX), 8)
 
   inlineMost();
 
