@@ -3785,8 +3785,8 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     constexpr int64_t stmatrix_tile_n = 16;
     fusion.manage("ldst_matrix_m_tile", stmatrix_tile_m);
     fusion.manage("ldst_matrix_n_tile", stmatrix_tile_n);
-    fusion.manage("ldst_matrix_m_tma", getM(macro));
-    fusion.manage("ldst_matrix_n_tma", getN(macro));
+    fusion.manage("ldst_matrix_m_smem", getM(macro));
+    fusion.manage("ldst_matrix_n_smem", getN(macro));
 
     MmaInputSmemSwizzle store_swizzle =
         mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
