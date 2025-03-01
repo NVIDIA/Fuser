@@ -3248,6 +3248,36 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   tv1->definition()->as<LoadStoreOp>()->setOpType(
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
+  // ===========================================================================
+
+  // Create 2D block tile
+  constexpr int64_t mma_m = 128;
+  constexpr int64_t mma_n = 256;
+
+  // (M, N)
+  tv1->split(0, mma_m);
+  tv1->split(-1, mma_n);
+  // (GM, BM, GN, BN) // split
+  tv1->reorder({{1, 2}, {2, 1}});
+  // (GM, GN, BM(128), BN(256)) // reorder
+
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::BIDy);
+  scheduler_utils::parallelizeAllLike(tv1);
+
+  // Schedule output from TMA Load
+  MmaInputSmemSwizzle input_swizzle =
+      mma_utils::tmaSwizzleSharedMemory(tv0_smem);
+  mma_utils::MmaSwizzler::scheduleTMALoadForMma(tv0_smem, input_swizzle);
+
+  // Schedule global memory output from TMA Store
+  MmaInputSmemSwizzle output_swizzle =
+      mma_utils::tmaSwizzleSharedMemory(tv0_smem);
+  mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
+
   constexpr int dim0 = 8192, dim1 = 8192;
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
@@ -3260,28 +3290,11 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 
-  // 2D block tile, Parallelize
-  // (M, N)
-  // (GM, BM, GN, BN) // split
-  // (GM, GN, BM(128), BN(256)) // reorder
-  // transformAllLike
-  // parallelizeAllLike
-  //
   // (GM, GN, 2, 4, 64, 64)  // split 2d tile by (64, 64) sub-tile for ldst
   // matrix (GM, GN, 2, 4, 64*64)  // merge 2d tile into 1d vector (GM, GN, 2,
   // 4, 512, 8(V))  // vectorize (GM, GN, 2, 4, 4, 128(TDX), 8(V))  // 128
   // threads Move data from tv0_smem to tv0_reg using 128 threads - ldmatrix
   // Move data from tv0_reg to tv1_smem using 128 threads - stmatrix
-  //
-  // Schedule output from TMA Load
-  // MmaInputSmemSwizzle input_swizzle =
-  // mma_utils::tmaSwizzleSharedMemory(tv0_smem);
-  // tv0_smem->applyMmaSwizzleForTMALoad(input_swizzle);
-  //
-  // Schedule global memory output from TMA Store
-  // MmaInputSmemSwizzle output_swizzle =
-  // mma_utils::tmaSwizzleSharedMemory(tv0_smem);
-  // mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
   //
   // TODO Add ldmatrix scheduling
   //
