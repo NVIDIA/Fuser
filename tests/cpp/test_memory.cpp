@@ -3318,20 +3318,55 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // (GM, GN, 2, 16, 128(TDX), 8)
   tv1_smem->axis(-4)->parallelize(ParallelType::TIDy);
   // (GM, GN, 2(TDY), 16, 128(TDX), 8)
-  // tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+  tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
   // (GM, GN, 2(TDY), 16, 128(TDX), 8(V))
 
   // TODO Add ldmatrix scheduling
   // Move data from tv0_smem to tv0_reg using 128 threads - LdMatrix
+  //
+  // Split TMA tile (128, 256) by (64, 64)
   // (GM, GN, 128, 256)
   tv0_reg->split(-2, 64);
-  // (GM, GN, 2, 64, 256)
-  tv0_reg->merge(-1, -2); // merge 2d tile into 1d vector
-  // (GM, GN, 2, 64*256)
-  tv0_reg->split(-1, 8); // Create Vectorize ID
-  // (GM, GN, 2, 2048, 8)
-  tv0_reg->split(-2, 128); // Create WarpGroup ID
+  tv0_reg->split(-1, 64);
+  // (GM, GN, 2, 64, 4, 64)
+  tv0_reg->reorder({{-2, -3}, {-3, -2}});
+  
+  // (GM, GN, 2, 4, 64, 64)
+  // Split (64, 64) tile by (16, 16) ldst_matrix .x4
+  tv0_reg->split(-2, 16);
+  tv0_reg->split(-1, 16);
+  // (GM, GN, 2, 4, 4, 16, 4, 16)
+  // (GM, GN, m2, n4, m4, m16, n4, n16)
+  tv0_reg->reorder({{-2, -3}, {-3, -2}});
+
+  // Construct register layout; 2 adjacent elements with 4x(8,8) sub-matrices
+  // Split (16, 16) ldst_matrix.x4 by (8, 8) ldst_matrix
+  // Split inner-dim 8  by 2
+  // (GM, GN, 2, 4, 4, 4, 16, 16)
+  // (GM, GN, m2, n4, m4, n4, 16, 16)
+  tv0_reg->split(-2, 8);
+  tv0_reg->split(-1, 8);
+  tv0_reg->split(-1, 2);
+  // (GM, GN, 2, 4, 4, 4, 2, 8, 2, 4, 2)
+  // (GM, GN, m2, n4, m4, n4, m2, m8, n2, n4, n2)
+  tv0_reg->reorder({{-5, -3}, {-4, -5}, {-3, -2}, {-2, -4}});
+  // (GM, GN, m2, n4, m4, n4, m8, n4, 2, 2, 2)
+
+  // Merge registers into single iterDomain
+  tv0_reg-merge(-2, -1);
+  tv0_reg-merge(-2, -1);
+  // (GM, GN, m2, n4, m4, n4, m8, n4, (m+n)8)
+
+  tv0_reg->reorder({{-5, -4}, {-4, -5}});
+  // (GM, GN, m2, n4, n4, m4, m8, n4, (m+n)8)
+  tv0_reg-merge(-4, -3);
+  tv0_reg-merge(-3, -2);
+  // 128 threads load (64, 16) matrix for four iterations to get (64, 64) matrix
+  // (GM, GN, 2, 4, 4, 128, 8)
+  tv0_reg-merge(-4, -3);
   // (GM, GN, 2, 16, 128, 8)
+  
+  // Apply parallelization
   tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
   // (GM, GN, 2, 16, 128(TDX), 8)
   tv0_reg->axis(-4)->parallelize(ParallelType::TIDy);
@@ -3347,8 +3382,6 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   ke.compile(&fusion, {at_tv0});
   kir::Kernel* kernel = ke.compiledKernel()->kernel();
   ASSERT_TRUE(kernel != nullptr);
-  // TODO Enable bank conflict check
-  // EXPECT_TRUE(getBankConflictInfo(kernel).empty());
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
