@@ -5930,10 +5930,9 @@ TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
   auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
   testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
 
-  // Should be vector by a factor of 4. If the reshape were canceled,
-  // it should have been 2, but in this case since it involves the
-  // innermost logical ID of tv2, it is not canceled, thus
-  // vectorization by 4 should be chosen.
+  // Should be vector by a factor of 2 because of the tv3 slice. The
+  // spanning tree based vectorization analysis may return 4 as only
+  // one of the paths from tv6 to tv0 is considered.
   EXPECT_EQ(
       tv6->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
   EXPECT_EQ(tv6->getLoopDomain().back()->extent()->evaluate(), 2);

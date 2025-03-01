@@ -116,14 +116,16 @@ class FindAllExprs {
         for (const auto& use_expr : uses_(*from_val)) {
           Edge edge(*from_val, use_expr);
           setVisited(edge);
-          for (const auto& next_edge : getNextEdges(edge, allowed_direction_)) {
+          for (const auto& next_edge :
+               getConsumerEdges(edge, allowed_direction_)) {
             edges_to_visit.push_back(next_edge);
           }
         }
         for (const auto& def_expr : definition_(*from_val)) {
           Edge edge(*from_val, def_expr);
           setVisited(edge);
-          for (const auto& next_edge : getNextEdges(edge, allowed_direction_)) {
+          for (const auto& next_edge :
+               getConsumerEdges(edge, allowed_direction_)) {
             edges_to_visit.push_back(next_edge);
           }
         }
@@ -162,7 +164,7 @@ class FindAllExprs {
 
         setVisited(edge_to_visit);
         for (const auto& next_edge :
-             getNextEdges(edge_to_visit, allowed_direction_)) {
+             getConsumerEdges(edge_to_visit, allowed_direction_)) {
           edges_to_visit.push_back(next_edge);
         }
         something_was_processed = true;
@@ -307,9 +309,12 @@ class FindAllExprs {
     }
   }
 
-  virtual std::vector<Edge> getNeighborEdges(
+  // Get edges that are consumers or producers of a given edge. A
+  // consumer edge of edge A->B is an edge that has node B as its from
+  // node. A producer edge is an edge that has node A as its to node.
+  virtual std::vector<Edge> getConsumerOrProducerEdges(
       const Edge& edge,
-      bool neighbor_of_to,
+      bool is_consumer,
       Direction allowed_direction = Direction::Undefined) const {
     std::vector<Edge> neighbor_edges;
 
@@ -341,7 +346,15 @@ class FindAllExprs {
     NVF_ERROR(
         edge_dir == Direction::Forward || edge_dir == Direction::Backward);
 
-    const auto& node = neighbor_of_to ? edge.to : edge.from;
+    const auto& node = is_consumer ? edge.to : edge.from;
+
+    // Since the direction is forward, this edge is
+    // Consumer edges are those that start from the e expr. Since
+    // the direction is Forward, When grabbing consumer edges, If the node is
+    // the to of the edge, the edge is from an input Val to its use Expr, so
+    // traverse from the use Expr to its outputs. If the node is the from of the
+    // edge, the edge is from a defining expr to one of its outputs, in that
+    // case grab edges of the inputs of the expr.
 
     if (const ExprT* e = std::get_if<ExprT>(&node)) {
       // The from node must be a Val.
@@ -349,26 +362,33 @@ class FindAllExprs {
       // In the case of Expr, only consider edges of the same
       // direction
       if (edge_dir == Direction::Forward) {
-        // If the node is the to of the edge, the edge is from an
-        // input Val to its use Expr, so traverse from the use Expr to
-        // its outputs. If the ndoe is the from of the edge, the edge
-        // is from a defining expr to one of its outputs, in that case
-        // grab edges of the inputs of the expr.
-        if (neighbor_of_to) {
+        if (is_consumer) {
+          // Grab consumer edges of the forward edge to the expr. The
+          // edge represents a use expr of the from val. Consumers are
+          // forward edges from the expr to its outputs.
           for (const auto& v : outputs_(*e)) {
             add_to_neighbor_list(*e, v);
           }
         } else {
+          // Grab producer edges of the forward edge from the expr. The
+          // edge represents a defining expr of the to val. Producers
+          // are forward edges to the defining expr from its inputs.
           for (const auto& v : inputs_(*e)) {
             add_to_neighbor_list(v, *e);
           }
         }
       } else if (edge_dir == Direction::Backward) {
-        if (neighbor_of_to) {
+        if (is_consumer) {
+          // Grab consumer edges of the backward edge to the expr. The
+          // edge represents a defining expr of the from val. Consumers
+          // are backward edges from the defining expr to its inputs.
           for (const auto& v : inputs_(*e)) {
             add_to_neighbor_list(*e, v);
           }
         } else {
+          // Grab producer edges of the backward edge from the expr. The
+          // edge represents a use expr of the from val. Produces
+          // are backward edges to the use expr expr from its outputs.
           for (const auto& v : outputs_(*e)) {
             add_to_neighbor_list(v, *e);
           }
@@ -382,17 +402,21 @@ class FindAllExprs {
       // traverse back to the same node.
 
       for (const auto& e : uses_(*v)) {
-        if (neighbor_of_to) {
+        if (is_consumer) {
+          // Uses of v are forward consumer edges of the edge to val v
           add_to_neighbor_list(*v, e);
         } else {
+          // Uses of v are backward producer edges of the edge from val v
           add_to_neighbor_list(e, *v);
         }
       }
 
       for (const auto& e : definition_(*v)) {
-        if (neighbor_of_to) {
+        if (is_consumer) {
+          // Defs of v are backward consumer edges of the edge to val v
           add_to_neighbor_list(*v, e);
         } else {
+          // Defs of v are forward producer edges of the edge from val v
           add_to_neighbor_list(e, *v);
         }
       }
@@ -402,17 +426,19 @@ class FindAllExprs {
   }
 
   // Get edges that should be traversed from the to node of a given edge
-  virtual std::vector<Edge> getNextEdges(
+  virtual std::vector<Edge> getConsumerEdges(
       const Edge& edge,
       Direction allowed_direction = Direction::Undefined) const {
-    return getNeighborEdges(edge, /*neighbor_of_to=*/true, allowed_direction);
+    return getConsumerOrProducerEdges(
+        edge, /*is_consumer=*/true, allowed_direction);
   }
 
-  // Get edges that should be traversed from the from node of a given edge
-  virtual std::vector<Edge> getPrevEdges(
+  // Get edges that should be traversed before the from node of a given edge
+  virtual std::vector<Edge> getProducerEdges(
       const Edge& edge,
       Direction allowed_direction = Direction::Undefined) const {
-    return getNeighborEdges(edge, /*neighbor_of_to=*/false, allowed_direction);
+    return getConsumerOrProducerEdges(
+        edge, /*is_consumer=*/false, allowed_direction);
   }
 
   // Check if all to_ are visited
@@ -515,10 +541,10 @@ class FindAllExprs {
         continue;
       }
 
-      auto prev_edges = getPrevEdges(edge_to_visit);
-      for (const Edge& prev_edge : prev_edges) {
-        if (isVisited(prev_edge)) {
-          to_visit.emplace_back(prev_edge);
+      auto producer_edges = getProducerEdges(edge_to_visit);
+      for (const Edge& producer_edge : producer_edges) {
+        if (isVisited(producer_edge)) {
+          to_visit.emplace_back(producer_edge);
         }
       }
 
