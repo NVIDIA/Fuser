@@ -276,7 +276,8 @@ class KernelExecutor : public ExecutorAbstract {
       flatbuffers::FlatBufferBuilder& builder,
       const GlobalBufferInfo& data,
       int64_t tv_position,
-      bool is_fusion_output) const;
+      bool is_fusion_output,
+      bool is_fusion_input) const;
 
   //! Deserialize GlobalBufferInfo using flatbuffers
   GlobalBufferInfo deserialize(const serde::GlobalBufferInfo* buffer);

@@ -214,7 +214,7 @@ table LaunchParams {
 // For output tensors, we use its position in the fusion outputs.
 // For intermediate tensors, we use its position in the KernelSummary global_allocations.
 table GlobalBufferInfo {
-  tv : long = -1;
+  tv_pos : long = -1;
   logical_sizes : [long];
   logical_strides : [long];
   unsharded_logical_sizes : [long];
@@ -225,6 +225,7 @@ table GlobalBufferInfo {
   resets_to_zero : bool;
   is_profile_buffer : bool;
   is_fusion_output : bool;
+  is_fusion_input : bool;
 }
 
 // This table describes the cached KernelExecutorEntry for a kernel.
@@ -233,6 +234,9 @@ table KernelExecutorEntry {
   launch_params : LaunchParams;
   outputs : [GlobalBufferInfo];
   intermediates : [GlobalBufferInfo];
+  inputs : [GlobalBufferInfo];
+  output_aliased_to_input : [int];
+  output_aliased_to_output : [int];
 }
 
 // =====================================================================================

@@ -771,6 +771,7 @@ void KernelExecutor::initializeExecutorEntry(
     if (alias_info.type == AllocationType::New) {
       continue;
     }
+    NVF_ERROR(alias_info.aliased_io, "Alias info is not an input or output");
     auto aliased_to = alias_info.aliased_io->as<TensorView>();
     auto aliased_to_idx =
         std::find(
@@ -779,10 +780,12 @@ void KernelExecutor::initializeExecutorEntry(
     if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
       output_aliased_to_input[output_idx] = aliased_to_idx;
     } else {
+      auto aliased_out = std::find(
+              fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
+      NVF_ERROR(aliased_out != fusion->outputs().end(), "Alias not found");
       output_aliased_to_output[output_idx] =
-          std::find(
-              fusion->outputs().begin(), fusion->outputs().end(), aliased_to) -
-          fusion->outputs().begin();
+          aliased_out - fusion->outputs().begin();
+      
       NVF_ERROR(
           output_aliased_to_output[output_idx] < (int)fusion->outputs().size(),
           "Alias found but is not an output or input of the fusion. ",
@@ -1014,6 +1017,9 @@ void KernelExecutor::computeArgs2(
       entry.args[arg_idx] = bytes;
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
+      if(args[arg_idx].is<at::Tensor>()){
+        buffer_info_idx++;
+      }
       auto bytes = polymorphicValueToBytes(
           args[arg_idx],
           compiled_kernel_->kernel()->parameters()[arg_idx]->dtype(),
@@ -1613,8 +1619,9 @@ flatbuffers::Offset<serde::KernelExecutorEntry> KernelExecutor::serialize(
         ? -1
         : std::distance(
               compiledKernel()->kernel()->outputs().cbegin(), tv_iter);
+    NVF_ERROR(tv_position != -1, "Output TensorView not found in kernel outputs");
     outputs_fb.push_back(
-        serialize(builder, buffer, tv_position, true /* is_fusion_output */));
+        serialize(builder, buffer, tv_position, true /* is_fusion_output */, false /* is_fusion_input */));
   }
 
   // Serialize GlobalBufferInfo for intermediates.
@@ -1638,23 +1645,44 @@ flatbuffers::Offset<serde::KernelExecutorEntry> KernelExecutor::serialize(
         : std::distance(
               compiledKernel()->kernel()->summary().global_allocations.cbegin(),
               tv_iter);
+    NVF_ERROR(tv_position != -1, "Intermediate TensorView not found in kernel global allocations");
     intermediates_fb.push_back(
-        serialize(builder, buffer, tv_position, false /* is_fusion_output */));
+        serialize(builder, buffer, tv_position, false /* is_fusion_output */, false /* is_fusion_input */));
   }
 
+
+  std::vector<fb_global_buffer_info> inputs_fb;
+  inputs_fb.reserve(data.inputs.size());
+  for (const auto& buffer : data.inputs) {
+    auto tv_iter = std::find(
+        compiledKernel()->kernel()->inputs().cbegin(),
+        compiledKernel()->kernel()->inputs().cend(),
+        buffer.tv);
+    auto tv_position = (tv_iter == compiledKernel()->kernel()->inputs().cend())
+        ? -1
+        : std::distance(
+              compiledKernel()->kernel()->inputs().cbegin(), tv_iter);
+    NVF_ERROR(tv_position != -1, "Input TensorView not found in kernel inputs");
+    inputs_fb.push_back(
+        serialize(builder, buffer, tv_position, false /* is_fusion_output */, true /* is_fusion_input */));
+  }
   return serde::CreateKernelExecutorEntryDirect(
       builder,
       data.init,
       data.launch_params.serialize(builder),
       &outputs_fb,
-      &intermediates_fb);
+      &intermediates_fb,
+      &inputs_fb,
+      &data.output_aliased_to_input,
+      &data.output_aliased_to_output);
 }
 
 flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const GlobalBufferInfo& data,
     int64_t tv_position,
-    bool is_fusion_output) const {
+    bool is_fusion_output,
+    bool is_fusion_input) const {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
   return serde::CreateGlobalBufferInfoDirect(
       builder,
@@ -1668,7 +1696,8 @@ flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
       data.zero_init,
       data.resets_to_zero,
       data.is_profile_buffer,
-      is_fusion_output);
+      is_fusion_output,
+      is_fusion_input);
 }
 
 void KernelExecutor::deserialize(
@@ -1682,7 +1711,6 @@ void KernelExecutor::deserialize(
     int64_t runtime_id,
     int64_t group_id) {
   // See table definition for KernelExecutor in serde/fusion_cache.fbs
-
   NVF_ERROR(buffer != nullptr, "serde::KernelExecutor is nullptr.");
   NVF_ERROR(_fusion != nullptr, "Fusion is nullptr.");
 
@@ -1755,6 +1783,18 @@ KernelExecutorEntry KernelExecutor::deserialize(
     entry.intermediates.push_back(deserialize(intermediate_buffer));
   }
 
+  for (auto input_buffer : *buffer->inputs()) {
+    entry.inputs.push_back(deserialize(input_buffer));
+  }
+
+  for (auto output_aliased_to_input : *buffer->output_aliased_to_input()) {
+    entry.output_aliased_to_input.push_back(output_aliased_to_input);
+  }
+
+  for (auto output_aliased_to_output : *buffer->output_aliased_to_output()) {
+    entry.output_aliased_to_output.push_back(output_aliased_to_output);
+  }
+
   return entry;
 }
 
@@ -1765,7 +1805,7 @@ GlobalBufferInfo KernelExecutor::deserialize(
   NVF_ERROR(buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
 
   NVF_ERROR(
-      buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
+      buffer->tv_pos() != -1, "Serialization failed to encode buffer tv position.");
 
   NVF_ERROR(
       compiled_kernel_->lowered() != nullptr,
@@ -1773,12 +1813,16 @@ GlobalBufferInfo KernelExecutor::deserialize(
 
   GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
-    auto out_val = compiled_kernel_->kernel()->outputs().at(buffer->tv());
+    auto out_val = compiled_kernel_->kernel()->outputs().at(buffer->tv_pos());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
+  } else if(buffer->is_fusion_input()) {
+    auto in_val = compiled_kernel_->kernel()->inputs().at(buffer->tv_pos());
+    NVF_ERROR(in_val != nullptr);
+    info.tv = dynamic_cast<TensorView*>(in_val);
   } else {
     auto out_val = compiled_kernel_->kernel()->summary().global_allocations.at(
-        buffer->tv());
+        buffer->tv_pos());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val->buffer());
   }
