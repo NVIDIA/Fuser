@@ -1020,21 +1020,22 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
-  // Set to 0, if warp specialized in this id
+  // // Set to 0, if warp specialized in this id
   bool is_warp_specialized = false;
   ParallelType warp_specialized_pt = ParallelType::Serial;
-  for(auto loop_id : loop_domains){
-    if(!GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(loop_id)){
-      continue;
-    }
-    auto type = GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(loop_id).type;
-    if(std::holds_alternative<WarpSpecialized>(type)){
-      warp_specialized_pt = std::get<WarpSpecialized>(type).on;
-      is_warp_specialized = true;
-      std::cout << "getIndexReplacementMap warp_specialized_pt: " << warp_specialized_pt << std::endl;
-      break;
-    }
-  }
+  // needs this when TIDy is used to parallelize iter dim and warp specialized on TIDy
+  // for(auto loop_id : loop_domains){
+  //   if(!GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(loop_id)){
+  //     continue;
+  //   }
+  //   auto type = GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(loop_id).type;
+  //   if(std::holds_alternative<WarpSpecialized>(type)){
+  //     warp_specialized_pt = std::get<WarpSpecialized>(type).on;
+  //     is_warp_specialized = true;
+  //     std::cout << "getIndexReplacementMap warp_specialized_pt: " << warp_specialized_pt << std::endl;
+  //     break;
+  //   }
+  // }
 
   for (const auto loop_id : loop_domains) {
     Val* cur_index = getLoopIndex(loop_id, for_loops);
