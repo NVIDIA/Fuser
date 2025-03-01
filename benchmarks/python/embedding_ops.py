@@ -12,7 +12,7 @@ class EmbeddingBase:
         self.dtype = dtype
 
     def model(self):
-        raise NotImplemented
+        raise NotImplementedError
 
     def inputs(self):
         input_ids = torch.randint(
