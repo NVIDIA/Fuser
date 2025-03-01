@@ -43,15 +43,13 @@ std::string debug_str(const at::Tensor& tensor) {
   std::stringstream ss;
   ss << "Tensor:";
   ss << " shape: " << tensor.sizes();
-
-  if (!tensor.is_contiguous()) {
-    ss << ", strides: " << tensor.strides();
-  }
-
   ss << ", dtype: " << tensor.dtype();
   ss << ", device: " << tensor.device();
   ss << ", pointer: " << reinterpret_cast<size_t>(tensor.data_ptr());
 
+  if (!tensor.is_contiguous()) {
+    ss << ", strides: " << tensor.strides();
+  }
   return ss.str();
 }
 

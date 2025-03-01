@@ -1246,7 +1246,7 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
-    std::cout << "Initializing executor entry" << std::endl;
+    // std::cout << "Initializing executor entry" << std::endl;
     initializeExecutorEntry(
         *executor_entry,
         args,
@@ -1254,7 +1254,7 @@ std::vector<at::Tensor> KernelExecutor::run(
         compile_params,
         outputs,
         compiled_kernel_->kernel()->indexType());
-    std::cout << "Executor entry initialized" << std::endl;
+    // std::cout << "Executor entry initialized" << std::endl;
   }
 
   if (!(executor_entry->launch_params.nThreads() <=
@@ -1393,22 +1393,22 @@ std::vector<at::Tensor> KernelExecutor::run(
     if (has_TMA_) {
       // Resolving TMA requires binding all values and evaluating the TMA
       // arguments
-      std::cout << "Resolving TMA" << std::endl;
+      // std::cout << "Resolving TMA" << std::endl;
       args = resolveTMA(*executor_entry, args);
-      std::cout << "TMA resolved" << std::endl;
+      // std::cout << "TMA resolved" << std::endl;
     }
     if (has_rng_) {
       // Resolving RNG seed requires evaluating and adding those values, but
       // doesn't require binding all values as getting RNG seed and offset
       // doesn't depend on other values
-      std::cout << "Resolving RNG seed" << std::endl;
+      // std::cout << "Resolving RNG seed" << std::endl;
       args = resolveRNGSeed(compiled_kernel_->kernel(), args);
-      std::cout << "RNG seed resolved" << std::endl;
+      // std::cout << "RNG seed resolved" << std::endl;
     }
   }
-  std::cout << "Computing args" << std::endl;
+  // std::cout << "Computing args" << std::endl;
   computeArgs2(*executor_entry, args);
-  std::cout << "Args computed" << std::endl;
+  // std::cout << "Args computed" << std::endl;
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();

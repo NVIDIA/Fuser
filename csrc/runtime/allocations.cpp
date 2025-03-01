@@ -877,30 +877,14 @@ std::vector<GlobalBufferInfo> getInputBufferInfos(
 TensorShapeInfo inferTensorShapes(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
-  std::cout << "Infer shape: " << tv->toString() << std::endl;
   // Alias handling:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type == AllocationType::Evaluate) {
-    std::cout << "Evaluating" << std::endl;
-    std::cout << "Output: " << tv->toString() << std::endl;
-    auto inps = InputsOf::output(tv);
-    std::cout << "Inputs: " << std::endl;
-    for (auto inp : inps) {
-      std::cout << "  " << inp->toString() << std::endl;
-    }
-    auto exprs =
-        DependencyCheck::getAllExprsBetween({inps.begin(), inps.end()}, {tv});
-    std::cout << "Expressions: " << std::endl;
-    for (auto expr : exprs) {
-      std::cout << "  " << expr->toString() << std::endl;
-    }
-
     auto val = expr_eval.evaluate(tv);
     NVF_ERROR(val.hasValue() && val.is<at::Tensor>(), "Output is not a Tensor");
     auto tensor = val.as<at::Tensor>();
 
     if (!tv->hasAllocation()) {
-      std::cout << "Inferred 0" << std::endl;
       return TensorShapeInfo{
           tensor.sizes().vec(),
           tensor.strides().vec(),
@@ -909,10 +893,8 @@ TensorShapeInfo inferTensorShapes(
           tensor.sizes().vec(),
           tensor.strides().vec()};
     }
-    std::cout << "Allocation" << std::endl;
     auto allocation_size_stride =
         inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
-    std::cout << "Inferred 1" << std::endl;
     return TensorShapeInfo{
         tensor.sizes().vec(),
         tensor.strides().vec(),
@@ -925,7 +907,6 @@ TensorShapeInfo inferTensorShapes(
   // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
   if (!tv->hasAllocation()) {
-    std::cout << "Inferred 2" << std::endl;
     return TensorShapeInfo{
         allocation_size_stride.first,
         allocation_size_stride.second,
@@ -944,7 +925,6 @@ TensorShapeInfo inferTensorShapes(
   // `transformFromAllocationToLogical`
   logical_meta_tensor =
       transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
-  std::cout << "Inferred 3" << std::endl;
   return {
       logical_meta_tensor.sizes().vec(),
       logical_meta_tensor.strides().vec(),
