@@ -3225,6 +3225,21 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   TensorView* tv1 = set(tv0);
   fusion.addOutput(tv1);
 
+  // ===========================================================================
+
+  // Constants
+  constexpr int64_t mma_m = 128;
+  constexpr int64_t mma_n = 256;
+  constexpr int64_t tma_m = mma_m / 2;
+  constexpr int64_t ldst_matrix_tile_m = 16;
+  constexpr int64_t ldst_matrix_tile_n = 16;
+  fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
+  fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
+  fusion.manage("ldst_matrix_m_smem", tma_m);
+  fusion.manage("ldst_matrix_n_smem", mma_n);
+
+  // ===========================================================================
+
   // The definition for tv0_smem is tma load, which moves data from shared to
   // global memory.
   TensorView* tv0_smem = tv0->cacheAfter();
@@ -3240,7 +3255,8 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // The definition for tv1_smem is stmatrix, which moves data from registers to
   // shared memory.
   TensorView* tv1_smem = tv1->cacheBefore();
-  // tv1_smem->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StMatrix);
+  tv1_smem->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::StMatrix);
   tv1_smem->setMemoryType(MemoryType::Shared);
 
   // The definition for tv1 is tma store, which moves data from shared to global
@@ -3251,21 +3267,20 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // ===========================================================================
 
   // Create 2D block tile
-  constexpr int64_t mma_m = 128;
-  constexpr int64_t mma_n = 256;
-
   // (M, N)
   tv1->split(0, mma_m);
   tv1->split(-1, mma_n);
   // (GM, BM, GN, BN) // split
   tv1->reorder({{1, 2}, {2, 1}});
-  // (GM, GN, BM(128), BN(256)) // reorder
+  tv1->split(-2, 2, /*inner=*/false);
+  // (GM, GN, 2, BM(64), BN(256)) // reorder
 
   TransformPropagator propagator(tv1);
   MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
   tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(1)->parallelize(ParallelType::BIDy);
+  tv1->axis(2)->parallelize(ParallelType::TIDy);
   scheduler_utils::parallelizeAllLike(tv1);
 
   // Schedule output from TMA Load
@@ -3277,6 +3292,8 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   MmaInputSmemSwizzle output_swizzle =
       mma_utils::tmaSwizzleSharedMemory(tv1_smem);
   mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
+
+  // ===========================================================================
 
   // NOTE: When using a custom allocation domain, all iterDomains to the left
   // of the computeAt position must exist in the loop domain. The utility
@@ -3292,35 +3309,101 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
     mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
   }
 
-  // (GM, GN, 128, 256)
-  tv1_smem_abstract_tensor.split(-2, 64);
   // (GM, GN, 2, 64, 256)
-  tv1_smem_abstract_tensor.merge(-1, -2); // Merge 2d tile into 1d vector
-  // (GM, GN, 2, 64*256)
-  tv1_smem_abstract_tensor.split(-1, 8); // Create Vectorize ID
-  // (GM, GN, 2, 2048, 8)
-  tv1_smem_abstract_tensor.split(-2, 128); // Create WarpGroup ID
-  // (GM, GN, 2, 16, 128, 8)
+  tv1_smem_abstract_tensor.split(-1, 64);
+  tv1_smem_abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  //! (GM, GN, mo(2), no(4), mi(64), ni(64))
+
+  tv1_smem_abstract_tensor.split(-2, 16);
+  tv1_smem_abstract_tensor.split(-1, 16);
+  tv1_smem_abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  //! (GM, GN, mo(2), no(4), mio(4), nio(4), mii(16), nii(16))
+
+  tv1_smem_abstract_tensor.split(-2, 8);
+  tv1_smem_abstract_tensor.split(-1, 8);
+  tv1_smem_abstract_tensor.split(-1, 2);
+  tv1_smem_abstract_tensor.reorder({{-5, -2}, {-4, -5}, {-2, -4}});
+  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), niio(2),
+  //! miio(2), niiii(2))
+
+  // Merge registers into single iterDomain
+  tv1_smem_abstract_tensor.merge(-2, -1);
+  tv1_smem_abstract_tensor.merge(-2, -1);
+  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), (niio * miio *
+  //! niiii)(8))
+
+  tv1_smem_abstract_tensor.reorder({{-5, -4}, {-4, -5}});
+  tv1_smem_abstract_tensor.merge(-4, -3);
+  tv1_smem_abstract_tensor.merge(-3, -2);
+  //! (GM, GN, mo(2), no(4), nio(4), (mio * miii * niiio)(128), (niio * miio *
+  //! niiii)(8))
+
+  // Hard-coded shared memory index expects a single serial IterDomain
+  tv1_smem_abstract_tensor.merge(-4, -3);
   tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
+  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
+  //! niiii)(8))
 
   tv1_smem->axis(-2)->parallelize(ParallelType::TIDx);
-  // (GM, GN, 2, 16, 128(TDX), 8)
-  // tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-  // (GM, GN, 2, 16, 128(TDX), 8(V))
+  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
+  //! miio * niiii)(8))
+  tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+  //! (GM, GN, mo(2)(TDY), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio
+  //! * miio * niiii)(8)(V))
+
+  // ===========================================================================
 
   // TODO Add ldmatrix scheduling
   // Move data from tv0_smem to tv0_reg using 128 threads - LdMatrix
-  // (GM, GN, 128, 256)
-  tv0_reg->split(-2, 64);
-  // (GM, GN, 2, 64, 256)
-  tv0_reg->merge(-1, -2); // merge 2d tile into 1d vector
-  // (GM, GN, 2, 64*256)
-  tv0_reg->split(-1, 8); // Create Vectorize ID
-  // (GM, GN, 2, 2048, 8)
-  tv0_reg->split(-2, 128); // Create WarpGroup ID
-  // (GM, GN, 2, 16, 128, 8)
+  // Split TMA tile (128, 256) by (64, 64)
+  //! (GM, GN, 2, 64, 256)
+  tv0_reg->split(-1, 64);
+  tv0_reg->reorder({{-2, -3}, {-3, -2}});
+  //! (GM, GN, mo(2), no(4), mi(64), ni(64))
+
+  // Split (64, 64) tile by (16, 16) ldst_matrix .x4
+  tv0_reg->split(-2, 16);
+  tv0_reg->split(-1, 16);
+  tv0_reg->reorder({{-2, -3}, {-3, -2}});
+  //! (GM, GN, mo(2), no(4), mio(4), nio(4), mii(16), nii(16))
+
+  // Construct register layout for ldmatrix and stmatrix
+  // Split (16, 16) ldst_matrix.x4 by (8, 8) ldst_matrix
+  // Split inner-dim 8  by 2
+  tv0_reg->split(-2, 8);
+  tv0_reg->split(-1, 8);
+  tv0_reg->split(-1, 2);
+  tv0_reg->reorder({{-5, -2}, {-4, -5}, {-2, -4}});
+  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), niio(2),
+  //! miio(2), niiii(2))
+
+  // Merge registers into single iterDomain
+  tv0_reg->merge(-2, -1);
+  tv0_reg->merge(-2, -1);
+  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), (niio * miio *
+  //! niiii)(8))
+
+  tv0_reg->reorder({{-5, -4}, {-4, -5}});
+  tv0_reg->merge(-4, -3);
+  tv0_reg->merge(-3, -2);
+  //! (GM, GN, mo(2), no(4), nio(4), (mio * miii * niiio)(128), (niio * miio *
+  //! niiii)(8))
+
+  // Hard-coded shared memory index expects a single serial IterDomain
+  tv0_reg->merge(-4, -3);
+  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
+  //! niiii)(8))
+
+  // Apply parallelization
   tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
-  // (GM, GN, 2, 16, 128(TDX), 8)
+  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
+  //! miio * niiii)(8))
+
+  // Set allocation domain according to loop domain
+  tv0_reg->setAllocationDomain(
+      tv0_reg->getLoopDomain(), /*new_contiguity=*/true);
+
+  // ===========================================================================
 
   inlineMost();
 
@@ -3332,9 +3415,8 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   ke.compile(&fusion, {at_tv0});
   kir::Kernel* kernel = ke.compiledKernel()->kernel();
   ASSERT_TRUE(kernel != nullptr);
-  // TODO Enable bank conflict check
-  // EXPECT_TRUE(getBankConflictInfo(kernel).empty());
   auto cg_outputs = ke.run({at_tv0});
+
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
 
