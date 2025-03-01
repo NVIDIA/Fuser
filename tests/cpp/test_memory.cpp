@@ -3275,47 +3275,52 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
 
   // Schedule global memory output from TMA Store
   MmaInputSmemSwizzle output_swizzle =
-      mma_utils::tmaSwizzleSharedMemory(tv0_smem);
+      mma_utils::tmaSwizzleSharedMemory(tv1_smem);
   mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
 
-  // Move data from tv0_reg to tv1_smem using 128 threads - StMatrix
-  // Split 2d tile by (64, 64) sub-tile for ldst matrix
-  // (GM, GN, 128, 256)
-  tv1_smem->split(-2, 64);
-  tv1_smem->split(-1, 64);
-  // (GM, GN, 2, 64, 4, 64)
-  tv1_smem->reorder({{-3, -2}, {-2, -3}});
-  // (GM, GN, 2, 4, 64, 64)
-  // Merge 2d tile into 1d vector
-  tv1_smem->merge(-1, -2);
-  // (GM, GN, 2, 4, 64*64)
-  tv1_smem->split(-1, 8);
-  // Create Vectorize ID
-  // (GM, GN, 2, 4, 512, 8)
-  // Create WarpGroup ID
-  tv1_smem->split(-2, 128);
-  // (GM, GN, 2, 4, 4, 128, 8)
-  tv1_smem->axis(-2)->parallelize(ParallelType::TIDx);
-  // (GM, GN, 2, 4, 4, 128(TDX), 8)
+  // NOTE: When using a custom allocation domain, all iterDomains to the left
+  // of the computeAt position must exist in the loop domain. The utility
+  // function for applying swizzle to TMA LoadStoreOp creates the appropriate
+  // TMA Box. Creating the same TMA Box in the loop domain via AbstractTensor
+  // allows for inlining iterDomains that are not identical, causing an
+  // assertion in indexing pass.
 
+  // Move data from tv0_reg to tv1_smem using 128 threads - StMatrix
+  AbstractTensor tv1_smem_abstract_tensor(tv1_smem->getLoopDomain());
+  if (output_swizzle != MmaInputSmemSwizzle::None) {
+    // Create tma store allocation domain with swizzle
+    mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
+  }
+
+  // (GM, GN, 128, 256)
+  tv1_smem_abstract_tensor.split(-2, 64);
+  // (GM, GN, 2, 64, 256)
+  tv1_smem_abstract_tensor.merge(-1, -2); // Merge 2d tile into 1d vector
+  // (GM, GN, 2, 64*256)
+  tv1_smem_abstract_tensor.split(-1, 8); // Create Vectorize ID
+  // (GM, GN, 2, 2048, 8)
+  tv1_smem_abstract_tensor.split(-2, 128); // Create WarpGroup ID
+  // (GM, GN, 2, 16, 128, 8)
+  tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
+
+  tv1_smem->axis(-2)->parallelize(ParallelType::TIDx);
+  // (GM, GN, 2, 16, 128(TDX), 8)
+  // tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
+  // (GM, GN, 2, 16, 128(TDX), 8(V))
+
+  // TODO Add ldmatrix scheduling
   // Move data from tv0_smem to tv0_reg using 128 threads - LdMatrix
   // (GM, GN, 128, 256)
   tv0_reg->split(-2, 64);
-  tv0_reg->split(-1, 64);
-  // (GM, GN, 2, 64, 4, 64)
-  tv0_reg->reorder({{-3, -2}, {-2, -3}});
-  // (GM, GN, 2, 4, 64, 64)
-  // merge 2d tile into 1d vector
-  tv0_reg->merge(-1, -2);
-  // (GM, GN, 2, 4, 64*64)
-  // Create Vectorize ID
-  tv0_reg->split(-1, 8);
-  // (GM, GN, 2, 4, 512, 8)
-  // Create WarpGroup ID
-  tv0_reg->split(-2, 128);
-  // (GM, GN, 2, 4, 4, 128, 8)
+  // (GM, GN, 2, 64, 256)
+  tv0_reg->merge(-1, -2); // merge 2d tile into 1d vector
+  // (GM, GN, 2, 64*256)
+  tv0_reg->split(-1, 8); // Create Vectorize ID
+  // (GM, GN, 2, 2048, 8)
+  tv0_reg->split(-2, 128); // Create WarpGroup ID
+  // (GM, GN, 2, 16, 128, 8)
   tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
-  // (GM, GN, 2, 4, 4, 128(TDX), 8)
+  // (GM, GN, 2, 16, 128(TDX), 8)
 
   inlineMost();
 
@@ -3331,17 +3336,6 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // EXPECT_TRUE(getBankConflictInfo(kernel).empty());
   auto cg_outputs = ke.run({at_tv0});
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
-
-  // TODO Add ldmatrix scheduling
-  //
-  // Schedule shared memory output from stmatrix
-  // if (swizzle != MmaInputSmemSwizzle::None) {
-  //   // Create tma store allocation domain with swizzle
-  //   mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, swizzle);
-  // }
-  // tv1_smem->setLoopDomain(s.as<IterDomain*>());
-  // mma_utils::scheduleStMatrixForMmaOutput(tv1_smem, stmatrix_tile_m,
-  // stmatrix_tile_n);
 }
 
 } // namespace nvfuser
