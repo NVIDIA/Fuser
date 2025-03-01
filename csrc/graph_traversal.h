@@ -360,7 +360,7 @@ class FindAllExprs {
           }
         } else {
           for (const auto& v : inputs_(*e)) {
-            add_to_neighbor_list(*e, v);
+            add_to_neighbor_list(v, *e);
           }
         }
       } else if (edge_dir == Direction::Backward) {
@@ -370,7 +370,7 @@ class FindAllExprs {
           }
         } else {
           for (const auto& v : outputs_(*e)) {
-            add_to_neighbor_list(*e, v);
+            add_to_neighbor_list(v, *e);
           }
         }
       }
@@ -382,11 +382,19 @@ class FindAllExprs {
       // traverse back to the same node.
 
       for (const auto& e : uses_(*v)) {
-        add_to_neighbor_list(*v, e);
+        if (neighbor_of_to) {
+          add_to_neighbor_list(*v, e);
+        } else {
+          add_to_neighbor_list(e, *v);
+        }
       }
 
       for (const auto& e : definition_(*v)) {
-        add_to_neighbor_list(*v, e);
+        if (neighbor_of_to) {
+          add_to_neighbor_list(*v, e);
+        } else {
+          add_to_neighbor_list(e, *v);
+        }
       }
     }
 
