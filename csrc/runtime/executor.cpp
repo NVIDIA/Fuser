@@ -655,7 +655,7 @@ void KernelExecutor::initializeExecutorEntry(
 
   ExpressionEvaluator expr_eval =
       executor_utils::bindInputs(args, compiled_kernel_->kernel());
-  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
+  // expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
