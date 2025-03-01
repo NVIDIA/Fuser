@@ -1264,6 +1264,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
     if (!pdim_map.hasWarpSpecialization()) {
       ss << "0";
+    } else if (std::getenv("CMP_WGROUPS") != nullptr) {
+      ss << "1" << " + "
+         << genInline(NamedScalar::getParallelIndex(ParallelType::WGID));
     } else {
       ss << "1" << " + " << genInline(current_buffer_id_);
     }
@@ -2978,6 +2981,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
     func_args.arg(genComputeBlockDim());
+    func_args.arg(genBarrierId());
 
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
@@ -3275,6 +3279,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           NVF_THROW("Unexpected memory type");
       }
     }
+  }
+
+  void insertWarpGroupIdx() {
+    // must match ParallelType::WGID in parallel_type2string
+    indent() << "const nvfuser_index_t warpGroupIdx = threadIdx.x / 128;\n";
   }
 
   // Reference:
@@ -3578,6 +3587,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         utilities << "}\n";
       }
       code_ << ");\n";
+    }
+
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      insertWarpGroupIdx();
     }
   }
 

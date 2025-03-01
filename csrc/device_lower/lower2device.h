@@ -38,7 +38,7 @@
 #include <runtime/executor_params.h>
 #include <vectorization_info.h>
 #include <visibility.h>
-
+#include <ATen/cuda/CUDAContext.h>
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -85,6 +85,10 @@ class GpuLower : public NonCopyable {
 
   const auto& minDeviceVersion() const {
     return min_device_version_;
+  }
+
+  const auto& deviceProperty() const {
+    return device_prop_;
   }
 
   const std::string& minDeviceVersionReason() const {
@@ -386,6 +390,8 @@ class GpuLower : public NonCopyable {
 
   // A temporary option set to selectively enable IdModel usage
   IdModelOptions id_model_options_;
+
+  cudaDeviceProp* device_prop_ = nullptr;
 };
 
 } // namespace nvfuser

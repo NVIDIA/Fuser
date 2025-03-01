@@ -1615,7 +1615,7 @@ INSTANTIATE_TEST_SUITE_P(
 using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;
 TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   DataType dtype = GetParam();
-  int64_t dim0 = 148*2;
+  int64_t dim0 = 148*32;
   int64_t dim1 = 4096;
   const std::vector<int64_t> input_shape = {dim0, dim1};
   auto fusion = std::make_unique<Fusion>();

@@ -609,7 +609,7 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
   }
 
   bool isBinaryComputeGridLoopIterDomain(Val* alloc_buffer) {
-    int64_t sm_count = 148;
+    int64_t sm_count = (int64_t)GpuLower::current()->deviceProperty()->multiProcessorCount;
     if (auto bop = dynamic_cast<BinaryOp*>(alloc_buffer->definition())) {
       if (bop->rhs()->isConstScalar() &&
           bop->rhs()->value().as<int64_t>() == sm_count) {
@@ -685,19 +685,72 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
 };
 } // namespace
 
+// namespace {
+// class AddComputeWarpGroups : private kir::ExprMutator {
+//  public:
+//   static std::vector<Expr*> run(const std::vector<Expr*>& exprs) {
+//     return AddComputeWarpGroups(exprs).exprs_;
+//   }
+
+//  private:
+  
+//   AddComputeWarpGroups(const std::vector<Expr*>& exprs) {
+//     traverseAndInsert(exprs);
+//   }
+
+//   using kir::ExprMutator::handle;
+
+//   void handle(ForLoop* loop) final {
+//     if (loop->circularBufferLoopStage() ==
+//         CircularBufferLoopStage::ComputeWarp) {
+//       for (auto expr : exprs_to_be_moved_) {
+//         registerInsertBefore(loop, expr);
+//       }
+//     }
+//     kir::ExprMutator::handle(loop);
+//   }
+
+//   // void dispatch(Expr* expr) override {
+//   //   // only dispatch top level exprs
+//   //   if (for_loops_.empty()) {
+//   //     // handle grid stride ForLoop
+//   //     if (auto fl = dynamic_cast<ForLoop*>(expr);
+//   //         fl && fl->iter_domain()->isBlockDim()) {
+//   //       kir::ExprMutator::dispatch(fl);
+//   //     } else {
+//   //       if (exprs_cannot_be_moved_.count(expr) == 0) {
+//   //         std::cout << "registerRemove: " << expr->getOpString() << ", "
+//   //                   << expr->toString() << std::endl;
+//   //         registerRemove(expr);
+//   //         exprs_to_be_moved_.push_back(expr);
+//   //       }
+//   //     }
+//   //   } else {
+//   //     // Dispatch nested exprs within grid-stride ForLoop
+//   //     // If expr is a ForLoop, will be handled by handle(ForLoop* loop)
+//   //     kir::ExprMutator::dispatch(expr);
+//   //   }
+//   // }
+// };
+// } // namespace
+
 std::vector<Expr*> allocateCommonScalars(const std::vector<Expr*>& exprs) {
   if (isOptionDisabled(DisableOption::IndexHoist)) {
     return exprs;
   }
 
-  auto exprs_after_hoist =
+  auto res_exprs =
       CommonScalarInserter::run(exprs, GpuLower::current()->commonScalarMap());
 
   if(std::getenv("MOVE_TOP_EXPRS") != nullptr) {
-    return MoveTopExprsToComputeWarpLoop::run(exprs_after_hoist);
-  }else{
-    return exprs_after_hoist;
+    res_exprs = MoveTopExprsToComputeWarpLoop::run(res_exprs);
   }
+
+  // if(std::getenv("CMP_WGROUPS") != nullptr){
+  //   res_exprs = AddComputeWarpGroups::run(res_exprs);
+  // }
+
+  return res_exprs;
 }
 
 } // namespace nvfuser

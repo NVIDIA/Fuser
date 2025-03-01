@@ -709,6 +709,7 @@ enum class ParallelType {
   TIDz,
   TIDy,
   TIDx,
+  WGID,
   Stream,
   Vectorize,
   MisalignedVectorize,

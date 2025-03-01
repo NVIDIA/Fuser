@@ -81,6 +81,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         circular_buffer_loop_->iter_domain(), loop_type_);
     Val* start = circular_buffer_loop_->start();
     Val* stop = circular_buffer_loop_->stop();
+    Val* step = GpuLower::current()->kernel()->oneVal();
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -106,8 +107,17 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::LoadWarp:{
+        break;
+      }
       case CircularBufferLoopStage::ComputeWarp: {
+
+        if (std::getenv("CMP_WGROUPS") != nullptr) {
+          int64_t number_of_cmp_warp_groups = std::atoi(std::getenv("CMP_WGROUPS"));
+          start = NamedScalar::getParallelIndex(ParallelType::WGID);
+          step = SimplifyingIrBuilder::create<Val>(
+              number_of_cmp_warp_groups, DataType::Index);
+        }        
         break;
       }
       default: {
@@ -115,12 +125,13 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       }
     }
 
+
     cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
         circular_buffer_loop_->iter_domain(),
         index,
         start,
         stop,
-        /*step=*/GpuLower::current()->kernel()->oneVal(),
+        step,
         /*vectorize=*/false,
         /*vectorize_shift=*/nullptr,
         circular_buffer_loop_->isUnrollRequired(),
@@ -1488,11 +1499,25 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     // Prefetch:
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+
+    // put this prefetch loop inside an if-then-else, only needs one warp group
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(ParallelType::WGID),
+          circular_buffer_loop->fusion()->zeroVal()));
+      kir::IfThenElse* prefetch_ite =
+          IrBuilder::create<kir::IfThenElse>(predicate_val);
+      prefetch_ite->thenBody().push_back(prefetch_loop);
+      warp_dispatch_ite->elseBody().push_back(prefetch_ite);
+    } else {
+      warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+    }
 
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
+
+
 
     warp_dispatch_ite->elseBody().push_back(compute_loop);
 

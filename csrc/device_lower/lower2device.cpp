@@ -40,10 +40,10 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
-
 namespace nvfuser {
 
 thread_local GpuLower* active_gpu_lower = nullptr; // NOLINT
@@ -289,6 +289,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"instrumentKernel", instrumentKernel},
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
+  device_prop_ = at::cuda::getCurrentDeviceProperties();
   analysis(fusion);
 }
 
