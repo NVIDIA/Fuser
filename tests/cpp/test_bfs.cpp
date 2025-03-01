@@ -657,8 +657,6 @@ TEST_F(FindAllExprsTest, Test2) {
   auto tv6 = add(tv5, tv4);
   fusion.addOutput(tv6);
 
-  fusion.print();
-
   // Effectiely, the ID graph looks like:
   //
   // {tv0, tv2, tv4, tv5, tv6}
@@ -669,8 +667,6 @@ TEST_F(FindAllExprsTest, Test2) {
 
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
-
-  graph.dumpGraphvizDotGraph("graph2.dot");
 
   ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
 
@@ -708,10 +704,6 @@ TEST_F(FindAllExprsTest, Test2) {
                       Direction::Backward)
                       .first;
 
-    for (const auto& [e, d] : result) {
-      std::cerr << d << ", " << nvfuser::toString(e) << "\n";
-    }
-
     ExprGroupPath reference_path{
         {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
          Direction::Backward},
@@ -731,9 +723,6 @@ TEST_F(FindAllExprsTest, Test2) {
     auto result =
         getAllExprGroupsBetween(graph, tv0_loop_groups, tv0_loop_groups).first;
 
-    for (const auto& [e, d] : result) {
-      std::cerr << d << ", " << nvfuser::toString(e) << "\n";
-    }
     ExprGroupPath reference_path{
         {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
@@ -781,15 +770,8 @@ TEST_F(FindAllExprsTest, Test3) {
   auto tv6 = add(tv1, tv5);
   fusion.addOutput(tv6);
 
-  fusion.printMath();
-  fusion.print();
-
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
-
-  graph.dumpGraphvizDotGraph("graph3.dot");
-
-  std::cerr << graph.toString();
 
   ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
   ValGroups tv4_logical_groups = graph.toGroups(tv4->getLogicalDomain());
@@ -803,11 +785,6 @@ TEST_F(FindAllExprsTest, Test3) {
                       /*require_all_to_visited=*/true,
                       Direction::Forward)
                       .first;
-    std::cerr << "Expr path result\n";
-    for (const auto& [expr_g, dir] : result) {
-      std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
-    }
-
     ExprGroupPath reference_path{
         {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
@@ -832,11 +809,6 @@ TEST_F(FindAllExprsTest, Test3) {
                       /*require_all_to_visited=*/true,
                       Direction::Backward)
                       .first;
-    std::cerr << "Expr path result\n";
-    for (const auto& [expr_g, dir] : result) {
-      std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
-    }
-
     ExprGroupPath reference_path{
         {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
          Direction::Backward},
@@ -860,11 +832,6 @@ TEST_F(FindAllExprsTest, Test3) {
                       /*require_all_to_visited=*/true,
                       Direction::Undefined)
                       .first;
-    std::cerr << "Expr path result\n";
-    for (const auto& [expr_g, dir] : result) {
-      std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
-    }
-
     ExprGroupPath reference_path{
         {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
          Direction::Forward},
@@ -921,15 +888,8 @@ TEST_F(FindAllExprsTest, Rotation) {
 
   fusion.addOutput(tv6);
 
-  fusion.printMath();
-  fusion.print();
-
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
-
-  graph.dumpGraphvizDotGraph("graph4.dot");
-
-  std::cerr << graph.toString();
 
   ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
   ValGroups tv6_logical_groups = graph.toGroups(tv6->getLogicalDomain());
@@ -942,11 +902,6 @@ TEST_F(FindAllExprsTest, Rotation) {
                       /*require_all_to_visited=*/true,
                       Direction::Undefined)
                       .first;
-    std::cerr << "Expr path result\n";
-    for (const auto& [expr_g, dir] : result) {
-      std::cerr << dir << ", " << nvfuser::toString(expr_g) << "\n";
-    }
-
     auto tv4_pad = tv5->definition()->input(0)->as<TensorView>();
     auto tv2_pad = tv5->definition()->input(1)->as<TensorView>();
 
