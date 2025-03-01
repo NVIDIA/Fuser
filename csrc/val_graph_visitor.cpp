@@ -265,7 +265,7 @@ std::pair<ExprGroupPath, bool> getAllExprGroupsBetween(
           {to.vector().begin(), to.vector().end()},
           require_all_to_visited,
           allowed_direction);
-  finder.traverse();
+  finder.traverseAllEdges();
   return finder.getPartiallyOrderedExprs();
 }
 

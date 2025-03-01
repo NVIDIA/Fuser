@@ -294,6 +294,8 @@ inline std::vector<ValGroup> getOutputsOfExprGroup(
       expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
 }
 
+// Grab all ExprGroups between to sets of ValGroups. ExprGroups are
+// not guaranteed to be topologically sorted.
 std::pair<ExprGroupPath, bool> getAllExprGroupsBetween(
     const ValGraph& graph,
     const ValGroups& from,

@@ -11,11 +11,11 @@
 
 namespace nvfuser {
 
-// Find all exprs between given nodes. Edges are visitd only once,
-// but nodes may be visited multiple times. Edges are always between
-// ExprT and ValT and are directed, e.g., an edge from an ExprGroup to
-// a ValGroup is differentiated from an edge from the ValGroup to the
-// ExprGroup, and both of them may be visited.
+// Find all exprs reachable from from_nodes when traversing to to_nodes. Edges
+// are visitd only once, but nodes may be visited multiple times. Edges are
+// always between ExprT and ValT and are directed, e.g., an edge from an
+// ExprGroup to a ValGroup is differentiated from an edge from the ValGroup to
+// the ExprGroup, and both of them may be visited.
 //
 // When there's a cycle, exprs in the cycle are also included. For
 // example, given a graph like (each symbol represents an expr):
@@ -27,6 +27,24 @@ namespace nvfuser {
 // Exprs of {A_fwd, F_bwd, B_fwd, C_fwd, D_fwd, E_fwd} would be
 // returened. Note that there's no guarantee of ordering, although it
 // is at least partially sorted in a topological order.
+//
+// The overall traversal algorithm is to start from from_nodes and
+// traverse edges in both directions or only in a specified
+// direction. Unlike BFS, it keeps traversing even if all
+// the to_nodes are reached and stops when no further progress is
+// possible. At this point, we know all the reachable edges from
+// from_nodes but we are only interested in that reach to_nodes. To
+// find those edges, another traversal, this time from to_ndoes, is
+// done to mark all visited edges that are reachable from
+// to_nodes. That gives us all the edges between from_nodes and
+// to_nodes. Finally, ExprPath is returned based on the exprs of the
+// edges.
+//
+// NOTE 1: The algorithm and the implementation is based on the BFS
+// class. There's likely more efficient algorithms.
+//
+// NOTE 2: The returned expr path is not guaranteed to be
+// topologically sorted, which is not possible for cyclic graphs.
 template <
     typename ExprT,
     typename ValT,
@@ -90,23 +108,23 @@ class FindAllExprs {
         require_all_to_visited_(require_all_to_visited),
         allowed_direction_(allowed_direction) {}
 
-  virtual void traverse() {
-    std::deque<Edge> to_visit_;
+  virtual void traverseAllEdges() {
+    std::deque<Edge> edges_to_visit;
 
     for (const auto& from_node : from_nodes_) {
       if (const ValT* from_val = std::get_if<ValT>(&from_node)) {
         for (const auto& use_expr : uses_(*from_val)) {
-          Edge e(*from_val, use_expr);
-          setVisited(e);
-          for (const auto& next_edge : getNextEdges(e, allowed_direction_)) {
-            to_visit_.push_back(next_edge);
+          Edge edge(*from_val, use_expr);
+          setVisited(edge);
+          for (const auto& next_edge : getNextEdges(edge, allowed_direction_)) {
+            edges_to_visit.push_back(next_edge);
           }
         }
         for (const auto& def_expr : definition_(*from_val)) {
-          Edge e(*from_val, def_expr);
-          setVisited(e);
-          for (const auto& next_edge : getNextEdges(e, allowed_direction_)) {
-            to_visit_.push_back(next_edge);
+          Edge edge(*from_val, def_expr);
+          setVisited(edge);
+          for (const auto& next_edge : getNextEdges(edge, allowed_direction_)) {
+            edges_to_visit.push_back(next_edge);
           }
         }
       } else {
@@ -121,16 +139,15 @@ class FindAllExprs {
       std::deque<Edge> not_ready;
       something_was_processed = false;
 
-      while (!to_visit_.empty()) {
-        const auto edge_to_visit = to_visit_.front();
-        to_visit_.pop_front();
+      while (!edges_to_visit.empty()) {
+        const auto edge_to_visit = edges_to_visit.front();
+        edges_to_visit.pop_front();
 
         // Don't visit edges multiple times even when traversing all paths
         if (isVisited(edge_to_visit)) {
           continue;
         }
 
-        // std::vector<std::pair<Direction, std::vector<NodeType>>>
         auto prev_edges = isReady(edge_to_visit);
         if (!prev_edges.has_value()) {
           // To stop an infinite loop, the not-ready node is not moved
@@ -146,13 +163,14 @@ class FindAllExprs {
         setVisited(edge_to_visit);
         for (const auto& next_edge :
              getNextEdges(edge_to_visit, allowed_direction_)) {
-          to_visit_.push_back(next_edge);
+          edges_to_visit.push_back(next_edge);
         }
         something_was_processed = true;
       }
 
       // Something was processed. Redo the traversal.
-      to_visit_.insert(to_visit_.end(), not_ready.begin(), not_ready.end());
+      edges_to_visit.insert(
+          edges_to_visit.end(), not_ready.begin(), not_ready.end());
     }
 
     if (require_all_to_visited_ && !allToNodesVisited()) {
@@ -184,6 +202,9 @@ class FindAllExprs {
   // is visited.
   virtual std::optional<std::vector<Edge>> isReady(const Edge& edge) const {
     Direction dir = getDirection(edge);
+
+    // If a direction is specified, only that direction of edges are
+    // allowed.
     if ((dir == Direction::Forward &&
          allowed_direction_ == Direction::Backward) ||
         (dir == Direction::Backward &&
@@ -200,11 +221,14 @@ class FindAllExprs {
     }
   }
 
-  // Check if an ExprT is ready to visit. Either all of its inputs
-  // or all of outputs must have their dependencies satisfied. If
-  // ready because the inputs are already visited, return
-  // Direction::Forward and all the input nodes. If ready because the
-  // outputs are ready, return Direction::Backward and all the output nodes.
+  // Check if an edge from an expr to a val is ready to visit. If this
+  // is a forward edge, i.e., the val is an output of the expr, the
+  // edge is ready to visit as long as all the inputs of the expr are
+  // visited. If it's a backward edge, i.e., the val is an input of
+  // the expr, it's ready if all of the outputs are visited. If ready,
+  // the edges that this edge depends on are returned. For example, in
+  // the case of a forward edge, all of the edges to from_expr are
+  // returned.
   virtual std::optional<std::vector<Edge>> isReady(
       const ExprT& from_expr,
       const ValT& to_val,
@@ -238,18 +262,18 @@ class FindAllExprs {
     return std::nullopt;
   }
 
-  // Check if a val is ready to visit. Either its defining or use
-  // expr must have its dependency satisfied. If ready because
-  // there's a visited defining expr, return Direction::Forward and
-  // the defining expr. If ready because there's a visited use expr, return
-  // Direction::Backward and the use expr.
+  // Check if an edge from a val to an expr is ready to visit. In the
+  // case of a val, it is ready to visit as long as there's at least
+  // one def or use expr that has been already visited. However, since
+  // this is an edge to an expr, the edge from the same expr to this
+  // val does not make this edge ready to visit. For example, even if
+  // a merge producing i0 is visited, it should not automatically mean
+  // the edge from i0 to the merge expr is ready to visit. Othewise,
+  // the traversal would just move back and forth.
   virtual std::optional<std::vector<Edge>> isReady(
       const ValT& from_val,
       const ExprT& to_expr,
       Direction dir) const {
-    // In the case of Val, requires just one def or use expr.
-    // Check if any use is visited
-
     std::vector<Edge> prev_edges;
 
     // Check if any def is visited
@@ -283,8 +307,9 @@ class FindAllExprs {
     }
   }
 
-  virtual std::vector<Edge> getNextEdges(
+  virtual std::vector<Edge> getNeighborEdges(
       const Edge& edge,
+      bool neighbor_of_to,
       Direction allowed_direction = Direction::Undefined) const {
     std::vector<Edge> neighbor_edges;
 
@@ -316,25 +341,40 @@ class FindAllExprs {
     NVF_ERROR(
         edge_dir == Direction::Forward || edge_dir == Direction::Backward);
 
-    if (const ExprT* e = std::get_if<ExprT>(&edge.to)) {
+    const auto& node = neighbor_of_to ? edge.to : edge.from;
+
+    if (const ExprT* e = std::get_if<ExprT>(&node)) {
       // The from node must be a Val.
 
       // In the case of Expr, only consider edges of the same
       // direction
       if (edge_dir == Direction::Forward) {
-        // This edge is from an input Val to its use Expr. Traverse
-        // from the use Expr to its outputs.
-        for (const auto& v : outputs_(*e)) {
-          add_to_neighbor_list(*e, v);
+        // If the node is the to of the edge, the edge is from an
+        // input Val to its use Expr, so traverse from the use Expr to
+        // its outputs. If the ndoe is the from of the edge, the edge
+        // is from a defining expr to one of its outputs, in that case
+        // grab edges of the inputs of the expr.
+        if (neighbor_of_to) {
+          for (const auto& v : outputs_(*e)) {
+            add_to_neighbor_list(*e, v);
+          }
+        } else {
+          for (const auto& v : inputs_(*e)) {
+            add_to_neighbor_list(*e, v);
+          }
         }
       } else if (edge_dir == Direction::Backward) {
-        // This edge is from an output Val to its defining Expr. Traverse
-        // from the defining Expr to its inputs.
-        for (const auto& v : inputs_(*e)) {
-          add_to_neighbor_list(*e, v);
+        if (neighbor_of_to) {
+          for (const auto& v : inputs_(*e)) {
+            add_to_neighbor_list(*e, v);
+          }
+        } else {
+          for (const auto& v : outputs_(*e)) {
+            add_to_neighbor_list(*e, v);
+          }
         }
       }
-    } else if (const ValT* v = std::get_if<ValT>(&edge.to)) {
+    } else if (const ValT* v = std::get_if<ValT>(&node)) {
       // The from node must be an Expr.
 
       // In the case of Val, no matter what direction this node is, it
@@ -353,76 +393,18 @@ class FindAllExprs {
     return neighbor_edges;
   }
 
+  // Get edges that should be traversed from the to node of a given edge
+  virtual std::vector<Edge> getNextEdges(
+      const Edge& edge,
+      Direction allowed_direction = Direction::Undefined) const {
+    return getNeighborEdges(edge, /*neighbor_of_to=*/true, allowed_direction);
+  }
+
+  // Get edges that should be traversed from the from node of a given edge
   virtual std::vector<Edge> getPrevEdges(
       const Edge& edge,
       Direction allowed_direction = Direction::Undefined) const {
-    std::vector<Edge> neighbor_edges;
-
-    auto add_to_neighbor_list = [&](const auto& from, const auto& to) -> void {
-      Edge neighbor_edge(from, to);
-
-      if (edge == neighbor_edge ||
-          // Don't traverse back
-          (edge.from == neighbor_edge.to && edge.to == neighbor_edge.from)) {
-        return;
-      }
-
-      if (excludeFromTraversal(neighbor_edge)) {
-        return;
-      }
-
-      auto neighbor_edge_dir = getDirection(neighbor_edge);
-      if ((allowed_direction == Direction::Forward &&
-           neighbor_edge_dir == Direction::Backward) ||
-          (allowed_direction == Direction::Backward &&
-           neighbor_edge_dir == Direction::Forward)) {
-        return;
-      }
-
-      neighbor_edges.push_back(neighbor_edge);
-    };
-
-    Direction edge_dir = getDirection(edge);
-    NVF_ERROR(
-        edge_dir == Direction::Forward || edge_dir == Direction::Backward);
-
-    if (const ExprT* e = std::get_if<ExprT>(&edge.from)) {
-      // The to node must be a Val.
-
-      // In the case of Expr, only consider edges of the same
-      // direction
-      if (edge_dir == Direction::Forward) {
-        // This edge is from a defining expr to one of its
-        // outputs. The previous edges consist of the inputs of the
-        // expr to the expr.
-        for (const auto& v : inputs_(*e)) {
-          add_to_neighbor_list(v, *e);
-        }
-      } else if (edge_dir == Direction::Backward) {
-        // This edge is from a use Expr to one of its inputs. The
-        // previous edges consist of the ouputs of the expr to the
-        // expr.
-        for (const auto& v : outputs_(*e)) {
-          add_to_neighbor_list(v, *e);
-        }
-      }
-    } else if (const ValT* v = std::get_if<ValT>(&edge.from)) {
-      // The to node must be an Expr.
-
-      // In the case of Val, no matter what direction this edge is, it
-      // should be valid to traverse both directions. Just don't
-      // traverse back to the same node.
-
-      for (const auto& e : definition_(*v)) {
-        add_to_neighbor_list(e, *v);
-      }
-
-      for (const auto& e : uses_(*v)) {
-        add_to_neighbor_list(e, *v);
-      }
-    }
-
-    return neighbor_edges;
+    return getNeighborEdges(edge, /*neighbor_of_to=*/false, allowed_direction);
   }
 
   // Check if all to_ are visited
@@ -439,6 +421,9 @@ class FindAllExprs {
     return false;
   }
 
+  // If an edge is from a val to its use expr, it's a forward
+  // edge. Similarly, it's also a forward edge if it's an expr to one
+  // of its outputs. Otherwise, it's a backward edge.
   Direction getDirection(const Edge& edge) const {
     if (const ExprT* from_expr = std::get_if<ExprT>(&edge.from)) {
       const ValT& to_val = std::get<ValT>(edge.to);
@@ -478,29 +463,8 @@ class FindAllExprs {
     return visited_nodes;
   }
 
-  virtual std::pair<ExprPath, bool> getPartiallyOrderedExprs() const {
-    const auto used_edges = getUsedEdges();
-
-    VectorOfUniqueEntries<std::pair<ExprT, Direction>> expr_path;
-
-    for (const Edge& ordered_visited_edge : partially_ordered_visited_edges_) {
-      if (!used_edges.count(ordered_visited_edge)) {
-        continue;
-      }
-
-      Direction edge_dir = getDirection(ordered_visited_edge);
-
-      // Append the expr of this edge
-      const ExprT& expr =
-          std::get_if<ExprT>(&(ordered_visited_edge.from)) != nullptr
-          ? std::get<ExprT>(ordered_visited_edge.from)
-          : std::get<ExprT>(ordered_visited_edge.to);
-      expr_path.pushBack(std::make_pair(expr, edge_dir));
-    }
-
-    return std::make_pair(expr_path.vector(), allToNodesVisited());
-  }
-
+  // Grab all visited edges that are reachable from from_nodes and
+  // to_nodes. traverseAllEdges must have been completed.
   virtual EdgeSet getUsedEdges() const {
     NVF_ERROR(
         !require_all_to_visited_ || allToNodesVisited(),
@@ -554,6 +518,33 @@ class FindAllExprs {
     }
 
     return used_edges;
+  }
+
+  // Return ExprPath consisting of all exprs appearing between
+  // from_nodes and to_ndoes. The exprs are partially topologically
+  // sorted, but not completely. The ordering should be deterministic,
+  // but do not assume any particular ordering.
+  virtual std::pair<ExprPath, bool> getPartiallyOrderedExprs() const {
+    const auto used_edges = getUsedEdges();
+
+    VectorOfUniqueEntries<std::pair<ExprT, Direction>> expr_path;
+
+    for (const Edge& ordered_visited_edge : partially_ordered_visited_edges_) {
+      if (!used_edges.count(ordered_visited_edge)) {
+        continue;
+      }
+
+      Direction edge_dir = getDirection(ordered_visited_edge);
+
+      // Append the expr of this edge
+      const ExprT& expr =
+          std::get_if<ExprT>(&(ordered_visited_edge.from)) != nullptr
+          ? std::get<ExprT>(ordered_visited_edge.from)
+          : std::get<ExprT>(ordered_visited_edge.to);
+      expr_path.pushBack(std::make_pair(expr, edge_dir));
+    }
+
+    return std::make_pair(expr_path.vector(), allToNodesVisited());
   }
 
  protected:
