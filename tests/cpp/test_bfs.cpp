@@ -854,6 +854,7 @@ TEST_F(FindAllExprsTest, Test3) {
   }
 }
 
+// Test with the ROPE rotation pattern
 TEST_F(FindAllExprsTest, Rotation) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr;
@@ -891,6 +892,7 @@ TEST_F(FindAllExprsTest, Rotation) {
   IdModel id_model(&fusion);
   const ValGraph& graph = id_model.buildExactGraph();
 
+  // Traversal from tv6 to tv0 should include all exprs
   ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
   ValGroups tv6_logical_groups = graph.toGroups(tv6->getLogicalDomain());
 
