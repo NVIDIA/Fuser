@@ -813,7 +813,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               ir_utils::isLdMatrixOp(producer->definition()) ||
                   ir_utils::isStMatrixOp(consumer->definition()) ||
                   producer->getMemoryType() == MemoryType::Global ||
-                  producer->getMemoryType() == MemoryType::Shared,
+                  producer->getMemoryType() == MemoryType::Shared ||
+                  producer->getMemoryType() == MemoryType::Tensor,
               "Inconsistent parallelization found between TV",
               producer->name(),
               " (",
@@ -822,7 +823,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               consumer->name(),
               "(",
               consumer->toString(),
-              "). Producer is required to be in Global or Shared Memory based on parallelization strategy.",
+              "). Producer is required to be in Global, Shared or Tensor Memory based on parallelization strategy.",
               " RAW flags: ",
               raw_dims.toString());
         }

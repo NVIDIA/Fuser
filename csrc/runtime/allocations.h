@@ -70,7 +70,7 @@ at::Tensor allocateTensor(
 
 // Allocate output tensors for a given fusion. Outputs may alias inputs, in
 // that case output tensors are shallow copies of the aliased inputs
-std::vector<at::Tensor> allocateOutputs(
+KernelArgumentHolder allocateOutputs(
     const Fusion* fusion,
     const std::vector<GlobalBufferInfo>& output_info,
     const c10::Device& device,
