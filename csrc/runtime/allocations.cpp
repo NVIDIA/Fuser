@@ -374,17 +374,18 @@ std::vector<at::Tensor> allocateOutputs(
   return out_tensors;
 }
 
-std::vector<at::Tensor> allocateKernelOutputs(
+KernelArgumentHolder allocateKernelOutputs(
     const Fusion* fusion,
     const KernelExecutorEntry& entry,
     const c10::Device& device,
-    const KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args,
+    bool dynamic_alias) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
 
   // TODO: Figure out if output to output aliasing is needed
 
-  std::vector<at::Tensor> out_tensors;
-  out_tensors.reserve(entry.outputs.size());
+  KernelArgumentHolder out_tensors;
+  out_tensors.resize(entry.outputs.size());
   for (auto out_idx : c10::irange(entry.outputs.size())) {
     auto out_info = entry.outputs.at(out_idx);
     if (entry.output_aliased_to_input.at(out_idx) == -1) {
@@ -398,57 +399,38 @@ std::vector<at::Tensor> allocateKernelOutputs(
       if (shouldFillAllocationWithNan()) {
         fillTensorWithNan(alloc_tensor);
       }
-      out_tensors.emplace_back(alloc_tensor);
-    } else {
-      NVF_ERROR(
-          entry.output_aliased_to_input.at(out_idx) <= (int64_t)args.size(),
-          "Tried to grab an out of range input argument.");
-      auto input_arg = args[entry.output_aliased_to_input.at(out_idx)];
+      out_tensors[out_idx] = alloc_tensor;
+    } else if (
+        fusion->getOutputAlias(out_info.tv).type ==
+        AllocationType::ReuseBuffer) {
+      auto inp = args[entry.output_aliased_to_input.at(out_idx)];
+      NVF_ERROR(inp.is<at::Tensor>(), "Input is not a Tensor");
+      out_tensors[out_idx] = inp;
+    } else if (
+        fusion->getOutputAlias(out_info.tv).type == AllocationType::Evaluate) {
+      if (dynamic_alias) {
+        out_tensors[out_idx] = std::monostate();
+        continue;
+      }
+
       ExpressionEvaluator ee;
       ee.bind(
-          fusion->inputs()[entry.output_aliased_to_input.at(out_idx)],
-          input_arg);
-      auto output = ee.evaluate(out_info.tv).as<at::Tensor>();
-      NVF_ERROR(
-          input_arg.is<at::Tensor>(),
-          "Aliased input argument is not a tensor.");
-      if (input_arg.as<at::Tensor>().sizes() !=
-              out_info.shape_info.logical_sizes ||
-          input_arg.as<at::Tensor>().strides() !=
-              out_info.shape_info.logical_strides) {
-        out_tensors.emplace_back(output.as_strided(
-            out_info.shape_info.logical_sizes,
-            out_info.shape_info.logical_strides));
-      } else {
-        out_tensors.emplace_back(output);
-      }
+          fusion->getOutputAlias(out_info.tv).aliased_io,
+          args[entry.output_aliased_to_input.at(out_idx)]);
+      out_tensors[out_idx] = ee.evaluate(out_info.tv);
+    } else {
+      NVF_THROW(
+          "Unexpected allocation path, internal logic around allocations must be incorrect.");
     }
   }
   return out_tensors;
 }
 
-namespace {
-GlobalBufferInfo getBufferInfo(
-    ExpressionEvaluator& expr_eval,
-    DataType index_dtype,
-    TensorView* tv) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfo");
-  GlobalBufferInfo info;
-  info.tv = tv;
-  info.shape_info = inferTensorShapes(info.tv, expr_eval);
-  auto dtype =
-      (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
-  info.type = data_type_to_aten(dtype);
-  return info;
-}
-
-} // namespace
-
 std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
     const std::vector<Val*>& fusion_outputs) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::getOutbufferInfo");
+  FUSER_PERF_SCOPE("fusion_executor::allocations::getOutbufferInfos");
   std::vector<GlobalBufferInfo> output_buffer_infos;
   output_buffer_infos.reserve(fusion_outputs.size());
   for (const auto out : fusion_outputs) {
@@ -456,8 +438,14 @@ std::vector<GlobalBufferInfo> getBufferInfos(
         out->isA<TensorView>(),
         "Cannot allocate outputs that are not tensors.");
 
-    output_buffer_infos.emplace_back(
-        getBufferInfo(expr_eval, index_dtype, out->as<TensorView>()));
+    GlobalBufferInfo info;
+    info.tv = out->as<TensorView>();
+    info.shape_info = inferTensorShapes(info.tv, expr_eval);
+    auto dtype =
+        (info.tv->dtype() == DataType::Index ? index_dtype : info.tv->dtype());
+    info.type = data_type_to_aten(dtype);
+
+    output_buffer_infos.emplace_back(info);
   }
   return output_buffer_infos;
 }
@@ -889,12 +877,30 @@ std::vector<GlobalBufferInfo> getInputBufferInfos(
 TensorShapeInfo inferTensorShapes(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval) {
+  std::cout << "Infer shape: " << tv->toString() << std::endl;
   // Alias handling:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
-  if (alias_info.type != AllocationType::New) {
+  if (alias_info.type == AllocationType::Evaluate) {
+    std::cout << "Evaluating" << std::endl;
+    std::cout << "Output: " << tv->toString() << std::endl;
+    auto inps = InputsOf::output(tv);
+    std::cout << "Inputs: " << std::endl;
+    for (auto inp : inps) {
+      std::cout << "  " << inp->toString() << std::endl;
+    }
+    auto exprs =
+        DependencyCheck::getAllExprsBetween({inps.begin(), inps.end()}, {tv});
+    std::cout << "Expressions: " << std::endl;
+    for (auto expr : exprs) {
+      std::cout << "  " << expr->toString() << std::endl;
+    }
+
     auto val = expr_eval.evaluate(tv);
+    NVF_ERROR(val.hasValue() && val.is<at::Tensor>(), "Output is not a Tensor");
     auto tensor = val.as<at::Tensor>();
+
     if (!tv->hasAllocation()) {
+      std::cout << "Inferred 0" << std::endl;
       return TensorShapeInfo{
           tensor.sizes().vec(),
           tensor.strides().vec(),
@@ -903,8 +909,10 @@ TensorShapeInfo inferTensorShapes(
           tensor.sizes().vec(),
           tensor.strides().vec()};
     }
+    std::cout << "Allocation" << std::endl;
     auto allocation_size_stride =
         inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
+    std::cout << "Inferred 1" << std::endl;
     return TensorShapeInfo{
         tensor.sizes().vec(),
         tensor.strides().vec(),
@@ -917,6 +925,7 @@ TensorShapeInfo inferTensorShapes(
   // Non-alias handling:
   auto allocation_size_stride = inferAllocationShape(tv, expr_eval);
   if (!tv->hasAllocation()) {
+    std::cout << "Inferred 2" << std::endl;
     return TensorShapeInfo{
         allocation_size_stride.first,
         allocation_size_stride.second,
@@ -935,6 +944,7 @@ TensorShapeInfo inferTensorShapes(
   // `transformFromAllocationToLogical`
   logical_meta_tensor =
       transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
+  std::cout << "Inferred 3" << std::endl;
   return {
       logical_meta_tensor.sizes().vec(),
       logical_meta_tensor.strides().vec(),

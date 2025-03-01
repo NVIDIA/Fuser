@@ -296,7 +296,7 @@ void KernelExecutor::compile(
     if (output->isA<TensorView>()) {
       auto out_tv = output->as<TensorView>();
       auto alias_info = fusion->getOutputAlias(out_tv);
-      if (alias_info.type == AllocationType::New) {
+      if (alias_info.type != AllocationType::Evaluate) {
         continue;
       }
       auto aliased_to = alias_info.aliased_io->as<TensorView>();
@@ -768,9 +768,6 @@ void KernelExecutor::initializeExecutorEntry(
     auto out_info = output_info[output_idx];
     auto fusion = compiled_kernel_->kernel()->as<Fusion>();
     auto alias_info = fusion->getOutputAlias(out_info.tv);
-    TORCH_WARN_ONCE(
-        alias_info.type != AllocationType::Evaluate,
-        "Outputs should not be evaluate type for kernels, this will be ignored and a kernel will produce the output tensor.");
     if (alias_info.type == AllocationType::New) {
       continue;
     }
@@ -795,8 +792,8 @@ void KernelExecutor::initializeExecutorEntry(
           fusion->inputs(),
           "\nFusion Outputs:\n  ",
           fusion->outputs());
-      TORCH_WARN(
-          "Kernel found with output to output aliasing, this is unsupported in a kernel and will beignored.\n",
+      NVF_THROW(
+          "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
           "Output: ",
           out_info.tv->toString(),
           "\nAliased to: ",
@@ -1249,6 +1246,7 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
+    std::cout << "Initializing executor entry" << std::endl;
     initializeExecutorEntry(
         *executor_entry,
         args,
@@ -1256,6 +1254,7 @@ std::vector<at::Tensor> KernelExecutor::run(
         compile_params,
         outputs,
         compiled_kernel_->kernel()->indexType());
+    std::cout << "Executor entry initialized" << std::endl;
   }
 
   if (!(executor_entry->launch_params.nThreads() <=
@@ -1274,11 +1273,33 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   // only allocate outputs when not given
   if (outputs.empty()) {
-    outputs = allocateKernelOutputs(
+    auto outputs_args = allocateKernelOutputs(
         compiled_kernel_->kernel(),
         *executor_entry,
         compiled_kernel_->device(),
-        args);
+        args,
+        has_dynamic_alias_);
+    outputs.reserve(outputs_args.size());
+    if (has_dynamic_alias_) {
+      for (const auto i :
+           c10::irange(compiled_kernel_->kernel()->outputs().size())) {
+        auto param = compiled_kernel_->kernel()->outputs()[i];
+        if (!param->isA<TensorView>()) {
+          continue;
+        }
+        if (compiled_kernel_->kernel()
+                ->getOutputAlias(param->as<TensorView>())
+                .type == AllocationType::Evaluate) {
+          outputs_args[i] = expr_eval.evaluate(param);
+        }
+      }
+    }
+    for (const auto i : c10::irange(outputs_args.size())) {
+      NVF_ERROR(
+          outputs_args[i].hasValue() && outputs_args[i].is<at::Tensor>(),
+          "Output is not populated or not a Tensor");
+      outputs.emplace_back(outputs_args[i].as<at::Tensor>());
+    }
   }
   args.push(outputs);
 
@@ -1372,17 +1393,22 @@ std::vector<at::Tensor> KernelExecutor::run(
     if (has_TMA_) {
       // Resolving TMA requires binding all values and evaluating the TMA
       // arguments
+      std::cout << "Resolving TMA" << std::endl;
       args = resolveTMA(*executor_entry, args);
+      std::cout << "TMA resolved" << std::endl;
     }
     if (has_rng_) {
       // Resolving RNG seed requires evaluating and adding those values, but
       // doesn't require binding all values as getting RNG seed and offset
       // doesn't depend on other values
+      std::cout << "Resolving RNG seed" << std::endl;
       args = resolveRNGSeed(compiled_kernel_->kernel(), args);
+      std::cout << "RNG seed resolved" << std::endl;
     }
   }
-
+  std::cout << "Computing args" << std::endl;
   computeArgs2(*executor_entry, args);
+  std::cout << "Args computed" << std::endl;
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();

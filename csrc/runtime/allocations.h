@@ -90,11 +90,17 @@ std::vector<at::Tensor> allocateOutputs(
     const c10::Device& device,
     ExpressionEvaluator& ee);
 
-std::vector<at::Tensor> allocateKernelOutputs(
+// Allocate output tensors for a given fusion. Outputs may alias inputs, in
+// that case output tensors are shallow copies of the aliased inputs.
+//
+// If dynamic_alias is true, then any argument with AllocationType::Evaluate
+// will not be populated, it will be filled with std::monostate.
+KernelArgumentHolder allocateKernelOutputs(
     const Fusion* fusion,
     const KernelExecutorEntry& entry,
     const c10::Device& device,
-    const KernelArgumentHolder& args);
+    const KernelArgumentHolder& args,
+    bool dynamic_alias = false);
 
 //! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
