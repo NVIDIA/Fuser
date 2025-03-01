@@ -1615,7 +1615,7 @@ INSTANTIATE_TEST_SUITE_P(
 using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;
 TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   DataType dtype = GetParam();
-  int64_t dim0 = 4*148*14;
+  int64_t dim0 = 148*2;
   int64_t dim1 = 4096;
   const std::vector<int64_t> input_shape = {dim0, dim1};
   auto fusion = std::make_unique<Fusion>();
@@ -1634,7 +1634,7 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   fusion->addOutput(tv4);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::ones(input_shape, options);
+  auto t0 = at::randn(input_shape, options);
   std::vector<c10::IValue> aten_inputs = {t0};
   auto fusion_copy = *fusion;
 
@@ -1642,7 +1642,7 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto aten_output = t0 + t0.sum({1}, true);
-  // compare<float>(dim0,dim1,cg_outputs.at(0).to(at::kFloat), aten_output.to(at::kFloat));
+  compare<float>(dim0,dim1,cg_outputs[0].as<at::Tensor>().to(at::kFloat), aten_output.to(at::kFloat));
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 

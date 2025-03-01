@@ -652,27 +652,12 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
   using kir::ExprMutator::handle;
 
   void handle(ForLoop* loop) final {
-    std::cout << "loop is: " << loop->iter_domain()->toInlineString()
-              << std::endl;
-
-    // if (!is_within_grid_loop_ &&
-    //     std::any_of(
-    //         vals_being_moved_.begin(),
-    //         vals_being_moved_.end(),
-    //         [loop, this](Val* val) { return isBufferInitOrLoad(val, loop);
-    //         })) {
-    //   exprs_to_be_moved_.push_back(loop);
-    //   registerRemove(loop);
-    // }
     if (loop->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp) {
-      std::cout << "CircularBufferLoopStage::ComputeWarp" << std::endl;
       for (auto expr : exprs_to_be_moved_) {
         registerInsertBefore(loop, expr);
       }
     }
-
-    // recursively visit nested loops using IrVisitor::handle(ForLoop* fl)
     kir::ExprMutator::handle(loop);
   }
 
@@ -697,43 +682,6 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
       kir::ExprMutator::dispatch(expr);
     }
   }
-  // void handle(kir::Allocate* allocate) final {
-  //   if (is_within_grid_loop_) {
-  //     return;
-  //   }
-  //   // mbarriers are used in both tma & compute loops
-  //   if (allocate->memoryType() == MemoryType::Shared) {
-  //     return;
-  //   }
-  //   // register arrays are used in compute loops only
-  //   // single register needs more checks
-  //   if (allocate->size()->value().as<int64_t>() > 1 ||
-  //   allocs_to_be_moved_.count(allocate->buffer())) {
-  //     vals_being_moved_.push_back(allocate->buffer());
-  //     exprs_to_be_moved_.push_back(allocate);
-  //     registerRemove(allocate);
-  //   }
-  // }
-
-  // void handle(UnaryOp* uop) final {
-  //   if (is_within_grid_loop_) {
-  //     return;
-  //   }
-  //   if (uops_to_be_moved_.count(uop)) {
-  //     exprs_to_be_moved_.push_back(uop);
-  //     registerRemove(uop);
-  //   }
-  // }
-
-  // void handle(GetItem* gitem) final {
-  //   if (is_within_grid_loop_) {
-  //     return;
-  //   }
-  //   if (uops_to_be_moved_.count(gitem)) {
-  //     exprs_to_be_moved_.push_back(gitem);
-  //     registerRemove(gitem);
-  //   }
-  // }
 };
 } // namespace
 
@@ -745,12 +693,11 @@ std::vector<Expr*> allocateCommonScalars(const std::vector<Expr*>& exprs) {
   auto exprs_after_hoist =
       CommonScalarInserter::run(exprs, GpuLower::current()->commonScalarMap());
 
-  std::cout << "\n==============exprs after hoist: " << std::endl;
-  for (auto expr : exprs_after_hoist) {
-    std::cout << expr->toString() << std::endl;
+  if(std::getenv("MOVE_TOP_EXPRS") != nullptr) {
+    return MoveTopExprsToComputeWarpLoop::run(exprs_after_hoist);
+  }else{
+    return exprs_after_hoist;
   }
-
-  return MoveTopExprsToComputeWarpLoop::run(exprs_after_hoist);
 }
 
 } // namespace nvfuser
