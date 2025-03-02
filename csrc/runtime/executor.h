@@ -45,9 +45,8 @@ class ExprEvalExecutor : public ExecutorAbstract {
 
   bool isCompiled() const override;
 
-  NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {});
+  NVF_API KernelArgumentHolder
+  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<Fusion>& fusion() {
     return fusion_;
@@ -111,9 +110,9 @@ class KernelExecutor : public ExecutorAbstract {
       CompileParams compile_params = CompileParams(),
       SchedulerType sceduler_type = SchedulerType::None);
 
-  NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder args,
-      std::vector<at::Tensor> outputs = {},
+  NVF_API KernelArgumentHolder
+  run(KernelArgumentHolder args,
+      KernelArgumentHolder outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       CompileParams compile_params = CompileParams());
 
@@ -224,7 +223,7 @@ class KernelExecutor : public ExecutorAbstract {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs,
+      const KernelArgumentHolder& outputs,
       DataType index_type);
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();

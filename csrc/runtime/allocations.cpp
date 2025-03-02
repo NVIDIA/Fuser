@@ -322,7 +322,7 @@ at::Tensor allocateTensor(
   }
 }
 
-std::vector<at::Tensor> allocateOutputs(
+KernelArgumentHolder allocateOutputs(
     const Fusion* fusion,
     const std::vector<GlobalBufferInfo>& output_info,
     const c10::Device& device,
@@ -371,7 +371,7 @@ std::vector<at::Tensor> allocateOutputs(
     ee.bind(out, out_tensor);
     out_tensors[out_index] = out_tensor;
   }
-  return out_tensors;
+  return KernelArgumentHolder(out_tensors);
 }
 
 KernelArgumentHolder allocateKernelOutputs(
