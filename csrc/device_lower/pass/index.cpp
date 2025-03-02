@@ -2151,7 +2151,6 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         NVF_ERROR(
             dataTypeSize(ldst->out()->dtype()) == 4,
             "For now, we only support 32-bit types in tmem");
-        // TODO: hard code size 1 for now.
         // According to the specification of tcgen05.{ld,st}, the register
         // operand must be viewed as a vector of 32-bit elements.
         // See:

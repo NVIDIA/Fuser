@@ -35,6 +35,8 @@ const TMemAlllocationInfo::Region::TVInfo& TMemAlllocationInfo::getTVInfo(
   NVF_ERROR(false, "TensorView not found in TMemAlllocationInfo");
 }
 
+namespace {
+
 // Returns the lane and column allocation domain that is actually allocated.
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
     TensorView* tv) {
@@ -411,6 +413,8 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
   }
   return {std::move(load_data_path), std::move(store_data_path)};
 }
+
+} // namespace
 
 TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   TensorMemoryInfo result;
