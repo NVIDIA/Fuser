@@ -379,6 +379,9 @@ table KernelExecutor {
   // Is this kernel being compiled with int32 or int64 indexing?
   index_type : long;
   compiled_kernel: CudaKernel;
+  has_rng: bool;
+  has_TMA: bool;
+  has_dynamic_alias: bool;
 }
 
 // A directed edge on DAG, which wraps a value that connects segmented groups.
