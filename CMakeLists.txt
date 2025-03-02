@@ -39,11 +39,15 @@ message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 # are footguns that should generally be avoided, because they are difficult to
 # target where and *only* where they are needed. See e.g.:
 # https://cliutils.gitlab.io/modern-cmake/chapters/intro/dodonot.html
-set(NVFUSER_C_STANDARD 17 CACHE STRING "C standard to use for C code")
+set(NVFUSER_C_STANDARD 20 CACHE STRING "C standard to use for C code")
 set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  # TODO: gcc 11.4 has been end of life according to https://gcc.gnu.org/
+  # I believe we should bump up the version below to 12.x.
+  # However, because gcc 11.4 is well tested and stable, let's defer this
+  # rejection until the day that we find a bug in gcc 11.4.
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
     message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
   endif()
@@ -341,6 +345,7 @@ set_target_properties(codegen_internal PROPERTIES
   CXX_STANDARD ${NVFUSER_CPP_STANDARD}
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
+
   # this is to find pip installed nvrtc.so
   INSTALL_RPATH
   "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"

@@ -16,7 +16,7 @@ env:
 
 jobs:
   clang-build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -30,14 +30,14 @@ jobs:
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
           source tools/setup-env.sh
-          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
+          # sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
           export CC=clang
           export CXX=clang++
           wait
           python setup.py build
 
   dynamic-type-meson:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
