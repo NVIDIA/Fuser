@@ -696,10 +696,11 @@ auto zip(Rs&&... rs) {
 } // namespace views
 using views::zip;
 
-#endif  // C++23
+#endif // C++23
 
 auto enumerate(auto&& range) {
-  return zip(std::views::iota((int64_t)0), std::forward<decltype(range)>(range));
+  return zip(
+      std::views::iota((int64_t)0), std::forward<decltype(range)>(range));
 }
 
 } // namespace nvfuser
