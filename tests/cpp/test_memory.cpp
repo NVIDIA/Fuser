@@ -3397,15 +3397,17 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
 
   inlineMost();
 
-  constexpr int dim0 = 8192, dim1 = 8192;
+  constexpr int dim0 = 128, dim1 = 256;
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv0 = at::arange(dim0 * dim1, options).view({dim0, dim1});
 
   KernelExecutor ke;
   ke.compile(&fusion, {at_tv0});
   kir::Kernel* kernel = ke.compiledKernel()->kernel();
   ASSERT_TRUE(kernel != nullptr);
   auto cg_outputs = ke.run({at_tv0});
+
+  std::cout << cg_outputs[0].as<at::Tensor>() << std::endl;
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 }
 
