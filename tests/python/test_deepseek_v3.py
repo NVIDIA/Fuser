@@ -100,11 +100,11 @@ class MultiheadLatentAttention(nn.Module):
         )
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # Variable names follow the notation of https://arxiv.org/abs/2412.19437
         batch_size, seq_len, _ = hidden_states.size()
         num_heads = self.config.num_heads
 
         # Query
+        # Variable names loosely follow the notation of https://arxiv.org/abs/2412.19437.
         c_q = self.q_down_proj(hidden_states)
         q_c_and_q_r = self.q_up_proj(self.q_norm(c_q))
         q_c, q_r = (
