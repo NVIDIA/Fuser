@@ -100,7 +100,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& broadcast_graph = id_model.buildBroadcastGraph();
 
-  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+  auto resize_tensor_ops = scheduler_tools::getResizeBasedOps(fusion);
 
   // Slicing of or to a broadcast ID is not allowed yet.
   for (auto resize_tensor_op : resize_tensor_ops) {

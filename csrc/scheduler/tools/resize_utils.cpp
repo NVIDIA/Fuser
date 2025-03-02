@@ -26,6 +26,10 @@ bool hasResizeBasedOps(Fusion* fusion) {
   return ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion);
 }
 
+std::vector<Expr*> getResizeBasedOps(Fusion* fusion) {
+  return ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+}
+
 void propagateResizeToInputs(Expr* resize_tensor_op) {
   NVF_ERROR(
       resize_tensor_op->isA<SliceOp>() || resize_tensor_op->isA<PadOp>(),
