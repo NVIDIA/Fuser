@@ -2981,7 +2981,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
     func_args.arg(genComputeBlockDim());
-    func_args.arg(genBarrierId());
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+    } else {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+    }
 
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&

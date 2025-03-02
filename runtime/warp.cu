@@ -60,6 +60,7 @@ __device__ void iterGroupedWarpReduce(
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
+    uint32_t thread_idx,
     uint32_t barrier_id = 1) {
   // pack T into uint64_t to reduce number of shuffles
   // sizeof(T) * K = sizeof(uint64_t), e.g. T = float, K = 2.
@@ -94,8 +95,8 @@ __device__ void iterGroupedWarpReduce(
 
   // cross warp reduction using shared memory
   constexpr int WARP_SIZE = 32;
-  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
-  unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+  unsigned int warp_idx = thread_idx / WARP_SIZE;
+  unsigned int lane_idx = thread_idx % WARP_SIZE;
   unsigned int num_of_warps = block_dim.x / WARP_SIZE;
 
   // [warp_idx, N]
