@@ -564,17 +564,17 @@ void validateVectorizedTensors(
 
 ExpressionEvaluator bindInputs(
     const KernelArgumentHolder& args,
-    Fusion* fusion) {
+    Fusion* kernel) {
   FUSER_PERF_SCOPE("executor_utils::bindInputs");
 
   // args may contains more than just inputs, but inputs are always at the
   // beginning.
   NVF_ERROR(
-      fusion->inputs().size() <= args.size(),
-      "KernelArgumentHolder contains less argument than fusion's input.");
+      kernel->inputs().size() <= args.size(),
+      "KernelArgumentHolder contains less argument than kernel's input.");
 
   ExpressionEvaluator expr_eval;
-  const auto& inputs = fusion->inputs();
+  const auto& inputs = kernel->inputs();
   for (const auto i : c10::irange(inputs.size())) {
     // NOTE: we bind all inputs here, including at::Tensors. This means that
     // expr_eval will create a PolymorphicValue containing *args[i], which means

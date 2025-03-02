@@ -18,7 +18,6 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <preseg_passes/segment_inplace_update.h>
-#include <runtime/expr_eval_exec.h>
 #include <sys_utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>

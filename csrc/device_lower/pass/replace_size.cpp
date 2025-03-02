@@ -18,6 +18,7 @@
 
 namespace nvfuser {
 
+namespace {
 // Going to generate a map of tensor view root domain extents to reduce the
 // number used during lowering. For example if we have:
 //
@@ -135,6 +136,8 @@ std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion) {
   }
   return simplification_map;
 }
+
+} // namespace
 
 void replaceSymbolicSizes(Fusion* fusion) {
   FUSER_PERF_SCOPE("GpuLower::Lower::replaceSymbolicSizes");
