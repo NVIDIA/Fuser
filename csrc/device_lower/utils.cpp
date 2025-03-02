@@ -1318,23 +1318,21 @@ Val* extent(const Projection& proj) {
 Projection simplify(Projection proj);
 
 // Given an expression on the traversal path and its direction, get the from
-// and to groups. Note that the traversal path is obtained by running BFS from
-// domain to linear_g, so the direction is flipped with respect to how we
-// propagate from linear_g to domain.
+// and to groups.
 auto fromGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.outputGroups(eg)
-                                         : id_graph.inputGroups(eg);
+  return direction == Direction::Backward ? id_graph.outputGroups(eg)
+                                          : id_graph.inputGroups(eg);
 }
 
 auto toGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.inputGroups(eg)
-                                         : id_graph.outputGroups(eg);
+  return direction == Direction::Backward ? id_graph.inputGroups(eg)
+                                          : id_graph.outputGroups(eg);
 }
 
 // Do the propagation to project linear_g on domain through the given
@@ -1948,24 +1946,38 @@ Val* proveLinearAndGetStride(
     return linear_g->front()->fusion()->zeroVal();
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
-  // how linear_g lives in the current propagation front.
+  // how linear_g lives in the current propagation front. Note that linear_g may
+  // not contain full dependency of domain.
   Projection frontier = linear_g;
   auto path =
-      ValGraphBFS::getExprGroupsBetween(id_graph, domain, {linear_g}).first;
-  while (!path.empty()) {
-    const auto& [eg, direction] = path.back();
-    path.pop_back();
-    auto from = fromGroups(id_graph, eg, direction);
+      ValGraphPermissiveBFS::getExprGroupsBetween(
+          id_graph, {linear_g}, domain, /*require_all_to_visited=*/false)
+          .first;
+  // Try to prove linear and get stride with the current frontier. We may not
+  // have finished the propagation yet, but because ValGraphPermissiveBFS
+  // supports missing dependency, and with missing dependency, we only have
+  // partial information on how to reach to a state that is easiest for our
+  // proof. It is possible that the easiest state is not the final state of
+  // the propagation. So we need to try the proof each step of the
+  // propagation.
+  Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  if (stride != nullptr) {
+    return stride;
+  }
+  for (const auto& [eg, direction] : path) {
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
       // Not representable (or don't know how to represent) by the language of
       // the dynamic type Projection.
       return nullptr;
     }
+    // Try the proof each step of the propagation.
+    Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+    if (stride != nullptr) {
+      return stride;
+    }
   }
-  // After propagation, we should have the information about how linear_g lives
-  // in domain. Parse this information to check if linear_g is linear in domain.
-  return proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  return nullptr;
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
