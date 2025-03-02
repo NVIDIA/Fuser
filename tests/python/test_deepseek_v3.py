@@ -2,6 +2,19 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+"""
+This implements a simplified version of a Transformer layer in DeepSeek-V3
+(https://arxiv.org/abs/2412.19437). It mimics the Hugging Face implementation
+(https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py)
+but removes many optimizations for simplicity.
+
+Optimizations:
+- Model parallelism, e.g. DP, TP, SP and EP
+- Mixed precision
+- Auxiliary-loss-free load balancing (cf. `e_score_correction_bias` in the HF implementation)
+- Multiple expert groups (cf. `config.n_group` in the HF implementation)
+"""
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -15,9 +28,10 @@ class Config:
     # Intermediate size per expert in MoE
     intermediate_size: int = 2048
     num_heads: int = 128
-    down_projected_q_size: int = 1536
-    down_projected_kv_size: int = 512
-    up_projected_head_size: int = 128
+    q_lora_rank: int = 1536
+    kv_lora_rank: int = 512
+    qk_head_size: int = 128
+    v_head_size: int = 128
     rope_head_size: int = 64
     num_routed_experts: int = 256
     num_shared_experts: int = 1
@@ -54,34 +68,33 @@ class RotaryPositionEmbedding(nn.Module):
 class MultiheadLatentAttention(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
+
         self.config = config
 
-        self.down_proj_q = nn.Linear(
-            config.hidden_size, config.down_projected_q_size, bias=False
-        )
-        self.norm_q = nn.RMSNorm(config.down_projected_q_size)
-        self.up_proj_q = nn.Linear(
-            config.down_projected_q_size,
-            config.num_heads * (config.up_projected_head_size + config.rope_head_size),
+        self.q_down_proj = nn.Linear(config.hidden_size, config.q_lora_rank, bias=False)
+        self.q_norm = nn.RMSNorm(config.q_lora_rank)
+        self.q_up_proj = nn.Linear(
+            config.q_lora_rank,
+            config.num_heads * (config.qk_head_size + config.rope_head_size),
             bias=False,
         )
 
-        self.down_proj_kv_with_mqa = nn.Linear(
+        self.kv_down_proj_with_mqa = nn.Linear(
             config.hidden_size,
-            config.down_projected_kv_size + config.rope_head_size,
+            config.kv_lora_rank + config.rope_head_size,
             bias=False,
         )
-        self.norm_kv = nn.RMSNorm(config.down_projected_kv_size)
-        self.up_proj_kv = nn.Linear(
-            config.down_projected_kv_size,
-            config.num_heads * config.up_projected_head_size * 2,
+        self.kv_norm = nn.RMSNorm(config.kv_lora_rank)
+        self.kv_up_proj = nn.Linear(
+            config.kv_lora_rank,
+            config.num_heads * (config.qk_head_size + config.v_head_size),
             bias=False,
         )
 
         self.rope = RotaryPositionEmbedding(config.rope_head_size, config.max_seq_len)
 
         self.out_proj = nn.Linear(
-            config.num_heads * config.up_projected_head_size,
+            config.num_heads * config.v_head_size,
             config.hidden_size,
             bias=False,
         )
@@ -92,26 +105,26 @@ class MultiheadLatentAttention(nn.Module):
         num_heads = self.config.num_heads
 
         # Query
-        c_q = self.down_proj_q(hidden_states)
-        q_c_and_q_r = self.up_proj_q(self.norm_q(c_q))
+        c_q = self.q_down_proj(hidden_states)
+        q_c_and_q_r = self.q_up_proj(self.q_norm(c_q))
         q_c, q_r = (
             q_c_and_q_r.view(batch_size, seq_len, num_heads, -1)
             .transpose(1, 2)
-            .split([self.config.up_projected_head_size, self.config.rope_head_size], -1)
+            .split([self.config.qk_head_size, self.config.rope_head_size], -1)
         )
 
         # Key and value
-        c_kv_and_k_r = self.down_proj_kv_with_mqa(hidden_states)
+        c_kv_and_k_r = self.kv_down_proj_with_mqa(hidden_states)
         c_kv, k_r = c_kv_and_k_r.split(
-            [self.config.down_projected_kv_size, self.config.rope_head_size], -1
+            [self.config.kv_lora_rank, self.config.rope_head_size], -1
         )
         k_r = k_r.view(batch_size, seq_len, 1, -1).transpose(1, 2)
         kv_c = (
-            self.up_proj_kv(self.norm_kv(c_kv))
+            self.kv_up_proj(self.kv_norm(c_kv))
             .view(batch_size, seq_len, num_heads, -1)
             .transpose(1, 2)
         )
-        k_c, v = kv_c.split(self.config.up_projected_head_size, -1)
+        k_c, v = kv_c.split([self.config.qk_head_size, self.config.v_head_size], -1)
 
         # RoPE
         q_r = self.rope(q_r)
@@ -128,14 +141,12 @@ class MultiheadLatentAttention(nn.Module):
 
 
 class SwiGLU(nn.Module):
-    def __init__(self, config: Config, intermediate_size: int = None):
+    def __init__(self, hidden_size: int, intermediate_size: int):
         super().__init__()
-        self.config = config
-        if intermediate_size is None:
-            intermediate_size = config.intermediate_size
-        self.gate_proj = nn.Linear(config.hidden_size, intermediate_size, bias=False)
-        self.up_proj = nn.Linear(config.hidden_size, intermediate_size, bias=False)
-        self.down_proj = nn.Linear(intermediate_size, config.hidden_size, bias=False)
+
+        self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+        self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
+        self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=False)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         return self.down_proj(
@@ -149,16 +160,16 @@ class MixtureOfExperts(nn.Module):
         self.config = config
         self.gate = nn.Linear(config.hidden_size, config.num_routed_experts, bias=False)
         self.shared_experts = SwiGLU(
-            config, config.intermediate_size * config.num_shared_experts
+            config.hidden_size, config.intermediate_size * config.num_shared_experts
         )
         self.routed_experts = nn.ModuleList(
-            [SwiGLU(config) for _ in range(config.num_routed_experts)]
+            [
+                SwiGLU(config.hidden_size, config.intermediate_size)
+                for _ in range(config.num_routed_experts)
+            ]
         )
 
     def run_routed_experts(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        # TODO:
-        # - auxiliary-loss-free load balancing
-        # - multiple expert groups
         batch_size, seq_len, _ = hidden_states.size()
         hidden_states = hidden_states.view(-1, hidden_states.size(-1))
 
