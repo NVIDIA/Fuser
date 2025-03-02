@@ -887,7 +887,7 @@ TEST_F(LinearHostIrTest, HostIr) {
   EXPECT_TRUE(ref_output.allclose(output));
 }
 
-// Disabled for being flaky (http://nv/ezW). Consider at::randint instead.
+// Disabled for being flaky (http://nv/ezW and http://nv/ez-). Consider at::randint instead.
 TEST_F(LinearHostIrTest, DISABLED_HostIrLinearOut) {
   constexpr int64_t B = 32;
   constexpr int64_t M = 64;
