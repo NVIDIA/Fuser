@@ -609,7 +609,8 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
   }
 
   bool isBinaryComputeGridLoopIterDomain(Val* alloc_buffer) {
-    int64_t sm_count = (int64_t)GpuLower::current()->deviceProperty()->multiProcessorCount;
+    int64_t sm_count =
+        (int64_t)GpuLower::current()->deviceProperty()->multiProcessorCount;
     if (auto bop = dynamic_cast<BinaryOp*>(alloc_buffer->definition())) {
       if (bop->rhs()->isConstScalar() &&
           bop->rhs()->value().as<int64_t>() == sm_count) {
@@ -655,6 +656,22 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
     if (loop->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp) {
       for (auto expr : exprs_to_be_moved_) {
+        if (std::getenv("CMP_WGROUPS") != nullptr) {
+          if (auto bop = dynamic_cast<BinaryOp*>(expr)) {
+            if (auto ls = dynamic_cast<NamedScalar*>(bop->lhs());
+                ls && ls->isThreadIdx()) {
+              auto new_ls = NamedScalar::getParallelIndex(ParallelType::WgTIDx);
+              expr = IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), bop->out(), new_ls, bop->rhs());
+              std::cout << "hitexpr: " << expr->toString() << std::endl;
+            }
+            if (auto rs = dynamic_cast<NamedScalar*>(bop->rhs());
+                rs && rs->isThreadIdx()) {
+              auto new_rs = NamedScalar::getParallelIndex(ParallelType::WgTIDx);                  
+              expr = IrBuilder::create<BinaryOp>(bop->getBinaryOpType(), bop->out(), bop->lhs(), new_rs);
+              std::cout << "hitexpr: " << expr->toString() << std::endl;
+            }
+          }
+        }
         registerInsertBefore(loop, expr);
       }
     }
@@ -693,7 +710,7 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
 //   }
 
 //  private:
-  
+
 //   AddComputeWarpGroups(const std::vector<Expr*>& exprs) {
 //     traverseAndInsert(exprs);
 //   }
@@ -742,7 +759,7 @@ std::vector<Expr*> allocateCommonScalars(const std::vector<Expr*>& exprs) {
   auto res_exprs =
       CommonScalarInserter::run(exprs, GpuLower::current()->commonScalarMap());
 
-  if(std::getenv("MOVE_TOP_EXPRS") != nullptr) {
+  if (std::getenv("MOVE_TOP_EXPRS") != nullptr) {
     res_exprs = MoveTopExprsToComputeWarpLoop::run(res_exprs);
   }
 

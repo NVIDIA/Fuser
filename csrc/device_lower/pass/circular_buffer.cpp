@@ -114,7 +114,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
 
         if (std::getenv("CMP_WGROUPS") != nullptr) {
           int64_t number_of_cmp_warp_groups = std::atoi(std::getenv("CMP_WGROUPS"));
-          start = NamedScalar::getParallelIndex(ParallelType::WGID);
+          start = NamedScalar::getParallelIndex(ParallelType::WgGIDx);
           step = SimplifyingIrBuilder::create<Val>(
               number_of_cmp_warp_groups, DataType::Index);
         }        
@@ -142,9 +142,33 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(ForLoop* fl) override {
-    ForLoop* cloned_loop = fl == circular_buffer_loop_
-        ? cloned_top_level_loop_
-        : IrBuilder::create<ForLoop>(fl);
+    // ForLoop* cloned_loop = fl == circular_buffer_loop_
+    //     ? cloned_top_level_loop_
+    //     : IrBuilder::create<ForLoop>(fl);
+    ForLoop* cloned_loop = nullptr;
+    if(fl == circular_buffer_loop_)
+    {
+      cloned_loop = cloned_top_level_loop_;
+    }else{
+      if(std::getenv("CMP_WGROUPS") != nullptr && fl->iter_domain()->isThreadDim()){
+        // cloned_loop = IrBuilder::create<ForLoop>(fl);
+      cloned_loop = IrBuilder::create<ForLoop>(
+          fl->iter_domain(),
+          NamedScalar::getParallelIndex(ParallelType::WgTIDx),
+          fl->start(),
+          fl->stop(),
+          fl->step(),
+          fl->vectorize(),
+          fl->vectorize_shift(),
+          fl->isUnrollRequired(),
+          fl->circularBufferLoopStage(),
+          fl->circularBufferLoopStageDepth());
+        std::cout << "cloned_loop:\n" << cloned_loop->toString() << std::endl;
+      }else{
+        cloned_loop = IrBuilder::create<ForLoop>(fl);
+      }
+    }
+
 
     // Add to stack
     for_loop_stack_.push_back(cloned_loop);
@@ -172,6 +196,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void dispatch(Expr* expr) override {
+    // std::cout << "====== dispatch: " << expr->getOpString() << "\n" << expr->toString()
+    //           << std::endl;
     // Skip expression if it is in exclude set
     if (exclude_.count(expr) > 0) {
       return;
@@ -1503,7 +1529,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     // put this prefetch loop inside an if-then-else, only needs one warp group
     if (std::getenv("CMP_WGROUPS") != nullptr) {
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(ParallelType::WGID),
+          NamedScalar::getParallelIndex(ParallelType::WgGIDx),
           circular_buffer_loop->fusion()->zeroVal()));
       kir::IfThenElse* prefetch_ite =
           IrBuilder::create<kir::IfThenElse>(predicate_val);

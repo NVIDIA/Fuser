@@ -740,8 +740,10 @@ static const char* parallel_type2string(ParallelType t) {
       return "S";
     case ParallelType::Bulk:
       return "B";
-    case ParallelType::WGID:
-      return "warpGroupIdx";      
+    case ParallelType::WgGIDx:
+      return "WgGIDx";
+    case ParallelType::WgTIDx:
+      return "WgTIDx";        
     default:
       NVF_THROW("Unexpected ParallelType");
   }

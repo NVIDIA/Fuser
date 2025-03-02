@@ -4234,8 +4234,8 @@ std::optional<ParallelType> NamedScalar::getParallelIndex() const {
     return std::optional<ParallelType>(ParallelType::BIDy);
   } else if (stringifyThread(ParallelType::BIDz).compare(name()) == 0) {
     return std::optional<ParallelType>(ParallelType::BIDz);
-  } else if (stringifyThread(ParallelType::WGID).compare(name()) == 0) {
-    return std::optional<ParallelType>(ParallelType::WGID);
+  } else if (stringifyThread(ParallelType::WgGIDx).compare(name()) == 0) {
+    return std::optional<ParallelType>(ParallelType::WgGIDx);
   }
   return std::nullopt;
 }
