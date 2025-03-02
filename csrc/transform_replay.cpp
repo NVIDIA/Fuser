@@ -170,7 +170,10 @@ TensorDomain* TransformReplay::fullSelfReplay(
 
   NVF_ERROR(
       new_self_root->maybeRoot().size() == self->maybeRoot().size(),
-      "Invalid number of IterDomains provided.");
+      "Invalid number of IterDomains provided: ",
+      new_self_root->maybeRoot().size(),
+      " vs ",
+      self->maybeRoot().size());
 
   // Map for replay, should be pretty simple.
   id_map axis_map;
@@ -231,6 +234,98 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_self_root->logical(),
       new_domain,
       new_self_root->contiguity());
+}
+
+void TransformReplay::selfAllocationReplay(
+    TensorDomain* new_self_root,
+    const TensorDomain* self) {
+  FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
+
+  // NOTE: We could also have reduction IDs involved in transformation that
+  // leads to allocation domain, so technically we should have included
+  // reduction IDs in the replay as well. The reason that we skipped them here
+  // is because this function is used by `RemoveBcastSqueeze`, where we could
+  // have mismatch reduction IDs on the logical between `self` and
+  // `new_self_root`.
+  auto new_self_logical = TensorDomain::noReductions(new_self_root->logical());
+  auto self_logical = TensorDomain::noReductions(self->logical());
+
+  NVF_ERROR(
+      new_self_logical.size() == self_logical.size(),
+      "Invalid number of IterDomains provided: ",
+      new_self_logical.size(),
+      " vs ",
+      self_logical.size());
+
+  // Map for replay
+  id_map axis_map;
+  {
+    int64_t i = 0;
+    for (auto id : self_logical) {
+      // Note: we don't want to check for equal `isRFactorProduct`, since we
+      // could replay Allocation of the output of a reduction to a later
+      // consumer tensor, which would not have the rfactor flag on.
+      NVF_ERROR(
+          new_self_logical[i]->isSymbolic() || id->isSymbolic() ||
+              new_self_logical[i]->isBroadcast() == id->isBroadcast(),
+          "Axes ",
+          id,
+          " and ",
+          new_self_logical[i],
+          " do not match for self replay.");
+      axis_map[id] = new_self_logical[i];
+      i++;
+    }
+  }
+
+  // Replay producer dimensions.
+  const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
+  const std::vector<std::optional<bool>>& self_contiguity = self->contiguity();
+  const std::vector<IterDomain*>& self_allocation_no_reduction =
+      TensorDomain::noReductions(self_allocation);
+
+  // we replay only non-reduction IDs. The reason is that, we might have
+  // non-mapping reduction IDs between self and new_self_root. This is used in
+  // `RemoveBcastSqueeze`.
+  ReplaySelf replay(self_allocation_no_reduction, axis_map);
+  std::vector<IterDomain*> new_alloc_domain;
+  std::vector<std::optional<bool>> new_contiguity;
+  new_alloc_domain.reserve(new_self_root->logical().size());
+  new_contiguity.reserve(new_self_root->logical().size());
+
+  {
+    // Push back the reduction IDs that are not mapped
+    for (auto id : new_self_root->logical()) {
+      if (id->isReduction()) {
+        new_alloc_domain.push_back(id);
+        new_contiguity.emplace_back(std::nullopt);
+      }
+    }
+
+    // Pushing the mapped IDs and corresponding contiguity flags
+    for (size_t i = 0; i < self_contiguity.size(); i++) {
+      IterDomain* id = self_allocation[i];
+      if (id->isReduction()) {
+        continue;
+      }
+      auto it = replay.getReplay().find(id);
+      NVF_ERROR(
+          it != replay.getReplay().end(),
+          "Error during replay, didn't replay an axis.");
+      if (it->second->isBroadcast() == self_contiguity[i].has_value()) {
+        // whether we resolve to true or false shouldn't matter since it's going
+        // to be concretized as a broadcast dimension
+        new_contiguity.push_back(
+            it->second->isBroadcast() ? std::nullopt
+                                      : std::make_optional(true));
+      } else {
+        new_contiguity.push_back(self_contiguity[i]);
+      }
+      new_alloc_domain.push_back(it->second);
+    }
+  }
+
+  return new_self_root->setAllocationDomain(new_alloc_domain, new_contiguity);
 }
 
 namespace {
