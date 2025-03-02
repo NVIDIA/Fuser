@@ -402,9 +402,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           smem_buf_size_ss << bdimx << " * " << bdimy << " * " << bdimz
                            << " * sizeof("
                            << kernel_summary.largest_smem_data_type << ")";
-          if (has_parallel_welford) {
-            smem_buf_size_ss << " * 3";
+
+          // extra due to grouped reduction, welford, multiple math warp groups
+          int64_t extra_factor = kernel_summary.num_grouped_iterations;
+
+          if (std::getenv("CMP_WGROUPS")) {
+            std::stringstream ss;
+            ss << bdimx << " * " << bdimy << " * " << bdimz << " * "
+               << kernel_summary.num_grouped_iterations;
+            smem_buf_wg_offset_ = ss.str();
+            extra_factor *= 2;
           }
+          if (has_parallel_welford) {
+            extra_factor *= 3;
+          }
+
+          smem_buf_size_ss << " * " << extra_factor;
+
           std::string smem_buf_size = smem_buf_size_ss.str();
           if (kernel_summary.has_outer_grouped_grid_welford) {
             std::stringstream smem_buf_size_with_outer_opt;
@@ -2963,6 +2977,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
+  std::string genSmemOffset() {
+    std::stringstream offset_ss;
+    offset_ss << genVariableName(
+        NamedScalar::getParallelIndex(ParallelType::WgGIDx));
+    offset_ss << " * " << smem_buf_wg_offset_;
+    return offset_ss.str();
+  }
+
   void genGroupedWarpReduction(
       const int num_grouped_iterations,
       kir::TensorIndex* output,
@@ -2976,7 +2998,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableNameConvertAlignedArray(output));
     func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+
+    func_args.arg(
+        genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+        genSmemOffset());
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
@@ -3862,6 +3887,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::unordered_set<const Val*> kernel_params_;
   //! Utility names already generated
   std::unordered_set<std::string> generated_utilities_;
+
+  std::string smem_buf_wg_offset_;
 };
 
 } // namespace

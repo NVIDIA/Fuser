@@ -1564,8 +1564,12 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         // ::testing::Values(DataType::Float),
         ::testing::Values(DataType::BFloat16, DataType::Float),
-        ::testing::Values((int64_t)4096, (int64_t)16384, (int64_t)25600, (int64_t)33792)),
-        // ::testing::Range((int64_t)25600, (int64_t)81921, (int64_t)409600)),
+        ::testing::Values(
+            (int64_t)4096,
+            (int64_t)16384,
+            (int64_t)25600,
+            (int64_t)33792)),
+    // ::testing::Range((int64_t)25600, (int64_t)81921, (int64_t)409600)),
     [](const testing::TestParamInfo<TestParam>& info) {
       std::stringstream ss;
       ss << "dtype_" << std::get<0>(info.param);
@@ -1573,50 +1577,48 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+template <typename data_type>
+void compare(
+    int64_t tensor_outer_dim,
+    int64_t tensor_inner_dim,
+    const at::Tensor& result,
+    const at::Tensor& reference) {
+  at::Tensor reference_cpu_data = reference.cpu();
+  at::Tensor result_cpu_data = result.cpu();
 
-  template <typename data_type>
-  void compare(
-      int64_t tensor_outer_dim,
-      int64_t tensor_inner_dim,
-      const at::Tensor& result,
-      const at::Tensor& reference) {
-    at::Tensor reference_cpu_data = reference.cpu();
-    at::Tensor result_cpu_data = result.cpu();
+  auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
+  auto result_cpu = result_cpu_data.accessor<data_type, 2>();
 
-    auto reference_cpu = reference_cpu_data.accessor<data_type, 2>();
-    auto result_cpu = result_cpu_data.accessor<data_type, 2>();
-
-    constexpr double abs_tolerance = 1e-3;
-    constexpr double rel_tolerance = 1e-3;
-    int output = 0;
-    for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
-      for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
-        double tolerance = abs_tolerance +
-            rel_tolerance * fabs((double)reference_cpu[out_pos][in_pos]);
-        if (!(fabs(
+  constexpr double abs_tolerance = 1e-3;
+  constexpr double rel_tolerance = 1e-3;
+  int output = 0;
+  for (int64_t out_pos = 0; out_pos < tensor_outer_dim; ++out_pos) {
+    for (int64_t in_pos = 0; in_pos < tensor_inner_dim; ++in_pos) {
+      double tolerance = abs_tolerance +
+          rel_tolerance * fabs((double)reference_cpu[out_pos][in_pos]);
+      if (!(fabs(
                 (double)reference_cpu[out_pos][in_pos] -
                 (double)result_cpu[out_pos][in_pos]) < tolerance)) {
-          std::cout << "[" << out_pos << ", " << in_pos
-                    << "] - result: " << result_cpu[out_pos][in_pos]
-                    << " | ref: " << reference_cpu[out_pos][in_pos]
-                    << std::endl;
-          if(output++ > 10){
-            std::cout << "skip following errors.\n";
-            break;
-          }
+        std::cout << "[" << out_pos << ", " << in_pos
+                  << "] - result: " << result_cpu[out_pos][in_pos]
+                  << " | ref: " << reference_cpu[out_pos][in_pos] << std::endl;
+        if (output++ > 10) {
+          std::cout << "skip following errors.\n";
+          break;
         }
       }
-      if(output > 10){
-        std::cout << "skip following errors.\n";
-        break;
-      }      
+    }
+    if (output > 10) {
+      std::cout << "skip following errors.\n";
+      break;
     }
   }
+}
 using SimpleNormTmaTest = NVFuserFixtureParamTest<DataType>;
 TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   DataType dtype = GetParam();
-  int64_t dim0 = 148*32;
-  int64_t dim1 = 4096;
+  int64_t dim0 = 148 * 32;
+  int64_t dim1 = 1024 * 2;
   const std::vector<int64_t> input_shape = {dim0, dim1};
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1634,9 +1636,24 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   fusion->addOutput(tv4);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::ones(input_shape, options);
-  // auto row = at::arange(1, dim1, options); 
-  // auto t0 = row.unsqueeze(0).repeat({dim0, 1});
+  // auto t0 = at::randn(input_shape, options);
+
+  // auto row = at::arange(1, dim1 + 1, options);
+  // auto row = at::randn(dim1, options);
+  // auto t0 = row.repeat({dim0, 1});
+  // std::cout << t0.sizes() << std::endl;
+  // auto to_slice = t0.slice(0, 0, 4).slice(1, 0, 33);
+  // std::cout << to_slice << std::endl;
+
+  auto row = at::arange(1, dim0 + 1, options).view({dim0, 1});
+  auto t0 = row.repeat({1, dim1});
+  for (int i = 0; i < dim0; i++) {
+    t0[i] = torch::roll(t0[i], /*shifts=*/-i, /*dims=*/0);
+  }
+  std::cout << t0.sizes() << std::endl;
+  auto to_slice = t0.slice(0, 0, 4).slice(1, 0, 8);
+  std::cout << to_slice << std::endl;
+
   std::vector<c10::IValue> aten_inputs = {t0};
   auto fusion_copy = *fusion;
 
@@ -1644,7 +1661,11 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto aten_output = t0 + t0.sum({1}, true);
-  compare<float>(dim0,dim1,cg_outputs[0].as<at::Tensor>().to(at::kFloat), aten_output.to(at::kFloat));
+  compare<float>(
+      dim0,
+      dim1,
+      cg_outputs[0].as<at::Tensor>().to(at::kFloat),
+      aten_output.to(at::kFloat));
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1672,7 +1693,8 @@ TEST_P(SimpleNormTmaTest, ReductionSimple) {
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
 
   auto aten_output = t0.sum({1});
-  // compare<float>(dim0,dim1,cg_outputs.at(0).to(at::kFloat), aten_output.to(at::kFloat));
+  // compare<float>(dim0,dim1,cg_outputs.at(0).to(at::kFloat),
+  // aten_output.to(at::kFloat));
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1712,46 +1734,53 @@ INSTANTIATE_TEST_SUITE_P(
       std::stringstream ss;
       ss << "dtype_" << info.param;
       return sanitizeTestName(ss.str());
-    });    
+    });
 // batch size = 2k
-// CircularBufferOptions{ stage=2, prefetch=1, type=PipelinedMBarrierForWAR }   
+// CircularBufferOptions{ stage=2, prefetch=1, type=PipelinedMBarrierForWAR }
 // 2k x 25600, set1, 4 x 7 x 928, 47%
 // 2k x 25600, set3, 4 x 8 x 800, 50%
 // 2k x 25600, set4, 4 x 10 x 640, 50%
 // 2k x 25600, set4, 4 x 16 x 416, 40%
 // 2k x 25600, set2, 4 x 25 x 256, 30%
 
-// current main branch prioritize threads parallelism over instruction parallelism,
-// when a block stalled due to memory access, kernel switch to another block. The kernel
-// execution time is: waves x (memory + computation)
-// With circular bufer, we are prioritizing instruction parallelism over threads parallelism,
-// each block does [n] reductions and overlap memory access and computation within each block.
-// Assuming memory has higher latency than computation, the kernel execution time is:
-// waves x (stages * memory + computation)
+// current main branch prioritize threads parallelism over instruction
+// parallelism, when a block stalled due to memory access, kernel switch to
+// another block. The kernel execution time is: waves x (memory + computation)
+// With circular bufer, we are prioritizing instruction parallelism over threads
+// parallelism, each block does [n] reductions and overlap memory access and
+// computation within each block. Assuming memory has higher latency than
+// computation, the kernel execution time is: waves x (stages * memory +
+// computation)
 
 // cost-main = waves x memory + waves x computation
 // cost-circular = waves x memory * stages + waves x computation
 
 // has speedup when estimated cost is similar, cost = waves x stages per block
-// 16k x 25600, main, 4 x 7 x 928, 51%, 1 bpsm, 1 x 16K blocks, 110.7 waves, cost 110.7 x memory  + 110.7 x computation
-// 16k x 25600, pipe, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost  110.7 x memory  + 55.4 x computation
-// 16k x 25600, pipe, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost  110.7 x memory  + 55.4 x computation
-// 16k x 25600, pipe, 4 x 10 x 640, 59%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost 110.7 x memory  + 55.4 x computation
-// 16k x 25600, warp, 4 x 7 x 929, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost  110.7 x memory  + 55.4 x computation
-// 16k x 25600, warp, 4 x 10 x 641, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost 110.7 x memory  + 55.4 x computation
+// 16k x 25600, main, 4 x 7 x 928, 51%, 1 bpsm, 1 x 16K blocks, 110.7 waves,
+// cost 110.7 x memory  + 110.7 x computation 16k x 25600, pipe, 4 x 7 x 928,
+// 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost  110.7 x memory  + 55.4 x
+// computation 16k x 25600, pipe, 4 x 7 x 928, 55%, 1 bpsm, 2 x  8K blocks, 55.4
+// waves, cost  110.7 x memory  + 55.4 x computation 16k x 25600, pipe, 4 x 10 x
+// 640, 59%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost 110.7 x memory  + 55.4 x
+// computation 16k x 25600, warp, 4 x 7 x 929, 55%, 1 bpsm, 2 x  8K blocks, 55.4
+// waves, cost  110.7 x memory  + 55.4 x computation 16k x 25600, warp, 4 x 10 x
+// 641, 55%, 1 bpsm, 2 x  8K blocks, 55.4 waves, cost 110.7 x memory  + 55.4 x
+// computation
 
 // using smem leads to higher cost, performance is lower
-// 16k x 16384, main, 4 x 8 x 512, 73%, 2 bpsm, 1 x 16K blocks, 55.4 waves, cost 55.4
-// 16k x 16384, pipe, 4 x 8 x 512, 53%, 1 bpsm, 2 x 8K blocks, 55.4 waves, cost 110.8
-// 16k x 16383, pipe, 4 x 8 x 512, 54%, 1 bpsm, 3 x 5461 blocks, 36.9 waves, cost 110.8
-// 16k x 16383, warp, 4 x 8 x 512, 52%, 1 bpsm, 3 x 5461 blocks, 36.9 waves, cost 110.8
+// 16k x 16384, main, 4 x 8 x 512, 73%, 2 bpsm, 1 x 16K blocks, 55.4 waves,
+// cost 55.4 16k x 16384, pipe, 4 x 8 x 512, 53%, 1 bpsm, 2 x 8K blocks, 55.4
+// waves, cost 110.8 16k x 16383, pipe, 4 x 8 x 512, 54%, 1 bpsm, 3 x 5461
+// blocks, 36.9 waves, cost 110.8 16k x 16383, warp, 4 x 8 x 512, 52%, 1 bpsm, 3
+// x 5461 blocks, 36.9 waves, cost 110.8
 
 // 16k x 4096, main, 4 x 8 x 128, 76%, 8 bpsm, 1 x 16K blocks, 13.8 waves
-// 16k x 4096, pipe, 4 x 8 x 128, 33%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 1
-// 16k x 4096, pipe, 4 x 8 x 128, 35%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 2
-// 16k x 4096, pipe, 4 x 8 x 128, 33%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 3
-// 16k x 4096, pipe, 4 x 8 x 128, 32%, 1 bpsm, 8 x 2K blocks,  13.8 waves, prefetch 4
-// 16k x 4096, pipe, 4 x 8 x 128, 79%, 1 bpsm, 2 x 8K blocks,  13.8 waves, prefetch 4
+// 16k x 4096, pipe, 4 x 8 x 128, 33%, 1 bpsm, 8 x 2K blocks,  13.8 waves,
+// prefetch 1 16k x 4096, pipe, 4 x 8 x 128, 35%, 1 bpsm, 8 x 2K blocks,  13.8
+// waves, prefetch 2 16k x 4096, pipe, 4 x 8 x 128, 33%, 1 bpsm, 8 x 2K
+// blocks,  13.8 waves, prefetch 3 16k x 4096, pipe, 4 x 8 x 128, 32%, 1 bpsm, 8
+// x 2K blocks,  13.8 waves, prefetch 4 16k x 4096, pipe, 4 x 8 x 128, 79%, 1
+// bpsm, 2 x 8K blocks,  13.8 waves, prefetch 4
 
 // fp16
 // 16k x 4096, main, 4 x 8 x 128, 60%, 9 bpsm, 1 x 16K blocks, 56 regs
@@ -1762,18 +1791,19 @@ INSTANTIATE_TEST_SUITE_P(
 // 8k x 4096, main, 4 x 8 x 128, 60%, 9 bpsm, 1 x 16K blocks, 56 regs
 // 8k x 4096, main, 4 x 8 x 128, 56%, 10 bpsm, 2 x 8K blocks, 48 regs
 // 8k x 4096, main, 4 x 8 x 128, 46%, 6 bpsm,  4 x 4K blocks, 61 regs
-// 8k x 4096, main, 4 x 8 x 128, 53%, 5 bpsm,  4 x 4K blocks, 95 regs, preldg, fetch 1
-// 8k x 4096, main, 4 x 8 x 128, 43%, 4 bpsm,  4 x 4K blocks, 115 regs, preldg, fetch 2
-// 8k x 4096, main, 4 x 8 x 128, 48%, 5 bpsm,  4 x 4K blocks, 96 regs, preldg, fetch 2, no fetch unroll
-// 8k x 4096, main, 4 x 8 x 128, 41%, 4 bpsm,  4 x 4K blocks, 100 regs, preldg, fetch 3
-// 8k x 4096, main, 4 x 8 x 128, 45%, 4 bpsm,  4 x 4K blocks, 105 regs, preldg, fetch 3, no fetch unroll
+// 8k x 4096, main, 4 x 8 x 128, 53%, 5 bpsm,  4 x 4K blocks, 95 regs, preldg,
+// fetch 1 8k x 4096, main, 4 x 8 x 128, 43%, 4 bpsm,  4 x 4K blocks, 115 regs,
+// preldg, fetch 2 8k x 4096, main, 4 x 8 x 128, 48%, 5 bpsm,  4 x 4K blocks, 96
+// regs, preldg, fetch 2, no fetch unroll 8k x 4096, main, 4 x 8 x 128, 41%, 4
+// bpsm,  4 x 4K blocks, 100 regs, preldg, fetch 3 8k x 4096, main, 4 x 8 x 128,
+// 45%, 4 bpsm,  4 x 4K blocks, 105 regs, preldg, fetch 3, no fetch unroll
 
 // 2048, main, 4 x 2 x 256, 46%
 // 2048, set1, 4 x 2 x 256, stages = 2, 37%
 
 // batch size = 16k, cost = waves x stages per block
-// 2048, main, 4 x 4 x 128, 74%, 10 bpsm,1 x 16K blocks, 11.1 waves, cost 11.1 
-// 2048, set1, 4 x 4 x 128, 64%, 9 bpsm, 2 x 8K  blocks, 6.2  waves, cost 12.4   
+// 2048, main, 4 x 4 x 128, 74%, 10 bpsm,1 x 16K blocks, 11.1 waves, cost 11.1
+// 2048, set1, 4 x 4 x 128, 64%, 9 bpsm, 2 x 8K  blocks, 6.2  waves, cost 12.4
 // 2048, set2, 4 x 4 x 128, 54%, 6 bpsm, 4 x 4K  blocks, 4.6  waves, cost 18.4
-// 2048, set2, 4 x 4 x 128, 36%, 3 bpsm, 8 x 2K  blocks, 4.6  waves, cost 36.8    
+// 2048, set2, 4 x 4 x 128, 36%, 3 bpsm, 8 x 2K  blocks, 4.6  waves, cost 36.8
 } // namespace nvfuser
