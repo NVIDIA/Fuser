@@ -16,9 +16,7 @@ namespace nvfuser {
 namespace {
 
 bool isTrivialExpr(Expr* expr) {
-  if (expr->outputs().size() != 1 || expr->inputs().size() != 1 ||
-      expr->output(0)->isFusionOutput() ||
-      !expr->isOneOf<BroadcastOp, LoadStoreOp, SqueezeOp>() ||
+  if (!expr->isOneOf<BroadcastOp, LoadStoreOp, SqueezeOp>() ||
       !expr->input(0)->isA<TensorView>() ||
       !expr->output(0)->isA<TensorView>() ||
       expr->input(0)->as<TensorView>()->getMemoryType() != MemoryType::Global ||
