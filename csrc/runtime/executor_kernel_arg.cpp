@@ -8,6 +8,7 @@
 #include <c10/util/irange.h>
 
 // Extract size and strides
+#include <runtime/allocations.h>
 #include <runtime/fusion_executor_cache.h>
 
 #include <instrumentation.h>
@@ -294,11 +295,11 @@ std::vector<std::byte> polymorphicValueToBytes(
   } else if (argument.is<StructHandle>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(StructHandle)");
     std::vector<std::byte> buffer;
-    const auto& dtype_ = std::get<StructType>(dtype.type);
-    auto& data = argument->*&TensorMetaData::data;
-    auto& logical_size = argument->*&TensorMetaData::logical_size;
-    auto& alloc_stride = argument->*&TensorMetaData::alloc_stride;
     if (argument.as<StructHandle>().is<TensorMetaData>()) {
+      auto& data = argument->*&TensorMetaData::data;
+      auto& logical_size = argument->*&TensorMetaData::logical_size;
+      auto& alloc_stride = argument->*&TensorMetaData::alloc_stride;
+
       // special handle for TensorMetaData so that CPU overhead is minimal.
       if (index_type == PrimDataType::Int) {
         buffer.reserve(
@@ -339,6 +340,7 @@ std::vector<std::byte> polymorphicValueToBytes(
       }
       return buffer;
     } else {
+      const auto& dtype_ = std::get<StructType>(dtype.type);
       for (const auto& field : dtype_.fields) {
         if (!field.used_in_kernel) {
           continue;
