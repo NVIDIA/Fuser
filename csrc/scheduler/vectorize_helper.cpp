@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
@@ -933,12 +934,19 @@ int64_t getVectorizationFactorTransposeGroup(
   std::vector<IterDomain*> virtual_innermost_dim;
   // find the virtual_innermost_dim in reference so we can later map
   // that to individual TensorView in vec_tv.
-  for (const auto& dim : dims_to_merge) {
+  for (const auto dim : dims_to_merge) {
     virtual_innermost_dim.insert(
-        virtual_innermost_dim.begin(), reference->axis(static_cast<int>(dim)));
+        virtual_innermost_dim.begin(), reference->axis(dim));
   }
-  virtual_innermost_dim.push_back(
-      reference->getLogicalDomain()[inner_most_dim]);
+  virtual_innermost_dim.push_back(reference->axis(inner_most_dim));
+
+  if (reference->axis(inner_most_dim)->isParallelized()) {
+    std::ostringstream oss;
+    IrTransformPrinter printer(oss);
+    printer.printTransforms(reference);
+    NVF_THROW(
+        "Loop axis ", inner_most_dim, " is expected to be Serial: ", oss.str());
+  }
 
   // NOTE: do I need to consider stride here?! sounds like
   // ContiguousInnerDimensionsMapper::map requires reference to be
@@ -981,7 +989,7 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // Find the conrresponding producer break point. To the right of the
   // break point, there must be only the producer innermost IDs or
   // reduction IDs
-  int64_t break_point = (int64_t)(reduction_producer->nDims());
+  int64_t break_point = reduction_producer->nDims();
 
   // short-cut to to return break point when no c2p mapping is going to be
   // performed
@@ -996,16 +1004,16 @@ int64_t getVectorizationBreakPointOfReductionProducer(
   // Grab all the corresponding producer IDs that are mapped with the
   // innermost consumer IDs
   std::unordered_set<IterDomain*> producer_innermost_ids;
-  for (auto it = reduction_consumer->getMaybeRootDomain().begin() +
-           ((int64_t)reduction_consumer->nDims() - consumer_innermost_ndims);
+  for (auto it = reduction_consumer->getMaybeRootDomain().end() -
+           consumer_innermost_ndims;
        it != reduction_consumer->getMaybeRootDomain().end();
        ++it) {
-    auto consumer_id = *it;
+    IterDomain* consumer_id = *it;
     auto c2p_it = c2p.find(consumer_id);
     // Since this is for a reduction op, there must be a mapped
     // producer ID
     NVF_ERROR(c2p_it != c2p.end());
-    auto producer_id = c2p_it->second;
+    IterDomain* producer_id = c2p_it->second;
     producer_innermost_ids.insert(producer_id);
   }
 

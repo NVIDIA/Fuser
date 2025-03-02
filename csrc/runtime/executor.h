@@ -29,6 +29,34 @@
 
 namespace nvfuser {
 
+class ExprEvalExecutor : public ExecutorAbstract {
+ public:
+  ExprEvalExecutor(
+      int64_t fusion_id = 0,
+      int64_t concrete_id = 0,
+      int64_t runtime_id = 0,
+      int64_t group_id = 0)
+      : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id) {}
+
+  // Returns true if all fusion outputs are expression evaluated.
+  static bool supported(Fusion* fusion);
+
+  void compile(Fusion* fusion);
+
+  bool isCompiled() const override;
+
+  NVF_API KernelArgumentHolder
+  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
+
+  const std::unique_ptr<Fusion>& fusion() {
+    return fusion_;
+  }
+
+ private:
+  // TODO: Set properly
+  std::unique_ptr<Fusion> fusion_;
+};
+
 class KernelExecutor : public ExecutorAbstract {
  public:
   // NVF_API was added for nvfuser_extension. See examples/sinh_extension.
@@ -47,56 +75,16 @@ class KernelExecutor : public ExecutorAbstract {
   //! with KernelArgumentHolder, but it is no longer the case.
   NVF_API void compile(
       Fusion* fusion,
-      const KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints,
-      CompileParams compile_params,
+      const KernelArgumentHolder& args = {},
+      const LaunchParams& launch_constraints = LaunchParams(),
+      CompileParams compile_params = CompileParams(),
       SchedulerType sceduler_type = SchedulerType::None);
 
-  // TODO: merge it with the overload above.
-  //! This API is merely here so we don't have to go back and update all cpp
-  //! tests.
-  void compile(
-      Fusion* fusion,
-      const at::ArrayRef<c10::IValue>& inputs = {},
+  NVF_API KernelArgumentHolder
+  run(KernelArgumentHolder args,
+      KernelArgumentHolder outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams()) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    compile(fusion, args, launch_constraints, compile_params);
-  }
-
-  // TODO: args shouldn't come in a reference here because we will append the
-  // outputs to be able to send it to the kernel. For now none of the users are
-  // reconsuming the args, so it is okay. It isn't done now because changing it
-  // from a reference makes a call as run({}) ambiguous, and that is used
-  // in some places in the codebase.
-  NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      std::vector<at::Tensor> outputs = {});
-
-  std::vector<at::Tensor> run(
-      const at::ArrayRef<c10::IValue>& inputs,
-      const std::vector<at::Tensor>& outputs,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      const std::optional<size_t>& opt_code = std::nullopt) {
-    KernelArgumentHolder args =
-        KernelArgumentHolder::createKernelArgumentHolder(inputs);
-    if (opt_code.has_value()) {
-      args.setCacheId(*opt_code);
-    }
-    return run(args, launch_constraints, compile_params, outputs);
-  }
-
-  std::vector<at::Tensor> run(
-      const at::ArrayRef<c10::IValue>& inputs,
-      const LaunchParams& launch_constraints = LaunchParams(),
-      CompileParams compile_params = CompileParams(),
-      const std::optional<size_t>& opt_code = std::nullopt) {
-    return run(inputs, {}, launch_constraints, compile_params, opt_code);
-  }
+      CompileParams compile_params = CompileParams());
 
   // Register a lowering hooks that are called to modify the GpuLower object
   // before running lowering passes. The main use case is for unit tests to
@@ -230,7 +218,7 @@ class KernelExecutor : public ExecutorAbstract {
       const KernelArgumentHolder& args,
       const LaunchParams& launch_constraints,
       const CompileParams& compile_params,
-      const std::vector<at::Tensor>& outputs,
+      const KernelArgumentHolder& outputs,
       DataType index_type);
 
   std::unique_ptr<PrecomputedValues>& evaluatorPrecomputedValues();

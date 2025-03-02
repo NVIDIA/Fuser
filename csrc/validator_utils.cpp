@@ -234,12 +234,9 @@ void ReductionSizeMapper::dispatch(Expr* expr) {
 
 ExpressionEvaluator bindInputsAndLaunchParams(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     const LaunchParams& launch_constraints) {
-  KernelArgumentHolder argument_holder;
-  argument_holder.push(aten_inputs);
-
-  auto expr_eval = executor_utils::bindInputs(argument_holder, fusion);
+  auto expr_eval = executor_utils::bindInputs(aten_inputs, fusion);
   for (auto val : fusion->vals()) {
     if (!val->isA<TensorView>()) {
       continue;
@@ -284,7 +281,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 
 std::vector<std::pair<double, double>> get_val_constants(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     const LaunchParams& lparams,
     const ValidationConstants& tolerances) {
   FusionGuard fg(fusion);

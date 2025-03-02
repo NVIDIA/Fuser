@@ -12,12 +12,15 @@
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 #include <scheduler/all_schedulers.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 namespace nvfuser {
 
+using testing::Contains;
+using testing::UnorderedElementsAre;
 using PersistentBufferTest = NVFuserTest;
 
 TEST_F(PersistentBufferTest, FusionPersistentBufferCalculation1_CUDA) {
@@ -464,13 +467,11 @@ TEST_F(
   at::Tensor aten_input = at::randn(input_shape, options);
   c10::optional<at::Tensor> aten_weight = at::randn({input_shape[1]}, options);
   c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
-  std::vector<c10::IValue> aten_inputs{aten_input, aten_weight, aten_bias};
   auto aten_outputs = at::native_layer_norm(
       aten_input, norm_shape, aten_weight, aten_bias, kEps);
 
   // welford translate
-  KernelArgumentHolder runtime_inputs =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder runtime_inputs({aten_input, aten_weight, aten_bias});
   bool isTranslated =
       SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
   NVF_ERROR(isTranslated);
@@ -487,13 +488,15 @@ TEST_F(
       persistent_buffer_info.projectable_buffer_inputs[0] == input_half,
       "persistent buffer should be projected to input!");
 
-  auto cg_outputs =
-      scheduleAndRun(&fusion, SchedulerType::InnerPersistent, aten_inputs)
-          .outputs;
+  auto cg_outputs = scheduleAndRun(
+                        &fusion,
+                        SchedulerType::InnerPersistent,
+                        {aten_input, aten_weight, aten_bias})
+                        .outputs;
   testValidate(
       &fusion,
       cg_outputs,
-      aten_inputs,
+      {aten_input, aten_weight, aten_bias},
       {std::get<0>(aten_outputs),
        std::get<1>(aten_outputs),
        std::get<2>(aten_outputs)},
@@ -567,34 +570,25 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  std::vector<c10::IValue> inputs;
-  std::vector<at::Tensor> outputs;
 
-  {
-    auto t0 = at::randn({hidden_size}, options);
-    auto t1 = at::randn({batch_size, hidden_size}, options);
-    auto t2 = at::randn({hidden_size}, options);
-    auto t3 = at::randn({hidden_size}, options);
-    auto t4 = at::randn({hidden_size}, options);
-    inputs.emplace_back(t0);
-    inputs.emplace_back(t1);
-    inputs.emplace_back(t2);
-    inputs.emplace_back(t3);
-    inputs.emplace_back(t4);
-    auto t5 = t0.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t6 = t1.to(at::kFloat);
-    auto t7 = t5.to(at::kFloat);
-    auto t8 = at::add(t6, t7);
-    auto t9 = t8.to(at::kHalf);
-    auto t10 = t2.unsqueeze(0).expand({batch_size, hidden_size});
-    auto t11 = t9.to(at::kFloat);
-    auto t12 = t10.to(at::kFloat);
-    auto t13 = at::add(t11, t12);
-    auto t14 = t13.to(at::kHalf);
-    auto aten_outputs = at::native_layer_norm(t14, {hidden_size}, t4, t3, kEps);
-    auto t33 = std::get<0>(aten_outputs);
-    outputs.emplace_back(t33);
-  }
+  auto t0 = at::randn({hidden_size}, options);
+  auto t1 = at::randn({batch_size, hidden_size}, options);
+  auto t2 = at::randn({hidden_size}, options);
+  auto t3 = at::randn({hidden_size}, options);
+  auto t4 = at::randn({hidden_size}, options);
+
+  auto t5 = t0.unsqueeze(0).expand({batch_size, hidden_size});
+  auto t6 = t1.to(at::kFloat);
+  auto t7 = t5.to(at::kFloat);
+  auto t8 = at::add(t6, t7);
+  auto t9 = t8.to(at::kHalf);
+  auto t10 = t2.unsqueeze(0).expand({batch_size, hidden_size});
+  auto t11 = t9.to(at::kFloat);
+  auto t12 = t10.to(at::kFloat);
+  auto t13 = at::add(t11, t12);
+  auto t14 = t13.to(at::kHalf);
+  auto aten_outputs = at::native_layer_norm(t14, {hidden_size}, t4, t3, kEps);
+  auto t33 = std::get<0>(aten_outputs);
 
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(fusion);
   NVF_CHECK(
@@ -603,7 +597,7 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
 
   // The buffer size should only count 1 buffer because the other one is
   // projected to its producer.
-  SchedulerRuntimeInfo runtime_info(fusion, inputs);
+  SchedulerRuntimeInfo runtime_info(fusion, {t0, t1, t2, t3, t4});
   auto persistent_buffer_size =
       persistentBufferSize(fusion, runtime_info, persistent_buffer_info);
   NVF_CHECK(
@@ -612,8 +606,9 @@ TEST_F(PersistentBufferTest, FusionLayerNormFusedOpsRedundantCast_CUDA) {
       "Persistent buffer size is not correct!");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
+  testValidate(
+      fusion, cg_outputs, {t0, t1, t2, t3, t4}, {t33}, __LINE__, __FILE__);
 }
 
 TEST_F(PersistentBufferTest, FusionRecomputePersistentBuffer_CUDA) {
@@ -646,27 +641,18 @@ TEST_F(PersistentBufferTest, FusionRecomputePersistentBuffer_CUDA) {
   }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  std::vector<c10::IValue> inputs;
-  std::vector<at::Tensor> outputs;
 
-  {
-    auto t0 = at::randn({batch_size, hidden_size}, options);
-    auto t1 = at::randn({batch_size, hidden_size}, options);
-    inputs.emplace_back(t0);
-    inputs.emplace_back(t1);
+  auto t0 = at::randn({batch_size, hidden_size}, options);
+  auto t1 = at::randn({batch_size, hidden_size}, options);
 
-    auto t2 = t0.add(t1);
-    auto t3 = t2.to(at::kHalf);
-    auto t4 = t3.to(at::kFloat);
-    auto t5 = t4.sum({1});
-    auto t6 = t5.unsqueeze(1).expand({batch_size, hidden_size});
-    auto t7 = t4.add(t6);
-    auto t8 = t3.to(at::kFloat);
-    auto t9 = t8.add(t6);
-
-    outputs.emplace_back(t7);
-    outputs.emplace_back(t9);
-  }
+  auto t2 = t0.add(t1);
+  auto t3 = t2.to(at::kHalf);
+  auto t4 = t3.to(at::kFloat);
+  auto t5 = t4.sum({1});
+  auto t6 = t5.unsqueeze(1).expand({batch_size, hidden_size});
+  auto t7 = t4.add(t6);
+  auto t8 = t3.to(at::kFloat);
+  auto t9 = t8.add(t6);
 
   auto persistent_buffer_info1 = scheduler_utils::persistentBuffers(fusion);
   NVF_CHECK(
@@ -680,8 +666,8 @@ TEST_F(PersistentBufferTest, FusionRecomputePersistentBuffer_CUDA) {
       "After project to other buffers, should have one persistent buffer!");
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(fusion, cg_outputs, inputs, outputs, __LINE__, __FILE__);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(fusion, cg_outputs, {t0, t1}, {t7, t9}, __LINE__, __FILE__);
 }
 
 TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
@@ -733,7 +719,6 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
   auto t0 = at::randn({batch_size, hidden_size}, options);
   auto t1 = at::randn({batch_size, hidden_size}, options);
   auto t2 = at::randn({batch_size, hidden_size}, options);
-  std::vector<c10::IValue> aten_inputs{t0, t1, t2};
 
   // The persistent buffers in this fusion are: tv3, tv7, tv12, and tv17. Note
   // that tv7 can be projected back to its producer, tv3. When calculating the
@@ -746,7 +731,7 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
   // tv12 and tv17. The max buffer size is based on tv12 and tv17. There is no
   // projectable buffer needs to be deducted in this scope.
   auto persistent_info = scheduler_utils::persistentBuffers(fusion);
-  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(fusion, {t0, t1, t2});
   auto persistent_buffer_size =
       persistentBufferSize(fusion, runtime_info, persistent_info);
   auto calculated_size = persistent_buffer_size.persistent_buffer_size;
@@ -755,7 +740,7 @@ TEST_F(PersistentBufferTest, ProjectPersistentBufferMultiScopes) {
   EXPECT_EQ(calculated_size, expected_size)
       << "Buffer size calculation failure";
   auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::InnerPersistent, aten_inputs);
+      fusion, SchedulerType::InnerPersistent, {t0, t1, t2});
   auto rparams = heuristic_params->as<ReductionParams>();
   NVF_CHECK(
       !rparams->project_persistent_buffers,
@@ -809,7 +794,6 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
   auto t0 = at::randn({batch_size, hidden_size}, options);
   auto t1 = at::randn({batch_size, hidden_size}, options);
   auto t2 = at::randn({batch_size, hidden_size}, options);
-  std::vector<c10::IValue> aten_inputs{t0, t1, t2};
   auto t3 = t0.to(at::kFloat) + t1.to(at::kFloat) + t2.to(at::kFloat);
   auto t4 = at::sum(t3, {1}, true);
   auto t5 = t3 + t4;
@@ -825,7 +809,7 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
   // tv15 to tv11, then project tv11 to tv7.
   // After projection, tv7 is the only buffer.
   auto persistent_info = scheduler_utils::persistentBuffers(fusion);
-  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(fusion, {t0, t1, t2});
   auto persistent_buffer_size =
       persistentBufferSize(fusion, runtime_info, persistent_info);
   auto calculated_size = persistent_buffer_size.persistent_buffer_size;
@@ -841,7 +825,7 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
   // If project to inputs, there are 3 fp16 tvs, which is larger than 1 fp32.
   // So, shouldn't project to inputs.
   auto cg_results =
-      scheduleAndRun(fusion, SchedulerType::InnerPersistent, aten_inputs);
+      scheduleAndRun(fusion, SchedulerType::InnerPersistent, {t0, t1, t2});
   auto rparams = cg_results.heuristic_params->as<ReductionParams>();
 
   NVF_CHECK(
@@ -850,7 +834,7 @@ TEST_F(PersistentBufferTest, ChainProjectionToPersistentProducer) {
   testValidate(
       fusion,
       cg_results.outputs,
-      aten_inputs,
+      {t0, t1, t2},
       {t5, t8, t11},
       __LINE__,
       __FILE__);
@@ -1255,15 +1239,13 @@ TEST_F(PersistentBufferTest, SmemPersistentNotSupportedIn3DReduction) {
   auto t0 = at::randn(input_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> aten_inputs = {t0};
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   // should be segmented since buffer size is larger than 32K and smem
   // persistent is not supported yet for 3D reduction.
   EXPECT_TRUE(executor_cache.getMostRecentKernelRuntime()->isSegmented());
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
@@ -1296,8 +1278,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
                      .dtype(data_type_to_aten(input_dtype))
                      .device(at::kCUDA, 0);
   auto t0 = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
-  SchedulerRuntimeInfo runtime_info(fusion.get(), aten_inputs);
+  SchedulerRuntimeInfo runtime_info(fusion.get(), {t0});
   ASSERT_TRUE(Schedule::canSchedule(
       SchedulerType::InnerPersistent, fusion.get(), runtime_info));
   auto scheduler =
@@ -1310,7 +1291,7 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
 
   // Run the fusion and validate the results
   KernelExecutor ke;
-  ke.compile(fusion.get(), aten_inputs);
+  ke.compile(fusion.get(), {t0});
   // Shared memory access should be vectorized.
   // getBankConflictInfo(ke.compiledKernel()->kernel()) triggers error
   // "std::get: wrong index for variant" when trying to evaluate index with:
@@ -1326,9 +1307,9 @@ TEST_F(PersistentBufferTest, SmemPersistent2DReduction) {
     }
   }
   auto cg_outputs =
-      ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
   auto t1 = t0 / t0.sum({1, 2, 3}, true);
-  testValidate(fusion.get(), cg_outputs, aten_inputs, {t1}, __LINE__, __FILE__);
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
 // C++ version of the simplified repro of issue #1123
@@ -1362,5 +1343,218 @@ TEST_F(PersistentBufferTest, GetResolutionIssue1123) {
       persistent_buffer_info.persistent_buffer_resolution_points.at(0),
       std::vector<TensorView*>{tv7});
 }
+
+TEST_F(PersistentBufferTest, InnerPersistentNotEnoughSharedMemory) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigTensor(2, DataType::Half);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Half);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigTensor(1, DataType::Half);
+  fusion.addInput(tv2);
+
+  auto tv3 = castOp(DataType::Float, tv0);
+  auto tvs = Welford(tv3, {1});
+  auto tv6 = tvs.avg;
+  auto tv7 = tvs.var_sum;
+  auto tv9 = broadcast(tv6, {false, true});
+  TensorView* tv10 = nullptr;
+  auto tv21 = castOp(DataType::Float, tv0);
+  tv10 = sub(tv21, tv9);
+  auto tv11 = broadcast(tv7, {false, true});
+  auto tv13 = add(tv11, IrBuilder::create<Val>(0.001));
+  auto tv14 = rsqrt(tv13);
+  auto tv15 = mul(tv10, tv14);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv16 = broadcast(tv4, {true, false});
+  auto tv17 = mul(tv15, tv16);
+  auto tv5 = castOp(DataType::Float, tv2);
+  auto tv18 = broadcast(tv5, {true, false});
+  auto tv19 = add(tv17, tv18);
+  auto tv20 = castOp(DataType::Half, tv19);
+
+  fusion.addOutput(tv20);
+  fusion.addOutput(tv9);
+  fusion.addOutput(tv14);
+
+  std::vector<int64_t> input_shape{2048, 80 * 1024};
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
+  auto t0 = at::randn(input_shape, options);
+  auto t1 = at::randn({input_shape[1]}, options);
+  auto t2 = at::randn({input_shape[1]}, options);
+
+  // The logic size of the persistent buffer in this fusion is 80 * 1024 * 2
+  // bytes. Inner persistent scheduler allows 32 * 1024 * 4 bytes for register
+  // persistent, so it should use shared memory persistent buffer if there are
+  // enough shared memory. Otherwise, it will be segmented.
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0, t1, t2});
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  auto persistent_buffer_size =
+      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  int64_t logic_buffer_size = 80 * 1024 * dataTypeSize(DataType::Half);
+  EXPECT_EQ(
+      persistent_buffer_size.projected_persistent_buffer_size,
+      logic_buffer_size);
+
+  // If total shared memory on device is less than logic buffer size, should
+  // segment. Otherwise, further calculate available shared memory size by
+  // removing overhead due to reduction broadcast workspace and non-divisible
+  // split.
+  bool is_segmented = false;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+    is_segmented = true;
+  } else {
+    int64_t available_buffer_size = normalization_scheduler_utils::
+        getMaxRegOrSharedMemorySizeForPersistentBuffer(
+            &fusion,
+            runtime_info,
+            scheduler_utils::getReductionTvs(&fusion),
+            persistent_buffer_info,
+            /*can_use_smem_persistent*/ true,
+            /*project_to_inputs*/ true);
+    is_segmented = logic_buffer_size >= available_buffer_size;
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  // check segmentation, if not segmented, further check shared memory
+  // persistence
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_EQ(is_segmented, runtime->isSegmented());
+  if (!is_segmented) {
+    auto& params = runtime->schedulerHeuristics()->heuristicsList().at(0);
+    ASSERT_TRUE(params->isA<ReductionParams>());
+    ASSERT_TRUE(
+        params->as<ReductionParams>()->smem_persistent_buffers.size() > 0);
+  }
+  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+using TestParam = std::tuple<DataType, int64_t>;
+using LayerNormSharedMemoryTest = NVFuserFixtureParamTest<TestParam>;
+TEST_P(LayerNormSharedMemoryTest, FusionLayerNormSharedMemoryBuffer_CUDA) {
+  auto [dtype, hidden_size] = GetParam();
+
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+  const float kEps = 1e-5;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+  constexpr int64_t dim0 = 2048;
+  std::vector<int64_t> input_shape{dim0, hidden_size};
+  std::vector<int64_t> norm_shape{hidden_size};
+
+  auto input = makeContigTensor(2, dtype);
+  auto weight = makeContigTensor(1, dtype);
+  auto bias = makeContigTensor(1, dtype);
+  fusion.addInput(input);
+  fusion.addInput(weight);
+  fusion.addInput(bias);
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  bias = maybeCastOp(DataType::Float, bias);
+  auto result = layer_norm(input, norm_shape, weight, bias, eps_ptr);
+  result.output = maybeCastOp(dtype, result.output);
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.mean);
+  fusion.addOutput(result.invstd);
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = at::randn({input_shape[1]}, options);
+  c10::optional<at::Tensor> aten_bias = at::randn({input_shape[1]}, options);
+
+  // try translate Welford in fusion
+  KernelArgumentHolder runtime_inputs =
+      KernelArgumentHolder({aten_input, aten_weight, aten_bias});
+  SegmentCandidateFinder::translateWelfordInFusion(&fusion, runtime_inputs);
+  auto fusion_copy = fusion;
+
+  // check persistent buffer size
+  SchedulerRuntimeInfo runtime_info(&fusion, runtime_inputs);
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  auto persistent_buffer_size =
+      persistentBufferSize(&fusion, runtime_info, persistent_buffer_info);
+  int64_t logic_buffer_size = hidden_size * dataTypeSize(dtype);
+  EXPECT_EQ(
+      persistent_buffer_size.projected_persistent_buffer_size,
+      logic_buffer_size);
+
+  // expect segmentation?
+  bool has_enough_regs_smem = true;
+  if (logic_buffer_size > scheduler_utils::register_file_size) {
+    const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+    if ((int64_t)dev_prop->sharedMemPerMultiprocessor < logic_buffer_size) {
+      has_enough_regs_smem = false;
+    } else {
+      int64_t available_buffer_size = normalization_scheduler_utils::
+          getMaxRegOrSharedMemorySizeForPersistentBuffer(
+              &fusion,
+              runtime_info,
+              scheduler_utils::getReductionTvs(&fusion),
+              persistent_buffer_info,
+              /*can_use_smem_persistent*/ true,
+              /*project_to_inputs*/ true);
+      has_enough_regs_smem = available_buffer_size >= logic_buffer_size;
+    }
+  }
+
+  // check segmentation and smem usage
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs =
+      executor_cache.runFusionWithInputs({aten_input, aten_weight, aten_bias});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  if (has_enough_regs_smem) {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        UnorderedElementsAre(HeuristicIs(SchedulerType::InnerPersistent)));
+    Fusion* scheduled_fusion = runtime->executors()
+                                   .back()
+                                   ->as<KernelExecutor>()
+                                   ->compiledKernel()
+                                   ->kernel();
+
+    if (logic_buffer_size > scheduler_utils::register_file_size) {
+      bool has_smem_tv = false;
+      for (auto tv : scheduled_fusion->allTvs()) {
+        if (tv->getMemoryType() == MemoryType::Shared) {
+          has_smem_tv = true;
+          break;
+        }
+      }
+      EXPECT_TRUE(has_smem_tv);
+    }
+  } else {
+    EXPECT_THAT(
+        runtime->fusionSegments()->groups(),
+        Contains(HeuristicIs(SchedulerType::Reduction)));
+  }
+  testValidate(
+      &fusion_copy,
+      cg_outputs,
+      {aten_input, aten_weight, aten_bias},
+      __LINE__,
+      __FILE__,
+      "");
+}
+INSTANTIATE_TEST_SUITE_P(
+    PersistentBufferTest,
+    LayerNormSharedMemoryTest,
+    ::testing::Combine(
+        ::testing::Values(DataType::Half, DataType::Float),
+        ::testing::Range((int64_t)32768, (int64_t)81921, (int64_t)4096)),
+    [](const testing::TestParamInfo<TestParam>& info) {
+      std::stringstream ss;
+      ss << "dtype_" << std::get<0>(info.param);
+      ss << "_hidden_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 
 } // namespace nvfuser

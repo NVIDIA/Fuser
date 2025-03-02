@@ -1999,7 +1999,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     const Fusion* fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SegmentCandidateFinderOptions options) {
   auto fusion_copy = std::make_unique<Fusion>(*fusion);
   return segment(std::move(fusion_copy), inputs, options);
@@ -2008,20 +2008,21 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
 // Perform segmentation on and take ownership of the given fusion
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
-    SegmentCandidateFinderOptions options) {
+    const KernelArgumentHolder& inputs,
+    SegmentCandidateFinderOptions options,
+    bool multi_device) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
     debug() << "Segment the fusion (Original Fusion Un-modified): "
             << std::endl;
     fusion->printMath();
   }
-  SegmentCandidateFinder scf(std::move(fusion), inputs, options);
+  SegmentCandidateFinder scf(std::move(fusion), inputs, options, multi_device);
   return std::move(scf.segmented_fusion_);
 }
 
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
+    const KernelArgumentHolder& inputs,
     SchedulerRuntimeInfo& runtime_info) {
   if (!hasSegmentHints(fusion.get())) {
     scheduler_debug_utils::canScheduleMessage(
@@ -2030,7 +2031,7 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
         Schedule::proposeHeuristics(fusion.get(), runtime_info);
     if (fusion_heuristic_type != SchedulerType::None) {
       return SegmentedFusion::fromCompleteFusion(
-          std::move(fusion), fusion_heuristic_type, *inputs);
+          std::move(fusion), fusion_heuristic_type, inputs);
     }
   } else {
     scheduler_debug_utils::canScheduleMessage(
@@ -3939,15 +3940,10 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
 
 SegmentCandidateFinder::SegmentCandidateFinder(
     std::unique_ptr<Fusion> fusion,
-    const KernelArgumentHolder* inputs,
-    SegmentCandidateFinderOptions options)
-    : options_(options),
-      runtime_info_(
-          inputs == nullptr ? std::nullopt
-                            : std::make_optional<SchedulerRuntimeInfo>(
-                                  fusion.get(),
-                                  *inputs)),
-      runtime_inputs_(inputs) {
+    const KernelArgumentHolder& inputs,
+    SegmentCandidateFinderOptions options,
+    bool multi_device)
+    : options_(options), runtime_inputs_(inputs) {
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
           (!options_.run_translate_welford &&
@@ -3955,7 +3951,22 @@ SegmentCandidateFinder::SegmentCandidateFinder(
            options_.run_final_merge),
       "Invalid Segmenter options");
   segmented_fusion_ = std::make_unique<SegmentedFusion>(std::move(fusion));
+
+  // Conditionally initialize runtime_info_ based on multi_device
+  if (!multi_device) {
+    runtime_info_.emplace(segmented_fusion_->completeFusion(), inputs);
+  }
+
+  privatizeUpcast();
   findSegments();
+}
+
+// Add runtimeInfo() accessor with validation
+SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
+  NVF_ERROR(
+      runtime_info_.has_value(),
+      "runtime_info_ is not available. This function should not be called in multi-device segmentation.");
+  return *runtime_info_;
 }
 
 void SegmentCandidateFinder::buildInitialSegments() {
@@ -4112,7 +4123,7 @@ void SegmentCandidateFinder::findSegments() {
 
   if (options_.run_translate_welford && has_welford_ops) {
     if (TranslateApplicableWelford::run(
-            segmented_fusion_.get(), *runtime_inputs_)) {
+            segmented_fusion_.get(), runtime_inputs_)) {
       // If modified, rebuild segments as existing expressions may be
       // pulled into welford groups
       buildInitialSegments();
@@ -4203,6 +4214,198 @@ void SegmentCandidateFinder::findSegments() {
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegmentsDrawing)) {
     segmented_fusion_->draw();
+  }
+}
+
+void SegmentCandidateFinder::privatizeUpcast() {
+  // Insert castOp to complete_fusion_
+  FusionGuard fg(segmented_fusion_->complete_fusion_.get());
+
+  const auto exprs = segmented_fusion_->complete_fusion_->exprs();
+
+  for (auto expr : exprs) {
+    if (!ir_utils::isTvOp(expr)) {
+      continue;
+    }
+
+    for (const auto i : c10::irange(expr->inputs().size())) {
+      auto maybe_upcast_out_tv = dynamic_cast<TensorView*>(expr->input(i));
+      if (maybe_upcast_out_tv == nullptr) {
+        continue;
+      }
+
+      // Check if the input is an output of an upcast op
+      auto maybe_upcast_op =
+          dynamic_cast<UnaryOp*>(maybe_upcast_out_tv->definition());
+      if (maybe_upcast_op == nullptr ||
+          maybe_upcast_op->getUnaryOpType() != UnaryOpType::Cast) {
+        continue;
+      }
+
+      auto precisions =
+          ir_utils::getPrecisionOfProducerConsumerTensors(maybe_upcast_op);
+      if (!precisions.has_value() || precisions->first >= precisions->second) {
+        continue;
+      }
+
+      // Check if there's multiple uses of the upcast output
+      auto uses_of_upcast_out_tv = maybe_upcast_out_tv->uses();
+      if (uses_of_upcast_out_tv.size() < 2) {
+        continue;
+      }
+
+      // If this is the first use of the upcast output, keep it as is
+      if (expr == uses_of_upcast_out_tv.front()) {
+        continue;
+      }
+
+      auto upcast_out_tv_clone =
+          castOp(maybe_upcast_out_tv->dtype(), maybe_upcast_op->input(0));
+      expr = ir_utils::replaceValInExprInputs(
+          expr, maybe_upcast_out_tv, upcast_out_tv_clone);
+
+      privatized_upcast_ops_[maybe_upcast_op].insert(
+          upcast_out_tv_clone->definition()->as<UnaryOp>());
+    }
+  }
+}
+
+void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
+  // If a given consumer edge is a duplicate of another edge of the
+  // same producer group, remove the given edge from both the producer
+  // and consumer groups.
+  auto maybe_deduplicate_edge =
+      [](SegmentedEdge* maybe_duplicated_consumer_edge) {
+        SegmentedGroup* producer_group = maybe_duplicated_consumer_edge->from;
+
+        auto same_edge_it = std::find_if(
+            producer_group->consumer_edges.begin(),
+            producer_group->consumer_edges.end(),
+            [&](SegmentedEdge* consumer_edge) {
+              return consumer_edge != maybe_duplicated_consumer_edge &&
+                  *consumer_edge == *maybe_duplicated_consumer_edge;
+            });
+
+        if (same_edge_it == producer_group->consumer_edges.end()) {
+          return;
+        }
+
+        // maybe_duplicated_consumer_edge is redundant. Remove it from the
+        // from and the two groups
+        auto consumer_edge_to_remove = std::find(
+            producer_group->consumer_edges.begin(),
+            producer_group->consumer_edges.end(),
+            maybe_duplicated_consumer_edge);
+        NVF_ERROR(
+            consumer_edge_to_remove != producer_group->consumer_edges.end());
+        producer_group->consumer_edges.erase(consumer_edge_to_remove);
+
+        SegmentedGroup* consumer_group = maybe_duplicated_consumer_edge->to;
+        auto producer_edge_to_remove = std::find(
+            consumer_group->producer_edges.begin(),
+            consumer_group->producer_edges.end(),
+            maybe_duplicated_consumer_edge);
+        NVF_ERROR(
+            producer_edge_to_remove != consumer_group->producer_edges.end());
+        consumer_group->producer_edges.erase(producer_edge_to_remove);
+      };
+
+  // Replace old_expr with new_expr if found in a given group. Return
+  // true if replaced.
+  auto maybe_replace =
+      [](SegmentedGroup* group, Expr* old_expr, Expr* new_expr) -> bool {
+    auto it = std::find(group->exprs_.begin(), group->exprs_.end(), old_expr);
+    if (it != group->exprs_.end()) {
+      *it = new_expr;
+      return true;
+    } else {
+      return false;
+    }
+  };
+
+  for (const auto& [original_upcast, clones] : privatized_upcast_ops_) {
+    std::vector<UnaryOp*> upcast_in_group;
+    Val* upcast_val_to_keep = nullptr;
+    for (auto uop : ir_utils::filterByType<UnaryOp>(group->exprs())) {
+      if (uop != original_upcast && !clones.count(uop)) {
+        continue;
+      }
+
+      upcast_in_group.push_back(uop);
+
+      auto upcast_tv = uop->out();
+
+      // Prefer the original upcast if found
+      if (upcast_val_to_keep == nullptr ||
+          upcast_tv == original_upcast->out()) {
+        upcast_val_to_keep = upcast_tv;
+      }
+    }
+
+    if (upcast_in_group.size() < 2) {
+      continue;
+    }
+
+    for (auto uop : upcast_in_group) {
+      Val* upcast_val_to_replace = uop->out();
+      if (upcast_val_to_replace == upcast_val_to_keep) {
+        // Keep this uop as is since its output replaces the other
+        // upcast outputs
+        continue;
+      }
+
+      NVF_ERROR(
+          upcast_val_to_replace->uses().size() == 1,
+          "Multiple use of replicated upcast tensor found: ",
+          toDelimitedString(upcast_val_to_replace->uses()));
+
+      auto use_of_upcast_val_to_replace = upcast_val_to_replace->uses().at(0);
+
+      auto updated_expr = ir_utils::replaceValInExprInputs(
+          use_of_upcast_val_to_replace,
+          upcast_val_to_replace,
+          upcast_val_to_keep);
+
+      // Replace use_of_upcast_val_to_replace with
+      // updated_expr. use_of_upcast_val_to_replace must be in the
+      // same group of its consumer groups
+      if (!maybe_replace(group, use_of_upcast_val_to_replace, updated_expr)) {
+        for (auto consumer_edge : group->consumer_edges) {
+          if (maybe_replace(
+                  consumer_edge->to,
+                  use_of_upcast_val_to_replace,
+                  updated_expr)) {
+            break;
+          }
+        }
+      }
+
+      // Update a consumer edge if its val is
+      // upcast_val_to_replace. Again, there must be at most one such
+      // edge.
+      SegmentedEdge* consumer_edge_to_update = nullptr;
+      for (auto consumer_edge : group->consumer_edges) {
+        if (consumer_edge->val == upcast_val_to_replace) {
+          NVF_ERROR(
+              consumer_edge_to_update == nullptr,
+              "Multiple consumer edges using ",
+              upcast_val_to_replace->toString(),
+              " found");
+          consumer_edge->val = upcast_val_to_keep;
+          consumer_edge_to_update = consumer_edge;
+        }
+      }
+
+      // Now that the consumer edge is updated, it may be a duplicate
+      // of an exising edge. Remove if so.
+      if (consumer_edge_to_update != nullptr) {
+        maybe_deduplicate_edge(consumer_edge_to_update);
+      }
+
+      // Note that it should not be necessary to do anything with
+      // group->output_vals since the inserted upcast ops should never produce
+      // fusion outputs.
+    }
   }
 }
 
@@ -4630,6 +4833,10 @@ void SegmentCandidateFinder::finalize() {
   // Resolve all the scalar expressions needed in each group
   for (auto group : segmented_fusion_->groups()) {
     resolveScalarsInGroup(group);
+  }
+
+  for (auto group : segmented_fusion_->groups()) {
+    revertPrivatizedUpcast(group);
   }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.

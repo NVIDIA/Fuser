@@ -620,24 +620,32 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .TOSTRINGMETHOD(CompileParams);
 
   DEFINECLASS(GemmTile)
+      .def(py::init<int64_t, int64_t, int64_t>())
       .PARAM(GemmTile, m)
       .PARAM(GemmTile, n)
       .PARAM(GemmTile, k)
       .TOSTRINGTOPLEVEL(GemmTile);
 
-#undef GEMMTILEDIMPARAM
   DEFINECLASS(MatMulTileOptions)
+      .def(py::init<GemmTile, GemmTile>())
       .PARAM(MatMulTileOptions, cta_tile)
       .PARAM(MatMulTileOptions, warp_tile)
       .TOSTRINGTOPLEVEL(MatMulTileOptions);
 
-  DEFINECLASS(MatmulParams::CircularBufferOptions)
+  py::class_<MatmulParams::CircularBufferOptions>(
+      nvfuser, "CircularBufferOptions")
+      .def(py::init<bool, bool, int, int>())
       .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_read)
       .PARAM(MatmulParams::CircularBufferOptions, circular_buffer_smem_write)
       .PARAM(MatmulParams::CircularBufferOptions, smem_circular_buffer_stage)
+      .PARAM(
+          MatmulParams::CircularBufferOptions,
+          smem_circular_buffer_prefetch_gap)
       .TOSTRINGMETHOD(MatmulParams::CircularBufferOptions);
 
-  DEFINECLASS(MatmulParams::SupportedVectorization)
+  py::class_<MatmulParams::SupportedVectorization>(
+      nvfuser, "SupportedVectorization")
+      .def(py::init<int64_t, int64_t, int64_t>())
       .PARAM(MatmulParams::SupportedVectorization, a)
       .PARAM(MatmulParams::SupportedVectorization, b)
       .PARAM(MatmulParams::SupportedVectorization, epilogue)
@@ -647,12 +655,29 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       nvfuser, "MatmulTileRasterizationOrder")
       .value("column_major", MatmulParams::TileRasterizationOrder::ColumnMajor)
       .value("row_major", MatmulParams::TileRasterizationOrder::RowMajor);
+
+  py::class_<MatmulParams::ClusterDims>(nvfuser, "ClusterDims")
+      .def(py::init<int64_t, int64_t, int64_t>())
+      .PARAM(MatmulParams::ClusterDims, x)
+      .PARAM(MatmulParams::ClusterDims, y)
+      .PARAM(MatmulParams::ClusterDims, z)
+      .TOSTRINGMETHOD(MatmulParams::ClusterDims);
+
   py::enum_<MmaMacroEncode::Arch>(nvfuser, "MmaMacroArch")
       .value("no_mma", MmaMacroEncode::Arch::NoMma)
       .value("volta", MmaMacroEncode::Arch::Volta)
       .value("turing", MmaMacroEncode::Arch::Turing)
       .value("ampere", MmaMacroEncode::Arch::Ampere)
       .value("hopper", MmaMacroEncode::Arch::Hopper);
+
+  DEFINECLASS(MmaMacroEncode)
+      .def(py::init<MmaMacroEncode::Arch, uint16_t, uint16_t, uint16_t>())
+      .def("mma_macro", &MmaMacroEncode::operator MmaMacro)
+      .PARAM(MmaMacroEncode, arch)
+      .PARAM(MmaMacroEncode, m)
+      .PARAM(MmaMacroEncode, n)
+      .PARAM(MmaMacroEncode, k);
+
   // NOTE: MmaMacro is a uint64_t. To modify it, we convert to and from
   // MmaMacroEncode
 #define MMAMACROPROP(prop, type)                                      \
@@ -671,6 +696,25 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .MMAMACROPROP(k, uint16_t)
       .TOSTRINGTOPLEVEL(MmaMacro);
 #undef MMAMACROPROP
+
+  py::enum_<MatmulParams::TilingStrategy>(nvfuser, "MatmulTilingStrategy")
+      .value("one_tile_per_cta", MatmulParams::TilingStrategy::OneTilePerCTA)
+      .value(
+          "distribute_tiles_across_sms",
+          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs)
+      .value(
+          "distribute_stages_across_sms",
+          MatmulParams::TilingStrategy::DistributeStagesAcrossSMs);
+  py::enum_<MatmulParams::BufferingLoopLevel>(
+      nvfuser, "MatmulBufferingLoopLevel")
+      .value("cta_tiles", MatmulParams::BufferingLoopLevel::CTATiles)
+      .value("warp_tiles", MatmulParams::BufferingLoopLevel::WarpTiles);
+  py::enum_<MatmulParams::CircularBufferingStrategy>(
+      nvfuser, "MatmulCircularBufferingStrategy")
+      .value("pipelined", MatmulParams::CircularBufferingStrategy::Pipelined)
+      .value(
+          "warp_specialized",
+          MatmulParams::CircularBufferingStrategy::WarpSpecialized);
 
   // Base class for scheduler parameters
   DEFINECLASS(HeuristicParams)
@@ -746,7 +790,11 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, use_smem_epilogue)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
+      .PARAM(MatmulParams, tiling_strategy)
+      .PARAM(MatmulParams, buffering_loop_level)
+      .PARAM(MatmulParams, circular_buffering_strategy)
       .PARAM(MatmulParams, cta_order)
+      .PARAM(MatmulParams, cluster_dims)
       .PARAM(MatmulParams, mma_macro);
 
 #undef PARAM
@@ -1057,11 +1105,11 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "_exist_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
-            std::vector<c10::IValue> inputs;
+            KernelArgumentHolder args;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            return self.existSchedule(inputs);
+            return self.existSchedule(args);
           })
       .def(
           "_setup_schedule",
@@ -1070,11 +1118,11 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool overwrite_existing_schedule) {
             // Instrumentation to mark the beginning of a schedule
             inst::Trace::instance()->beginEvent("FusionDefinition Schedule");
-            std::vector<c10::IValue> inputs;
+            KernelArgumentHolder args;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.setupSchedule(inputs, overwrite_existing_schedule);
+            self.setupSchedule(args, overwrite_existing_schedule);
           },
           py::arg("inputs"),
           py::kw_only(),
@@ -1082,11 +1130,11 @@ void initNvFuserPythonBindings(PyObject* module) {
       .def(
           "_finalize_schedule",
           [](FusionDefinition& self, const py::iterable& iter) {
-            std::vector<c10::IValue> inputs;
+            KernelArgumentHolder args;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
-            self.finalizeSchedule(inputs);
+            self.finalizeSchedule(args);
             // Mark the end of a schedule
             inst::Trace::instance()->endEvent(nullptr);
           })
@@ -1105,21 +1153,19 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Instrumentation to mark the beginning of segmentation
             inst::Trace::instance()->beginEvent(
                 "FusionDefinition Segmentation");
-            std::vector<c10::IValue> inputs;
+            KernelArgumentHolder args;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
               if (py::isinstance<py::list>(obj) ||
                   py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
-                  inputs.push_back(
-                      torch::jit::toIValue(item, c10::AnyType::get()));
+                  args.push(torch::jit::toIValue(item, c10::AnyType::get()));
                 }
               } else {
-                inputs.push_back(
-                    torch::jit::toIValue(obj, c10::AnyType::get()));
+                args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
               }
             }
-            return self.setupSegmentation(inputs);
+            return self.setupSegmentation(args);
           })
       .def(
           "_build_segment",
@@ -1155,18 +1201,16 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool profile,
              std::vector<std::string> _enable_options,
              std::vector<std::string> _disable_options) {
-            std::vector<c10::IValue> inputs;
+            KernelArgumentHolder args;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
               if (py::isinstance<py::list>(obj) ||
                   py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
-                  inputs.push_back(
-                      torch::jit::toIValue(item, c10::AnyType::get()));
+                  args.push(torch::jit::toIValue(item, c10::AnyType::get()));
                 }
               } else {
-                inputs.push_back(
-                    torch::jit::toIValue(obj, c10::AnyType::get()));
+                args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
               }
             }
             std::optional<int8_t> int8_device = std::nullopt;
@@ -1175,7 +1219,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               int8_device = (int8_t)device.value();
             }
             return self.execute(
-                inputs,
+                args,
                 int8_device,
                 override_user_schedule,
                 capture_debug_output,
@@ -1224,12 +1268,12 @@ void initNvFuserPythonBindings(PyObject* module) {
              const py::iterable& iter,
              bool intrinsic_code,
              bool override_user_schedule) {
-            std::vector<c10::IValue> inputs;
+            KernelArgumentHolder args;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
             return self.cudaCodeFor(
-                inputs, intrinsic_code, override_user_schedule);
+                args, intrinsic_code, override_user_schedule);
           },
           py::arg("inputs"),
           py::arg("intrinsic_code") = false,
@@ -1252,12 +1296,12 @@ void initNvFuserPythonBindings(PyObject* module) {
              const py::iterable& iter,
              bool tensor_transforms,
              bool override_user_schedule) {
-            std::vector<c10::IValue> inputs;
+            KernelArgumentHolder args;
             for (py::handle obj : iter) {
-              inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+              args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
             }
             return self.scheduledFusionIrFor(
-                inputs, tensor_transforms, override_user_schedule);
+                args, tensor_transforms, override_user_schedule);
           },
           py::arg("inputs"),
           py::arg("tensor_transforms") = false,
@@ -1567,11 +1611,11 @@ void initNvFuserPythonBindings(PyObject* module) {
   fusion_def.def(
       "getValTolerances",
       [](FusionDefinition& self, const py::iterable& input_iter) {
-        std::vector<c10::IValue> inputs;
+        KernelArgumentHolder args;
         for (py::handle obj : input_iter) {
-          inputs.push_back(torch::jit::toIValue(obj, c10::AnyType::get()));
+          args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
         }
-        return self.getValTolerances(inputs);
+        return self.getValTolerances(args);
       },
       py::return_value_policy::reference);
 

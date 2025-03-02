@@ -38,7 +38,7 @@
 namespace nvfuser {
 
 struct CGResultsPackage {
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
   std::unique_ptr<HeuristicParams> heuristic_params;
   std::unique_ptr<KernelExecutor> kernel_executor;
 };
@@ -56,7 +56,7 @@ const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
@@ -565,7 +565,7 @@ class NVFuserTest : public ::testing::Test {
       auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
       std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
                 << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
-                << " nvfuser_tests --gtest_filter='"
+                << " test_nvfuser --gtest_filter='"
                 << test_info->test_suite_name() << "." << test_info->name()
                 << "'" << std::endl;
     }
@@ -615,6 +615,16 @@ class HopperBase : public NVFuserTest {
   void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0, 10, 0)) {
       GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+class BlackwellBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
     }
     NVFuserTest::SetUp();
   }

@@ -93,9 +93,13 @@ def test_matmul_nvf_benchmark(
     with FusionDefinition() as fd:
         matmul_fusion(fd, [a, b])
 
+    kwargs = dict(
+        _enable_options=["fuse_matmul"], _disable_options=["matmul_expr_eval"]
+    )
+
     if not disable_validation:
         eager_output = torch.matmul(a, b)
-        fd.validate([a, b], [eager_output])
+        fd.validate([a, b], [eager_output], **kwargs)
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, [a, b])
+        run_benchmark(benchmark, lambda *args: fd.execute(*args, **kwargs), [a, b])

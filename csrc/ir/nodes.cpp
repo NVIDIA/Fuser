@@ -360,6 +360,104 @@ BinaryOp::BinaryOp(
   addDataAttribute(type);
 }
 
+std::vector<PolymorphicValue> BinaryOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  using namespace PolymorphicValue_functions;
+  const auto& lhs = inputs.at(0);
+  const auto& rhs = inputs.at(1);
+
+  switch (getBinaryOpType()) {
+    case BinaryOpType::Add:
+      return {lhs + rhs};
+      break;
+    case BinaryOpType::Sub:
+      return {lhs - rhs};
+      break;
+    case BinaryOpType::Mul:
+      return {lhs * rhs};
+      break;
+    case BinaryOpType::Div:
+      NVF_CHECK(
+          !rhs.is<int64_t>() || rhs != 0, "Integer division by zero detected");
+      return {lhs / rhs};
+      break;
+    case BinaryOpType::Mod:
+      NVF_CHECK(rhs != 0, "Modulo zero detected");
+      return {lhs % rhs};
+      break;
+    case BinaryOpType::Fmod:
+      NVF_CHECK(rhs != 0, "Float modulo zero detected");
+      return {fmod(lhs, rhs)};
+      break;
+    case BinaryOpType::CeilDiv:
+      NVF_CHECK(rhs != 0, "CeilDiv by zero detected");
+      return {ceildiv(lhs, rhs)};
+      break;
+    case BinaryOpType::LogicalAnd:
+      return {lhs && rhs};
+      break;
+    case BinaryOpType::LogicalOr:
+      return {lhs || rhs};
+      break;
+    case BinaryOpType::BitwiseAnd:
+      return {lhs & rhs};
+      break;
+    case BinaryOpType::BitwiseOr:
+      return {lhs | rhs};
+      break;
+    case BinaryOpType::BitwiseXor:
+      return {lhs ^ rhs};
+      break;
+    case BinaryOpType::Eq:
+      return {eq(lhs, rhs)};
+      break;
+    case BinaryOpType::NE:
+      return {ne(lhs, rhs)};
+      break;
+    case BinaryOpType::GT:
+      return {gt(lhs, rhs)};
+      break;
+    case BinaryOpType::GE:
+      return {ge(lhs, rhs)};
+      break;
+    case BinaryOpType::LT:
+      return {lt(lhs, rhs)};
+      break;
+    case BinaryOpType::LE:
+      return {le(lhs, rhs)};
+      break;
+    case BinaryOpType::Max:
+      return {max(lhs, rhs)};
+      break;
+    case BinaryOpType::Min:
+      return {min(lhs, rhs)};
+      break;
+    case BinaryOpType::Gcd:
+      return {gcd(lhs, rhs)};
+      break;
+    case BinaryOpType::Lshift:
+      return {lhs << rhs};
+      break;
+    case BinaryOpType::Rshift:
+      return {lhs >> rhs};
+      break;
+    case BinaryOpType::Complex:
+      return {at::complex(lhs.as<at::Tensor>(), rhs.as<at::Tensor>())};
+      break;
+    case BinaryOpType::Pow:
+      return {pow(lhs, rhs)};
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          getBinaryOpType(),
+          " in ",
+          toString());
+  }
+}
+
 void BinaryOp::printHelper(
     std::stringstream& ss,
     int indent_size,
@@ -954,7 +1052,17 @@ SqueezeOp::SqueezeOp(
 std::string SqueezeOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = squeeze( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = squeeze( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getSqueezeDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
@@ -3030,6 +3138,20 @@ void TensorDomain::swizzle(
   resetDomains();
 }
 
+void TensorDomain::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion) {
+  NVF_ERROR(nDims() > 0, "Tried to do resize on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto resized_id = IterDomain::resize(id, left_expansion, right_expansion);
+  loop_domain_.at(axis) = resized_id;
+  resetDomains();
+}
+
 std::vector<IterDomain*> TensorDomain::noReductions(
     const std::vector<IterDomain*>& td) {
   std::vector<IterDomain*> noReductionDomain;
@@ -3816,6 +3938,58 @@ std::string MatmulOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
+namespace {
+// When the contracting dimension is sharded, each device has a partial
+// matmul output and is followed by an allreduce. For loop split, this is
+// represented as an rfactored reduction. For example, for matmul, the local
+// logical domain after the rfactor is: i{DIDx}, i{M}, i{N}, r{K//d}. Unsqueeze
+// the rfactored DID axis to correctly bind with the logical domain. See
+// tests/python/test_multidevice.py/test_matmul_allreduce_loop_split
+int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
+  // Filter out reduction dimensions so the index to `logical` directly maps to
+  // an at::Tensor axis.
+  auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
+  int64_t rfactor_did_idx = -1;
+  for (auto idx : c10::irange(static_cast<int64_t>(logical.size()))) {
+    IterDomain* id = logical.at(idx);
+    if (id->isRFactorProduct() && id->isDeviceDim()) {
+      NVF_ERROR(
+          rfactor_did_idx == -1,
+          "Expected only 1 rfactored DID iterdomain, found at least 2 in ",
+          logical);
+      rfactor_did_idx = idx;
+    }
+  }
+
+  return rfactor_did_idx;
+}
+} // namespace
+
+std::vector<PolymorphicValue> MatmulOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto a = inputs.at(0).as<at::Tensor>();
+  const auto b = inputs.at(1).as<at::Tensor>();
+
+  auto matmul_out = at::matmul(a, b);
+
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    matmul_out = matmul_out.unsqueeze(rfactor_did_idx);
+  }
+
+  const auto& [sizes, strides] = inferShapeOfOutput(out(), ee);
+  auto meta_out = at::detail::empty_strided_meta(sizes, strides, a.dtype());
+
+  if (meta_out.is_contiguous()) {
+    return {matmul_out};
+  }
+
+  auto strided_matmul_out = at::empty_strided(sizes, strides, a.options());
+  strided_matmul_out = strided_matmul_out.copy_(matmul_out);
+  return {strided_matmul_out};
+}
+
 LinearOp::LinearOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -3848,6 +4022,54 @@ std::string LinearOp::toString(int indent_size) const {
 
 std::string LinearOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> LinearOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  const auto in = inputs.at(0).as<at::Tensor>();
+  auto weight = inputs.at(1).as<at::Tensor>();
+
+  auto squeeze_device_dims = [](at::Tensor& t,
+                                int64_t num_device_dims) -> void {
+    // Record the initial shape for the error message.
+    std::vector<int64_t> shape = t.sizes().vec();
+    for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+      NVF_CHECK(
+          t.size(0) == 1,
+          "When the weight is >2D, expect its preceding dimensions and "
+          "the bias's preceding dimensions to "
+          "be DID-parallel and therefore size-1: ",
+          shape);
+      t = t.squeeze(0);
+    }
+  };
+
+  // The squeezes and unsqueezes are currently required to support a sharded
+  // linear layer. Remove them after #2563.
+  auto num_device_dims = weight.dim() - 2;
+  squeeze_device_dims(weight, num_device_dims);
+
+  at::Tensor out_tensor;
+  if (has_bias()) {
+    auto bias = inputs.at(2).as<at::Tensor>();
+    squeeze_device_dims(bias, num_device_dims);
+    out_tensor = at::linear(in, weight, bias);
+  } else {
+    out_tensor = at::linear(in, weight);
+  }
+
+  for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+    out_tensor = out_tensor.unsqueeze(0);
+  }
+
+  // Handle rFactor DIDs similar to MatmulOp::evaluate.
+  if (const auto rfactor_did_idx = getRFactorDeviceDimensionIndex(out());
+      rfactor_did_idx != -1) {
+    out_tensor = out_tensor.unsqueeze(rfactor_did_idx);
+  }
+
+  return {out_tensor};
 }
 
 SdpaFwdOp::SdpaFwdOp(
@@ -4124,6 +4346,10 @@ bool ForLoop::isUnrolled() const {
     return false;
   }
 
+  if (hasRuntimeReductionFunctions()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -4269,6 +4495,43 @@ bool ForLoop::isGroup() const {
       {typeid(GroupedReductionOp),
        typeid(kir::GroupedGridReduction),
        typeid(kir::GroupedGridWelford)});
+}
+
+namespace {
+
+//! A utility class to check if runtime reduction exists
+class RuntimeReductionFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(const Expr* expr) {
+    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    RuntimeReductionFinder finder;
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr->isA<ReductionOp>() || expr->isA<WelfordOp>() ||
+        expr->isA<kir::GridReduction>() ||
+        expr->isA<kir::GroupedGridReduction>() ||
+        expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
+        expr->isA<GroupedReductionOp>()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::hasRuntimeReductionFunctions() const {
+  return RuntimeReductionFinder::exists(this);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)

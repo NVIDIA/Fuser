@@ -187,6 +187,8 @@ class ValGraph {
 
   std::string toGraphvizDotGraph() const;
 
+  void dumpGraphvizDotGraph(const std::string& file_path) const;
+
   // Initializes entries for the provided Val with its definitions and
   // uses. The provided Val will have its own new ValGroup, each item in the
   // definitions and uses will become a new ExprGroup, and these new ExprGroups
@@ -319,6 +321,12 @@ class ValGraph {
     return false;
   }
 
+  // Mark val0 and val1 should not be mapped
+  void setUnmappable(Val* val0, Val* val1);
+
+  // Mark any of Vals of a given list of Vals should not be mapped
+  void setUnmappable(const std::vector<Val*>& vals);
+
  private:
   // Map expr0 and expr1 with each other, update unique_definitions_
   // unique_uses_
@@ -337,6 +345,9 @@ class ValGraph {
   //
   // Returns true if expressions were mapped through.
   bool mapThroughExpr(Expr* first, Expr* second, bool forward);
+
+  // Check if val0 and val1 are marked as unmappable
+  bool areUnmappable(Val* val0, Val* val1) const;
 
  private:
   // If propagate_through_exprs_ = false, then mapThroughExpr will not be called
@@ -359,6 +370,9 @@ class ValGraph {
   std::unordered_map<ValGroup, ExprGroups> unique_definitions_;
 
   std::unordered_map<ValGroup, ExprGroups> unique_uses_;
+
+  // Mapping of a Val to a set of Vals that should be mapped
+  std::unordered_map<Val*, std::unordered_set<Val*>> unmappable_vals_;
 };
 
 struct ValGroupAndItsGraph {

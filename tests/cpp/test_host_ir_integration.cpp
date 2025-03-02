@@ -11,6 +11,7 @@
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
+#include <tests/cpp/validator.h>
 
 namespace nvfuser {
 
@@ -29,14 +30,13 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
   auto ke = std::make_unique<KernelExecutor>();
-  ke->compile(&fusion, aten_inputs);
+  ke->compile(&fusion, {t0});
 
-  auto hic = std::make_unique<HostIrContainer>();
+  auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
 
-  hic->pushBackKernelExecutor(std::move(ke));
+  hic->setKernelExecutor(0, std::move(ke));
 
   IrCloner ir_cloner(hic.get());
   auto hic_in = ir_cloner.clone(in);
@@ -46,7 +46,11 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   hic->addOutput(hic_out);
 
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
-      0, std::vector<Val*>{hic_in}, std::vector<Val*>{hic_out});
+      0,
+      LaunchParams(),
+      CompileParams(),
+      std::vector<Val*>{hic_in},
+      std::vector<Val*>{hic_out});
 
   hic->pushBackTopLevelExprs(launch_kernel);
 
@@ -54,7 +58,59 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
   auto outputs = hie.runWithInput({{hic_in, t0}});
 
-  EXPECT_TRUE(outputs[0].equal(t0));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
+}
+
+TEST_F(HostIrIntegrationTest, Set) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+
+  TensorView* out = set(in);
+  fusion->addOutput(out);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
+}
+
+TEST_F(HostIrIntegrationTest, Sum) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+
+  TensorView* out = sum(in, {0});
+  fusion->addOutput(out);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
 }
 
 } // namespace hir

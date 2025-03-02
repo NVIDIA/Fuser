@@ -53,6 +53,72 @@ std::unique_ptr<PrecomputedValues>& KernelExecutor::
   return evaluator_precomputed_values_;
 }
 
+bool ExprEvalExecutor::supported(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::supported");
+  return std::all_of(
+      fusion->outputs().begin(), fusion->outputs().end(), [&fusion](Val* out) {
+        return fusion->getOutputAlias(out).type == AllocationType::Evaluate;
+      });
+}
+
+void ExprEvalExecutor::compile(Fusion* fusion) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::compile");
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).startCompile();
+  }
+  NVF_ERROR(
+      supported(fusion),
+      "ExprEvalExecutor does not support the Fusion provided.");
+  fusion_ = std::make_unique<Fusion>(*fusion);
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopCompile();
+  }
+}
+
+bool ExprEvalExecutor::isCompiled() const {
+  return fusion_ != nullptr;
+}
+
+KernelArgumentHolder ExprEvalExecutor::run(
+    KernelArgumentHolder& args,
+    KernelArgumentHolder outputs) {
+  FUSER_PERF_SCOPE("ExprEvalExecutor::run");
+
+  if (isProfilerEnabled()) {
+    NVF_CHECK(
+        group_id_ >= 0,
+        "An invalid segment id is passed to FusionProfiler!:",
+        group_id_);
+    SegmentProfiler& sprof = FusionProfiler::segment(group_id_);
+    sprof.inputBytesAccessed(computeBytes(args));
+    sprof.scheduler(toString(SchedulerType::ExprEval));
+    sprof.startKernel();
+  }
+
+  NVF_ERROR(fusion_, "Need to compile before you can run.");
+  // Bind fusion inputs
+  auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
+  {
+    NVF_ERROR(
+        outputs.empty(),
+        "Fusion executor is using expression evaluator,",
+        " and expects that the outputs are not populated, which they were.");
+    if (outputs.empty()) {
+      for (const auto& out_val : fusion_->outputs()) {
+        auto out_tensor =
+            expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
+        expr_eval.bind(out_val, out_tensor);
+        outputs.push(out_tensor);
+      }
+    }
+  }
+  if (isProfilerEnabled()) {
+    FusionProfiler::segment(group_id_).stopKernel();
+    FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
+  }
+  return outputs;
+}
+
 namespace {
 bool hasCpuScalarOutputs(Fusion* _fusion) {
   if (_fusion->exprs().empty()) {
@@ -148,27 +214,13 @@ void KernelExecutor::compile(
         !(compile_params.index_type.value() == PrimDataType::Int32 &&
           arg_index_type == PrimDataType::Int),
         "Compilation with int32 is requested but int64 is required for the arguments");
-    NVF_ERROR(
-        !has_cp_async_bulk ||
-            (compile_params.index_type.value() == PrimDataType::Int32),
-        "Compilation with int64 is requested but int32 is required because ",
-        "of TMA operations.");
-
-  } else if (arg_index_type == PrimDataType::Int) {
+  } else {
     // If the given compile option doesn't specify the index type, and
     // the arguments require 64-bit indexing, we need to use 64-bit
     // indexing. Note that if the arg type is 32-bit, it doesn't mean
     // it's safe to use 32-bit for the whole kernel, so unless it's
     // specified through CompileParams, we do not use 32-bit indexing.
     compile_params.index_type = arg_index_type;
-    NVF_ERROR(
-        !has_cp_async_bulk,
-        "Compilation with int64 is required based on input arguments, but ",
-        "int32 is required because of TMA operations.");
-  } else if (has_cp_async_bulk) {
-    // TMA operations require 32-bit indexing.
-    compile_params.index_type = PrimDataType::Int32;
-  } else {
     compile_params.index_type = arg_index_type;
   }
 
@@ -504,7 +556,7 @@ void dumpFusionArgs(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
-    const std::vector<at::Tensor>& outputs) {
+    const KernelArgumentHolder& outputs) {
   debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(args.size())) {
@@ -512,8 +564,7 @@ void dumpFusionArgs(
   }
   debug() << "Outputs:" << std::endl;
   for (const auto& output : outputs) {
-    debug() << "  " << output.scalar_type() << " " << output.sizes()
-            << " (strides = " << output.strides() << ")" << std::endl;
+    debug() << PolymorphicValue_functions::toString(output) << std::endl;
   }
   debug() << launch_constraints.toString();
   debug() << "maxrregcount= " << compile_params.maxrregcount << std::endl;
@@ -529,29 +580,27 @@ void dumpKernelArgs(
     const int64_t group_id,
     const KernelArgumentHolder& args,
     size_t num_inputs,
-    const std::vector<at::Tensor>& allocated_outputs,
-    const std::vector<at::Tensor>& intermediates,
+    const KernelArgumentHolder& allocated_outputs,
+    const KernelArgumentHolder& intermediates,
     const std::vector<GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
   debug() << "Arguments for fusion " << fusion_id << " group " << group_id
           << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(num_inputs)) {
-    debug() << "  " << toString(*args[i]) << std::endl;
+    debug() << "  " << toString(args[i]) << std::endl;
   }
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    debug() << "  " << output.scalar_type() << " " << output.sizes()
-            << " (strides = " << output.strides()
-            << ", address = " << output.data_ptr() << ")" << std::endl;
+    debug() << "  " << PolymorphicValue_functions::toString(output)
+            << std::endl;
   }
   debug() << "Intermediate global buffers:" << std::endl;
   for (const auto i : c10::irange(intermediates.size())) {
-    const auto& buffer = intermediates.at(i);
     const auto& zero_init = intermediates_info.at(i).zero_init;
     const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
-    debug() << "  " << buffer.scalar_type() << " " << buffer.sizes()
+    debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
             << " is_zero_initialized: " << zero_init
             << " resets_to_zero: " << resets_to_zero << std::endl;
   }
@@ -564,7 +613,7 @@ void KernelExecutor::initializeExecutorEntry(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     DataType index_type) {
   FUSER_PERF_SCOPE("KernelExecutor::initializeExecutorEntry");
 
@@ -582,12 +631,15 @@ void KernelExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       compiled_kernel_->kernel(),
       args,
-      outputs,
+      output_args,
       compileTimeDataCache(),
       expr_eval);
 
   executor_utils::validateCircularBuffering(
       compiled_kernel_->kernel(), expr_eval);
+
+  executor_utils::validateIndexCasts(
+      compiled_kernel_->kernel(), expr_eval, launch_params);
 
   // Check that a full warp exists in blockDim.x if the kernel contains
   // ElectSync predicate.
@@ -601,18 +653,19 @@ void KernelExecutor::initializeExecutorEntry(
 
   std::vector<GlobalBufferInfo> output_info;
 
-  if (outputs.empty()) {
+  if (output_args.empty()) {
     output_info = getBufferInfos(
         expr_eval, index_type, compiled_kernel_->kernel()->outputs());
   } else {
     // Need to save the information necessary for allocations as
     // future uses of this ExecutorEntry may not be provided with
     // allocated outputs
-    for (const auto& output : outputs) {
+    for (const auto& output : output_args) {
+      const auto& out_tensor = output.as<at::Tensor>();
       output_info.emplace_back(GlobalBufferInfo{
-          .sizes = output.sizes().vec(),
-          .strides = output.strides().vec(),
-          .type = output.scalar_type()});
+          .sizes = out_tensor.sizes().vec(),
+          .strides = out_tensor.strides().vec(),
+          .type = out_tensor.scalar_type()});
     }
   }
 
@@ -832,11 +885,11 @@ void KernelExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
-std::vector<at::Tensor> KernelExecutor::run(
-    KernelArgumentHolder& args,
+KernelArgumentHolder KernelExecutor::run(
+    KernelArgumentHolder args,
+    KernelArgumentHolder output_args,
     const LaunchParams& launch_constraints,
-    CompileParams compile_params,
-    std::vector<at::Tensor> outputs) {
+    CompileParams compile_params) {
   FUSER_PERF_SCOPE("KernelExecutor::runFusion");
 
   if (isProfilerEnabled()) {
@@ -853,13 +906,13 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   NVF_ERROR(isCompiled());
   NVF_ERROR(
-      outputs.empty() ||
-          (outputs.size() == compiledKernel()->kernel()->outputs().size()),
+      output_args.empty() ||
+          (output_args.size() == compiledKernel()->kernel()->outputs().size()),
       __func__,
       " provided number of outputs does not match fusion output");
 
   NVF_ERROR(
-      !args.getCacheId().has_value() || outputs.empty(),
+      !args.getCacheId().has_value() || output_args.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(compiled_kernel_->kernel(), compile_params);
@@ -868,7 +921,7 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
     dumpFusionArgs(
-        fusion_id_, args, launch_constraints, compile_params, outputs);
+        fusion_id_, args, launch_constraints, compile_params, output_args);
   }
 
   c10::DeviceGuard dg(compiled_kernel_->device());
@@ -891,7 +944,7 @@ std::vector<at::Tensor> KernelExecutor::run(
         args,
         launch_constraints,
         compile_params,
-        outputs,
+        output_args,
         compiled_kernel_->kernel()->indexType());
   }
 
@@ -913,16 +966,16 @@ std::vector<at::Tensor> KernelExecutor::run(
   auto expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
 
   // only allocate outputs when not given
-  if (outputs.empty()) {
-    outputs = allocateOutputs(
+  if (output_args.empty()) {
+    output_args = allocateOutputs(
         compiled_kernel_->kernel()->as<Fusion>(),
         executor_entry->outputs,
         compiled_kernel_->device(),
         expr_eval);
   }
-  args.push(outputs);
+  args.push(output_args);
 
-  for (const auto i : c10::irange(outputs.size())) {
+  for (const auto i : c10::irange(output_args.size())) {
     auto output = compiled_kernel_->kernel()->outputs()[i];
     if (std::any_of(
             compiled_kernel_->kernel()->inputs().begin(),
@@ -932,25 +985,26 @@ std::vector<at::Tensor> KernelExecutor::run(
       continue;
     }
     expr_eval.bind(
-        output, *args[compiled_kernel_->kernel()->inputs().size() + i]);
+        output, args[compiled_kernel_->kernel()->inputs().size() + i]);
   }
 
-  std::vector<at::Tensor> intermediates;
+  KernelArgumentHolder intermediate_args;
   at::Tensor profile_buffer;
   {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
-    for (const auto i : c10::irange(executor_entry->intermediates.size())) {
-      const auto& buf_info = executor_entry->intermediates.at(i);
+    for (const auto intermediate_i :
+         c10::irange(executor_entry->intermediates.size())) {
+      const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
       bool has_expansion = false;
       std::vector<int64_t> unexpanded_sizes;
       unexpanded_sizes.reserve(buf_info.sizes.size());
       NVF_ERROR(buf_info.sizes.size() == buf_info.strides.size())
-      for (const auto j : c10::irange(buf_info.sizes.size())) {
-        if (buf_info.strides[j] == 0) {
+      for (const auto dim_i : c10::irange(buf_info.sizes.size())) {
+        if (buf_info.strides[dim_i] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
         } else {
-          unexpanded_sizes.push_back(buf_info.sizes[j]);
+          unexpanded_sizes.push_back(buf_info.sizes[dim_i]);
         }
       }
       at::Tensor intermediate_buffer;
@@ -985,15 +1039,15 @@ std::vector<at::Tensor> KernelExecutor::run(
             at::native::expand(intermediate_buffer, buf_info.sizes);
       }
       args.push(intermediate_buffer);
-      intermediates.push_back(intermediate_buffer);
+      intermediate_args.push(intermediate_buffer);
       expr_eval.bind(
           compiled_kernel_->kernel()
               ->summary()
-              .global_allocations.at(i)
+              .global_allocations.at(intermediate_i)
               ->buffer(),
-          *args
-              [compiled_kernel_->kernel()->inputs().size() + outputs.size() +
-               i]);
+          args
+              [compiled_kernel_->kernel()->inputs().size() +
+               output_args.size() + intermediate_i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
@@ -1014,8 +1068,8 @@ std::vector<at::Tensor> KernelExecutor::run(
         group_id_,
         args,
         num_inputs,
-        outputs,
-        intermediates,
+        output_args,
+        intermediate_args,
         executor_entry->intermediates);
   }
 
@@ -1098,10 +1152,10 @@ std::vector<at::Tensor> KernelExecutor::run(
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id_);
     sprof.stopKernel();
-    sprof.outputBytesAccessed(computeBytes(outputs));
+    sprof.outputBytesAccessed(computeBytes(output_args));
   }
 
-  return outputs;
+  return output_args;
 }
 
 flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(

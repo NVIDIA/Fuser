@@ -10,6 +10,7 @@
 #include <c10/util/ArrayRef.h>
 
 #include <fusion_segmenter.h>
+#include <host_ir/executor.h>
 #include <polymorphic_value.h>
 #include <runtime/executor.h>
 #include <runtime/executor_kernel_arg.h>
@@ -76,7 +77,7 @@ class FusionKernelRuntime {
   PrimDataType getIndexType() const;
 
   //! Unified interface to run the managed kernels with given input
-  NVF_API std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+  NVF_API KernelArgumentHolder runWithInputs(KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
@@ -147,20 +148,23 @@ class FusionKernelRuntime {
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
-  std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
+  std::unordered_map<Val*, PolymorphicValue> runSegmentsWithInputs(
       KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
-  std::vector<at::Tensor> runKernelWithInput(
+  KernelArgumentHolder runKernelWithInput(
       KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
   //! Interface to compile a single kernel. It is either a single kernel for a
   //! fusion or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! launch and compile parameters for kernel.
-  void compileKernel(const KernelArgumentHolder& args, SegmentedGroup* sg);
+  void compileKernel(
+      const KernelArgumentHolder& args,
+      SegmentedGroup* sg,
+      hir::HostIrContainer* hic);
 
   std::pair<LaunchParams, CompileParams> getKernelConfig(
       const KernelArgumentHolder& args,
@@ -174,6 +178,9 @@ class FusionKernelRuntime {
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
   std::vector<std::unique_ptr<ExecutorAbstract>> executors_;
+
+  //! Host IR Evaluator
+  std::unique_ptr<hir::HostIrEvaluator> hie_;
 
   // A metadata copy of initial arguments used to contruct this
   // FusionKernelRuntime. Used during deserialization to schedule the fusion

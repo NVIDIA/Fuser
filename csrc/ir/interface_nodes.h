@@ -493,7 +493,7 @@ class NVF_API TensorView : public Val {
   }
 
   int64_t nDims() const {
-    return (int64_t)domain()->nDims();
+    return domain()->nDims();
   }
 
   // sets cpu_scalar_ value, which is special handling for CPU based zero-dim
@@ -569,6 +569,16 @@ class NVF_API TensorView : public Val {
   // input, or using a parallel dim from NamedScalar::getParallelDim
   TensorView* split(int64_t axis, Val* factor, bool inner_split = true);
 
+  template <typename FactorType>
+  TensorView* inner_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/true);
+  }
+
+  template <typename FactorType>
+  TensorView* outer_split(int64_t axis, FactorType factor) {
+    return split(axis, factor, /*inner_split=*/false);
+  }
+
   // Merge axis_o and axis_i into 1 IterDomain
   TensorView* merge(int64_t axis_o, int64_t axis_i);
 
@@ -600,6 +610,11 @@ class NVF_API TensorView : public Val {
       int64_t x,
       int64_t y,
       SwizzleMode swizzle_mode = SwizzleMode::Data);
+
+  //! Resize an IterDomain by expanding both the left and right sides
+  //! by given widths. The resulting IterDomain has an extent of
+  //! (left_expansion + axis->extent() + right_expansion).
+  TensorView* resize(int64_t axis, Val* left_expansion, Val* right_expansion);
 
   // WARNING: rFactor does not return this TensorView, ir returns a new
   //  tensorview consumed by this!
@@ -785,7 +800,7 @@ class NVF_API TensorView : public Val {
   // Update the max producer position of the current tensor. This is required
   // when we modify producer-consumer relationship of a scheduled tensor, for
   // example, grouping multiple reductions.
-  void updateMaxProducerPosition();
+  void updateMaxProducerPosition(MaxPosCalculator* calc = nullptr);
 
   // Commit the current changes in loop domain into rFactor domain. This
   // function can be used to do implicit transpose and view, but today, only
@@ -827,6 +842,15 @@ class NVF_API TensorView : public Val {
   bool hasDeviceMesh() const {
     return !mesh_.vector().empty();
   }
+
+  // Get/set the "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t getTMemDimSepPos() const {
+    return tmem_dim_sep_pos_;
+  }
+  void setTMemDimSepPos(int64_t pos);
 
  protected:
   void setDomain(TensorDomain* td) {
@@ -895,6 +919,12 @@ class NVF_API TensorView : public Val {
 
   // Device Mesh on which the Tensor is sharded
   DeviceMesh mesh_;
+
+  // The "Tensor Memory Dimension Separator Position"
+  // This is an allocation domain position for tensors with MemoryType::Tensor
+  // that separates the row and column of tensor memory.
+  // See doc/dev/tmem.md for more details.
+  int64_t tmem_dim_sep_pos_ = 0;
 };
 
 //! A simple TensorView builder

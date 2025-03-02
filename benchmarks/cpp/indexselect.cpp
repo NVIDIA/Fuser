@@ -44,7 +44,7 @@ static void setupFusion(Fusion* fusion) {
   fusion->addOutput(t4);
 }
 
-static std::vector<c10::IValue> setupInputs() {
+static KernelArgumentHolder setupInputs() {
   at::manual_seed(0);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -82,12 +82,11 @@ static void NvFuserScheduler_IndexSelect_AutoSchedule(
     benchmark_state.PauseTiming();
     Fusion fusion;
     setupFusion(&fusion);
-    std::vector<c10::IValue> inputs = setupInputs();
+    KernelArgumentHolder args = setupInputs();
     benchmark_state.ResumeTiming();
 
     // Auto-schedule
-    SchedulerEntry::scheduleWith(
-        &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+    SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
   }
 }
 
@@ -104,10 +103,9 @@ static void NvFuserScheduler_IndexSelect_Lower(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
-  SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   for (auto _ : benchmark_state) {
     GpuLower(&fusion).run();
@@ -126,15 +124,14 @@ static void NvFuserScheduler_IndexSelect_Compile(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   for (auto _ : benchmark_state) {
     KernelExecutor ke;
-    ke.compile(
-        &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+    ke.compile(&fusion, args, heuristic_params->lparams);
   }
 }
 
@@ -150,24 +147,20 @@ static void NvFuserScheduler_IndexSelect_RunFusion(
   setupFusion(&fusion);
 
   // inputs
-  std::vector<c10::IValue> inputs = setupInputs();
+  KernelArgumentHolder args = setupInputs();
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      &fusion, SchedulerType::PointWise, c10::ArrayRef<c10::IValue>(inputs));
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
 
   KernelExecutor ke;
-  ke.compile(
-      &fusion, c10::ArrayRef<c10::IValue>(inputs), heuristic_params->lparams);
+  ke.compile(&fusion, args, heuristic_params->lparams);
 
   C10_CUDA_CHECK(cudaDeviceSynchronize());
 
-  at::Tensor output = at::empty_like(inputs[0].toTensor());
+  at::Tensor output = at::empty_like(args[0].as<at::Tensor>());
 
   for (auto _ : benchmark_state) {
-    ke.run(
-        c10::ArrayRef<c10::IValue>(inputs),
-        {output},
-        heuristic_params->lparams);
+    ke.run(args, {output}, heuristic_params->lparams);
     C10_CUDA_CHECK(cudaDeviceSynchronize());
     clearL2Cache();
   }
@@ -255,9 +248,9 @@ static void NvFuserScheduler_IndexSelectSimple(
       (select_dim ? at::randn({nFeat, select_size}, options)
                   : at::randn({select_size, nFeat}, options));
 
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
+  KernelArgumentHolder args = {t0, t1};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -287,9 +280,9 @@ static void NvFuserScheduler_IndexSelect(
       (select_dim ? at::randn({nFeat, select_size}, options)
                   : at::randn({select_size, nFeat}, options));
 
-  std::vector<c10::IValue> aten_inputs = {t2, t0, t1};
+  KernelArgumentHolder args = {t2, t0, t1};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

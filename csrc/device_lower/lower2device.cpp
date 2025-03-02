@@ -27,6 +27,7 @@
 #include <device_lower/pass/misaligned_vectorization.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/replace_size.h>
+#include <device_lower/pass/rng.h>
 #include <device_lower/pass/unroll.h>
 #include <device_lower/pass/vectorize_welford.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -281,6 +282,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"generateConditionalFromPredicate",
             generateConditionalFromPredicate},
            {"vectorizeWelford", vectorizeWelford},
+           {"addRNG", addRNG},
            {"allocateCommonScalars", allocateCommonScalars},
            {"insertMagicZero", insertMagicZero},
            {"KIRCleaner", KIRCleaner::cleanUp},
@@ -419,7 +421,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use TensorIndexer
   for (auto tv : fusion->allTvs()) {
-    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
+    if (tv->getMemoryType() == MemoryType::Tensor ||
+        !ir_utils::hasRootToLoopLinearTransformations(tv)) {
       options.setBuildTensorIndexer(true);
     }
   }
@@ -487,12 +490,9 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
-  // Transitory testing of IdModel if enabled. No existing
-  // functionality should be affected. New IterDomains may be created,
-  // so it is expected that generated code may use diffrent variable
-  // names
+  // New IterDomains may be created, so it is expected that generated
+  // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
-    // Enable validation in the DEBUG build mode
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
@@ -599,6 +599,9 @@ void GpuLower::analysis(Fusion* fusion) {
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");
+
+  tmemInfo() = computeTMemInfo(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "computeTMemInfo");
 }
 
 kir::Kernel* GpuLower::kernel() const {
