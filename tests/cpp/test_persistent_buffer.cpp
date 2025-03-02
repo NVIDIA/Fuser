@@ -1634,7 +1634,9 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   fusion->addOutput(tv4);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  auto t0 = at::randn(input_shape, options);
+  auto t0 = at::ones(input_shape, options);
+  // auto row = at::arange(1, dim1, options); 
+  // auto t0 = row.unsqueeze(0).repeat({dim0, 1});
   std::vector<c10::IValue> aten_inputs = {t0};
   auto fusion_copy = *fusion;
 
