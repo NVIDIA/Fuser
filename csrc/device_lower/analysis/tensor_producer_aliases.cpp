@@ -8,6 +8,7 @@
 #include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/lower2device.h>
 #include <kernel_ir_dispatch.h>
+#include <type.h>
 
 #include <unordered_set>
 
@@ -42,11 +43,8 @@ bool isTrivialExpr(Expr* expr) {
   const std::vector<std::optional<bool>>& in_contig = in->getContiguity();
   const std::vector<std::optional<bool>>& out_contig = out->getContiguity();
 
-  // TODO: Cache this IdModel build it only once, if needed, to prevent building
-  // it for every G->G op in the Fusion.
-  IdModel id_model(in->fusion(), /*build_graphs=*/false);
-  id_model.buildExactGraph();
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
 
   while (true) {
     while (in_pos < in_alloc.size() &&
