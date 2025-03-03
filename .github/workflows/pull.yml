@@ -35,7 +35,6 @@ jobs:
             }"
           }
 
-          send_status "nvfuser-ci/build_image_17"
           send_status "nvfuser-ci/build_image_20"
 
   pr-agent-tools:
