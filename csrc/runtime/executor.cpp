@@ -173,6 +173,7 @@ void KernelExecutor::compile(
     CompileParams compile_params,
     SchedulerType scheduler_type) {
   FUSER_PERF_SCOPE("KernelExecutor::compile");
+
   NVF_ERROR(
       supported(fusion),
       "KernelExecutor does not support the Fusion provided.");
@@ -661,7 +662,7 @@ void KernelExecutor::initializeExecutorEntry(
 
   ExpressionEvaluator expr_eval =
       executor_utils::bindInputs(args, compiled_kernel_->kernel());
-  // expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
+
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
@@ -835,57 +836,16 @@ void KernelExecutor::computeArgs(
   const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
   int64_t buffer_info_idx = 0;
   for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
-    std::vector<std::byte> bytes;
     if (args[arg_idx].is<at::Tensor>() &&
         args[arg_idx].as<at::Tensor>().is_cuda()) {
-      auto tensor = args[arg_idx].as<at::Tensor>();
-
-      auto data = tensor.data_ptr();
       const auto& buffer_info =
-          linear_buffer_info_getter(entry, buffer_info_idx);
-      const auto& logical_size = buffer_info.shape_info.logical_sizes.size() ==
-              buffer_info.shape_info.unsharded_logical_sizes.size()
-          ? buffer_info.shape_info.unsharded_logical_sizes
-          : buffer_info.shape_info.logical_sizes;
-      const auto& alloc_stride = buffer_info.shape_info.allocation_strides;
-      buffer_info_idx++;
-      // special handle for TensorMetaData so that CPU overhead is minimal.
-      if (idx_type == PrimDataType::Int) {
-        bytes.reserve(
-            sizeof(void*) + sizeof(int64_t) * logical_size.size() +
-            sizeof(int64_t) * alloc_stride.size());
-        bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
-        bytes.insert(
-            bytes.end(),
-            (std::byte*)logical_size.data(),
-            (std::byte*)logical_size.data() +
-                sizeof(int64_t) * logical_size.size());
-        bytes.insert(
-            bytes.end(),
-            (std::byte*)alloc_stride.data(),
-            (std::byte*)alloc_stride.data() +
-                sizeof(int64_t) * alloc_stride.size());
-      } else {
-        bytes.reserve(
-            sizeof(void*) + sizeof(int32_t) * logical_size.size() +
-            sizeof(int32_t) * alloc_stride.size());
-        bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
-        std::vector<int32_t> logical_size32(
-            logical_size.begin(), logical_size.end());
-        bytes.insert(
-            bytes.end(),
-            (std::byte*)logical_size32.data(),
-            (std::byte*)logical_size32.data() +
-                sizeof(int32_t) * logical_size32.size());
-        std::vector<int32_t> alloc_stride32(
-            alloc_stride.begin(), alloc_stride.end());
-        bytes.insert(
-            bytes.end(),
-            (std::byte*)alloc_stride32.data(),
-            (std::byte*)alloc_stride32.data() +
-                sizeof(int32_t) * alloc_stride32.size());
-      }
-      entry.args[arg_idx] = bytes;
+          linear_buffer_info_getter(entry, buffer_info_idx++);
+      entry.args[arg_idx] = tensorToBytes(
+          args[arg_idx],
+          buffer_info.shape_info.logical_sizes,
+          buffer_info.shape_info.allocation_strides,
+          idx_type,
+          buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     } else {
       if (args[arg_idx].is<at::Tensor>()) {
@@ -996,6 +956,8 @@ KernelArgumentHolder resolveRNGSeed(
 }
 } // namespace
 
+// TODO: Reduce bindings to only those necessaary to resolve missing params.
+// TODO: Check if this could be reused to also resolve dynamic aliases.
 KernelArgumentHolder KernelExecutor::resolveTMA(
     KernelExecutorEntry& entry,
     const KernelArgumentHolder& args) const {
@@ -1018,7 +980,9 @@ KernelArgumentHolder KernelExecutor::resolveTMA(
   }
 
   for (const auto& intermediate_entry : entry.intermediates) {
-    expr_eval.bind(intermediate_entry.tv, args[arg_idx++]);
+    if (args[arg_idx].hasValue()) {
+      expr_eval.bind(intermediate_entry.tv, args[arg_idx++]);
+    }
   }
 
   KernelArgumentHolder resolved_args;
@@ -1045,11 +1009,6 @@ KernelArgumentHolder KernelExecutor::run(
     sprof.scheduler(toString(compiledKernel()->schedulerType()));
     FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
     sprof.startKernel();
-  }
-
-  ExpressionEvaluator expr_eval;
-  if (has_dynamic_alias_ || has_tma_) {
-    expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
   }
 
   NVF_ERROR(isCompiled());
@@ -1120,7 +1079,12 @@ KernelArgumentHolder KernelExecutor::run(
         args,
         has_dynamic_alias_);
     if (has_dynamic_alias_) {
-      // TODO: Make sure there's a dynamic alias test.
+      ExpressionEvaluator expr_eval;
+      if (has_dynamic_alias_ || has_tma_) {
+        expr_eval =
+            executor_utils::bindInputs(args, compiled_kernel_->kernel());
+      }
+
       for (const auto i :
            c10::irange(compiled_kernel_->kernel()->outputs().size())) {
         auto param = compiled_kernel_->kernel()->outputs()[i];

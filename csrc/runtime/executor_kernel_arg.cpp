@@ -287,49 +287,8 @@ std::vector<std::byte> polymorphicValueToBytes(
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(StructHandle)");
     std::vector<std::byte> buffer;
     if (argument.as<StructHandle>().is<TensorMetaData>()) {
-      auto& data = argument->*&TensorMetaData::data;
-      auto& logical_size = argument->*&TensorMetaData::logical_size;
-      auto& alloc_stride = argument->*&TensorMetaData::alloc_stride;
-
-      // special handle for TensorMetaData so that CPU overhead is minimal.
-      if (index_type == PrimDataType::Int) {
-        buffer.reserve(
-            sizeof(void*) + sizeof(int64_t) * logical_size.size() +
-            sizeof(int64_t) * alloc_stride.size());
-        buffer.insert(
-            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)logical_size.data(),
-            (std::byte*)logical_size.data() +
-                sizeof(int64_t) * logical_size.size());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)alloc_stride.data(),
-            (std::byte*)alloc_stride.data() +
-                sizeof(int64_t) * alloc_stride.size());
-      } else {
-        buffer.reserve(
-            sizeof(void*) + sizeof(int32_t) * logical_size.size() +
-            sizeof(int32_t) * alloc_stride.size());
-        buffer.insert(
-            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
-        std::vector<int32_t> logical_size32(
-            logical_size.begin(), logical_size.end());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)logical_size32.data(),
-            (std::byte*)logical_size32.data() +
-                sizeof(int32_t) * logical_size32.size());
-        std::vector<int32_t> alloc_stride32(
-            alloc_stride.begin(), alloc_stride.end());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)alloc_stride32.data(),
-            (std::byte*)alloc_stride32.data() +
-                sizeof(int32_t) * alloc_stride32.size());
-      }
-      return buffer;
+      NVF_THROW(
+          "Don't send tensor metadata to this function directly, use tensorToBytes.");
     } else {
       const auto& dtype_ = std::get<StructType>(dtype.type);
       for (const auto& field : dtype_.fields) {
@@ -348,6 +307,60 @@ std::vector<std::byte> polymorphicValueToBytes(
     NVF_THROW(
         "Cannot convert ", argument.type().name(), " to kernel argument data.");
   }
+}
+
+std::vector<std::byte> tensorToBytes(
+    const PolymorphicValue& argument,
+    const std::vector<int64_t>& logical_sizes,
+    const std::vector<int64_t>& alloc_strides,
+    PrimDataType idx_type,
+    const std::vector<int64_t>& unsharded_logical_sizes) {
+  std::vector<std::byte> bytes;
+  NVF_ERROR(
+      argument.is<at::Tensor>() && argument.as<at::Tensor>().is_cuda(),
+      "Argument is not a CUDA tensor.");
+  auto tensor = argument.as<at::Tensor>();
+  auto data = tensor.data_ptr();
+
+  const auto& size_to_use =
+      logical_sizes.size() == unsharded_logical_sizes.size()
+      ? unsharded_logical_sizes
+      : logical_sizes;
+  // special handle for TensorMetaData so that CPU overhead is minimal.
+  if (idx_type == PrimDataType::Int) {
+    bytes.reserve(
+        sizeof(void*) + sizeof(int64_t) * size_to_use.size() +
+        sizeof(int64_t) * alloc_strides.size());
+    bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)size_to_use.data(),
+        (std::byte*)size_to_use.data() + sizeof(int64_t) * size_to_use.size());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)alloc_strides.data(),
+        (std::byte*)alloc_strides.data() +
+            sizeof(int64_t) * alloc_strides.size());
+  } else {
+    bytes.reserve(
+        sizeof(void*) + sizeof(int32_t) * size_to_use.size() +
+        sizeof(int32_t) * alloc_strides.size());
+    bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
+    std::vector<int32_t> logical_size32(size_to_use.begin(), size_to_use.end());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)logical_size32.data(),
+        (std::byte*)logical_size32.data() +
+            sizeof(int32_t) * logical_size32.size());
+    std::vector<int32_t> alloc_stride32(
+        alloc_strides.begin(), alloc_strides.end());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)alloc_stride32.data(),
+        (std::byte*)alloc_stride32.data() +
+            sizeof(int32_t) * alloc_stride32.size());
+  }
+  return bytes;
 }
 
 int64_t computeBytes(const KernelArgumentHolder& args) {

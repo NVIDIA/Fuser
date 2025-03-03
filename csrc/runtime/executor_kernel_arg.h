@@ -220,10 +220,20 @@ class NVF_API KernelArgumentHolder {
   std::optional<size_t> cache_id_ = std::nullopt;
 };
 
+// Used to convert a polymorphic value to a byte vector. Do not use for CUDA
+// Tensors, use tensorToBytes instead.
 std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type);
+
+// Used to convert a CUDA tensor to a byte vector.
+std::vector<std::byte> tensorToBytes(
+    const PolymorphicValue& argument,
+    const std::vector<int64_t>& logical_sizes,
+    const std::vector<int64_t>& allocation_strides,
+    PrimDataType idx_type,
+    const std::vector<int64_t>& unsharded_logical_sizes = {});
 
 int64_t computeBytes(const KernelArgumentHolder& args);
 
