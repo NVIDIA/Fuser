@@ -528,10 +528,12 @@ void scheduleLoopDomainsBy(
     Direction replay_dir_tv = Direction::Undefined;
     if (replay_dir != Direction::Backward &&
         input_ids.size() == transform->inputs().size()) {
+      NVF_ERROR(output_ids.empty());
       replay_dir_tv = Direction::Forward;
     } else if (
         replay_dir != Direction::Forward &&
         output_ids.size() == transform->outputs().size()) {
+      NVF_ERROR(input_ids.empty());
       replay_dir_tv = Direction::Backward;
     } else {
       // Replay not possible since none of inputs nor outputs are connected with
