@@ -99,10 +99,22 @@ bool isTrivialExpr(Expr* expr) {
 } // namespace
 
 void findTensorProducerAliases(Fusion* fusion) {
+  // First, find any inputs that have been aliased as an output. Since we don't
+  // currently guarantee that all reads of the aliased global intermediate
+  // tensors are performed before the aliased output is written, we must exclude
+  // aliases to these inputs.
+  std::unordered_set<TensorView*> inputs_aliased_by_outputs;
+  for (Val* v : fusion->outputs()) {
+    if (auto* io_alias_target =
+            dynamic_cast<TensorView*>(fusion->getOutputAlias(v).aliased_io)) {
+      inputs_aliased_by_outputs.insert(io_alias_target);
+    }
+  }
   for (Expr* expr : fusion->exprs()) {
-    if (isTrivialExpr(expr)) {
-      GpuLower::current()->aliasTensorProducer(
-          ir_utils::getTvOutput(expr), ir_utils::getTvInput(expr));
+    TensorView* in = ir_utils::getTvInput(expr);
+    if (in != nullptr && inputs_aliased_by_outputs.count(in) == 0 &&
+        isTrivialExpr(expr)) {
+      GpuLower::current()->aliasTensorProducer(ir_utils::getTvOutput(expr), in);
     }
   }
 }
