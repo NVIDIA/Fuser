@@ -70,7 +70,6 @@ struct KernelExecutorEntry {
   // If an output is aliased to an input, this will hold the index of the
   // input that it is aliased to. If not aliased, it will hold -1.
   std::vector<int> output_aliased_to_input;
-  std::vector<int> output_aliased_to_output;
   // Temporary work buffers and intemediate global-memory tensors
   std::vector<GlobalBufferInfo> intermediates;
   std::vector<GlobalBufferInfo> inputs;

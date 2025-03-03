@@ -236,7 +236,6 @@ table KernelExecutorEntry {
   intermediates : [GlobalBufferInfo];
   inputs : [GlobalBufferInfo];
   output_aliased_to_input : [int];
-  output_aliased_to_output : [int];
 }
 
 // =====================================================================================

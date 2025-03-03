@@ -197,7 +197,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
   return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
 }
 
-bool fill_allocation_with_nan_ = false;
+static bool fill_allocation_with_nan_ = false;
 
 bool shouldFillAllocationWithNan() {
   return fill_allocation_with_nan_;

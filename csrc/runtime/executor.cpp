@@ -763,7 +763,6 @@ void KernelExecutor::initializeExecutorEntry(
   }
 
   std::vector<int> output_aliased_to_input(output_info.size(), -1);
-  std::vector<int> output_aliased_to_output(output_info.size(), -1);
 
   for (auto output_idx : c10::irange(output_info.size())) {
     auto out_info = output_info[output_idx];
@@ -783,19 +782,12 @@ void KernelExecutor::initializeExecutorEntry(
     } else {
       auto aliased_out = std::find(
           fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
-      NVF_ERROR(aliased_out != fusion->outputs().end(), "Alias not found");
-      output_aliased_to_output[output_idx] =
-          std::distance(fusion->outputs().begin(), aliased_out);
-
       NVF_ERROR(
-          output_aliased_to_output[output_idx] < (int)fusion->outputs().size(),
-          "Alias found but is not an output or input of the fusion. ",
-          "Aliased to tv: ",
-          aliased_to->toString(),
-          "\nFusion Inputs:\n  ",
-          fusion->inputs(),
-          "\nFusion Outputs:\n  ",
-          fusion->outputs());
+          aliased_out != fusion->outputs().end(),
+          "Could not find the alias tensor of: ",
+          out_info.tv->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
       NVF_THROW(
           "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
           "Output: ",
@@ -811,7 +803,6 @@ void KernelExecutor::initializeExecutorEntry(
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
   executor_entry.output_aliased_to_input = output_aliased_to_input;
-  executor_entry.output_aliased_to_output = output_aliased_to_output;
   executor_entry.intermediates = intermediates;
   executor_entry.inputs = input_info;
   executor_entry.init = true;
@@ -1681,8 +1672,7 @@ flatbuffers::Offset<serde::KernelExecutorEntry> KernelExecutor::serialize(
       &outputs_fb,
       &intermediates_fb,
       &inputs_fb,
-      &data.output_aliased_to_input,
-      &data.output_aliased_to_output);
+      &data.output_aliased_to_input);
 }
 
 flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
@@ -1801,10 +1791,6 @@ KernelExecutorEntry KernelExecutor::deserialize(
 
   for (auto output_aliased_to_input : *buffer->output_aliased_to_input()) {
     entry.output_aliased_to_input.push_back(output_aliased_to_input);
-  }
-
-  for (auto output_aliased_to_output : *buffer->output_aliased_to_output()) {
-    entry.output_aliased_to_output.push_back(output_aliased_to_output);
   }
 
   return entry;
