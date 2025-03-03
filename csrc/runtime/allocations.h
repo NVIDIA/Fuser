@@ -80,7 +80,7 @@ TensorShapeInfo inferTensorShapes(
 //
 // If dynamic_evaluate is true, then any argument with AllocationType::Evaluate
 // will not be populated, it will be filled with std::monostate.
-KernelArgumentHolder allocateKernelOutputs(
+KernelArgumentHolder allocateOutputs(
     const Fusion* fusion,
     const std::vector<GlobalBufferInfo>& output_infos,
     const std::vector<int>& output_alias_to_input_map,
@@ -95,11 +95,5 @@ std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
     const std::vector<Val*>& fusion_outputs);
-
-std::vector<GlobalBufferInfo> getInputBufferInfos(
-    ExpressionEvaluator& expr_eval,
-    DataType index_dtype,
-    const std::vector<Val*>& fusion_outputs,
-    const std::vector<at::Tensor>& inputs);
 
 } // namespace nvfuser

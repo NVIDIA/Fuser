@@ -110,7 +110,7 @@ KernelArgumentHolder HostIrExecutor::run(
     output_args.resize(host_ir_container_->outputs().size());
     auto output_alias_to_input =
         executor_utils::getOutputAliasToInputMap(host_ir_container_.get());
-    output_args = allocateKernelOutputs(
+    output_args = allocateOutputs(
         host_ir_container_.get(),
         output_infos,
         output_alias_to_input,

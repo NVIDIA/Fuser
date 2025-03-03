@@ -254,7 +254,7 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
-KernelArgumentHolder allocateKernelOutputs(
+KernelArgumentHolder allocateOutputs(
     const Fusion* fusion,
     const std::vector<GlobalBufferInfo>& output_infos,
     const std::vector<int>& output_alias_to_input_map,
@@ -687,72 +687,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
   // `transformFromAllocationToLogical`
   meta_tensor = transformFromAllocationToLogical(meta_tensor, tv, expr_eval);
   return {meta_tensor.sizes().vec(), meta_tensor.strides().vec()};
-}
-
-std::vector<GlobalBufferInfo> getInputBufferInfos(
-    ExpressionEvaluator& expr_eval,
-    DataType index_dtype,
-    const std::vector<Val*>& fusion_inputs,
-    const std::vector<at::Tensor>& inputs) {
-  NVF_ERROR(
-      fusion_inputs.size() == inputs.size(),
-      "Mismatch in inputs provided, expected ",
-      fusion_inputs.size(),
-      " but got ",
-      inputs.size());
-  std::vector<GlobalBufferInfo> buffer_infos;
-  for (auto i : c10::irange(fusion_inputs.size())) {
-    GlobalBufferInfo buffer_info;
-    buffer_info.tv = fusion_inputs[i]->as<TensorView>();
-    auto logical_sizes = inputs[i].sizes().vec();
-    auto logical_strides = inputs[i].strides().vec();
-    TensorShapeInfo shape_info;
-    shape_info.logical_sizes = logical_sizes;
-    shape_info.logical_strides = logical_strides;
-    if (isSharded(buffer_info.tv)) {
-      shape_info.unsharded_logical_sizes =
-          unshardedSizes(buffer_info.tv, logical_sizes);
-    }
-    buffer_info.shape_info = shape_info;
-    buffer_info.type = inputs[i].scalar_type();
-
-    // TODO: Handle input allocation domains that aren't permutes
-    // of the logical domain
-    if (buffer_info.tv->hasAllocation()) {
-      auto logical_domain =
-          TensorDomain::noReductions(buffer_info.tv->getLogicalDomain());
-      auto allocation_domain = TensorDomain::noReductions(
-          buffer_info.tv->getMaybeAllocationDomain());
-      std::unordered_map<int64_t, int64_t> logical_to_allocation_map;
-      for (auto logical_idx : c10::irange(logical_domain.size())) {
-        auto allocation_id = std::find(
-            allocation_domain.begin(),
-            allocation_domain.end(),
-            logical_domain[logical_idx]);
-        NVF_ERROR(
-            allocation_id != allocation_domain.end(),
-            "Logical domain and allocation domain have different sets of IterDomains, this is not supported yet.");
-        logical_to_allocation_map[(int64_t)logical_idx] =
-            std::distance(allocation_domain.begin(), allocation_id);
-      }
-      std::vector<int64_t> allocation_sizes(allocation_domain.size());
-      std::vector<int64_t> allocation_strides(allocation_domain.size());
-      for (auto i : c10::irange(allocation_domain.size())) {
-        allocation_sizes[i] =
-            (int64_t)logical_sizes[logical_to_allocation_map[i]];
-        allocation_strides[i] =
-            (int64_t)logical_strides[logical_to_allocation_map[i]];
-      }
-      buffer_info.shape_info.allocation_sizes = allocation_sizes;
-      buffer_info.shape_info.allocation_strides = allocation_strides;
-    } else {
-      buffer_info.shape_info.allocation_sizes = logical_sizes;
-      buffer_info.shape_info.allocation_strides = logical_strides;
-    }
-
-    buffer_infos.emplace_back(buffer_info);
-  }
-  return buffer_infos;
 }
 
 TensorShapeInfo inferTensorShapes(

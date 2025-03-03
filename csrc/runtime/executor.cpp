@@ -1246,7 +1246,7 @@ KernelArgumentHolder KernelExecutor::run(
 
   // only allocate outputs when not given
   if (output_args.empty()) {
-    output_args = allocateKernelOutputs(
+    output_args = allocateOutputs(
         compiled_kernel_->kernel(),
         executor_entry->outputs,
         executor_entry->output_aliased_to_input,
