@@ -139,7 +139,7 @@ TEST_P(HostIrTest, SingleFusion) {
   auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), t0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -236,7 +236,7 @@ TEST_P(HostIrTest, TwoFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -365,7 +365,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0_0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(t2_2, outputs.at(0)));
+  GTEST_EXPECT_TRUE(torch::allclose(t2_2, outputs[0].as<at::Tensor>()));
 }
 
 // This unit test the for-loop IR by implementing a program that could be
@@ -668,7 +668,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
   // validate the obtained results
   for (int i = 0; i < n_iterations; i++) {
-    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs.at(i)));
+    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[i].as<at::Tensor>()));
   }
   EXPECT_NE(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
@@ -741,7 +741,7 @@ TEST_P(SliceHostIrTest, SlicingTensor) {
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   std::vector<at::indexing::TensorIndex> ranges_aten(
@@ -799,7 +799,7 @@ TEST_F(MatmulHostIrTest, HostIr) {
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}, {hie.inputs().at(1), t1}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   auto ref_output = at::matmul(t0, t1);
@@ -879,7 +879,7 @@ TEST_F(LinearHostIrTest, HostIr) {
       {hie.inputs().at(1), weight_at},
       {hie.inputs().at(2), bias_at}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   auto ref_output = at::linear(in_at, weight_at, bias_at);
@@ -913,9 +913,9 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  auto in_at = at::randn({B, M, K}, options);
-  auto weight_at = at::randn({N, K}, options);
-  auto bias_at = at::randn({N}, options);
+  auto in_at = at::randint(5, {B, M, K}, options);
+  auto weight_at = at::randint(5, {N, K}, options);
+  auto bias_at = at::randint(5, {N}, options);
   auto out_at = at::empty({B, M, N}, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), in_at},
@@ -967,7 +967,7 @@ TEST_P(SelectHostIrTest, SelectingTensor) {
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), t0}};
 
-  auto output = hie.runWithInput(concrete_input_buffers).at(0);
+  auto output = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
 
   // validate
   auto ref_output = t0.select(dim, index);
@@ -1024,8 +1024,8 @@ TEST_F(ViewTest, SimpleReshape) {
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate
-  EXPECT_TRUE(outputs[0].equal(at::reshape(t0, {kX * kY})));
-  EXPECT_TRUE(outputs[1].equal(at::reshape(t0, {kY, kX})));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(at::reshape(t0, {kX * kY})));
+  EXPECT_TRUE(outputs[1].as<at::Tensor>().equal(at::reshape(t0, {kY, kX})));
 }
 
 using ReductionHostIrTest = NVFuserTest;
@@ -1053,7 +1053,7 @@ TEST_F(ReductionHostIrTest, Sum) {
   auto outputs = hie.runWithInput(concrete_input_buffers);
 
   // validate
-  EXPECT_TRUE(outputs[0].equal(at::sum(t0, 0)));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(at::sum(t0, 0)));
 }
 
 using IfThenElseTest = NVFuserTest;
@@ -1108,7 +1108,7 @@ TEST_F(IfThenElseTest, HostIr) {
 
     // validate
     auto ref_output = at::ones_like(at_buffer) + (1 + (int)boolean);
-    EXPECT_TRUE(outputs.at(0).equal(ref_output));
+    EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(ref_output));
   }
 }
 
@@ -1130,7 +1130,7 @@ TEST_F(AllocationTest, HostIr) {
 
   auto outputs = hie.runWithInput({});
 
-  EXPECT_EQ(sizes, outputs.at(0).sizes());
+  EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
 }
 
 TEST_F(AllocationTest, inHostForLoop) {
@@ -1167,7 +1167,7 @@ TEST_F(AllocationTest, inHostForLoop) {
 
   auto outputs = hie.runWithInput({});
 
-  EXPECT_EQ(sizes, outputs.at(0).sizes());
+  EXPECT_EQ(sizes, outputs[0].as<at::Tensor>().sizes());
 }
 
 } // namespace hir

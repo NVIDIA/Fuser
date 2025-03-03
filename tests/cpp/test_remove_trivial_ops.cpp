@@ -39,6 +39,91 @@ class KernelContainsExpr : kir::IrVisitor {
   bool has_op_ = false;
 };
 
+// Test that we remove a trivial gmem->gmem set at lowering unless it is an
+// alias.
+TEST_F(RemoveTrivialOpsTest, Set) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 3});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = neg(tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 3}, options);
+  std::vector<c10::IValue> inputs{t0};
+
+  {
+    // In this case we do not remove the squeeze since it is G->L not G->G
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+
+  {
+    // Setting tv1 to Global means the LoadStoreOp is now G->G. This means that
+    // when we lower it, we will be able to safely remove it
+    tv1->setMemoryType(MemoryType::Global);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_FALSE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    EXPECT_EQ(kernel->summary().global_allocations.size(), 0)
+        << "Expected to have no intermediate global allocations";
+    auto outputs = ke.run(inputs);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+
+  {
+    NVF_ERROR(tv1->getMemoryType() == MemoryType::Global);
+    // Transpose the input's allocation domain
+    tv0->setAllocationDomain(
+        {
+            tv0->getLogicalDomain().at(1),
+            tv0->getLogicalDomain().at(0),
+        },
+        true);
+
+    KernelExecutor ke;
+
+    std::vector<c10::IValue> transposed_inputs{at::randn({3, 2}, options).t()};
+    ke.compile(&fusion, transposed_inputs);
+    // We do not remove the set because the allocation domains do not match
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    EXPECT_EQ(kernel->summary().global_allocations.size(), 1)
+        << "Expected to have one intermediate global allocation";
+    auto outputs = ke.run(transposed_inputs);
+    testValidate(&fusion, outputs, transposed_inputs, __LINE__, __FILE__);
+  }
+
+  {
+    // Reset tv0's allocation domain but add a new output which reuses the
+    // buffer of the input tv0
+    tv0->setAllocationDomain(tv0->getLogicalDomain(), true);
+    auto* tv3 = exp(tv2);
+    fusion.addOutput(tv3);
+    fusion.aliasOutputToInput(tv3, tv0, AllocationType::ReuseBuffer);
+
+    KernelExecutor ke;
+    ke.compile(&fusion, inputs);
+    // We do not remove the squeeze because the input is target of an io alias
+    const kir::Kernel* kernel = ke.compiledKernel()->kernel();
+    EXPECT_TRUE(KernelContainsExpr<LoadStoreOp>::check(kernel));
+    // Run with copy of inputs since we will overwrite the original inputs,
+    // complicating validation
+    std::vector<c10::IValue> inputs_copy{t0.clone()};
+    auto outputs = ke.run(inputs_copy);
+    testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  }
+}
+
 // Test that we remove a trivial gmem->gmem broadcast at lowering
 TEST_F(RemoveTrivialOpsTest, Broadcast) {
   Fusion fusion;
@@ -87,7 +172,7 @@ TEST_F(RemoveTrivialOpsTest, Broadcast) {
             tv0->getLogicalDomain().at(1),
             tv0->getLogicalDomain().at(0),
         },
-        {true, true});
+        true);
 
     KernelExecutor ke;
 
@@ -105,7 +190,7 @@ TEST_F(RemoveTrivialOpsTest, Broadcast) {
 
   {
     // Reset tv0's allocation domain but set tv1 as output
-    tv0->setAllocationDomain(tv0->getLogicalDomain(), {true, true});
+    tv0->setAllocationDomain(tv0->getLogicalDomain(), true);
     fusion.addOutput(tv1);
 
     KernelExecutor ke;
@@ -146,7 +231,7 @@ TEST_F(RemoveTrivialOpsTest, Squeeze) {
   }
 
   {
-    // Setting tv1 to Global means the BroadcastOp is now G->G. This means that
+    // Setting tv1 to Global means the SqueezeOp is now G->G. This means that
     // when we lower it, we will be able to safely remove it
     tv1->setMemoryType(MemoryType::Global);
 
@@ -169,7 +254,7 @@ TEST_F(RemoveTrivialOpsTest, Squeeze) {
             tv0->getLogicalDomain().at(1),
             tv0->getLogicalDomain().at(0),
         },
-        {true, std::nullopt, true});
+        true);
 
     KernelExecutor ke;
 
@@ -188,8 +273,7 @@ TEST_F(RemoveTrivialOpsTest, Squeeze) {
 
   {
     // Reset tv0's allocation domain but set tv1 as output
-    tv0->setAllocationDomain(
-        tv0->getLogicalDomain(), {true, std::nullopt, true});
+    tv0->setAllocationDomain(tv0->getLogicalDomain(), true);
     fusion.addOutput(tv1);
 
     KernelExecutor ke;
@@ -225,7 +309,7 @@ TEST_F(RemoveTrivialOpsTest, Permute) {
           tv1->getLogicalDomain().at(1),
           tv1->getLogicalDomain().at(0),
       },
-      {true, true});
+      true);
 
   {
     // In this case we do not remove the permute since it is G->L not G->G
@@ -254,7 +338,7 @@ TEST_F(RemoveTrivialOpsTest, Permute) {
 
   {
     NVF_ERROR(tv1->getMemoryType() == MemoryType::Global);
-    tv1->setAllocationDomain(tv1->getLogicalDomain(), {true, true});
+    tv1->setAllocationDomain(tv1->getLogicalDomain(), true);
 
     KernelExecutor ke;
 
@@ -276,7 +360,7 @@ TEST_F(RemoveTrivialOpsTest, Permute) {
             tv1->getLogicalDomain().at(1),
             tv1->getLogicalDomain().at(0),
         },
-        {true, true});
+        true);
     fusion.addOutput(tv1);
 
     KernelExecutor ke;
@@ -344,7 +428,7 @@ TEST_F(RemoveTrivialOpsTest, BroadcastSqueeze) {
             tv0->getLogicalDomain().at(1),
             tv0->getLogicalDomain().at(0),
         },
-        {true, true});
+        true);
 
     KernelExecutor ke;
 
@@ -363,7 +447,7 @@ TEST_F(RemoveTrivialOpsTest, BroadcastSqueeze) {
 
   {
     // Reset tv0's allocation domain but set tv1 as output
-    tv0->setAllocationDomain(tv0->getLogicalDomain(), {true, true});
+    tv0->setAllocationDomain(tv0->getLogicalDomain(), true);
     fusion.addOutput(tv1);
 
     KernelExecutor ke;

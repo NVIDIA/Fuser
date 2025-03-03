@@ -33,7 +33,7 @@ MultiDeviceExecutor::MultiDeviceExecutor(
       std::move(hic), &comm, params.executor);
 }
 
-std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
+KernelArgumentHolder MultiDeviceExecutor::runWithInput(
     const KernelArgumentHolder& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)

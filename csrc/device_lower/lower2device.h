@@ -418,7 +418,9 @@ class GpuLower : public NonCopyable {
   TensorMemoryInfo tmem_info_;
 
   // Track TensorViews that will be aliased to their producers because of
-  // trivial ops and scheduling such that the same index is used.
+  // trivial ops and scheduling such that the same index is used. Note that the
+  // alias does not need to be a direct producer in case there is a chain of
+  // trivial ops like permute->bcast->set.
   std::unordered_map<TensorView*, TensorView*> tensor_producer_alias_map_;
 
   // Keep track of validations needed at runtime. For example, a pair of
