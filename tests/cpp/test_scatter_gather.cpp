@@ -820,7 +820,9 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
 //
 // NOTE: Temporarily disabled as it results in non-deterministic
 // validaiton errors (https://github.com/NVIDIA/Fuser/issues/4003).
-TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
+TEST_F(
+    ScatterGatherTest,
+    DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
