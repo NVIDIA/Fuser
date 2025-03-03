@@ -3379,81 +3379,49 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // allows for inlining iterDomains that are not identical, causing an
   // assertion in indexing pass.
 
-  // Move data from tv0_reg to tv1_smem using 128 threads - StMatrix
+  // Move data from tv0_reg to tv1_smem using StMatrix
   AbstractTensor tv1_smem_abstract_tensor = scheduleLdStMatrix(tv1_smem);
+  // Create tma store allocation domain with swizzle
   if (output_swizzle != MmaInputSmemSwizzle::None) {
-    // Create tma store allocation domain with swizzle
     mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
   }
   tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
-  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
-  //! niiii)(8))
+  // (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
+  // niiii)(8))
 
+  // Use ParallelType::TIDx to launch four StMatrix.x4 in parallel.
+  // Use ParallelType::Vectorize because StMatrix.x4 stores eight elements per
+  // thread per operation.
   tv1_smem->axis(-2)->parallelize(ParallelType::TIDx);
-  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
-  //! miio * niiii)(8))
   tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-  //! (GM, GN, mo(2)(TDY), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio
-  //! * miio * niiii)(8)(V))
+  // (GM, GN, mo(2)(TDY), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio
+  // * miio * niiii)(8)(V))
 
   // ===========================================================================
 
-  // TODO Add ldmatrix scheduling
-  // Move data from tv0_smem to tv0_reg using 128 threads - LdMatrix
-  // Split TMA tile (128, 256) by (64, 64)
-  //! (GM, GN, 2, 64, 256)
-  tv0_reg->split(-1, 64);
-  tv0_reg->reorder({{-2, -3}, {-3, -2}});
-  //! (GM, GN, mo(2), no(4), mi(64), ni(64))
-
-  // Split (64, 64) tile by (16, 16) ldst_matrix .x4
-  tv0_reg->split(-2, 16);
-  tv0_reg->split(-1, 16);
-  tv0_reg->reorder({{-2, -3}, {-3, -2}});
-  //! (GM, GN, mo(2), no(4), mio(4), nio(4), mii(16), nii(16))
-
-  // Construct register layout for ldmatrix and stmatrix
-  // Split (16, 16) ldst_matrix.x4 by (8, 8) ldst_matrix
-  // Split inner-dim 8  by 2
-  tv0_reg->split(-2, 8);
-  tv0_reg->split(-1, 8);
-  tv0_reg->split(-1, 2);
-  tv0_reg->reorder({{-5, -2}, {-4, -5}, {-2, -4}});
-  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), niio(2),
-  //! miio(2), niiii(2))
-
-  // Merge registers into single iterDomain
-  tv0_reg->merge(-2, -1);
-  tv0_reg->merge(-2, -1);
-  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), (niio * miio *
-  //! niiii)(8))
-
-  tv0_reg->reorder({{-5, -4}, {-4, -5}});
-  tv0_reg->merge(-4, -3);
-  tv0_reg->merge(-3, -2);
-  //! (GM, GN, mo(2), no(4), nio(4), (mio * miii * niiio)(128), (niio * miio *
-  //! niiii)(8))
-
-  // Hard-coded shared memory index expects a single serial IterDomain
-  tv0_reg->merge(-4, -3);
-  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
-  //! niiii)(8))
-
-  // Apply parallelization
-  tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
-  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
-  //! miio * niiii)(8))
-  tv0_reg->axis(-1)->parallelize(ParallelType::Vectorize);
-  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
-  //! miio * niiii)(8)(V))
+  // Move data from tv0_reg to tv1_smem using LdMatrix
+  AbstractTensor tv0_reg_abstract_tensor = scheduleLdStMatrix(tv0_reg);
+  tv0_reg->setLoopDomain(tv0_reg_abstract_tensor.as<IterDomain*>());
+  // (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
+  // niiii)(8))
 
   // Set allocation domain according to loop domain
   tv0_reg->setAllocationDomain(
       tv0_reg->getLoopDomain(), /*new_contiguity=*/true);
 
+  // Use ParallelType::TIDx to launch four LdMatrix.x4 in parallel.
+  // Use ParallelType::Vectorize because LdMatrix.x4 stores eight elements per
+  // thread per operation.
+  tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
+  tv0_reg->axis(-1)->parallelize(ParallelType::Vectorize);
+  // (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
+  // miio * niiii)(8)(V))
+
   // ===========================================================================
 
   inlineMost();
+
+  // ===========================================================================
 
   constexpr int dim0 = 8192, dim1 = 8192;
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
