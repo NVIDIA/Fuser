@@ -55,7 +55,7 @@
 #     to identify the cuda toolkit version
 #
 #   --cpp=STANDARD
-#     Specify the C++ standard to use for building nvfuser. The default is C++17.
+#     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
 
 import multiprocessing
