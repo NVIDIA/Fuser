@@ -3206,6 +3206,81 @@ TEST_F(TMATest, CpAsyncBulk1D) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
+namespace {
+// Assume the input TensorView is block tiled. e.g., The last two iterDomains
+// are the CTA tile except for k dimension.
+AbstractTensor scheduleLdStMatrix(TensorView* tv) {
+  // The CTA tile is (128, 256).
+  // The TMA box is (64, 64),
+  // The LdStMatrix.x4 tile is (16, 16).
+  // The core matrix for wgmma and LdStMatrix is (8, 8).
+
+  AbstractTensor abstract_tensor(tv->getLoopDomain());
+  // (GM, GN, 2, 64, 256)
+
+  // Split by TMA shared memory box
+  abstract_tensor.split(-1, 64);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, mo(2), no(4), mi(64), ni(64))
+
+  // Split by (16, 16) matrix for LdStMatrix.x4
+  abstract_tensor.split(-2, 16);
+  abstract_tensor.split(-1, 16);
+  abstract_tensor.reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, mo(2), no(4), mio(4), nio(4), mii(16), nii(16))
+
+  // Split (16, 16) matrix into four (8, 8) sub-matrices
+  abstract_tensor.split(-2, 8);
+  abstract_tensor.split(-1, 8);
+
+  // Each register handles two adjacent elements.
+  abstract_tensor.split(-1, 2);
+
+  // The four (8, 8) sub-matrices are traversed in this order to follow the
+  // register layout for wgmma accumulator matrix.
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *   0   *   2   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  // *       *       *
+  // *       *       *
+  // *   1   *   3   *
+  // *       *       *
+  // *       *       *
+  // *****************
+  abstract_tensor.reorder({{-5, -2}, {-4, -5}, {-2, -4}});
+  // (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), niio(2),
+  // miio(2), niiii(2))
+
+  // For an (16, 16) matrix, each register will hold 8 values. The LdStMatrix
+  // instruction will load or store these values with a single instruction. We
+  // remove this serial for-loop from the kernel by merging the last three
+  // iterDomains together and then applying ParallelType::Vectorize.
+  abstract_tensor.merge(-2, -1);
+  abstract_tensor.merge(-2, -1);
+  // (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), (niio * miio *
+  // niiii)(8))
+
+  // Reorder iterDomains so the serial IterDomain for (CTA_N / TMA_N) and
+  // (TMA_N and LDST_N) are adjacent.
+  abstract_tensor.reorder({{-5, -4}, {-4, -5}});
+
+  // Four LdStMatrix.x4 instructions are issued simultaneously to process
+  // (64, 16) tile. Merge mio, miii, and niiio iterDomains together.
+  abstract_tensor.merge(-4, -3);
+  abstract_tensor.merge(-3, -2);
+  // (GM, GN, mo(2), no(4), nio(4), (mio * miii * niiio)(128), (niio * miio *
+  // niiii)(8))
+
+  // Hard-coded shared memory index expects a single serial IterDomain
+  abstract_tensor.merge(-4, -3);
+  return abstract_tensor;
+}
+} // namespace
+
 TEST_F(NVFuserTest, LdStMatrixSet) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   const auto dtype = DataType::BFloat16;
@@ -3305,43 +3380,11 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // assertion in indexing pass.
 
   // Move data from tv0_reg to tv1_smem using 128 threads - StMatrix
-  AbstractTensor tv1_smem_abstract_tensor(tv1_smem->getLoopDomain());
+  AbstractTensor tv1_smem_abstract_tensor = scheduleLdStMatrix(tv1_smem);
   if (output_swizzle != MmaInputSmemSwizzle::None) {
     // Create tma store allocation domain with swizzle
     mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
   }
-
-  // (GM, GN, 2, 64, 256)
-  tv1_smem_abstract_tensor.split(-1, 64);
-  tv1_smem_abstract_tensor.reorder({{-2, -3}, {-3, -2}});
-  //! (GM, GN, mo(2), no(4), mi(64), ni(64))
-
-  tv1_smem_abstract_tensor.split(-2, 16);
-  tv1_smem_abstract_tensor.split(-1, 16);
-  tv1_smem_abstract_tensor.reorder({{-2, -3}, {-3, -2}});
-  //! (GM, GN, mo(2), no(4), mio(4), nio(4), mii(16), nii(16))
-
-  tv1_smem_abstract_tensor.split(-2, 8);
-  tv1_smem_abstract_tensor.split(-1, 8);
-  tv1_smem_abstract_tensor.split(-1, 2);
-  tv1_smem_abstract_tensor.reorder({{-5, -2}, {-4, -5}, {-2, -4}});
-  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), niio(2),
-  //! miio(2), niiii(2))
-
-  // Merge registers into single iterDomain
-  tv1_smem_abstract_tensor.merge(-2, -1);
-  tv1_smem_abstract_tensor.merge(-2, -1);
-  //! (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), (niio * miio *
-  //! niiii)(8))
-
-  tv1_smem_abstract_tensor.reorder({{-5, -4}, {-4, -5}});
-  tv1_smem_abstract_tensor.merge(-4, -3);
-  tv1_smem_abstract_tensor.merge(-3, -2);
-  //! (GM, GN, mo(2), no(4), nio(4), (mio * miii * niiio)(128), (niio * miio *
-  //! niiii)(8))
-
-  // Hard-coded shared memory index expects a single serial IterDomain
-  tv1_smem_abstract_tensor.merge(-4, -3);
   tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
   //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
   //! niiii)(8))
