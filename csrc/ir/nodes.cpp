@@ -2051,8 +2051,6 @@ MmaOp::MmaOp(
   addAttribute(init);
   // ATTR_POS_MACRO
   addDataAttribute(MmaMacro::NoMMA);
-  // ATTR_POS_AXIS_MAPPING
-  addDataAttribute(axis_mapping);
 }
 
 MmaOp::MmaOp(
