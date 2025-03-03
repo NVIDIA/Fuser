@@ -6,9 +6,13 @@
 This implements a simplified version of a Transformer layer in DeepSeek-V3
 (https://arxiv.org/abs/2412.19437). It mimics the Hugging Face implementation
 (https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py)
-but removes many optimizations for simplicity.
+but removes many features and optimizations for simplicity.
 
-Optimizations:
+Missing features:
+- Backprop
+- KV cache
+
+Missing optimizations:
 - Model parallelism, e.g. DP, TP, SP and EP
 - Mixed precision
 - Auxiliary-loss-free load balancing (cf. `e_score_correction_bias` in the HF implementation)
@@ -143,7 +147,6 @@ class MultiheadLatentAttention(nn.Module):
 class SwiGLU(nn.Module):
     def __init__(self, hidden_size: int, intermediate_size: int):
         super().__init__()
-
         self.gate_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
         self.up_proj = nn.Linear(hidden_size, intermediate_size, bias=False)
         self.down_proj = nn.Linear(intermediate_size, hidden_size, bias=False)
@@ -174,10 +177,10 @@ class MixtureOfExperts(nn.Module):
         hidden_states = hidden_states.view(-1, hidden_states.size(-1))
 
         scores = self.gate(hidden_states).sigmoid()
-        topk_weight, topk_ids = scores.topk()
-        topk_weight /= topk_weight.sum(-1)
+        topk_weight, topk_ids = scores.topk(self.config.k)
+        topk_weight /= topk_weight.sum(-1, keepdim=True)
 
-        counts = topk_ids.new_zeros((topk_ids.size(0), config.num_routed_experts))
+        counts = topk_ids.new_zeros((topk_ids.size(0), self.config.num_routed_experts))
         counts.scatter_(1, topk_ids, 1)
         tokens_per_expert = counts.sum(0)
 
@@ -191,7 +194,7 @@ class MixtureOfExperts(nn.Module):
             end_index = start_index + num_tokens
             if num_tokens == 0:
                 continue
-            expert = self.experts[expert_id]
+            expert = self.routed_experts[expert_id]
             expert_out = expert(tokens_sorted_by_expert_id[start_index:end_index])
             outs_per_expert.append(expert_out)
             start_index = end_index
@@ -239,7 +242,7 @@ class Transformer(nn.Module):
 
 def test_transformer_layer():
     config = Config()
-    model = MultiheadLatentAttention(config)
+    model = Transformer(config)
     model.to("cuda").to(torch.bfloat16)
 
     batch_size, seq_len = 1, 4096
