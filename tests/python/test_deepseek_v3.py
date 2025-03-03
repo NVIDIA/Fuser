@@ -22,6 +22,7 @@ Missing optimizations:
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 
@@ -56,8 +57,12 @@ class RotaryPositionEmbedding(nn.Module):
         t = torch.arange(self.max_seq_len, dtype=inv_freq.dtype)
         freqs = torch.outer(t, inv_freq)
         emb = torch.cat((freqs, freqs), dim=-1)
-        self.register_buffer("cos", emb.cos(), persistent=False)
-        self.register_buffer("sin", emb.sin(), persistent=False)
+        self.register_buffer(
+            "cos", emb.cos().to(torch.get_default_dtype()), persistent=False
+        )
+        self.register_buffer(
+            "sin", emb.sin().to(torch.get_default_dtype()), persistent=False
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         _, _, seq_len, head_size = x.size()
@@ -240,10 +245,30 @@ class Transformer(nn.Module):
         return hidden_states
 
 
+@contextmanager
+def default_tensor_type(dtype=torch.float32, device="cpu"):
+    # Save
+    prev_dtype = torch.get_default_dtype()
+    prev_device = torch.get_default_device()
+
+    # Set
+    torch.set_default_dtype(dtype)
+    torch.set_default_device(device)
+
+    yield
+
+    # Restore
+    torch.set_default_dtype(prev_dtype)
+    torch.set_default_device(prev_device)
+
+
 def test_transformer_layer():
     config = Config()
-    model = Transformer(config)
-    model.to("cuda").to(torch.bfloat16)
+
+    # This is much faster than creating the module with CPU float parameters
+    # and then doing `.to("cuda").to(torch.bfloat16)`.
+    with default_tensor_type(dtype=torch.bfloat16, device="cuda"):
+        model = Transformer(config)
 
     batch_size, seq_len = 1, 4096
     inp = torch.randn(
@@ -253,3 +278,4 @@ def test_transformer_layer():
 
     assert out.size() == (batch_size, seq_len, config.hidden_size)
     assert out.dtype == torch.bfloat16
+    assert out.is_cuda
