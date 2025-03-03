@@ -4018,9 +4018,9 @@ SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
   return *runtime_info_;
 }
 
-SegmentGroup* SegmentCandidateFinder::initializeExprGroup(Expr* expr) {
+SegmentedGroup* SegmentCandidateFinder::initializeExprGroup(Expr* expr) {
   SegmentedGroup* expr_group = nullptr;
-  if(expr2group.count(expr)) {
+  if (expr2group.count(expr)) {
     expr_group = expr2group.at(expr);
   } else {
     expr_group = segmented_fusion_->newGroup(expr);
@@ -4071,7 +4071,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
   // Initialize DAG, convert each expr to a segment group
   auto exprs = completeFusion()->exprs();
   for (auto expr : exprs) {
-    if(excluded_inp_unary_exprs_.has(expr)) {
+    if (excluded_inp_unary_exprs_.has(expr)) {
       continue;
     }
     auto new_group = segmented_fusion_->newGroup(expr);
@@ -4152,8 +4152,7 @@ void SegmentCandidateFinder::trySetUpMerge(
 }
 
 void SegmentCandidateFinder::resolveForwardedInputs() {
-
-  for(auto [forward_val, inp] : forward_val_to_input_) {
+  for (auto [forwarded_val, inp] : forward_val_to_input_) {
     auto inp_group = input2group_.at(forwarded_val);
     input2group_.erase(forwarded_val);
     eraseGroups({inp_group});
@@ -4162,27 +4161,26 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
     input2group_.insert({inp, new_group});
 
     std::vector<SegmentedGroup*> groups_to_resolve;
-    for(auto group : groups()) {
-      if(std::find(group->input_vals.begin(), group->input_vals.end(), forward_val)
-      != group->input_vals.end()) {
+    for (auto group : groups()) {
+      if (std::find(
+              group->input_vals.begin(),
+              group->input_vals.end(),
+              forward_val) != group->input_vals.end()) {
         groups_to_resolve.push_back(group);
       }
     }
-    auto exprs = DependencyCheck::getAllExprsBetween(
-      {inp},
-      {forward_val}
-    );
+    auto exprs = DependencyCheck::getAllExprsBetween({inp}, {forward_val});
 
-    SegmentedGroup* new_group = nullptr;
     new_group->input_vals.push_back(inp);
-    new_group->exprs_.insert(new_group->exprs_.begin(), exprs.begin(), exprs.end());
+    new_group->exprs_.insert(
+        new_group->exprs_.begin(), exprs.begin(), exprs.end());
 
     bool can_merge = true;
-    for(auto group : groups_to_resolve) {
+    for (auto group : groups_to_resolve) {
       group->input_vals.erase(
-        std::remove(group->input_vals.begin(), group->input_vals.end(), forward_val),
-        group->input_vals.end()
-      );
+          std::remove(
+              group->input_vals.begin(), group->input_vals.end(), forward_val),
+          group->input_vals.end());
 
       auto new_edge = segmented_fusion_->newEdge(new_group, group, forward_val);
       new_group->consumer_edges.push_back(new_edge);
@@ -4192,19 +4190,21 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
       group->producer_edges.pop_back();
       edges().erase(std::find(edges().begin(), edges().end(), new_edge));
     }
-    if(!can_merge) {
+    if (!can_merge) {
       new_groups.pop_front();
       break;
     }
-    if(can_merge) {
-      for(auto group : groups_to_resolve) {
-        if(new_group == nullptr) {
+    if (can_merge) {
+      for (auto group : groups_to_resolve) {
+        if (new_group == nullptr) {
           new_group = segmented_fusion_->newGroup();
           new_group->input_vals.push_back(inp);
           new_group->output_vals.push_back(forward_val);
-          new_group->exprs_.insert(new_group->exprs_.begin(), exprs.begin(), exprs.end());
+          new_group->exprs_.insert(
+              new_group->exprs_.begin(), exprs.begin(), exprs.end());
         }
-        auto new_edge = segmented_fusion_->newEdge(new_group, group, forward_val);
+        auto new_edge =
+            segmented_fusion_->newEdge(new_group, group, forward_val);
         new_group->consumer_edges.push_back(new_edge);
         group->producer_edges.push_back(new_edge);
         can_merge = codeGenSupportedMerge(new_group, group);
@@ -4228,8 +4228,8 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
   //     Val* inp = forward_val_to_input_[forward_val];
   //     group->input_vals.push_back(inp);
   //     group->input_vals.erase(
-  //       std::remove(group->input_vals.begin(), group->input_vals.end(), forward_val),
-  //       group->input_vals.end()
+  //       std::remove(group->input_vals.begin(), group->input_vals.end(),
+  //       forward_val), group->input_vals.end()
   //     );
   //     auto exprs = DependencyCheck::getAllExprsBetween(
   //       {inp},
@@ -4339,18 +4339,18 @@ void SegmentCandidateFinder::findSegments() {
 
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-  std::cout<<"After resolveForwardedInputs"<<std::endl;
-  for(auto group : groups()) {
-    std::cout<<"======================"<<std::endl;
-    std::cout<<"Group: "<<toString(group)<<std::endl;
-    for(auto inp : group->input_vals) {
-      std::cout<<"  Input: "<<inp->toString()<<std::endl;
+  std::cout << "After resolveForwardedInputs" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
     }
-    for(auto out : group->output_vals) {
-      std::cout<<"  Output: "<<out->toString()<<std::endl;
+    for (auto out : group->output_vals) {
+      std::cout << "  Output: " << out->toString() << std::endl;
     }
-    for(auto expr : group->exprs()) {
-      std::cout<<"  Expr: "<<expr->toString()<<std::endl;
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
     }
   }
   NVF_THROW("TMP");
@@ -4636,35 +4636,36 @@ void SegmentCandidateFinder::forwardInputs() {
   // "Terminating" outputs from the excluded input unary exprs, these will be
   // treated as complete fusion inputs.
   {
-    for(Val* inp : completeFusion()->inputs()) {
-      if(!shouldForward(inp)) {
+    for (Val* inp : completeFusion()->inputs()) {
+      if (!shouldForward(inp)) {
         continue;
       }
       Val* forward_val = inp;
-      while(shouldForward(forward_val)) {
+      while (shouldForward(forward_val)) {
         auto next_val = forward_val->uses().front()->outputs()[0];
-        if(next_val->isFusionOutput()) {
+        if (next_val->isFusionOutput()) {
           break;
         }
-        excluded_inp_unary_exprs_.pushBack(forward_val->uses().front()->as<UnaryOp>());
+        excluded_inp_unary_exprs_.pushBack(
+            forward_val->uses().front()->as<UnaryOp>());
         forward_val = next_val;
       }
-      if(!forward_val->isFusionOutput()) {
+      if (!forward_val->isFusionOutput()) {
         input_to_forward_val_[inp] = forward_val;
         forward_val_to_input_[forward_val] = inp;
       }
     }
   }
-  
-  for(auto [inp, forward_val] : input_to_forward_val_) {
+
+  for (auto [inp, forward_val] : input_to_forward_val_) {
     forwarded_fusion_inputs_.push_back(inp);
     forwarded_fusion_inputs_.push_back(forward_val);
     auto new_group = segmented_fusion_->newFusionInputGroup();
     input2group_.insert({forward_val, new_group});
   }
 
-  for(Val* inp : completeFusion()->inputs()) {
-    if(input_to_forward_val_.count(inp)) {
+  for (Val* inp : completeFusion()->inputs()) {
+    if (input_to_forward_val_.count(inp)) {
       continue;
     }
     auto new_group = segmented_fusion_->newFusionInputGroup();
@@ -4786,19 +4787,19 @@ void SegmentCandidateFinder::resolveForwardedInput(Val* forwarded_input) {
       to_merge_.push_back(input_group);
       to_merge_.push_back(consumer);
       auto merged_group = mergeNodes();
-      std::cout<<"--------------------------------"<<std::endl;
-      std::cout<<toString(merged_group)<<std::endl;
-      std::cout<<"Inputs: "<<std::endl;
-      for(auto inp : merged_group->input_vals) {
-       std::cout<<toString(inp)<<std::endl;
+      std::cout << "--------------------------------" << std::endl;
+      std::cout << toString(merged_group) << std::endl;
+      std::cout << "Inputs: " << std::endl;
+      for (auto inp : merged_group->input_vals) {
+        std::cout << toString(inp) << std::endl;
       }
-      std::cout<<"Exprs: "<<std::endl;
-      for(auto expr : merged_group->exprs()) {
-        std::cout<<toString(expr)<<std::endl;
+      std::cout << "Exprs: " << std::endl;
+      for (auto expr : merged_group->exprs()) {
+        std::cout << toString(expr) << std::endl;
       }
-      std::cout<<"Outputs: "<<std::endl;
-      for(auto out : merged_group->output_vals) {
-        std::cout<<toString(out)<<std::endl;
+      std::cout << "Outputs: " << std::endl;
+      for (auto out : merged_group->output_vals) {
+        std::cout << toString(out) << std::endl;
       }
     }
   }

@@ -36,7 +36,7 @@ void testValidate(
     Fusion* fusion,
     const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& aten_inputs,
-    const KernelArgumentHolder& aten_outputs,
+    std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg = "",

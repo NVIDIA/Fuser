@@ -16,7 +16,7 @@ void testValidate(
     Fusion* fusion,
     const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& aten_inputs,
-    const KernelArgumentHolder& aten_outputs,
+    std::vector<at::Tensor> aten_outputs,
     int line_number,
     const char* file_name,
     std::string err_msg,
@@ -40,6 +40,12 @@ void testValidate(
 
   auto reduction_sizes =
       ReductionSizeMapper::computeReductionSizes(fusion, expr_eval);
+
+  if (aten_outputs.empty()) {
+    for (Val* out : non_hidden_outputs) {
+      aten_outputs.emplace_back(expr_eval.evaluate(out).as<at::Tensor>());
+    }
+  }
 
   NVF_ERROR(
       fusion_outputs.size() == aten_outputs.size(),
@@ -73,30 +79,8 @@ void testValidate(
 
   for (auto i : c10::irange(non_hidden_outputs.size())) {
     Val* out = non_hidden_outputs[i];
-    if (!out->isA<TensorView>()) {
-      if (fusion_outputs[i].is<double>()) {
-        NVF_ERROR(
-            aten_outputs[i].is<double>(),
-            "Validation failed mismatched types.");
-        NVF_ERROR(
-            abs(fusion_outputs[i].as<double>() - aten_outputs[i].as<double>()) <
-                1e-5,
-            "Validation failed ",
-            fusion_outputs[i].as<double>(),
-            " != ",
-            aten_outputs[i].as<int64_t>());
-      } else {
-        NVF_ERROR(
-            PolymorphicValue_functions::isSame(
-                fusion_outputs[i], aten_outputs[i]),
-            "Output, ",
-            i,
-            " mismatch: ",
-            PolymorphicValue_functions::toString(fusion_outputs[i]),
-            " != ",
-            PolymorphicValue_functions::toString(aten_outputs[i]));
-      }
-    }
+    NVF_ERROR(out->isA<TensorView>());
+    TensorView* out_tv = out->as<TensorView>();
 
     NVF_ERROR(
         fusion_outputs[i].is<at::Tensor>(),
@@ -178,32 +162,11 @@ void testValidate(
     std::string err_msg,
     const LaunchParams& lparams,
     const ValidationConstants& tolerances) {
-  std::vector<Val*> non_hidden_outputs;
-  std::copy_if(
-      fusion->outputs().begin(),
-      fusion->outputs().end(),
-      std::back_inserter(non_hidden_outputs),
-      [fusion](Val* out) {
-        // Returns true when `out` is **not** an aliased output that's hidden
-        // from integration. Hidden outputs won't show up in `fusion_outputs`
-        // for us to compare, so we skip them.
-        return !fusion->getOutputAlias(out).hide_output;
-      });
-
-  auto expr_eval = bindInputsAndLaunchParams(fusion, aten_inputs, lparams);
-
-  KernelArgumentHolder aten_outputs;
-  if (aten_outputs.empty()) {
-    for (Val* out : non_hidden_outputs) {
-      aten_outputs.push(expr_eval.evaluate(out));
-    }
-  }
-
   testValidate(
       fusion,
       fusion_outputs,
       aten_inputs,
-      aten_outputs,
+      /*aten_outputs=*/{},
       line_number,
       file_name,
       err_msg,
