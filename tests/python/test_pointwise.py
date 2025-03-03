@@ -421,3 +421,44 @@ def test_single_segment_multi_device():
 
     with pytest.raises(RuntimeError, match="No executor supports provided fusion."):
         _ = fd.execute(inputs)
+
+
+def test_issue_3071():
+    def fusion_func(fd: FusionDefinition) -> None:
+        T0 = fd.define_tensor(
+            shape=[1, 1024, 128],
+            contiguity=[None, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[2, 0, 1],
+        )
+        T1 = fd.define_tensor(
+            shape=[1, 32, 1024, 128],
+            contiguity=[None, True, True, True],
+            dtype=DataType.Float,
+            is_cpu=False,
+            stride_order=[3, 1, 2, 0],
+        )
+        T2 = fd.ops.broadcast(T0, is_broadcast_dim=[False, True, False, False])
+        S3 = fd.ops.size(T2, dim=0)
+        S4 = fd.define_scalar(32, dtype=DataType.Int)
+        S5 = fd.ops.size(T2, dim=2)
+        S6 = fd.ops.size(T2, dim=3)
+        V7 = fd.define_vector([S3, S4, S5, S6], dtype=DataType.Int)
+        T8 = fd.ops.expand(T2, shape=V7)
+        T9 = fd.ops.mul(T8, T1)
+        fd.add_output(T9)
+        fd.add_output(T2)
+
+    with FusionDefinition() as fd:
+        fusion_func(fd)
+
+    t0 = torch.randn(131072, dtype=torch.float32, device="cuda").as_strided(
+        (1, 1024, 128), (131072, 1, 1024)
+    )
+    t1 = torch.randn(4194304, dtype=torch.float32, device="cuda").as_strided(
+        (1, 32, 1024, 128), (4194304, 128, 4096, 1)
+    )
+    t9, t2 = fd.execute([t0, t1])
+    torch.testing.assert_close(t9, t0.unsqueeze(1) * t1)
+    torch.testing.assert_close(t2, t0.unsqueeze(1))
