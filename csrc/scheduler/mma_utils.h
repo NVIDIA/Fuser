@@ -492,6 +492,11 @@ inline void checkConcreteStaticDim(const AbstractId& abs_id) {
 //! Returns which swizzle format to use for mma inputs with tma loads.
 MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv);
 
+//! Given a TensorView, schedule abstract tensor for ldmatrix or stmatrix. The
+//! layout is based on the register accumulation layout for wgmma and the hard
+//! coded index supported by the indexing pass.
+AbstractTensor scheduleLdStMatrix(TensorView* tv);
+
 } // namespace mma_utils
 
 std::string toString(const mma_utils::AbstractMatmulTensor& abten);
