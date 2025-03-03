@@ -37,47 +37,41 @@ bool isTrivialExpr(Expr* expr) {
   // not be. This would necessitate using a different linear index.
   size_t in_pos = 0;
   size_t out_pos = 0;
-  const std::vector<IterDomain*>& in_alloc = in->getMaybeAllocationDomain();
-  const std::vector<IterDomain*>& out_alloc = out->getMaybeAllocationDomain();
-  const std::vector<std::optional<bool>>& in_contig = in->getContiguity();
-  const std::vector<std::optional<bool>>& out_contig = out->getContiguity();
+  const std::vector<IterDomain*>& in_alloc = TensorDomain::noReductions(
+      TensorDomain::noBroadcasts(in->getMaybeAllocationDomain()));
+  const std::vector<IterDomain*>& out_alloc =
+      TensorDomain::noBroadcasts(out->getMaybeAllocationDomain());
+
+  if (in_alloc.size() != out_alloc.size()) {
+    // Non-trivial allocation domains cannot be in bijective correspondence if
+    // there are different numbers of them
+    return false;
+  }
+
+  std::vector<bool> in_contig;
+  std::vector<bool> out_contig;
+  for (const std::optional<bool>& c : in->getContiguity()) {
+    if (c.has_value()) {
+      in_contig.push_back(c.value());
+    }
+  }
+  for (const std::optional<bool>& c : out->getContiguity()) {
+    if (c.has_value()) {
+      out_contig.push_back(c.value());
+    }
+  }
 
   const ValGraph& exact_graph =
       GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
 
-  while (true) {
-    while (in_pos < in_alloc.size() &&
-           (in_alloc.at(in_pos)->isBroadcast() ||
-            in_alloc.at(in_pos)->isReduction())) {
-      in_pos++;
-    }
-    while (out_pos < out_alloc.size() && out_alloc.at(out_pos)->isBroadcast()) {
-      out_pos++;
-    }
-    if (in_pos >= in_alloc.size()) {
-      NVF_ERROR(
-          out_pos >= out_alloc.size(),
-          "Found non-broadcast output domain ",
-          out_alloc.at(out_pos)->toString(),
-          " which has no corresponding input allocation domain");
-      break;
-    }
-    if (out_pos >= out_alloc.size()) {
-      NVF_ERROR(
-          in_pos >= in_alloc.size(),
-          "Found non-broadcast non-reduction input domain ",
-          in_alloc.at(in_pos)->toString(),
-          " which has no corresponding output allocation domain");
-      break;
-    }
+  for (size_t pos : c10::irange(in_alloc.size())) {
     // At this point in_pos and out_pos are both in range and point to
     // non-broadcast IDs
-    IterDomain* in_id = in_alloc.at(in_pos);
-    IterDomain* out_id = out_alloc.at(out_pos);
+    IterDomain* in_id = in_alloc.at(pos);
+    IterDomain* out_id = out_alloc.at(pos);
 
     NVF_ERROR(
-        out_contig.at(out_pos).has_value() &&
-            out_contig.at(out_pos).value() == true,
+        out_contig.at(pos),
         "Found discontiguous intermediate global tensor ",
         out->toString());
     if (in_contig.at(in_pos) != out_contig.at(out_pos)) {
@@ -88,9 +82,6 @@ bool isTrivialExpr(Expr* expr) {
       // Unmapped pair
       return false;
     }
-
-    in_pos++;
-    out_pos++;
   }
 
   return true;
