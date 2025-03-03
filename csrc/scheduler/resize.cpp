@@ -471,11 +471,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   if (vec_factor > 1) {
-    // auto vec_ref_tv = largest_input != nullptr ? largest_input :
-    // ref_tv;
-    auto vec_ref_tv = ref_tv;
     const auto tvs_to_vectorize =
-        scheduler_utils::getInputsOutputsWithInnerDim(vec_ref_tv, true, true);
+        scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
     for (auto tv_to_vectorize : tvs_to_vectorize) {
       if (tv_to_vectorize->isFusionInput()) {
         for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
