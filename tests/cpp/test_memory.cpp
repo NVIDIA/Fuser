@@ -3251,6 +3251,8 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // The definition for tv0_reg is ldmatrix, which moves data from shared memory
   // to registers.
   TensorView* tv0_reg = tv0_smem->cacheAfter();
+  tv0_reg->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdMatrix);
 
   // The definition for tv1_smem is stmatrix, which moves data from registers to
   // shared memory.
@@ -3398,6 +3400,9 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
   //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
   //! miio * niiii)(8))
+  tv0_reg->axis(-1)->parallelize(ParallelType::Vectorize);
+  //! (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
+  //! miio * niiii)(8)(V))
 
   // Set allocation domain according to loop domain
   tv0_reg->setAllocationDomain(

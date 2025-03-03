@@ -2085,11 +2085,53 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
     }
   } else {
     DataType as_type = DataType::Null;
+    bool is_tma_ldmatrix = false;
     if (ir_utils::isLdMatrixOp(ldst)) {
-      as_type = ArrayType{
-          std::make_shared<DataType>(DataType::UInt32),
-          (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
-              2};
+      NVF_ERROR(ldst->in()->isA<TensorView>());
+      TensorView* in_tv = ldst->in()->as<TensorView>();
+      NVF_ERROR(in_tv->definition() != nullptr);
+      is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
+      if (is_tma_ldmatrix) {
+        NVF_ERROR(
+            ldst->fusion()->hasManaged("ldst_matrix_m_tile") &&
+                ldst->fusion()->hasManaged("ldst_matrix_n_tile") &&
+                ldst->fusion()->hasManaged("ldst_matrix_m_smem") &&
+                ldst->fusion()->hasManaged("ldst_matrix_n_smem"),
+            "We support stmatrix only when tiling information is passed via fusion managed cache");
+        auto m_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_tile");
+        auto n_tile = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_tile");
+        auto m = ldst->fusion()->getManaged<int64_t>("ldst_matrix_m_smem");
+        auto n = ldst->fusion()->getManaged<int64_t>("ldst_matrix_n_smem");
+
+        MmaInputSmemSwizzle swizzle = getSwizzle(in_tv);
+        switch (swizzle) {
+          case MmaInputSmemSwizzle::None:
+            in = hardCodedSharedMemoryIndexForLdStMatrix(
+                in_tv, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
+            break;
+          case MmaInputSmemSwizzle::B128:
+          case MmaInputSmemSwizzle::B64:
+          case MmaInputSmemSwizzle::B32:
+            in = hardCodedSharedMemoryIndexForLdStMatrixSwizzle(
+                in_tv, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
+            break;
+          default:
+            NVF_ERROR("Unsupported Swizzle Type for StMatrix");
+        }
+
+        auto num_regs = (m_tile) / 8 * (n_tile) / 8;
+        auto as_type = ArrayType{
+            std::make_shared<DataType>(DataType::UInt32),
+            static_cast<size_t>(num_regs)};
+
+        // Get the index for the input of stmatrix.
+        out = lowerDstIndex(ldst->out(), {}, false, as_type);
+      } else {
+        as_type = ArrayType{
+            std::make_shared<DataType>(DataType::UInt32),
+            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>()) /
+                2};
+      }
     } else if (ir_utils::isStMatrixOp(ldst)) {
       NVF_ERROR(
           ldst->out()->as<TensorView>()->getLogicalDomain().size() >= 2,
@@ -2138,7 +2180,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       as_type = getMmaOutType(ldst->out()->as<TensorView>());
     }
 
-    if (!ir_utils::isStMatrixOp(ldst)) {
+    if (!is_tma_ldmatrix && !ir_utils::isStMatrixOp(ldst)) {
       bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
           ldst->opType() == LoadStoreOpType::StTMem;
       if (is_ldst_tmem) {
