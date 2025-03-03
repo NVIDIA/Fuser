@@ -1636,7 +1636,7 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   fusion->addOutput(tv4);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  // auto t0 = at::randn(input_shape, options);
+  auto t0 = at::randn(input_shape, options);
 
   // auto row = at::arange(1, dim1 + 1, options);
   // auto row = at::randn(dim1, options);
@@ -1645,14 +1645,14 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
   // auto to_slice = t0.slice(0, 0, 4).slice(1, 0, 33);
   // std::cout << to_slice << std::endl;
 
-  auto row = at::arange(1, dim0 + 1, options).view({dim0, 1});
-  auto t0 = row.repeat({1, dim1});
-  for (int i = 0; i < dim0; i++) {
-    t0[i] = torch::roll(t0[i], /*shifts=*/-i, /*dims=*/0);
-  }
-  std::cout << t0.sizes() << std::endl;
-  auto to_slice = t0.slice(0, 0, 4).slice(1, 0, 8);
-  std::cout << to_slice << std::endl;
+  // auto row = at::arange(1, dim0 + 1, options).view({dim0, 1});
+  // auto t0 = row.repeat({1, dim1});
+  // for (int i = 0; i < dim0; i++) {
+  //   t0[i] = torch::roll(t0[i], /*shifts=*/-i, /*dims=*/0);
+  // }
+  // std::cout << t0.sizes() << std::endl;
+  // auto to_slice = t0.slice(0, 0, 4).slice(1, 0, 8);
+  // std::cout << to_slice << std::endl;
 
   std::vector<c10::IValue> aten_inputs = {t0};
   auto fusion_copy = *fusion;

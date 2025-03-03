@@ -106,7 +106,7 @@ __device__ void iterGroupedWarpReduce(
       shared_mem[N * warp_idx + i] = result[i];
     }
   }
-  block_sync::sync<Aligned>(block_dim);
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 
   if constexpr (is_all_reduce){
     #pragma unroll N
@@ -119,45 +119,46 @@ __device__ void iterGroupedWarpReduce(
         out[j] += shared_mem[i * N + j];
       }
     }
-    return;
-  }
-
-  if (warp_idx == 0) {
-    // assuming N = 4, num_of_warps = 4, the warp reduction results are written
-    // to smem: [a0 b0 c0 d0, a1 b1 c1 d1, a2 b2 c2 d2, a3 b3 c3 d3] we need
-    // to further compute [a,b,c,d], where a = sum(a0,a1,a2,a3).
-    int np2 = 1U << (32 - __clz(num_of_warps - 1));
-    if (np2 * N <= 32) {
-      // collect results to threads [0, N-1]
-      T myVal = lane_idx < num_of_warps * N ? shared_mem[lane_idx] : init_val;
-      for (int i = np2 / 2; i >= 1; i /= 2) {
-        T peer = __shfl_down_sync(0xffffffff, myVal, i * N);
-        reduction_op(myVal, peer);
-      }
-      // thread 0 collect the final results from threads 1 to N-1
-      out[0] = myVal;
-      for (int i = 1; i < N; i++) {
-        T peer = __shfl_sync(0xffffffff, myVal, i);
-        if (lane_idx == 0) {
-          out[i] = peer;
+  } else {
+    if (warp_idx == 0) {
+      // assuming N = 4, num_of_warps = 4, the warp reduction results are written
+      // to smem: [a0 b0 c0 d0, a1 b1 c1 d1, a2 b2 c2 d2, a3 b3 c3 d3] we need
+      // to further compute [a,b,c,d], where a = sum(a0,a1,a2,a3).
+      int np2 = 1U << (32 - __clz(num_of_warps - 1));
+      if (np2 * N <= 32) {
+        // collect results to threads [0, N-1]
+        T myVal = lane_idx < num_of_warps * N ? shared_mem[lane_idx] : init_val;
+        for (int i = np2 / 2; i >= 1; i /= 2) {
+          T peer = __shfl_down_sync(0xffffffff, myVal, i * N);
+          reduction_op(myVal, peer);
         }
-      }
-    }else{
-      #pragma unroll N
-      for (int j = 0; j < N; j++) {
-        out[j] = shared_mem[j];
-      }
-      for (int i = 1; i < num_of_warps; i++) {
-  #pragma unroll N
+        // thread 0 collect the final results from threads 1 to N-1
+        out[0] = myVal;
+        for (int i = 1; i < N; i++) {
+          T peer = __shfl_sync(0xffffffff, myVal, i);
+          if (lane_idx == 0) {
+            out[i] = peer;
+          }
+        }
+      }else{
+        #pragma unroll N
         for (int j = 0; j < N; j++) {
-          out[j] += shared_mem[i * N + j];
+          out[j] = shared_mem[j];
         }
-      }      
+        for (int i = 1; i < num_of_warps; i++) {
+    #pragma unroll N
+          for (int j = 0; j < N; j++) {
+            out[j] += shared_mem[i * N + j];
+          }
+        }      
+      }
     }
   }
+
+
   // needs sync, otherwise other warps may access shared memory before this
   // reduction is done.
-  block_sync::sync<Aligned>(block_dim);
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
 template <

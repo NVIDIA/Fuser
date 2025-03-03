@@ -73,6 +73,19 @@ def test_rmsnorm_fwd_nvf_benchmark(
 
     if not disable_validation:
         squared_mean = (inputs.to(torch.float) ** 2).mean(1, keepdim=True)
+
+        # # manually compute squared mean
+        # double_input = inputs.to(torch.double)
+        # max_diff=0.0
+        # for i in range(inputs.size(0)):
+        #   squared_sum = 0.0
+        #   for j in range(inputs.size(1)):
+        #     squared_sum += double_input[i][j] * double_input[i][j]
+        #   manual_squared_mean = squared_sum / inputs.size(1)
+        #   if(abs(squared_mean[i] - manual_squared_mean) > max_diff):
+        #     max_diff = abs(squared_mean[i] - manual_squared_mean)
+        # print(f"max diff: {max_diff}")
+
         rms_eps = torch.sqrt(squared_mean + eps)
         eager_output = weights * (inputs / rms_eps)
         fd.validate([inputs, weights], [eager_output.to(dtype), rms_eps])
