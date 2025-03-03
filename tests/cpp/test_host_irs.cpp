@@ -913,9 +913,9 @@ TEST_F(LinearHostIrTest, HostIrLinearOut) {
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
-  auto in_at = at::randn({B, M, K}, options);
-  auto weight_at = at::randn({N, K}, options);
-  auto bias_at = at::randn({N}, options);
+  auto in_at = at::randint(5, {B, M, K}, options);
+  auto weight_at = at::randint(5, {N, K}, options);
+  auto bias_at = at::randint(5, {N}, options);
   auto out_at = at::empty({B, M, N}, options);
   std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
       {hie.inputs().at(0), in_at},
