@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/lower2device.h>
+#include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
 
@@ -17,12 +18,12 @@ namespace nvfuser {
 namespace {
 
 bool isTrivialExpr(Expr* expr) {
-  if (!expr->isOneOf<BroadcastOp, LoadStoreOp, SqueezeOp>() ||
-      !expr->input(0)->isA<TensorView>() ||
-      !expr->output(0)->isA<TensorView>() ||
-      expr->input(0)->as<TensorView>()->getMemoryType() != MemoryType::Global ||
-      expr->output(0)->as<TensorView>()->getMemoryType() !=
-          MemoryType::Global) {
+  TensorView* in = ir_utils::getTvInput(expr);
+  TensorView* out = ir_utils::getTvOutput(expr);
+  if (in == nullptr || out == nullptr ||
+      in->getMemoryType() != MemoryType::Global ||
+      out->getMemoryType() != MemoryType::Global ||
+      !expr->isOneOf<BroadcastOp, LoadStoreOp, SqueezeOp>()) {
     return false;
   }
   // This is a tensor op that does no computation. However, it may still be
@@ -34,8 +35,6 @@ bool isTrivialExpr(Expr* expr) {
   // TODO: support discontiguous inputs. The output should be an intermediate
   // tensor which we would always assume to be contiguous, but the input might
   // not be. This would necessitate using a different linear index.
-  TensorView* in = expr->input(0)->as<TensorView>();
-  TensorView* out = expr->output(0)->as<TensorView>();
   size_t in_pos = 0;
   size_t out_pos = 0;
   const std::vector<IterDomain*>& in_alloc = in->getMaybeAllocationDomain();
