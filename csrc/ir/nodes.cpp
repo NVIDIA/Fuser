@@ -2051,28 +2051,8 @@ MmaOp::MmaOp(
   addAttribute(init);
   // ATTR_POS_MACRO
   addDataAttribute(MmaMacro::NoMMA);
-  // ATTR_POS_M_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_N_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_K_AXES
-  addDataAttribute(AxesData{});
-  // ATTR_POS_BATCH_AXES
-  addDataAttribute(AxesData{});
-
-  MmaOpUtils::MmaOpDetails mma_details;
-  // Detailed consistency checks for use case with TensorViews as
-  // inputs/output
-  if (in_a->isA<TensorView>() && in_b->isA<TensorView>() &&
-      out->isA<TensorView>()) {
-    mma_details = MmaOpUtils::getMmaOpDetails(
-        out->as<TensorView>(), in_a->as<TensorView>(), in_b->as<TensorView>());
-  }
-
-  attribute<AxesData>(ATTR_POS_M_AXES) = std::move(mma_details.m_axes);
-  attribute<AxesData>(ATTR_POS_N_AXES) = std::move(mma_details.n_axes);
-  attribute<AxesData>(ATTR_POS_K_AXES) = std::move(mma_details.k_axes);
-  attribute<AxesData>(ATTR_POS_BATCH_AXES) = std::move(mma_details.batch_axes);
+  // ATTR_POS_AXIS_MAPPING
+  addDataAttribute(axis_mapping);
 }
 
 MmaOp::MmaOp(

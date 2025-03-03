@@ -684,7 +684,7 @@ TensorView* viewAsScalar(TensorView* inp);
 //!
 //! \param tv_a first multiply operand
 //! \param tv_b second multiply operand
-//! \param axes axes to sum over
+//! \param axes axes to sum over, relative to output loop domain
 //! \param init sum initial value
 //!
 //! Note & TODO:

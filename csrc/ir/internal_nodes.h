@@ -1433,7 +1433,7 @@ class NVF_API MmaOp : public Expr {
   void setMacro(MmaMacro options);
 
  private:
-  // Predefined idexes of attributes stored for this IR node, to avoid
+  // Predefined indices of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
