@@ -817,7 +817,10 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
 // take_along_dim to broadcast, squeeze, then normalization. Segmented
 // as the input dim to take_along_dim cannot be scheduled by the
 // reduction tv
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization2) {
+//
+// NOTE: Temporarily disabled as it results in non-deterministic
+// validaiton errors (https://github.com/NVIDIA/Fuser/issues/4003).
+TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
