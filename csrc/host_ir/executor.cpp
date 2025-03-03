@@ -69,7 +69,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
     for (Expr* e : exprs) {
-      std::vector<Expr*> communications = HostIrLower::lower(cloner.clone(e));
+      HostIrLower lower;
+      std::vector<Expr*> communications = lower.lower(cloner.clone(e));
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -408,8 +409,9 @@ void HostIrEvaluator::handle(Communication* communication) {
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
 
+  CommunicatorBackend backend_type = communication->backend();
   c10d::Backend* backend =
-      communicator_->getBackendForTeam(communication->team(), std::nullopt);
+      communicator_->getBackendForTeam(communication->team(), backend_type);
   works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),

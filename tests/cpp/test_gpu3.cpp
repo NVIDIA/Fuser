@@ -7350,19 +7350,19 @@ TEST_F(NVFuserTest, VectorizeBackToBackReductions) {
 
   auto outputs = executor_cache.runFusionWithInputs({at_x});
 
-  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_TRUE(optimized_fusion->isSegmented()) << "segmentation didn't happen";
-  ASSERT_EQ(optimized_fusion->fusionSegments()->groups().size(), 2)
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_TRUE(runtime->isSegmented()) << "segmentation didn't happen";
+  ASSERT_EQ(runtime->fusionSegments()->groups().size(), 2)
       << "segmentation didn't happen as expected";
 
-  auto& heuristic_params = executor_cache.getMostRecentKernelRuntime()
-                               ->schedulerHeuristics()
-                               ->heuristicsList()
-                               .at(1);
+  auto& heuristic_params =
+      runtime->schedulerHeuristics()->heuristicsList().at(1);
   ASSERT_TRUE(heuristic_params->isA<ReductionParams>());
   auto rparams = heuristic_params->as<ReductionParams>();
   ASSERT_TRUE(rparams->vectorize_inner_reduction) << "Failed to vectorize";
-  ASSERT_EQ(rparams->unroll_factor_inner_reduction, 4)
+  // On some hardware, the reduction heuristics may choose a
+  // vectorization factor of 2.
+  EXPECT_THAT(rparams->unroll_factor_inner_reduction, testing::AnyOf(2, 4))
       << "Unexpected vectorization factor";
 
   testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
@@ -8819,7 +8819,7 @@ TEST_F(NVFuserTest, RAWSync) {
   EXPECT_THAT(
       [&]() { GpuLower(&fusion).run(); },
       testing::ThrowsMessage<nvfuser::nvfError>(testing::HasSubstr(
-          "Producer is required to be in Global or Shared Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
+          "Producer is required to be in Global, Shared or Tensor Memory based on parallelization strategy. RAW flags: (threadIdx.x)")));
 }
 
 // Test `DistributedTransformerTest.Backward/__bfloat` has bool type tensor

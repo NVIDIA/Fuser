@@ -98,10 +98,12 @@ void testValidate(
       }
     }
 
-    const at::Tensor fusion_output_tensor = fusion_outputs[i].as<at::Tensor>();
-    const at::Tensor aten_output_tensor = aten_outputs[i].as<at::Tensor>();
-
-    TensorView* out_tv = out->as<TensorView>();
+    NVF_ERROR(
+        fusion_outputs[i].is<at::Tensor>(),
+        "Fusion output is not a tensor at index ",
+        i);
+    const at::Tensor& fusion_output_tensor = fusion_outputs[i].as<at::Tensor>();
+    const at::Tensor& aten_output_tensor = aten_outputs[i];
 
     NVF_ERROR(
         reduction_sizes.count(out_tv),
@@ -112,7 +114,7 @@ void testValidate(
 
     NVF_ERROR(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
-            aten_output_tensor.dim() ==
+            fusion_output_tensor.dim() ==
                 static_cast<int64_t>(
                     TensorDomain::noReductions(out_tv->getLogicalDomain())
                         .size()),

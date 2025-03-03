@@ -4756,7 +4756,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 100});
+  std::vector<int64_t> shape({-1, 128});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4782,7 +4782,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   auto tv5 = cat({tv4, tv2}, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 100}, options);
+  auto t0 = at::randn({16, 128}, options);
 
   fusion.addOutput(tv5);
 
@@ -5821,6 +5821,86 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
 
     EXPECT_NE(has_resize, has_index_op);
   }
+}
+
+// Split-based reshape followed by a slice. The reshape is not
+// cancelable. The vectorization factor based on the innermost logical
+// ID of the input is not a valid factor as the fusion is scheduled
+// based on the post-reshape shape.
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeSplit) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape1{128L * 16L};
+  std::vector<int64_t> shape2{shape1[0] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 2 because the resize scheduler
+  // only uses the innermost logical ID, and the extent of the output
+  // tensor is just 2. Before PR #3955, the resize scheduler
+  // attempted to vectorize by 4. Note that the slice op itself does
+  // not matter for the vectorization as the sliced ID is not involved
+  // in the vectorization.
+  EXPECT_EQ(
+      tv3->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 2);
+}
+
+// Merge-based reshape followed by a slice. The reshape is
+// cancelable. If the output is used as the reference but the reshape
+// is canceled, the valid vectorization factor should be 2. The WAR of
+// PR #3955 gives up canceling any reshape that involves innermost
+// logical IDs to avoid this inconsistency.
+TEST_F(ResizeTest, VectorizeInnermostWithReshapeMerge) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape2{16, 128L * 16L};
+  std::vector<int64_t> shape1{16, shape2[1] / 2L, 2L};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  // [16, 128 * 16 / 2, 2] -> [16, 128 * 16]. Cancelable reshape.
+  auto tv2 = reshape(tv1, shape1, shape2);
+  auto tv3 = slice(
+      tv2,
+      {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(2L)},
+       {IrBuilder::create<Val>(0L), IrBuilder::create<Val>(shape2[1])}});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 4. If the reshape were canceled,
+  // it should have been 2, but in this case since it involves the
+  // innermost logical ID of tv2, it is not canceled, thus
+  // vectorization by 4 should be chosen.
+  EXPECT_EQ(
+      tv3->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 4);
 }
 
 } // namespace nvfuser

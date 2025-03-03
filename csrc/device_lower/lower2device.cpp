@@ -421,7 +421,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use TensorIndexer
   for (auto tv : fusion->allTvs()) {
-    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
+    if (tv->getMemoryType() == MemoryType::Tensor ||
+        !ir_utils::hasRootToLoopLinearTransformations(tv)) {
       options.setBuildTensorIndexer(true);
     }
   }

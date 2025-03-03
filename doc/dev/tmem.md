@@ -332,7 +332,6 @@ data path between gmem and tmem, so we have to use registers as transfer
 station.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, TooManyLanes) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -344,6 +343,8 @@ TEST_F(TMemTutorialC, TooManyLanes) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
@@ -357,7 +358,7 @@ TEST_F(TMemTutorialC, TooManyLanes) {
   // Tries to allocate (429, 17) for tv2.
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Not enough tensor memory lanes: tried to allocate 429, but only 128 available.")));
 } /*
 ```
@@ -379,7 +380,6 @@ lanes `128`.
 Now let's take a look at another example:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, TooManyCols) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -391,6 +391,8 @@ TEST_F(TMemTutorialC, TooManyCols) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::BIDx);
@@ -405,7 +407,7 @@ TEST_F(TMemTutorialC, TooManyCols) {
   // Tries to allocate (32, 1105) for tv2.
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Not enough tensor memory columns: tried to allocate 1105, but only 512 available.")));
 } /*
 ```
@@ -495,6 +497,8 @@ TEST_F(TMemTutorialC, NotWarpCollective) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
@@ -503,7 +507,7 @@ TEST_F(TMemTutorialC, NotWarpCollective) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(
+      ::testing::ThrowsMessage<nvfError>(
           ::testing::HasSubstr("TMem load/store must be warp collective.")));
 } /*
 ```
@@ -524,6 +528,8 @@ TEST_F(TMemTutorialC, NotContiguous) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -533,7 +539,7 @@ TEST_F(TMemTutorialC, NotContiguous) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Invalid data access pattern in TMem load/store.")));
 } /*
 ```
@@ -558,6 +564,8 @@ TEST_F(TMemTutorialC, OneLane) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDy);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
@@ -567,7 +575,7 @@ TEST_F(TMemTutorialC, OneLane) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Invalid data access pattern in TMem load/store.")));
 } /*
 ```
@@ -590,6 +598,8 @@ TEST_F(TMemTutorialC, WrongSubpartition) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDy);
   tv4->axis(2)->parallelize(ParallelType::TIDx);
@@ -599,7 +609,7 @@ TEST_F(TMemTutorialC, WrongSubpartition) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Invalid data access pattern in TMem load/store.")));
 } /*
 ```
@@ -623,6 +633,8 @@ TEST_F(TMemTutorialC, WrongSubpartition2) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -632,7 +644,7 @@ TEST_F(TMemTutorialC, WrongSubpartition2) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Invalid data access pattern in TMem load/store.")));
 } /*
 ```
@@ -656,6 +668,8 @@ TEST_F(TMemTutorialR, WarpXYZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDz);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -695,6 +709,8 @@ TEST_F(TMemTutorialR, WarpGroupXYZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDz);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -733,6 +749,8 @@ TEST_F(TMemTutorialR, WarpGroupXYColZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDy);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
@@ -771,6 +789,8 @@ TEST_F(TMemTutorialR, WarpGroupXColYZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -815,6 +835,8 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -900,6 +922,8 @@ TEST_F(TMemTutorialR, Complicated1) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   // apply fancy transformations, shape is still [4096, 4096]
   fancyTransformations(tv4);
@@ -963,6 +987,7 @@ TEST_F(TMemTutorialR, Complicated1) {
   checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
+
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
@@ -984,6 +1009,8 @@ TEST_F(TMemTutorialR, Complicated2) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   // apply fancy transformations, shape is still [4096, 4096]
   fancyTransformations(tv4);
@@ -1042,6 +1069,7 @@ TEST_F(TMemTutorialR, Complicated2) {
   checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
+
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
@@ -1066,6 +1094,8 @@ TEST_F(TMemTutorialR, Transpose) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   for (auto tv : {tv1, tv2, tv3, tv4}) {
     tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -1116,6 +1146,8 @@ TEST_F(TMemTutorialR, Vectorization) {
       auto tv4 = set(tv3);
       fusion.addOutput(tv4);
       tv2->setMemoryType(MemoryType::Tensor);
+      tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+      tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
       for (auto tv : {tv1, tv2, tv3, tv4}) {
         tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -1184,6 +1216,8 @@ TEST_F(TMemTutorialR, PerformantVectorizedCopy) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->split(0, 4);
   tv4->axis(1)->parallelize(ParallelType::Vectorize);

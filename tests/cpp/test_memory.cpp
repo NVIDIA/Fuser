@@ -2823,6 +2823,9 @@ TEST_F(TMemTest, GmemRegTMemRegGmemCopy) {
 
   scheduler_utils::parallelizeAllLike(tv4, {tv1, tv2, tv3});
 
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(-1);
+
   inlineMost();
 
   KernelExecutor ke;
@@ -2874,7 +2877,12 @@ void testTMemAddKernel(bool same_region) {
   tv9->axis(0)->parallelize(ParallelType::BIDx);
   tv9->axis(1)->parallelize(ParallelType::TIDx);
 
-  scheduler_utils::parallelizeAllLike(tv9, {tv1, tv2});
+  scheduler_utils::parallelizeAllLike(tv9);
+
+  for (auto tv : {tv2, tv6}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    tv->setTMemDimSepPos(-1);
+  }
 
   inlineMost();
 
@@ -3036,8 +3044,7 @@ TEST_P(StMatrixTest, Regular) {
   }
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
-  mma_utils::scheduleStMatrixForMmaOutput(
-      tv2, /*swizzle=*/MmaInputSmemSwizzle::None, tile_m, tile_n);
+  mma_utils::scheduleStMatrixForMmaOutput(tv2, tile_m, tile_n);
 
   tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
