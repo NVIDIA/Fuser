@@ -3208,26 +3208,27 @@ TEST_F(TMATest, CpAsyncBulk1D) {
 
 namespace {
 // Assume the input TensorView is block tiled. e.g., The last two iterDomains
-// are the CTA tile except for k dimension.
+// are the warp tile except for k dimension.
 AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // The CTA tile is (128, 256).
-  // The TMA box is (64, 64),
+  // The Warp tile is (64, 256).
+  // The TMA box is (64, 64).
   // The LdStMatrix.x4 tile is (16, 16).
   // The core matrix for wgmma and LdStMatrix is (8, 8).
 
   AbstractTensor abstract_tensor(tv->getLoopDomain());
-  // (GM, GN, 2, 64, 256)
+  // (GM, GN, cta_m(2), cta_n(1), m(64), n(256))
 
   // Split by TMA shared memory box
   abstract_tensor.split(-1, 64);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
-  // (GM, GN, mo(2), no(4), mi(64), ni(64))
+  // (GM, GN, cta_m(2), cta_n(1), no(4), m(64), ni(64))
 
   // Split by (16, 16) matrix for LdStMatrix.x4
   abstract_tensor.split(-2, 16);
   abstract_tensor.split(-1, 16);
   abstract_tensor.reorder({{-2, -3}, {-3, -2}});
-  // (GM, GN, mo(2), no(4), mio(4), nio(4), mii(16), nii(16))
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mi(16), nii(16))
 
   // Split (16, 16) matrix into four (8, 8) sub-matrices
   abstract_tensor.split(-2, 8);
@@ -3252,8 +3253,8 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // *       *       *
   // *****************
   abstract_tensor.reorder({{-5, -2}, {-4, -5}, {-2, -4}});
-  // (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), niio(2),
-  // miio(2), niiii(2))
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mii(8), niiio(4),
+  // niio(2), mio(2), niiii(2))
 
   // For an (16, 16) matrix, each register will hold 8 values. The LdStMatrix
   // instruction will load or store these values with a single instruction. We
@@ -3261,8 +3262,8 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // iterDomains together and then applying ParallelType::Vectorize.
   abstract_tensor.merge(-2, -1);
   abstract_tensor.merge(-2, -1);
-  // (GM, GN, mo(2), no(4), mio(4), nio(4), miii(8), niiio(4), (niio * miio *
-  // niiii)(8))
+  // (GM, GN, cta_m(2), cta_n(1), no(4), mo(4), nio(4), mii(8), niiio(4), (niio
+  // * mio * niiii)(8))
 
   // Reorder iterDomains so the serial IterDomain for (CTA_N / TMA_N) and
   // (TMA_N and LDST_N) are adjacent.
@@ -3272,8 +3273,8 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
   // (64, 16) tile. Merge mio, miii, and niiio iterDomains together.
   abstract_tensor.merge(-4, -3);
   abstract_tensor.merge(-3, -2);
-  // (GM, GN, mo(2), no(4), nio(4), (mio * miii * niiio)(128), (niio * miio *
-  // niiii)(8))
+  // (GM, GN, cta_m(2), cta_n(1), no(4), nio(4), (mo * mii * niiio)(128), (niio
+  // * mio * niiii)(8))
 
   // Hard-coded shared memory index expects a single serial IterDomain
   abstract_tensor.merge(-4, -3);
@@ -3303,15 +3304,16 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // ===========================================================================
 
   // Constants
-  constexpr int64_t mma_m = 128;
-  constexpr int64_t mma_n = 256;
-  constexpr int64_t tma_m = mma_m / 2;
+  constexpr int64_t cta_m = 128;
+  constexpr int64_t cta_n = 256;
+  constexpr int64_t warp_m = 64;
+  constexpr int64_t warp_n = 256;
   constexpr int64_t ldst_matrix_tile_m = 16;
   constexpr int64_t ldst_matrix_tile_n = 16;
   fusion.manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
   fusion.manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
-  fusion.manage("ldst_matrix_m_smem", tma_m);
-  fusion.manage("ldst_matrix_n_smem", mma_n);
+  fusion.manage("ldst_matrix_m_smem", warp_m);
+  fusion.manage("ldst_matrix_n_smem", warp_n);
 
   // ===========================================================================
 
@@ -3345,12 +3347,15 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
 
   // Create 2D block tile
   // (M, N)
-  tv1->split(0, mma_m);
-  tv1->split(-1, mma_n);
-  // (GM, BM, GN, BN) // split
-  tv1->reorder({{1, 2}, {2, 1}});
-  tv1->split(-2, 2, /*inner=*/false);
-  // (GM, GN, 2, BM(64), BN(256)) // reorder
+  tv1->split(0, cta_m);
+  tv1->split(-1, cta_n);
+  tv1->reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(128), cta_n(256))
+
+  tv1->split(-2, warp_m);
+  tv1->split(-1, warp_n);
+  tv1->reorder({{-2, -3}, {-3, -2}});
+  // (GM, GN, cta_m(2), cta_n(1), warp_m(64), warp_n(256))
 
   TransformPropagator propagator(tv1);
   MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
@@ -3386,24 +3391,24 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
     mma_utils::scheduleTMAStoreForMmaOutput(tv1_smem, output_swizzle);
   }
   tv1_smem->setLoopDomain(tv1_smem_abstract_tensor.as<IterDomain*>());
-  // (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
-  // niiii)(8))
+  // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128), (niio * mio * niiii)(8))
 
   // Use ParallelType::TIDx to launch four StMatrix.x4 in parallel.
   // Use ParallelType::Vectorize because StMatrix.x4 stores eight elements per
   // thread per operation.
   tv1_smem->axis(-2)->parallelize(ParallelType::TIDx);
   tv1_smem->axis(-1)->parallelize(ParallelType::Vectorize);
-  // (GM, GN, mo(2)(TDY), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio
-  // * miio * niiii)(8)(V))
+  // (GM(BDX), GN(BDY), cta_m(2)(TDY), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128)(TDX), (niio * mio * niiii)(8)(V))
 
   // ===========================================================================
 
   // Move data from tv0_reg to tv1_smem using LdMatrix
   AbstractTensor tv0_reg_abstract_tensor = scheduleLdStMatrix(tv0_reg);
   tv0_reg->setLoopDomain(tv0_reg_abstract_tensor.as<IterDomain*>());
-  // (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128), (niio * miio *
-  // niiii)(8))
+  // (GM(BDX), GN(BDY), cta_m(2), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128), (niio * mio * niiii)(8))
 
   // Set allocation domain according to loop domain
   tv0_reg->setAllocationDomain(
@@ -3414,8 +3419,8 @@ TEST_F(NVFuserTest, LdStMatrixSet) {
   // thread per operation.
   tv0_reg->axis(-2)->parallelize(ParallelType::TIDx);
   tv0_reg->axis(-1)->parallelize(ParallelType::Vectorize);
-  // (GM, GN, mo(2), (no * nio)(16), (mio * miii * niiio)(128)(TDX), (niio *
-  // miio * niiii)(8)(V))
+  // (GM(BDX), GN(BDY), cta_m(2)(TDY), cta_n(1), (no * nio)(16), (mo * mii *
+  // niiio)(128)(TDX), (niio * mio * niiii)(8)(V))
 
   // ===========================================================================
 
