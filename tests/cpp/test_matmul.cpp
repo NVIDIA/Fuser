@@ -5080,7 +5080,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
     // This internally calls
     // Schedule shared memory cache; Output from StMatrix
     mma_utils::scheduleStMatrixForMmaOutput(
-        tv3_shmem, store_swizzle, stmatrix_tile_m, stmatrix_tile_n);
+        tv3_shmem, stmatrix_tile_m, stmatrix_tile_n);
 
     // Schedule global memory output; Output from TMA Store
     mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
@@ -5106,7 +5106,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  EXPECT_TRUE(at::allclose(cg_outputs[0], tref, 1e-5, 1e-5));
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 
   // The following check fails if the BroadcastOps are not removed at lowering
   // time, resulting in two intermediate global allocations.
