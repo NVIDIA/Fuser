@@ -2159,12 +2159,13 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         NVF_ERROR(
             dataTypeSize(ldst->out()->dtype()) == 4,
             "For now, we only support 32-bit types in tmem");
-        // TODO: hard code size 1 for now.
         // According to the specification of tcgen05.{ld,st}, the register
         // operand must be viewed as a vector of 32-bit elements.
         // See:
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
-        as_type = ArrayType{std::make_shared<DataType>(ldst->in()->dtype()), 1};
+        as_type = ArrayType{
+            std::make_shared<DataType>(ldst->in()->dtype()),
+            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {

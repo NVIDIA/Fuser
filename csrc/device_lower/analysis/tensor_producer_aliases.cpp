@@ -7,7 +7,9 @@
 // clang-format on
 #include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/lower2device.h>
+#include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
+#include <type.h>
 
 #include <unordered_set>
 
@@ -16,14 +18,12 @@ namespace nvfuser {
 namespace {
 
 bool isTrivialExpr(Expr* expr) {
-  if (expr->outputs().size() != 1 || expr->inputs().size() != 1 ||
-      expr->output(0)->isFusionOutput() ||
-      !expr->isOneOf<BroadcastOp, LoadStoreOp, SqueezeOp>() ||
-      !expr->input(0)->isA<TensorView>() ||
-      !expr->output(0)->isA<TensorView>() ||
-      expr->input(0)->as<TensorView>()->getMemoryType() != MemoryType::Global ||
-      expr->output(0)->as<TensorView>()->getMemoryType() !=
-          MemoryType::Global) {
+  TensorView* in = ir_utils::getTvInput(expr);
+  TensorView* out = ir_utils::getTvOutput(expr);
+  if (in == nullptr || out == nullptr ||
+      in->getMemoryType() != MemoryType::Global ||
+      out->getMemoryType() != MemoryType::Global || out->isFusionOutput() ||
+      !expr->isOneOf<BroadcastOp, LoadStoreOp, SqueezeOp>()) {
     return false;
   }
   // This is a tensor op that does no computation. However, it may still be
@@ -35,8 +35,6 @@ bool isTrivialExpr(Expr* expr) {
   // TODO: support discontiguous inputs. The output should be an intermediate
   // tensor which we would always assume to be contiguous, but the input might
   // not be. This would necessitate using a different linear index.
-  TensorView* in = expr->input(0)->as<TensorView>();
-  TensorView* out = expr->output(0)->as<TensorView>();
   size_t in_pos = 0;
   size_t out_pos = 0;
   const std::vector<IterDomain*>& in_alloc = in->getMaybeAllocationDomain();
@@ -44,11 +42,8 @@ bool isTrivialExpr(Expr* expr) {
   const std::vector<std::optional<bool>>& in_contig = in->getContiguity();
   const std::vector<std::optional<bool>>& out_contig = out->getContiguity();
 
-  // TODO: Cache this IdModel build it only once, if needed, to prevent building
-  // it for every G->G op in the Fusion.
-  IdModel id_model(in->fusion(), /*build_graphs=*/false);
-  id_model.buildExactGraph();
-  const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& exact_graph =
+      GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
 
   while (true) {
     while (in_pos < in_alloc.size() &&
@@ -104,10 +99,22 @@ bool isTrivialExpr(Expr* expr) {
 } // namespace
 
 void findTensorProducerAliases(Fusion* fusion) {
+  // First, find any inputs that have been aliased as an output. Since we don't
+  // currently guarantee that all reads of the aliased global intermediate
+  // tensors are performed before the aliased output is written, we must exclude
+  // aliases to these inputs.
+  std::unordered_set<TensorView*> inputs_aliased_by_outputs;
+  for (Val* v : fusion->outputs()) {
+    if (auto* io_alias_target =
+            dynamic_cast<TensorView*>(fusion->getOutputAlias(v).aliased_io)) {
+      inputs_aliased_by_outputs.insert(io_alias_target);
+    }
+  }
   for (Expr* expr : fusion->exprs()) {
-    if (isTrivialExpr(expr)) {
-      GpuLower::current()->aliasTensorProducer(
-          ir_utils::getTvOutput(expr), ir_utils::getTvInput(expr));
+    TensorView* in = ir_utils::getTvInput(expr);
+    if (in != nullptr && inputs_aliased_by_outputs.count(in) == 0 &&
+        isTrivialExpr(expr)) {
+      GpuLower::current()->aliasTensorProducer(ir_utils::getTvOutput(expr), in);
     }
   }
 }
