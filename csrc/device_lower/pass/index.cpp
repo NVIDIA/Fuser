@@ -1680,8 +1680,8 @@ namespace {
 // offset_from_threadIdx.y = threadIdx.y * M * N * 2 (half)
 
 // Final offset: cumulative_offset + offset_from_threadIdx.y
-Val* hardCodedIndexGenerationForStMatrix(
-    const LoadStoreOp* ldst,
+Val* hardCodedSharedMemoryIndexForLdStMatrix(
+    TensorView* smem_tv,
     const ForLoop* outer_loop,
     const int64_t m_tile,
     const int64_t n_tile,
@@ -1691,15 +1691,13 @@ Val* hardCodedIndexGenerationForStMatrix(
       (m_tile == 8 && n_tile == 8) || (m_tile == 16 && n_tile == 8) ||
           (m_tile == 16 && n_tile == 16),
       "size not currently supported for stmatrix");
-  Val* out_index = nullptr;
+  Val* smem_index = nullptr;
 
   NVF_ERROR(
-      dataTypeSize(ldst->out()->dtype()) == 2,
+      dataTypeSize(smem_tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
-  NVF_ERROR(ldst->out()->isA<TensorView>());
-  TensorView* out_tv = ldst->out()->as<TensorView>();
-  NVF_ERROR(getSwizzle(out_tv) == MmaInputSmemSwizzle::None);
+  NVF_ERROR(getSwizzle(smem_tv) == MmaInputSmemSwizzle::None);
 
   auto dtype_size = 2;
 
@@ -1808,8 +1806,8 @@ Val* hardCodedIndexGenerationForStMatrix(
             effective_tidx, IrBuilder::create<Val>(16, DataType::Index)),
         IrBuilder::create<Val>(n * dtype_size, DataType::Index));
 
-    out_index = IrBuilder::addExpr(
-        IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)),
+    smem_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(smem_tv),
         IrBuilder::addExpr(
             cum_offset,
             IrBuilder::addExpr(offset_in_tile_m, offset_in_tile_n)));
@@ -1818,15 +1816,11 @@ Val* hardCodedIndexGenerationForStMatrix(
         IrBuilder::create<Val>(n * dtype_size, DataType::Index),
         effective_tidx);
 
-    out_index = IrBuilder::addExpr(
-        IrBuilder::baseAddressExpr(dynamic_cast<TensorView*>(ldst->out())),
+    smem_index = IrBuilder::addExpr(
+        IrBuilder::baseAddressExpr(smem_tv),
         IrBuilder::addExpr(offset_in_tile, cum_offset));
   }
-
-  Val* out = IrBuilder::create<kir::TensorIndex>(
-      dynamic_cast<TensorView*>(ldst->out()), out_index);
-
-  return out;
+  return IrBuilder::create<kir::TensorIndex>(smem_tv, smem_index);
 }
 
 // Goal: Store (tma_m, tma_n) row-major tile in shared memory using stmatrix
@@ -1953,8 +1947,8 @@ Val* hardCodedIndexGenerationForStMatrix(
 //
 // Get shared memory offset
 //   smem_offset = offset_from_tdy + offset_from_outer_index + tile_offset
-Val* hardCodedIndexGenerationForStMatrixSwizzle(
-    const LoadStoreOp* ldst,
+Val* hardCodedSharedMemoryIndexForLdStMatrixSwizzle(
+    TensorView* smem_tv,
     ForLoop* loop,
     const int64_t stsm_m_tile,
     const int64_t stsm_n_tile,
@@ -1967,12 +1961,10 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
       "size not currently supported for stmatrix");
 
   NVF_ERROR(
-      dataTypeSize(ldst->out()->dtype()) == 2,
+      dataTypeSize(smem_tv->dtype()) == 2,
       "we only support 16-bit types in stmatrix");
 
-  NVF_ERROR(ldst->out()->isA<TensorView>());
-  TensorView* out_tv = ldst->out()->as<TensorView>();
-  MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
+  MmaInputSmemSwizzle swizzle = getSwizzle(smem_tv);
   int64_t swizzle_bytes = getBytesFromSwizzle(swizzle);
 
   // Constants
@@ -2073,11 +2065,9 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   offset = SimplifyingIrBuilder::addExpr(tdy_offset, offset);
 
   // Create shared memory TensorIndex
-  Val* out_index = SimplifyingIrBuilder::addExpr(
-      IrBuilder::baseAddressExpr(ir_utils::getTvOutput(ldst)), offset);
-  Val* out = IrBuilder::create<kir::TensorIndex>(
-      dynamic_cast<TensorView*>(ldst->out()), out_index);
-  return out;
+  Val* smem_index = SimplifyingIrBuilder::addExpr(
+      IrBuilder::baseAddressExpr(smem_tv), offset);
+  return IrBuilder::create<kir::TensorIndex>(smem_tv, smem_index);
 }
 
 } // namespace
@@ -2122,14 +2112,14 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       MmaInputSmemSwizzle swizzle = getSwizzle(out_tv);
       switch (swizzle) {
         case MmaInputSmemSwizzle::None:
-          out = hardCodedIndexGenerationForStMatrix(
-              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
+          out = hardCodedSharedMemoryIndexForLdStMatrix(
+              out_tv, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         case MmaInputSmemSwizzle::B128:
         case MmaInputSmemSwizzle::B64:
         case MmaInputSmemSwizzle::B32:
-          out = hardCodedIndexGenerationForStMatrixSwizzle(
-              ldst, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
+          out = hardCodedSharedMemoryIndexForLdStMatrixSwizzle(
+              out_tv, for_loops_[for_loops_.size() - 3], m_tile, n_tile, m, n);
           break;
         default:
           NVF_ERROR("Unsupported Swizzle Type for StMatrix");
