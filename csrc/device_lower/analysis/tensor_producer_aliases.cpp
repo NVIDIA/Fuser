@@ -22,7 +22,7 @@ bool isTrivialExpr(Expr* expr) {
   TensorView* out = ir_utils::getTvOutput(expr);
   if (in == nullptr || out == nullptr ||
       in->getMemoryType() != MemoryType::Global ||
-      out->getMemoryType() != MemoryType::Global ||
+      out->getMemoryType() != MemoryType::Global || out->isFusionOutput() ||
       !expr->isOneOf<BroadcastOp, LoadStoreOp, SqueezeOp>()) {
     return false;
   }
