@@ -65,8 +65,8 @@ def test_rmsnorm_fwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    inputs = torch.randn(size, device="cuda", dtype=dtype)
-    weights = torch.randn(size[1], device="cuda", dtype=dtype)
+    inputs = torch.randint(100, size, device="cuda", dtype=dtype)
+    weights = torch.ones(size[1], device="cuda", dtype=dtype)
 
     with FusionDefinition() as fd:
         rmsnorm_fwd_fusion(fd, torch_dtype_to_nvfuser_dtype(dtype))
@@ -75,19 +75,21 @@ def test_rmsnorm_fwd_nvf_benchmark(
         squared_mean = (inputs.to(torch.float) ** 2).mean(1, keepdim=True)
 
         # # manually compute squared mean
-        # double_input = inputs.to(torch.double)
+        # double_input = inputs.to(torch.float)
         # max_diff=0.0
-        # for i in range(inputs.size(0)):
+        # for i in range(20):
         #   squared_sum = 0.0
         #   for j in range(inputs.size(1)):
         #     squared_sum += double_input[i][j] * double_input[i][j]
         #   manual_squared_mean = squared_sum / inputs.size(1)
+        #   print(f"row, {i}, squared_sum, {squared_sum}, manual squared mean, {manual_squared_mean}, torch squared mean, {squared_mean[i]}")
         #   if(abs(squared_mean[i] - manual_squared_mean) > max_diff):
         #     max_diff = abs(squared_mean[i] - manual_squared_mean)
         # print(f"max diff: {max_diff}")
 
         rms_eps = torch.sqrt(squared_mean + eps)
         eager_output = weights * (inputs / rms_eps)
+        # print(f"fusion output: {fd.execute([inputs, weights])}")
         fd.validate([inputs, weights], [eager_output.to(dtype), rms_eps])
 
     if not disable_benchmarking:

@@ -72,7 +72,7 @@ def generate_input_sizes(dims: Union[int, List] = 2) -> List[Tuple]:
             input_ranges = []
 
             step_size = 256
-            batch_range = [16, 512, 2048, 8192]
+            batch_range = [16, 512, 2048, 148*4*4]
 
             # max_hidden_size = 4 * d_model_max (max hidden size in feedforward layers)
             # NOTE: (This is not applicable to the updated implementation but leaving it here for future updates).

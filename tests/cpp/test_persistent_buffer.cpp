@@ -1628,8 +1628,9 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
     tv0 = castOp(DataType::Float, tv0);
   }
   auto tv2 = sum(tv0, {1});
-  auto tv3 = broadcast(tv2, std::vector<bool>{false, true});
-  auto tv4 = add(tv0, tv3);
+  auto s21 = reciprocal(IrBuilder::create<Val>(dim1));
+  auto tv3 = broadcast(mul(tv2,s21), std::vector<bool>{false, true});
+  auto tv4 = div(tv0, add(tv3, IrBuilder::create<Val>(1e-5)));
   if (dtype == DataType::Half) {
     tv4 = castOp(DataType::Half, tv4);
   }
@@ -1659,13 +1660,6 @@ TEST_P(SimpleNormTmaTest, TmaMagicScheduler) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
-
-  auto aten_output = t0 + t0.sum({1}, true);
-  compare<float>(
-      dim0,
-      dim1,
-      cg_outputs[0].as<at::Tensor>().to(at::kFloat),
-      aten_output.to(at::kFloat));
   testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
 }
 
@@ -1735,6 +1729,51 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "dtype_" << info.param;
       return sanitizeTestName(ss.str());
     });
+
+TEST_F(NVFuserTest, rmstma) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t NORM_SIZE = 1024;
+  const float kEps = 1e-6;
+  Val* eps_ptr = IrBuilder::create<Val>(kEps);
+
+  std::vector<int64_t> input_shape{8, 56, NORM_SIZE};
+  std::vector<int64_t> norm_shape{NORM_SIZE};
+
+  auto input = makeContigTensor(input_shape.size());
+  fusion.addInput(input);
+  auto result = rms_norm(input, norm_shape, nullptr, eps_ptr);
+
+  fusion.addOutput(result.output);
+  fusion.addOutput(result.invstd);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  c10::optional<at::Tensor> aten_weight = c10::nullopt;
+
+  auto pow2 = at::pow(aten_input, 2);
+
+  auto sum = at::sum(pow2, -1, true);
+  auto var = at::mul(sum, 1.0 / NORM_SIZE);
+  auto invstd = at::pow(at::add(var, kEps), -0.5);
+  auto output = at::mul(aten_input, invstd);
+  //// Check reduction axis is same for all reductions
+  //// Generate Launch Parameters
+  auto cg_outputs =
+      scheduleAndRun(&fusion, SchedulerType::InnerPersistent, {aten_input})
+          .outputs;
+
+  testValidate(
+      &fusion,
+      cg_outputs,
+      {aten_input},
+      {output, invstd},
+      __LINE__,
+      __FILE__,
+      "");
+}    
 // batch size = 2k
 // CircularBufferOptions{ stage=2, prefetch=1, type=PipelinedMBarrierForWAR }
 // 2k x 25600, set1, 4 x 7 x 928, 47%

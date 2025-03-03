@@ -142,32 +142,32 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(ForLoop* fl) override {
-    // ForLoop* cloned_loop = fl == circular_buffer_loop_
-    //     ? cloned_top_level_loop_
-    //     : IrBuilder::create<ForLoop>(fl);
-    ForLoop* cloned_loop = nullptr;
-    if(fl == circular_buffer_loop_)
-    {
-      cloned_loop = cloned_top_level_loop_;
-    }else{
-      if(std::getenv("CMP_WGROUPS") != nullptr && fl->iter_domain()->isThreadDim()){
-        // cloned_loop = IrBuilder::create<ForLoop>(fl);
-      cloned_loop = IrBuilder::create<ForLoop>(
-          fl->iter_domain(),
-          NamedScalar::getParallelIndex(ParallelType::WgTIDx),
-          fl->start(),
-          fl->stop(),
-          fl->step(),
-          fl->vectorize(),
-          fl->vectorize_shift(),
-          fl->isUnrollRequired(),
-          fl->circularBufferLoopStage(),
-          fl->circularBufferLoopStageDepth());
-        std::cout << "cloned_loop:\n" << cloned_loop->toString() << std::endl;
-      }else{
-        cloned_loop = IrBuilder::create<ForLoop>(fl);
-      }
-    }
+    ForLoop* cloned_loop = fl == circular_buffer_loop_
+        ? cloned_top_level_loop_
+        : IrBuilder::create<ForLoop>(fl);
+    // ForLoop* cloned_loop = nullptr;
+    // if(fl == circular_buffer_loop_)
+    // {
+    //   cloned_loop = cloned_top_level_loop_;
+    // }else{
+    //   if(std::getenv("CMP_WGROUPS") != nullptr && fl->iter_domain()->isThreadDim()){
+    //     // cloned_loop = IrBuilder::create<ForLoop>(fl);
+    //   cloned_loop = IrBuilder::create<ForLoop>(
+    //       fl->iter_domain(),
+    //       NamedScalar::getParallelIndex(ParallelType::WgTIDx),
+    //       fl->start(),
+    //       fl->stop(),
+    //       fl->step(),
+    //       fl->vectorize(),
+    //       fl->vectorize_shift(),
+    //       fl->isUnrollRequired(),
+    //       fl->circularBufferLoopStage(),
+    //       fl->circularBufferLoopStageDepth());
+    //     std::cout << "cloned_loop:\n" << cloned_loop->toString() << std::endl;
+    //   }else{
+    //     cloned_loop = IrBuilder::create<ForLoop>(fl);
+    //   }
+    // }
 
 
     // Add to stack

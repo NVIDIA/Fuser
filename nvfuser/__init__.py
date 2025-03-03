@@ -590,15 +590,27 @@ class FusionDefinition(_C._FusionDefinition):
             if torch.is_floating_point(fusion_output) or torch.is_complex(
                 fusion_output
             ):
+                error_tensor = torch.abs(fusion_output - reference_output)
+                max_err = torch.max(error_tensor)
+
+                # Get the flattened index of the max error (without .item())
+                max_err_flat_idx = torch.argmax(error_tensor)
+
+                # Convert flattened index back to multi-dimensional indices
+                max_err_pos = torch.unravel_index(max_err_flat_idx, error_tensor.shape)
+
+                fusion_val_at_max_err = fusion_output[max_err_pos].item()
+                reference_val_at_max_err = reference_output[max_err_pos].item()
+
                 if not torch.allclose(fusion_output, reference_output, atol=atol, rtol=rtol):
-                    error_tensor = torch.abs(fusion_output - reference_output)
-                    max_err = torch.max(error_tensor)
-                    max_err_pos = torch.nonzero(error_tensor == max_err, as_tuple=True)
-
-                    fusion_val_at_max_err = fusion_output[max_err_pos].item()
-                    reference_val_at_max_err = reference_output[max_err_pos].item()
-
                     raise AssertionError(
+                        f"Validation failed for output tensor {inx}, Max error: {max_err.item()} at position {tuple(idx.item() for idx in max_err_pos)}, "
+                        f"Fusion output at max error position: {fusion_val_at_max_err}, "
+                        f"Reference output at max error position: {reference_val_at_max_err}, "
+                        f"Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+                    )
+                else:
+                    print(
                         f"Validation failed for output tensor {inx}, Max error: {max_err.item()} at position {tuple(idx.item() for idx in max_err_pos)}, "
                         f"Fusion output at max error position: {fusion_val_at_max_err}, "
                         f"Reference output at max error position: {reference_val_at_max_err}, "

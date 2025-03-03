@@ -428,8 +428,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
             kernel_summary.largest_smem_data_type, index_type) *
         grouped_iter_factor * welford_factor * compute_threads;
 
-    if (std::getenv("CMP_WGROUPS")) {
-      int warp_groups = std::stoi(std::getenv("CMP_WGROUPS"));
+    if (std::getenv("CMP_WGROUPS_MANUAL")) {
+      int warp_groups = std::stoi(std::getenv("CMP_WGROUPS_MANUAL"));
       reduction_broadcast_workspace *= warp_groups;
       std::cout << "compute_threads per group " << compute_threads << std::endl;
       std::cout << "warp_groups " << warp_groups << std::endl;
@@ -461,8 +461,8 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
   launch_params.setSmem(dynamic_smem_size);
 
-  if (std::getenv("CMP_WGROUPS")) {
-    int warp_groups = std::stoi(std::getenv("CMP_WGROUPS"));
+  if (std::getenv("CMP_WGROUPS_MANUAL")) {
+    int warp_groups = std::stoi(std::getenv("CMP_WGROUPS_MANUAL"));
     int tma_bimdx = 128;
     int cmp_bimdx = launch_params.bdimx() - tma_bimdx;
     launch_params.bindUnsafe(

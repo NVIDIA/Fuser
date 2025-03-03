@@ -301,6 +301,11 @@ std::vector<std::pair<double, double>> get_val_constants(
 
     auto tolerance_value = getTolerance(
         fusion_output_tv->getDataType().value(), reduction_size, tolerances);
+
+    std::cout << "Tolerance for " << fusion_output_tv->toString() << " is "
+              << tolerance_value.first << " abs and " << tolerance_value.second
+              << " rel." << " Reduction size is " << reduction_size<< std::endl;
+    
     tolerance_values.push_back(tolerance_value);
   }
   return tolerance_values;
