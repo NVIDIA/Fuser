@@ -574,7 +574,7 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
-  SegmentedGroup* initializeExprGroup(Expr* expr);
+  // SegmentedGroup* initializeExprGroup(Expr* expr);
 
   // Replicate upcast ops when consumed by multiple expressions. This
   // promotes segmented fusions to share pre-upcast tensors rather

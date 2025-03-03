@@ -4018,43 +4018,43 @@ SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
   return *runtime_info_;
 }
 
-SegmentedGroup* SegmentCandidateFinder::initializeExprGroup(Expr* expr) {
-  SegmentedGroup* expr_group = nullptr;
-  if (expr2group.count(expr)) {
-    expr_group = expr2group.at(expr);
-  } else {
-    expr_group = segmented_fusion_->newGroup(expr);
-    expr2group.insert(std::make_pair(expr, expr_group));
-  }
+// SegmentedGroup* SegmentCandidateFinder::initializeExprGroup(Expr* expr) {
+//   SegmentedGroup* expr_group = nullptr;
+//   if (expr2group.count(expr)) {
+//     expr_group = expr2group.at(expr);
+//   } else {
+//     expr_group = segmented_fusion_->newGroup(expr);
+//     expr2group.insert(std::make_pair(expr, expr_group));
+//   }
 
-  for (auto inp : expr->inputs()) {
-    if (input2group_.count(inp)) {
-      expr_group->input_vals.push_back(inp);
-      auto aux_group = input2group_.at(inp);
-      auto new_edge = segmented_fusion_->newEdge(aux_group, expr_group, inp);
-      expr_group->producer_edges.push_back(new_edge);
-      aux_group->consumer_edges.push_back(new_edge);
-      continue;
-    }
+//   for (auto inp : expr->inputs()) {
+//     if (input2group_.count(inp)) {
+//       expr_group->input_vals.push_back(inp);
+//       auto aux_group = input2group_.at(inp);
+//       auto new_edge = segmented_fusion_->newEdge(aux_group, expr_group, inp);
+//       expr_group->producer_edges.push_back(new_edge);
+//       aux_group->consumer_edges.push_back(new_edge);
+//       continue;
+//     }
 
-    // Could be something like a constant scalar, definition is nullptr, but
-    // isn't an "input" to the fusion. At least not one provided by an
-    // external source.
-    if (inp->definition() == nullptr) {
-      continue;
-    }
+//     // Could be something like a constant scalar, definition is nullptr, but
+//     // isn't an "input" to the fusion. At least not one provided by an
+//     // external source.
+//     if (inp->definition() == nullptr) {
+//       continue;
+//     }
 
-    auto def_group = expr2group.at(inp->definition());
-    auto new_edge = segmented_fusion_->newEdge(def_group, expr_group, inp);
-    expr_group->producer_edges.push_back(new_edge);
-    def_group->consumer_edges.push_back(new_edge);
-  }
-  for (auto out : expr->outputs()) {
-    if (out->isFusionOutput()) {
-      expr_group->output_vals.push_back(out);
-    }
-  }
-}
+//     auto def_group = expr2group.at(inp->definition());
+//     auto new_edge = segmented_fusion_->newEdge(def_group, expr_group, inp);
+//     expr_group->producer_edges.push_back(new_edge);
+//     def_group->consumer_edges.push_back(new_edge);
+//   }
+//   for (auto out : expr->outputs()) {
+//     if (out->isFusionOutput()) {
+//       expr_group->output_vals.push_back(out);
+//     }
+//   }
+// }
 
 void SegmentCandidateFinder::buildInitialSegments() {
   groups().clear();
@@ -4155,7 +4155,9 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
   for (auto [forwarded_val, inp] : forward_val_to_input_) {
     auto inp_group = input2group_.at(forwarded_val);
     input2group_.erase(forwarded_val);
-    eraseGroups({inp_group});
+    std::unordered_set<SegmentedGroup*> groups_to_erase;
+    groups_to_erase.insert(inp_group);
+    eraseGroups(groups_to_erase);
 
     auto new_group = segmented_fusion_->newFusionInputGroup();
     input2group_.insert({inp, new_group});
@@ -4165,11 +4167,11 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
       if (std::find(
               group->input_vals.begin(),
               group->input_vals.end(),
-              forward_val) != group->input_vals.end()) {
+              forwarded_val) != group->input_vals.end()) {
         groups_to_resolve.push_back(group);
       }
     }
-    auto exprs = DependencyCheck::getAllExprsBetween({inp}, {forward_val});
+    auto exprs = DependencyCheck::getAllExprsBetween({inp}, {forwarded_val});
 
     new_group->input_vals.push_back(inp);
     new_group->exprs_.insert(
@@ -4179,10 +4181,13 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
     for (auto group : groups_to_resolve) {
       group->input_vals.erase(
           std::remove(
-              group->input_vals.begin(), group->input_vals.end(), forward_val),
+              group->input_vals.begin(),
+              group->input_vals.end(),
+              forwarded_val),
           group->input_vals.end());
 
-      auto new_edge = segmented_fusion_->newEdge(new_group, group, forward_val);
+      auto new_edge =
+          segmented_fusion_->newEdge(new_group, group, forwarded_val);
       new_group->consumer_edges.push_back(new_edge);
       group->producer_edges.push_back(new_edge);
       can_merge = codeGenSupportedMerge(new_group, group);
@@ -4190,21 +4195,21 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
       group->producer_edges.pop_back();
       edges().erase(std::find(edges().begin(), edges().end(), new_edge));
     }
-    if (!can_merge) {
-      new_groups.pop_front();
-      break;
-    }
+    // if (!can_merge) {
+    //   new_groups.pop_front();
+    //   break;
+    // }
     if (can_merge) {
       for (auto group : groups_to_resolve) {
         if (new_group == nullptr) {
           new_group = segmented_fusion_->newGroup();
           new_group->input_vals.push_back(inp);
-          new_group->output_vals.push_back(forward_val);
+          new_group->output_vals.push_back(forwarded_val);
           new_group->exprs_.insert(
               new_group->exprs_.begin(), exprs.begin(), exprs.end());
         }
         auto new_edge =
-            segmented_fusion_->newEdge(new_group, group, forward_val);
+            segmented_fusion_->newEdge(new_group, group, forwarded_val);
         new_group->consumer_edges.push_back(new_edge);
         group->producer_edges.push_back(new_edge);
         can_merge = codeGenSupportedMerge(new_group, group);
