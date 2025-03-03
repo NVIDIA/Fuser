@@ -1114,11 +1114,7 @@ TEST_F(AllocationDomainTest, ContiguityIssue1021) {
   fusion->addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  // allocate [8,8] strided [8, 1]
-  // modify to [4,8] strided [1, 8]
-  // Tell nvFuser it's allocated as [4, 8] strided [8, 1]
   at::Tensor t0 = at::randn({8, 8}, options).as_strided({4, 8}, {1, 8});
-
   FusionExecutorCache executor_cache(std::move(fusion));
   auto outputs = executor_cache.runFusionWithInputs({t0});
 
