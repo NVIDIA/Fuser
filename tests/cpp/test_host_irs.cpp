@@ -888,7 +888,6 @@ TEST_F(LinearHostIrTest, HostIr) {
 }
 
 TEST_F(LinearHostIrTest, HostIrLinearOut) {
-  GTEST_SKIP();
   constexpr int64_t B = 32;
   constexpr int64_t M = 64;
   constexpr int64_t K = 128;
