@@ -41,32 +41,15 @@ KernelArgumentHolder inferOutputSizes(
   output_tensor_proxies.setDeviceIndex(args.getDeviceIndex());
 
   for (Val* output : fusion->outputs()) {
-    if (output->isA<TensorView>()) {
-      auto output_tv = output->as<TensorView>();
-      const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
-      const auto dtype = (output_tv->dtype() == DataType::Index)
-          ? data_type_to_aten(arg_index_type)
-          : data_type_to_aten(output_tv->dtype());
-      output_tensor_proxies.pushTensorProxy(sizes, strides, dtype);
-    } else if (output->isScalar()) {
-      switch (std::get<PrimDataType>(output->dtype().type)) {
-        case DataType::Int:
-        case DataType::Int32:
-          output_tensor_proxies.push(PolymorphicValue(0LL));
-          break;
-        case DataType::Double:
-        case DataType::Float:
-          output_tensor_proxies.push(PolymorphicValue(0.0));
-          break;
-        case DataType::Bool:
-          output_tensor_proxies.push(PolymorphicValue(false));
-          break;
-        default:
-          NVF_ERROR("Output type not supported: ", output->toString());
-      }
-    } else {
-      NVF_ERROR("Output type not supported: ", output->toString());
-    }
+    NVF_ERROR(
+        output->isA<TensorView>(),
+        "Cannot allocate outputs that are not tensors.");
+    auto output_tv = output->as<TensorView>();
+    const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+    const auto dtype = (output_tv->dtype() == DataType::Index)
+        ? data_type_to_aten(arg_index_type)
+        : data_type_to_aten(output_tv->dtype());
+    output_tensor_proxies.pushTensorProxy(sizes, strides, dtype);
   }
   return output_tensor_proxies;
 }
