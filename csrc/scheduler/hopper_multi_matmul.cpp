@@ -567,7 +567,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
     // Load/cache the epilogue inputs if there are any.
     for (auto* c : c_tvs) {
-      TensorView* smem_tv = cacheAfter(c);
+      NVF_ERROR(c->uses().size() == 1);
+      TensorView* smem_tv = ir_utils::consumerTvsOf(c).at(0);
+      smem_epilogues_.push_back(smem_tv);
+      cached_tvs.push_back(smem_tv);
+
+      // Schedule shared memory for epilogue input
       smem_tv->setMemoryType(MemoryType::Shared);
       blockTileTensors({smem_tv});
       parallelizeBlocks({smem_tv});
@@ -580,9 +585,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       MmaInputSmemSwizzle swizzle_type =
           mma_utils::tmaSwizzleSharedMemory(smem_tv);
       smem_tv->applyMmaSwizzleForTMALoad(swizzle_type);
-
-      smem_epilogues_.push_back(smem_tv);
-      cached_tvs.push_back(smem_tv);
     }
     propagate_to.insert(
         propagate_to.end(), cached_tvs.begin(), cached_tvs.end());
@@ -635,6 +637,27 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     fusion_->manage("ldst_matrix_n_tile", stmatrix_tile_n);
     fusion_->manage("ldst_matrix_m_smem", tma_m);
     fusion_->manage("ldst_matrix_n_smem", tma_n);
+
+    for (TensorView* smem_tv : smem_epilogues_) {
+      TensorView* reg_tv = cacheAfter(smem_tv);
+      reg_tv->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::LdMatrix);
+
+      blockTileTensors({reg_tv});
+      parallelizeBlocks({reg_tv});
+      transformLikeMmaOutputWithoutK(reg_tv);
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          reg_tv->getLoopDomain());
+      reg_tv->setLoopDomain(s.as<IterDomain*>());
+      reg_tv->setAllocationDomain(
+          reg_tv->getLoopDomain(), /*new_contiguity=*/true);
+
+      // Schedule shared memory cache; Output from StMatrix
+      mma_utils::scheduleStMatrixForMmaOutput(
+          reg_tv, stmatrix_tile_m, stmatrix_tile_n);
+      reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+      propagate_to.push_back(reg_tv);
+    }
 
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {

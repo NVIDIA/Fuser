@@ -4877,8 +4877,8 @@ TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
       ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
-  EXPECT_TRUE(
-      at::allclose(cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
+  EXPECT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), tv3_ref, 1e-6 * K, 1e-6 * K));
 }
 
 TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {

@@ -30,10 +30,6 @@ namespace {
 //   the whole warp will get the same value.
 void assertOnWarpOps(const Expr* expr) {
   NVF_ERROR(
-      !ir_utils::isLdMatrixOp(expr),
-      "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
-      expr->toString());
-  NVF_ERROR(
       !expr->isA<MmaOp>(),
       "Mma op: cannot eliminate predicate for mma op, tiling not valid. ",
       expr->toString());
