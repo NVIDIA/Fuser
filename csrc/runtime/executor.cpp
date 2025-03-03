@@ -285,13 +285,22 @@ void KernelExecutor::compile(
 
   for (auto expr : exprs) {
     if (ir_utils::isCpAsyncBulk(expr)) {
-      has_TMA_ = true;
+      has_tma_ = true;
     }
     if (expr->isA<RNGOp>()) {
       has_rng_ = true;
     }
   }
 
+  // If an output has an alias to an input and is marked Evaluate, then
+  // expression evaluator evaluate is called on that output to produce the meta
+  // data manipulation it requires. If that manipulation is something like a
+  // slice, and that slice has a symbolic integer it depends on, then this
+  // function returns true.
+  //
+  // This could happen for other examples and this function will return true if
+  // to evaluate the output that has an alias, other values besides the aliased
+  // input need to be bound to the expression evaluator to evaluate the output.
   for (auto output : fusion->outputs()) {
     if (output->isA<TensorView>()) {
       auto out_tv = output->as<TensorView>();
@@ -762,47 +771,13 @@ void KernelExecutor::initializeExecutorEntry(
     }
   }
 
-  std::vector<int> output_aliased_to_input(output_info.size(), -1);
-
-  for (auto output_idx : c10::irange(output_info.size())) {
-    auto out_info = output_info[output_idx];
-    auto fusion = compiled_kernel_->kernel()->as<Fusion>();
-    auto alias_info = fusion->getOutputAlias(out_info.tv);
-    if (alias_info.type == AllocationType::New) {
-      continue;
-    }
-    NVF_ERROR(alias_info.aliased_io, "Alias info is not an input or output");
-    auto aliased_to = alias_info.aliased_io->as<TensorView>();
-    auto aliased_to_idx = std::distance(
-        fusion->inputs().begin(),
-        std::find(
-            fusion->inputs().begin(), fusion->inputs().end(), aliased_to));
-    if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
-      output_aliased_to_input[(int64_t)output_idx] = aliased_to_idx;
-    } else {
-      auto aliased_out = std::find(
-          fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
-      NVF_ERROR(
-          aliased_out != fusion->outputs().end(),
-          "Could not find the alias tensor of: ",
-          out_info.tv->toString(),
-          "\nAliased to: ",
-          aliased_to->toString());
-      NVF_THROW(
-          "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
-          "Output: ",
-          out_info.tv->toString(),
-          "\nAliased to: ",
-          aliased_to->toString());
-    }
-  }
-
   auto intermediates = getIntermediateBufferInfo(expr_eval, index_type);
 
   // All information is gathered. Save it to KernelExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
-  executor_entry.output_aliased_to_input = output_aliased_to_input;
+  executor_entry.output_aliased_to_input =
+      executor_utils::getOutputAliasToInputMap(compiled_kernel_->kernel());
   executor_entry.intermediates = intermediates;
   executor_entry.inputs = input_info;
   executor_entry.init = true;
@@ -1205,7 +1180,7 @@ KernelArgumentHolder KernelExecutor::run(
   }
 
   ExpressionEvaluator expr_eval;
-  if (has_dynamic_alias_ || has_TMA_) {
+  if (has_dynamic_alias_ || has_tma_) {
     expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
   }
 
@@ -1273,7 +1248,8 @@ KernelArgumentHolder KernelExecutor::run(
   if (output_args.empty()) {
     output_args = allocateKernelOutputs(
         compiled_kernel_->kernel(),
-        *executor_entry,
+        executor_entry->outputs,
+        executor_entry->output_aliased_to_input,
         compiled_kernel_->device(),
         args,
         has_dynamic_alias_);
@@ -1375,11 +1351,11 @@ KernelArgumentHolder KernelExecutor::run(
 
   if (args.size() != compiled_kernel_->kernel()->parameters().size()) {
     NVF_ERROR(
-        has_TMA_ || has_rng_,
+        has_tma_ || has_rng_,
         "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
     // If args don't match one of two things is happening. We need to add TMA
     // related args or RNG related args. Resolve these scenarios.
-    if (has_TMA_) {
+    if (has_tma_) {
       // Resolving TMA requires binding all values and evaluating the TMA
       // arguments
       // std::cout << "Resolving TMA" << std::endl;
@@ -1535,7 +1511,7 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
       toUnderlying(compiledKernel()->kernel()->indexType()),
       serialize(builder, compiledKernel()->cudaExecutable().get()),
       has_rng_,
-      has_TMA_,
+      has_tma_,
       has_dynamic_alias_);
 }
 
@@ -1761,7 +1737,7 @@ void KernelExecutor::deserialize(
   }
 
   has_rng_ = buffer->has_rng();
-  has_TMA_ = buffer->has_TMA();
+  has_tma_ = buffer->has_tma();
   has_dynamic_alias_ = buffer->has_dynamic_alias();
 }
 

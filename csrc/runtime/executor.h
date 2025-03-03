@@ -319,7 +319,7 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Has a TMA kernel and therefore needs to infer TMA inputs through expression
   // evaluator
-  bool has_TMA_ = false;
+  bool has_tma_ = false;
 
   // Has a dynamic alias and therefore needs to infer what they are through
   // expression evaluator

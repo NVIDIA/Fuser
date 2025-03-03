@@ -599,6 +599,44 @@ ExpressionEvaluator bindInputs(
   return expr_eval;
 }
 
+std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
+  std::vector<int> output_to_input_map(fusion->outputs().size(), -1);
+  for (auto output_idx : c10::irange(fusion->outputs().size())) {
+    auto alias_info = fusion->getOutputAlias(fusion->outputs()[output_idx]);
+    if (alias_info.type == AllocationType::New) {
+      continue;
+    }
+    NVF_ERROR(
+        alias_info.aliased_io && alias_info.aliased_io->isA<TensorView>(),
+        "Alias information is missing the aliased tensor.");
+
+    auto aliased_to = alias_info.aliased_io->as<TensorView>();
+    auto aliased_to_idx = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), aliased_to));
+    if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
+      output_to_input_map[(int64_t)output_idx] = aliased_to_idx;
+    } else {
+      auto aliased_out = std::find(
+          fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
+      NVF_ERROR(
+          aliased_out != fusion->outputs().end(),
+          "Could not find the alias tensor of: ",
+          fusion->outputs()[output_idx]->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
+      NVF_THROW(
+          "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
+          "Output: ",
+          fusion->outputs()[output_idx]->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
+    }
+  }
+  return output_to_input_map;
+}
+
 CudaExecutable::~CudaExecutable() {
   if (module != nullptr) {
     NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));

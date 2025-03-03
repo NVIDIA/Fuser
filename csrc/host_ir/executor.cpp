@@ -86,21 +86,6 @@ bool HostIrExecutor::isCompiled() const {
   return (bool)host_ir_container_;
 }
 
-namespace {
-// Host IR specific function, returns the at:Tensor (ordered list) associated
-// with the provdied Fusion output tv
-at::Tensor findBufferForFusionOutput(
-    const KernelArgumentHolder& output_args,
-    const Val* fusion_out,
-    const Fusion* fusion) {
-  auto i =
-      std::find(fusion->outputs().begin(), fusion->outputs().end(), fusion_out);
-  NVF_ERROR(i != fusion->outputs().end());
-  auto index = std::distance(fusion->outputs().begin(), i);
-  return output_args[index].as<at::Tensor>();
-}
-} // namespace
-
 KernelArgumentHolder HostIrExecutor::run(
     KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
@@ -120,13 +105,18 @@ KernelArgumentHolder HostIrExecutor::run(
   auto expr_eval = executor_utils::bindInputs(args, host_ir_container_.get());
 
   if (output_args.empty()) {
-    std::vector<GlobalBufferInfo> output_info = getBufferInfos(
+    std::vector<GlobalBufferInfo> output_infos = getBufferInfos(
         expr_eval, PrimDataType::Int, host_ir_container_->outputs());
-    output_args = allocateOutputs(
+    output_args.resize(host_ir_container_->outputs().size());
+    auto output_alias_to_input =
+        executor_utils::getOutputAliasToInputMap(host_ir_container_.get());
+    output_args = allocateKernelOutputs(
         host_ir_container_.get(),
-        output_info,
+        output_infos,
+        output_alias_to_input,
         c10::Device(c10::DeviceType::CUDA, args.getDeviceIndex()),
-        expr_eval);
+        args,
+        true);
   }
 
   // TODO: If outputs are provided validate they're the correct size
@@ -136,8 +126,18 @@ KernelArgumentHolder HostIrExecutor::run(
     c10d::Backend* backend =
         communicator_->getBackendForTeam(communication->team(), std::nullopt);
     auto in_tensor = expr_eval.evaluate(communication->in()).as<at::Tensor>();
-    at::Tensor out_tensor = findBufferForFusionOutput(
-        output_args, communication->out(), host_ir_container_.get());
+    auto out_idx = std::distance(
+        host_ir_container_->outputs().begin(),
+        std::find(
+            host_ir_container_->outputs().begin(),
+            host_ir_container_->outputs().end(),
+            communication->out()));
+
+    NVF_ERROR(
+        out_idx < (int64_t)host_ir_container_->outputs().size(),
+        "Output tensor not found in fusion outputs");
+    auto out_tensor = output_args[out_idx].as<at::Tensor>();
+
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -148,6 +148,19 @@ KernelArgumentHolder HostIrExecutor::run(
       work->wait();
     }
   }
+
+  // Evaluate outputs that are marked as Evaluate
+  for (auto out_idx : c10::irange(host_ir_container_->outputs().size())) {
+    auto out = host_ir_container_->outputs()[out_idx];
+    auto alias_info = host_ir_container_->getOutputAlias(out);
+    if (alias_info.type == AllocationType::Evaluate) {
+      NVF_ERROR(
+          !output_args[out_idx].hasValue(),
+          "Output tensor already has a value");
+      output_args[out_idx] = expr_eval.evaluate(out);
+    }
+  }
+
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).setDevice(args.getDeviceIndex());
     FusionProfiler::segment(group_id_).stopKernel();
@@ -572,13 +585,21 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
   TensorView* tv = allocate->buffer()->as<TensorView>();
+  if (expr_evaluator_.isKnown(tv)) {
+    return;
+  }
   GlobalBufferInfo info =
       getBufferInfos(expr_evaluator_, PrimDataType::Int, {tv}).at(0);
-  AliasInfo alias_info = {
-      .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
   c10::Device device =
       communicator_ ? communicator_->device() : at::Device("cuda:0");
-  at::Tensor tensor = allocateTensor(info, alias_info, device, expr_evaluator_);
+  auto tensor = at::native::empty_strided_cuda(
+      info.shape_info.logical_sizes,
+      info.shape_info.logical_strides,
+      info.type,
+      c10::nullopt,
+      device,
+      c10::nullopt);
+
   expr_evaluator_.bind(tv, tensor);
 }
 

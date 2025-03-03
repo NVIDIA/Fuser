@@ -254,141 +254,20 @@ void fillTensorWithNan(at::Tensor& t) {
   }
 }
 
-at::Tensor allocateTensor(
-    const GlobalBufferInfo& out_info,
-    const AliasInfo& alias_info,
-    const c10::Device& device,
-    ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateTensor");
-  // Handle a fusion with duplicated outputs.
-  TensorView* out_tv = out_info.tv;
-  if (ee.isKnown(out_tv)) {
-    return ee.evaluate(out_tv).as<at::Tensor>();
-  }
-
-  std::optional<at::Tensor> aliased_io_tensor = std::nullopt;
-  Val* aliased_io = alias_info.aliased_io;
-  if (aliased_io != nullptr) {
-    NVF_ERROR(
-        aliased_io->isFusionInput() || aliased_io->isFusionOutput(),
-        aliased_io->toInlineString(),
-        " is expected to be a fusion input/output. `ee.evaluate` ",
-        "an intermediate tensor may involve GPU computation to materialize it ",
-        "to global memory.");
-    const PolymorphicValue& aliased_io_val = ee.evaluate(aliased_io);
-    NVF_ERROR(
-        aliased_io_val.is<at::Tensor>(),
-        "Alias io only supports tensor. Found ",
-        PolymorphicValue_functions::toString(aliased_io_val));
-    aliased_io_tensor = aliased_io_val.as<at::Tensor>();
-  }
-
-  switch (alias_info.type) {
-    case AllocationType::New: {
-      auto alloc_tensor = at::native::empty_strided_cuda(
-          out_info.shape_info.logical_sizes,
-          out_info.shape_info.logical_strides,
-          out_info.type,
-          c10::nullopt,
-          device,
-          c10::nullopt);
-      if (shouldFillAllocationWithNan()) {
-        fillTensorWithNan(alloc_tensor);
-      }
-      return alloc_tensor;
-    }
-    case AllocationType::ReuseBuffer:
-      // Unlike for `AllocationType::Evaluate`, don't use
-      // ExpressionEvaluator to compute the output tensor. This is because
-      // the output tensor may hold different data from the input, e.g., an
-      // updated running mean.  `ExpressionEvaluator::evaluate(out_tv)`
-      // would trigger non-trivial host computation.
-      return aliased_io_tensor.value();
-    case AllocationType::Evaluate: {
-      auto out_tensor = ee.evaluate(out_tv).as<at::Tensor>();
-      if (aliased_io_tensor.has_value()) {
-        NVF_ERROR(
-            out_tensor.is_alias_of(aliased_io_tensor.value()),
-            "ExpressionEvaluator failed to evaluate ",
-            out_tv->toString(),
-            " as an alias of ",
-            aliased_io->toString());
-        inferAndValidateAllocationSizesAndStrides(out_tensor, out_tv, ee);
-      }
-      return out_tensor;
-    }
-    default:
-      NVF_THROW("Unrecognized AllocationType.");
-  }
-}
-
-KernelArgumentHolder allocateOutputs(
-    const Fusion* fusion,
-    const std::vector<GlobalBufferInfo>& output_info,
-    const c10::Device& device,
-    ExpressionEvaluator& ee) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
-
-  const auto num_outs = output_info.size();
-
-  // Sort the outputs so we compute aliases after allocating non-aliases. The
-  // order between aliases can be arbitrary. E.g.,
-  //
-  // ```
-  // non_alias_out = ...
-  // alias_out_0 = reshape(non_alias_out, ...)
-  // alias_out_1 = reshape(alias_out_0, ...)
-  // ```
-  //
-  // It's fine to compute `alias_out_1` before computing `alias_out_0`: when we
-  // compute `alias_out_1`, `alias_out_0` will be recursively
-  // `ExpressionEvaluator::evaluate`ed. However, `non_alias_out` must be
-  // allocated first so `alias_out_*` can refer them.
-  std::vector<std::pair<int64_t, Val*>> sorted_outs;
-  sorted_outs.reserve(num_outs);
-  for (const auto out_index : c10::irange(num_outs)) {
-    sorted_outs.emplace_back(out_index, fusion->outputs()[out_index]);
-  }
-  std::sort(
-      sorted_outs.begin(),
-      sorted_outs.end(),
-      [fusion](
-          const std::pair<int64_t, Val*>& lhs,
-          const std::pair<int64_t, Val*>& rhs) {
-        return (
-            fusion->getOutputAlias(lhs.second).type == AllocationType::New &&
-            fusion->getOutputAlias(rhs.second).type != AllocationType::New);
-      });
-
-  std::vector<at::Tensor> out_tensors(num_outs);
-  for (const auto& [out_index, out] : sorted_outs) {
-    at::Tensor out_tensor = allocateTensor(
-        output_info[out_index], fusion->getOutputAlias(out), device, ee);
-    // Bind `out_tensor` so
-    // 1. duplicated outputs map to the same tensor,
-    // 2. an output that aliases another output can be evaluated via
-    // ExpressionEvaluator cheaply.
-    ee.bind(out, out_tensor);
-    out_tensors[out_index] = out_tensor;
-  }
-  return KernelArgumentHolder(out_tensors);
-}
-
 KernelArgumentHolder allocateKernelOutputs(
     const Fusion* fusion,
-    const KernelExecutorEntry& entry,
+    const std::vector<GlobalBufferInfo>& output_infos,
+    const std::vector<int>& output_alias_to_input_map,
     const c10::Device& device,
     const KernelArgumentHolder& args,
-    bool dynamic_alias) {
+    bool dynamic_evaluate) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::allocateOutputs");
 
-  // TODO: Figure out if output to output aliasing is needed
-
   KernelArgumentHolder out_tensors;
-  out_tensors.resize(entry.outputs.size());
-  for (auto out_idx : c10::irange(entry.outputs.size())) {
-    auto out_info = entry.outputs.at(out_idx);
-    if (entry.output_aliased_to_input.at(out_idx) == -1) {
+  out_tensors.resize(output_infos.size());
+  for (auto out_idx : c10::irange(output_infos.size())) {
+    auto out_info = output_infos.at(out_idx);
+    if (output_alias_to_input_map.at(out_idx) == -1) {
       auto alloc_tensor = at::native::empty_strided_cuda(
           out_info.shape_info.logical_sizes,
           out_info.shape_info.logical_strides,
@@ -403,12 +282,12 @@ KernelArgumentHolder allocateKernelOutputs(
     } else if (
         fusion->getOutputAlias(out_info.tv).type ==
         AllocationType::ReuseBuffer) {
-      const auto& inp = args[entry.output_aliased_to_input.at(out_idx)];
+      const auto& inp = args[output_alias_to_input_map.at(out_idx)];
       NVF_ERROR(inp.is<at::Tensor>(), "Input is not a Tensor");
       out_tensors[out_idx] = inp;
     } else if (
         fusion->getOutputAlias(out_info.tv).type == AllocationType::Evaluate) {
-      if (dynamic_alias) {
+      if (dynamic_evaluate) {
         out_tensors[out_idx] = std::monostate();
         continue;
       }
@@ -416,7 +295,7 @@ KernelArgumentHolder allocateKernelOutputs(
       ExpressionEvaluator ee;
       ee.bind(
           fusion->getOutputAlias(out_info.tv).aliased_io,
-          args[entry.output_aliased_to_input.at(out_idx)]);
+          args[output_alias_to_input_map.at(out_idx)]);
       out_tensors[out_idx] = ee.evaluate(out_info.tv);
     } else {
       NVF_THROW(

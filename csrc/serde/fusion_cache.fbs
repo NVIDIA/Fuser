@@ -379,7 +379,7 @@ table KernelExecutor {
   index_type : long;
   compiled_kernel: CudaKernel;
   has_rng: bool;
-  has_TMA: bool;
+  has_tma: bool;
   has_dynamic_alias: bool;
 }
 
