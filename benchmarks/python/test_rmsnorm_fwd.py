@@ -65,7 +65,7 @@ def test_rmsnorm_fwd_nvf_benchmark(
     disable_benchmarking: bool,
     eps: float = 1e-5,
 ):
-    inputs = torch.randint(100, size, device="cuda", dtype=dtype)
+    inputs = torch.randn(size, device="cuda", dtype=dtype)
     weights = torch.ones(size[1], device="cuda", dtype=dtype)
 
     with FusionDefinition() as fd:

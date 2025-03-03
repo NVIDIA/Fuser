@@ -600,7 +600,8 @@ class MoveTopExprsToComputeWarpLoop : private kir::ExprMutator {
         bop && isLogicalOp(bop->getBinaryOpType())) {
       if (auto ls = dynamic_cast<NamedScalar*>(bop->lhs());
           ls && ls->isThreadIdx()) {
-        if (bop->rhs()->isConstScalar()) {
+        // we still want to replace threadIdx.x == 0 with WgTIDx == 0
+        if (bop->rhs()->isConstScalar() && bop->rhs()->value().as<int64_t>() != 0) {
           return true;
         }
       }
