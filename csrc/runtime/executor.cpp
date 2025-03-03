@@ -718,13 +718,13 @@ void KernelExecutor::initializeExecutorEntry(
       }
       shape_info.allocation_sizes = alloc_sizes;
       shape_info.allocation_strides = alloc_strides;
-      GlobalBufferInfo info(
+      GlobalBufferInfo info{
           input_tv,
           shape_info,
           data_type_to_aten(input_tv->dtype()),
           false,
           false,
-          false);
+          false};
       input_info.emplace_back(info);
     }
   }
@@ -774,18 +774,18 @@ void KernelExecutor::initializeExecutorEntry(
     }
     NVF_ERROR(alias_info.aliased_io, "Alias info is not an input or output");
     auto aliased_to = alias_info.aliased_io->as<TensorView>();
-    auto aliased_to_idx =
+    auto aliased_to_idx = std::distance(
+        fusion->inputs().begin(),
         std::find(
-            fusion->inputs().begin(), fusion->inputs().end(), aliased_to) -
-        fusion->inputs().begin();
+            fusion->inputs().begin(), fusion->inputs().end(), aliased_to));
     if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
-      output_aliased_to_input[output_idx] = aliased_to_idx;
+      output_aliased_to_input[(int64_t)output_idx] = aliased_to_idx;
     } else {
       auto aliased_out = std::find(
           fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
       NVF_ERROR(aliased_out != fusion->outputs().end(), "Alias not found");
       output_aliased_to_output[output_idx] =
-          aliased_out - fusion->outputs().begin();
+          std::distance(fusion->outputs().begin(), aliased_out);
 
       NVF_ERROR(
           output_aliased_to_output[output_idx] < (int)fusion->outputs().size(),
@@ -1183,7 +1183,7 @@ KernelArgumentHolder KernelExecutor::resolveTMA(
         compiled_kernel_->kernel()->outputs()[out_idx], args[arg_idx++]);
   }
 
-  for (auto intermediate_entry : entry.intermediates) {
+  for (const auto& intermediate_entry : entry.intermediates) {
     expr_eval.bind(intermediate_entry.tv, args[arg_idx++]);
   }
 

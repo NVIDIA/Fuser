@@ -22,7 +22,7 @@
 
 namespace nvfuser {
 
-class GlobalBufferInfo;
+struct GlobalBufferInfo;
 
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
