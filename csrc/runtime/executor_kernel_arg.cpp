@@ -120,15 +120,6 @@ void KernelArgumentHolder::pushTensorProxy(
   push(meta_tensor);
 }
 
-std::vector<c10::IValue> KernelArgumentHolder::toC10Array() const {
-  std::vector<c10::IValue> ival_array;
-  ival_array.reserve(arguments_.size());
-  for (const auto& arg : arguments_) {
-    ival_array.push_back(PolymorphicValue_functions::toIValue(arg));
-  }
-  return ival_array;
-}
-
 void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
   if (index.has_value()) {
     device_index_ = index.value();
@@ -359,26 +350,6 @@ std::vector<std::byte> polymorphicValueToBytes(
   }
 }
 
-std::vector<std::byte> getKernelArgument(
-    ExpressionEvaluator& ee,
-    Val* parameter,
-    PrimDataType index_type) {
-  FUSER_PERF_SCOPE("getKernelArgument");
-  NVF_ERROR(parameter != nullptr);
-  PolymorphicValue pv = ee.evaluate(parameter);
-  if (auto tv = dynamic_cast<TensorView*>(parameter)) {
-    if (tv->isCpuScalar()) {
-      return polymorphicValueToBytes(pv, tv->dtype(), index_type);
-    } else {
-      const Val* metadata_val = IrBuilder::metadataExpr(tv);
-      const PolymorphicValue& metadata = ee.evaluate(metadata_val);
-      return polymorphicValueToBytes(
-          metadata, metadata_val->dtype(), index_type);
-    }
-  }
-  return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
-}
-
 int64_t computeBytes(const KernelArgumentHolder& args) {
   int64_t num_bytes = 0;
   // Figure how many bytes are inputs, outputs, and temporary buffers
@@ -387,17 +358,6 @@ int64_t computeBytes(const KernelArgumentHolder& args) {
       auto t = args[i].as<at::Tensor>();
       num_bytes += static_cast<int64_t>(t.storage().nbytes());
     }
-  }
-  return num_bytes;
-}
-
-int64_t computeBytes(const std::vector<at::Tensor>& outputs) {
-  int64_t num_bytes = 0;
-  for (auto i : c10::irange(outputs.size())) {
-    const auto& output = outputs.at(i);
-    // NOTE: this assumes that all output elements correspond to a single
-    // store
-    num_bytes += static_cast<int64_t>(output.storage().nbytes());
   }
   return num_bytes;
 }

@@ -107,8 +107,6 @@ class NVF_API KernelArgumentHolder {
 
   void erase(const PolymorphicValue& arg_to_delete);
 
-  std::vector<c10::IValue> toC10Array() const;
-
   PolymorphicValue& back() {
     return arguments_.back();
   }
@@ -227,18 +225,6 @@ std::vector<std::byte> polymorphicValueToBytes(
     const DataType& dtype,
     PrimDataType index_type);
 
-std::vector<std::byte> getKernelArgument(
-    ExpressionEvaluator& ee,
-    Val* parameter,
-    PrimDataType index_type);
-
-std::vector<std::byte> getKernelArgument(
-    at::Tensor tensor,
-    const GlobalBufferInfo& output_info,
-    PrimDataType index_type);
-
 int64_t computeBytes(const KernelArgumentHolder& args);
-
-int64_t computeBytes(const std::vector<at::Tensor>& outputs);
 
 } // namespace nvfuser

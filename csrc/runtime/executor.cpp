@@ -665,7 +665,6 @@ void KernelExecutor::initializeExecutorEntry(
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
 
-  // NVF_THROW("Stop here");
   for (const auto& entry : compiled_kernel_->kernel()->summary().validations) {
     NVF_CHECK(expr_eval.evaluate(entry.first).as<bool>(), entry.second);
   }
@@ -783,101 +782,6 @@ void KernelExecutor::initializeExecutorEntry(
   executor_entry.init = true;
 }
 
-/// Copies the data, logical_size, and alloc_stride parameters to the
-/// appropriate parts of entry.args[idx].
-///
-/// For GPU tensors, we pass a Tensor<type, rank, rank> struct (see
-/// runtime/tensor.cu), where the rank describes the number of elements in the
-/// shape and stride arrays. The actual shapes and strides are dynamic, but the
-/// type and rank of the tensors are actually static (changing them would need
-/// a new FusionDefinition). So we create the storage area for the
-/// Tensor<t,r,r> during ::computeArgs, and then in this function we just
-/// update that memory with the current values for the tensor's base address,
-/// shape, and strides.
-///
-/// @param entry the entry we have previously setup for this fusion
-/// @param idx the index into entry.args and related parallel arrays in the
-///            entry.
-/// @param idx_type_size generally sizeof(int32_t) or sizeof(int64_t); used for
-///                      computing how large the arrays to copy are.
-static void fillTensorArgMetadata(
-    KernelExecutorEntry& entry,
-    const PolymorphicValue& tensor_metadata,
-    size_t idx,
-    size_t idx_type_size) {
-  void* data = tensor_metadata->*&TensorMetaData::data;
-  // g++ has trouble inferring the types of more complicated fields through our
-  // *& operators. Creating an `auto` alias as a temporary resolves this
-  // problem.
-#define TMD_ARRAY_REF(pv, field)                  \
-  ({                                              \
-    const auto& fld_tmp_ = pv->*&field;           \
-    const c10::IntArrayRef& fld_aref_ = fld_tmp_; \
-    fld_aref_;                                    \
-  })
-  const c10::IntArrayRef& shape =
-      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::logical_size);
-  const c10::IntArrayRef& strides =
-      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::alloc_stride);
-#undef TMD_ARRAY_REF
-
-  // These are the three offsets we need to copy into.
-  std::array<std::byte*, 3> offsets = {
-      entry.args[idx].data(), // data ptr
-      entry.args[idx].data() + sizeof(void*), // shape array
-      // strides array:
-      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,
-  };
-
-  memcpy(offsets[0], &data, sizeof(void*));
-  switch (idx_type_size) {
-    case sizeof(int64_t): {
-      // we use i64's for our sizes, so can use a simple copy here
-      memcpy(offsets[1], shape.data(), shape.size() * sizeof(int64_t));
-      memcpy(offsets[2], strides.data(), strides.size() * sizeof(int64_t));
-    } break;
-    case sizeof(int32_t): {
-      // we need to cast per-element, so need a loop.
-      // This case happens when the kernel uses 32bit indices. Since we
-      // (specifically TensorMetaData) store indices in 64bit, we can't
-      // directly copy our buffer into the args buffer. We thus have to
-      // manually downcast each element to fit in the smaller buffer.
-      for (size_t i = 0; i < shape.size(); ++i) {
-        const int32_t shp = static_cast<int32_t>(shape[i]);
-        memcpy(offsets[1] + i * sizeof(int32_t), &shp, sizeof(int32_t));
-      }
-      // In rare cases we have fewer strides than shapes
-      for (size_t i = 0; i < strides.size(); ++i) {
-        const int32_t strd = static_cast<int32_t>(strides[i]);
-        memcpy(offsets[2] + i * sizeof(int32_t), &strd, sizeof(int32_t));
-      }
-    } break;
-    default:
-      NVF_CHECK(0, "Unhandled index type size");
-      break;
-  }
-}
-
-// set the arguments that we'll pass to cuLaunchKernel. This should happen
-// when we change the rank of a tensor or the number of arguments to a kernel.
-// It does not need to happen when only shapes change---use recomputeArgs for
-// that.
-void KernelExecutor::computeArgs(
-    KernelExecutorEntry& entry,
-    ExpressionEvaluator& expr_eval,
-    const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("KernelExecutor::computeArgs");
-
-  const std::vector<Val*>& params = kernel->parameters();
-  entry.args.resize(params.size());
-  entry.arg_ptrs.resize(params.size());
-  const PrimDataType idx_type = kernel->indexType();
-  for (size_t p = 0; p < params.size(); ++p) {
-    entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
-    entry.arg_ptrs[p] = entry.args[p].data();
-  }
-}
-
 namespace {
 GlobalBufferInfo& linear_buffer_info_getter(
     KernelExecutorEntry& entry,
@@ -906,10 +810,10 @@ GlobalBufferInfo& linear_buffer_info_getter(
 };
 } // namespace
 
-void KernelExecutor::computeArgs2(
+void KernelExecutor::computeArgs(
     KernelExecutorEntry& entry,
     const KernelArgumentHolder& args) const {
-  FUSER_PERF_SCOPE("KernelExecutor::computeArgs2");
+  FUSER_PERF_SCOPE("KernelExecutor::computeArgs");
   if (entry.args.size() != args.size()) {
     entry.args.resize(args.size());
     entry.arg_ptrs.resize(args.size());
@@ -994,42 +898,6 @@ void KernelExecutor::computeArgs2(
       entry.args[arg_idx] = bytes;
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
     }
-  }
-}
-
-// Reset the arguments that we'll pass to cuLaunchKernel. This needs to be
-// invoked on every shape change.
-void KernelExecutor::recomputeArgs(
-    KernelExecutorEntry& entry,
-    ExpressionEvaluator& expr_eval,
-    const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("KernelExecutor::recomputeArgs");
-
-  const std::vector<Val*>& params = kernel->parameters();
-  const PrimDataType idx_type = kernel->indexType();
-  // assert(entry.args.size() == params.size());
-  // assert(entry.arg_ptrs.size() == params.size());
-  // assert(params.size() >= args.size());
-  for (size_t p = 0; p < params.size(); ++p) {
-    PolymorphicValue pv = expr_eval.evaluate(params[p]);
-    if (pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
-      // GPU tensors are not passed directly: instead we pass a Tensor<type,
-      // rank, rank> struct. The pointer and dimensions are dynamic, but the
-      // types and ranks are actually static (changing the rank or the types
-      // would need to be done via a new FusionDefinition). As such, we created
-      // the Tensor<t, r, r> struct during ::computeArgs, and here we just fill
-      // in the base address, shape, and stride arrays to cover whatever new
-      // tensors we got this round.
-      TensorView* mtv = dynamic_cast<TensorView*>(params[p]);
-      const Val* mdexpr = IrBuilder::metadataExpr(mtv);
-      const PolymorphicValue& tmd = expr_eval.evaluate(mdexpr);
-      const size_t idx_type_size =
-          PrimDataType::Int == idx_type ? sizeof(int64_t) : sizeof(int32_t);
-      fillTensorArgMetadata(entry, tmd, p, idx_type_size);
-    } else {
-      entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
-    }
-    entry.arg_ptrs[p] = entry.args[p].data();
   }
 }
 
@@ -1219,7 +1087,6 @@ KernelArgumentHolder KernelExecutor::run(
 
   // Initialize the executor entry if not initlized
   if (!executor_entry->init) {
-    // std::cout << "Initializing executor entry" << std::endl;
     initializeExecutorEntry(
         *executor_entry,
         args,
@@ -1227,7 +1094,6 @@ KernelArgumentHolder KernelExecutor::run(
         compile_params,
         output_args,
         compiled_kernel_->kernel()->indexType());
-    // std::cout << "Executor entry initialized" << std::endl;
   }
 
   if (!(executor_entry->launch_params.nThreads() <=
@@ -1254,7 +1120,7 @@ KernelArgumentHolder KernelExecutor::run(
         args,
         has_dynamic_alias_);
     if (has_dynamic_alias_) {
-      // TODO: Make sure dynamic alias works.
+      // TODO: Make sure there's a dynamic alias test.
       for (const auto i :
            c10::irange(compiled_kernel_->kernel()->outputs().size())) {
         auto param = compiled_kernel_->kernel()->outputs()[i];
@@ -1335,14 +1201,6 @@ KernelArgumentHolder KernelExecutor::run(
       }
       args.push(intermediate_buffer);
       intermediate_args.push(intermediate_buffer);
-      // expr_eval.bind(
-      //     compiled_kernel_->kernel()
-      //         ->summary()
-      //         .global_allocations.at(i)
-      //         ->buffer(),
-      //     args
-      //         [compiled_kernel_->kernel()->inputs().size() + outputs.size() +
-      //          i]);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
@@ -1358,21 +1216,16 @@ KernelArgumentHolder KernelExecutor::run(
     if (has_tma_) {
       // Resolving TMA requires binding all values and evaluating the TMA
       // arguments
-      // std::cout << "Resolving TMA" << std::endl;
       args = resolveTMA(*executor_entry, args);
-      // std::cout << "TMA resolved" << std::endl;
     } else if (has_rng_) {
       // Resolving RNG seed requires evaluating and adding those values, but
       // doesn't require binding all values as getting RNG seed and offset
       // doesn't depend on other values
-      // std::cout << "Resolving RNG seed" << std::endl;
       args = resolveRNGSeed(compiled_kernel_->kernel(), args);
-      // std::cout << "RNG seed resolved" << std::endl;
     }
   }
-  // std::cout << "Computing args" << std::endl;
-  computeArgs2(*executor_entry, args);
-  // std::cout << "Args computed" << std::endl;
+
+  computeArgs(*executor_entry, args);
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
@@ -1397,8 +1250,6 @@ KernelArgumentHolder KernelExecutor::run(
   if (execute_kernel_ && !compiled_kernel_->kernel()->topLevelExprs().empty()) {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-
-    // recomputeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {

@@ -229,28 +229,12 @@ class KernelExecutor : public ExecutorAbstract {
 
   // Creates the initial set of arguments to a kernel, based on the arguments
   // to we have now.
-  void computeArgs(
-      KernelExecutorEntry&,
-      ExpressionEvaluator&,
-      const kir::Kernel*) const;
-
-  void computeArgs2(
-      KernelExecutorEntry& entry,
-      const KernelArgumentHolder& args) const;
+  void computeArgs(KernelExecutorEntry& entry, const KernelArgumentHolder& args)
+      const;
 
   KernelArgumentHolder resolveTMA(
       KernelExecutorEntry& entry,
       const KernelArgumentHolder& args) const;
-
-  // Updates an existing set of arguments based on the current arguments. It is
-  // is an error to call this before `computeArgs` has been invoked.
-  // recomputeArgs will fail if the arity of the function changes, or the rank
-  // of any tensor changes (as these are compiled-in to the generated kernel
-  // and therefore would require us to do a larger recompilation).
-  void recomputeArgs(
-      KernelExecutorEntry&,
-      ExpressionEvaluator&,
-      const kir::Kernel*) const;
 
   //! Serialize CompiledKernel using flatbuffers
   flatbuffers::Offset<serde::CudaKernel> serialize(
