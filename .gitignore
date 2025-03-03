@@ -51,3 +51,5 @@ foo.bin
 
 # Mac OS internal file
 .DS_Store
+
+test_log*

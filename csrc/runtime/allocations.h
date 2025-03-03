@@ -15,10 +15,19 @@
 
 namespace nvfuser {
 
+struct KernelExecutorEntry;
+
+struct TensorShapeInfo {
+  std::vector<int64_t> logical_sizes;
+  std::vector<int64_t> logical_strides;
+  std::vector<int64_t> unsharded_logical_sizes;
+  std::vector<int64_t> allocation_sizes;
+  std::vector<int64_t> allocation_strides;
+};
+
 struct GlobalBufferInfo {
   TensorView* tv = nullptr;
-  std::vector<int64_t> sizes;
-  std::vector<int64_t> strides;
+  TensorShapeInfo shape_info;
   at::ScalarType type = at::ScalarType::Undefined;
   bool zero_init = false;
   bool resets_to_zero = false;
@@ -61,20 +70,23 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfOutput(
     TensorView* tv,
     const ExpressionEvaluator& expr_eval);
 
-// Allocate an `at::Tensor` for `out_info` or compute it as an alias.
-at::Tensor allocateTensor(
-    const GlobalBufferInfo& out_info,
-    const AliasInfo& alias_info,
-    const c10::Device& device,
-    ExpressionEvaluator& ee);
+// Infer the sizes and strides of an output tensor
+TensorShapeInfo inferTensorShapes(
+    TensorView* tv,
+    const ExpressionEvaluator& expr_eval);
 
 // Allocate output tensors for a given fusion. Outputs may alias inputs, in
-// that case output tensors are shallow copies of the aliased inputs
+// that case output tensors are shallow copies of the aliased inputs.
+//
+// If dynamic_evaluate is true, then any argument with AllocationType::Evaluate
+// will not be populated, it will be filled with std::monostate.
 KernelArgumentHolder allocateOutputs(
     const Fusion* fusion,
-    const std::vector<GlobalBufferInfo>& output_info,
+    const std::vector<GlobalBufferInfo>& output_infos,
+    const std::vector<int>& output_alias_to_input_map,
     const c10::Device& device,
-    ExpressionEvaluator& ee);
+    const KernelArgumentHolder& args,
+    bool dynamic_evaluate = false);
 
 //! Return information necessary for allocating output tensors. Input
 //! and output tensors are allowed to alias each other, which is
