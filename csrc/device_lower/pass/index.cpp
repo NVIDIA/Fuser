@@ -2534,8 +2534,8 @@ void IndexLowering::handle(const MmaOp* mma) {
   }
   const auto out = lowerDstIndex(
       mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
-  auto mma_indexed = IrBuilder::create<MmaOp>(
-      out, a, b, mma->init(), mma->macro());
+  auto mma_indexed =
+      IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
   GpuLower::current()->propagateExprInfo(mma, back());
 }

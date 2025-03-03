@@ -1367,12 +1367,7 @@ class NVF_API MmaOp : public Expr {
   using AxesData = std::vector<int64_t>;
   using Expr::Expr;
 
-  MmaOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in_a,
-      Val* in_b,
-      Val* init);
+  MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
 
   MmaOp(
       IrBuilderPasskey,
@@ -1438,7 +1433,7 @@ class NVF_API MmaOp : public Expr {
   void setMacro(MmaMacro options);
 
  private:
-  // Predefined indices of attributes stored for this IR node, to avoid
+  // Predefined idexes of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
