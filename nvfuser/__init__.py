@@ -581,6 +581,8 @@ class FusionDefinition(_C._FusionDefinition):
         for inx, fusion_output in enumerate(fusion_outputs):
             atol, rtol = tolerance_values[inx]
             reference_output = reference_outputs[inx]
+            print(f"reference_output.shape : {reference_output.shape}")
+            print(f"fusion_output.shape : {fusion_output.shape}")
 
             assert (
                 reference_output.shape == fusion_output.shape
@@ -588,10 +590,20 @@ class FusionDefinition(_C._FusionDefinition):
             if torch.is_floating_point(fusion_output) or torch.is_complex(
                 fusion_output
             ):
-                assert torch.allclose(
-                    fusion_output, reference_output, atol=atol, rtol=rtol
-                ), f"Max error: {torch.abs(torch.max(fusion_output - reference_output))}, \
-                    Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+                if not torch.allclose(fusion_output, reference_output, atol=atol, rtol=rtol):
+                    error_tensor = torch.abs(fusion_output - reference_output)
+                    max_err = torch.max(error_tensor)
+                    max_err_pos = torch.nonzero(error_tensor == max_err, as_tuple=True)
+
+                    fusion_val_at_max_err = fusion_output[max_err_pos].item()
+                    reference_val_at_max_err = reference_output[max_err_pos].item()
+
+                    raise AssertionError(
+                        f"Validation failed for output tensor {inx}, Max error: {max_err.item()} at position {tuple(idx.item() for idx in max_err_pos)}, "
+                        f"Fusion output at max error position: {fusion_val_at_max_err}, "
+                        f"Reference output at max error position: {reference_val_at_max_err}, "
+                        f"Absolute tolerance: {atol}, Relative tolerance: {rtol}"
+                    )
 
             else:
                 assert torch.equal(

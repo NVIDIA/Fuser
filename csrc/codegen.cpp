@@ -1278,9 +1278,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
     if (!pdim_map.hasWarpSpecialization()) {
       ss << "0";
-    } else if (std::getenv("CMP_WGROUPS") != nullptr) {
-      ss << "1" << " + "
-         << genInline(NamedScalar::getParallelIndex(ParallelType::WgGIDx));
     } else {
       ss << "1" << " + " << genInline(current_buffer_id_);
     }
@@ -2998,10 +2995,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableNameConvertAlignedArray(output));
     func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genSmemOffset());
+    } else {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
 
-    func_args.arg(
-        genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
-        genSmemOffset());
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
