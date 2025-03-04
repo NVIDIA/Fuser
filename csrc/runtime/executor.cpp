@@ -1155,7 +1155,7 @@ KernelArgumentHolder KernelExecutor::run(
       }
       if (has_expansion) {
         intermediate_buffer = at::native::expand(
-            intermediate_buffer, buf_info.shape_info.allocation_sizes);
+            intermediate_buffer, buf_info.shape_info.logical_sizes);
       }
       args.push(intermediate_buffer);
       intermediate_args.push(intermediate_buffer);
