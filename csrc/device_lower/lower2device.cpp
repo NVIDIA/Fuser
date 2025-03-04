@@ -266,7 +266,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // Each pass is a pair of (name, function), where the name will be
           // printed in verbose mode of lowering. The function must take a
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
-          {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+          {{"removeTensorProducerAliases", removeTensorProducerAliases},
+           {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
            {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},

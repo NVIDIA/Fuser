@@ -8,6 +8,9 @@
 #pragma once
 
 #include <fusion.h>
+#include <ir/base_nodes.h>
+
+#include <vector>
 
 namespace nvfuser {
 
@@ -45,5 +48,10 @@ namespace nvfuser {
 //! modified by replacing the intermediate buffer's strides with those of the
 //! producer.
 void findTensorProducerAliases(Fusion* fusion);
+
+//! This is a lowering pass that actually removes top-level exprs whose outputs
+//! have been marked as tensor producer aliases in the findTensorProducerAliases
+//! analysis pass.
+std::vector<Expr*> removeTensorProducerAliases(const std::vector<Expr*>& exprs);
 
 } // namespace nvfuser
