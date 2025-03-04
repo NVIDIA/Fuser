@@ -399,12 +399,40 @@ bool haveDifferentShardings(
     }
 
     auto is_mapped_in_id_model =
-        [](IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
+        [&producer, &consumer](
+            IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
       if (a == nullptr && b == nullptr) {
         return true;
       }
 
       if (a == nullptr || b == nullptr) {
+        return false;
+      }
+
+      if (consumer->definition()->isA<ViewOp>()) {
+        // Consider the reshape: [h]-> [a, h/a] where `h` and `a` are sharded,
+        // IdModel currently does not map the two DID axes. Similarly for the
+        // corresponding merge reshape. This is a temporary workaround to check
+        // if the reshape is resharding.
+        NVF_ERROR(
+            a->definition()->isA<Split>(),
+            a,
+            " is not a Split: ",
+            a->definition());
+        NVF_ERROR(
+            b->definition()->isA<Split>(),
+            b,
+            " is not a Split: ",
+            b->definition());
+        // Get the split producing the sharded axis
+        auto* a_split = a->definition()->as<Split>();
+        auto* b_split = b->definition()->as<Split>();
+        // Reshape is not resharding if both the DID splits are either inner or
+        // outer splits. Note that we currently do not exercise inner splits in
+        // the multidevice tests.
+        if (a_split->innerSplit() == b_split->innerSplit()) {
+          return true;
+        }
         return false;
       }
 
@@ -437,10 +465,6 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
-  if (expr->isA<ViewOp>()) {
-    return false;
-  }
-  
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
   id_model.buildAlmostExactGraph();
