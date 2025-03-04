@@ -17,6 +17,11 @@ namespace nvfuser {
 
 struct KernelExecutorEntry;
 
+// If not sharded unsharded_logical_sizes is empty.
+// If no allocation domain is found, allocation_sizes and allocation_strides
+// are empty.
+// For intermediate tensors, logical_sizes and logical_strides are used only,
+// the rest are empty.
 struct TensorShapeInfo {
   std::vector<int64_t> logical_sizes;
   std::vector<int64_t> logical_strides;

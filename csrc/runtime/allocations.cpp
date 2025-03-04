@@ -704,9 +704,8 @@ TensorShapeInfo inferTensorShapes(
           tensor.sizes().vec(),
           tensor.strides().vec(),
           isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
-                        : tensor.sizes().vec(),
-          tensor.sizes().vec(),
-          tensor.strides().vec()};
+                        : std::vector<int64_t>(),
+      };
     }
     auto allocation_size_stride =
         inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
@@ -714,7 +713,7 @@ TensorShapeInfo inferTensorShapes(
         tensor.sizes().vec(),
         tensor.strides().vec(),
         isSharded(tv) ? unshardedSizes(tv, tensor.sizes().vec())
-                      : tensor.sizes().vec(),
+                      : std::vector<int64_t>(),
         allocation_size_stride.first,
         allocation_size_stride.second};
   }
@@ -726,9 +725,8 @@ TensorShapeInfo inferTensorShapes(
         allocation_size_stride.first,
         allocation_size_stride.second,
         isSharded(tv) ? unshardedSizes(tv, allocation_size_stride.first)
-                      : allocation_size_stride.first,
-        allocation_size_stride.first,
-        allocation_size_stride.second};
+                      : std::vector<int64_t>(),
+    };
   }
 
   auto options =
@@ -740,11 +738,11 @@ TensorShapeInfo inferTensorShapes(
   // `transformFromAllocationToLogical`
   logical_meta_tensor =
       transformFromAllocationToLogical(logical_meta_tensor, tv, expr_eval);
-  return {
+  return TensorShapeInfo{
       logical_meta_tensor.sizes().vec(),
       logical_meta_tensor.strides().vec(),
       isSharded(tv) ? unshardedSizes(tv, logical_meta_tensor.sizes().vec())
-                    : logical_meta_tensor.sizes().vec(),
+                    : std::vector<int64_t>(),
       allocation_size_stride.first,
       allocation_size_stride.second};
 }

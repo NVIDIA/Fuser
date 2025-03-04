@@ -523,8 +523,6 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     auto [sizes, strides] = has_expanded_domains
         ? inferShapeOfOutput(tv, expr_eval)
         : inferShapeOfIntermediate(tv, alloc, expr_eval);
-    info.shape_info.allocation_sizes = sizes;
-    info.shape_info.allocation_strides = strides;
     info.shape_info.logical_sizes = sizes;
     info.shape_info.logical_strides = strides;
     auto dtype = tv->dtype() == DataType::Index ? index_type : tv->dtype();
@@ -713,9 +711,6 @@ void KernelExecutor::initializeExecutorEntry(
         std::tie(alloc_sizes, alloc_strides) =
             inferAndValidateAllocationSizesAndStrides(
                 at_tensor, input_tv, expr_eval);
-      } else {
-        alloc_sizes = at_tensor.sizes().vec();
-        alloc_strides = at_tensor.strides().vec();
       }
 
       TensorShapeInfo shape_info;
@@ -764,8 +759,6 @@ void KernelExecutor::initializeExecutorEntry(
           "Accepting allocated outputs is not currently supported with allocation domain. ",
           "Allocation domain found for tv: ",
           info.tv->toString());
-      info.shape_info.allocation_sizes = output_tensor.sizes().vec();
-      info.shape_info.allocation_strides = output_tensor.strides().vec();
       info.shape_info.logical_sizes = output_tensor.sizes().vec();
       info.shape_info.logical_strides = output_tensor.strides().vec();
       output_info.emplace_back(info);
@@ -844,7 +837,9 @@ void KernelExecutor::computeArgs(
       entry.args[arg_idx] = tensorToBytes(
           args[arg_idx],
           buffer_info.shape_info.logical_sizes,
-          buffer_info.shape_info.allocation_strides,
+          buffer_info.shape_info.allocation_strides.empty()
+              ? buffer_info.shape_info.logical_strides
+              : buffer_info.shape_info.allocation_strides,
           idx_type,
           buffer_info.shape_info.unsharded_logical_sizes);
       entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
@@ -1115,22 +1110,27 @@ KernelArgumentHolder KernelExecutor::run(
   at::Tensor profile_buffer;
   {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
+    // Intermediates just use logical sizes and strides even though they're
+    // really allocation sizes and strides.
+    //
+    // This is simply because the convention used is that allocation
+    // sizes/strides are optional, logical are not.
     for (const auto intermediate_i :
          c10::irange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
       bool has_expansion = false;
       std::vector<int64_t> unexpanded_sizes;
-      unexpanded_sizes.reserve(buf_info.shape_info.allocation_sizes.size());
+      unexpanded_sizes.reserve(buf_info.shape_info.logical_sizes.size());
       NVF_ERROR(
-          buf_info.shape_info.allocation_sizes.size() ==
-          buf_info.shape_info.allocation_strides.size())
+          buf_info.shape_info.logical_sizes.size() ==
+          buf_info.shape_info.logical_strides.size())
       for (const auto j :
-           c10::irange(buf_info.shape_info.allocation_sizes.size())) {
-        if (buf_info.shape_info.allocation_strides[j] == 0) {
+           c10::irange(buf_info.shape_info.logical_sizes.size())) {
+        if (buf_info.shape_info.logical_strides[j] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
         } else {
-          unexpanded_sizes.push_back(buf_info.shape_info.allocation_sizes[j]);
+          unexpanded_sizes.push_back(buf_info.shape_info.logical_sizes[j]);
         }
       }
       at::Tensor intermediate_buffer;
