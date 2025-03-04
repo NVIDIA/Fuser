@@ -325,7 +325,8 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
 Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   Val* raw = getRaw(pt);
   if (warp_specialized_types_.count(pt)) {
-    return SimplifyingIrBuilder::addExpr(raw, -1);
+    auto padded_val = getWarpSpecilizationPaddedVal(pt);
+    return SimplifyingIrBuilder::addExpr(raw, -padded_val);
   }
   return raw;
 }
