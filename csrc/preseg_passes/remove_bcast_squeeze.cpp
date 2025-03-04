@@ -395,7 +395,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   // violating memory layout required by aliasing
   if (orig->isFusionOutput()) {
     TransformReplay::selfAllocationReplay(
-        replacement->domain(), orig->domain());
+        orig->domain(), replacement->domain());
   }
 
   if (needs_resharding) {

@@ -237,8 +237,8 @@ TensorDomain* TransformReplay::fullSelfReplay(
 }
 
 void TransformReplay::selfAllocationReplay(
-    TensorDomain* new_self_root,
-    const TensorDomain* self) {
+    const TensorDomain* self,
+    TensorDomain* new_self) {
   FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
 
   // NOTE: We could also have reduction IDs involved in transformation that
@@ -246,8 +246,8 @@ void TransformReplay::selfAllocationReplay(
   // reduction IDs in the replay as well. The reason that we skipped them here
   // is because this function is used by `RemoveBcastSqueeze`, where we could
   // have mismatch reduction IDs on the logical between `self` and
-  // `new_self_root`.
-  auto new_self_logical = TensorDomain::noReductions(new_self_root->logical());
+  // `new_self`.
+  auto new_self_logical = TensorDomain::noReductions(new_self->logical());
   auto self_logical = TensorDomain::noReductions(self->logical());
 
   NVF_ERROR(
@@ -286,7 +286,7 @@ void TransformReplay::selfAllocationReplay(
       TensorDomain::noReductions(self_allocation);
 
   // we replay only non-reduction IDs. The reason is that, we might have
-  // non-mapping reduction IDs between self and new_self_root. This is used in
+  // non-mapping reduction IDs between self and new_self. This is used in
   // `RemoveBcastSqueeze`.
   ReplaySelf replay(self_allocation_no_reduction, axis_map);
   std::vector<IterDomain*> new_alloc_domain;
@@ -296,9 +296,10 @@ void TransformReplay::selfAllocationReplay(
 
   {
     // Push back the reduction IDs that are not mapped
-    for (auto id : new_self_root->logical()) {
+    for (auto id : new_self->logical()) {
       if (id->isReduction()) {
         new_alloc_domain.push_back(id);
+        // NOLINTNEXTLINE (modernize-use-emplace)
         new_contiguity.push_back(std::nullopt);
       }
     }
@@ -311,8 +312,7 @@ void TransformReplay::selfAllocationReplay(
       }
       auto it = replay.getReplay().find(id);
       NVF_ERROR(
-          it != replay.getReplay().end(),
-          "failed to replay IterDomain: ", id);
+          it != replay.getReplay().end(), "failed to replay IterDomain: ", id);
       if (it->second->isBroadcast() == self_contiguity[i].has_value()) {
         // whether we resolve to true or false shouldn't matter since it's going
         // to be concretized as a broadcast dimension
@@ -326,7 +326,7 @@ void TransformReplay::selfAllocationReplay(
     }
   }
 
-  return new_self_root->setAllocationDomain(new_alloc_domain, new_contiguity);
+  return new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
 }
 
 namespace {
