@@ -14,3 +14,4 @@ sudo apt-get update
 sudo apt-get -y install ninja-build cuda-compiler-12-8 cuda-command-line-tools-12-8 cuda-libraries-dev-12-8 libnccl-dev 
 
 tree /usr/include/c++/
+rm /usr/include/c++/12 /usr/include/c++/13
