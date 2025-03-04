@@ -12,6 +12,7 @@
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
+#include <kernel_ir.h>
 #include <ops/all_ops.h>
 #include <preseg_passes/stream_parallel_type.h>
 
@@ -50,16 +51,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
   // Step 1. Find the segments of expressions that can be merged into a single stream for-loop
   // At the end of this step, new_top_level_exprs contains a list of expressions including newly created for-loops that will represent the stream parallelization, and the relevant expressions grouped inside the for-loops bodies.
   for (auto expr : hic->topLevelExprs()) {
-    // we only support exprs having 0 or 1 output for now
-    if (expr->outputs().size() == 0) {
-      // If the expr has no output, we try to merge it with the previous for loop
-      Expr* previous_expr = new_top_level_exprs.back();
-      if (previous_expr->isA<ForLoop>()) {
-        previous_expr->as<ForLoop>()->body().push_back(expr);
-      } else {
-        new_top_level_exprs.push_back(expr);
-      }
-    }
+    // we only support exprs having 1 output for now
     NVF_CHECK(expr->outputs().size() == 1, "Each expr should have at most one output.");
     TensorView* output = expr->output(0)->as<TensorView>();
     // retrieves the Loop IterDomain that is stream parallelized, if any
@@ -79,14 +71,11 @@ void StreamParallelType::runPass(Fusion* fusion) {
       stream_axis);
     // we don't support reducing or broadcasting a stream axis
     NVF_CHECK(stream_axis->getIterType() == IterType::Iteration, "Stream axis ", stream_axis, " should be an iteration axis.");
-    // we don't support stream axis in the inputs nor the first expression
-    NVF_CHECK(new_top_level_exprs.empty() == false, "Expected the first expr to not have a stream axis.");
-    // We consider the previous expression to check whether the expr should create a new stream for-loop or be integrated into the previous one
-    auto prev_expr = new_top_level_exprs.back();
     // check if the current expr can be merged with the previous stream for-loop
-    if (auto prev_for_loop = dynamic_cast<ForLoop*>(prev_expr); prev_for_loop && id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().strictAreMapped(stream_axis, prev_for_loop->iterDomain())) {
+    // We consider the previous expression to check whether the expr should create a new stream for-loop or be integrated into the previous one
+    if (!new_top_level_exprs.empty() && new_top_level_exprs.back()->isA<ForLoop>() && id_model.idGraph(IdMappingMode::ALMOSTEXACT).disjointValSets().strictAreMapped(stream_axis, new_top_level_exprs.back()->as<ForLoop>()->iterDomain())) {
       // merge with previous for-loop
-      prev_for_loop->body().push_back(expr);
+      new_top_level_exprs.back()->as<ForLoop>()->body().push_back(expr);
     } else {
       // create a new for-loop
       auto* j =
@@ -112,25 +101,17 @@ void StreamParallelType::runPass(Fusion* fusion) {
   }
 
   // Step 2. Setup each for loop's body by Slicing the tensors.
-  for (auto* top_level_expr : new_top_level_exprs) {
+  std::vector<Expr*> top_level_exprs = std::move(new_top_level_exprs);
+  new_top_level_exprs.clear();
+  for (auto top_level_expr: top_level_exprs) {
     // TODO: change in place? consr issue
     if (!top_level_expr->isA<ForLoop>()) {
+      new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
     auto* for_loop = top_level_expr->as<ForLoop>();
     // this will contain the new body of the current for-loop
     std::vector<Expr*> new_loop_body;
-
-
-    // std::vector<TensorView*> tvs;
-    // for (auto expr: for_loop->body()) {
-    //   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    //     tvs.push_back(input);
-    //   }
-    //   for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-    //     tvs.push_back(output);
-    //   }
-    // }
 
     std::vector<Expr*> current_loop_body = for_loop->body().exprs();
     for (auto it_expr = current_loop_body.begin(); it_expr != current_loop_body.end(); ++it_expr) {
@@ -174,22 +155,29 @@ void StreamParallelType::runPass(Fusion* fusion) {
           continue;
         }
         TensorView* output_j = select(output, output_stream_id_logical_index, for_loop->index());
+        new_top_level_exprs.push_back(IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
         new_loop_body.push_back(output_j->definition());
         for (auto it_running_expr = current_loop_body.begin(); it_running_expr != current_loop_body.end(); ++it_running_expr) {
           Expr* running_expr = *it_running_expr;
           for (auto* running_output : ir_utils::filterByType<TensorView>(running_expr->outputs())) {
             if (running_output == output) {
+              // We need to erase the definition to avoid asserting at https://github.com/NVIDIA/Fuser/blob/f8dc9f0582e480264b7600b6e649c7e93c1944e5/csrc/ir/utils.cpp#L263
+              Expr* tmp = output_j->definition();
+              output_j->setDefinition(nullptr);
               *it_running_expr = ir_utils::transferDefinitionToNewOutputs(running_expr, {output_j});
+              output_j->setDefinition(tmp);
             }
           }
         }
       }
+      new_loop_body.push_back(*it_expr);
     }
     // reseting the for-loop body
     for_loop->body().clear();
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
     }
+    new_top_level_exprs.push_back(top_level_expr);
   }
 
 
@@ -241,7 +229,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
   }
 
   // reset hic topLevelExprs to new_top_level_exprs
-
+  hic->resetTopLevelExprs(new_top_level_exprs);
 }
 
 } // namespace nvfuser::preseg_passes

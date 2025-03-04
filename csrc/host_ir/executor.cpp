@@ -580,7 +580,9 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     "must be precomputed before being retrieved");
   auto in_tensor = expr_evaluator_.evaluate(load_store_op->in()).as<at::Tensor>();
   auto out_tensor = expr_evaluator_.evaluate(load_store_op->out()).as<at::Tensor>();
-  in_tensor.copy_(out_tensor);
+  std::cout << "inside set handle BEFORE COPY, expr=" << load_store_op << ", input_tv=" << load_store_op->in() << " in_tensor: " << in_tensor  << " in_tensor.data_ptr(): " << in_tensor.data_ptr() << "\n out_tv=" << load_store_op->out() << ", out_tensor:" << out_tensor << ", out_tensor.data_ptr():" << out_tensor.data_ptr() << std::endl;
+  out_tensor.copy_(in_tensor);
+  std::cout << "inside set handle AFTER COPY, expr=" << load_store_op << ", input_tv=" << load_store_op->in() << " in_tensor: " << in_tensor  << " in_tensor.data_ptr(): " << in_tensor.data_ptr() << "\n out_tv=" << load_store_op->out() << ", out_tensor:" << out_tensor << ", out_tensor.data_ptr():" << out_tensor.data_ptr() << std::endl;
 }
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
@@ -602,6 +604,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
+  std::cout << "inside unhandle, expr=" << stmt << std::endl;
   for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -610,10 +613,12 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
         " of the expression ",
         expr->toString(),
         "must be precomputed before being retrieved");
+    std::cout << "inside unhandle, in_tv=" << input << ", in_tensor: " << expr_evaluator_.evaluate(input).as<at::Tensor>() << ", in_tensor.data_ptr(): " << expr_evaluator_.evaluate(input).as<at::Tensor>().data_ptr() << std::endl;
   }
   for (auto output : expr->outputs()) {
     expr_evaluator_.bind(
         output, expr_evaluator_.evaluate(output), /*evaluate_validate=*/true);
+    std::cout << "inside unhandle, out_tv=" << output << ", out_tensor: " << expr_evaluator_.evaluate(output).as<at::Tensor>() << ", out_tensor.data_ptr(): " << expr_evaluator_.evaluate(output).as<at::Tensor>().data_ptr() << std::endl;
   }
 }
 
