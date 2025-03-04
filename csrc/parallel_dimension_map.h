@@ -47,6 +47,8 @@ class ParallelDimensionMap {
   //! of pt is used for loading circular buffer tensors.
   Val* getRawCompute(ParallelType pt) const;
 
+  int64_t getWarpSpecilizationPaddedVal(ParallelType pt) const;
+
   //! Get the number of threads per each CTA used for computation. When there is
   //! no warp specialization, the result is trivial: it is just the product of
   //! parallel dimensions of TIDx, TIDy and TIDz. If we do have warp
@@ -78,7 +80,7 @@ class ParallelDimensionMap {
   //! If we are doing warp specialization on pt, then we need to increase
   //! the parallel dimension size of pt by one, where the extra one is used
   //! as the load warp. In this case, pt becomes non-exact.
-  void setWarpSpecializeOn(ParallelType pt);
+  void adjustMappingsForWarpSpecilization();
 
  private:
   //! Maps from parallel types to dimensions, which are constant if
@@ -90,6 +92,8 @@ class ParallelDimensionMap {
 
   //! Set of parallel types that we are doing warp specialization on
   std::unordered_set<ParallelType> warp_specialized_types_;
+  std::unordered_set<ParallelType> ws_with_register_sharing_;
+  std::unordered_map<ParallelType, int64_t> warp_specialization_padded_vals_;
 };
 
 } // namespace nvfuser

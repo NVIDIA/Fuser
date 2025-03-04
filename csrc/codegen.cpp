@@ -295,6 +295,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           num_threads_per_cta.has_value(),
           "__launch_bounds__ must be set for register sharing warp specialization");
+
+      int64_t initial_reg_count =
+          getRegPerThreadGivenThreadsPerSM(num_threads_per_cta.value());
+      int64_t decreased_reg_count =
+          kernel_->getManaged<int64_t>("decreased_register_count");
+      int64_t increased_register_count =
+          kernel_->getManaged<int64_t>("increased_register_count");
+      NVF_ERROR(
+          initial_reg_count >= decreased_reg_count,
+          "Can't decrease register count from ",
+          initial_reg_count,
+          " to ",
+          decreased_reg_count);
+      NVF_ERROR(
+          initial_reg_count <= increased_register_count,
+          "Can't increase register count from ",
+          initial_reg_count,
+          " to ",
+          increased_register_count);
+
       // leave a space between launch bound and kernel name
       code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
             << num_threads_per_cta.value()

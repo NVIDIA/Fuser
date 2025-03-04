@@ -1386,13 +1386,27 @@ class CircularBufferInserter : private kir::ExprMutator {
             circular_buffer_loop->iter_domain());
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
 
-    kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-            NamedScalar::getParallelIndex(warp_specialize_on),
-            IrBuilder::subExpr(
-                GpuLower::current()->parallelDimensionMap().get(
-                    warp_specialize_on),
-                circular_buffer_loop->fusion()->oneVal()))));
+    int64_t warp_specilization_pad =
+        GpuLower::current()
+            ->parallelDimensionMap()
+            .getWarpSpecilizationPaddedVal(warp_specialize_on);
+    Val* warp_specilization_pad_val =
+        IrBuilder::create<Val>(warp_specilization_pad, DataType::Index);
+
+    kir::Predicate* predicate_val = nullptr;
+    Val* raw =
+        GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
+    Val* raw_minus_pad =
+        SimplifyingIrBuilder::subExpr(raw, warp_specilization_pad_val);
+    if (warp_specilization_pad == 1) {
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    } else {
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    }
+    kir::IfThenElse* warp_dispatch_ite =
+        IrBuilder::create<kir::IfThenElse>(predicate_val);
 
     // Set default value
     auto& circular_buffer_options =
@@ -1402,15 +1416,18 @@ class CircularBufferInserter : private kir::ExprMutator {
         std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) &&
         std::get<WarpSpecialized>(circular_buffer_options.type)
             .num_registers.has_value();
-
     GpuLower::current()->kernel()->manage(
         "enable_register_sharing", enable_register_sharing);
+
 
     if (enable_register_sharing) {
       auto&& [decrease_num_registers, increase_num_registers] =
           std::get<WarpSpecialized>(circular_buffer_options.type)
               .num_registers.value();
-
+      GpuLower::current()->kernel()->manage(
+        "decreased_register_count", decrease_num_registers);
+      GpuLower::current()->kernel()->manage(
+        "increased_register_count", increase_num_registers);
       // Decrease registers in load warp group
       kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
@@ -1427,7 +1444,19 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
+
+    // Nest load loop inside the warp dispatch if-then-else
+    if (warp_specilization_pad > 1) {
+      kir::IfThenElse* load_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
+          IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+              NamedScalar::getParallelIndex(warp_specialize_on),
+              IrBuilder::subExpr(
+                  raw, circular_buffer_loop->fusion()->oneVal()))));
+      load_dispatch_ite->thenBody().push_back(load_loop);
+      warp_dispatch_ite->thenBody().push_back(load_dispatch_ite);
+    } else {
+      warp_dispatch_ite->thenBody().push_back(load_loop);
+    }
 
     if (enable_register_sharing) {
       // Terminate the warp group handling Load loop immediately after

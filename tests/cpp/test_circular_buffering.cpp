@@ -2126,7 +2126,7 @@ auto tmaCircularBufferingParams() {
       WarpSpecialized(ParallelType::TIDx),
       WarpSpecialized(ParallelType::TIDy),
       WarpSpecialized(ParallelType::TIDx, std::make_pair(40, 168)),
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 168))};
+      WarpSpecialized(ParallelType::TIDy, std::make_pair(64, 104))};
   const std::vector<LoadStoreOpType> tma_types{
       LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};
   std::vector<TmaCircularBufferingParams> values;
