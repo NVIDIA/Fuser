@@ -158,43 +158,50 @@ void parallelizeAllLike(
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true);
+    bool propagate_padding = true,
+    bool parallelize_inputs = false);
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true) {
+    bool propagate_padding = true,
+    bool parallelize_inputs = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::move(selected_tvs),
       selected_parallel_types,
-      propagate_padding);
+      propagate_padding,
+      parallelize_inputs);
 }
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     std::initializer_list<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true) {
+    bool propagate_padding = true,
+    bool parallelize_inputs = false) {
   parallelizeAllLike(
       reference_tv,
       std::vector<TensorView*>(selected_tvs),
       selected_parallel_types,
-      propagate_padding);
+      propagate_padding,
+      parallelize_inputs);
 }
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     const std::unordered_set<ParallelType>& selected_parallel_types,
-    bool propagate_padding = true) {
+    bool propagate_padding = true,
+    bool parallelize_inputs = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::vector<TensorView*>{},
       selected_parallel_types,
-      propagate_padding);
+      propagate_padding,
+      parallelize_inputs);
 }
 
 // Common hyperparameters used in heuristic scheduler. These hyperparameters
