@@ -171,9 +171,9 @@ TensorDomain* TransformReplay::fullSelfReplay(
   NVF_ERROR(
       new_self_root->maybeRoot().size() == self->maybeRoot().size(),
       "Invalid number of IterDomains provided: ",
-      new_self_root->maybeRoot().size(),
+      new_self_root->maybeRoot(),
       " vs ",
-      self->maybeRoot().size());
+      self->maybeRoot());
 
   // Map for replay, should be pretty simple.
   id_map axis_map;
@@ -261,12 +261,13 @@ void TransformReplay::selfAllocationReplay(
   id_map axis_map;
   {
     int64_t i = 0;
-    for (auto id : self_logical) {
+    for (IterDomain* id : self_logical) {
       // Note: we don't want to check for equal `isRFactorProduct`, since we
       // could replay Allocation of the output of a reduction to a later
       // consumer tensor, which would not have the rfactor flag on.
+      IterDomain* new_id = new_self_logical[i];
       NVF_ERROR(
-          new_self_logical[i]->isSymbolic() || id->isSymbolic() ||
+          new_id->isSymbolic() || id->isSymbolic() ||
               new_self_logical[i]->isBroadcast() == id->isBroadcast(),
           "Axes ",
           id,
@@ -290,20 +291,20 @@ void TransformReplay::selfAllocationReplay(
   ReplaySelf replay(self_allocation_no_reduction, axis_map);
   std::vector<IterDomain*> new_alloc_domain;
   std::vector<std::optional<bool>> new_contiguity;
-  new_alloc_domain.reserve(new_self_root->logical().size());
-  new_contiguity.reserve(new_self_root->logical().size());
+  new_alloc_domain.reserve(self_allocation.size());
+  new_contiguity.reserve(self_allocation.size());
 
   {
     // Push back the reduction IDs that are not mapped
     for (auto id : new_self_root->logical()) {
       if (id->isReduction()) {
         new_alloc_domain.push_back(id);
-        new_contiguity.emplace_back(std::nullopt);
+        new_contiguity.push_back(std::nullopt);
       }
     }
 
     // Pushing the mapped IDs and corresponding contiguity flags
-    for (size_t i = 0; i < self_contiguity.size(); i++) {
+    for (size_t i : c10::irange(self_allocation.size())) {
       IterDomain* id = self_allocation[i];
       if (id->isReduction()) {
         continue;
@@ -311,7 +312,7 @@ void TransformReplay::selfAllocationReplay(
       auto it = replay.getReplay().find(id);
       NVF_ERROR(
           it != replay.getReplay().end(),
-          "Error during replay, didn't replay an axis.");
+          "failed to replay IterDomain: ", id);
       if (it->second->isBroadcast() == self_contiguity[i].has_value()) {
         // whether we resolve to true or false shouldn't matter since it's going
         // to be concretized as a broadcast dimension
