@@ -4,7 +4,7 @@ set -e
 
 # Remove headers of gcc-14 because it is too new and not very compatible with clang
 sudo apt-get -y remove gcc-14 g++14 libstdc++-14-dev
-dpkg -S /usr/include/c++/14/cstdint
+sudo rm -rf /usr/include/c++/14 #/usr/lib/gcc/x86_64-linux-gnu/13 
 
 # Install cuda
 wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
