@@ -93,7 +93,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   adjustMappingsForWarpPadding();
-  adjustMappingsForWarpSpecilization();
+  adjustMappingsForWarpSpecialization();
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
@@ -148,7 +148,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
-void ParallelDimensionMap::adjustMappingsForWarpSpecilization() {
+void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   NVF_ERROR(
       ws_with_register_sharing_.size() <= 1,
       "Warp specilization with register sharing is only supported on one parallel type.");
@@ -324,7 +324,7 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
 Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   Val* raw = getRaw(pt);
   if (warp_specialized_types_.count(pt)) {
-    auto padded_val = getWarpSpecilizationPaddedVal(pt);
+    auto padded_val = getWarpSpecializationPaddedVal(pt);
     return SimplifyingIrBuilder::addExpr(raw, -padded_val);
   }
   return raw;
@@ -342,7 +342,7 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   return num_threads;
 }
 
-int64_t ParallelDimensionMap::getWarpSpecilizationPaddedVal(
+int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
     ParallelType pt) const {
   NVF_ERROR(
       warp_specialized_types_.contains(pt), "Can't find ParallelType: ", pt);

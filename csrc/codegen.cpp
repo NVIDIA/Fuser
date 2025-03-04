@@ -310,13 +310,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           kernel_->getManaged<int64_t>("increased_register_count");
       NVF_ERROR(
           initial_reg_count >= decreased_reg_count,
-          "Undefiend behavior to decrease register count from ",
+          "Undefined behavior to decrease register count from ",
           initial_reg_count,
           " to ",
           decreased_reg_count);
       NVF_ERROR(
           initial_reg_count <= increased_register_count,
-          "Undefiend behavior to increase register count from ",
+          "Undefined behavior to increase register count from ",
           initial_reg_count,
           " to ",
           increased_register_count);

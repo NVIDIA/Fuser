@@ -47,7 +47,7 @@ class ParallelDimensionMap {
   //! of pt is used for loading circular buffer tensors.
   Val* getRawCompute(ParallelType pt) const;
 
-  int64_t getWarpSpecilizationPaddedVal(ParallelType pt) const;
+  int64_t getWarpSpecializationPaddedVal(ParallelType pt) const;
 
   //! Get the number of threads per each CTA used for computation. When there is
   //! no warp specialization, the result is trivial: it is just the product of
@@ -80,7 +80,7 @@ class ParallelDimensionMap {
   //! If we are doing warp specialization on pt, then we need to increase
   //! the parallel dimension size of pt by one, where the extra one is used
   //! as the load warp. In this case, pt becomes non-exact.
-  void adjustMappingsForWarpSpecilization();
+  void adjustMappingsForWarpSpecialization();
 
  private:
   //! Maps from parallel types to dimensions, which are constant if
