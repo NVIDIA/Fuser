@@ -90,10 +90,9 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1}, LaunchParams(), compile_opts);
 
-  // std::string output = getCapturedStdout();
-  // std::cout << output << std::endl;
-  // EXPECT_EQ(output.find("'setmaxnreg' ignored"), std::string::npos)
-  //     << "'setmaxnreg' ignored!";
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("'setmaxnreg' ignored"), std::string::npos)
+      << "'setmaxnreg' ignored!";
 
   auto cg_outputs = ke.run({t0, t1});
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
