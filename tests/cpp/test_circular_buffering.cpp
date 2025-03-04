@@ -1027,10 +1027,16 @@ class TmaCircularBufferingTest
             .num_registers.has_value();
   }
 
-
   bool testEnablesRegisterSharingTIDx() {
     return testEnablesRegisterSharing() &&
-        std::get<WarpSpecialized>(circular_buffer_type).on == ParallelType::TIDx;
+        std::get<WarpSpecialized>(circular_buffer_type).on ==
+        ParallelType::TIDx;
+  }
+
+  bool testEnablesRegisterSharingTIDy() {
+    return testEnablesRegisterSharing() &&
+        std::get<WarpSpecialized>(circular_buffer_type).on ==
+        ParallelType::TIDy;
   }
 
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
@@ -1735,6 +1741,13 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
     return;
   }
 
+  // in this test, bdimx is dynamic.
+  if (testEnablesRegisterSharingTIDy()) {
+    GTEST_SKIP()
+        << "Bdimx should be const if register sharing with warp specialization on TIDy";
+    return;
+  }
+
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
   constexpr int64_t reduction_axis = 1;
@@ -1875,9 +1888,19 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
     return;
   }
 
-  if(testEnablesRegisterSharingTIDx()){
-    GTEST_SKIP() << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
+  if (testEnablesRegisterSharingTIDx()) {
+    GTEST_SKIP()
+        << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
     return;
+  }
+
+  // There are 512 compute threads and 128 load threads
+  // register at entry: 96
+  // register for compute: 96 + 32 / 4 = 104
+  // register for loading: 96 - 32 = 64
+  if (testEnablesRegisterSharingTIDy()) {
+    circular_buffer_type =
+        WarpSpecialized(ParallelType::TIDy, std::make_pair(64, 104));
   }
 
   if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
@@ -2013,11 +2036,21 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
     return;
   }
 
-  if(testEnablesRegisterSharingTIDx()){
-    GTEST_SKIP() << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
+  if (testEnablesRegisterSharingTIDx()) {
+    GTEST_SKIP()
+        << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
     return;
   }
-  
+
+  // There are 512 compute threads and 128 load threads
+  // register at entry: 96
+  // register for compute: 96 + 32 / 4 = 104
+  // register for loading: 96 - 32 = 64
+  if (testEnablesRegisterSharingTIDy()) {
+    circular_buffer_type =
+        WarpSpecialized(ParallelType::TIDy, std::make_pair(64, 104));
+  }
+
   if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
     GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
     return;
@@ -2149,7 +2182,7 @@ auto tmaCircularBufferingParams() {
       Pipelined(true),
       WarpSpecialized(ParallelType::TIDx),
       WarpSpecialized(ParallelType::TIDy),
-      WarpSpecialized(ParallelType::TIDx, std::make_pair(160, 168)),
+      WarpSpecialized(ParallelType::TIDx, std::make_pair(64, 168)),
       WarpSpecialized(ParallelType::TIDy, std::make_pair(64, 168))};
   const std::vector<LoadStoreOpType> tma_types{
       LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};

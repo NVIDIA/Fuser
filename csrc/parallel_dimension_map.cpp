@@ -93,7 +93,6 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   adjustMappingsForWarpPadding();
-  std::cout << "afterWarp Specialization Pad " << std::endl;
   adjustMappingsForWarpSpecilization();
 }
 
