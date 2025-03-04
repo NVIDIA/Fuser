@@ -93,7 +93,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   adjustMappingsForWarpPadding();
-
+  std::cout << "afterWarp Specialization Pad " << std::endl;
   adjustMappingsForWarpSpecilization();
 }
 
@@ -191,48 +191,83 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecilization() {
     NVF_ERROR(
         (128 % bdim_val == 0 || bdim_val % 128 == 0),
         "For register sharing bdim_val must can evenly divide or divide by 128, bdim= ",
-        bdim->toInlineString());
+        bdim_val);
+    if (dim_it == dim_map_.end()) {
+      NVF_ERROR(
+          bdim_val >= 128 && bdim_val % 128 == 0,
+          "Before warp specilization padding, there must be 128 * N threads, bdim= ",
+          bdim_val);
+    } else {
+      if (dim_it->second->isConstScalar()) {
+        int64_t threads_bofore_pad =
+            dim_it->second->value().as<int64_t>() * bdim_val;
+        NVF_ERROR(
+            threads_bofore_pad >= 128 && threads_bofore_pad % 128 == 0,
+            "Before warp specilization padding, there must be 128 * N threads, bdim= ",
+            threads_bofore_pad);
+      } else {
+        // we can't verify wheter the block size is multiple of 128. Defer check
+        // to executor.
+      }
+    }
+
     int64_t pad_val = bdim_val > 128 ? 1 : 128 / bdim_val;
-    dim_map_[pt_padded] = IrBuilder::addExpr(
-        dim_it->second, IrBuilder::create<Val>(pad_val, DataType::Index));
+    auto off_set = IrBuilder::create<Val>(pad_val, DataType::Index);
+    auto current_val = dim_it == dim_map_.end()
+        ? IrBuilder::create<Val>(1, DataType::Index)
+        : dim_it->second;
+    dim_map_[pt_padded] = IrBuilder::addExpr(current_val, off_set);
     return pad_val;
+  };
+
+  auto pad128 = [&](ParallelType pt_pad) {
+    auto off_set = IrBuilder::create<Val>(128, DataType::Index);
+    NVF_ERROR(
+        dim_it != dim_map_.end(),
+        "Padding 128 threads to a non-existing dim leads to 129 threads, which is not a multiply of 128.");
+    if (dim_it->second->isConstScalar()) {
+      NVF_ERROR(
+          dim_it->second->value().as<int64_t>() % 128 == 0,
+          "Padding 128 threads to a dim that is not a multiply of 128 leads to a dim can't be divised by 128.");
+    }
+    dim_map_[pt_pad] = IrBuilder::addExpr(dim_it->second, off_set);
+    return 128;
   };
   switch (pt) {
     // threadIdx = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *
     // blockDim.x * blockDim.y If on TIDx, we need to patch additional 128
     // threads executor should ensure there are 128 * N threads before padding
     case ParallelType::TIDx:
-      dim_map_[pt] = IrBuilder::addExpr(
-          dim_it->second, IrBuilder::create<Val>(128, DataType::Index));
-      warp_specialization_padded_vals_[pt] = 128;
+      warp_specialization_padded_vals_[pt] = pad128(pt);
       break;
     case ParallelType::TIDy:
       if (!dim_map_.contains(ParallelType::TIDx)) {
         // If TIDx is not used, pad 128 threads to TIDy
-        dim_map_[pt] = IrBuilder::addExpr(
-            dim_it->second, IrBuilder::create<Val>(128, DataType::Index));
-        warp_specialization_padded_vals_[pt] = 128;
+        warp_specialization_padded_vals_[pt] = pad128(pt);
       } else {
         // If TIDx is used, pad [128 / bdimx] or 1 (when bdimx > 128 &
         // bdimx%128==0) threads to TIDy
-        warp_specialization_padded_vals_[pt] = checkAndPadDim(ParallelType::TIDx, pt);
+        warp_specialization_padded_vals_[pt] =
+            checkAndPadDim(ParallelType::TIDx, pt);
       }
       break;
     case ParallelType::TIDz:
       if (!dim_map_.contains(ParallelType::TIDx)) {
         if (!dim_map_.contains(ParallelType::TIDy)) {
           // If TIDx & TIDy are not used, pad 128 threads to TIDz
-          dim_map_[pt] = IrBuilder::addExpr(
-              dim_it->second, IrBuilder::create<Val>(128, DataType::Index));
-          warp_specialization_padded_vals_[pt] = 128;
+          warp_specialization_padded_vals_[pt] = pad128(pt);
         } else {
-          // If TIDx is not used, TIDy is used, pad 128 / bdimx threads or 1 to TIDz
-          warp_specialization_padded_vals_[pt] = checkAndPadDim(ParallelType::TIDy, pt);
+          // If TIDx is not used, TIDy is used, pad 128 / bdimx threads or 1 to
+          // TIDz
+          warp_specialization_padded_vals_[pt] =
+              checkAndPadDim(ParallelType::TIDy, pt);
         }
       } else {
-        // If TIDx is used, TIDy is not used, pad 128 / bdimx threads or 1 to TIDz
+        // If TIDx is used, TIDy is not used, pad 128 / bdimx threads or 1 to
+        // TIDz
         if (!dim_map_.contains(ParallelType::TIDy)) {
-          warp_specialization_padded_vals_[pt] = checkAndPadDim(ParallelType::TIDx, pt);
+          warp_specialization_padded_vals_[pt] =
+              checkAndPadDim(ParallelType::TIDx, pt);
         } else {
           // If TIDx & TIDy are used, pad 128/(bdimx*bdimy) threads or 1 to TIDz
           Val* bdimx = dim_map_.at(ParallelType::TIDx);
@@ -250,8 +285,10 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecilization() {
               "For register sharing on TIDz, TIDx*TIDy must can evenly divide or divide by 128, bdim_xy_val= ",
               bdim_xy_val);
           int64_t pad_val = bdim_xy_val > 128 ? 1 : 128 / bdim_xy_val;
-          dim_map_[pt] = IrBuilder::addExpr(
-              dim_it->second, IrBuilder::create<Val>(pad_val, DataType::Index));
+          auto off_set = IrBuilder::create<Val>(pad_val, DataType::Index);
+          dim_map_[pt] = dim_it == dim_map_.end()
+              ? off_set
+              : IrBuilder::addExpr(dim_it->second, off_set);
           warp_specialization_padded_vals_[pt] = pad_val;
         }
       }
@@ -260,6 +297,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecilization() {
       NVF_THROW("Unsupported parallel type for register sharing: ", pt);
       break;
   }
+  exact_types_.erase(pt);
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
@@ -304,12 +342,17 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   return num_threads;
 }
 
-int64_t ParallelDimensionMap::getWarpSpecilizationPaddedVal(ParallelType pt) const{
-  NVF_ERROR(warp_specialized_types_.contains(pt), "Can't find ParallelType: ", pt);
-  if(!ws_with_register_sharing_.contains(pt)){
+int64_t ParallelDimensionMap::getWarpSpecilizationPaddedVal(
+    ParallelType pt) const {
+  NVF_ERROR(
+      warp_specialized_types_.contains(pt), "Can't find ParallelType: ", pt);
+  if (!ws_with_register_sharing_.contains(pt)) {
     return 1;
   }
-  NVF_ERROR(warp_specialization_padded_vals_.contains(pt), "Can't find padded val for: ", pt);
+  NVF_ERROR(
+      warp_specialization_padded_vals_.contains(pt),
+      "Can't find padded val for: ",
+      pt);
   return warp_specialization_padded_vals_.at(pt);
 }
 
