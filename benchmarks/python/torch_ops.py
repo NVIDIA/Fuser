@@ -62,10 +62,11 @@ def nanogpt_attn(inputs: list):
 
 def rmsnorm(inputs: list):
     inp, weights = inputs
-    squared_mean = (inp**2).mean(1, keepdim=True)
-    rms_eps = torch.sqrt(squared_mean + 1e-5)
-    output = weights * (inp / rms_eps)
-    return output
+    return F.rms_norm(
+        inp,
+        inp.shape[1:],
+        weight=weights,
+    )
 
 
 def scale_bias_relu(inputs: list):
