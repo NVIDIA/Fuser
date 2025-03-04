@@ -149,12 +149,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
     const ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("fusion_executor::allocations::inferShape");
 
-  // Allocate should be provided for intermediates. We just need to
-  // grab a chunk of memory of the size dicatated by
-  // Allocate::shape(). Fusion outputs do not come with Allocate and
-  // need to be allocated while taking expanded broadcasts into
-  // account.
-
   std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
 
   for (const auto i : c10::irange(symbolic_sizes.size())) {
@@ -178,24 +172,6 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
   return {concrete_sizes, strides};
 }
 } // namespace
-
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
-    const TensorView* tv,
-    const kir::Allocate* alloc,
-    ExpressionEvaluator& expr_eval) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::inferShapeOfIntermediate");
-  // The allocation domain represents the logical allocation domain,
-  // bu its actual allocation size may be different, e.g., for
-  // supporting halo accesses. The actual size is currently computed
-  // when creating the Allocate expr.
-  NVF_ERROR(alloc != nullptr);
-  const auto& symbolic_sizes = alloc->shape();
-  // For intermediate tensors, we just need to allocate a memory chunk
-  // of the specified size. Broadcast expansion does not need to be considered.
-  const auto expand_flags = std::vector<bool>(symbolic_sizes.size(), false);
-
-  return inferShape(tv, symbolic_sizes, expand_flags, expr_eval);
-}
 
 static bool fill_allocation_with_nan_ = false;
 

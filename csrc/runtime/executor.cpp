@@ -510,19 +510,12 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     info.zero_init = alloc->zeroInit();
     info.resets_to_zero = alloc->resetsToZero();
     // TODO: Allocation size needs to consider both expanded domains
-    // as well as halo. Currently, allocation of tensors with halo is
-    // only supported by inferShapeOfIntermediate, whereas expanded
-    // domains are only supported by inferShapeOfOutput. Until the
-    // halo support is revisited, use the former for all tensors
-    // unless expanded and the latter otherwise. This assumes there's
-    // no expanded domains with halo, which is fine for now.
-    const auto has_expanded_domains = std::any_of(
-        tv->getMaybeAllocationDomain().begin(),
-        tv->getMaybeAllocationDomain().end(),
-        [](IterDomain* id) { return id->hasExpandedExtent(); });
-    auto [sizes, strides] = has_expanded_domains
-        ? inferShapeOfOutput(tv, expr_eval)
-        : inferShapeOfIntermediate(tv, alloc, expr_eval);
+    // as well as halo. Currently, halo support has bene removed so we only need
+    // to worry about the expand case which is handled in inferShapeofOutputs.
+    // There used to also be a inferShapeOfIntermediate function before this
+    // commit, but that was safely removed with halo support. This will need to
+    // be revisited when halo support is added again.
+    auto [sizes, strides] = inferShapeOfOutput(tv, expr_eval);
     info.shape_info.logical_sizes = sizes;
     info.shape_info.logical_strides = strides;
     auto dtype = tv->dtype() == DataType::Index ? index_type : tv->dtype();

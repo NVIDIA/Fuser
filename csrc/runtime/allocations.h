@@ -57,13 +57,6 @@ int64_t computeSharedMemory(
     DataType index_type,
     int64_t smem_offset = 0);
 
-// Infer the shape of an intemediate tensor using kir::Allocate. This
-// is not ideal but still necessary when tensors are expanded with halo
-std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShapeOfIntermediate(
-    const TensorView* tv,
-    const kir::Allocate* alloc,
-    ExpressionEvaluator& expr_eval);
-
 bool shouldFillAllocationWithNan();
 
 NVF_API void setFillAllocationWithNan(bool value);
