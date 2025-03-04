@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -eX
+set -e
 
 # Remove headers of gcc-14 because it is too new and not very compatible with clang
 #sudo apt-get -y remove gcc-14 g++14 libstdc++-14-dev
@@ -13,5 +13,4 @@ sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
 sudo apt-get -y install ninja-build cuda-compiler-12-8 cuda-command-line-tools-12-8 cuda-libraries-dev-12-8 libnccl-dev 
 
-echo | clang++ -E -dM -x c++ - | grep stdint
-ls -l /usr/include/stdint.h
+tree /usr/include/c++/
