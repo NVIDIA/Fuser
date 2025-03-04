@@ -97,10 +97,6 @@ void LoopNestGenerator::handle(Expr* expr) {
 
   TensorView* out_tv = expr->output(0)->as<TensorView>();
 
-  if (GpuLower::current()->getTensorProducerAlias(out_tv) != nullptr) {
-    return;
-  }
-
   // Grab the loop structure
   NVF_ERROR(
       loop_structures_.find(out_tv) != loop_structures_.end(),
