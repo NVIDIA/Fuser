@@ -11362,6 +11362,14 @@ __device__ __inline__ void ParallelReduce<
 __device__ __inline__ void fenceAsyncProxy() {
   asm volatile("fence.proxy.async;\n");
 }
+template <nvfuser_index_t in0>
+__device__ __inline__ void decreaseRegisters() {
+  asm volatile("setmaxnreg.dec.sync.aligned.u32 %0;\n" ::"n"(in0));
+}
+template <nvfuser_index_t in0>
+__device__ __inline__ void increaseRegisters() {
+  asm volatile("setmaxnreg.inc.sync.aligned.u32 %0;\n" ::"n"(in0));
+}
 __device__ __inline__ void stmatrix4(uint32_t in0, Array<uint32_t, 4, 1> in1) {
   asm volatile(
       "stmatrix.sync.aligned.x4.m8n8.shared.b16 [%0], {%1, %2, %3, %4};\n"
@@ -11536,15 +11544,16 @@ __device__ __inline__ void wait() {
   asm volatile("wgmma.wait_group.sync.aligned %0;\n" ::"n"(in0) : "memory");
 }
 } // namespace wgmma
-__global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
-    Tensor<__bfloat, 3, 3> T0,
-    Tensor<__bfloat, 3, 3> T1,
-    Tensor<__bfloat, 2, 2> T2,
-    const __grid_constant__ TensorMap var0,
-    const __grid_constant__ TensorMap var1,
-    const __grid_constant__ TensorMap var2,
-    const __grid_constant__ TensorMap var3,
-    Tensor<__bfloat, 2, 2> T6) {
+__global__ void __launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/384, 1)
+    __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
+        Tensor<__bfloat, 3, 3> T0,
+        Tensor<__bfloat, 3, 3> T1,
+        Tensor<__bfloat, 2, 2> T2,
+        const __grid_constant__ TensorMap var0,
+        const __grid_constant__ TensorMap var1,
+        const __grid_constant__ TensorMap var2,
+        const __grid_constant__ TensorMap var3,
+        Tensor<__bfloat, 2, 2> T6) {
   alignas(16) extern __shared__ char array[];
   const unsigned smem_offset = 0;
   nvfuser_index_t i4;
@@ -11607,9 +11616,14 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
          (2 * (((nvfuser_index_t)threadIdx.x) % 4))) +
       i8;
 
+  // The number of threads in the compute warp groups.
   uint32_t num_threads = blockDim.x * (blockDim.y - 1) * blockDim.z;
+  // T13 is mbarriers for load and compute warp groups.
   uint64_t* T13 = reinterpret_cast<uint64_t*>(array + smem_offset + 213008);
+  // T14 is the mbarrier for epilogue input
   uint64_t* T14 = reinterpret_cast<uint64_t*>(array + smem_offset + 212992);
+
+  // Initialize mbarriers
   mbarrier::init(toSmem(T14), 2U);
 #pragma unroll
   for (nvfuser_index_t i38 = 0; i38 < 3; ++i38) {
@@ -11626,6 +11640,9 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
   __syncthreads();
 
   if (b25) {
+    // load warp group so decrease registers
+    decreaseRegisters<40>();
+    // outer persistent loop
 #pragma unroll 1
     for (nvfuser_index_t i29 = 0; i29 < i5; ++i29) {
       nvfuser_index_t i30;
@@ -11645,18 +11662,19 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       nvfuser_index_t i37;
       i37 = i28 + i30;
 
+      if ((Hopper::electSync(4294967295U) && b23)) {
+        // inner k loop
 #pragma unroll 2
-      for (nvfuser_index_t i40 = 0; i40 < i6; ++i40) {
-        nvfuser_index_t stage;
-        stage = i29 * i6 + i40;
+        for (nvfuser_index_t i40 = 0; i40 < i6; ++i40) {
+          nvfuser_index_t stage;
+          stage = i29 * i6 + i40;
 
-        nvfuser_index_t i41;
-        i41 = stage % 3;
-        int i42;
-        i42 = (int32_t)((64 * i40));
-        uint32_t i43;
-        i43 = i12 + (16384 * i41);
-        if ((Hopper::electSync(4294967295U) && b23)) {
+          nvfuser_index_t i41;
+          i41 = stage % 3;
+          int i42;
+          i42 = (int32_t)((64 * i40));
+          uint32_t i43;
+          i43 = i12 + (16384 * i41);
           mbarrier::waitParity(
               toSmem((&T13[((stage % 3) + 3LL)])),
               (uint32_t)(((stage / 3) % 2)));
@@ -11681,12 +11699,16 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       }
     }
   } else {
+    // compute warp group so increase registers
+    increaseRegisters<232>();
 #pragma unroll
     for (nvfuser_index_t i45 = 0; i45 < 3; ++i45) {
       mbarrier::arrive(toSmem((&T13[(i45 + 3LL)])));
     }
 
+    // wgmma accumulator float registers
     Array<float, 128, 1> T3;
+    // output bf16 registers
     Array<__bfloat, 128, 8> T11;
 
 #pragma unroll 1
@@ -11707,7 +11729,10 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       b36 = b26 && ((i27 + i33) < T0.logical_size[0LL]);
       nvfuser_index_t i37;
       i37 = i28 + i30;
+      // clear accumulator registers
       ((*reinterpret_cast<Array<float, 128, 1>*>(&T3[0]))).set(0);
+      // wgmma fence before next k main loop
+      wgmma::fence();
 
 #pragma unroll 2
       for (nvfuser_index_t i46 = 0; i46 < i6; ++i46) {
@@ -11730,7 +11755,6 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
           i52 = i48 + i51;
           uint32_t i53;
           i53 = i49 + i51;
-          wgmma::fence();
           wgmma::m64n256k16BF16<1, 1, 0, 0>(
               (*reinterpret_cast<Array<float, 128, 1>*>(&T3[0])),
               (4611686293305294848ULL |
@@ -11744,8 +11768,10 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         mbarrier::arrive(toSmem((&T13[((stage % 3) + 3LL)])));
       }
       wgmma::wait<0LL>();
-      cpAsyncBulkWaitGroup<0LL>();
 
+      // wait for output tma store to finish
+      cpAsyncBulkWaitGroup<0LL>();
+      // launch tma load for epilogue input to shared memory
       if (((Hopper::electSync(4294967295U) && b23) && b26)) {
         mbarrier::arriveExpectTX(toSmem(T14), 8192U * 4);
 #pragma unroll
@@ -11760,35 +11786,35 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
       }
       mbarrier::waitParity(toSmem(T14), i29 % 2);
 
+      // use ldmatrix to load from shared memory to registers
 #pragma unroll
       for (nvfuser_index_t i59 = 0; i59 < 16; ++i59) {
         T11.set(__bfloat(0));
       }
 #pragma unroll
       for (nvfuser_index_t i59 = 0; i59 < 16; ++i59) {
-        if ((b36 && (i37 < (-(16 * i59))))) {
-          asm volatile(
-              "ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n"
-              : "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
-                    &T11[(8 * i59)]))[0]),
-                "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
-                    &T11[(8 * i59)]))[1]),
-                "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
-                    &T11[(8 * i59)]))[2]),
-                "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
-                    &T11[(8 * i59)]))[3])
-              : "r"((uint32_t)((
-                  toSmem(T9) +
-                  ((((nvfuser_index_t)threadIdx.y) * 32768) +
-                   (((i59 / 4) * 8192) +
-                    ((i20 * 128) +
-                     (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) +
-                        ((i59 % 4) * 2)) ^
-                       (i20 % 8)) *
-                      16))))))));
-        }
+        asm volatile(
+            "ldmatrix.sync.aligned.x4.m8n8.shared.b16 {%0, %1, %2, %3}, [%4];\n"
+            : "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
+                  &T11[(8 * i59)]))[0]),
+              "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
+                  &T11[(8 * i59)]))[1]),
+              "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
+                  &T11[(8 * i59)]))[2]),
+              "=r"((*reinterpret_cast<Array<uint32_t, 4, 1>*>(
+                  &T11[(8 * i59)]))[3])
+            : "r"((uint32_t)((
+                toSmem(T9) +
+                ((((nvfuser_index_t)threadIdx.y) * 32768) +
+                 (((i59 / 4) * 8192) +
+                  ((i20 * 128) +
+                   (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) +
+                      ((i59 % 4) * 2)) ^
+                     (i20 % 8)) *
+                    16))))))));
       }
 
+      // epilogue computation
       // Alias Allocation - register
       auto& T10 = T11;
 #pragma unroll
@@ -11812,39 +11838,42 @@ __global__ void __cluster_dims__(2, 1, 1) nvfuser_none_f0_c0_r0_g0(
         }
       }
 
+      // store results from registers to shared memory using stmatrix
 #pragma unroll
       for (nvfuser_index_t i66 = 0; i66 < 16; ++i66) {
-        if ((b36 && (i37 < (-(16 * i66))))) {
-          stmatrix4(
-              (uint32_t)((
-                  toSmem(T12) +
-                  ((((nvfuser_index_t)threadIdx.y) * 32768) +
-                   (((i66 / 4) * 8192) +
-                    ((i20 * 128) +
-                     (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) +
-                        ((i66 % 4) * 2)) ^
-                       (i20 % 8)) *
-                      16)))))),
-              (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T10[(8 * i66)])));
-        }
+        stmatrix4(
+            (uint32_t)((
+                toSmem(T12) +
+                ((((nvfuser_index_t)threadIdx.y) * 32768) +
+                 (((i66 / 4) * 8192) +
+                  ((i20 * 128) +
+                   (((((((nvfuser_index_t)threadIdx.x) % 32) / 16) +
+                      ((i66 % 4) * 2)) ^
+                     (i20 % 8)) *
+                    16)))))),
+            (*reinterpret_cast<Array<uint32_t, 4, 1>*>(&T10[(8 * i66)])));
       }
+
+      // block sync before tma store
       asm volatile("bar.sync 0, %0;" : : "r"(num_threads) : "memory");
       fenceAsyncProxy();
 
+      // launch tma store from shared to global memory
+      if (((Hopper::electSync(4294967295U) && b23) && b26)) {
 #pragma unroll
-      for (nvfuser_index_t i67 = 0; i67 < 4; ++i67) {
-        if (((Hopper::electSync(4294967295U) && b23) && b26)) {
+        for (nvfuser_index_t i67 = 0; i67 < 4; ++i67) {
           Hopper::cpAsyncBulkTensorTileS2G(
               (Hopper::CpAsyncBulkTensorTileS2GIndex<2>{
                   ptr22,
                   (Array<int, 2, 1>{(int32_t)((i31 + (64 * i67))), i35})}),
               (i21 + (8192 * i67)));
-          cpAsyncBulkCommitGroup();
         }
+        cpAsyncBulkCommitGroup();
       }
     }
   }
 
+  // invalidate mbarriers
 #pragma unroll
   for (nvfuser_index_t i54 = 0; i54 < 3; ++i54) {
     if (((Hopper::electSync(4294967295U) && b23) && b24)) {
