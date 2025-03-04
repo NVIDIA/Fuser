@@ -10,3 +10,4 @@ sudo apt-get -y install ninja-build cuda-compiler-12-8 cuda-command-line-tools-1
 
 # Remove headers of gcc-14 because it is too new and not very compatible with clang
 sudo apt-get -y remove gcc-14 g++14
+dpkg -S /usr/include/c++/14/cstdint
