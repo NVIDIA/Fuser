@@ -645,15 +645,20 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       blockTileTensors({reg_tv});
       parallelizeBlocks({reg_tv});
+
       transformLikeMmaOutputWithoutK(reg_tv);
+
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           reg_tv->getLoopDomain());
       reg_tv->setLoopDomain(s.as<IterDomain*>());
       mma_utils::scheduleStMatrixForMmaOutput(
           reg_tv, stmatrix_tile_m, stmatrix_tile_n);
+
       reg_tv->setAllocationDomain(
           reg_tv->getLoopDomain(), /*new_contiguity=*/true);
+
       reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+      epilogue_uninlinable_ids_.insert(reg_tv->axis(-3));
       propagate_to.push_back(reg_tv);
     }
 
@@ -735,6 +740,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         // Schedule shared memory cache; Output from StMatrix
         mma_utils::scheduleStMatrixForMmaOutput(
             d_smem, stmatrix_tile_m, stmatrix_tile_n);
+        epilogue_uninlinable_ids_.insert(d_smem->axis(-3));
       }
 
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -768,7 +774,9 @@ void HopperMultipleMatmulScheduler::setUpInlining() {
   smem_loads_and_mma_inputs.insert(bcrs_.begin(), bcrs_.end());
   smem_loads_and_mma_inputs.insert(abs_.begin(), abs_.end());
   smem_loads_and_mma_inputs.insert(bbs_.begin(), bbs_.end());
-  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
+  inlineMost(
+      ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs),
+      epilogue_uninlinable_ids_);
 
   // if auto inline, will inline to position-7, leads to performance
   // regression
