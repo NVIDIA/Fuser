@@ -76,13 +76,8 @@ bool isTrivialExpr(Expr* expr) {
     // If this allocation ID is parallelized such that its loop index is not
     // used, then we can ignore it for this analysis.
     const auto id_is_indexed = [](TensorView* tv, IterDomain* id) {
-      if (!id->isParallelized()) {
-        return true;
-      }
-      if (id->isDeviceDim()) {
-        return false;
-      }
-      return !ir_utils::isMemorySharedAcross(
+      // isMemoryPartitionedAcross is true if the dimension is not allocated
+      return !ir_utils::isMemoryPartitionedAcross(
           tv->getMemoryType(), id->getParallelType());
     };
     if (!id_is_indexed(in, in_id) || !id_is_indexed(out, out_id)) {
