@@ -398,11 +398,10 @@ bool haveDifferentShardings(
       }
     }
 
-    auto is_mapped_in_id_model = [producer, consumer, mapped_c_root_ids](
-                                     IterDomain* p_loop_id,
-                                     IterDomain* c_loop_id,
-                                     const IdModel& id_model) -> bool {
-      if (p_loop_id == nullptr && c_loop_id == nullptr) {
+    auto is_mapped_in_id_model =
+        [&producer, &consumer](
+            IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
+      if (a == nullptr && b == nullptr) {
         return true;
       }
 
@@ -414,60 +413,27 @@ bool haveDifferentShardings(
         // Consider the reshape: [h]-> [a, h/a] where `h` and `a` are sharded,
         // IdModel currently does not map the two DID axes. Similarly for the
         // corresponding merge reshape. This is a temporary workaround to check
-        // if the reshape is resharding when sharding is on reshaped ids.
-
-        // Get the root iterdomains in the consumer that produce reshape logical
-        // Ids.
-        std::unordered_set<IterDomain*> c_reshape_ids;
-        for (auto id : consumer->getLogicalDomain()) {
-          if (id->isRFactorProduct() && id->definition() &&
-              !id->definition()->isA<Resize>()) {
-            auto root_ids = getInputsInTargetDomain(
-                id, {mapped_c_root_ids.begin(), mapped_c_root_ids.end()});
-            for (auto root_id : root_ids) {
-              c_reshape_ids.insert(root_id);
-            }
-          }
+        // if the reshape is resharding.
+        NVF_ERROR(
+            a->definition()->isA<Split>(),
+            a,
+            " is not a Split: ",
+            a->definition());
+        NVF_ERROR(
+            b->definition()->isA<Split>(),
+            b,
+            " is not a Split: ",
+            b->definition());
+        // Get the split producing the sharded axis
+        auto* a_split = a->definition()->as<Split>();
+        auto* b_split = b->definition()->as<Split>();
+        // Reshape is not resharding if both the DID splits are either inner or
+        // outer splits. Note that we currently do not exercise inner splits in
+        // the multidevice tests.
+        if (a_split->innerSplit() == b_split->innerSplit()) {
+          return true;
         }
-
-        // Get the logical iterdomains in the producer that are reshaped.
-        const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-            PairwiseLogicalDomainMap(producer, consumer)
-                .mapConsumerToProducer();
-        std::unordered_set<IterDomain*> p_reshape_ids;
-        for (auto id : c_reshape_ids) {
-          auto p_id = c2p.find(id);
-          if (p_id != c2p.end()) {
-            p_reshape_ids.insert(p_id->second);
-          }
-        }
-
-        auto p_transforms = DependencyCheck::getAllExprsBetween(
-            {p_reshape_ids.begin(), p_reshape_ids.end()}, {p_loop_id});
-        auto c_transforms = DependencyCheck::getAllExprsBetween(
-            {c_reshape_ids.begin(), c_reshape_ids.end()}, {c_loop_id});
-
-        if (p_transforms.size() > 0 && c_transforms.size() > 0) {
-          // Both a and b come from reshaped ids.
-          NVF_ERROR(
-              p_loop_id->definition()->isA<Split>(),
-              p_loop_id,
-              " is not a Split: ",
-              p_loop_id->definition());
-          NVF_ERROR(
-              c_loop_id->definition()->isA<Split>(),
-              c_loop_id,
-              " is not a Split: ",
-              c_loop_id->definition());
-          // Get the split producing the sharded axis
-          auto* p_split = p_transforms.back()->as<Split>();
-          auto* c_split = c_transforms.back()->as<Split>();
-
-          // Reshape is not resharding if both the DID splits are either inner
-          // or outer splits. Note that we currently do not exercise inner
-          // splits in the multidevice tests.
-          return p_split->innerSplit() == c_split->innerSplit();
-        }
+        return false;
       }
 
       // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
@@ -499,10 +465,6 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
-  if (expr->isA<ViewOp>()) {
-    return false;
-  }
-  
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
   id_model.buildAlmostExactGraph();
