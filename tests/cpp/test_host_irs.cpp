@@ -1170,6 +1170,33 @@ TEST_F(AllocationTest, inHostForLoop) {
   EXPECT_EQ(sizes, outputs.at(0).sizes());
 }
 
+using HirSetTest = NVFuserTest;
+
+TEST_F(HirSetTest, HostIr) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeConcreteTensor(sizes);
+  auto* out = makeConcreteTensor(sizes);
+  auto* set = IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in);
+  hic->addInput(in);
+  hic->addInput(out);
+  hic->pushBackTopLevelExprs(set);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto in_tv = at::randn(sizes, options);
+  auto out_tv = at::empty(sizes, options);
+
+  hie.runWithInput({{in, in_tv}, {out, out_tv}});
+
+  EXPECT_TRUE(out_tv.equal(in_tv)) << "Obtained output: " << out_tv << "\n"
+                                   << "Expected output: " << in_tv;
+}
+
 } // namespace hir
 
 } // namespace nvfuser

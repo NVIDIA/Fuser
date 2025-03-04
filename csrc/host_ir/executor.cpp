@@ -566,6 +566,23 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   }
 }
 
+void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
+  if (!(load_store_op->out()->isA<TensorView>() && expr_evaluator_.isKnown(load_store_op->out()))) {
+    return unhandled(load_store_op);
+  }
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+  NVF_ERROR(!out_tv->hasRoot() || out_tv->getRootDomain() == out_tv->getLogicalDomain(), "when output is preallocated, the logical domain must be the same as the root domain in the expr ", load_store_op->toString());
+  NVF_ERROR(expr_evaluator_.isKnown(load_store_op->in()),
+    "input ",
+    load_store_op->in()->toString(),
+    " of the expression ",
+    load_store_op->toString(),
+    "must be precomputed before being retrieved");
+  auto in_tensor = expr_evaluator_.evaluate(load_store_op->in()).as<at::Tensor>();
+  auto out_tensor = expr_evaluator_.evaluate(load_store_op->out()).as<at::Tensor>();
+  in_tensor.copy_(out_tensor);
+}
+
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
