@@ -1715,13 +1715,6 @@ std::vector<Expr*> ExprSegmentationSorter::getExprs() const {
       if (!lower_utils::isScalarExpr(expr)) {
         active_exprs = &remaining_exprs;
       }
-      // Here we check whether this expression's output is a TensorView aliased
-      // to one of its producer tensors. If so, that indicates that this
-      // expression is trivial and should not be considered for codegen.
-      if (TensorView* tv_out = ir_utils::getTvOutput(expr); tv_out &&
-          GpuLower::current()->getTensorProducerAlias(tv_out) != nullptr) {
-        continue;
-      }
       active_exprs->emplace_back(expr);
     }
   }

@@ -8,11 +8,15 @@
 #include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
+#include <exceptions.h>
+#include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
+#include <val_graph.h>
 
 #include <unordered_set>
+#include <vector>
 
 namespace nvfuser {
 
@@ -72,17 +76,14 @@ bool isTrivialExpr(Expr* expr) {
     // If this allocation ID is parallelized such that its loop index is not
     // used, then we can ignore it for this analysis.
     const auto id_is_indexed = [](TensorView* tv, IterDomain* id) {
-      IterDomain* loop_id = lower_utils::getConcreteLoopID(id);
-      if (!loop_id->isParallelized()) {
+      if (!id->isParallelized()) {
         return true;
       }
-      if (loop_id->isDeviceDim()) {
+      if (id->isDeviceDim()) {
         return false;
       }
-      return !(
-          loop_id->isThread() &&
-          ir_utils::isMemorySharedAcross(
-              tv->getMemoryType(), loop_id->getParallelType()));
+      return !ir_utils::isMemorySharedAcross(
+          tv->getMemoryType(), id->getParallelType());
     };
     if (!id_is_indexed(in, in_id) || !id_is_indexed(out, out_id)) {
       continue;
@@ -126,6 +127,24 @@ void findTensorProducerAliases(Fusion* fusion) {
       GpuLower::current()->aliasTensorProducer(ir_utils::getTvOutput(expr), in);
     }
   }
+}
+
+std::vector<Expr*> removeTensorProducerAliases(
+    const std::vector<Expr*>& exprs) {
+  // There are no ForLoops or IfThenElse exprs yet since this pass runs before
+  // LoopNestGenerator
+  std::vector<Expr*> filtered_exprs;
+  for (Expr* expr : exprs) {
+    // Here we check whether this expression's output is a TensorView aliased
+    // to one of its producer tensors. If so, that indicates that this
+    // expression is trivial and should not be considered for codegen.
+    if (TensorView* tv_out = ir_utils::getTvOutput(expr); tv_out &&
+        GpuLower::current()->getTensorProducerAlias(tv_out) != nullptr) {
+      continue;
+    }
+    filtered_exprs.push_back(expr);
+  }
+  return filtered_exprs;
 }
 
 } // namespace nvfuser
