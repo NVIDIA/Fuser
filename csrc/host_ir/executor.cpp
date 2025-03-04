@@ -107,7 +107,6 @@ KernelArgumentHolder HostIrExecutor::run(
   if (output_args.empty()) {
     std::vector<GlobalBufferInfo> output_infos = getBufferInfos(
         expr_eval, PrimDataType::Int, host_ir_container_->outputs());
-    output_args.resize(host_ir_container_->outputs().size());
     auto output_alias_to_input =
         executor_utils::getOutputAliasToInputMap(host_ir_container_.get());
     output_args = allocateOutputs(

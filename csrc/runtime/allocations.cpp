@@ -309,7 +309,7 @@ std::vector<GlobalBufferInfo> getBufferInfos(
     ExpressionEvaluator& expr_eval,
     DataType index_dtype,
     const std::vector<Val*>& fusion_outputs) {
-  FUSER_PERF_SCOPE("fusion_executor::allocations::getOutbufferInfos");
+  FUSER_PERF_SCOPE("fusion_executor::allocations::getBufferInfos");
   std::vector<GlobalBufferInfo> output_buffer_infos;
   output_buffer_infos.reserve(fusion_outputs.size());
   for (const auto out : fusion_outputs) {
@@ -696,7 +696,7 @@ TensorShapeInfo inferTensorShapes(
   auto alias_info = tv->fusion()->getOutputAlias(tv);
   if (alias_info.type == AllocationType::Evaluate) {
     auto val = expr_eval.evaluate(tv);
-    NVF_ERROR(val.hasValue() && val.is<at::Tensor>(), "Output is not a Tensor");
+    NVF_ERROR(val.is<at::Tensor>(), "Output is not a Tensor");
     auto tensor = val.as<at::Tensor>();
 
     if (!tv->hasAllocation()) {

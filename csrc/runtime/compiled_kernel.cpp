@@ -1419,15 +1419,13 @@ float RtcKernel::run(
     NVF_ERROR(
         input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda(),
         "Only CUDA tensors are supported for direct nvRTC launches at this time.");
-    if (input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda()) {
-      auto input_tensor = input.as<at::Tensor>();
-      data.emplace_back(tensorToBytes(
-          input_tensor,
-          input_tensor.sizes().vec(),
-          input_tensor.strides().vec(),
-          index_type));
-      pointers.emplace_back(data.back().data());
-    }
+    auto input_tensor = input.as<at::Tensor>();
+    data.emplace_back(tensorToBytes(
+        input_tensor,
+        input_tensor.sizes().vec(),
+        input_tensor.strides().vec(),
+        index_type));
+    pointers.emplace_back(data.back().data());
   }
 
   NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(

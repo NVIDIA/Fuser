@@ -299,7 +299,7 @@ void KernelExecutor::compile(
   // slice, and that slice has a symbolic integer it depends on, then this
   // function returns true.
   //
-  // This could happen for other examples and this function will return true if
+  // This could happen for other examples and has_dynamic_alias_ will be true if
   // to evaluate the output that has an alias, other values besides the aliased
   // input need to be bound to the expression evaluator to evaluate the output.
   for (auto output : fusion->outputs()) {
@@ -315,11 +315,12 @@ void KernelExecutor::compile(
         if (input->isA<TensorView>() && input->sameAs(aliased_to)) {
           continue;
         }
+
+        if (input->isConst()) {
+          continue;
+        }
+        has_dynamic_alias_ = true;
       }
-      if (out_tv->isConst()) {
-        continue;
-      }
-      has_dynamic_alias_ = true;
     }
   }
 }
@@ -956,7 +957,7 @@ KernelArgumentHolder resolveRNGSeed(
 }
 } // namespace
 
-// TODO: Reduce bindings to only those necessaary to resolve missing params.
+// TODO: Reduce bindings to only those necessary to resolve missing params.
 // TODO: Check if this could be reused to also resolve dynamic aliases.
 KernelArgumentHolder KernelExecutor::resolveTMA(
     KernelExecutorEntry& entry,
@@ -1180,6 +1181,9 @@ KernelArgumentHolder KernelExecutor::run(
     if (has_tma_) {
       // Resolving TMA requires binding all values and evaluating the TMA
       // arguments
+      //
+      // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
+      // function shouldn't also be called.
       args = resolveTMA(*executor_entry, args);
     } else if (has_rng_) {
       // Resolving RNG seed requires evaluating and adding those values, but
