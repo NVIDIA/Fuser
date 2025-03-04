@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/utils.h>
 #include <ir/utils.h>
 #include <kernel_ir_dispatch.h>
 #include <type.h>
@@ -35,8 +36,6 @@ bool isTrivialExpr(Expr* expr) {
   // TODO: support discontiguous inputs. The output should be an intermediate
   // tensor which we would always assume to be contiguous, but the input might
   // not be. This would necessitate using a different linear index.
-  size_t in_pos = 0;
-  size_t out_pos = 0;
   const std::vector<IterDomain*>& in_alloc = TensorDomain::noReductions(
       TensorDomain::noBroadcasts(in->getMaybeAllocationDomain()));
   const std::vector<IterDomain*>& out_alloc =
@@ -70,11 +69,30 @@ bool isTrivialExpr(Expr* expr) {
     IterDomain* in_id = in_alloc.at(pos);
     IterDomain* out_id = out_alloc.at(pos);
 
+    // If this allocation ID is parallelized such that its loop index is not
+    // used, then we can ignore it for this analysis.
+    const auto id_is_indexed = [](TensorView* tv, IterDomain* id) {
+      IterDomain* loop_id = lower_utils::getConcreteLoopID(id);
+      if (!loop_id->isParallelized()) {
+        return true;
+      }
+      if (loop_id->isDeviceDim()) {
+        return false;
+      }
+      return !(
+          loop_id->isThread() &&
+          ir_utils::isMemorySharedAcross(
+              tv->getMemoryType(), loop_id->getParallelType()));
+    };
+    if (!id_is_indexed(in, in_id) || !id_is_indexed(out, out_id)) {
+      continue;
+    }
+
     NVF_ERROR(
         out_contig.at(pos),
         "Found discontiguous intermediate global tensor ",
         out->toString());
-    if (in_contig.at(in_pos) != out_contig.at(out_pos)) {
+    if (in_contig.at(pos) != out_contig.at(pos)) {
       return false;
     }
 
