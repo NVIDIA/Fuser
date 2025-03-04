@@ -569,22 +569,24 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     for (auto* c : c_tvs) {
       NVF_ERROR(c->uses().size() == 1);
       TensorView* smem_tv = ir_utils::consumerTvsOf(c).at(0);
-      smem_epilogues_.push_back(smem_tv);
-      cached_tvs.push_back(smem_tv);
-
-      // Schedule shared memory for epilogue input
       smem_tv->setMemoryType(MemoryType::Shared);
-      blockTileTensors({smem_tv});
-      parallelizeBlocks({smem_tv});
-
       LoadStoreOpType load_op = params_->async_gmem_load_operands
           ? LoadStoreOpType::CpAsyncBulkTensorTile
           : LoadStoreOpType::Set;
       smem_tv->definition()->as<LoadStoreOp>()->setOpType(load_op);
 
+      // Schedule shared memory for epilogue input
+      blockTileTensors({smem_tv});
+      parallelizeBlocks({smem_tv});
+
+      transformLikeMmaOutputWithoutK(smem_tv);
+
       MmaInputSmemSwizzle swizzle_type =
           mma_utils::tmaSwizzleSharedMemory(smem_tv);
       smem_tv->applyMmaSwizzleForTMALoad(swizzle_type);
+
+      smem_epilogues_.push_back(smem_tv);
+      cached_tvs.push_back(smem_tv);
     }
     propagate_to.insert(
         propagate_to.end(), cached_tvs.begin(), cached_tvs.end());
@@ -651,11 +653,11 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           reg_tv->getLoopDomain());
       reg_tv->setLoopDomain(s.as<IterDomain*>());
-      mma_utils::scheduleStMatrixForMmaOutput(
-          reg_tv, stmatrix_tile_m, stmatrix_tile_n);
-
       reg_tv->setAllocationDomain(
           reg_tv->getLoopDomain(), /*new_contiguity=*/true);
+
+      mma_utils::scheduleStMatrixForMmaOutput(
+          reg_tv, stmatrix_tile_m, stmatrix_tile_n);
 
       reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
       epilogue_uninlinable_ids_.insert(reg_tv->axis(-3));
@@ -713,9 +715,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
         dc->setAllocationDomain(s.as<IterDomain*>(), true);
-
-        mma_utils::scheduleStMatrixForMmaOutput(
-            dc, stmatrix_tile_m, stmatrix_tile_n);
 
         scheduler_utils::BoundedDirectionalTransformPropagator::backward(
             dc,
