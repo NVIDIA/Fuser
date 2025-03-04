@@ -319,7 +319,7 @@ std::vector<std::byte> tensorToBytes(
   NVF_ERROR(
       argument.is<at::Tensor>() && argument.as<at::Tensor>().is_cuda(),
       "Argument is not a CUDA tensor.");
-  auto tensor = argument.as<at::Tensor>();
+  const auto& tensor = argument.as<at::Tensor>();
   auto data = tensor.data_ptr();
 
   const auto& size_to_use =

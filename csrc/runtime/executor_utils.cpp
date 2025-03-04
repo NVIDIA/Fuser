@@ -616,7 +616,7 @@ std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
         std::find(
             fusion->inputs().begin(), fusion->inputs().end(), aliased_to));
     if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
-      output_to_input_map[(int64_t)output_idx] = (int64_t)aliased_to_idx;
+      output_to_input_map[output_idx] = (int)aliased_to_idx;
     } else {
       auto aliased_out = std::find(
           fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
