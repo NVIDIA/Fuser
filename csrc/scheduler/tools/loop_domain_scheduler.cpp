@@ -151,10 +151,16 @@ class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
 
   void handle(const Resize* resize) final {
     NVF_ERROR(input_loop_ids_.size() == 1);
+    NVF_ERROR(
+        resize->out()->getIterType() != IterType::Symbolic,
+        "Unexpected to have a symbolic ID: ",
+        resize->out()->toString());
+    // Pass the iter type explicitly to avoid generating a symblic ID
     tv_->resize(
         getLoopIdPosition(input_loop_ids_.at(0)),
         resize->leftExpand(),
-        resize->rightExpand());
+        resize->rightExpand(),
+        resize->out()->getIterType());
   }
 
   void handle(const Swizzle2D* swizzle_2d) final {

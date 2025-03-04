@@ -3697,13 +3697,15 @@ void TensorDomain::swizzle(
 void TensorDomain::resize(
     int64_t axis,
     Val* left_expansion,
-    Val* right_expansion) {
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
   NVF_ERROR(nDims() > 0, "Tried to do resize on a 0-dim domain");
   axis = wrapDim(axis);
 
   IterDomain* id = this->axis(axis);
 
-  auto resized_id = IterDomain::resize(id, left_expansion, right_expansion);
+  auto resized_id =
+      IterDomain::resize(id, left_expansion, right_expansion, false, iter_type);
   loop_domain_.at(axis) = resized_id;
   resetDomains();
 }
