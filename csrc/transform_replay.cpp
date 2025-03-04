@@ -266,15 +266,19 @@ void TransformReplay::selfAllocationReplay(
       // could replay Allocation of the output of a reduction to a later
       // consumer tensor, which would not have the rfactor flag on.
       IterDomain* new_id = new_self_logical[i];
+      // Note: this function can be used prior to concretization, where we might
+      // have unresolved symbolic ID, where the broadcast flag might mismatch.
+      // We skip the check if either id or new_id is symbolic and expect a
+      // correct user program.
       NVF_ERROR(
           new_id->isSymbolic() || id->isSymbolic() ||
-              new_self_logical[i]->isBroadcast() == id->isBroadcast(),
+              new_id->isBroadcast() == id->isBroadcast(),
           "Axes ",
           id,
           " and ",
-          new_self_logical[i],
+          new_id,
           " do not match for self replay.");
-      axis_map[id] = new_self_logical[i];
+      axis_map[id] = new_id;
       i++;
     }
   }
@@ -313,6 +317,9 @@ void TransformReplay::selfAllocationReplay(
       auto it = replay.getReplay().find(id);
       NVF_ERROR(
           it != replay.getReplay().end(), "failed to replay IterDomain: ", id);
+      // The possibility of a mismatch is when one of the IDs are symbolic. We
+      // need to ensure that new_contiguity is consistent with new_alloc_domain,
+      // otherwise the later setAllocationDomain would fail checks.
       if (it->second->isBroadcast() == self_contiguity[i].has_value()) {
         // whether we resolve to true or false shouldn't matter since it's going
         // to be concretized as a broadcast dimension
