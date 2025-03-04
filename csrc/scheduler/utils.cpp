@@ -2337,7 +2337,15 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
-    parallelizeAllLike(tv, (int64_t)old2new.size(), {}, {ParallelType::DIDx});
+    // Propgating the transforms will not replay the DIDx parallelization, so we
+    // need to do it manually here.
+    parallelizeAllLike(
+        tv,
+        /*pos=*/(int64_t)old2new.size(),
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{ParallelType::DIDx},
+        /*propagate_padding=*/false,
+        /*parallelize_inputs=*/true);
   }
 }
 

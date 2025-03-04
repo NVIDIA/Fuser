@@ -798,12 +798,9 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options);
-  at::Tensor sharded_inp = shardTensor(inp, tv0);
-
-  at::Tensor nvf_out =
-      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
-
+  at::Tensor in_tensor = at::randn({b, s, h * e}, tensor_options);
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(),
       {nvf_out},
@@ -1026,13 +1023,14 @@ TEST_F(MultiDeviceTest, LoopShardedMergeReshapeIds) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor inp = at::randn({b, s, d * h, e}, tensor_options);
-  at::Tensor sharded_inp = shardTensor(inp, tv0);
-  at::Tensor nvf_out = executor_cache.runFusionWithInputs({sharded_inp})[0];
+  at::Tensor sharded_inp = shardTensor(inp, -2, mesh);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(),
       {nvf_out},
       {sharded_inp},
-      {inp.view({b, s, h * e})},
+      {sharded_inp.view({b, s, h * e})},
       __LINE__,
       __FILE__);
 }
@@ -1052,7 +1050,9 @@ void propagateShardings(Fusion* fusion, int64_t num_devices) {
       // logical domain. Instead, we manually find the reshaped iterdomain and
       // outer split DID. This might have to be extended further in the
       // presegmentation pass.
-      // Note: For simplicity, this assumes that the sharding is on reshaped IDs. It is possible that the non-reshaped IDs are sharded, in which case we can use the TransformPropagator.
+      // Note: For simplicity, this assumes that the sharding is on reshaped
+      // IDs. It is possible that the non-reshaped IDs are sharded, in which
+      // case we can use the TransformPropagator.
       TensorView* reshaped_tv = expr->as<ViewOp>()->out();
       auto transform_exprs = StmtSort::getExprsBetween(
           {reshaped_tv->getMaybeRootDomain().begin(),
@@ -1168,8 +1168,10 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
   at::Tensor sharded_hk = shardTensor(hk_tensor, -1, mesh);
   at::Tensor sharded_hv = shardTensor(hv_tensor, -1, mesh);
 
-  at::Tensor nvf_out = executor_cache.runFusionWithInputs(
-      {sharded_hq, sharded_hk, sharded_hv})[0];
+  at::Tensor nvf_out =
+      executor_cache
+          .runFusionWithInputs({sharded_hq, sharded_hk, sharded_hv})[0]
+          .as<at::Tensor>();
 
   double scale = 1.0 / std::sqrt(e);
   auto reference_out = at::_scaled_dot_product_flash_attention(
