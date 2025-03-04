@@ -649,12 +649,10 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           reg_tv->getLoopDomain());
       reg_tv->setLoopDomain(s.as<IterDomain*>());
-      reg_tv->setAllocationDomain(
-          reg_tv->getLoopDomain(), /*new_contiguity=*/true);
-
-      // Schedule shared memory cache; Output from StMatrix
       mma_utils::scheduleStMatrixForMmaOutput(
           reg_tv, stmatrix_tile_m, stmatrix_tile_n);
+      reg_tv->setAllocationDomain(
+          reg_tv->getLoopDomain(), /*new_contiguity=*/true);
       reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
       propagate_to.push_back(reg_tv);
     }
@@ -710,6 +708,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
         dc->setAllocationDomain(s.as<IterDomain*>(), true);
+
+        mma_utils::scheduleStMatrixForMmaOutput(
+            dc, stmatrix_tile_m, stmatrix_tile_n);
 
         scheduler_utils::BoundedDirectionalTransformPropagator::backward(
             dc,
