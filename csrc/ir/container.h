@@ -125,6 +125,14 @@ class IrContainer : public PolymorphicBase {
     return vals_;
   }
 
+  int64_t numExprs() const noexcept {
+    return static_cast<int64_t>(exprs_up_.size());
+  }
+
+  int64_t numVals() const noexcept {
+    return static_cast<int64_t>(vals_up_.size());
+  }
+
   // Shortcuts for frequently used vals
   NVF_API Val* zeroVal();
   NVF_API Val* oneVal();
@@ -143,6 +151,10 @@ class IrContainer : public PolymorphicBase {
 
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
+
+  void removeStatementsConstructedAfter(
+      int64_t prev_num_exprs,
+      int64_t prev_num_vals);
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
