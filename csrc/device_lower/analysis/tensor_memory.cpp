@@ -371,6 +371,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
             SimplifyingIrBuilder::eqExpr(stride, fusion->oneVal()),
             "Invalid data access pattern in TMem load/store: ",
             "Warp linearly accessing lanes, but not with stride 1.");
+        matched = true;
         (*target)[tmem_tv] = TMemRegisterDataPath::Path32x32b;
       }
     }
