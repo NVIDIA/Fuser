@@ -118,10 +118,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
         continue;
       }
 
-      // Not yet set. This must be an input tensor.
+      // Not yet set. This must be an input tensor or it must be aliased via
+      // aliasTensorProducer, in which case it will not be allocated.
       NVF_ERROR(
-          producer_tv->isFusionInput(),
-          "Expected a fusion input: ",
+          producer_tv->isFusionInput() ||
+              GpuLower::current()->getTensorProducerAlias(producer_tv) !=
+                  nullptr,
+          "Expected a fusion input or aliased tensor but found: ",
           producer_tv->toString());
 
       // For fusion input, we can just use getMaybeAllocationDomain.

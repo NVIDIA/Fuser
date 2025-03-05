@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <fstream>
 #include <list>
+#include <random>
 #include <ranges>
 #include <system_error>
 #include <vector>
@@ -1626,6 +1627,90 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
   Val* v4_7_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[7], v4);
   EXPECT_EQ(simplifyExpr(v4_7_in_v4)->value(), 1);
+}
+
+// Test that lower_utils::proveLinearAndGetStride still works even if some
+// dependency are missing, as long as the missing dependency is irrelevant to
+// result.
+TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  for (auto _ : c10::irange(100)) {
+    (void)_;
+    // [16, 8, 2, 4]
+    auto id16 =
+        IterDomainBuilder(
+            fusion.zeroVal(), IrBuilder::create<Val>(16, DataType::Index))
+            .build();
+    auto id8 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(8, DataType::Index))
+                   .build();
+    auto id2 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                   .build();
+    auto id4 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                   .build();
+
+    ValGraph g;
+    g.initializeVal(id16);
+    g.initializeVal(id8);
+    g.initializeVal(id2);
+    g.initializeVal(id4);
+    ValGroup g16{g.toGroup(id16)};
+    ValGroup g8{g.toGroup(id8)};
+    ValGroup g2{g.toGroup(id2)};
+    ValGroup g4{g.toGroup(id4)};
+    ValGroupAndItsGraph gg16{g16, &g};
+    ValGroupAndItsGraph gg8{g8, &g};
+    ValGroupAndItsGraph gg2{g2, &g};
+    ValGroupAndItsGraph gg4{g4, &g};
+
+    AbstractTensor v({gg16, gg8, gg2, gg4});
+    // Merge all dims in random order
+    while (v.size() > 1) {
+      v.merge(std::rand() % (v.size() - 1));
+    }
+    v.split(0, 32);
+
+    ValGroup linear_g = v[1].as<ValGroupAndItsGraph>().group;
+    // Although linear_g depend on g16, whether it is linear w.r.t. [8, 2, 4] is
+    // not relevant to g16. So we should not require g16 to exist in order to
+    // prove linearity.
+    Val* stride =
+        lower_utils::proveLinearAndGetStride(g, linear_g, {g8, g2, g4});
+    ASSERT_NE(stride, nullptr);
+    EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+  }
+}
+
+TEST_F(NVFuserTest, ProveLinearAndGetStrideEarlyStopping) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [4, 2]
+  auto id4 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                 .build();
+  auto id2 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                 .build();
+
+  ValGraph g;
+  g.initializeVal(id4);
+  g.initializeVal(id2);
+  ValGroup g4{g.toGroup(id4)};
+  ValGroup g2{g.toGroup(id2)};
+  ValGroupAndItsGraph gg4{g4, &g};
+  ValGroupAndItsGraph gg2{g2, &g};
+  AbstractTensor v({gg4, gg2});
+  v.merge(0);
+  v.split(0, 2);
+  ValGroup g4_ = v[0].as<ValGroupAndItsGraph>().group;
+  ValGroup g2_ = v[1].as<ValGroupAndItsGraph>().group;
+  Val* stride = lower_utils::proveLinearAndGetStride(g, g2_, {g4, g2_});
+  ASSERT_NE(stride, nullptr);
+  EXPECT_EQ(simplifyExpr(stride)->value(), 1);
 }
 
 using TestCpp23BackPort = NVFuserTest;

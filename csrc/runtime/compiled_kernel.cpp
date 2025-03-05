@@ -1416,22 +1416,15 @@ float RtcKernel::run(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    const auto& input_tensor = input.as<at::Tensor>();
-    auto dtype = std::get<PrimDataType>(
-        aten_to_data_type(input_tensor.scalar_type()).type);
-    DataType metadata_type = globalTensorMetaData(dtype, input_tensor.dim());
-
-    std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
-    TensorMetaData* metadata = (TensorMetaData*)struct_.get();
-    metadata->dtype = dtype;
-    metadata->data = input_tensor.data_ptr();
-    metadata->logical_size = input_tensor.sizes();
-    metadata->logical_stride = input_tensor.strides();
-    metadata->alloc_size = input_tensor.sizes();
-    metadata->alloc_stride = input_tensor.strides();
-
-    data.emplace_back(polymorphicValueToBytes(
-        PolymorphicValue(std::move(struct_)), metadata_type, index_type));
+    NVF_ERROR(
+        input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda(),
+        "Only CUDA tensors are supported for direct nvRTC launches at this time.");
+    auto input_tensor = input.as<at::Tensor>();
+    data.emplace_back(tensorToBytes(
+        input_tensor,
+        input_tensor.sizes().vec(),
+        input_tensor.strides().vec(),
+        index_type));
     pointers.emplace_back(data.back().data());
   }
 
