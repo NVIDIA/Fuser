@@ -59,8 +59,8 @@ class HostIrContainer final : public Fusion {
 
   Stream* getDefaultStream();
 
-  void markAlias(TensorView* alias, const TensorView* of) {
-    alias_[of] = alias;
+  void markAlias(TensorView* original, const TensorView* new_alias) {
+    alias_[new_alias] = original;
   }
 
   const auto& alias() const {
