@@ -1932,6 +1932,11 @@ Val* proveLinearAndGetStride(
     const ValGraph& id_graph,
     const ValGroup& linear_g,
     const ValGroups& domain) {
+  std::cout << "Proving linearity of " << linear_g->toString()
+            << " in domain:" << std::endl;
+  for (const auto& group : domain) {
+    std::cout << "  " << group->toString() << std::endl;
+  }
   FusionGuard fg(linear_g->front()->fusion());
   // This function uses simplifyExpr extensively. If we have disable expression
   // simplification in order to help inspect generated kernels then we will get
