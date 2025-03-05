@@ -2257,7 +2257,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
         }
 
         bool has_reachable_loop_id = false;
-        for (auto loop_idx : c10::irange(tv->getLoopDomain().size())) {
+        for (auto loop_idx : c10::irange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
           if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
             continue;
           }
