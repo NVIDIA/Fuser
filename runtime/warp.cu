@@ -60,7 +60,7 @@ __device__ void iterGroupedWarpReduce(
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
-    uint32_t thread_idx,
+    uint32_t thread_idx_x,
     uint32_t barrier_id = 1) {
   // pack T into uint64_t to reduce number of shuffles
   // sizeof(T) * K = sizeof(uint64_t), e.g. T = float, K = 2.
@@ -95,8 +95,8 @@ __device__ void iterGroupedWarpReduce(
 
   // cross warp reduction using shared memory
   constexpr int WARP_SIZE = 32;
-  unsigned int warp_idx = thread_idx / WARP_SIZE;
-  unsigned int lane_idx = thread_idx % WARP_SIZE;
+  unsigned int warp_idx = thread_idx_x / WARP_SIZE;
+  unsigned int lane_idx = thread_idx_x % WARP_SIZE;
   unsigned int num_of_warps = block_dim.x / WARP_SIZE;
 
   // [warp_idx, N]
@@ -178,6 +178,7 @@ __device__ void warpReduceTIDX(
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
+    uint32_t thread_idx_x,
     uint32_t barrier_id = 0) {
   constexpr int WARP_SIZE = 32;
 
@@ -197,8 +198,8 @@ __device__ void warpReduceTIDX(
   // Reduce across warp if needed
   // Load value to shared mem
   if (!SINGLE_WARP) {
-    unsigned int warp_idx = threadIdx.x / WARP_SIZE;
-    unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+    unsigned int warp_idx = thread_idx_x / WARP_SIZE;
+    unsigned int lane_idx = thread_idx_x % WARP_SIZE;
     unsigned int reduce_group_id = threadIdx.z * block_dim.y + threadIdx.y;
     bool is_warp_head = lane_idx == 0;
     unsigned int reduction_size = block_dim.x;

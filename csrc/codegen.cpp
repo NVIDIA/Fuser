@@ -1319,10 +1319,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
     func_args.arg(gen(stmt->out()));
     func_args.arg(gen(stmt->in()));
-    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genStaticCast(genPtrType(data_type), "shared_mem") + " + " +
+          genSmemOffset());
+    } else {
+      func_args.arg(
+          genStaticCast(genPtrType(data_type), "shared_mem"));
+    }
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
     func_args.arg(genComputeBlockDim());
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+    } else {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+    }    
     func_args.arg(genBarrierId());
 
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
@@ -1352,11 +1367,26 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genSmemOffset());
+    } else {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
     func_args.arg(genComputeBlockDim());
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+    } else {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+    }    
     func_args.arg(genBarrierId());
 
     ArgumentBuilder template_args;
