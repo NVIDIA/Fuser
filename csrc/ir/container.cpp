@@ -357,4 +357,18 @@ void IrContainer::assumeNonNegative(Val* val) {
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
+void IrContainer::removeStatementsConstructedAfter(
+    int64_t prev_num_exprs,
+    int64_t prev_num_vals) {
+  while (static_cast<int64_t>(exprs_up_.size()) > prev_num_exprs) {
+    exprs_.erase(exprs_up_.back().get());
+    exprs_up_.pop_back();
+  }
+
+  while (static_cast<int64_t>(vals_up_.size()) > prev_num_vals) {
+    vals_.erase(vals_up_.back().get());
+    vals_up_.pop_back();
+  }
+}
+
 } // namespace nvfuser

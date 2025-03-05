@@ -324,6 +324,26 @@ std::pair<Val*, bool> computeIndex(
 
   return known_indices.at(id);
 }
+
+class StatementGuard {
+ public:
+  StatementGuard() : fusion_(FusionGuard::getCurFusion()) {
+    // Trigger lazy initialization of axioms.
+    fusion_->axioms();
+    prev_num_exprs_ = fusion_->numExprs();
+    prev_num_vals_ = fusion_->numVals();
+  }
+
+  ~StatementGuard() {
+    fusion_->removeStatementsConstructedAfter(prev_num_exprs_, prev_num_vals_);
+  }
+
+ private:
+  Fusion* fusion_;
+  int64_t prev_num_exprs_;
+  int64_t prev_num_vals_;
+};
+
 } // namespace
 
 bool haveDifferentShardings(
@@ -374,6 +394,7 @@ bool haveDifferentShardings(
 
   NVF_ERROR(producer->fusion() == consumer->fusion());
   FusionGuard fg(producer->fusion());
+  StatementGuard sg;
 
   // FIXME: can we reuse IterDomain* which is also a Val*?
   // FIXME: remove Val* and Expr*
