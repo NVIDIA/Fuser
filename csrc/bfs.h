@@ -469,6 +469,7 @@ class BFS {
 
   // Mark a node as visited
   virtual void setVisited(const NodeType& node) {
+    std::cout << "setVisited:" << node->toString() << std::endl;
     visited_.emplace(node);
   }
 
