@@ -90,8 +90,6 @@ TEST_F(HirLowerStreamTest, Set) {
   auto options = at::TensorOptions().device(at::kCUDA, 0);
 
   at::Tensor input = at::rand({4, 8}, options);
-  std::cout << "INPUT=" << input << std::endl;
-  // std::unordered_map<Val*, PolymorphicValue> inputs = {{tv0, input}};
   auto output = hie.runWithInput({{tv0, input}}).at(0);
 
   torch::cuda::synchronize();

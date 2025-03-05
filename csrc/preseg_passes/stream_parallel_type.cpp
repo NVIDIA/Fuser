@@ -14,6 +14,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/all_ops.h>
+#include <ops/utils.h>
 #include <preseg_passes/stream_parallel_type.h>
 
 
@@ -161,11 +162,9 @@ void StreamParallelType::runPass(Fusion* fusion) {
           Expr* running_expr = *it_running_expr;
           for (auto* running_output : ir_utils::filterByType<TensorView>(running_expr->outputs())) {
             if (running_output == output) {
-              // We need to erase the definition to avoid asserting at https://github.com/NVIDIA/Fuser/blob/f8dc9f0582e480264b7600b6e649c7e93c1944e5/csrc/ir/utils.cpp#L263
-              Expr* tmp = output_j->definition();
-              output_j->setDefinition(nullptr);
-              *it_running_expr = ir_utils::transferDefinitionToNewOutputs(running_expr, {output_j});
-              output_j->setDefinition(tmp);
+              TensorView* output_j_alias = ops::newValLike(output_j, output_j->dtype())->as<TensorView>();
+              hic->markAlias(output_j, output_j_alias);
+              *it_running_expr = ir_utils::transferDefinitionToNewOutputs(running_expr, {output_j_alias});
             }
           }
         }
