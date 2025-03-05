@@ -126,11 +126,11 @@ class IrContainer : public PolymorphicBase {
   }
 
   int64_t numExprs() const noexcept {
-    return static_cast<int64_t>(exprs_up_.size());
+    return std::ssize(exprs_);
   }
 
-  int64_t numVals() const noexcept {
-    return static_cast<int64_t>(vals_up_.size());
+  int64_t numVals(bool include_shortcuts) const noexcept {
+    return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
   }
 
   // Shortcuts for frequently used vals
@@ -152,7 +152,7 @@ class IrContainer : public PolymorphicBase {
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
 
-  void removeStatementsConstructedAfter(
+  void removeStatementsCreatedAfter(
       int64_t prev_num_exprs,
       int64_t prev_num_vals);
 

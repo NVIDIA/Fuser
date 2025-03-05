@@ -327,21 +327,25 @@ std::pair<Val*, bool> computeIndex(
 
 class StatementGuard {
  public:
-  StatementGuard() : fusion_(FusionGuard::getCurFusion()) {
-    // Trigger lazy initialization of axioms.
-    fusion_->axioms();
-    prev_num_exprs_ = fusion_->numExprs();
-    prev_num_vals_ = fusion_->numVals();
-  }
+  StatementGuard(Fusion* fusion)
+      : fusion_([fusion] {
+          // Trigger lazy initialization of axioms. Without this, we'd have to
+          // remove axioms in the destructor, which no APIs can do at this
+          // moment.
+          fusion->axioms();
+          return fusion;
+        }()),
+        prev_num_exprs_(fusion_->numExprs()),
+        prev_num_vals_(fusion_->numVals(/*include_shortcuts=*/false)) {}
 
   ~StatementGuard() {
-    fusion_->removeStatementsConstructedAfter(prev_num_exprs_, prev_num_vals_);
+    fusion_->removeStatementsCreatedAfter(prev_num_exprs_, prev_num_vals_);
   }
 
  private:
   Fusion* fusion_;
-  int64_t prev_num_exprs_;
-  int64_t prev_num_vals_;
+  const int64_t prev_num_exprs_;
+  const int64_t prev_num_vals_;
 };
 
 } // namespace
@@ -392,9 +396,12 @@ bool haveDifferentShardings(
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
 
-  NVF_ERROR(producer->fusion() == consumer->fusion());
-  FusionGuard fg(producer->fusion());
-  StatementGuard sg;
+  Fusion* fusion = producer->fusion();
+  NVF_ERROR(
+      fusion == consumer->fusion(),
+      "The producer and consumer must be in the same fusion.");
+  FusionGuard fg(fusion);
+  StatementGuard sg(fusion);
 
   // FIXME: can we reuse IterDomain* which is also a Val*?
   // FIXME: remove Val* and Expr*
@@ -469,7 +476,7 @@ bool haveDifferentShardings(
       c_index = nullptr;
     }
 
-    const bool is_equivalent = [&]() -> bool {
+    const bool is_equivalent = [p_index, c_index, &assumptions]() -> bool {
       if (p_index == nullptr && c_index == nullptr) {
         return true;
       }
@@ -477,11 +484,11 @@ bool haveDifferentShardings(
         return false;
       }
 
-      Val* const p_index_simplified = simplifyExpr(p_index, {}, assumptions);
-      Val* const c_index_simplified = simplifyExpr(c_index, {}, assumptions);
-      // I chose to not inline `p_index_simplified` and `c_index_simplified` so
-      // it's easier to print them during debugging.
-      return p_index_simplified->sameAs(c_index_simplified);
+      return simplifyExpr(
+                 SimplifyingIrBuilder::eqExpr(p_index, c_index),
+                 /*variables=*/{},
+                 assumptions)
+          ->isTrue();
     }();
 
     if (!is_equivalent) {
