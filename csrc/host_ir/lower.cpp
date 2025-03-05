@@ -651,8 +651,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     hic->addOutput(ir_cloner.clone(output));
   }
 
-  preseg_passes::OptimizationPass<
-      preseg_passes::StreamParallelType>::runPass(hic.get());
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
 
   return hic;
 }

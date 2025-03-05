@@ -1198,8 +1198,9 @@ TEST_F(HirAlias, SetAndGet) {
   at::Tensor out_aten = hie.runWithInput({{tv0, tv0_aten}}).at(0);
 
   at::Tensor expected_out = tv0_aten;
-  EXPECT_TRUE(out_aten.equal(expected_out)) << "Obtained output: " << out_aten << "\n"
-                                   << "Expected output: " << expected_out;
+  EXPECT_TRUE(out_aten.equal(expected_out))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
 }
 
 TEST_F(HirAlias, ThrowOnInputAlias) {
@@ -1239,8 +1240,9 @@ TEST_F(HirSetTest, HostIr) {
 
   hie.runWithInput({{in, in_aten}, {out, out_aten}});
 
-  EXPECT_TRUE(out_aten.equal(in_aten)) << "Obtained output: " << out_aten << "\n"
-                                   << "Expected output: " << in_aten;
+  EXPECT_TRUE(out_aten.equal(in_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << in_aten;
 }
 
 } // namespace hir

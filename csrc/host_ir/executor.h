@@ -148,15 +148,18 @@ class HostIrEvaluator final : public OptOutDispatch {
   }
 
   PolymorphicValue getKnownConcreteData(Val* val) const {
-    NVF_ERROR(isKnown(val),
-      "value ",
-      val->toString(),
-      "must be precomputed before being retrieved");
+    NVF_ERROR(
+        isKnown(val),
+        "value ",
+        val->toString(),
+        "must be precomputed before being retrieved");
     return expr_evaluator_.evaluate(getAlias(val));
   }
 
   at::Tensor getKnownTensorOrUndefined(Val* val) const {
-    return isKnown(val) ? expr_evaluator_.evaluate(getAlias(val)).as<at::Tensor>() : at::Tensor();
+    return isKnown(val)
+        ? expr_evaluator_.evaluate(getAlias(val)).as<at::Tensor>()
+        : at::Tensor();
   }
 
   void bind(Val* value, PolymorphicValue concrete_value) {

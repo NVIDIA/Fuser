@@ -35,8 +35,10 @@ TEST_F(HirLowerStreamTest, InputsAreNotStreamParallelized) {
   hic->addInput(tv);
   tv->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(hic.get()));
-  EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(hic), Communicator::getInstance()));
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
+                   preseg_passes::StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(
+      MultiDeviceExecutor(std::move(hic), Communicator::getInstance()));
 }
 
 TEST_F(HirLowerStreamTest, Split) {
@@ -50,8 +52,10 @@ TEST_F(HirLowerStreamTest, Split) {
   tv1->split(0, 2);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(hic.get()));
-  EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(hic), Communicator::getInstance()));
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
+                   preseg_passes::StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(
+      MultiDeviceExecutor(std::move(hic), Communicator::getInstance()));
 }
 
 TEST_F(HirLowerStreamTest, Merge) {
@@ -65,8 +69,10 @@ TEST_F(HirLowerStreamTest, Merge) {
   tv1->merge(0, 1);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(hic.get()));
-  EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(hic), Communicator::getInstance()));
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
+                   preseg_passes::StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(
+      MultiDeviceExecutor(std::move(hic), Communicator::getInstance()));
 }
 
 TEST_F(HirLowerStreamTest, Set) {
@@ -81,7 +87,8 @@ TEST_F(HirLowerStreamTest, Set) {
   tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(hic.get());
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
   EXPECT_EQ(hic->topLevelExprs().size(), 2);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
@@ -93,7 +100,8 @@ TEST_F(HirLowerStreamTest, Set) {
   auto output = hie.runWithInput({{tv0, input}}).at(0);
 
   torch::cuda::synchronize();
-  EXPECT_TRUE(output.equal(input)) << "Output: " << output << " Expected: " << input;
+  EXPECT_TRUE(output.equal(input))
+      << "Output: " << output << " Expected: " << input;
 }
 
 // TEST_F(HirLowerStreamTest, Set) {
@@ -124,10 +132,9 @@ TEST_F(HirLowerStreamTest, Set) {
 //   // std::unordered_map<Val*, PolymorphicValue> inputs = {{tv0, input}};
 //   auto output = hie.runWithInput({{tv0, tv0_input}, {tv1, tv1_input}}).at(0);
 //   auto expected_output = tv0_input + tv1_input;
-//   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << " Expected: " << expected_output;
+//   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "
+//   Expected: " << expected_output;
 // }
-
-
 
 } // namespace hir
 

@@ -178,11 +178,11 @@ HostIrEvaluator::HostIrEvaluator(
            static_cast<c10::DeviceIndex>(device_index))});
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
   NVF_ERROR(
-    std::all_of(container_->inputs().begin(), container_->inputs().end(), [this](Val* input) {
-      return !container_->alias().count(input);
-    }),
-    "Inputs cannot be aliased"
-  );
+      std::all_of(
+          container_->inputs().begin(),
+          container_->inputs().end(),
+          [this](Val* input) { return !container_->alias().count(input); }),
+      "Inputs cannot be aliased");
 }
 
 std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
@@ -198,7 +198,9 @@ std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
       container_->outputs().begin(),
       container_->outputs().end(),
       outputs.begin(),
-      [this](Val* val) -> at::Tensor {return this->getKnownTensorOrUndefined(val);});
+      [this](Val* val) -> at::Tensor {
+        return this->getKnownTensorOrUndefined(val);
+      });
   return outputs;
 }
 
@@ -307,15 +309,13 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    bind(
-        launch_kernel->outputs().at(output_idx), outputs.at(output_idx));
+    bind(launch_kernel->outputs().at(output_idx), outputs.at(output_idx));
   }
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
-
     input_args.push(getKnownConcreteData(input));
   }
   input_args.setDeviceIndex();
@@ -369,8 +369,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    bind(
-        post_ir->outputs().at(output_idx), outputs.at(output_idx));
+    bind(post_ir->outputs().at(output_idx), outputs.at(output_idx));
   }
 }
 
@@ -379,8 +378,7 @@ void HostIrEvaluator::handle(Communication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
-  at::Tensor input_tensor =
-      getKnownTensorOrUndefined(communication->input(0));
+  at::Tensor input_tensor = getKnownTensorOrUndefined(communication->input(0));
   at::Tensor output_tensor =
       getKnownTensorOrUndefined(communication->output(0));
 
@@ -400,8 +398,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
-  at::Tensor buffer =
-      getKnownTensorOrUndefined(communication->buffer());
+  at::Tensor buffer = getKnownTensorOrUndefined(communication->buffer());
 
   works_[communication] = postSingleCommunication(
       communication,
@@ -532,11 +529,16 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 }
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
-  if (!(load_store_op->out()->isA<TensorView>() && isKnown(load_store_op->out()))) {
+  if (!(load_store_op->out()->isA<TensorView>() &&
+        isKnown(load_store_op->out()))) {
     return unhandled(load_store_op);
   }
   auto* out_tv = load_store_op->out()->as<TensorView>();
-  NVF_ERROR(!out_tv->hasRoot() || out_tv->getRootDomain() == out_tv->getLogicalDomain(), "when output is preallocated, the logical domain must be the same as the root domain in the expr ", load_store_op->toString());
+  NVF_ERROR(
+      !out_tv->hasRoot() ||
+          out_tv->getRootDomain() == out_tv->getLogicalDomain(),
+      "when output is preallocated, the logical domain must be the same as the root domain in the expr ",
+      load_store_op->toString());
   auto in_tensor = getKnownConcreteData(load_store_op->in()).as<at::Tensor>();
   auto out_tensor = getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
   out_tensor.copy_(in_tensor);
