@@ -31,7 +31,7 @@ std::string toString(const std::vector<Val*>& id_group, int indent_size) {
   std::vector<unsigned int> names;
   names.reserve(id_group.size());
   for (auto id : id_group) {
-    names.push_back(id->name());
+    names.push_back(id->toString());
   }
   std::sort(names.begin(), names.end());
 
@@ -168,7 +168,7 @@ std::string toString(const std::vector<Expr*>& expr_group, int indent_size) {
   std::vector<unsigned int> names;
   names.reserve(expr_group.size());
   for (auto expr : expr_group) {
-    names.push_back(expr->name());
+    names.push_back(expr->toString());
   }
   std::sort(names.begin(), names.end());
 
