@@ -1335,8 +1335,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
 
     } else {
-      func_args.arg(
-          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+      func_args.arg("threadIdx.x");
     }    
     func_args.arg(genBarrierId());
 

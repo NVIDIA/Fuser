@@ -1514,6 +1514,8 @@ void schedulePersistentKernel(
   std::vector<TensorView*> tma_load_tvs;
   std::vector<TensorView*> tma_store_tvs;
   std::vector<TensorView*> ldst_tma_tvs;
+  std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
+
   if (rparams->use_tma_load) {
     for (auto tv : smem_consumers) {
       auto smem_tv = ir_utils::getSoleProducerTv(tv);
@@ -1541,6 +1543,49 @@ void schedulePersistentKernel(
         }
       }
     }
+
+    if (std::getenv("PRELDG") && std::atoi(std::getenv("PRELDG")) != 0) {
+      // If a cached input is used by outer broadcast tvs e.g. weights and bias
+      // in layer norm, don't inline them. We want to prefetch them into
+      // registers at the begining of the kernel to avoid issuing memory load
+      // instructions during the computation stage.
+      const auto& outer_broadcast_tvs =
+          reduction_scheduler_utils::getOuterBroadcastTvs(
+              fusion, reduction_tvs);
+      std::vector<TensorView*> cached_input_outer_broadcast_tvs;
+      for (auto tv : cached_inputs) {
+        // tma tvs don't need special handling
+        if (std::find(tma_load_tvs.begin(), tma_load_tvs.end(), tv) !=
+            tma_load_tvs.end()) {
+          continue;
+        }
+        // cached input used by outer broadcast tensors needs to be prefetch
+        if (std::any_of(
+                outer_broadcast_tvs.begin(),
+                outer_broadcast_tvs.end(),
+                [&tv](TensorView* bcast_tv) {
+                  return DependencyCheck::isDependencyOf(tv, bcast_tv);
+                })) {
+          cached_input_outer_broadcast_tvs.push_back(tv);
+          tv_inline_pos_map.emplace(tv, 0);
+          if(std::getenv("PRELDGSMEM") && std::atoi(std::getenv("PRELDGSMEM")) != 0){
+            tv->setMemoryType(MemoryType::Shared);
+            // tv->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsync);
+            // tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+            tv->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+            tma_load_tvs.push_back(tv);
+            ldst_tma_tvs.emplace_back(tv);
+          }
+        }
+      }
+    }
+    if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
+      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
+          fusion, {smem_consumers.begin(), smem_consumers.end()});
+      for(auto tv : smem_consumers){
+        tv_inline_pos_map.emplace(tv, 2);
+      }
+    }    
   }
 
   for (auto output : dummy_outputs) {
@@ -1643,42 +1688,7 @@ void schedulePersistentKernel(
       tv->axis(-1)->parallelize(ParallelType::Bulk);
     }
 
-    std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
 
-    if (std::getenv("PRELDG") && std::atoi(std::getenv("PRELDG")) != 0) {
-      // If a cached input is used by outer broadcast tvs e.g. weights and bias
-      // in layer norm, don't inline them. We want to prefetch them into
-      // registers at the begining of the kernel to avoid issuing memory load
-      // instructions during the computation stage.
-      const auto& outer_broadcast_tvs =
-          reduction_scheduler_utils::getOuterBroadcastTvs(
-              fusion, reduction_tvs);
-      std::vector<TensorView*> cached_input_outer_broadcast_tvs;
-      for (auto tv : cached_inputs) {
-        // tma tvs don't need special handling
-        if (std::find(tma_load_tvs.begin(), tma_load_tvs.end(), tv) !=
-            tma_load_tvs.end()) {
-          continue;
-        }
-        // cached input used by outer broadcast tensors needs to be prefetch
-        if (std::any_of(
-                outer_broadcast_tvs.begin(),
-                outer_broadcast_tvs.end(),
-                [&tv](TensorView* bcast_tv) {
-                  return DependencyCheck::isDependencyOf(tv, bcast_tv);
-                })) {
-          cached_input_outer_broadcast_tvs.push_back(tv);
-          tv_inline_pos_map.emplace(tv, 0);          
-        }
-      }
-    }
-    if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
-      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
-          fusion, {smem_consumers.begin(), smem_consumers.end()});
-      for(auto tv : smem_consumers){
-        tv_inline_pos_map.emplace(tv, 2);
-      }
-    }
     // special inline & inline most
     std::unordered_set<TensorView*> exclude_tvs;
     for(auto [k,v] : tv_inline_pos_map){

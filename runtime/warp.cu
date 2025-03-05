@@ -178,7 +178,7 @@ __device__ void warpReduceTIDX(
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
-    uint32_t thread_idx_x,
+    const unsigned int thread_idx_x,
     uint32_t barrier_id = 0) {
   constexpr int WARP_SIZE = 32;
 
