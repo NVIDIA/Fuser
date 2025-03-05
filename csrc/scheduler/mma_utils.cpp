@@ -1983,7 +1983,9 @@ class MatmulTranslator : public OptInDispatch {
         NVF_ERROR(num_broadcasts <= group_position.size());
         std::vector<bool> flags(group_position.size(), false);
         std::fill(
-            std::begin(flags) + (group_position.size() - num_broadcasts),
+            std::begin(flags) +
+                (std::vector<bool>::difference_type)(
+                    group_position.size() - num_broadcasts),
             std::end(flags),
             true);
         new_operand = broadcast(new_operand, flags);
