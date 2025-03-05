@@ -2,35 +2,9 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
-import pytest
+import transformers
 import torch
-import urllib.request
 from contextlib import contextmanager
-
-
-def download_as_module(url, module_name):
-    urllib.request.urlretrieve(url, f"{module_name}.py")
-
-
-@pytest.fixture(scope="module")
-def model():
-    download_as_module(
-        "https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/main/inference/kernel.py",
-        "kernel",
-    )
-    download_as_module(
-        "https://huggingface.co/deepseek-ai/DeepSeek-V3/resolve/main/inference/model.py",
-        "deepseek_v3_model",
-    )
-    import deepseek_v3_model
-
-    yield deepseek_v3_model
-
-    del deepseek_v3_model
-
-    os.remove("deepseek_v3_model.py")
-    os.remove("kernel.py")
 
 
 @contextmanager
@@ -50,25 +24,29 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
-def test_transformer_block(model):
-    args = model.ModelArgs(dim=7168)
+def test_transformer_layer():
+    config = transformers.AutoConfig.from_pretrained(
+        "deepseek-ai/deepseek-v3", trust_remote_code=True
+    )
+    config.num_hidden_layers = 1
+    config.first_k_dense_replace = 0
+    delattr(config, "quantization_config")
 
-    dtype = torch.float8_e4m3fn if args.dtype == "fp8" else torch.bfloat16
-    with default_tensor_type(dtype=dtype, device="cuda"):
-        transformer_block = model.Block(10, args)
+    with default_tensor_type(dtype=config.torch_dtype, device="cuda"):
+        model = transformers.AutoModel.from_config(config, trust_remote_code=True)
+        # Training is unavailable (cf. https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L439)
+        model.eval()
+
+        transformer_layer = model.layers[0]
 
         batch_size = 1
-        assert batch_size <= args.max_batch_size
         seq_len = 4096
-        assert seq_len <= args.max_seq_len
-        inp = torch.randn(batch_size, seq_len, args.dim)
-        start_pos = 0
-        freq_cis = model.precompute_freqs_cis(args)
-        mask = torch.full((seq_len, seq_len), float("-inf")).triu_(1)
+        inp = torch.randn(batch_size, seq_len, config.hidden_size)
+        mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
+            None, [batch_size, seq_len], inp, past_key_values_length=0
+        )
+        (out,) = transformer_layer(inp, attention_mask=mask)
 
-    out = transformer_block(
-        inp, start_pos, freq_cis[start_pos : start_pos + seq_len], mask
-    )
-    assert out.size() == (batch_size, seq_len, args.dim)
-    assert out.dtype == torch.bfloat16
-    assert out.is_cuda
+        assert out.size() == (batch_size, seq_len, config.hidden_size)
+        assert out.dtype == torch.bfloat16
+        assert out.is_cuda
