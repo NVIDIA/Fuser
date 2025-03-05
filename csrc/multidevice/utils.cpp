@@ -463,20 +463,24 @@ bool haveDifferentShardings(
 
   for (const auto parallel_type : kParallelTypeDIDs) {
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
-    auto [p_index, p_mapped] =
+    Val* p_index;
+    bool p_mapped;
+    std::tie(p_index, p_mapped) =
         computeIndex(p_id, producer->getLogicalDomain(), known_indices);
     if (!p_mapped) {
       p_index = nullptr;
     }
 
     IterDomain* c_id = getOrDefault(c_parallel_type_to_id, parallel_type);
-    auto [c_index, c_mapped] =
+    Val* c_index;
+    bool c_mapped;
+    std::tie(c_index, c_mapped) =
         computeIndex(c_id, consumer->getMaybeRootDomain(), known_indices);
     if (!c_mapped) {
       c_index = nullptr;
     }
 
-    const bool is_equivalent = [p_index, c_index, &assumptions]() -> bool {
+    const bool is_equivalent = [&]() -> bool {
       if (p_index == nullptr && c_index == nullptr) {
         return true;
       }
