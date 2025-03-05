@@ -2246,30 +2246,24 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
         auto transforms = DependencyCheck::getAllExprsBetween(
             {logical_id},
             {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-        std::vector<IterDomain*> reachable_ids;
+        std::unordered_set<IterDomain*> reachable_ids;
         // Add the logical id for the case where it is directly in the loop
         // domain.
-        reachable_ids.push_back(logical_id);
+        reachable_ids.insert(logical_id);
 
         for (auto expr : transforms) {
           auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
-          std::copy(
-              outputs.begin(),
-              outputs.end(),
-              std::back_inserter(reachable_ids));
+          reachable_ids.insert(outputs.begin(), outputs.end());
         }
 
         bool has_reachable_loop_id = false;
-        for (auto id : reachable_ids) {
-          auto find_it = std::find(
-              tv->getLoopDomain().begin(), tv->getLoopDomain().end(), id);
-          if (find_it == tv->getLoopDomain().end()) {
+        for (auto loop_idx : c10::irange(tv->getLoopDomain().size())) {
+          if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
             continue;
           }
           has_reachable_loop_id = true;
           // Reorder the reshape dimensions to the front of the domain
-          int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
-          old2new[old_pos] = (int64_t)old2new.size();
+          old2new[loop_idx] = (int64_t)old2new.size();
         }
 
         NVF_ERROR(
