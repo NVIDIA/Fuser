@@ -6,5 +6,3 @@ export CUDA_INSTALL_PATH=/usr/local/cuda
 export CUDA_TOOLKIT_ROOT_DIR=/usr/local/cuda
 export CC=clang-19
 export CXX=clang++-19
-# export CPATH=/usr/include/c++/14:$CPATH
-

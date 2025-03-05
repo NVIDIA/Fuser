@@ -39,8 +39,8 @@ jobs:
       - name: Run lintrunner
         working-directory: ${{ env.working_directory }}
         run: |
-          tools/apt-install-things.sh #&
-          tools/pip-install-things.sh #&
+          tools/apt-install-things.sh &
+          tools/pip-install-things.sh &
           source tools/setup-env.sh
 
           # Install lintrunner

@@ -7,13 +7,13 @@ wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/
 sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
 
-# Remove headers of gcc-14 because it is too new and not very compatible with clang
+# Remove some old toolchains. By default, the github action comes with multiple versions of gcc and clang installed.
+# Having many versions of gcc and clang installed interfers with each other, causing weird build and clang-tidy errors.
+# We only keep one version of gcc and clang in the system, and remove the rest.
 sudo apt-get -y remove gcc-13 libstdc++-13-dev gcc-12 libstdc++-12-dev
-#sudo rm -rf /usr/include/c++/14 #/usr/lib/gcc/x86_64-linux-gnu/13
-sudo apt-get -y install --reinstall clang-19 gcc-14 nlohmann-json3-dev ninja-build #g++-13 libstdc++-13-dev 
 
-# Install cuda
+# Install the latest version of clang and gcc.
+sudo apt-get -y install --reinstall clang-19 gcc-14 nlohmann-json3-dev ninja-build
+
+# Install minimal cuda toolkit.
 sudo apt-get -y install cuda-compiler-12-8 cuda-command-line-tools-12-8 cuda-libraries-dev-12-8 libnccl-dev
-
-tree /usr/include/c++/
-# rm /usr/include/c++/12 /usr/include/c++/13
