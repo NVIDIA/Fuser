@@ -59,10 +59,19 @@ class HostIrContainer final : public Fusion {
 
   Stream* getDefaultStream();
 
+  void markAlias(TensorView* alias, const TensorView* of) {
+    alias_[of] = alias;
+  }
+
+  const auto& alias() const {
+    return alias_;
+  }
+
  private:
   std::vector<Expr*> top_level_exprs_;
   std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
+  std::unordered_map<const Val*, Val*> alias_;
 };
 
 } // namespace hir

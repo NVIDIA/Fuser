@@ -157,32 +157,6 @@ std::vector<at::Tensor> HostIrExecutor::run(
 
 namespace hir {
 
-namespace {
-
-at::Tensor getKnownTensorOrUndefined(
-    Val* val,
-    const ExpressionEvaluator& expr_evaluator) {
-  return expr_evaluator.isKnown(val)
-      ? expr_evaluator.evaluate(val).as<at::Tensor>()
-      : at::Tensor();
-}
-
-std::vector<at::Tensor> getKnownTensorOrUndefined(
-    const std::vector<Val*>& vals,
-    const ExpressionEvaluator& expr_evaluator) {
-  std::vector<at::Tensor> tensors(vals.size());
-  std::transform(
-      vals.begin(),
-      vals.end(),
-      tensors.begin(),
-      [&expr_evaluator](Val* val) -> at::Tensor {
-        return getKnownTensorOrUndefined(val, expr_evaluator);
-      });
-  return tensors;
-}
-
-} // namespace
-
 HostIrEvaluator::HostIrEvaluator(
     std::unique_ptr<HostIrContainer> container,
     Communicator* communicator,
@@ -213,7 +187,7 @@ std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
   }
 
   // Collect global outputs
-  return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+  return getKnownTensorOrUndefined(container_->outputs());
 }
 
 std::vector<at::Tensor> HostIrEvaluator::runWithInput(
@@ -307,12 +281,12 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
   for (auto& input : launch_kernel->inputs()) {
     NVF_ERROR(
-        expr_evaluator_.isKnown(input),
+        isKnown(input),
         "No buffer associated with Val ",
         input,
         " for handling ",
         launch_kernel->toString());
-    args.push(expr_evaluator_.evaluate(input));
+    args.push(evaluate(input));
   }
   args.setDeviceIndex();
 
@@ -327,7 +301,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    expr_evaluator_.bind(
+    bind(
         launch_kernel->outputs().at(output_idx), outputs.at(output_idx));
   }
 }
@@ -336,12 +310,12 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
-        expr_evaluator_.isKnown(input),
+        isKnown(input),
         "No buffer associated with Val ",
         input,
         " for handling ",
         post_ir->toString());
-    input_args.push(expr_evaluator_.evaluate(input));
+    input_args.push(evaluate(input));
   }
   input_args.setDeviceIndex();
   // placeholder for storing the outputs
@@ -394,7 +368,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
-    expr_evaluator_.bind(
+    bind(
         post_ir->outputs().at(output_idx), outputs.at(output_idx));
   }
 }
@@ -405,9 +379,9 @@ void HostIrEvaluator::handle(Communication* communication) {
       "A valid communicator must be provided");
 
   at::Tensor input_tensor =
-      getKnownTensorOrUndefined(communication->input(0), expr_evaluator_);
+      getKnownTensorOrUndefined(communication->input(0));
   at::Tensor output_tensor =
-      getKnownTensorOrUndefined(communication->output(0), expr_evaluator_);
+      getKnownTensorOrUndefined(communication->output(0));
 
   CommunicatorBackend backend_type = communication->backend();
   c10d::Backend* backend =
@@ -426,12 +400,12 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       "A valid communicator must be provided");
 
   at::Tensor buffer =
-      getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
+      getKnownTensorOrUndefined(communication->buffer());
 
   works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+      evaluate(communication->peer()).as<int64_t>(),
       communicator_->getWorld(communication->backend()),
       buffer);
 }
@@ -510,7 +484,7 @@ void HostIrEvaluator::handle(EndCoalescing* end_coalescing) {
 
 void HostIrEvaluator::handle(kir::IfThenElse* if_then_else) {
   auto predicate =
-      expr_evaluator_.evaluate(if_then_else->predicate()->value()).as<bool>();
+      evaluate(if_then_else->predicate()->value()).as<bool>();
   const auto& scope =
       predicate ? if_then_else->thenBody() : if_then_else->elseBody();
   for (Expr* expr : scope.exprs()) {
@@ -523,14 +497,14 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* b = matmul->inB();
   TensorView* out = matmul->out();
   NVF_ERROR(
-      expr_evaluator_.isKnown(a) && expr_evaluator_.isKnown(b),
+      isKnown(a) && isKnown(b),
       "Inputs of the matmul ",
       matmul->toString(),
       "must be precomputed before being retrieved");
-  if (expr_evaluator_.isKnown(out)) {
-    auto t_a = expr_evaluator_.evaluate(a).as<at::Tensor>();
-    auto t_b = expr_evaluator_.evaluate(b).as<at::Tensor>();
-    auto t_out = expr_evaluator_.evaluate(out).as<at::Tensor>();
+  if (isKnown(out)) {
+    auto t_a = evaluate(a).as<at::Tensor>();
+    auto t_b = evaluate(b).as<at::Tensor>();
+    auto t_out = evaluate(out).as<at::Tensor>();
     at::matmul_out(t_out, t_a, t_b);
   } else {
     unhandled(matmul);
@@ -543,23 +517,23 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   TensorView* bias = linear->bias()->as<TensorView>();
   TensorView* out = linear->out()->as<TensorView>();
   NVF_ERROR(
-      expr_evaluator_.isKnown(in) && expr_evaluator_.isKnown(weight) &&
-          (!linear->has_bias() || expr_evaluator_.isKnown(bias)),
+      isKnown(in) && isKnown(weight) &&
+          (!linear->has_bias() || isKnown(bias)),
       "Inputs of the Linear Op ",
       linear->toString(),
       "must be precomputed before being retrieved");
 
-  if (!expr_evaluator_.isKnown(out)) {
+  if (!isKnown(out)) {
     unhandled(linear);
     return;
   }
 
-  auto in_at = expr_evaluator_.evaluate(in).as<at::Tensor>();
-  auto weight_at = expr_evaluator_.evaluate(weight).as<at::Tensor>();
-  auto out_at = expr_evaluator_.evaluate(out).as<at::Tensor>();
+  auto in_at = evaluate(in).as<at::Tensor>();
+  auto weight_at = evaluate(weight).as<at::Tensor>();
+  auto out_at = evaluate(out).as<at::Tensor>();
 
   if (linear->has_bias()) {
-    auto bias_at = expr_evaluator_.evaluate(bias).as<at::Tensor>();
+    auto bias_at = evaluate(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
     at::linear_out(out_at, in_at, weight_at.squeeze());
@@ -567,22 +541,20 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 }
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
-  if (!(load_store_op->out()->isA<TensorView>() && expr_evaluator_.isKnown(load_store_op->out()))) {
+  if (!(load_store_op->out()->isA<TensorView>() && isKnown(load_store_op->out()))) {
     return unhandled(load_store_op);
   }
   auto* out_tv = load_store_op->out()->as<TensorView>();
   NVF_ERROR(!out_tv->hasRoot() || out_tv->getRootDomain() == out_tv->getLogicalDomain(), "when output is preallocated, the logical domain must be the same as the root domain in the expr ", load_store_op->toString());
-  NVF_ERROR(expr_evaluator_.isKnown(load_store_op->in()),
+  NVF_ERROR(isKnown(load_store_op->in()),
     "input ",
     load_store_op->in()->toString(),
     " of the expression ",
     load_store_op->toString(),
     "must be precomputed before being retrieved");
-  auto in_tensor = expr_evaluator_.evaluate(load_store_op->in()).as<at::Tensor>();
-  auto out_tensor = expr_evaluator_.evaluate(load_store_op->out()).as<at::Tensor>();
-  std::cout << "inside set handle BEFORE COPY, expr=" << load_store_op << ", input_tv=" << load_store_op->in() << " in_tensor: " << in_tensor  << " in_tensor.data_ptr(): " << in_tensor.data_ptr() << "\n out_tv=" << load_store_op->out() << ", out_tensor:" << out_tensor << ", out_tensor.data_ptr():" << out_tensor.data_ptr() << std::endl;
+  auto in_tensor = evaluate(load_store_op->in()).as<at::Tensor>();
+  auto out_tensor = evaluate(load_store_op->out()).as<at::Tensor>();
   out_tensor.copy_(in_tensor);
-  std::cout << "inside set handle AFTER COPY, expr=" << load_store_op << ", input_tv=" << load_store_op->in() << " in_tensor: " << in_tensor  << " in_tensor.data_ptr(): " << in_tensor.data_ptr() << "\n out_tv=" << load_store_op->out() << ", out_tensor:" << out_tensor << ", out_tensor.data_ptr():" << out_tensor.data_ptr() << std::endl;
 }
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
@@ -598,27 +570,32 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   c10::Device device =
       communicator_ ? communicator_->device() : at::Device("cuda:0");
   at::Tensor tensor = allocateTensor(info, alias_info, device, expr_evaluator_);
-  expr_evaluator_.bind(tv, tensor);
+  bind(tv, tensor);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
-  std::cout << "inside unhandle, expr=" << stmt << std::endl;
-  for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-    NVF_ERROR(
-        expr_evaluator_.isKnown(input),
-        "input ",
-        input->toString(),
-        " of the expression ",
-        expr->toString(),
-        "must be precomputed before being retrieved");
-    std::cout << "inside unhandle, in_tv=" << input << ", in_tensor: " << expr_evaluator_.evaluate(input).as<at::Tensor>() << ", in_tensor.data_ptr(): " << expr_evaluator_.evaluate(input).as<at::Tensor>().data_ptr() << std::endl;
+  std::vector<PolymorphicValue> inputs;
+  for (auto input : expr->inputs()) {
+    PolymorphicValue concrete_value;
+    if (input->isA<TensorView>()) {
+      auto tv = input->as<TensorView>();
+      NVF_ERROR(
+          isKnown(tv),
+          "input ",
+          input->toString(),
+          " of the expression ",
+          expr->toString(),
+          "must be precomputed before being retrieved");
+      inputs.push_back(evaluate(tv));
+    } else {
+      inputs.push_back(expr_evaluator_.evaluate(input));
+    }
   }
-  for (auto output : expr->outputs()) {
-    expr_evaluator_.bind(
-        output, expr_evaluator_.evaluate(output), /*evaluate_validate=*/true);
-    std::cout << "inside unhandle, out_tv=" << output << ", out_tensor: " << expr_evaluator_.evaluate(output).as<at::Tensor>() << ", out_tensor.data_ptr(): " << expr_evaluator_.evaluate(output).as<at::Tensor>().data_ptr() << std::endl;
+  auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
+  for (int64_t i : c10::irange(expr->outputs().size())) {
+    bind(expr->output(i), concrete_outputs.at(i));
   }
 }
 

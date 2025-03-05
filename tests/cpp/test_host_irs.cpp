@@ -1170,6 +1170,38 @@ TEST_F(AllocationTest, inHostForLoop) {
   EXPECT_EQ(sizes, outputs.at(0).sizes());
 }
 
+using HirAlias = NVFuserTest;
+
+TEST_F(HirAlias, HostIr) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in0 = makeConcreteTensor(sizes);
+  TensorView* in1 = makeConcreteTensor(sizes);
+  TensorView* out0 = set(in0);
+  TensorView* out1 = makeConcreteTensor(sizes);
+  hic->markAlias(in1, in0);
+  hic->markAlias(out1, out0);
+  hic->addInput(in0);
+  hic->addInput(in1);
+  hic->addOutput(out1);
+  hic->pushBackTopLevelExprs(out0->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor in0_aten = at::randn(sizes, options);
+  at::Tensor in1_aten = at::randn(sizes, options);
+
+  at::Tensor out_aten = hie.runWithInput({{in0, in0_aten}, {in1, in1_aten}}).at(0);
+
+  at::Tensor expected_out = in1_aten;
+  EXPECT_TRUE(out_aten.equal(expected_out)) << "Obtained output: " << out_aten << "\n"
+                                   << "Expected output: " << expected_out;
+}
+
 using HirSetTest = NVFuserTest;
 
 TEST_F(HirSetTest, HostIr) {
@@ -1188,13 +1220,13 @@ TEST_F(HirSetTest, HostIr) {
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto in_tv = at::randn(sizes, options);
-  auto out_tv = at::empty(sizes, options);
+  auto in_aten = at::randn(sizes, options);
+  auto out_aten = at::empty(sizes, options);
 
-  hie.runWithInput({{in, in_tv}, {out, out_tv}});
+  hie.runWithInput({{in, in_aten}, {out, out_aten}});
 
-  EXPECT_TRUE(out_tv.equal(in_tv)) << "Obtained output: " << out_tv << "\n"
-                                   << "Expected output: " << in_tv;
+  EXPECT_TRUE(out_aten.equal(in_aten)) << "Obtained output: " << out_aten << "\n"
+                                   << "Expected output: " << in_aten;
 }
 
 } // namespace hir

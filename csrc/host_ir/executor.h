@@ -137,6 +137,43 @@ class HostIrEvaluator final : public OptOutDispatch {
 
   std::vector<at::Tensor> dispatchAndCollectOutputs();
 
+  Val* getAlias(Val* val) const {
+    const auto& aliases = container_->alias();
+    auto it = aliases.find(val);
+    return it != aliases.end() ? it->second : val;
+  }
+
+  PolymorphicValue evaluate(Val* value) const {
+    // WAR: if the value is not known at the time of evaluate, and therefore if this calls triggers recursive calls of ExpressionEvaluator::evaluate, the alias indirection is only applied once. This should be ok for most cases, especially since we usually assert that the Tensor is known before retrieving it, and only use recursive eluation for index computation. But if in the future we want alias indirection to occur also in recursive calls, we should consider adding an alias map in ExpressionEvaluator itself.
+    return expr_evaluator_.evaluate(getAlias(value));
+  }
+
+  bool isKnown(Val* value) const {
+    return expr_evaluator_.isKnown(getAlias(value));
+  }
+
+  void bind(Val* value, PolymorphicValue concrete_value) {
+    expr_evaluator_.bind(getAlias(value), concrete_value);
+  }
+
+  void invalidate(Val* value) {
+    expr_evaluator_.invalidate(getAlias(value));
+  }
+
+  at::Tensor getKnownTensorOrUndefined(Val* val) const {
+    return isKnown(val) ? evaluate(val).as<at::Tensor>() : at::Tensor();
+  }
+
+  std::vector<at::Tensor> getKnownTensorOrUndefined(const std::vector<Val*>& vals) const {
+    std::vector<at::Tensor> tensors(vals.size());
+    std::transform(
+        vals.begin(),
+        vals.end(),
+        tensors.begin(),
+        [this](Val* val) -> at::Tensor {return this->getKnownTensorOrUndefined(val);});
+    return tensors;
+  }
+
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
   HostIrEvaluatorParams params_;
