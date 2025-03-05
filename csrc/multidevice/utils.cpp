@@ -399,7 +399,7 @@ bool haveDifferentShardings(
     }
 
     auto is_mapped_in_id_model =
-        [&consumer](
+        [consumer](
             IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
       if (a == nullptr && b == nullptr) {
         return true;
