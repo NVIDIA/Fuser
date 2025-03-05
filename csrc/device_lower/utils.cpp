@@ -1988,6 +1988,10 @@ Val* proveLinearAndGetStride(
     return stride;
   }
   for (const auto& [eg, direction] : path) {
+    std::cout << "expression: " << eg->toString() << std::endl;
+    std::cout << "direction: "
+              << (direction == Direction::Forward ? "Forward" : "Backward")
+              << std::endl;
     std::cout << "frontier:" << std::endl;
     std::cout << "  before propagation:" << print(frontier) << std::endl;
     frontier = propagate(frontier, id_graph, eg, direction);
