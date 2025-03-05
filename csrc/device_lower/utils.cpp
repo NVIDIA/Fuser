@@ -1723,7 +1723,6 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   if (new_inner_extent->isOne()) {
     new_inner_extent = nullptr;
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
