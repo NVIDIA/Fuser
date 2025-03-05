@@ -72,7 +72,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_models=*/true);
 
   ref = tv1->getLoopDomain();
   for (auto tv : fusion.allTvs()) {
@@ -103,13 +103,12 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({10}, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test loop domain scheduling with slice. More test cases can also be
@@ -139,7 +138,8 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
   }
 
   inlineMost();
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_models=*/false);
+  id_model.buildExactGraph();
 
   ref_loop = tv0->getLoopDomain();
 
@@ -166,15 +166,14 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Iter domain cannot have multiple definitions, whereas ValGroup can.
@@ -336,14 +335,13 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({12}, options);
-    std::vector<c10::IValue> aten_inputs({t0});
 
     KernelExecutor ke;
-    ke.compile(&fusion, aten_inputs);
-    auto cg_outputs = ke.run(aten_inputs);
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
 
     auto ref = t0 * 2;
-    EXPECT_TRUE(ref.equal(cg_outputs[0]));
+    EXPECT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
   }
 }
 
@@ -592,12 +590,11 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Cancelling chained reshape ops
@@ -647,12 +644,11 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Two reshapes that get merged by a binary op
@@ -690,12 +686,11 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape3) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Resize should prevent cancellation

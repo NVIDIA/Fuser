@@ -14,16 +14,20 @@ set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
 option(NVFUSER_EXPLICIT_ERROR_CHECK "" OFF)
-if (NVFUSER_EXPLICIT_ERROR_CHECK)
+
+if(NVFUSER_EXPLICIT_ERROR_CHECK)
   add_compile_definitions(NVFUSER_EXPLICIT_ERROR_CHECK)
 endif()
+
 option(NVFUSER_BUILD_WITH_ASAN "Build nvFuser with asan" OFF)
 
 include(CMakeDependentOption)
 cmake_dependent_option(NVFUSER_DISTRIBUTED "" ON "USE_DISTRIBUTED" OFF)
-if (NVFUSER_DISTRIBUTED)
+
+if(NVFUSER_DISTRIBUTED)
   add_compile_definitions(NVFUSER_DISTRIBUTED)
 endif()
+
 message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 
 # We try to update which C++ standard we use together in lockstep across all
@@ -71,7 +75,6 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 # TODO: fix MSVC
 if(NOT MSVC)
   find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/lib64/ ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
-  find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
 # ------------------------------
@@ -95,6 +98,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tma.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
@@ -115,6 +119,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/misaligned_vectorization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/replace_size.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/pass/rng.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/scalar_hoist.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/unroll.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/vectorize_welford.cpp
@@ -151,11 +156,11 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/id_model/validation_utils.cpp
   ${NVFUSER_SRCS_DIR}/index_compute.cpp
   ${NVFUSER_SRCS_DIR}/instrumentation.cpp
+  ${NVFUSER_SRCS_DIR}/interval_analysis.cpp
   ${NVFUSER_SRCS_DIR}/ir/base_nodes.cpp
   ${NVFUSER_SRCS_DIR}/ir/builder.cpp
   ${NVFUSER_SRCS_DIR}/ir/cloner.cpp
   ${NVFUSER_SRCS_DIR}/ir/container.cpp
-  ${NVFUSER_SRCS_DIR}/ir/evaluate.cpp
   ${NVFUSER_SRCS_DIR}/ir/graphviz.cpp
   ${NVFUSER_SRCS_DIR}/ir/iostream.cpp
   ${NVFUSER_SRCS_DIR}/ir/nodes.cpp
@@ -201,6 +206,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
   ${NVFUSER_SRCS_DIR}/runtime/allocations.cpp
@@ -225,6 +231,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/mma_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/no_op.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
@@ -303,16 +310,17 @@ add_library(codegen_internal OBJECT ${NVFUSER_SRCS})
 
 if(NOT MSVC)
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-      target_compile_options(codegen_internal PRIVATE
-          -Wall -Wno-unused-function -Werror
-          # These warnings are not treated as errors because of gcc 12.2 used in
-          # manylinux image. consider enable this when we upgrade.
-          # linking comment:
-          # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
-          -Wno-error=restrict -Wno-error=stringop-overflow)
+    target_compile_options(codegen_internal PRIVATE
+      -Wall -Wno-unused-function -Werror
+
+      # These warnings are not treated as errors because of gcc 12.2 used in
+      # manylinux image. consider enable this when we upgrade.
+      # linking comment:
+      # https://github.com/NVIDIA/Fuser/pull/3001#discussion_r1772551266
+      -Wno-error=restrict -Wno-error=stringop-overflow -Wno-error=maybe-uninitialized)
   else()
-      target_compile_options(codegen_internal PRIVATE
-          -Wall -Wno-unused-function -Werror)
+    target_compile_options(codegen_internal PRIVATE
+      -Wall -Wno-unused-function -Werror)
   endif()
 endif()
 
@@ -334,9 +342,9 @@ set_target_properties(codegen_internal PROPERTIES
   CXX_STANDARD ${NVFUSER_CPP_STANDARD}
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
-  # this is to find pip installed nvrtc/nvtx .so
+  # this is to find pip installed nvrtc.so
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
@@ -351,8 +359,10 @@ target_link_libraries(codegen_internal PUBLIC
 )
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
+
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
+
   if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
     # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
     # recommends to link asan statically. This is the default with Clang. GCC
@@ -372,7 +382,6 @@ target_include_directories(nvfuser_codegen PUBLIC
 target_link_libraries(nvfuser_codegen PRIVATE
   flatbuffers
   ${CUDA_NVRTC_LIB}
-  ${LIBNVTOOLSEXT}
   ${LIBCUPTI}
   ${TORCH_LIBRARIES}
   dl
@@ -384,7 +393,7 @@ set_target_properties(nvfuser_codegen PROPERTIES
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
@@ -491,6 +500,7 @@ if(BUILD_PYTHON)
     "-DC10_BUILD_MAIN_LIB=1"
     EXTENSION_NAME=_C
   )
+
   if(NOT MSVC)
     target_compile_options(nvf_py_internal PRIVATE -Wall -Wno-unused-function)
     target_compile_options(nvf_py_internal PRIVATE -Werror)
@@ -498,6 +508,7 @@ if(BUILD_PYTHON)
   else()
     set(NVF_LIB_SUFFIX ".pyd")
   endif()
+
   set_target_properties(nvfuser PROPERTIES
     C_STANDARD ${NVFUSER_C_STANDARD}
     CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
@@ -505,7 +516,7 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
     POSITION_INDEPENDENT_CODE Yes
     SUFFIX ${NVF_LIB_SUFFIX}
     VISIBILITY_INLINES_HIDDEN Yes
@@ -517,14 +528,13 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
   target_link_libraries(nvf_py_internal PRIVATE
     codegen_internal
-    ${LIBNVTOOLSEXT}
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
   )
@@ -569,6 +579,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_linked_hash_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_loop_domain_scheduling.cpp
@@ -653,8 +664,8 @@ endfunction()
 
 if(BUILD_TEST)
   set(TEST_BINARIES)
-  add_test(nvfuser_tests "${JIT_TEST_SRCS}" "")
-  list(APPEND TEST_BINARIES nvfuser_tests)
+  add_test(test_nvfuser "${JIT_TEST_SRCS}" "")
+  list(APPEND TEST_BINARIES test_nvfuser)
 
   add_test(test_rng ${NVFUSER_ROOT}/tests/cpp/test_rng.cpp ${RNG_TEST_KERNELS})
   list(APPEND TEST_BINARIES test_rng)
@@ -702,8 +713,12 @@ if(BUILD_TEST)
   add_test(test_external_src "${NVFUSER_ROOT}/tests/cpp/test_external_src.cpp" "")
   list(APPEND TEST_BINARIES test_external_src)
 
-  add_test(tutorial "${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp" "")
-  list(APPEND TEST_BINARIES tutorial)
+  set(TUTORIAL_SRCS)
+  list(APPEND TUTORIAL_SRCS
+    ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp)
+  add_test(test_tutorial "${TUTORIAL_SRCS}" "")
+  list(APPEND TEST_BINARIES test_tutorial)
 
   set(HOSTIR_TEST_SRCS)
   list(APPEND HOSTIR_TEST_SRCS
@@ -802,7 +817,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   endif()
 
   # multidevice transformer benchmark
-  if (NVFUSER_DISTRIBUTED)
+  if(NVFUSER_DISTRIBUTED)
     set(MULTIDEVICE_BENCHMARK_SRCS)
     list(APPEND MULTIDEVICE_BENCHMARK_SRCS
       ${NVFUSER_ROOT}/benchmarks/cpp/transformer.cpp
@@ -830,11 +845,12 @@ if(BUILD_NVFUSER_BENCHMARK)
       codegen_internal
     )
     add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
+
     if(NOT MSVC)
-    target_compile_options(nvfuser_bench PRIVATE
-      -Wall -Wno-unused-function
-      -Werror -Wno-deprecated-copy
-    )
+      target_compile_options(nvfuser_bench PRIVATE
+        -Wall -Wno-unused-function
+        -Werror -Wno-deprecated-copy
+      )
     endif()
   endif()
 endif()
@@ -852,6 +868,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/block_sync_default.cu
   ${NVFUSER_ROOT}/runtime/block_welford_outer.cu
   ${NVFUSER_ROOT}/runtime/broadcast.cu
+  ${NVFUSER_ROOT}/runtime/cluster.cu
   ${NVFUSER_ROOT}/runtime/complex_number.cu
   ${NVFUSER_ROOT}/runtime/fp16_support.cu
   ${NVFUSER_ROOT}/runtime/fp8_support.cu
@@ -867,6 +884,7 @@ list(APPEND NVFUSER_RUNTIME_FILES
   ${NVFUSER_ROOT}/runtime/mbarrier.cu
   ${NVFUSER_ROOT}/runtime/memory.cu
   ${NVFUSER_ROOT}/runtime/random_numbers.cu
+  ${NVFUSER_ROOT}/runtime/tensor_memory.cu
   ${NVFUSER_ROOT}/runtime/tensor.cu
   ${NVFUSER_ROOT}/runtime/tuple.cu
   ${NVFUSER_ROOT}/runtime/type_traits.cu
@@ -894,7 +912,7 @@ foreach(src ${NVFUSER_RUNTIME_FILES})
 
   # Do not overwrite resource header if it already exists. This avoids unnecessary rebuilds.
   # If ${dst} doesn't exist, this `if` is also true, so header will be generated.
-  if (${src} IS_NEWER_THAN ${dst})
+  if(${src} IS_NEWER_THAN ${dst})
     # also generate the resource headers during the configuration step
     # (so tools like clang-tidy can run w/o requiring a real build)
     execute_process(COMMAND ${PYTHON_EXECUTABLE} ${NVFUSER_STRINGIFY_TOOL} -i ${src} -o ${dst})

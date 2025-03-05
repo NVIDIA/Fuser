@@ -380,6 +380,17 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
+    // Simplify (-x) + x to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(lhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(rhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+    // Simplify x + (-x) to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(rhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(lhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+
     return IrBuilder::addExpr(lhs, rhs);
   }
 }
@@ -684,6 +695,9 @@ namespace {
 
 //! Compares a to b if they are both const scalars convertible to double
 std::partial_ordering compareScalars(Val* a, Val* b) {
+  if (!ir_utils::isFunctional(a) || !ir_utils::isFunctional(b)) {
+    return std::partial_ordering::unordered;
+  }
   ExpressionEvaluator ee;
   auto a_val = ee.evaluate(a);
   if (!a_val.hasValue()) {

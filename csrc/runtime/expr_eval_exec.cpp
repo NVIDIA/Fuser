@@ -125,9 +125,9 @@ bool ExprEvalExecutor::isCompiled() const {
   return fusion_ != nullptr;
 }
 
-std::vector<at::Tensor> ExprEvalExecutor::run(
+KernelArgumentHolder ExprEvalExecutor::run(
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs) {
+    KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::run");
 
   NVF_ERROR(
@@ -156,7 +156,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
         fusion_->inputs().size() <= args.size(),
         "KernelArgumentHolder contains less argument than fusion's input.");
     for (auto inp_i : c10::irange(fusion_->inputs().size())) {
-      expr_eval.unsafeBind(fusion_->inputs()[inp_i], *args[inp_i]);
+      expr_eval.unsafeBind(fusion_->inputs()[inp_i], args[inp_i]);
     }
 
     for (auto tv_info : tv_sizes_to_bind) {
@@ -199,7 +199,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
           " dimensions.");
       expr_eval.unsafeBind(
           logical_domain[tv_info.logical_dim_pos]->getMaybeExpandedExtent(),
-          (*args[tv_info.fusion_input_pos])
+          args[tv_info.fusion_input_pos]
               .as<at::Tensor>()
               .sizes()[tv_info.logical_dim_pos]);
     }
@@ -222,7 +222,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
 
     for (const auto& out_val : fusion_->outputs()) {
       auto out_tensor = expr_eval.evaluate(out_val).as<at::Tensor>();
-      outputs.emplace_back(out_tensor);
+      outputs.push(out_tensor);
     }
   }
   if (isProfilerEnabled()) {

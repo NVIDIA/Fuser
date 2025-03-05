@@ -67,6 +67,14 @@ class ValGraphVisitor {
   virtual ~ValGraphVisitor() = default;
 
  protected:
+  ValGraphVisitor(
+      const ValGraph& val_graph,
+      const ValGroups& additional_starting_groups,
+      bool allow_cycle = true)
+      : val_graph_(val_graph),
+        additional_starting_groups_(additional_starting_groups),
+        allow_cycle_(allow_cycle) {}
+
   ValGraphVisitor(const ValGraph& val_graph, bool allow_cycle = true)
       : val_graph_(val_graph), allow_cycle_(allow_cycle) {}
 
@@ -91,6 +99,10 @@ class ValGraphVisitor {
 
  private:
   const ValGraph& val_graph_;
+  // Traversal starting groups used in addition to terminating
+  // inputs. Cyclic graphs may need this as there may be no
+  // terminating inputs.
+  const ValGroups additional_starting_groups_;
   bool allow_cycle_ = true;
   std::string error_message_;
 };
@@ -100,6 +112,14 @@ class ValGraphStmtSort : public ValGraphVisitor {
  public:
   ValGraphStmtSort(const ValGraph& val_graph, bool allow_cycle = true)
       : ValGraphVisitor(val_graph, allow_cycle) {
+    NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
+  }
+
+  ValGraphStmtSort(
+      const ValGraph& val_graph,
+      const ValGroups& starting_groups,
+      bool allow_cycle = true)
+      : ValGraphVisitor(val_graph, starting_groups, allow_cycle) {
     NVF_ERROR(ValGraphVisitor::traverse(), errorMessage());
   }
 
@@ -255,5 +275,21 @@ class ValGraphPermissiveBFS : public BFSWithPermissiveDependence<
         graph);
   }
 };
+
+inline std::vector<ValGroup> getInputsOfExprGroup(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return getInputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+}
+
+inline std::vector<ValGroup> getOutputsOfExprGroup(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return getOutputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+}
 
 } // namespace nvfuser

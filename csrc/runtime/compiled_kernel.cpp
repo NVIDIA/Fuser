@@ -61,6 +61,7 @@
 #include <nvfuser_resources/block_sync_default.h>
 #include <nvfuser_resources/block_welford_outer.h>
 #include <nvfuser_resources/broadcast.h>
+#include <nvfuser_resources/cluster.h>
 #include <nvfuser_resources/complex_number.h>
 #include <nvfuser_resources/fp16_support.h>
 #include <nvfuser_resources/fp8_support.h>
@@ -77,6 +78,7 @@
 #include <nvfuser_resources/memory.h>
 #include <nvfuser_resources/random_numbers.h>
 #include <nvfuser_resources/tensor.h>
+#include <nvfuser_resources/tensor_memory.h>
 #include <nvfuser_resources/tuple.h>
 #include <nvfuser_resources/type_traits.h>
 #include <nvfuser_resources/warp.h>
@@ -100,6 +102,7 @@ std::string kernelPreamble() {
   // Base classes and helpers
   ss << nvfuser_resources::type_traits_cu;
   ss << nvfuser_resources::array_cu;
+  ss << nvfuser_resources::tensor_memory_cu;
   ss << nvfuser_resources::tensor_cu;
   ss << nvfuser_resources::random_numbers_cu;
   ss << nvfuser_resources::helpers_cu;
@@ -161,8 +164,8 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      // Print CUDA starting at first global function
-      size_t kernel_start = src.find("__global__");
+      // Print CUDA starting at generated utility
+      size_t kernel_start = src.find("// Codegen generated code");
       NVF_THROW(
           "\n",
           src.substr(kernel_start),
@@ -689,7 +692,6 @@ std::vector<char> compileNvrtcProgramToPtx(const nvrtcProgram& program) {
 std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     const std::string& full_src_code,
     const std::string& func_name,
-    const std::string& kernel_name,
     const bool compile_to_sass,
     NvrtcCompileDriver& nvrtc_compile) {
   std::stringstream log;
@@ -700,7 +702,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     NVFUSER_NVRTC_SAFE_CALL(nvrtcDestroyProgram(&program));
   });
 
-  createNvrtcProgram(program, kernel_name, full_src_code);
+  createNvrtcProgram(program, func_name, full_src_code);
 
   NVFUSER_NVRTC_SAFE_CALL(nvrtcAddNameExpression(program, func_name.c_str()));
   log << nvrtc_compile.invoke(program, full_src_code) << std::endl;
@@ -716,7 +718,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     compiled_kernel->cubin = compileNvrtcProgramToCubin(program);
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
       compiled_kernel->cubin_filename =
-          dumpCompiledCodeToFile(compiled_kernel->cubin, kernel_name, ".cubin");
+          dumpCompiledCodeToFile(compiled_kernel->cubin, func_name, ".cubin");
     }
   }
 
@@ -724,7 +726,7 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     compiled_kernel->ptx = compileNvrtcProgramToPtx(program);
     if (isDebugDumpEnabled(DebugDumpOption::Ptx)) {
       compiled_kernel->ptx_filename =
-          dumpCompiledCodeToFile(compiled_kernel->ptx, kernel_name, ".ptx");
+          dumpCompiledCodeToFile(compiled_kernel->ptx, func_name, ".ptx");
     }
   }
 
@@ -810,11 +812,7 @@ std::unique_ptr<executor_utils::CudaExecutable> getCudaExecutable(
             (compile_to_sass ? compiled_kernel->cubin
                              : compiled_kernel->ptx)))) {
     compiled_kernel = compileSource(
-        full_src_code,
-        func_name,
-        compiled_kernel->kernel_name,
-        compile_to_sass,
-        nvrtc_compile_driver);
+        full_src_code, func_name, compile_to_sass, nvrtc_compile_driver);
     log << compiled_kernel->compile_log << std::endl;
     if (use_kernel_db) {
       auto result = kernel_db.write(
@@ -1261,18 +1259,6 @@ void CompiledKernel::compile(int64_t block_size) {
 
   kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
 
-  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
-  // If the loaded external source code is empty, revert to the default
-  // codegen. The external_structured_code is moved to structured_code and
-  // explicitly cleared to avoid use-after-move scenarios. Note: we index
-  // these with getGlobalFusionCount() instead of fusion_id_ in order to match
-  // the numbering of files output with NVFUSER_DUMP=cuda_to_file
-  auto structured_code =
-      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
-  if (structured_code.empty()) {
-    structured_code = getStructuredCode();
-  }
-
   const kir::KernelSummary& kernel_summary = kernel->summary();
 
   std::pair<int64_t, int64_t> target_arch;
@@ -1330,7 +1316,7 @@ void CompiledKernel::compile(int64_t block_size) {
   maxrregcount_high_water_mark_ = compile_params_.maxrregcount;
   compiled_kernel_ = getCudaExecutable(
       kernel_code_,
-      structured_code,
+      getStructuredCode(),
       kernelName(),
       kernel_id_,
       compile_params_,
@@ -1344,6 +1330,17 @@ void CompiledKernel::compile(int64_t block_size) {
 }
 
 std::string CompiledKernel::getStructuredCode() const {
+  // If NVFUSER_EXTERNAL_SRC is set, utilize the external source code.
+  // If the loaded external source code is empty, revert to the default
+  // codegen. The external_structured_code is moved to structured_code and
+  // explicitly cleared to avoid use-after-move scenarios. Note: we index
+  // these with getGlobalFusionCount() instead of fusion_id_ in order to match
+  // the numbering of files output with NVFUSER_DUMP=cuda_to_file
+  auto structured_code =
+      getStructuredCodeFromExternalFiles(getGlobalFusionCount());
+  if (!structured_code.empty()) {
+    return structured_code;
+  }
   return _getStructuredCode(
       kernelString(), kernel()->indexType(), kernelName());
 }
@@ -1398,7 +1395,7 @@ void RtcKernel::compile(
 
 float RtcKernel::run(
     const LaunchParams& launch_params,
-    const std::vector<at::Tensor>& args,
+    const KernelArgumentHolder& args,
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("RtcKernel::run");
 
@@ -1419,21 +1416,15 @@ float RtcKernel::run(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    auto dtype =
-        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
-    DataType metadata_type = globalTensorMetaData(dtype, input.dim());
-
-    std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
-    TensorMetaData* metadata = (TensorMetaData*)struct_.get();
-    metadata->dtype = dtype;
-    metadata->data = input.data_ptr();
-    metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
-    metadata->alloc_size = input.sizes();
-    metadata->alloc_stride = input.strides();
-
-    data.emplace_back(polymorphicValueToBytes(
-        PolymorphicValue(std::move(struct_)), metadata_type, index_type));
+    NVF_ERROR(
+        input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda(),
+        "Only CUDA tensors are supported for direct nvRTC launches at this time.");
+    auto input_tensor = input.as<at::Tensor>();
+    data.emplace_back(tensorToBytes(
+        input_tensor,
+        input_tensor.sizes().vec(),
+        input_tensor.strides().vec(),
+        index_type));
     pointers.emplace_back(data.back().data());
   }
 

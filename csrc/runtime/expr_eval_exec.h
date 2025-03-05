@@ -29,9 +29,8 @@ class ExprEvalExecutor : public ExecutorAbstract {
 
   bool isCompiled() const override;
 
-  NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {});
+  NVF_API KernelArgumentHolder
+  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<Fusion>& fusion() {
     return fusion_;

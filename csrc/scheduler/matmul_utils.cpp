@@ -225,9 +225,10 @@ bool fillDefaultHopperHeuristic(
   // warp tile equal to the macro and increase the CTA tile until we hit
   // a limit. The limits are given by the maximum number of threads per CTA.
 
-  // TODO: it might be advantageous in some cases to issue multiple wgmma
-  // instructions per warp group
-  warp_tile = instruction_tile;
+  // k = 64 yields four wgmma instructions per warp group.
+  constexpr int64_t k_ratio = 4;
+  warp_tile = {
+      instruction_tile.m, instruction_tile.n, instruction_tile.k * k_ratio};
 
   // The MmaOp output is a 32-bit float which requires one register per value
 
@@ -307,6 +308,10 @@ bool fillDefaultHopperHeuristic(
   cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
 
   mparams->tile_sizes = {cta_tile, warp_tile};
+
+  // Use warp specialization on hopper by default
+  mparams->circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
 
   // stages and async mem copy
   mparams->circular_buffer_options.smem_circular_buffer_stage = 8;
@@ -914,7 +919,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
   mma_utils::MatmulPattern& pattern = patterns.front();
 
   // IdModel is used to analyze problem shape & layout
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
 
   const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
@@ -988,12 +993,17 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           mparams->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
-  if (isHopper(mparams->mma_macro)) {
+  if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
     // Always promote smem reuse for Hopper. This is needed because we use TMA
     // which has higher alignment requirements, so it's important that we place
     // our TMA buffers at an offset that's a multiple of 64 (like 0) if
     // possible.
     mparams->promote_prologue_smem_reuse = true;
+
+    // TMA allows us to avoid linear indexing
+    // TODO: verify here that we will be able to use Int32 indexing. If not,
+    // then disable use_smem_epilogue.
+    // mparams->cparams.index_type = PrimDataType::Int32;
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
@@ -1097,7 +1107,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
 
   // #3
   // Prepare an IdModel which will be reused to check remaining conditions
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::TensorRolesMapOpt tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
@@ -1138,14 +1148,24 @@ std::string getMatmulRunTimeRejectReason(
     Fusion* fusion,
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info) {
+  // On Hopper, we use TMA to load operands. Since TMA requires each coordinate
+  // of the input to be represented with a 32-bit signed int, we will encounter
+  // overflow if any dimension of an operand is larger than that.
   const auto device_prop = at::cuda::getCurrentDeviceProperties();
-
-  if (device_prop->major >= 9 &&
-      runtime_info.getIndexType() != DataType::Int32) {
-    // See https://github.com/NVIDIA/Fuser/issues/3595
-    return "Hopper matmul is not yet supported with problem sizes requiring 64-bit indexing";
+  if (device_prop->major == 9) {
+    for (Val* inp : fusion->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+        for (int64_t extent : runtime_info.getInputAllocationSizes(tv)) {
+          if (extent >= (1L << 31)) {
+            std::stringstream ss;
+            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, but found "
+               << extent;
+            return ss.str();
+          }
+        }
+      }
+    }
   }
-
   return "";
 }
 

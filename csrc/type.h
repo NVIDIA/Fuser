@@ -88,6 +88,7 @@ enum class PrimDataType {
   ComplexFloat,
   // Pointers
   SMemAddress,
+  TMemAddress,
   // Null
   Null
 };
@@ -196,6 +197,7 @@ struct DataType {
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
   static constexpr PrimDataType ComplexDouble = PrimDataType::ComplexDouble;
   static constexpr PrimDataType SMemAddress = PrimDataType::SMemAddress;
+  static constexpr PrimDataType TMemAddress = PrimDataType::TMemAddress;
   static constexpr PrimDataType Null = PrimDataType::Null;
 };
 
@@ -297,7 +299,7 @@ inline bool isUnsignedIntegralType(DataType dtype) {
 // Returns if the datatype is a pointer type
 inline bool isPointerType(DataType dtype) {
   return std::holds_alternative<PointerType>(dtype.type) ||
-      dtype == DataType::SMemAddress;
+      dtype == DataType::SMemAddress || dtype == DataType::TMemAddress;
 }
 
 // Returns if the datatype is an integer or pointer type
@@ -697,7 +699,7 @@ bool isIntegerOp(const BinaryOpType bopt);
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
 
-enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
+enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
   DIDx,
@@ -801,7 +803,9 @@ enum class LoadStoreOpType {
   CpAsync,
   CpAsyncBulk,
   CpAsyncBulkTensorTile,
-  StMatrix
+  StMatrix,
+  LdTMem,
+  StTMem
 };
 
 // Used to label what part of the circular buffered iterdomain
@@ -1055,11 +1059,11 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
     case DataType::UInt16:
       return sizeof(uint16_t);
     case DataType::UInt32:
+    case DataType::SMemAddress:
+    case DataType::TMemAddress:
       return sizeof(uint32_t);
     case DataType::UInt64:
       return sizeof(uint64_t);
-    case DataType::SMemAddress:
-      return sizeof(unsigned);
     default:
       NVF_THROW("Size undefined for data type.");
   }
@@ -1117,5 +1121,21 @@ constexpr auto toUnderlying(E e) noexcept {
 }
 
 enum class AsyncOpType { NotAsync, CpAsync, CpAsyncBulk, WgMma };
+
+// Data path between TMem and register file. Tensor memory is not a general
+// byte-addressable memory like other memory types. The register <-> TMem
+// data transfer must follow one of the following specific patterns which has
+// well-defined specification about which thread's which register access to
+// which part of TMem. See:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-memory-layout
+enum class TMemRegisterDataPath {
+  Path32x32b,
+  Path16x64b,
+  Path16x128b,
+  Path16x256b,
+  Path16x32bx2,
+};
+
+std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 } // namespace nvfuser

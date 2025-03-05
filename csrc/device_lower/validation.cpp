@@ -673,14 +673,30 @@ class VectorizeValidator : public OptInDispatch {
         v_id->extent()->isConstInt(),
         "Vectorizing a domain requires a constant integer size.");
 
+    auto tv_def = tv->definition();
+    NVF_ERROR(
+        tv_def != nullptr,
+        "Tv has no definition, cannot validate vectorization:",
+        tv);
+
     auto vector_word_size = v_id->extent()->evaluate().as<int64_t>();
     auto vector_size =
         dataTypeSize(
             tv->getDataType().value(), GpuLower::current()->indexType()) *
         vector_word_size;
 
-    // Allow half2, float2, float4 and same sized vtypes.
-    std::array<int64_t, 4> allowed_vector_sizes = {2, 4, 8, 16}; // NOLINT
+    // Except for TMem, allow half2, float2, float4 and same sized vtypes.
+    std::vector<int64_t> allowed_vector_sizes = {2, 4, 8, 16};
+    // TMem can vectorize up to 512 bytes.
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
+        (ldst->opType() == LoadStoreOpType::LdTMem ||
+         ldst->opType() == LoadStoreOpType::StTMem)) {
+      allowed_vector_sizes.push_back(32);
+      allowed_vector_sizes.push_back(64);
+      allowed_vector_sizes.push_back(128);
+      allowed_vector_sizes.push_back(256);
+      allowed_vector_sizes.push_back(512);
+    }
 
     NVF_CHECK(
         std::find(
@@ -690,12 +706,6 @@ class VectorizeValidator : public OptInDispatch {
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size,
         " however, vector sizes only upto and including 16 bytes are supported.");
-
-    auto tv_def = tv->definition();
-    NVF_ERROR(
-        tv_def != nullptr,
-        "Tv has no definition, cannot validate vectorization:",
-        tv);
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def);
@@ -753,7 +763,6 @@ class VectorizeValidator : public OptInDispatch {
     // Validate producer
     if (GpuLower::current()->hasIdModel()) {
       // No need to do replayPasC when using IdModel
-      NVF_ERROR(tv_def->input(0) == producer_tv);
       vectorized_set_info.vectorized_producer_alloc_id =
           getAndValidateVectorizedIdInAllocationDomain(
               v_id, producer_tv, "producer", tv_def);

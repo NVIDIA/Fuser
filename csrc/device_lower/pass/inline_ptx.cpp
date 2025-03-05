@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <device_lower/lower2device.h>
 #include <device_lower/pass/inline_ptx.h>
 #include <device_lower/utils.h>
 #include <ir/builder.h>
@@ -59,7 +60,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
               wait->ptx(),
               std::vector<Val*>{},
               std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-              kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/wait->memory(),
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{0}}));
     }
   }
 
@@ -118,6 +123,53 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
                   invertedPredicate(ldst->predicate())},
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/false,
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{2}}));
+    } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
+      const auto& tmem_info = GpuLower::current()->tmemInfo();
+      std::stringstream ptx_ss;
+      ptx_ss << "tcgen05.ld.sync.aligned."
+             << tmem_info.load_data_path.at(ir_utils::getTvInput(ldst)) << ".x"
+             << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ".b32";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ptx_ss.str(),
+              std::vector<Val*>{ldst->out()},
+              std::vector<Val*>{ldst->in()}));
+      auto wait_ptx = "tcgen05.wait::ld.sync.aligned";
+      registerInsertAfter(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              wait_ptx,
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
+    } else if (ldst->opType() == LoadStoreOpType::StTMem) {
+      const auto& tmem_info = GpuLower::current()->tmemInfo();
+      std::stringstream ptx_ss;
+      ptx_ss << "tcgen05.st.sync.aligned."
+             << tmem_info.store_data_path.at(ir_utils::getTvOutput(ldst))
+             << ".x" << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ".b32";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ptx_ss.str(),
+              std::vector<Val*>{},
+              std::vector<Val*>{ldst->out(), ldst->in()},
+              kir::Asm::Options{/*volatile=*/true}));
+      auto wait_ptx = "tcgen05.wait::st.sync.aligned";
+      registerInsertAfter(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              wait_ptx,
+              std::vector<Val*>{},
+              std::vector<Val*>{},
               kir::Asm::Options{/*volatile=*/true}));
     }
   }
@@ -239,7 +291,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
             kir::Asm::Options{
                 /*volatile=*/true,
                 /*memory=*/false,
-                /*readable_outputs=*/{0}}));
+                /*readable_outputs=*/{0},
+                /*immediate_inputs=*/{3, 4, 5, 6}}));
     registerRemove(mma);
   }
 
@@ -283,6 +336,20 @@ class LowerToInlinePtx : public kir::ExprMutator {
             ptx,
             std::vector<Val*>{},
             std::vector<Val*>{maxnreg->numberOfRegisters()},
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{},
+                /*immediate_inputs=*/{0}}));
+  }
+
+  void handle(kir::AllocTMem* alloc) final {
+    registerReplace(
+        alloc,
+        IrBuilder::create<kir::Asm>(
+            "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+            std::vector<Val*>{},
+            std::vector<Val*>{alloc->address(), alloc->numColumns()},
             kir::Asm::Options{/*volatile=*/true}));
   }
 };

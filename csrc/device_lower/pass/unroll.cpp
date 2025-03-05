@@ -63,7 +63,7 @@ void UnrollPass::dispatch(Expr* expr) {
     return;
   }
 
-  if (ir_utils::isTvOp(expr)) {
+  if (ir_utils::isTvOp(expr) && !expr->isA<kir::AllocTMem>()) {
     DEBUG_PRINT_SCOPE_NAME("UnrollPass::dispatch", expr);
     // If tv op, predicate it
     const auto out_tv = ir_utils::getTvOutput(expr);
@@ -156,6 +156,17 @@ void UnrollPass::dispatch(Expr* expr) {
             })) {
       DEBUG_LOG("Vectorize predicate");
       pred = IrBuilder::create<kir::Predicate>(PredicateType::Vectorize);
+    }
+
+    // short-circuit: wrap tma expressions with elect sync predicate
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      // If we need a predicate, put expr inside an if then else
+      auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
+          PredicateType::ElectSync, expr, thread_pred);
+      auto elect_sync_ite = IrBuilder::create<kir::IfThenElse>(elect_sync_pred);
+      elect_sync_ite->thenBody().push_back(expr);
+      kir::ExprMutator::registerReplace(expr, elect_sync_ite);
+      return;
     }
 
     if (pred == nullptr) {

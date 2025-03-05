@@ -15,7 +15,6 @@
 #include <expr_evaluator.h>
 #include <fusion.h>
 #include <ops/all_ops.h>
-#include <runtime/expr_eval_exec.h>
 
 namespace nvfuser {
 
@@ -595,19 +594,15 @@ TEST_F(ExprEvalTest, ReshapePermuteReshape) {
   out = reshape(out, {IrBuilder::create<Val>(6), size(out, 2)});
   fusion.addOutput(out);
 
-  fusion.aliasOutputToInput(out, in, AllocationType::Evaluate);
   at::Tensor in_tensor = at::rand({72}).cuda().as_strided({9, 6}, {8, 1});
-  ExprEvalExecutor eee;
-  eee.compile(&fusion);
-  auto args = KernelArgumentHolder::createKernelArgumentHolder({in_tensor});
-  auto outs = eee.run(args);
-  for (auto i : c10::irange(99)) {
-    (void)i;
-    eee.run(args);
-  }
-  EXPECT_EQ(in_tensor.data_ptr(), outs[0].data_ptr());
-  EXPECT_THAT(outs[0].sizes(), ElementsAre(6, 9));
-  EXPECT_THAT(outs[0].strides(), ElementsAre(1, 8));
+
+  ExpressionEvaluator evaluator;
+  evaluator.bind(in, in_tensor);
+  at::Tensor out_tensor = evaluator.evaluate(out).as<at::Tensor>();
+
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
+  EXPECT_THAT(out_tensor.sizes(), ElementsAre(6, 9));
+  EXPECT_THAT(out_tensor.strides(), ElementsAre(1, 8));
 }
 
 TEST_F(ExprEvalTest, Reshape_ForwardBroadcast) {
@@ -797,7 +792,6 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({3, 4}, options);
-  auto args = KernelArgumentHolder::createKernelArgumentHolder({t0});
 
   // now compute metadata of tv0
   auto metadata = fusion.metadataOf(tv0);
@@ -807,7 +801,7 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
   auto logical_size_0 = IrBuilder::getItemExpr(logical_size, fusion.zeroVal());
   auto logical_size_1 = IrBuilder::getItemExpr(logical_size, fusion.oneVal());
 
-  pv.bindInputs(args);
+  pv.bindInputs({t0});
   pv.evaluate();
 
   ExpressionEvaluator evaluator;

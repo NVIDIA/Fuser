@@ -61,6 +61,12 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
     return false;
   }
 
+  if (registry_utils::SchedulerTopologyChecker::hasResizeAndIndexOps(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type, "has resize-based ops and index ops");
+    return false;
+  }
+
   return true;
 }
 
@@ -93,6 +99,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ExprEvalScheduler>();
     case SchedulerType::Resize:
       return std::make_unique<ResizeScheduler>();
+    case SchedulerType::Communication:
+      return std::make_unique<CommunicationScheduler>();
     default:
       NVF_THROW("unreachable");
   }
@@ -101,7 +109,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
 std::unique_ptr<HeuristicParams> SchedulerEntry::scheduleWith(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   NVF_ERROR(

@@ -23,12 +23,12 @@ namespace nvfuser {
 using Sizes = std::vector<int64_t>;
 using MatmulNodeParamType = std::tuple<Sizes, Sizes>;
 
-class MatmulNodeParametrizedTest
+class MatmulNodeParameterizedTest
     : public NVFuserFixtureParamTest<MatmulNodeParamType> {
  protected:
   // Allocation order set by the pass breaks matmul tests
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
-  MatmulNodeParametrizedTest() : optimization_guard_(false) {}
+  MatmulNodeParameterizedTest() : optimization_guard_(false) {}
 
  private:
   preseg_passes::OptimizationPassGuard<preseg_passes::AllocationDomainPass>
@@ -55,7 +55,7 @@ void checkMatmulOpIdMapping(
     TensorView* B,
     TensorView* output) {
   IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   // If K is Broadcast then we will not have a reduction dim.
@@ -109,7 +109,7 @@ void checkLinearOpIdMapping(
     TensorView* bias,
     TensorView* output) {
   IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   // input: [* , in_features]
@@ -144,7 +144,7 @@ void checkLinearOpIdMapping(
   }
 }
 
-TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
+TEST_P(MatmulNodeParameterizedTest, MatmulNodeConcrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -167,10 +167,10 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeConcrete) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({t0, t1});
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), out_ref));
 }
 
-TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
+TEST_P(MatmulNodeParameterizedTest, MatmulNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -193,7 +193,7 @@ TEST_P(MatmulNodeParametrizedTest, MatmulNodeSymbolic) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({t0, t1});
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), out_ref));
 }
 
 TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
@@ -229,11 +229,11 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  std::vector<at::Tensor> out = {};
+  KernelArgumentHolder cg_outputs;
   if (bias_shape.has_value()) {
-    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = executor_cache.runFusionWithInputs({t0, t1});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   }
 
   const auto& executors =
@@ -241,7 +241,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), out_ref));
 }
 TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
@@ -278,11 +278,11 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  std::vector<at::Tensor> out = {};
+  KernelArgumentHolder cg_outputs;
   if (bias_shape.has_value()) {
-    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = executor_cache.runFusionWithInputs({t0, t1});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   }
 
   const auto& executors =
@@ -290,7 +290,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), out_ref));
 }
 
 constexpr int64_t b = 128, m = 64, k = 32, n = 16;
@@ -298,7 +298,7 @@ constexpr int64_t b = 128, m = 64, k = 32, n = 16;
 // Parametrize a_shape and b_shape
 INSTANTIATE_TEST_SUITE_P(
     ,
-    MatmulNodeParametrizedTest,
+    MatmulNodeParameterizedTest,
     testing::Combine(
         testing::Values(
             Sizes({k}),
@@ -315,7 +315,7 @@ INSTANTIATE_TEST_SUITE_P(
 // Test case where K=1
 INSTANTIATE_TEST_SUITE_P(
     ReductionAxisIsOne,
-    MatmulNodeParametrizedTest,
+    MatmulNodeParameterizedTest,
     testing::Combine(
         testing::Values(
             Sizes({1}),

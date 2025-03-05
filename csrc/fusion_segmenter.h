@@ -40,6 +40,14 @@ struct SegmentedEdge {
   Val* val;
 
   void print() const;
+
+  bool operator==(const SegmentedEdge& other) const {
+    return from == other.from && to == other.to && val == other.val;
+  }
+
+  bool operator!=(const SegmentedEdge& other) const {
+    return !(*this == other);
+  }
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
@@ -527,18 +535,19 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      bool multi_device = false);
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
@@ -551,8 +560,9 @@ class SegmentCandidateFinder {
   // Perform segmentation on and take ownership of the given fusion
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options);
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options,
+      bool multi_device = false);
 
   void resetTraversal();
 
@@ -564,7 +574,17 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  // Replicate upcast ops when consumed by multiple expressions. This
+  // promotes segmented fusions to share pre-upcast tensors rather
+  // than post-upcast tensors. Replicated upcast ops will be reverted
+  // when they are grouped into the same segment. See
+  // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
+  void privatizeUpcast();
+
   void findSegments();
+
+  // Revert privatized upcast ops when not necessary
+  void revertPrivatizedUpcast(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
@@ -594,10 +614,7 @@ class SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
-  SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_.value();
-  }
+  SchedulerRuntimeInfo& runtimeInfo();
 
   ExpressionEvaluator& expressionEvaluator() {
     return runtimeInfo().expressionEvaluator();
@@ -723,6 +740,9 @@ class SegmentCandidateFinder {
   // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
 
+  std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
+      privatized_upcast_ops_;
+
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for
   //!  safe caching. runtime_inputs_ is only used in translateWelford
@@ -739,7 +759,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder* runtime_inputs_;
+  const KernelArgumentHolder runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

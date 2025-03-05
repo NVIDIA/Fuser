@@ -82,7 +82,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -712,10 +712,8 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
   at::Tensor t1 = at::randn({K, N}, options);
   at::Tensor aten_output = at::matmul(t0.to(at::kDouble), t1.to(at::kDouble));
 
-  std::vector<c10::IValue> aten_inputs = {t0, t1};
-
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+  ke.compile(&fusion, {t0, t1});
 
   constexpr int64_t axis_extent = 2;
   if (axis_extent < number_of_stages) {
@@ -723,9 +721,9 @@ TEST_P(CircularBufferingTest, SmemBlockGemmCache) {
     return;
   }
 
-  auto cg_outputs = ke.run(aten_inputs);
+  auto cg_outputs = ke.run({t0, t1});
   testValidate(
-      &fusion, cg_outputs, aten_inputs, {aten_output}, __LINE__, __FILE__);
+      &fusion, cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
   // The smem cache write in this test case is redundant predicated,
   //   and also circular buffered. Currently we are relying on WAR sync
   //   insertion to ensure ordering of circular buffered tensor access.
@@ -977,8 +975,13 @@ INSTANTIATE_TEST_SUITE_P(
     StagesAndPrefetches(),
     nonTMAName);
 
-using TmaCircularBufferingParams =
-    std::tuple<int64_t, int64_t, int64_t, int64_t, CircularBufferType>;
+using TmaCircularBufferingParams = std::tuple<
+    int64_t,
+    int64_t,
+    int64_t,
+    int64_t,
+    CircularBufferType,
+    LoadStoreOpType>;
 
 class TmaCircularBufferingTest
     : public NVFuserFixtureParamTest<TmaCircularBufferingParams> {
@@ -988,6 +991,7 @@ class TmaCircularBufferingTest
   int64_t tensor_outer_dim = 1;
   int64_t tensor_inner_dim = 1;
   CircularBufferType circular_buffer_type;
+  LoadStoreOpType tma_load_type;
 
   void SetUp() override {
     number_of_stages = std::get<0>(GetParam());
@@ -995,6 +999,7 @@ class TmaCircularBufferingTest
     tensor_outer_dim = std::get<2>(GetParam());
     tensor_inner_dim = std::get<3>(GetParam());
     circular_buffer_type = std::get<4>(GetParam());
+    tma_load_type = std::get<5>(GetParam());
 
     // NOTE: Multiple of 16 required for inner dimension
     NVF_ERROR(tensor_inner_dim % 16 == 0);
@@ -1005,6 +1010,14 @@ class TmaCircularBufferingTest
     return std::holds_alternative<WarpSpecialized>(circular_buffer_type) &&
         std::get<WarpSpecialized>(circular_buffer_type)
             .num_registers.has_value();
+  }
+
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
+  // the memory range [srcMem, srcMem + size - 1] must not overflow the source
+  // memory space. Otherwise, the behavior is undefined.
+  bool tma1dSrcAddressOverflow(int64_t bulk_inner_dim) {
+    return tensor_inner_dim % bulk_inner_dim != 0 &&
+        tma_load_type == LoadStoreOpType::CpAsyncBulk;
   }
 
   template <typename data_type>
@@ -1158,14 +1171,17 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   TensorView* tv1 = exp(tv0);
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
 
   // Constants
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1191,8 +1207,8 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  auto cg_outputs = ke.run({t0});
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1212,7 +1228,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   TensorView* tv1 = exp(tv0);
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -1220,7 +1236,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
   // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
@@ -1256,8 +1275,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
     return;
   }
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  auto cg_outputs = ke.run({t0});
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1277,7 +1296,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   TensorView* tv1 = exp(tv0);
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
@@ -1285,7 +1304,10 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
   // [M/bid, bid] -> [M/bid/unroll, unroll, bid]
@@ -1321,8 +1343,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
     return;
   }
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  auto cg_outputs = ke.run({t0});
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1330,6 +1352,11 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
     GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
+
+  if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
+    GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
     return;
   }
 
@@ -1389,8 +1416,9 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
+  auto cg_outputs = ke.run({t0});
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1412,7 +1440,7 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   fusion->addOutput(tv2);
 
   // Use TMA to load TV0 into shared memory
-  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv3 = tv0->cacheAfter(tma_load_type);
   tv3->setMemoryType(MemoryType::Shared);
 
   TensorView* tv4 = tv1->cacheAfter();
@@ -1422,7 +1450,10 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1462,8 +1493,9 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  auto cg_outputs = ke.run({t0, t1});
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -1488,7 +1520,7 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   fusion->addOutput(tv2);
 
   // Use TMA to load TV0 into shared memory
-  TensorView* tv3 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv3 = tv0->cacheAfter(tma_load_type);
   tv3->setMemoryType(MemoryType::Shared);
 
   // Load TV1 into shared memory
@@ -1499,7 +1531,10 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 32;
-
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1534,8 +1569,9 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  auto cg_outputs = ke.run({t0, t1});
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -1555,13 +1591,18 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   TensorView* tv1 = sum(tv0, {-1});
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
 
   constexpr int64_t examples_per_cta = 4;
   constexpr int64_t bulk_inner_dim = 256;
+
+  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
 
   // [M, N] -> [M/epc, epc, N]
   reference->split(0, examples_per_cta);
@@ -1599,8 +1640,8 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
+  auto cg_outputs = ke.run({t0});
+  compare<float>(tensor_outer_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1620,12 +1661,16 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   TensorView* tv1 = sum(tv0, {0});
   fusion->addOutput(tv1);
 
-  TensorView* tv2 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* tv2 = tv0->cacheAfter(tma_load_type);
   tv2->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv1;
 
   constexpr int64_t tile_size = 256;
+  if (tma1dSrcAddressOverflow(tile_size)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(1, tile_size);
@@ -1654,11 +1699,11 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  auto cg_outputs = ke.run({t0});
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   // Please note that, serial reduction has larger error than parallel reduction
   // This is the nature of the algorithm, not a bug in the implementation.
-  EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3, 1e-3), true);
+  EXPECT_EQ(at::allclose(cg_outputs[0].as<at::Tensor>(), t1, 1e-3, 1e-3), true);
 }
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
@@ -1698,8 +1743,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   fusion->addOutput(x_norm);
 
   // Load input from global to shared memory
-  TensorView* x_cache_smem =
-      x->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  TensorView* x_cache_smem = x->cacheAfter(tma_load_type);
   x_cache_smem->setMemoryType(MemoryType::Shared);
 
   // Load input from shared memory to registers
@@ -1718,7 +1762,11 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   constexpr int64_t vectorize = 4;
   int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
   constexpr int64_t examples_per_cta = 4;
-
+  constexpr int64_t tile_size = 256;
+  if (tma1dSrcAddressOverflow(tile_size)) {
+    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+    return;
+  }
   // Since multi-dim CpAsyncBulk has a size limit of 256 per dimension,
   // we require multiple TMA operations to load the entire example in shared
   // memory for pointwise kernel.
@@ -1727,7 +1775,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   // logical domain: [I1, I2]
   x_cache_smem->split(0, examples_per_cta);
   // split: [I0 / 4, 4, I2]
-  x_cache_smem->split(-1, 256);
+  x_cache_smem->split(-1, tile_size);
   // split: [I0/4, 4, I2/256, 256]
 
   // Schedule reference_tv
@@ -1786,7 +1834,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
   ke.compile(fusion.get(), {at_tv0});
-  std::vector<at::Tensor> cg_outputs = ke.run({at_tv0});
+  auto cg_outputs = ke.run({at_tv0});
 
   std::tuple<at::Tensor, at::Tensor> at_var_mean =
       at::var_mean(at_tv0, {-1}, correction, keepdim);
@@ -1802,6 +1850,11 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
     GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
+
+  if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
+    GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
     return;
   }
 
@@ -1915,9 +1968,12 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   compare<float>(
-      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+      tensor_outer_dim,
+      tensor_inner_dim,
+      cg_outputs[0].as<at::Tensor>(),
+      aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
@@ -1927,6 +1983,11 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 
   if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
     GTEST_SKIP() << "Register Sharing is only for hopper";
+    return;
+  }
+
+  if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
+    GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
     return;
   }
 
@@ -2037,9 +2098,12 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0, t1});
 
-  std::vector<at::Tensor> cg_outputs = ke.run({t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
   compare<float>(
-      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+      tensor_outer_dim,
+      tensor_inner_dim,
+      cg_outputs[0].as<at::Tensor>(),
+      aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
@@ -2055,14 +2119,23 @@ auto tmaCircularBufferingParams() {
       WarpSpecialized(ParallelType::TIDy),
       WarpSpecialized(ParallelType::TIDx, std::make_pair(40, 240)),
       WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 240))};
+  const std::vector<LoadStoreOpType> tma_types{
+      LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
     for (int64_t j : c10::irange(-i, i)) {
       for (int64_t m : {128, 500, 1024}) {
         for (int64_t n : {128, 1024}) {
-          values.emplace_back(
-              i, j, m, n, all_types[lcg_parkmiller % all_types.size()]);
-          lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
+          for (auto tma_load_type : tma_types) {
+            values.emplace_back(
+                i,
+                j,
+                m,
+                n,
+                all_types[lcg_parkmiller % all_types.size()],
+                tma_load_type);
+            lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
+          }
         }
       }
     }
@@ -2084,7 +2157,7 @@ std::string tmaName(
      << prefetch_distance_str << "_M_"
      << std::to_string(std::get<2>(info.param)) << "_N_"
      << std::to_string(std::get<3>(info.param)) << "_"
-     << std::get<4>(info.param);
+     << std::get<4>(info.param) << "_" << std::get<5>(info.param);
   return ss.str();
 }
 
