@@ -177,6 +177,12 @@ HostIrEvaluator::HostIrEvaluator(
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  NVF_ERROR(
+    std::all_of(container_->inputs().begin(), container_->inputs().end(), [this](Val* input) {
+      return !container_->alias().count(input);
+    }),
+    "Inputs cannot be aliased"
+  );
 }
 
 std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {

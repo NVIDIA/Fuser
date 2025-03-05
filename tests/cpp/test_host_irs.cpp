@@ -1172,34 +1172,48 @@ TEST_F(AllocationTest, inHostForLoop) {
 
 using HirAlias = NVFuserTest;
 
-TEST_F(HirAlias, HostIr) {
+TEST_F(HirAlias, SetAndGet) {
   const std::vector<int64_t> sizes = {8, 64};
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  TensorView* in0 = makeConcreteTensor(sizes);
-  TensorView* in1 = makeConcreteTensor(sizes);
-  TensorView* out0 = set(in0);
-  TensorView* out1 = makeConcreteTensor(sizes);
-  hic->markAlias(in1, in0);
-  hic->markAlias(out1, out0);
-  hic->addInput(in0);
-  hic->addInput(in1);
-  hic->addOutput(out1);
-  hic->pushBackTopLevelExprs(out0->definition());
+  TensorView* tv0 = makeConcreteTensor(sizes);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = makeConcreteTensor(sizes);
+  hic->markAlias(tv1, tv2);
+  TensorView* tv3 = set(tv2);
+  TensorView* tv4 = makeConcreteTensor(sizes);
+  hic->markAlias(tv3, tv4);
+  hic->addInput(tv0);
+  hic->addOutput(tv4);
+  hic->pushBackTopLevelExprs(tv1->definition());
+  hic->pushBackTopLevelExprs(tv3->definition());
 
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  at::Tensor in0_aten = at::randn(sizes, options);
-  at::Tensor in1_aten = at::randn(sizes, options);
+  at::Tensor tv0_aten = at::randn(sizes, options);
 
-  at::Tensor out_aten = hie.runWithInput({{in0, in0_aten}, {in1, in1_aten}}).at(0);
+  at::Tensor out_aten = hie.runWithInput({{tv0, tv0_aten}}).at(0);
 
-  at::Tensor expected_out = in1_aten;
+  at::Tensor expected_out = tv0_aten;
   EXPECT_TRUE(out_aten.equal(expected_out)) << "Obtained output: " << out_aten << "\n"
                                    << "Expected output: " << expected_out;
+}
+
+TEST_F(HirAlias, ThrowOnInputAlias) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* tv0 = makeConcreteTensor(sizes);
+  TensorView* tv1 = set(tv0);
+  hic->markAlias(tv1, tv0);
+  hic->addInput(tv0);
+
+  EXPECT_ANY_THROW(HostIrEvaluator hie(std::move(hic)));
 }
 
 using HirSetTest = NVFuserTest;
