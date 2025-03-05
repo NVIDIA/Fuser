@@ -1811,7 +1811,6 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
   while (count < (int64_t)dq.size()) {
     dq.pop_front();
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
