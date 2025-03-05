@@ -169,6 +169,7 @@ class BFS {
   // path to generate the shortest path after the travesal
   virtual void traverse() {
     for (const auto& n : from_) {
+      std::cout << "from: " << toString(n) << std::endl;
       setVisited(n);
       addNewNeighbors(n);
     }
@@ -198,6 +199,7 @@ class BFS {
 
         // Visit this node and add its neighbors to to_visit if not
         // visited yet
+        std::cout << "to visit: " << toString(n) << std::endl;
         setVisited(n);
         setPrevGroups(n, *ready_direction);
         addNewNeighbors(n);
