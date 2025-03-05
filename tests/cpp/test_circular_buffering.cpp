@@ -1470,8 +1470,9 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TensorView* tv3 = tv0->cacheAfter(tma_load_type);
   tv3->setMemoryType(MemoryType::Shared);
 
-  TensorView* tv4 = tv1->cacheAfter();
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  // __syncthreads() is mssing if mixing TMA and non-TMA loading with circular
+  TensorView* tv4 = tv1->cacheAfter(tma_load_type);
+  tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
 
@@ -1496,16 +1497,10 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv3->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
-  // Circular Buffer with set operation.
-  // Note that in order to use warp specialization, all circular buffers must be
-  // loaded by TMA, so for this test we disable circular buffering of set op if
-  // we are testing warp specialization.
-  if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
-    // Load TV1 into shared memory
-    tv4->setMemoryType(MemoryType::Shared);
-    tv4->circularBuffer(
-        number_of_stages, prefetch_distance, circular_buffer_type);
-  }
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(2)->parallelize(ParallelType::Bulk);
+  tv4->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Split reference to parallelize TMA tile
   reference->split(-1, bulk_inner_dim);
