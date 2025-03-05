@@ -421,8 +421,6 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
         warp_group_stride != nullptr,
         "Invalid data access pattern in TMem load/store: ",
         "Warps are not accessing the correct sub-partition.");
-    std::cout << "Stride: ";
-    std::cout << warp_group_stride->toInlineString() << std::endl;
     GpuLower::current()->validate(
         SimplifyingIrBuilder::eqExpr(
             warp_group_stride, IrBuilder::create<Val>(32)),
