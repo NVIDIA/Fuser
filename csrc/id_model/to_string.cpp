@@ -28,7 +28,7 @@ std::string toString(const T* ptr, bool enable) {
 } // namespace
 
 std::string toString(const std::vector<Val*>& id_group, int indent_size) {
-  std::vector<unsigned int> names;
+  std::vector<std::string> names;
   names.reserve(id_group.size());
   for (auto id : id_group) {
     names.push_back(id->toString());
@@ -165,7 +165,7 @@ std::string toInlineString(const std::vector<ValGroup>& id_groups) {
 }
 
 std::string toString(const std::vector<Expr*>& expr_group, int indent_size) {
-  std::vector<unsigned int> names;
+  std::vector<std::string> names;
   names.reserve(expr_group.size());
   for (auto expr : expr_group) {
     names.push_back(expr->toString());
