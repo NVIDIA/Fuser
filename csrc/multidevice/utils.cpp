@@ -421,8 +421,9 @@ bool haveDifferentShardings(
     known_indices[p_logical_id] = {index, true};
     known_indices[c_root_id] = {index, true};
     assumptions.push_back(
-        IrBuilder::leExpr(producer->fusion()->zeroVal(), index));
-    assumptions.push_back(IrBuilder::ltExpr(index, p_logical_id->extent()));
+        SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+    assumptions.push_back(
+        SimplifyingIrBuilder::ltExpr(index, p_logical_id->extent()));
   }
 
   // FIXME: the two loops below can be consolidated.
@@ -431,8 +432,9 @@ bool haveDifferentShardings(
     if (index == nullptr) {
       index = IrBuilder::create<Val>(DataType::Index);
       assumptions.push_back(
-          IrBuilder::leExpr(producer->fusion()->zeroVal(), index));
-      assumptions.push_back(IrBuilder::ltExpr(index, p_logical_id->extent()));
+          SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+      assumptions.push_back(
+          SimplifyingIrBuilder::ltExpr(index, p_logical_id->extent()));
     }
   }
   for (IterDomain* c_root_id : consumer->getMaybeRootDomain()) {
@@ -440,8 +442,9 @@ bool haveDifferentShardings(
     if (index == nullptr) {
       index = IrBuilder::create<Val>(DataType::Index);
       assumptions.push_back(
-          IrBuilder::leExpr(producer->fusion()->zeroVal(), index));
-      assumptions.push_back(IrBuilder::ltExpr(index, c_root_id->extent()));
+          SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+      assumptions.push_back(
+          SimplifyingIrBuilder::ltExpr(index, c_root_id->extent()));
     }
   }
 
