@@ -430,10 +430,7 @@ bool haveDifferentShardings(
         // Reshape is not resharding if both the DID splits are either inner or
         // outer splits. Note that we currently do not exercise inner splits in
         // the multidevice tests.
-        if (a_split->innerSplit() == b_split->innerSplit()) {
-          return true;
-        }
-        return false;
+        return a_split->innerSplit() == b_split->innerSplit();
       }
 
       // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
