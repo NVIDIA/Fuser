@@ -365,15 +365,15 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
       if (stride == nullptr) {
         reason_32x32b =
             "Not 32x32b because warps are not linearly accessing the lane allocation.";
+        fail_reasons.push_back(std::move(reason_32x32b));
       } else {
         GpuLower::current()->validate(
             SimplifyingIrBuilder::eqExpr(stride, fusion->oneVal()),
             "Invalid data access pattern in TMem load/store: ",
             "Warp linearly accessing lanes, but not with stride 1.");
+        matched = true;
         (*target)[tmem_tv] = TMemRegisterDataPath::Path32x32b;
-        continue;
       }
-      fail_reasons.push_back(std::move(reason_32x32b));
     }
     // TODO: Pattern match 16x64b
     if (!matched) {
