@@ -1988,7 +1988,10 @@ Val* proveLinearAndGetStride(
     return stride;
   }
   for (const auto& [eg, direction] : path) {
+    std::cout << "frontier:" << std::endl;
+    std::cout << "  before propagation:" << print(frontier) << std::endl;
     frontier = propagate(frontier, id_graph, eg, direction);
+    std::cout << "  after propagation:" << print(frontier) << std::endl;
     if (!frontier.hasValue()) {
       // Not representable (or don't know how to represent) by the language of
       // the dynamic type Projection.
