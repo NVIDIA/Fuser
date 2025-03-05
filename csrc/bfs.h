@@ -458,7 +458,7 @@ class BFS {
   // dependency is considered satisfied. If the given node is already
   // visited, that should mean the dependency is satisfied.
   virtual bool isDependencySatisfied(const NodeType& dependency) const {
-    std::cout << "isDependencySatisfied:" << dependency->toString();
+    std::cout << "isDependencySatisfied:" << toString(dependency);
     bool result = isVisited(dependency);
     std::cout << " result:" << result << std::endl;
     return result;
@@ -471,7 +471,7 @@ class BFS {
 
   // Mark a node as visited
   virtual void setVisited(const NodeType& node) {
-    std::cout << "setVisited:" << node->toString() << std::endl;
+    std::cout << "setVisited:" << toString(node) << std::endl;
     visited_.emplace(node);
   }
 
