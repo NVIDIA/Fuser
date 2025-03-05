@@ -2,6 +2,9 @@
 
 set -e
 
+# Install cuda keyring
+wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get update
 
 # Remove headers of gcc-14 because it is too new and not very compatible with clang
@@ -10,8 +13,6 @@ sudo apt-get -y remove gcc-13 libstdc++-13-dev gcc-12 libstdc++-12-dev
 sudo apt-get -y install --reinstall clang-19 gcc-14 nlohmann-json3-dev #g++-13 libstdc++-13-dev 
 
 # Install cuda
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
-sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt-get -y install ninja-build cuda-compiler-12-8 cuda-command-line-tools-12-8 cuda-libraries-dev-12-8 libnccl-dev 
 
 tree /usr/include/c++/
