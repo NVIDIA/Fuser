@@ -609,7 +609,8 @@ TEST_F(TMemTutorialC, WrongSubpartition) {
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+          "Invalid data access pattern in TMem load/store: "
+          "Warps are not accessing the correct sub-partition.")));
 } /*
 ```
 
@@ -643,7 +644,8 @@ TEST_F(TMemTutorialC, WrongSubpartition2) {
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+          "Invalid data access pattern in TMem load/store: "
+          "Warps are not accessing the correct sub-partition.")));
 } /*
 ```
 
@@ -814,9 +816,9 @@ In the above example, each CTA has 4 warp groups, each warp group accesses a
 whole column. The warp group id and the column each warp group accesses are
 shown in the table below:
 
-| Warp Group | 0 | 1 | 2 | 3 |
-|------------|---|---|---|---|
-| Column     | 0 | 2 | 1 | 3 |
+| Warp Group | 0   | 1   | 2   | 3   |
+| ---------- | --- | --- | --- | --- |
+| Column     | 0   | 2   | 1   | 3   |
 
 This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
@@ -1118,10 +1120,10 @@ TEST_F(TMemTutorialR, Transpose) {
 
 In the above example, we store and load the tensor memory like the table below:
 
-| Warp Group   | 0 | 1 | 2 | 3 |
-|--------------|---|---|---|---|
-| Store Column | 0 | 2 | 1 | 3 |
-| Load Column  | 0 | 1 | 2 | 3 |
+| Warp Group   | 0   | 1   | 2   | 3   |
+| ------------ | --- | --- | --- | --- |
+| Store Column | 0   | 2   | 1   | 3   |
+| Load Column  | 0   | 1   | 2   | 3   |
 
 ## Vectorization of TMem load and store
 
