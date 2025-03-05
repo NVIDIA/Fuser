@@ -1298,7 +1298,7 @@ Val* extent(const Composition<Projection>& comp) {
   return std::accumulate(
       comp.begin(),
       comp.end(),
-      static_cast<Val*>(nullptr),
+      FusionGuard::getCurFusion()->oneVal(),
       [](Val* acc, const auto& g) {
         return SimplifyingIrBuilder::mulExpr(acc, extent(g));
       });
