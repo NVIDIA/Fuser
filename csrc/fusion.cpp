@@ -23,6 +23,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <runtime/executor_params.h>
+#include <transform_replay.h>
 
 #include <iterator>
 
@@ -784,6 +785,16 @@ void Fusion::aliasOutputToInput(
     // ensure that codegen produce a write operation on the buffer.
     output = set(output);
   }
+
+  // We need to replay the allocation domain and contiguity of input on output,
+  // this is because these two share the data buffer and should interpret it
+  // identically. Technically these two don't have to be identical, but rather
+  // compatible.
+  NVF_CHECK(
+      output->isA<TensorView>() && input->isA<TensorView>(),
+      "aliasing output to input is only supported for TensorView");
+  TransformReplay::selfAllocationReplay(
+      input->as<TensorView>()->domain(), output->as<TensorView>()->domain());
 
   // Let integration hide any output that wasn't a fusion output when
   // `aliasOutputToInput` was called. For example, running mean and var for
