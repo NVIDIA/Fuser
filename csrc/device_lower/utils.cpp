@@ -1953,13 +1953,31 @@ Val* proveLinearAndGetStride(
       ValGraphPermissiveBFS::getExprGroupsBetween(
           id_graph, {linear_g}, domain, /*require_all_to_visited=*/false)
           .first;
-  // Try to prove linear and get stride with the current frontier. We may not
-  // have finished the propagation yet, but because ValGraphPermissiveBFS
-  // supports missing dependency, and with missing dependency, we only have
-  // partial information on how to reach to a state that is easiest for our
-  // proof. It is possible that the easiest state is not the final state of
-  // the propagation. So we need to try the proof each step of the
-  // propagation.
+  // Propagate along the path from linear_g to domain. Note that we do not
+  // always propagate all the way through the path. Instead, early stopping
+  // is necessary to be functionally correct. For example, if we have the
+  // following ValGroups:
+  //   4   2
+  //    \ /
+  //     8
+  //    / \.
+  //   4'  2'
+  // and we are asking: is 2' linear in [4, 2']? The answer is trivially
+  // yes by eyeballing, because 2' is the inner of [4, 2']. However, we must be
+  // careful in propagation to algorithmically get it right. Although we can
+  // directly tell the answer for this example without any progagation, because
+  // ValGraphPermissiveBFS has no information about the underlying problem we
+  // are solving, it always generate a path that visits `domain` as much as
+  // possible, regardless of whether the underlying problem want it or not.
+  // For this case, although the 4 in `domain` is unrelated to the answer,
+  // ValGraphPermissiveBFS will still visit it. Therefore, it will generate a
+  // path that include the merge of 4 and 2, and the split of 8. If we
+  // mindlessly propagate along this path without early stopping, we will
+  // propagate linear_g into frontier = 2, which leads to a conclusion that
+  // "linear_g is the 2, and domain is [4, 2'], linear_g is not in domain, so I
+  // can not prove linearity", which is not the answer we want. Note that
+  // patterns like this can appear anywhere in the path, so we need to check for
+  // early stopping at each step of the propagation.
   Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
   if (stride != nullptr) {
     return stride;
@@ -1971,7 +1989,7 @@ Val* proveLinearAndGetStride(
       // the dynamic type Projection.
       return nullptr;
     }
-    // Try the proof each step of the propagation.
+    // Check for early stopping.
     Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
     if (stride != nullptr) {
       return stride;

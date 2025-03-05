@@ -1684,6 +1684,35 @@ TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
   }
 }
 
+TEST_F(NVFuserTest, ProveLinearAndGetStrideEarlyStopping) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [4, 2]
+  auto id4 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                 .build();
+  auto id2 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                 .build();
+
+  ValGraph g;
+  g.initializeVal(id4);
+  g.initializeVal(id2);
+  ValGroup g4{g.toGroup(id4)};
+  ValGroup g2{g.toGroup(id2)};
+  ValGroupAndItsGraph gg4{g4, &g};
+  ValGroupAndItsGraph gg2{g2, &g};
+  AbstractTensor v({gg4, gg2});
+  v.merge(0);
+  v.split(0, 2);
+  ValGroup g4_ = v[0].as<ValGroupAndItsGraph>().group;
+  ValGroup g2_ = v[1].as<ValGroupAndItsGraph>().group;
+  Val* stride = lower_utils::proveLinearAndGetStride(g, g2_, {g4, g2_});
+  ASSERT_NE(stride, nullptr);
+  EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+}
+
 using TestCpp23BackPort = NVFuserTest;
 
 TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
