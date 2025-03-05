@@ -522,9 +522,8 @@ void scheduleLoopDomainsBy(
       }
     }
 
-    // It should be either: all of the inputs found and none of the
-    // outputs found, or none of the inputs found and all of the
-    // outputs found.
+    // If all of the inputs are found, the tranform expr is replayed as
+    // a forward op.
     Direction replay_dir_tv = Direction::Undefined;
     if (replay_dir != Direction::Backward &&
         input_ids.size() == transform->inputs().size()) {
