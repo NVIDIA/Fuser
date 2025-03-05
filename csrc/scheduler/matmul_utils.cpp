@@ -309,9 +309,8 @@ bool fillDefaultHopperHeuristic(
 
   mparams->tile_sizes = {cta_tile, warp_tile};
 
-  //  Use a persistent kernel
-  mparams->tiling_strategy =
-      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
+  //  Use a non-persistent kernel by default for now
+  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
 
   // Use warp specialization on hopper by default
   mparams->circular_buffering_strategy =
