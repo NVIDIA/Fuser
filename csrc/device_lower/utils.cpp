@@ -1410,9 +1410,13 @@ Projection propagate(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
+  std::cout << "propagate vg" << std::endl;
+  std::cout << group->toString() << std::endl;
+  std::cout << "eg: " << eg->toString() << std::endl;
   auto from = fromGroups(id_graph, eg, direction);
   auto to = toGroups(id_graph, eg, direction);
   if (from.size() == 1 && to.size() == 2) {
+    std::cout << "one to two" << std::endl;
     // If we have
     //    group
     //    /   \.
@@ -1427,8 +1431,10 @@ Projection propagate(
     //                  selected_extent=extent(group)}
     NVF_ERROR(eg->front()->isA<Split>() || eg->front()->isA<Merge>());
     if (from.front() != group) {
+      std::cout << "front not match" << std::endl;
       return group;
     }
+    std::cout << "front match" << std::endl;
     auto comp = Composition<Projection>{to.front(), to.back()};
     bool may_be_indivisible_split = eg->front()->isA<Split>() &&
         !simplifyExpr(eg->front()->as<Split>()->isDivisible())->isTrue();
@@ -1483,8 +1489,8 @@ Projection propagate(
     const ExprGroup& eg,
     Direction direction) {
   // Just recursively propagate subtree.
-  auto from = fromGroups(id_graph, eg, direction);
-  auto to = toGroups(id_graph, eg, direction);
+  std::cout << "propagate part" << std::endl;
+  std::cout << print(part) << std::endl;
   auto propagated = propagate(*part.what, id_graph, eg, direction);
   if (!propagated.hasValue()) {
     return {};
