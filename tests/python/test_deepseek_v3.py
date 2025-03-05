@@ -28,8 +28,12 @@ def test_transformer_layer():
     config = transformers.AutoConfig.from_pretrained(
         "deepseek-ai/deepseek-v3", trust_remote_code=True
     )
+
+    # Create only one layer which is sufficient for the test.
     config.num_hidden_layers = 1
+    # Without this, the first and only layer will have a dense MLP instead of MoE.
     config.first_k_dense_replace = 0
+    # Disable quantization so the test can run on A100 and is made easier for nvFuser.
     delattr(config, "quantization_config")
 
     with default_tensor_type(dtype=config.torch_dtype, device="cuda"):
