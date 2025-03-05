@@ -3704,8 +3704,12 @@ void TensorDomain::resize(
 
   IterDomain* id = this->axis(axis);
 
-  auto resized_id =
-      IterDomain::resize(id, left_expansion, right_expansion, false, iter_type);
+  auto resized_id = IterDomain::resize(
+      id,
+      left_expansion,
+      right_expansion,
+      /*mark_as_rfactor=*/false,
+      iter_type);
   loop_domain_.at(axis) = resized_id;
   resetDomains();
 }
