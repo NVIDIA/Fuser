@@ -13,7 +13,7 @@ sudo apt-get -y remove gcc-13 libstdc++-13-dev gcc-12 libstdc++-12-dev
 sudo apt-get -y install --reinstall clang-19 gcc-14 nlohmann-json3-dev ninja-build #g++-13 libstdc++-13-dev 
 
 # Install cuda
-sudo apt-get -y install --no-install-recommends cuda-compiler-12-8 cuda-command-line-tools-12-8 cuda-libraries-dev-12-8 libnccl-dev
+sudo apt-get -y install cuda-compiler-12-8 cuda-command-line-tools-12-8 cuda-libraries-dev-12-8 libnccl-dev
 
 tree /usr/include/c++/
 # rm /usr/include/c++/12 /usr/include/c++/13

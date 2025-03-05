@@ -30,8 +30,8 @@ jobs:
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
           source tools/setup-env.sh
-          export CC=clang
-          export CXX=clang++
+          export CC=clang-19
+          export CXX=clang++-19
           wait
           python setup.py build
 
