@@ -361,7 +361,11 @@ void IrContainer::removeStatementsConstructedAfter(
     int64_t prev_num_exprs,
     int64_t prev_num_vals) {
   while (static_cast<int64_t>(exprs_up_.size()) > prev_num_exprs) {
-    exprs_.erase(exprs_up_.back().get());
+    Expr* e = exprs_up_.back().get();
+    for (Val* in : e->inputs()) {
+      in->removeUse(e);
+    }
+    exprs_.erase(e);
     exprs_up_.pop_back();
   }
 
