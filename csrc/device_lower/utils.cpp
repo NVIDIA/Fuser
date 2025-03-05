@@ -1641,6 +1641,8 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Projection& proj,
     const ValGroups& domain) {
+  std::cout << "proveLinearAndGetStrideAfterPropagation" << std::endl;
+  std::cout << print(proj) << std::endl;
   return Projection::dispatch(
       [&](const auto& proj) {
         return proveLinearAndGetStrideAfterPropagation(proj, domain);
