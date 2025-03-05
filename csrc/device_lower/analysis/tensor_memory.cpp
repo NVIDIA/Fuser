@@ -409,7 +409,22 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
       }
       NVF_THROW(error.str());
     }
-    // TODO: Validate that we are accessing the correct sub-partition
+    // Validate that warps are accessing the correct sub-partition
+    AbstractTensorWithInfo<Contiguity> t = pdims;
+    t.split(-1, 32);
+    t.split(-2, 4);
+    Val* warp_group_stride = lower_utils::proveLinearAndGetStride(
+        id_graph,
+        t[-2].as<ValGroupAndItsGraph>().group,
+        lane_allocation_valgroups);
+    NVF_ERROR(
+        warp_group_stride != nullptr,
+        "Invalid data access pattern in TMem load/store: ",
+        "Warps are not accessing the correct sub-partition.");
+    GpuLower::current()->validate(
+        SimplifyingIrBuilder::eqExpr(warp_group_stride, fusion->oneVal()),
+        "Invalid data access pattern in TMem load/store: ",
+        "Warps are not accessing the correct sub-partition.");
   }
   return {std::move(load_data_path), std::move(store_data_path)};
 }

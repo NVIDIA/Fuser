@@ -586,7 +586,6 @@ columns of the tensor memory, while all the specified patterns requires the warp
 to access a contiguous 32 or 16 lanes of data.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -621,7 +620,6 @@ However, warp 0 can only access subpartition 0, and warp 1 can only access
 subpartition 1.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition2) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
