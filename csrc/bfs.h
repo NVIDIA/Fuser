@@ -169,6 +169,7 @@ class BFS {
   // path to generate the shortest path after the travesal
   virtual void traverse() {
     for (const auto& n : from_) {
+      std::cout << "from: " << toString(n) << std::endl;
       setVisited(n);
       addNewNeighbors(n);
     }
@@ -198,6 +199,7 @@ class BFS {
 
         // Visit this node and add its neighbors to to_visit if not
         // visited yet
+        std::cout << "to visit: " << toString(n) << std::endl;
         setVisited(n);
         setPrevGroups(n, *ready_direction);
         addNewNeighbors(n);
@@ -456,7 +458,10 @@ class BFS {
   // dependency is considered satisfied. If the given node is already
   // visited, that should mean the dependency is satisfied.
   virtual bool isDependencySatisfied(const NodeType& dependency) const {
-    return isVisited(dependency);
+    std::cout << "isDependencySatisfied:" << toString(dependency);
+    bool result = isVisited(dependency);
+    std::cout << " result:" << result << std::endl;
+    return result;
   }
 
   // Check if a given node is already visited
@@ -466,6 +471,7 @@ class BFS {
 
   // Mark a node as visited
   virtual void setVisited(const NodeType& node) {
+    std::cout << "setVisited:" << toString(node) << std::endl;
     visited_.emplace(node);
   }
 

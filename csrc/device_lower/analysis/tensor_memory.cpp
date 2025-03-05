@@ -327,9 +327,16 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
     }
 
     // Merge contiguous parallel types from inner to outer
-    for (int64_t index = (int64_t)pdims.size() - 2; index >= 0; index--) {
+    // for (int64_t index = (int64_t)pdims.size() - 2; index >= 0; index--) {
+    //   if (pdims.info(index).contiguity) {
+    //     pdims.merge(index);
+    //   }
+    // }
+    for (int64_t index = 0; index < (int64_t)pdims.size() - 1;) {
       if (pdims.info(index).contiguity) {
         pdims.merge(index);
+      } else {
+        index++;
       }
     }
 
