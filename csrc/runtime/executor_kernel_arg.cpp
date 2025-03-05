@@ -8,6 +8,7 @@
 #include <c10/util/irange.h>
 
 // Extract size and strides
+#include <runtime/allocations.h>
 #include <runtime/fusion_executor_cache.h>
 
 #include <instrumentation.h>
@@ -117,15 +118,6 @@ void KernelArgumentHolder::pushTensorProxy(
       c10::Device(c10::DeviceType::Meta, 0),
       c10::nullopt);
   push(meta_tensor);
-}
-
-std::vector<c10::IValue> KernelArgumentHolder::toC10Array() const {
-  std::vector<c10::IValue> ival_array;
-  ival_array.reserve(arguments_.size());
-  for (const auto& arg : arguments_) {
-    ival_array.push_back(PolymorphicValue_functions::toIValue(arg));
-  }
-  return ival_array;
 }
 
 void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
@@ -294,51 +286,11 @@ std::vector<std::byte> polymorphicValueToBytes(
   } else if (argument.is<StructHandle>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(StructHandle)");
     std::vector<std::byte> buffer;
-    const auto& dtype_ = std::get<StructType>(dtype.type);
-    auto& data = argument->*&TensorMetaData::data;
-    auto& logical_size = argument->*&TensorMetaData::logical_size;
-    auto& alloc_stride = argument->*&TensorMetaData::alloc_stride;
     if (argument.as<StructHandle>().is<TensorMetaData>()) {
-      // special handle for TensorMetaData so that CPU overhead is minimal.
-      if (index_type == PrimDataType::Int) {
-        buffer.reserve(
-            sizeof(void*) + sizeof(int64_t) * logical_size.size() +
-            sizeof(int64_t) * alloc_stride.size());
-        buffer.insert(
-            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)logical_size.data(),
-            (std::byte*)logical_size.data() +
-                sizeof(int64_t) * logical_size.size());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)alloc_stride.data(),
-            (std::byte*)alloc_stride.data() +
-                sizeof(int64_t) * alloc_stride.size());
-      } else {
-        buffer.reserve(
-            sizeof(void*) + sizeof(int32_t) * logical_size.size() +
-            sizeof(int32_t) * alloc_stride.size());
-        buffer.insert(
-            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
-        std::vector<int32_t> logical_size32(
-            logical_size.begin(), logical_size.end());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)logical_size32.data(),
-            (std::byte*)logical_size32.data() +
-                sizeof(int32_t) * logical_size32.size());
-        std::vector<int32_t> alloc_stride32(
-            alloc_stride.begin(), alloc_stride.end());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)alloc_stride32.data(),
-            (std::byte*)alloc_stride32.data() +
-                sizeof(int32_t) * alloc_stride32.size());
-      }
-      return buffer;
+      NVF_THROW(
+          "Don't send tensor metadata to this function directly, use tensorToBytes.");
     } else {
+      const auto& dtype_ = std::get<StructType>(dtype.type);
       for (const auto& field : dtype_.fields) {
         if (!field.used_in_kernel) {
           continue;
@@ -357,24 +309,58 @@ std::vector<std::byte> polymorphicValueToBytes(
   }
 }
 
-std::vector<std::byte> getKernelArgument(
-    ExpressionEvaluator& ee,
-    Val* parameter,
-    PrimDataType index_type) {
-  FUSER_PERF_SCOPE("getKernelArgument");
-  NVF_ERROR(parameter != nullptr);
-  PolymorphicValue pv = ee.evaluate(parameter);
-  if (auto tv = dynamic_cast<TensorView*>(parameter)) {
-    if (tv->isCpuScalar()) {
-      return polymorphicValueToBytes(pv, tv->dtype(), index_type);
-    } else {
-      const Val* metadata_val = IrBuilder::metadataExpr(tv);
-      const PolymorphicValue& metadata = ee.evaluate(metadata_val);
-      return polymorphicValueToBytes(
-          metadata, metadata_val->dtype(), index_type);
-    }
+std::vector<std::byte> tensorToBytes(
+    const PolymorphicValue& argument,
+    const std::vector<int64_t>& logical_sizes,
+    const std::vector<int64_t>& alloc_strides,
+    PrimDataType idx_type,
+    const std::vector<int64_t>& unsharded_logical_sizes) {
+  std::vector<std::byte> bytes;
+  NVF_ERROR(
+      argument.is<at::Tensor>() && argument.as<at::Tensor>().is_cuda(),
+      "Argument is not a CUDA tensor.");
+  const auto& tensor = argument.as<at::Tensor>();
+  auto data = tensor.data_ptr();
+
+  const auto& size_to_use =
+      logical_sizes.size() == unsharded_logical_sizes.size()
+      ? unsharded_logical_sizes
+      : logical_sizes;
+  // special handle for TensorMetaData so that CPU overhead is minimal.
+  if (idx_type == PrimDataType::Int) {
+    bytes.reserve(
+        sizeof(void*) + sizeof(int64_t) * size_to_use.size() +
+        sizeof(int64_t) * alloc_strides.size());
+    bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)size_to_use.data(),
+        (std::byte*)size_to_use.data() + sizeof(int64_t) * size_to_use.size());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)alloc_strides.data(),
+        (std::byte*)alloc_strides.data() +
+            sizeof(int64_t) * alloc_strides.size());
+  } else {
+    bytes.reserve(
+        sizeof(void*) + sizeof(int32_t) * size_to_use.size() +
+        sizeof(int32_t) * alloc_strides.size());
+    bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
+    std::vector<int32_t> logical_size32(size_to_use.begin(), size_to_use.end());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)logical_size32.data(),
+        (std::byte*)logical_size32.data() +
+            sizeof(int32_t) * logical_size32.size());
+    std::vector<int32_t> alloc_stride32(
+        alloc_strides.begin(), alloc_strides.end());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)alloc_stride32.data(),
+        (std::byte*)alloc_stride32.data() +
+            sizeof(int32_t) * alloc_stride32.size());
   }
-  return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
+  return bytes;
 }
 
 int64_t computeBytes(const KernelArgumentHolder& args) {
@@ -385,17 +371,6 @@ int64_t computeBytes(const KernelArgumentHolder& args) {
       auto t = args[i].as<at::Tensor>();
       num_bytes += static_cast<int64_t>(t.storage().nbytes());
     }
-  }
-  return num_bytes;
-}
-
-int64_t computeBytes(const std::vector<at::Tensor>& outputs) {
-  int64_t num_bytes = 0;
-  for (auto i : c10::irange(outputs.size())) {
-    const auto& output = outputs.at(i);
-    // NOTE: this assumes that all output elements correspond to a single
-    // store
-    num_bytes += static_cast<int64_t>(output.storage().nbytes());
   }
   return num_bytes;
 }
