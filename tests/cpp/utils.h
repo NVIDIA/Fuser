@@ -623,9 +623,9 @@ class HopperBase : public NVFuserTest {
 class BlackwellBase : public NVFuserTest {
  protected:
   void SetUp() override {
-    if (cudaArchGuardShouldSkip(10, 0)) {
-      GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
-    }
+    // if (cudaArchGuardShouldSkip(10, 0)) {
+    //   GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
+    // }
     NVFuserTest::SetUp();
   }
 };
