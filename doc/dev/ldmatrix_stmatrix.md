@@ -48,17 +48,39 @@ using HopperLdStMatrixTutorial = HopperBase;
 ### What is LdMatrix?
 A warp-level instruction to load matrices from shared memory to registers.
 
-Reference: [LdMatrix Ptx](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-load-instruction-ldmatrix)
+```
+ldmatrix.sync.aligned.shape.num{.trans}{.ss}.type r, [p];
+
+ldmatrix.sync.aligned.m8n16.num{.ss}.dst_fmt.src_fmt        r, [p];
+ldmatrix.sync.aligned.m16n16.num.trans{.ss}.dst_fmt.src_fmt r, [p];
+
+.shape   = {.m8n8, .m16n16};
+.num     = {.x1, .x2, .x4};
+.ss      = {.shared{::cta}};
+.type    = {.b16, .b8};
+.dst_fmt = { .b8x16 };
+.src_fmt = { .b6x16_p32, .b4x16_p64 };
+```
+Reference: [LdMatrix PTX](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-load-instruction-ldmatrix)
 
 ### What is StMatrix?
 A warp-level instruction to store matrices from registers to shared memory.
 
-Reference: [StMatrix Ptx](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-store-instruction-stmatrix)
+```
+stmatrix.sync.aligned.shape.num{.trans}{.ss}.type [p], r;
+
+.shape  = {.m8n8, .m16n8};
+.num    = {.x1, .x2, .x4};
+.ss     = {.shared{::cta}};
+.type   = {.b16, .b8};
+```
+
+Reference: [StMatrix PTX](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-store-instruction-stmatrix)
 
 ### General Details
 
 For 16-bit element size, the matrix shape is (8, 8).
-The instruction can load one, two, or four (8, 8) matrices per instruction.
+The instruction can load/store one, two, or four (8, 8) matrices per instruction.
 
 ### Indices shared memory tensor
 Each thread in the warp specifies a matrix row in shared memory. For LdMatrix,
@@ -77,31 +99,48 @@ Each threads stores two adjacent elements along the inner-most dimension.
 * [m(8), no(4), ni(2)]  // Split column dimension by 2
 * [m(8) * no(4) (TDX), ni[2]) // Merge row dimension and column stride
 
+#### Register layout for one 8x8 Matrix with 16-bit elements
 ![Register-Layout](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/mma-stmatrix-fragments.png)
 
-## In-Depth - Shared Memory Index
+## In-Depth Indexing for LdMatrix and StMatrix
 
-Goal: Load data from shared memory produced by TMA LoadStoreOp with 128B
-to registers with wgmma layout using LdMatrix LoadStoreOp.
+The goal is to load data from shared memory, produced by TMA Load with 128B
+swizzle, to registers using LdMatrix. After some computation, the data is
+loaded from registers into shared memory, which is consumed by a TMA Store with
+128B swizzle.
 
-Output indexing into registers is based on wgmma layout and is handled by
-id-model indexing.
+LdMatrix and StMatrix indexing is limited to supporting mma operations.
+Therefore, the loop domain is based on the allocation domain for register
+accumulator for mma operation.
 
-Input indexing into shared memory requires custom index from ldmatrix loop
-domain to TMA allocation domain.
+### How to compute the index into register TensorView?
 
-How to derive index into shared memory created by TMA LoadStoreOp from
-LdMatrix loop domain?
+The register index is based on wgmma layout and is handled by id-model
+indexing. For LdMatrix, we must set the allocation domain using the
+scheduled loop domain.
+
+### How to compute the index into shared memory TensorView?
+
+The index into shared memory requires a custom index from shared memory loop
+domain to the TMA LoadStoreOp allocation domain.
 
 The ldmatrix loop domain is derived from wgmma allocation domain, so the
 ldmatrix LoadStoreOp, epilogue computation, and stmatrix LoadStoreOp are
 inlined together.
 
-StMatrix loop domain:
-moo * mi * nio (128) (TDX), noo(16), noi * moi * nii (2) (V)
+### What is the StMatrix loop domain?
+`moo * mi * nio (128) (TDX), noo(16), noi * moi * nii (2) (V)`
+
+Applying the following transformations yields this ^^^ StMatrix loop domain.
+
+1. `blockTileTensors` divides logical domain by CTA tile.
+2. `transformLikeMmaOutputWithoutK` splits by warp tile and mma macro.
+3. `mma_utils::scheduleStMatrixForMmaOutput` schedules iterDomains corresponding
+with mma macro.
 
 The for-loop structure is determined by StMatrix LoadStoreOp.
 
+``` python
 for TDY(2):
   for TDX(128):
     for Serial(16):
@@ -117,6 +156,7 @@ for TDY(2):
     end for
   end for
 end for
+```
 
 Step 1: Derive wgmma index components from for-loop indices.
  * TDY(2)
@@ -128,7 +168,7 @@ Step 2: Create index components for the four ldmatrix.x4 instructions issued
 by 128 thread warp-group.
 
 LdMatrix warp-group.x4 IterDomain Layout:
-TDY(2), moo(4), nooo(4), nooi(4), (mi * moi)(16), (nio * nii * noi)(16)
+`TDY(2), moo(4), nooo(4), nooi(4), (mi * moi)(16), (nio * nii * noi)(16)`
 
 Details:
  1. moo(4) = (mma_m == tma_m == 64) / (ldmatrix == stmatrix == 16)
@@ -143,13 +183,13 @@ Details:
 Step 3: Split (16, 16) LdMatrix into four (8, 8) LdMatrix components.
 
 LdMatrix m8n8 IterDomain Layout:
-TDY(2), moo(4), nooo(4), nooi(4), m_o(2), m_i(8), n_o(2), n_i(8)
+`TDY(2), moo(4), nooo(4), nooi(4), m_o(2), m_i(8), n_o(2), n_i(8)`
 
 Step 4: Merge and reorder components to get the allocation domain for TMA
 LoadStoreOp with 128B swizzle.
 
 TMA LoadStoreOp with 128B swizzle IterDomain Layout:
-TDY(2), no(4), moo * m_o (8), m_io(8), m_ii(1), nooi * n_o (8), n_i(8)
+`TDY(2), no(4), moo * m_o (8), m_io(8), m_ii(1), nooi * n_o (8), n_i(8)`
 
 Details:
  * no(4) == nooo(4)  # outer loop index in ldmatrix and tma
@@ -164,10 +204,19 @@ column.
 Step 6: Combine index components into TMA LoadStoreOp to create the input
 index into shared memory.
 
-## In-Depth - Register Index
-* TODO
-
 ## Code Walkthrough
+The LdStMatrixSet example is a simple copy kernel that load and stores data
+via TMA, LdMatrix, and StMatrix.
+
+| TensorView | Definition | Memory Space | Notes                |
+| ---------- | ---------- | ------------ | -------------------- |
+| tv0        | None       | Global       | Input                |
+| tv0_smem   | TMA-Load   | Shared       | 128B Swizzle         |
+| tv0_reg    | LdMatrix   | Registers    | None                 |
+| tv1_smem   | StMatrix   | Shared       | None                 |
+| tv1        | TMA-Store  | Global       | Output; 128B Swizzle |
+
+### scheduleLdStMatrix function
 
 The scheduleLdStMatrix function creates and schedules an abstract tensor for a
 TensorView with a ldmatrix or stmatrix definition. The layout is based on the
@@ -249,16 +298,7 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
 } /*
 ```
 
-### LdStMatrixSet Example
-
-| TensorView | Definition | Memory Space | Notes                |
-| ---------- | ---------- | ------------ | -------------------- |
-| tv0        | None       | Global       | Input                |
-| tv0_smem   | TMA-Load   | Shared       | 128B Swizzle         |
-| tv0_reg    | LdMatrix   | Registers    | None                 |
-| tv1_smem   | StMatrix   | Shared       | None                 |
-| tv1        | TMA-Store  | Global       | Output; 128B Swizzle |
-
+### LdStMatrixSet TestCase
 
 This test is an example of loading and storing a Tensor using TMA, LdMatrix,
 and StMatrix.<!-- */ //-->\
@@ -266,6 +306,7 @@ and StMatrix.<!-- */ //-->\
 TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   const auto dtype = DataType::BFloat16;
 
+  // Fusion Definition
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -289,7 +330,7 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   fusion.manage("ldst_matrix_n_smem", warp_n);
 
   // ===========================================================================
-
+  // Create cache intermediate TensorViews
   // The definition for tv0_smem is tma load, which moves data from shared to
   // global memory.
   TensorView* tv0_smem = tv0->cacheAfter();
@@ -317,8 +358,8 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
       LoadStoreOpType::CpAsyncBulkTensorTile);
 
   // ===========================================================================
-
-  // Create 2D block tile
+  // General scheduling
+  // Tile reference by cta_tile and warp_tile
   // (M, N)
   tv1->split(0, cta_m);
   tv1->split(-1, cta_n);
@@ -338,6 +379,9 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   tv1->axis(2)->parallelize(ParallelType::TIDy);
   scheduler_utils::parallelizeAllLike(tv1);
 
+  // ===========================================================================
+  // Schedule shared memory tensors using TMA Load and Store
+
   // Schedule output from TMA Load
   MmaInputSmemSwizzle input_swizzle =
       mma_utils::tmaSwizzleSharedMemory(tv0_smem);
@@ -349,6 +393,7 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   mma_utils::scheduleTMAStoreForMmaOutput(tv1, output_swizzle);
 
   // ===========================================================================
+  // Schedule register tensors using LdMatrix and StMatrix
 
   // NOTE: When using a custom allocation domain, all iterDomains to the left
   // of the computeAt position must exist in the loop domain. The utility
@@ -412,7 +457,6 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   kir::Kernel* kernel = ke.compiledKernel()->kernel();
   ASSERT_TRUE(kernel != nullptr);
   auto cg_outputs = ke.run({at_tv0});
-
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 } /*
 ```
