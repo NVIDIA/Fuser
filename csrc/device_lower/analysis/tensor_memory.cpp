@@ -341,7 +341,6 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
     for (auto [i, pt] : enumerate(tid_ptypes)) {
       auto id_it = std::find_if(
           loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
-            NVF_ERROR(id != nullptr);
             return id->getParallelType() == pt;
           });
       if (id_it == loop_domain.end()) {
