@@ -840,6 +840,42 @@ class AllocationInserter : public kir::ExprMutator {
   }
 };
 
+namespace {
+
+kir::IfThenElse* createFirstWarpITE() {
+  const auto& pdim = GpuLower::current()->parallelDimensionMap();
+  Val* tid = FusionGuard::getCurFusion()->zeroVal();
+  Val* bdimx = pdim.getRaw(ParallelType::TIDx);
+  Val* bdimy = pdim.getRaw(ParallelType::TIDy);
+  Val* bdimz = pdim.getRaw(ParallelType::TIDz);
+  if (bdimx != nullptr) {
+    tid = NamedScalar::getParallelIndex(ParallelType::TIDx);
+  }
+  if (bdimy != nullptr) {
+    Val* tidy = NamedScalar::getParallelIndex(ParallelType::TIDy);
+    if (bdimx != nullptr) {
+      tidy = SimplifyingIrBuilder::mulExpr(tidy, bdimx);
+    }
+    tid = SimplifyingIrBuilder::addExpr(tid, tidy);
+  }
+  if (bdimz != nullptr) {
+    Val* tidz = NamedScalar::getParallelIndex(ParallelType::TIDz);
+    if (bdimy != nullptr) {
+      tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimy);
+    }
+    if (bdimx != nullptr) {
+      tidz = SimplifyingIrBuilder::mulExpr(tidz, bdimx);
+    }
+    tid = SimplifyingIrBuilder::addExpr(tid, tidz);
+  }
+  Val* first_warp =
+      SimplifyingIrBuilder::ltExpr(tid, IrBuilder::create<Val>(32));
+  kir::Predicate* pred = IrBuilder::create<kir::Predicate>(first_warp);
+  return IrBuilder::create<kir::IfThenElse>(pred);
+}
+
+} // namespace
+
 // Insert IR nodes that allocate and deallocate TMem regions.
 // See note [Tensor Memory Allocation] for the overall design.
 // We insert the tcgen05.allocs of each region and the relinquish of the right
@@ -862,19 +898,23 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
           IrBuilder::create<kir::Allocate>(region.address, MemoryType::Shared);
       prologue.push_back(address_alloc_expr);
       // the tcgen05.alloc instruction
+      auto first_warp = createFirstWarpITE();
       auto alloc_expr =
           IrBuilder::create<kir::AllocTMem>(region.address, region.num_columns);
-      prologue.push_back(alloc_expr);
+      first_warp->thenBody().push_back(alloc_expr);
+      prologue.push_back(first_warp);
     }
 
     if (!regions.empty()) {
       // Relinquish the right to allocate after all regions have been allocated
+      auto first_warp = createFirstWarpITE();
       auto tcgen05_relinquish_expr = IrBuilder::create<kir::Asm>(
           "tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
           std::vector<Val*>{},
           std::vector<Val*>{},
           kir::Asm::Options{/*volatile=*/true});
-      prologue.push_back(tcgen05_relinquish_expr);
+      first_warp->thenBody().push_back(tcgen05_relinquish_expr);
+      prologue.push_back(first_warp);
 
       // Block sync that makes allocation visible to all threads
       auto block_sync = IrBuilder::create<kir::BlockSync>();
@@ -982,6 +1022,7 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
           auto current_scope = scope_.empty() ? nullptr : scope_.back();
           region_to_register_dealloc_map_[region] =
               [this, expr, region, current_scope]() {
+                auto first_warp = createFirstWarpITE();
                 auto tcgen05_dealloc_expr = IrBuilder::create<kir::Asm>(
                     "tcgen05.dealloc.cta_group::1.sync.aligned.b32",
                     std::vector<Val*>{},
@@ -990,7 +1031,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
                             region->address, expr->fusion()->zeroVal()),
                         region->num_columns},
                     kir::Asm::Options{/*volatile=*/true});
-                registerInsertAfter(expr, tcgen05_dealloc_expr, current_scope);
+                first_warp->thenBody().push_back(tcgen05_dealloc_expr);
+                registerInsertAfter(expr, first_warp, current_scope);
               };
         }
       }
