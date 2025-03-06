@@ -10,9 +10,9 @@
 
 namespace nvfuser {
 
-namespace getZcopy {
+namespace get_zcopy {
 
-void RecvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
+void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
   // wait for sender to be ready
   NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
       stream,
@@ -32,7 +32,7 @@ void RecvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
       reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
       (cuuint32_t)(IpcSemaphore::kReady),
       CU_STREAM_WRITE_VALUE_DEFAULT));
-  // Signals completion to receiver
+  // Signals completion to sender
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
       reinterpret_cast<CUdeviceptr>(ipc_handles.peer().semaphore()),
@@ -40,7 +40,7 @@ void RecvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream) {
       CU_STREAM_WRITE_VALUE_DEFAULT));
 }
 
-void SendPost(const P2pIpcHandle& ipc_handles, CUstream stream) {
+void sendPost(const P2pIpcHandle& ipc_handles, CUstream stream) {
   // signal to self that transfer is in progress
   NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
       stream,
@@ -57,7 +57,7 @@ void SendPost(const P2pIpcHandle& ipc_handles, CUstream stream) {
                                        // gives an error
 }
 
-void SendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
+void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
   NVFUSER_CUDA_SAFE_CALL(cuStreamWaitValue32(
       stream,
       reinterpret_cast<CUdeviceptr>(ipc_handles.local().semaphore()),
@@ -65,6 +65,6 @@ void SendWait(const P2pIpcHandle& ipc_handles, CUstream stream) {
       CU_STREAM_WAIT_VALUE_EQ));
 }
 
-} // namespace getZcopy
+} // namespace get_zcopy
 
 } // namespace nvfuser

@@ -11,12 +11,12 @@
 
 namespace nvfuser {
 
-namespace getZcopy {
+namespace get_zcopy {
 
-void RecvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
-void SendPost(const P2pIpcHandle& ipc_handles, CUstream stream);
-void SendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
+void recvPost(const P2pIpcHandle& ipc_handles, int64_t count, CUstream stream);
+void sendPost(const P2pIpcHandle& ipc_handles, CUstream stream);
+void sendWait(const P2pIpcHandle& ipc_handles, CUstream stream);
 
-} // namespace getZcopy
+} // namespace get_zcopy
 
 } // namespace nvfuser
