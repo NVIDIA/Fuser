@@ -448,6 +448,8 @@ SyncMap::SyncMap(Fusion* fusion) {
       continue;
     }
 
+    std::cout << "SyncMap::SyncMap: expr: " << expr->toString() << std::endl;
+
     // Validate parallelization of each consumer by itself
     for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
       validateParallelizationOfTensor(consumer);
@@ -831,7 +833,12 @@ SyncMap::SyncMap(Fusion* fusion) {
       } // end for consumers
 
       if (raw_dims.any()) {
+        std::cout << "needs_raw_sync_[" << producer->toString() << "]: "
+                  << raw_dims.toString() << std::endl;
         needs_raw_sync_[producer] |= raw_dims;
+      } else {
+        std::cout << "no raw sync needed for " << producer->toString()
+                  << std::endl;
       }
 
     } // end producer
