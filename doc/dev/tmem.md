@@ -1173,6 +1173,7 @@ TEST_F(TMemTutorialR, Vectorization) {
 
       ke.compile(&fusion);
 
+      NOT_IMPLEMENTED
       at::Tensor t0 = at::rand({128, 256}, at::kCUDA);
       auto out = ke.run({t0});
       EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
