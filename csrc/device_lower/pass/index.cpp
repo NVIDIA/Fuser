@@ -2121,7 +2121,7 @@ Val* indexTMemLdSt(
   };
 
   Val* lane_index = get_index_for(lane_allocation_domain);
-  // Only provide the beginning address of the lane
+  // All threads must provide the beginning address of the lane: i / 32 * 32
   Val* thirty_two = IrBuilder::create<Val>(32);
   lane_index = SimplifyingIrBuilder::mulExpr(
       SimplifyingIrBuilder::divExpr(lane_index, thirty_two), thirty_two);

@@ -840,6 +840,8 @@ class AllocationInserter : public kir::ExprMutator {
 
 namespace {
 
+// Create `if (is first warp)`, depending on whether the parallel types are
+// used in the schedule, the generated code may be different.
 kir::IfThenElse* createFirstWarpITE() {
   const auto& pdim = GpuLower::current()->parallelDimensionMap();
   Val* tid = FusionGuard::getCurFusion()->zeroVal();
