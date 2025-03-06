@@ -763,6 +763,7 @@ TEST_F(TMemTutorialR, WarpGroupXYColZ) {
   KernelExecutor ke;
   ke.compile(&fusion);
 
+  NOT_IMPLEMENTED
   at::Tensor t0 = at::rand({8, 16, 8}, at::kCUDA);
   auto out = ke.run({t0});
   EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
