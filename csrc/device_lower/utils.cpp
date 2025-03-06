@@ -1624,6 +1624,9 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Composition<Projection>& comp,
     const ValGroups& domain) {
+  if (comp.empty()) {
+    return FusionGuard::getCurFusion()->zeroVal();
+  }
   auto it = search(domain, comp);
   if (it == domain.end()) {
     return nullptr;
