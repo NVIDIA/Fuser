@@ -555,7 +555,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   AliasInfo alias_info = {
       .type = AllocationType::New, .aliased_io = nullptr, .hide_output = false};
   c10::Device device =
-      communicator_ ? communicator_->device() : at::Device("cuda:0");
+      communicator_ ? communicator_->device() : at::Device("cuda:0"); 
   at::Tensor tensor = allocateTensor(info, alias_info, device, expr_evaluator_);
   bind(tv, tensor);
 }

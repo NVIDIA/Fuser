@@ -75,7 +75,7 @@ TEST_F(HirLowerStreamTest, Merge) {
       MultiDeviceExecutor(std::move(hic), Communicator::getInstance()));
 }
 
-TEST_F(HirLowerStreamTest, Set) {
+TEST_F(HirLowerStreamTest, SingleUnaryOp) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -104,7 +104,36 @@ TEST_F(HirLowerStreamTest, Set) {
       << "Output: " << output << " Expected: " << input;
 }
 
-// TEST_F(HirLowerStreamTest, Set) {
+TEST_F(HirLowerStreamTest, SingleUnaryOpNonOutermost) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = set(tv0);
+  hic->addInput(tv0);
+  hic->addOutput(tv1);
+  hic->pushBackTopLevelExprs(tv1->definition());
+  tv0->setMemoryType(MemoryType::Global);
+  tv1->setMemoryType(MemoryType::Global);
+  tv1->axis(1)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
+  EXPECT_EQ(hic->topLevelExprs().size(), 2);
+  EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
+
+  HostIrEvaluator hie(std::move(hic));
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+
+  at::Tensor input = at::rand({4, 8}, options);
+  auto output = hie.runWithInput({{tv0, input}}).at(0);
+
+  torch::cuda::synchronize();
+  EXPECT_TRUE(output.equal(input))
+      << "Output: " << output << " Expected: " << input;
+}
+
+// TEST_F(HirLowerStreamTest, SingleBinaryOp) {
 //   auto hic = std::make_unique<HostIrContainer>();
 //   FusionGuard fg(hic.get());
 //   TensorView* tv0 = makeContigTensor(2);
@@ -132,8 +161,40 @@ TEST_F(HirLowerStreamTest, Set) {
 //   // std::unordered_map<Val*, PolymorphicValue> inputs = {{tv0, input}};
 //   auto output = hie.runWithInput({{tv0, tv0_input}, {tv1, tv1_input}}).at(0);
 //   auto expected_output = tv0_input + tv1_input;
-//   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "
-//   Expected: " << expected_output;
+//   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "Expected: " << expected_output;
+// }
+
+// TEST_F(HirLowerStreamTest, TwoUnaryOps) {
+//   auto hic = std::make_unique<HostIrContainer>();
+//   FusionGuard fg(hic.get());
+//   TensorView* tv0 = makeContigTensor(2);
+//   TensorView* tv1 = set(tv0);
+//   TensorView* tv2 = set(tv1);
+//   hic->addInput(tv0);
+//   hic->addOutput(tv2);
+//   hic->pushBackTopLevelExprs(tv1->definition());
+//   hic->pushBackTopLevelExprs(tv2->definition());
+//   tv0->setMemoryType(MemoryType::Global);
+//   tv1->setMemoryType(MemoryType::Global);
+//   tv2->setMemoryType(MemoryType::Global);
+//   tv1->axis(0)->parallelize(ParallelType::Stream);
+//   tv2->axis(0)->parallelize(ParallelType::Stream);
+
+//   preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+//       hic.get());
+//   EXPECT_EQ(hic->topLevelExprs().size(), 2);
+//   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
+//   EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
+
+//   HostIrEvaluator hie(std::move(hic));
+//   auto options = at::TensorOptions().device(at::kCUDA, 0);
+
+//   at::Tensor input = at::rand({4, 8}, options);
+//   auto output = hie.runWithInput({{tv0, input}}).at(0);
+
+//   torch::cuda::synchronize();
+//   EXPECT_TRUE(output.equal(input))
+//       << "Output: " << output << " Expected: " << input;
 // }
 
 } // namespace hir
