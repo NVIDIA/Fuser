@@ -1610,7 +1610,8 @@ Val* Index::getLinearLogicalIndex(
     const std::unordered_set<ForLoop*>& rotated_loops) {
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       ir_utils::isCpAsyncBulkLoad(consumer_tv->definition()) ||
-      GpuLower::current()->idModelOptions().consumerIndex()) {
+      GpuLower::current()->idModelOptions().consumerIndex()||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     auto per_dim_indices = indexer.getIndexFor(
         consumer_tv->definition(),
@@ -1639,7 +1640,8 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
-      GpuLower::current()->idModelOptions().consumerIndex()) {
+      GpuLower::current()->idModelOptions().consumerIndex()||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
         consumer_tv->definition(),
@@ -1662,7 +1664,8 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
-      GpuLower::current()->idModelOptions().producerIndex()) {
+      GpuLower::current()->idModelOptions().producerIndex()||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
         consumer_tv->definition(),
@@ -2154,7 +2157,8 @@ kir::TensorIndex* Index::getProducerIndex(
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
       is_producer_tma_op || is_consumer_tma_op ||
-      GpuLower::current()->idModelOptions().producerIndex()) {
+      GpuLower::current()->idModelOptions().producerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);
     if (generate_pointer) {
@@ -2257,7 +2261,8 @@ kir::TensorIndex* Index::getConsumerIndex(
   Val* index = nullptr;
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
-      GpuLower::current()->idModelOptions().consumerIndex()) {
+      GpuLower::current()->idModelOptions().consumerIndex()||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition(), loops);
     if (generate_pointer) {
