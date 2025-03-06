@@ -379,7 +379,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       kir::ExprMutator::dispatch(expr);
       return;
     }
-    std::cout << "dispatching " << expr->toString() << std::endl;
 
     auto async_type = ir_utils::getAsyncOpType(expr);
     if (async_type != AsyncOpType::NotAsync &&
@@ -522,12 +521,10 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
-        std::cout << "No need to insert sync for " << expr->toString() << "\n";
         return;
       }
 
       // TODO: Explicitly test the 3 cases below
-      std::cout << "Inserting sync for " << expr->toString() << "\n";
       Expr* sync_expr = nullptr;
       kir::Allocate* maybe_alloc = nullptr;
       if (sync_bitmap.hasBID()) {
@@ -710,7 +707,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           bitmap |= sync_bits;
         }
 
-        std::cout << "Adding sync_before_ for " << expr->toString() << "\n";
         sync_before_.emplace_back(expr, bitmap);
         last_writes_.push_back(last_gmem_writes);
         gmem.clear();
@@ -733,7 +729,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
 
       if (!last_smem_writes.empty()) {
-        std::cout << "Last smem writes is not empty\n";
         NVF_ERROR(
             prev_tv_expr != nullptr,
             "Can't require sync on inputs, however, detected it's needed.");
@@ -741,7 +736,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         bitmap.set(ParallelType::TIDx);
         bitmap.set(ParallelType::TIDy);
         bitmap.set(ParallelType::TIDz);
-        std::cout << "Adding sync_before_ for " << expr->toString() << "\n";
         sync_before_.emplace_back(expr, bitmap);
 
         // Before clearing `smem`, put all the currently pending smem writes
