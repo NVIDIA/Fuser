@@ -384,8 +384,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       return nullptr;
     }
 
-    auto user_sched_id =
-        fusionCache()->queryUserScheduleId(scheds, args.toC10Array());
+    auto user_sched_id = fusionCache()->queryUserScheduleId(scheds, args);
     if (!user_sched_id.has_value()) {
       return nullptr;
     }
@@ -399,16 +398,13 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   };
   const auto* user_sched = find_user_schedule();
 
-  std::vector<at::Tensor> out_tensors;
+  KernelArgumentHolder outputs;
   if (user_sched == nullptr) {
+    scheds->createExecutorIfNotExists(use_multidevice_executor);
     if (use_multidevice_executor) {
-      if (scheds->multi_device_executor == nullptr) {
-        scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
-            std::make_unique<Fusion>(*scheds->auto_gen_schedules->fusion()));
-      }
-      out_tensors = scheds->multi_device_executor->runWithInput(args);
+      outputs = scheds->multi_device_executor->runWithInput(args);
     } else {
-      out_tensors = scheds->auto_gen_schedules->runFusionWithInputs(
+      outputs = scheds->auto_gen_schedules->runFusionWithInputs(
           args, std::nullopt, args.getDeviceIndex());
     }
   } else {
@@ -420,16 +416,16 @@ std::vector<DistributedTensor> FusionDefinition::execute(
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
     }
+
     scheds->last_user_def_scheduled_ir = user_sched->scheduled_fusion.get();
     scheds->last_user_def_executor = user_sched->executor.get();
 
     if (user_sched->heuristic_params == nullptr) {
       // Manual schedule
       if (!user_sched->executor->isCompiled()) {
-        user_sched->executor->compile(
-            user_sched->scheduled_fusion.get(), args.toC10Array());
+        user_sched->executor->compile(user_sched->scheduled_fusion.get(), args);
       }
-      out_tensors = user_sched->executor->run(args.toC10Array());
+      outputs = user_sched->executor->run(args);
     } else {
       // Automatic scheduler was used for UserSchedule.
       // Pass launch and compile params to compileFusion and runFusion.
@@ -441,8 +437,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
             user_sched->heuristic_params->cparams,
             user_sched->heuristic_params->scheduler_type);
       }
-      out_tensors = user_sched->executor->run(
-          args.toC10Array(),
+      outputs = user_sched->executor->run(
+          args,
           {},
           user_sched->heuristic_params->lparams,
           user_sched->heuristic_params->cparams);
@@ -467,8 +463,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   // Convert `at::Tensor`s to `DistributedTensor`s.
   std::vector<DistributedTensor> out_dtensors;
-  out_dtensors.reserve(out_tensors.size());
-  // if (user_sched == nullptr && use_multidevice_executor == false) {
+  out_dtensors.reserve(outputs.size());
   if (user_sched == nullptr) {
     Fusion* fusion = use_multidevice_executor
         ? scheds->multi_device_executor->hirEvaluator()->container()
@@ -477,33 +472,34 @@ std::vector<DistributedTensor> FusionDefinition::execute(
               ->completeFusion();
 
     int64_t tensor_index = 0;
-    for (Val* out_val : fusion->outputs()) {
+    for (auto out_val : fusion->outputs()) {
+      NVF_ERROR(
+          out_val->isA<TensorView>(),
+          "Non tensor outputs not supported currently due to lack of support of DistributedTensor in KernelArgumentHolder");
       auto* out_tv = out_val->as<TensorView>();
       if (fusion->getOutputAlias(out_tv).hide_output) {
         continue;
       }
-
-      const at::Tensor& out_tensor = out_tensors.at(tensor_index);
-      tensor_index++;
+      const at::Tensor& out_tensor = outputs[tensor_index++].as<at::Tensor>();
       const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      DistributedTensor& out_dtensor =
-          out_dtensors.emplace_back(out_tensor, mesh);
+      out_dtensors.emplace_back(out_tensor, mesh);
 
       if (mesh.size() > 0) {
         for (const ParallelType parallel_type : kParallelTypeDIDs) {
           if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
               axis != -1) {
-            out_dtensor.setAxisIsShardedOn(axis, parallel_type);
+            out_dtensors.back().setAxisIsShardedOn(axis, parallel_type);
           }
         }
       }
     }
-    NVF_ERROR(out_dtensors.size() == out_tensors.size());
+    NVF_ERROR(out_dtensors.size() == outputs.size());
   } else {
-    for (const auto& out_tensor : out_tensors) {
-      out_dtensors.emplace_back(out_tensor);
+    for (const auto& out_tensor : outputs) {
+      out_dtensors.emplace_back(out_tensor.as<at::Tensor>());
     }
   }
+
   return out_dtensors;
 }
 
@@ -550,6 +546,11 @@ std::string FusionDefinition::lastCudaCode(
       result = user_exec->compiledKernel()->kernelString();
     }
   } else {
+    NVF_CHECK(
+        scheds->auto_gen_schedules != nullptr,
+        "Fusion ",
+        *id(),
+        " has never been executed via FusionExecutorCache.");
     result = scheds->auto_gen_schedules->getMostRecentCode(intrinsic_code);
   }
   return result;
@@ -578,6 +579,11 @@ std::string FusionDefinition::cudaCodeFor(
       }
     }
   }
+  NVF_CHECK(
+      scheds->auto_gen_schedules != nullptr,
+      "Fusion ",
+      *id(),
+      " has never been executed via FusionExecutorCache.");
   return scheds->auto_gen_schedules->getCodeFor(args, intrinsic_code);
 }
 
@@ -594,6 +600,11 @@ std::string FusionDefinition::lastScheduledFusionIr(
     user_sched_ir->print(ss, tensor_transforms);
     result = ss.str();
   } else {
+    NVF_CHECK(
+        scheds->auto_gen_schedules != nullptr,
+        "Fusion ",
+        *id(),
+        " has never been executed via FusionExecutorCache.");
     result =
         scheds->auto_gen_schedules->getMostRecentScheduledIr(tensor_transforms);
   }
@@ -622,6 +633,11 @@ std::string FusionDefinition::scheduledFusionIrFor(
       return ss.str();
     }
   }
+  NVF_CHECK(
+      scheds->auto_gen_schedules != nullptr,
+      "Fusion ",
+      *id(),
+      " has never been executed via FusionExecutorCache.");
   return scheds->auto_gen_schedules->getScheduledIrFor(args, tensor_transforms);
 }
 

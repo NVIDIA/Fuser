@@ -22,6 +22,8 @@
 
 namespace nvfuser {
 
+struct GlobalBufferInfo;
+
 //! KernelArgumentHolder copies meta information from kernel inputs, including
 //! tensor sizes/shapes/dtype/memory_ptr and copies scalar inputs. It is used
 //! for both compilation as well as kernel execution. It takes ownership of
@@ -72,6 +74,14 @@ class NVF_API KernelArgumentHolder {
     }
   }
 
+  void reserve(size_t size) {
+    arguments_.reserve(size);
+  }
+
+  void resize(size_t size) {
+    arguments_.resize(size);
+  }
+
   void push(const std::vector<at::Tensor>& tensors);
   void push(const c10::ArrayRef<c10::IValue>& args);
   void push(std::initializer_list<c10::IValue> args) {
@@ -96,8 +106,6 @@ class NVF_API KernelArgumentHolder {
   void push(std::optional<at::Tensor> tensor);
 
   void erase(const PolymorphicValue& arg_to_delete);
-
-  std::vector<c10::IValue> toC10Array() const;
 
   PolymorphicValue& back() {
     return arguments_.back();
@@ -212,18 +220,21 @@ class NVF_API KernelArgumentHolder {
   std::optional<size_t> cache_id_ = std::nullopt;
 };
 
+// Used to convert a polymorphic value to a byte vector. Do not use for CUDA
+// Tensors, use tensorToBytes instead.
 std::vector<std::byte> polymorphicValueToBytes(
     const PolymorphicValue& argument,
     const DataType& dtype,
     PrimDataType index_type);
 
-std::vector<std::byte> getKernelArgument(
-    ExpressionEvaluator& ee,
-    Val* parameter,
-    PrimDataType index_type);
+// Used to convert a CUDA tensor to a byte vector.
+std::vector<std::byte> tensorToBytes(
+    const PolymorphicValue& argument,
+    const std::vector<int64_t>& logical_sizes,
+    const std::vector<int64_t>& allocation_strides,
+    PrimDataType idx_type,
+    const std::vector<int64_t>& unsharded_logical_sizes = {});
 
 int64_t computeBytes(const KernelArgumentHolder& args);
-
-int64_t computeBytes(const std::vector<at::Tensor>& outputs);
 
 } // namespace nvfuser

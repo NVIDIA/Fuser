@@ -2282,7 +2282,7 @@ TEST_F(GpuViewTest, ReshapeOfReshape) {
 
   auto ref = t0.reshape({8, 4}).reshape({32});
 
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // A reproducer for #1116.
@@ -2307,9 +2307,9 @@ TEST_F(GpuViewTest, ExpandedBroadcast) {
 
   KernelExecutor ke;
   ke.compile(&fusion, {in_tensor});
-  at::Tensor actual_out_tensor = ke.run({in_tensor})[0];
+  auto cg_outputs = ke.run({in_tensor});
 
-  testValidate(&fusion, {actual_out_tensor}, {in_tensor}, __LINE__, __FILE__);
+  testValidate(&fusion, cg_outputs, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(GpuViewTest, SplitMergePointwiseSplitMerge) {

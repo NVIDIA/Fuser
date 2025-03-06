@@ -51,6 +51,11 @@ struct CudaExecutable : public NonCopyable {
 NVF_API ExpressionEvaluator
 bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
+// Returns a vector where vector[out_idx] == the input index in fusion->inputs()
+// that output[out_idx] is aliased to. If output[out_idx] is not aliased to any
+// input, then vector[out_idx] is -1.
+std::vector<int> getOutputAliasToInputMap(const Fusion* fusion);
+
 // Compile time cache for execution
 namespace caching {
 // TODO: Could consider putting some of
@@ -222,7 +227,7 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
 
