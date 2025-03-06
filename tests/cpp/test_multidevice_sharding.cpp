@@ -798,6 +798,9 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options);
   at::Tensor sharded_inp = shardTensor(inp, tv0);
 
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
+
   testValidate(
       executor_cache.fusion(),
       {nvf_out},
