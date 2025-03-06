@@ -23,6 +23,8 @@
 
 #include <device_lower/pass/index.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 std::vector<Expr*> IndexLowering::getIndexedExprs(
@@ -2080,6 +2082,60 @@ Val* hardCodedIndexGenerationForStMatrixSwizzle(
   return out;
 }
 
+Val* indexTMemLdSt(
+    TensorView* tmem_tv,
+    TensorView* consumer_tv,
+    const std::vector<ForLoop*>& for_loops) {
+  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+  const auto& tmem_info = GpuLower::current()->tmemInfo();
+  const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
+  TMemRegisterDataPath dp;
+  if (tmem_tv == consumer_tv) {
+    dp = tmem_info.store_data_path.at(tmem_tv);
+  } else {
+    dp = tmem_info.load_data_path.at(tmem_tv);
+  }
+  NVF_ERROR(
+      dp == TMemRegisterDataPath::Path32x32b,
+      "Data path ",
+      dp,
+      " is not supported yet");
+  const std::vector<IterDomain*>& lane_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).lane_allocation;
+  const std::vector<IterDomain*>& column_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).column_allocation;
+
+  auto get_index_for = [&](const std::vector<IterDomain*>& domain) {
+    std::vector<Val*> indices = tensor_indexer.getIndexFor(
+        consumer_tv->definition(), consumer_tv == tmem_tv, domain, for_loops);
+    Val* stride = tmem_tv->fusion()->oneVal();
+    Val* index = tmem_tv->fusion()->zeroVal();
+    for (const auto& [id, idx] :
+         zip(std::ranges::views::reverse(domain),
+             std::ranges::views::reverse(indices))) {
+      index = SimplifyingIrBuilder::addExpr(
+          index, SimplifyingIrBuilder::mulExpr(idx, stride));
+      stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
+    }
+    return index;
+  };
+
+  Val* lane_index = get_index_for(lane_allocation_domain);
+  // Only provide the beginning address of the lane
+  lane_index =
+      SimplifyingIrBuilder::divExpr(lane_index, IrBuilder::create<Val>(32));
+  lane_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, lane_index);
+
+  Val* column_index = get_index_for(column_allocation_domain);
+  column_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
+
+  Val* index = SimplifyingIrBuilder::arrayExpr(
+      std::vector<Val*>{lane_index, column_index});
+  return GpuLower::current()->commonScalarMap().hoistScalar(index, for_loops);
+}
+
 } // namespace
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
@@ -2169,10 +2225,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
-        // TODO: hard coded index zero for now.
-        auto index = IrBuilder::create<Val>(
-            std::vector<int64_t>{0, 0},
-            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        auto index =
+            indexTMemLdSt(tv, ldst->out()->as<TensorView>(), for_loops_);
         in = IrBuilder::create<kir::TensorIndex>(
             tv, index, DataType::TMemAddress);
       } else {
@@ -2186,9 +2240,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       if (auto tv = dynamic_cast<TensorView*>(ldst->out());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
         // TODO: hard coded index zero for now.
-        auto index = IrBuilder::create<Val>(
-            std::vector<int64_t>{0, 0},
-            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        auto index = indexTMemLdSt(tv, tv, for_loops_);
         out = IrBuilder::create<kir::TensorIndex>(
             tv, index, DataType::TMemAddress);
       } else {
