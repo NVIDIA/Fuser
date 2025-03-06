@@ -751,7 +751,6 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
 
   const int d = communicator_->size();
   const int64_t b = 2, s = 2, h = 4, e = 3;
-  const int64_t b = 2, s = 2, h = 4, e = 3;
 
   TensorView* tv0 = makeContigConcreteTensor(
       {b, s, d * h * e}); // in: loop domain: {b, s, d*h*e}
@@ -772,7 +771,6 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   TransformPropagator propagator_c2p(tv1);
   MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator_c2p);
   // in: loop domain: {b, s, d*h, e} after transform propagation
-
 
   // Loop split and parallelize input
   tv0->setDeviceMesh(mesh);
@@ -796,9 +794,9 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor in_tensor = at::randn({b, s, h * e}, tensor_options);
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options);
+  at::Tensor sharded_inp = shardTensor(inp, tv0);
+
   testValidate(
       executor_cache.fusion(),
       {nvf_out},
