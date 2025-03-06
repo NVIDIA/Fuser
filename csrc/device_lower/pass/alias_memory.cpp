@@ -786,7 +786,7 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
+    kir::IrVisitor::handle(ite);
   }
 
   // Generate allocation info for allocation after some pre-filtering
