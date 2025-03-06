@@ -626,7 +626,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    ExprMutator::handle(ite);
+    kir::ExprMutator::handle(ite);
   }
 
   // Return a set of expressions that modify shared-memory

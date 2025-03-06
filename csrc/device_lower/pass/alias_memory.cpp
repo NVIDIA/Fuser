@@ -483,7 +483,7 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
+    kir::IrVisitor::handle(ite);
   }
 
   //! Factory function for internal loop information data
