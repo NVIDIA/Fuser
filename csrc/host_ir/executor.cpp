@@ -572,6 +572,7 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
       inputs.push_back(expr_evaluator_.evaluate(input));
     }
   }
+  // using ExpressionEvaluator::evaluate to evaluate the output is not valid here if the output or one of its producer is an alias
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
     bind(expr->output(i), concrete_outputs.at(i));
