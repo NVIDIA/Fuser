@@ -19,7 +19,6 @@ To see prints in the test, set verbose to `true`:<!-- */ //-->\
 constexpr static bool verbose = false; /*
 ```
 
-# LdMatrix and StMatrix Support in NVFuser
 <!--*/
 #include <sstream>
 #include <string>
@@ -44,15 +43,19 @@ using HopperLdStMatrixTutorial = HopperBase;
 
 /* -->
 
-# Overview
+# LdMatrix and StMatrix Support in NVFuser
 
-## What is LdMatrix?
+### What is LdMatrix?
 A warp-level instruction to load matrices from shared memory to registers.
 
-## What is StMatrix?
+Reference: [LdMatrix Ptx](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-load-instruction-ldmatrix)
+
+### What is StMatrix?
 A warp-level instruction to store matrices from registers to shared memory.
 
-## General Details
+Reference: [StMatrix Ptx](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-store-instruction-stmatrix)
+
+### General Details
 
 For 16-bit element size, the matrix shape is (8, 8).
 The instruction can load one, two, or four (8, 8) matrices per instruction.
@@ -68,11 +71,13 @@ TensorView.
 * Threads 24-31 correspond with matrix rows of fourth matrix. (x4 only)
 
 ### Indices for register tensor
-Each threads stores two adjacent elements along the inner-most dimension. For
-an (8, 8) matrix of 16-bit elements, this is the register layout for a warp.
-* [m(8), n(8)]
-* [m(8), no(4), ni(2)]  // split column dimension by 2
-* [m(8) * no(4) (TDX), ni[2]) // merge row dimension and column stride
+For an (8, 8) matrix of 16-bit elements, this is the register layout for a warp.
+Each threads stores two adjacent elements along the inner-most dimension.
+* [m(8), n(8)] // An (8, 8) matrix of 16-bit elements
+* [m(8), no(4), ni(2)]  // Split column dimension by 2
+* [m(8) * no(4) (TDX), ni[2]) // Merge row dimension and column stride
+
+![Register-Layout](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/mma-stmatrix-fragments.png)
 
 ## In-Depth - Shared Memory Index
 
