@@ -920,7 +920,7 @@ TEST_F(TMemTutorialR, Complicated1) {
   tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   // apply fancy transformations, shape is still [4096, 4096]
-  // fancyTransformations(tv4);
+  fancyTransformations(tv4);
 
   // We want the first 4096 to go into lanes, and the second 4096 to go into
   // columns.
