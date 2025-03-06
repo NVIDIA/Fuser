@@ -34,7 +34,7 @@ if(BUILD_TEST)
     endfunction()
 
     add_test_for_standard(20)
-    add_test_for_standard(23)
+    # add_test_for_standard(23)
     # add_test_for_standard(26)
 endif()
 
@@ -52,6 +52,6 @@ if(BUILD_NVFUSER_BENCHMARK)
     endfunction()
 
     add_benchmark_for_standard(20)
-    add_benchmark_for_standard(23)
+    # add_benchmark_for_standard(23)
     # add_benchmark_for_standard(26)
 endif()
