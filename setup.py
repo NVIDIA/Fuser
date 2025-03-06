@@ -148,6 +148,8 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("--cpp="):
         CPP_STANDARD = int(arg.split("=")[1])
+        if CPP_STANDARD < 20:
+            raise ValueError("nvfuser requires C++20 standard or higher")
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
