@@ -819,10 +819,8 @@ class AllocationInserter : public kir::ExprMutator {
     lower_alloc_info_map[alloc_expr] = std::move(lower_alloc_info_ptr);
   }
 
-  void handle(kir::IfThenElse*) final {
-    NVF_THROW(
-        "Pass does not support conditional statements, ",
-        "this pass should be run before any conditionals are placed in code.");
+  void handle(kir::IfThenElse* ite) final {
+    ExprMutator::handle(ite);
   }
 
   AllocationInserter(const std::vector<Expr*>& exprs)
