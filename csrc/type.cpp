@@ -1676,4 +1676,21 @@ int max_digits10(DataType dtype) {
   }
 }
 
+std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
+  switch (dp) {
+    case TMemRegisterDataPath::Path32x32b:
+      return os << "32x32b";
+    case TMemRegisterDataPath::Path16x64b:
+      return os << "16x64b";
+    case TMemRegisterDataPath::Path16x128b:
+      return os << "16x128b";
+    case TMemRegisterDataPath::Path16x256b:
+      return os << "16x256b";
+    case TMemRegisterDataPath::Path16x32bx2:
+      return os << "16x32bx2";
+    default:
+      NVF_THROW("Unknown TMemRegisterDataPath");
+  }
+}
+
 } // namespace nvfuser

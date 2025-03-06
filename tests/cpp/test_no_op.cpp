@@ -50,7 +50,7 @@ TEST_F(NoOpTest, FusionNullScheduler) {
 
   // Check that all groups on the resulting runtime are null.
   for (auto group : groups) {
-    EXPECT_EQ(group->schedulerType(), SchedulerType::NoOp);
+    EXPECT_EQ(group->schedulerType(), SchedulerType::ExprEval);
   }
 }
 
@@ -181,7 +181,7 @@ TEST_F(NoOpTest, View) {
       at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
-  at::Tensor out_tensor = out_tensors[0];
+  at::Tensor out_tensor = out_tensors[0].as<at::Tensor>();
 
   // Verify aliasing.
   EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
@@ -191,7 +191,7 @@ TEST_F(NoOpTest, View) {
       executor_cache.getMostRecentKernelRuntime()->fusionSegments()->groups();
   ASSERT_EQ(groups.size(), 1);
   SegmentedGroup* group = groups[0];
-  EXPECT_EQ(group->schedulerType(), SchedulerType::NoOp);
+  EXPECT_EQ(group->schedulerType(), SchedulerType::ExprEval);
 }
 
 TEST_F(NoOpTest, ExpandedReduction) {
@@ -211,7 +211,8 @@ TEST_F(NoOpTest, ExpandedReduction) {
   fusion->addOutput(out);
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::ones({}).cuda().as_strided({2, 3}, {0, 0});
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 

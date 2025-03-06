@@ -279,7 +279,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
   return index_type.value();
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
+KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
@@ -289,11 +289,11 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
               << std::endl;
     }
 
-    std::unordered_map<Val*, const PolymorphicValue&> tensor_map;
+    std::unordered_map<Val*, PolymorphicValue> tensor_map;
     for (const auto i : c10::irange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
-    auto outputs = hie_->runWithPolymorphicValues(tensor_map);
+    auto outputs = hie_->runWithInput(tensor_map);
     if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
       debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
               << std::endl;
@@ -315,15 +315,14 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   // Produce final global output
-  std::vector<at::Tensor> fusion_outputs;
-  fusion_outputs.reserve(segmented_fusion_->outputs().size());
+  KernelArgumentHolder fusion_outputs;
   for (Val* output : segmented_fusion_->outputs()) {
     NVF_ERROR(
         tensor_map.count(output),
         "Segmented fusion output ",
         output->toString(),
         " does not exist in `tensor_map`.");
-    fusion_outputs.push_back(tensor_map.at(output).as<at::Tensor>());
+    fusion_outputs.push(tensor_map.at(output));
   }
   return fusion_outputs;
 }
@@ -656,20 +655,11 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     // something abstract. This is quite unsatisfying.
 
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
+    KernelArgumentHolder group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
 
-    std::vector<c10::IValue> ivalues;
-    ivalues.reserve(group_runtime_outputs
-                        .size()); // Optional but recommended for performance
-    for (const auto& tensor : group_runtime_outputs) {
-      ivalues.emplace_back(c10::IValue(tensor));
-    }
-
     args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(),
-        KernelArgumentHolder(c10::ArrayRef<c10::IValue>(ivalues)),
-        run_order_id);
+        group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
@@ -696,7 +686,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
   return args_manager.getTensorMap();
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
+KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
@@ -725,7 +715,8 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
-  auto outputs = ExecutorDispatch::run(ea, args, launch_params, compile_params);
+  auto outputs =
+      ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
 
   return outputs;
 }

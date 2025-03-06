@@ -29,15 +29,15 @@ const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const c10::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler) {
   auto heuristic_params = SchedulerEntry::scheduleWith(
       fusion, scheduler_type, runtime_inputs, validate_scheduler);
   auto ke = std::make_unique<KernelExecutor>();
   ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
-  auto cg_outputs = ke->run(runtime_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke->run(runtime_inputs, {}, heuristic_params->lparams);
   CGResultsPackage results = {
-      .outputs = cg_outputs,
+      .outputs = std::move(cg_outputs),
       .heuristic_params = std::move(heuristic_params),
       .kernel_executor = std::move(ke)};
   return results;

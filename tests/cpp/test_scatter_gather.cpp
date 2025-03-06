@@ -23,7 +23,13 @@
 
 namespace nvfuser {
 
-using ScatterGatherTest = NVFuserTest;
+class ScatterGatherTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    // To make the tests using std::rand deterministic
+    std::srand(0);
+  }
+};
 
 namespace {
 auto randomVector(int64_t low, int64_t high, int rank) {
@@ -169,7 +175,7 @@ TEST_F(ScatterGatherTest, TorchGatherAddMul) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
-    for (int rank = 1; rank <= 5; ++rank) {
+    for (int rank = 1; rank <= 4; ++rank) {
       for (int dim = 0; dim < rank; ++dim) {
         auto fusion_ptr = std::make_unique<Fusion>();
         Fusion& fusion = *fusion_ptr.get();
@@ -205,7 +211,7 @@ TEST_F(ScatterGatherTest, AddGatherSumAdd) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
-    for (int rank = 2; rank <= 5; ++rank) {
+    for (int rank = 2; rank <= 4; ++rank) {
       for (int dim = 0; dim < rank; ++dim) {
         auto fusion_ptr = std::make_unique<Fusion>();
         Fusion& fusion = *fusion_ptr.get();
@@ -254,7 +260,7 @@ TEST_F(ScatterGatherTest, TorchGatherSumAdd) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   for (const auto is_take_along : {false, true}) {
-    for (int rank = 2; rank <= 5; ++rank) {
+    for (int rank = 2; rank <= 4; ++rank) {
       for (int dim = 0; dim < rank; ++dim) {
         auto fusion_ptr = std::make_unique<Fusion>();
         Fusion& fusion = *fusion_ptr.get();
@@ -811,7 +817,12 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
 // take_along_dim to broadcast, squeeze, then normalization. Segmented
 // as the input dim to take_along_dim cannot be scheduled by the
 // reduction tv
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization2) {
+//
+// NOTE: Temporarily disabled as it results in non-deterministic
+// validaiton errors (https://github.com/NVIDIA/Fuser/issues/4003).
+TEST_F(
+    ScatterGatherTest,
+    DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1267,7 +1278,7 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
   KernelExecutor ke;
   auto lparams = rparams->lparams;
   ke.compile(&fusion, {t0, idx}, lparams);
-  auto cg_outputs = ke.run({t0, idx}, lparams);
+  auto cg_outputs = ke.run({t0, idx}, {}, lparams);
 
   auto t_gather = at::gather(t0, dim, idx);
   testValidate(

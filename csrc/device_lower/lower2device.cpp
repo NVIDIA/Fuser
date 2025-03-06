@@ -11,6 +11,7 @@
 #include <debug.h>
 #include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
+#include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
@@ -265,7 +266,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // Each pass is a pair of (name, function), where the name will be
           // printed in verbose mode of lowering. The function must take a
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
-          {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+          {{"removeTensorProducerAliases", removeTensorProducerAliases},
+           {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
            {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
@@ -421,7 +423,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use TensorIndexer
   for (auto tv : fusion->allTvs()) {
-    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
+    if (tv->getMemoryType() == MemoryType::Tensor ||
+        !ir_utils::hasRootToLoopLinearTransformations(tv)) {
       options.setBuildTensorIndexer(true);
     }
   }
@@ -566,6 +569,11 @@ void GpuLower::analysis(Fusion* fusion) {
   validateLookupTV(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
 
+  // Find trivial global to global broadcast, squeeze, and set operations and
+  // mark their outputs as aliases of their inputs.
+  findTensorProducerAliases(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "findTensorProducerAliases");
+
   // Depends on thread_pred_map_, validates parallelization collects which
   // tensor views need WAR or RAW syncs
   sync_map_ = std::make_shared<const SyncMap>(fusion_);
@@ -661,6 +669,30 @@ Val* GpuLower::getLoopIndexVariable(
     return idModel().getLoopIndexVariable(id, stage);
   } else {
     return caMap()->getIndexVariable(id, stage);
+  }
+}
+
+void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
+  if (TensorView* producer_alias = getTensorProducerAlias(producer)) {
+    // Chase reference. If producer itself is an alias, then get the tensor it
+    // is aliased to.
+    NVF_ERROR(
+        getTensorProducerAlias(producer_alias) == nullptr,
+        "Found unsimplified alias from ",
+        producer->toString(),
+        " to ",
+        producer_alias->toString(),
+        " which is then aliased to ",
+        getTensorProducerAlias(producer_alias)->toString());
+    producer = producer_alias;
+  }
+  tensor_producer_alias_map_[consumer] = producer;
+  for (auto& [c, p] : tensor_producer_alias_map_) {
+    // If anything was previously aliased _to_ consumer, update those links to
+    // point to producer
+    if (p == consumer) {
+      p = producer;
+    }
   }
 }
 

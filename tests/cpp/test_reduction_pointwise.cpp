@@ -154,7 +154,7 @@ TEST_F(NVFuserTest, InnerReductionUnrollVectorization) {
   scheduler_instance->schedule(fusion.get(), rparams);
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0}, rparams->lparams);
-  auto cg_outputs = ke.run({t0}, rparams->lparams);
+  auto cg_outputs = ke.run({t0}, {}, rparams->lparams);
   testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 

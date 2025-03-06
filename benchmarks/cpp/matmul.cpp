@@ -175,15 +175,15 @@ static void SingleMatmulBase(
   // Compile kernel
   auto launch_constraints = LaunchParams();
   KernelExecutor ke;
-  ke.compile(fusion, args.toC10Array(), launch_constraints, cparams);
+  ke.compile(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
       getBankConflictInfo(ke.compiledKernel()->kernel(), launch_constraints)
           .empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.run(args.toC10Array());
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
+  auto outputs = ke.run(args);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), k);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 
@@ -352,15 +352,15 @@ static void SingleMatmulPartitionedK(
   // Compile kernel
   KernelExecutor ke;
   auto lparams = LaunchParams();
-  ke.compile(fusion, args.toC10Array(), lparams, cparams);
+  ke.compile(fusion, args, lparams, cparams);
   NVF_CHECK(
       getBankConflictInfo(ke.compiledKernel()->kernel(), lparams).empty(),
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.run(args.toC10Array());
+  auto outputs = ke.run(args);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), Ki);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 
@@ -448,8 +448,8 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto aten_c = at::randn({M, N, splitk_factor}, options);
   KernelArgumentHolder args = {aten_c};
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::Reduction, args.toC10Array());
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(fusion, SchedulerType::Reduction, args);
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 
@@ -461,10 +461,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   // Compile kernel
   KernelExecutor ke;
   ke.compile(
-      fusion,
-      args.toC10Array(),
-      heuristic_params->lparams,
-      heuristic_params->cparams);
+      fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
       getBankConflictInfo(
@@ -473,9 +470,12 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.run(args.toC10Array(), heuristic_params->lparams);
+  auto outputs = ke.run(args, {}, heuristic_params->lparams);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
+  checkMatch(
+      expected_output,
+      outputs[0].as<at::Tensor>().to(at::kDouble),
+      splitk_factor);
 
   runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);
 

@@ -135,14 +135,14 @@ class FusionExecutorCache {
   //! WARING: Correctness is not guaranteed.
   //! TODO: Check usage of forced_index_type. It's a lot of plumbing, what's the
   //! value.
-  NVF_API std::vector<at::Tensor> runFusionWithInputs(
+  NVF_API KernelArgumentHolder runFusionWithInputs(
       KernelArgumentHolder args,
       std::optional<PrimDataType> forced_index_type = std::nullopt,
       std::optional<int8_t> selected_device = std::nullopt);
 
   //! query if there's a kernel ready to go for given inputs
   NVF_API bool isCompiled(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      const KernelArgumentHolder& inputs,
       int8_t device = 0);
 
   Fusion* fusion();
@@ -162,9 +162,7 @@ class FusionExecutorCache {
   std::string getMostRecentCode(bool instrinsic_code = false) const;
 
   //! Get the kernel code for the given inputs
-  std::string getCodeFor(
-      const c10::ArrayRef<c10::IValue>& inputs,
-      bool intrinsic_code);
+  std::string getCodeFor(KernelArgumentHolder args, bool intrinsic_code);
 
   //! Gets the Scheduled IR for the associated runtime
   std::string getScheduledIr(
@@ -176,7 +174,7 @@ class FusionExecutorCache {
 
   //! Get the Scheduled IR for the given inputs
   std::string getScheduledIrFor(
-      const c10::ArrayRef<c10::IValue>& inputs,
+      KernelArgumentHolder args,
       bool tensor_transforms = false);
 
   // TODO: in a follow up we need a global logging structure
@@ -295,7 +293,7 @@ class FusionExecutorCache {
   std::unordered_map<size_t, FusionKernelRuntime*> id_to_kernel_runtime_;
 
   //! This is cached to speed up finding concretization info
-  std::unique_ptr<ExactLogicalDomainMap> exact_map_;
+  ExactLogicalDomainMap exact_map_;
 
   //! Logging state for most recent compilation
   bool profiling_ = false;
