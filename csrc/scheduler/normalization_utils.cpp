@@ -1688,10 +1688,24 @@ void schedulePersistentKernel(
       tv->axis(-1)->parallelize(ParallelType::Bulk);
     }
 
+    // clear unroll on output tv
+    if(std::getenv("CLEAR_OUTPUT_UNROLL") && std::atoi(std::getenv("CLEAR_OUTPUT_UNROLL")) != 0){
+      for(auto val : fusion->outputs()){
+        if(auto tv = dynamic_cast<TensorView*>(val)){
+          for (auto id : tv->getLoopDomain()) {
+            if (id->getParallelType() == ParallelType::Unroll){
+              std::cout << "clear unroll on output tv: " << tv->toString() << std::endl;
+              id->parallelize(ParallelType::Serial);
+            }
+          }
+        }
+      }
+    }
 
     // special inline & inline most
     std::unordered_set<TensorView*> exclude_tvs;
     for(auto [k,v] : tv_inline_pos_map){
+      std::cout << "inlineSelectedAt : " << k->toString() << ", pos= " << v << std::endl;
       exclude_tvs.insert(k);
       inlineSelectedAt({k}, k, v);
     }
