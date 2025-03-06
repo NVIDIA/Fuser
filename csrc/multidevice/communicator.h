@@ -36,9 +36,6 @@ namespace nvfuser {
 
 using RankType = DeviceIdxType;
 
-// Supported backends. TODO: gloo untested
-enum class CommunicatorBackend { kNccl, kUcc, kGloo };
-
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb);
 
 #ifdef USE_C10D_NCCL
