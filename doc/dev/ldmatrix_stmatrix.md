@@ -2,9 +2,6 @@
 > [!NOTE]
 > This file is both a [cpp](../../tests/cpp/tutorial_ldmatrix_stmatrix.cpp) and a Markdown.
 > You may see some strange symbols in the rendered Markdown.
-> It is difficult to avoid them. But they should not affect reading.
-> All the unit tests displayed here are executable from the `test_tutorial`
-> binary
 
 <!--*/
 #pragma GCC diagnostic ignored "-Wcomment"
@@ -54,6 +51,8 @@ A warp-level instruction to load matrices from shared memory to registers.
 
 ## What is StMatrix?
 A warp-level instruction to store matrices from registers to shared memory.
+
+## General Details
 
 For 16-bit element size, the matrix shape is (8, 8).
 The instruction can load one, two, or four (8, 8) matrices per instruction.
@@ -245,17 +244,22 @@ AbstractTensor scheduleLdStMatrix(TensorView* tv) {
 } /*
 ```
 
-Create LdStMatrixSet example<!-- */ //-->\
+### LdStMatrixSet Example
+
+| TensorView | Definition | Memory Space | Notes                |
+| ---------- | ---------- | ------------ | -------------------- |
+| tv0        | None       | Global       | Input                |
+| tv0_smem   | TMA-Load   | Shared       | 128B Swizzle         |
+| tv0_reg    | LdMatrix   | Registers    | None                 |
+| tv1_smem   | StMatrix   | Shared       | None                 |
+| tv1        | TMA-Store  | Global       | Output; 128B Swizzle |
+
+
+This test is an example of loading and storing a Tensor using TMA, LdMatrix,
+and StMatrix.<!-- */ //-->\
 ```cpp
 TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   const auto dtype = DataType::BFloat16;
-
-  // Fusion Overview:
-  // tv0 - None (global memory)
-  // tv0_smem - Tma load with swizzle 128B (shared memory)
-  // tv0_reg - LdMatrix (registers)
-  // tv1_smem - StMatrix (shared memory)
-  // tv1 - Tma store with swizzle 128B (global memory)
 
   Fusion fusion;
   FusionGuard fg(&fusion);
