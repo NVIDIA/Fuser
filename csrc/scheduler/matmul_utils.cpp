@@ -70,21 +70,40 @@ inline std::optional<MmaMacro> getMmaOp(
         macro_encode.n = 16;
       }
       break;
-    case 90:
+    case 90: {
       macro_encode.arch = MmaMacroEncode::Arch::Hopper;
       macro_encode.m = 64;
-      // Find the largest instruction tile that divides the problem size and is
-      // a power of two
-      macro_encode.n = 64;
-      // TODO: enable instructions smaller than 64_64_16
-      while (macro_encode.n > 64) {
-        if (n_extent % macro_encode.n != 0) {
-          macro_encode.n /= 2;
-        } else {
-          break;
+      // TODO: guess here whether it is advantageous to double M or double N in
+      // order to form the CTA tile. Currently we assume M is doubled (coopA)
+      const auto score_macro = [&n_extent](int64_t macro_n) {
+        // We prefer a macro_n that divides n_extent most evenly, since a small
+        // remainder means we will have a row of tiles with a lot of wasted
+        // work. The best case though is when there is no remainder as in that
+        // case no extra tile row is needed.
+        //
+        // However, it is not worth creating new rows of tiles in the output
+        // just to avoid a remainder, so the largest contribution to the score
+        // is 256 times the number of tile rows needed.
+        int64_t score = ceilDiv(n_extent, macro_n) * 256L;
+        int64_t remainder = n_extent % macro_n;
+        if (remainder != 0) {
+          score += macro_n - remainder;
+        }
+        return score;
+      };
+      // Scan through all possible macros to find the one with the lowest score
+      uint16_t best_macro_n = 8;
+      int64_t best_macro_score = score_macro(8);
+      for (uint16_t macro_n = 16; macro_n <= 256; macro_n += 8) {
+        int64_t score = score_macro((int64_t)macro_n);
+        if (score < best_macro_score) {
+          best_macro_n = macro_n;
+          best_macro_score = score;
         }
       }
+      macro_encode.n = best_macro_n;
       break;
+    }
     default:
       return std::nullopt;
   }
