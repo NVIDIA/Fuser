@@ -557,7 +557,7 @@ class AllocationInserter : public kir::ExprMutator {
             default_val == nullptr,
             "Welford should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedWelfordOp>()->getInitValOfOutput(out);
-      } else {
+      } else if (out_tv->getMemoryType() != MemoryType::Tensor) {
         init = default_val;
       }
 
