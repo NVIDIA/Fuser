@@ -846,6 +846,9 @@ bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto consumer = ir_utils::getTvOutput(ldst);
   const auto producer = ir_utils::getTvInput(ldst);
 
+  // TODO Fix analysis for this case.
+  // LdMatrix Transpose is not supported for LoadStoreOp expression with
+  // a TMA load definition and without any MmaOp use.
   if (producer->definition() != nullptr &&
       ir_utils::isCpAsyncBulkLoad(producer->definition())) {
     NVF_ERROR(std::all_of(
