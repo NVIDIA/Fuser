@@ -168,6 +168,7 @@ struct TensorMemoryInfo {
   TMemAlllocationInfo allocation;
   std::unordered_map<TensorView*, TMemRegisterDataPath> load_data_path;
   std::unordered_map<TensorView*, TMemRegisterDataPath> store_data_path;
+
   bool hasTMemTensor() const {
     return !allocation.regions.empty();
   }
