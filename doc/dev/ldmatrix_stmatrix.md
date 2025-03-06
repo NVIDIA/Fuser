@@ -47,6 +47,124 @@ using HopperLdStMatrixTutorial = HopperBase;
 
 /* -->
 
+# Overview
+
+## What is LdMatrix?
+A warp-level instruction to load matrices from shared memory to registers.
+
+## What is StMatrix?
+A warp-level instruction to store matrices from registers to shared memory.
+
+For 16-bit element size, the matrix shape is (8, 8).
+The instruction can load one, two, or four (8, 8) matrices per instruction.
+
+### Indices shared memory tensor
+Each thread in the warp specifies a matrix row in shared memory. For LdMatrix,
+the shared memory tensor is an input TensorView. For StMatrix, it is an output
+TensorView.
+
+* Threads 0-7 correspond with matrix rows of first matrix. (x1, x2, and x4)
+* Threads 8-15 correspond with matrix rows of second matrix. (x2 and x4)
+* Threads 16-23 correspond with matrix rows of third matrix. (x2 and x4)
+* Threads 24-31 correspond with matrix rows of fourth matrix. (x4 only)
+
+### Indices for register tensor
+Each threads stores two adjacent elements along the inner-most dimension. For
+an (8, 8) matrix of 16-bit elements, this is the register layout for a warp.
+* [m(8), n(8)]
+* [m(8), no(4), ni(2)]  // split column dimension by 2
+* [m(8) * no(4) (TDX), ni[2]) // merge row dimension and column stride
+
+## In-Depth - Shared Memory Index
+
+Goal: Load data from shared memory produced by TMA LoadStoreOp with 128B
+to registers with wgmma layout using LdMatrix LoadStoreOp.
+
+Output indexing into registers is based on wgmma layout and is handled by
+id-model indexing.
+
+Input indexing into shared memory requires custom index from ldmatrix loop
+domain to TMA allocation domain.
+
+How to derive index into shared memory created by TMA LoadStoreOp from
+LdMatrix loop domain?
+
+The ldmatrix loop domain is derived from wgmma allocation domain, so the
+ldmatrix LoadStoreOp, epilogue computation, and stmatrix LoadStoreOp are
+inlined together.
+
+StMatrix loop domain:
+moo * mi * nio (128) (TDX), noo(16), noi * moi * nii (2) (V)
+
+The for-loop structure is determined by StMatrix LoadStoreOp.
+
+for TDY(2):
+  for TDX(128):
+    for Serial(16):
+      for V(8):
+        # ldmatrix
+      end for
+      for Serial(8):
+        # epilogue compute
+      end for
+      for V(8):
+        # stmatrix
+      end for
+    end for
+  end for
+end for
+
+Step 1: Derive wgmma index components from for-loop indices.
+ * TDY(2)
+ * TDX(128) --> moo(4), mi(8), nio(4)
+ * Serial(16) --> noo(16)
+ * Vectorize(8) --> noi(2), moi(2), nii(2)
+
+Step 2: Create index components for the four ldmatrix.x4 instructions issued
+by 128 thread warp-group.
+
+LdMatrix warp-group.x4 IterDomain Layout:
+TDY(2), moo(4), nooo(4), nooi(4), (mi * moi)(16), (nio * nii * noi)(16)
+
+Details:
+ 1. moo(4) = (mma_m == tma_m == 64) / (ldmatrix == stmatrix == 16)
+ 2. Split noo(16) into nooo(4) and nooi(4)
+    * nooo(4) = (mma_n == 256) / (tma_n == 64)
+    * nooi(4) = (tma_n == 64) / (ldmatrix == stmatrix == 16)
+ 3. Remaining m and n components from wgmma are combined into (16, 16)
+    ldmatrix and stmatrix
+    * 16 = mi(8) * moi(2)  # m component of ldmatrix and stmatrix
+    * 16 = nio(4) * nii (2) * noi(2)  # n component of ldmatrix and stmatrix
+
+Step 3: Split (16, 16) LdMatrix into four (8, 8) LdMatrix components.
+
+LdMatrix m8n8 IterDomain Layout:
+TDY(2), moo(4), nooo(4), nooi(4), m_o(2), m_i(8), n_o(2), n_i(8)
+
+Step 4: Merge and reorder components to get the allocation domain for TMA
+LoadStoreOp with 128B swizzle.
+
+TMA LoadStoreOp with 128B swizzle IterDomain Layout:
+TDY(2), no(4), moo * m_o (8), m_io(8), m_ii(1), nooi * n_o (8), n_i(8)
+
+Details:
+ * no(4) == nooo(4)  # outer loop index in ldmatrix and tma
+ * Merge moo(4) and m_o(2) = 8
+ * m_i(8)  # maximum swizzle rows
+ * Split m_i(8) into m_io(8) and m_ii(1) by repetitions for 128B swizzle
+ * Merge nooi(4) and n_o(2) = 8
+
+Step 5: XOR swizzle m_io(8) and (nooi * n_o)(8) to get new ldmatrix tile
+column.
+
+Step 6: Combine index components into TMA LoadStoreOp to create the input
+index into shared memory.
+
+## In-Depth - Register Index
+* TODO
+
+## Code Walkthrough
+
 The scheduleLdStMatrix function creates and schedules an abstract tensor for a
 TensorView with a ldmatrix or stmatrix definition. The layout is based on the
 register accumulation layout for wgmma and the hard-coded index supported by
