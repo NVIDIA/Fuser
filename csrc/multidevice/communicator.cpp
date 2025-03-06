@@ -15,9 +15,6 @@
 
 #ifdef NVFUSER_DISTRIBUTED
 #include <torch/csrc/distributed/c10d/PrefixStore.hpp>
-#ifdef USE_C10D_GLOO
-#include <torch/csrc/distributed/c10d/ProcessGroupGloo.hpp>
-#endif
 #ifdef USE_C10D_NCCL
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -35,9 +32,6 @@ std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb) {
       break;
     case CommunicatorBackend::kUcc:
       out << "UCC";
-      break;
-    case CommunicatorBackend::kGloo:
-      out << "GLOO";
       break;
     case CommunicatorBackend::kCuda:
       out << "CUDA";
@@ -152,14 +146,6 @@ c10::intrusive_ptr<c10d::Backend> createBackend(
   if (backend == CommunicatorBackend::kNccl) {
     auto pg_opts = c10::make_intrusive<::c10d::ProcessGroupNCCL::Options>();
     return c10::make_intrusive<::c10d::ProcessGroupNCCL>(
-        store, rank, size, pg_opts);
-  }
-#endif
-
-#ifdef USE_C10D_GLOO
-  if (backend == CommunicatorBackend::kGloo) {
-    auto pg_opts = c10d::ProcessGroupGloo::Options::create();
-    return c10::make_intrusive<::c10d::ProcessGroupGloo>(
         store, rank, size, pg_opts);
   }
 #endif

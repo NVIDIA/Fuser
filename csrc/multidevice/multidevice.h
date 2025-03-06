@@ -16,6 +16,6 @@ using DimensionType = int;
 using DeviceType = c10::Device;
 using Team = std::vector<DeviceIdxType>;
 
-// Supported backends. TODO: gloo untested
-enum class CommunicatorBackend { kNccl, kUcc, kGloo, kCuda };
+// Supported backends.
+enum class CommunicatorBackend { kNccl, kUcc, kCuda };
 } // namespace nvfuser
