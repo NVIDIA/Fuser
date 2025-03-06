@@ -2021,13 +2021,15 @@ class MatmulTranslator : public OptInDispatch {
     TensorView* new_A = process_operand(pattern_.A);
     TensorView* new_B = process_operand(pattern_.B);
 
-    TensorView* fms = fusedMultiplySum(new_A, new_B, {-1});
+    TensorView* mma_result = fusedMultiplySum(new_A, new_B, {-1});
 
+    // This is mma_result, possibly with bias added
+    TensorView* float_output = mma_result;
     if (bias != nullptr) {
-      fms = add(fms, bias);
+      float_output = add(float_output, bias);
     }
 
-    finalizeMatmulOpOrLinearOp(fms);
+    finalizeMatmulOpOrLinearOp(float_output);
 
     if (is_cached) {
       // Load to registers if pattern_.A was originally also a
@@ -2056,7 +2058,7 @@ class MatmulTranslator : public OptInDispatch {
     }
 
     // cacheAfter() might replace the mma op, so we set mma_ last
-    mma_ = fms->definition()->as<MmaOp>();
+    mma_ = mma_result->definition()->as<MmaOp>();
   }
 
   void handle(LinearOp* lop) final {
