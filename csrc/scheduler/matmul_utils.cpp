@@ -648,8 +648,7 @@ class VectorizationCalculator {
     // is least favorable to vectorization, by padding to an odd value.
     std::vector<int64_t> sizes, strides;
     std::vector<bool> concrete_contig;
-    for (int64_t i : c10::irange(std::ssize(tv->getMaybeAllocationDomain()))) {
-      IterDomain* id = tv->getMaybeAllocationDomain().at(i);
+    for (auto&& [i, id] : enumerate(tv->getMaybeAllocationDomain())) {
       if (id->isBroadcast()) {
         sizes.push_back(1);
         concrete_contig.push_back(false);
