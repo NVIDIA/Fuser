@@ -190,6 +190,7 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
+      expr_evaluator_(),
       my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
       ipc_handle_cache_(expr_evaluator_) {
   const DeviceIdxType device_index =
@@ -206,14 +207,7 @@ HostIrEvaluator::HostIrEvaluator(
   expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
 }
 
-std::vector<at::Tensor> HostIrEvaluator::runWithInput(
-    std::unordered_map<Val*, c10::IValue> val_to_IValue) {
-  // process input values
-  for (const auto& [val, ivalue] : val_to_IValue) {
-    expr_evaluator_.bind(
-        val, PolymorphicValue_functions::IValueToPolymorphicValue(ivalue));
-  }
-
+std::vector<at::Tensor> HostIrEvaluator::dispatchAndCollectOutputs() {
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
@@ -222,6 +216,16 @@ std::vector<at::Tensor> HostIrEvaluator::runWithInput(
 
   // Collect global outputs
   return getKnownTensorOrUndefined(container_->outputs(), expr_evaluator_);
+}
+
+std::vector<at::Tensor> HostIrEvaluator::runWithInput(
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    expr_evaluator_.bind(val, pvalue);
+  }
+
+  return dispatchAndCollectOutputs();
 }
 
 std::string HostIrEvaluator::canRun() const {
@@ -302,8 +306,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 }
 
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
-  std::vector<c10::IValue> input_IValues;
-  KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
+  KernelArgumentHolder args;
   for (auto& input : launch_kernel->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -311,13 +314,18 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
         input,
         " for handling ",
         launch_kernel->toString());
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
-    args.push(input_evaluation);
+    args.push(expr_evaluator_.evaluate(input));
   }
+  args.setDeviceIndex();
 
   // run the compiled kernel
   std::vector<at::Tensor> outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())->run(args);
+      container_->getKernelExecutor(launch_kernel->getIndex())
+          ->run(
+              args,
+              {},
+              launch_kernel->launch_params(),
+              launch_kernel->compile_params());
 
   // Store the outputs in the context
   for (auto output_idx : c10::irange(outputs.size())) {
@@ -327,7 +335,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
-  std::vector<c10::IValue> input_IValues;
+  KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
     NVF_ERROR(
         expr_evaluator_.isKnown(input),
@@ -335,23 +343,9 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
         input,
         " for handling ",
         post_ir->toString());
-    PolymorphicValue input_evaluation = expr_evaluator_.evaluate(input);
-    c10::IValue value;
-    if (input_evaluation.is<at::Tensor>()) {
-      value = input_evaluation.as<at::Tensor>();
-    } else if (input_evaluation.is<int64_t>()) {
-      value = at::Scalar(input_evaluation.as<int64_t>());
-    } else {
-      NVF_ERROR(
-          "Wrong type ",
-          input_evaluation.type().name(),
-          " for the PolymorphicValue ",
-          input_evaluation,
-          ", must be at::Tensor or int64_t");
-    }
-    input_IValues.push_back(value);
+    input_args.push(expr_evaluator_.evaluate(input));
   }
-
+  input_args.setDeviceIndex();
   // placeholder for storing the outputs
   std::vector<at::Tensor> outputs;
 
@@ -370,33 +364,33 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
-    outputs = fec_.at(hu).runFusionWithInputs(input_IValues);
+    outputs = fec_.at(hu).runFusionWithInputs(input_args);
   } else {
     // This path should generally be avoided as it will likely send the fusion
     // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
     if (auto it = executors_.find(hu); it != executors_.end()) {
       ExecutorAbstract* ea = it->second.get();
-      KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, input_args);
 
     } else {
-      DynamicTransform::concretizeFusion(
-          hu->fusion_to_execute(), input_IValues);
+      DynamicTransform::concretizeFusion(hu->fusion_to_execute(), input_args);
       auto it2 = executors_.insert(
           {hu,
            ExecutorDispatch::makeExecutor(
                hu->fusion_to_execute(), 1, 1, 1, 1)});
       ExecutorAbstract* ea = it2.first->second.get();
       if (ea->isA<KernelExecutor>()) {
-        KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
         ExecutorDispatch::compile(
-            ea, hu->fusion_to_execute(), args, LaunchParams(), CompileParams());
+            ea,
+            hu->fusion_to_execute(),
+            input_args,
+            LaunchParams(),
+            CompileParams());
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
-      KernelArgumentHolder args = KernelArgumentHolder(input_IValues);
-      outputs = ExecutorDispatch::run(ea, args, std::vector<at::Tensor>{});
+      outputs = ExecutorDispatch::run(ea, input_args);
     }
   }
 
@@ -457,7 +451,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
         communication,
         communicator_->deviceId(),
         expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-        communicator_->getWorld(),
+        communicator_->getWorld(communication->backend()),
         buffer);
   }
 }

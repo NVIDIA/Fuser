@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+
+<!--
+ * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+-->
+
+<!-- Created with Inkscape (http://www.inkscape.org/) -->
+
+<svg width="184.22876mm" height="97.509804mm" viewBox="0 0 184.22876 97.509804" version="1.1" id="svg1"
+   inkscape:version="1.3.2 (091e20e, 2023-11-25)" sodipodi:docname="alloc-example.svg"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd" xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+   <sodipodi:namedview id="namedview1" pagecolor="#ffffff" bordercolor="#000000" borderopacity="0.25"
+      inkscape:showpageshadow="2" inkscape:pageopacity="0.0" inkscape:pagecheckerboard="0" inkscape:deskcolor="#d1d1d1"
+      inkscape:document-units="mm" showguides="false" inkscape:zoom="0.82957454" inkscape:cx="334.50882"
+      inkscape:cy="214.56782" inkscape:window-width="1680" inkscape:window-height="923" inkscape:window-x="0"
+      inkscape:window-y="25" inkscape:window-maximized="1" inkscape:current-layer="layer1" />
+   <defs id="defs1">
+      <clipPath clipPathUnits="userSpaceOnUse" id="clipPath52">
+         <path id="path52"
+            style="stroke-width:0.1;stroke-linecap:square;paint-order:markers fill stroke;stop-color:#000000"
+            d="m -880.82767,-187.29769 h 1640.84 v 73.28155 h -1640.84 z" />
+      </clipPath>
+      <clipPath clipPathUnits="userSpaceOnUse" id="clipPath24">
+         <rect
+            style="fill:none;stroke:#000000;stroke-width:0.999999;stroke-linecap:butt;stroke-linejoin:bevel;paint-order:stroke markers fill;stop-color:#000000"
+            id="rect24" width="44.999748" height="77.937294" x="251.53429" y="222.73541" />
+      </clipPath>
+   </defs>
+   <g inkscape:label="图层 1" inkscape:groupmode="layer" id="layer1" transform="translate(-14.939379,-39.434589)">
+      <g id="g3">
+         <rect
+            style="fill:#c84b37;fill-opacity:1;stroke:none;stroke-width:0.0890684;stroke-miterlimit:4;stroke-dasharray:none"
+            id="rect5" width="23.859123" height="11.809056" x="67.729118" y="40.406578"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect
+            style="fill:none;fill-opacity:1;stroke:none;stroke-width:0.0890684;stroke-miterlimit:4;stroke-dasharray:none"
+            id="rect5-8" width="23.859123" height="11.809056" x="67.729118" y="52.215446"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect style="fill:#c84b37;fill-opacity:1;stroke:none;stroke-width:0.890684;stroke-dasharray:none" id="rect5-0"
+            width="23.859123" height="11.809056" x="67.729118" y="64.023926"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect style="fill:none;fill-opacity:1;stroke:none;stroke-width:0.890684;stroke-dasharray:none" id="rect5-8-4"
+            width="23.859123" height="11.809056" x="67.729118" y="75.832794"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect style="fill:#c84b37;fill-opacity:1;stroke:none;stroke-width:0.890684;stroke-dasharray:none" id="rect5-9"
+            width="23.859123" height="11.809056" x="67.729118" y="87.638779"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect style="fill:none;fill-opacity:1;stroke:none;stroke-width:0.890684;stroke-dasharray:none" id="rect5-8-41"
+            width="23.859123" height="11.809056" x="67.729118" y="99.454086"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect style="fill:#c84b37;fill-opacity:1;stroke:none;stroke-width:0.890684;stroke-dasharray:none"
+            id="rect5-0-7" width="23.859123" height="11.809056" x="67.708862" y="111.28459"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect style="fill:none;fill-opacity:1;stroke:none;stroke-width:0.890684;stroke-dasharray:none" id="rect5-8-4-8"
+            width="23.859123" height="11.809056" x="67.708862" y="123.09346"
+            transform="matrix(1,0,0,1.0113606,0,-0.4590415)" />
+         <rect
+            style="fill:none;stroke:#000000;stroke-width:1;stroke-dasharray:none;stroke-dashoffset:0;stroke-opacity:1"
+            id="rect2" width="183.22876" height="96.509804" x="15.439379" y="39.934589" />
+      </g>
+   </g>
+</svg>

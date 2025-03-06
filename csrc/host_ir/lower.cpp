@@ -453,6 +453,8 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* stream_index = mod(j, number_of_streams);
   auto* stream = IrBuilder::create<hir::Stream>(stream_index);
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
+  auto* initial_sync_stream =
+      IrBuilder::create<hir::Synchronize>(original_stream);
 
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
@@ -488,6 +490,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
   std::vector<Expr*> loop_body = {
       set_stream,
+      initial_sync_stream,
       tva_j->definition(),
       tva_allgathered_j->definition(),
       communication,
@@ -529,12 +532,12 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       .run_final_merge = true,
       .only_segment_resharding_exprs = true};
   std::unique_ptr<SegmentedFusion> staged_fusion =
-      SegmentCandidateFinder::segment(std::move(fusion), nullptr, options);
+      SegmentCandidateFinder::segment(
+          std::move(fusion), KernelArgumentHolder(), options, true);
   // Infer a topologically ordered traversal of the segmented fusion to
   // determine the order for launching the kernels/comms
   RuntimeWorkSpace workspace;
   prepareRuntimeOrder(staged_fusion.get(), workspace);
-
   // Create the HostIrContainer representing the host program. Each segment of
   // the segmented fusion will be translated to a HostIR
   auto hic = std::make_unique<hir::HostIrContainer>();

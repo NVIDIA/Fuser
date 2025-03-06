@@ -291,11 +291,6 @@ class DynamicTransform {
       Fusion* fusion,
       const DynamicTransformConcretizationInfo* info);
 
-  //! Calls the above after computing concretization info from inputs
-  static std::unordered_map<Val*, Val*> concretizeFusion(
-      Fusion* fusion,
-      const std::vector<c10::IValue>& aten_inputs);
-
   //! Calls the above after computing concretization info from
   //! KernelArgumentHolder
   static std::unordered_map<Val*, Val*> concretizeFusion(

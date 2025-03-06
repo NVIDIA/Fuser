@@ -86,8 +86,9 @@ class HostIrEvaluator final : public OptOutDispatch {
       std::unique_ptr<HostIrContainer> container,
       Communicator* communicator = nullptr,
       HostIrEvaluatorParams = HostIrEvaluatorParams());
+
   std::vector<at::Tensor> runWithInput(
-      std::unordered_map<Val*, c10::IValue> val_to_IValue);
+      const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
   const std::vector<Val*>& inputs() {
     return container_->inputs();
@@ -134,6 +135,8 @@ class HostIrEvaluator final : public OptOutDispatch {
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
+
+  std::vector<at::Tensor> dispatchAndCollectOutputs();
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
