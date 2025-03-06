@@ -266,42 +266,20 @@ bool fillDefaultHopperHeuristic(
         cta_n <= problem_shape[(size_t)MatmulDimRole::N];
   };
 
+  // Note that m_ratio * n_ratio is the number of math warp groups required
   DimType m_ratio = 1;
   DimType n_ratio = 1;
 
-  bool increased = true;
-  while (increased) {
-    DimType cta_m = warp_tile.m * m_ratio;
-    DimType cta_n = warp_tile.n * n_ratio;
-    increased = false;
-
-    const auto try_increaseM = [&]() {
-      if (validate_cta_tile_multiple(m_ratio * 2, n_ratio)) {
-        m_ratio *= 2;
-        increased = true;
-      }
-      return increased;
-    };
-    const auto try_increaseN = [&]() {
-      if (validate_cta_tile_multiple(m_ratio, n_ratio * 2)) {
-        n_ratio *= 2;
-        increased = true;
-      }
-      return increased;
-    };
-
-    if (cta_m < cta_n) {
-      // Try to increase smaller tile dimension first since square tiles are
-      // optimal for reducing operand load redundancy
-      if (try_increaseM()) {
-        continue;
-      }
-      try_increaseN();
-    } else {
-      if (try_increaseN()) {
-        continue;
-      }
-      try_increaseM();
+  // Always use one or two math groups. Prefer to enlarge the CTA tile in the
+  // larger of the problem dimensions
+  if (problem_shape[(size_t)MatmulDimRole::M] >=
+      problem_shape[(size_t)MatmulDimRole::N]) {
+    if (validate_cta_tile_multiple(2, 1)) {
+      m_ratio = 2;
+    }
+  } else {
+    if (validate_cta_tile_multiple(1, 2)) {
+      n_ratio = 2;
     }
   }
 
@@ -322,7 +300,7 @@ bool fillDefaultHopperHeuristic(
       (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
   // We leave a bit of space for semaphores
   int64_t max_operand_smem =
-      (int64_t)device_prop->sharedMemPerBlock - (1L << 7);
+      (int64_t)device_prop->sharedMemPerMultiprocessor - (1L << 7);
 
   while (mparams->circular_buffer_options.smem_circular_buffer_stage *
              operand_smem_per_stage >
