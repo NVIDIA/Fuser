@@ -46,7 +46,6 @@ performance-*,
 -performance-unnecessary-value-param,
 readability-container-size-empty,
 readability-braces-around-statements,
--clang-analyzer-core.NullDereference,
 '
 AnalyzeTemporaryDtors: false
 WarningsAsErrors: '*'
