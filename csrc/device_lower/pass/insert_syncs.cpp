@@ -630,10 +630,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     }
   }
 
-  void handle(kir::IfThenElse*) final {
-    NVF_THROW(
-        "Pass does not support conditional statements, ",
-        "this pass should be run before any conditionals are placed in code.");
+  void handle(kir::IfThenElse* ite) final {
+    kir::ExprMutator::handle(ite);
   }
 
   // Return a set of expressions that modify shared-memory
