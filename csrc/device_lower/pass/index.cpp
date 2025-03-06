@@ -2122,8 +2122,9 @@ Val* indexTMemLdSt(
 
   Val* lane_index = get_index_for(lane_allocation_domain);
   // Only provide the beginning address of the lane
-  lane_index =
-      SimplifyingIrBuilder::divExpr(lane_index, IrBuilder::create<Val>(32));
+  Val* thirty_two = IrBuilder::create<Val>(32);
+  lane_index = SimplifyingIrBuilder::mulExpr(
+      SimplifyingIrBuilder::divExpr(lane_index, thirty_two), thirty_two);
   lane_index =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, lane_index);
 
