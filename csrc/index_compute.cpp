@@ -1610,7 +1610,7 @@ Val* Index::getLinearLogicalIndex(
     const std::unordered_set<ForLoop*>& rotated_loops) {
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       ir_utils::isCpAsyncBulkLoad(consumer_tv->definition()) ||
-      GpuLower::current()->idModelOptions().consumerIndex()||
+      GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     auto per_dim_indices = indexer.getIndexFor(
@@ -1640,7 +1640,7 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
-      GpuLower::current()->idModelOptions().consumerIndex()||
+      GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
@@ -1664,7 +1664,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
-      GpuLower::current()->idModelOptions().producerIndex()||
+      GpuLower::current()->idModelOptions().producerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
@@ -2261,7 +2261,7 @@ kir::TensorIndex* Index::getConsumerIndex(
   Val* index = nullptr;
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
-      GpuLower::current()->idModelOptions().consumerIndex()||
+      GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition(), loops);
