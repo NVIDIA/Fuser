@@ -991,6 +991,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
                         region->num_columns},
                     kir::Asm::Options{/*volatile=*/true});
                 registerInsertAfter(expr, tcgen05_dealloc_expr, current_scope);
+                auto block_sync = IrBuilder::create<kir::BlockSync>();
+                registerInsertAfter(expr, block_sync, current_scope);
               };
         }
       }
