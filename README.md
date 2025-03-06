@@ -43,20 +43,16 @@ Supported compilers:
 **GCC:**
 
 We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
-As of 6/20/2024, they are:
+As of 3/2/2025, they are:
 
-- gcc 11.4
 - gcc 12.4
-- gcc 13.2
-- gcc 14.1
+- gcc 13.3
+- gcc 14.2
 
 **Clang:**
 
-- clang 14+
+- clang 16+
 
 Supported C++ standard:
 
-- C++17
 - C++20
-
-We are actively considering dropping C++17 support

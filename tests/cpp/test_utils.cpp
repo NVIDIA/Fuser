@@ -1760,12 +1760,7 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
     }
   };
   static_assert(std::input_iterator<SetTheoreticNaturalNumber>);
-#if !defined(__clang__) || (__clang_major__ > 14)
   struct ZeroToInf : std::ranges::view_interface<ZeroToInf> {
-#else
-  // Workaround for Clang 14
-  struct ZeroToInf {
-#endif
     SetTheoreticNaturalNumber begin() {
       return SetTheoreticNaturalNumber();
     }
@@ -1773,10 +1768,8 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
       return std::unreachable_sentinel;
     }
   } set_theoretic_zero_to_inf;
-#if !defined(__clang__) || (__clang_major__ > 14)
   static_assert(std::ranges::input_range<ZeroToInf>);
   static_assert(std::ranges::view<ZeroToInf>);
-#endif
 
   int64_t counter = 0;
   auto english_it = english.begin();
@@ -1784,7 +1777,7 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
        zip(integer,
            english,
            set_theoretic_zero_to_inf,
-           views::iota((int64_t)0))) {
+           std::views::iota((int64_t)0))) {
     static_assert(std::is_same_v<decltype(i), int64_t&>);
     static_assert(std::is_same_v<decltype(e), std::string&>);
     static_assert(std::is_same_v<decltype(s), SetTheoreticNaturalNumber>);
