@@ -4484,7 +4484,6 @@ void SegmentCandidateFinder::forwardInputs() {
       // Either way, `uop` is excluded from merging until
       // `resolveNonscalarForwardedInput` adds it back to one of the segments.
       excluded_inp_unary_exprs_.pushBack(uop);
-      std::cout << "Excluded unary expr: " << uop->toString() << std::endl;
     }
   }
 
