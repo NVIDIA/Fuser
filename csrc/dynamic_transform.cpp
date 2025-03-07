@@ -840,24 +840,39 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
       incomplete_out_tv->getLoopDomain(), old_logical_to_new);
   replay.setErrorOnFailure(false);
 
-  std::vector<IterDomain*> new_loop;
-  new_loop.reserve(incomplete_out_tv->getLoopDomain().size());
-  for (IterDomain* old_loop_id : incomplete_out_tv->getLoopDomain()) {
-    IterDomain* new_loop_id = replay.getReplay().at(old_loop_id);
-    new_loop_id->parallelize(old_loop_id->getParallelType());
-    new_loop.push_back(new_loop_id);
+  if (incomplete_out_tv->getLoopDomain() !=
+      incomplete_out_tv->getLogicalDomain()) {
+    std::vector<IterDomain*> new_loop;
+    new_loop.reserve(incomplete_out_tv->getLoopDomain().size());
+    for (IterDomain* old_loop_id : incomplete_out_tv->getLoopDomain()) {
+      IterDomain* new_loop_id = replay.getReplay().at(old_loop_id);
+      new_loop_id->parallelize(old_loop_id->getParallelType());
+      new_loop.push_back(new_loop_id);
+    }
+    for (IterDomain* id : concrete_reshape_out_tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        new_loop.push_back(id);
+      }
+    }
+    concrete_reshape_out_tv->setLoopDomain(new_loop);
   }
-  concrete_reshape_out_tv->setLoopDomain(new_loop);
 
   if (incomplete_out_tv->hasAllocation()) {
     std::vector<IterDomain*> new_alloc;
     new_alloc.reserve(incomplete_out_tv->getAllocationDomain().size());
+    std::vector<std::optional<bool>> new_contiguity =
+        incomplete_out_tv->getContiguity();
     for (IterDomain* old_alloc_id : incomplete_out_tv->getAllocationDomain()) {
       IterDomain* new_alloc_id = replay.getReplay().at(old_alloc_id);
       new_alloc.push_back(new_alloc_id);
     }
-    concrete_reshape_out_tv->setAllocationDomain(
-        new_alloc, incomplete_out_tv->getContiguity());
+    for (IterDomain* id : concrete_reshape_out_tv->getLogicalDomain()) {
+      if (id->isReduction()) {
+        new_alloc.push_back(id);
+        new_contiguity.emplace_back(true);
+      }
+    }
+    concrete_reshape_out_tv->setAllocationDomain(new_alloc, new_contiguity);
   }
 
   for (const auto idx : c10::irange(new_logical.size())) {
