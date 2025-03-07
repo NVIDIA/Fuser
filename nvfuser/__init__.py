@@ -198,7 +198,7 @@ class FusionDefinition(_C._FusionDefinition):
         save_repro_inputs=False,
         _enable_options: list[str] = [],
         _disable_options: list[str] = [],
-    ) -> list[torch.Tensor]:
+    ) -> list[torch.Tensor] | tuple[list[torch.Tensor], list[Sharding]]:
         """
         Executes an nvFuser set of kernels for a given Fusion
 
@@ -247,7 +247,9 @@ class FusionDefinition(_C._FusionDefinition):
                     Reset the FusionCache manually to avoid inadvertent kernel reuse when between different sets of options.
 
         Returns:
-            List[Tensor]
+            A list of output tensors and, if multidevice_schedule is defined, a
+            list of output shardings. The latter is important to pack the outputs
+            into DTensors for framework integration.
         """
         self.profiled = profile
 
@@ -314,7 +316,7 @@ class FusionDefinition(_C._FusionDefinition):
                     "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
                 )
 
-            return self._execute(
+            out_tensors, out_shardings = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -323,6 +325,13 @@ class FusionDefinition(_C._FusionDefinition):
                 _enable_options=_enable_options,
                 _disable_options=_disable_options,
             )
+
+            if defined_multidevice_schedule:
+                return out_tensors, out_shardings
+
+            assert len(out_shardings) == 0
+            return out_tensors
+
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))
             raise

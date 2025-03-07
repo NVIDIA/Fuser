@@ -17,7 +17,7 @@ namespace nvfuser::python_frontend {
 
 class Sharding {
  public:
-  explicit Sharding(DeviceMesh mesh) : mesh_(std::move(mesh)) {}
+  explicit Sharding(DeviceMesh mesh = DeviceMesh()) : mesh_(std::move(mesh)) {}
   Sharding(const Sharding&) = delete;
   Sharding& operator=(const Sharding&) = delete;
   Sharding(Sharding&&) = default;

@@ -79,8 +79,7 @@ class FusionDefinitionWrapper:
         fusion_def = self._create_fusion_definition(in_dtensors)
 
         in_tensors = [in_dtensor.to_local() for in_dtensor in in_dtensors]
-        out_tensors = fusion_def.execute(in_tensors)
-        out_shardings = fusion_def.get_output_shardings()
+        out_tensors, out_shardings = fusion_def.execute(in_tensors)
         assert len(out_tensors) == len(out_shardings)
 
         out_dtensors: list[DTensor] = []

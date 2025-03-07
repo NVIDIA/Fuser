@@ -41,7 +41,7 @@ def test_allgather(multidevice_test):
     sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded])
+    (output,), _ = fd.execute([sharded])
     torch.testing.assert_close(output.cpu(), unsharded)
 
 
@@ -81,7 +81,7 @@ def test_allreduce(multidevice_test):
     sharded = multidevice_test.shard_tensor(unsharded, 1, mesh)
 
     fd = Model()
-    outputs = fd.execute([sharded])
+    outputs, _ = fd.execute([sharded])
     torch.testing.assert_close(outputs[0].cpu(), unsharded.sum(1))
 
 
@@ -112,7 +112,7 @@ def test_reduce_scatter(multidevice_test):
     sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded])
+    (output,), _ = fd.execute([sharded])
     torch.testing.assert_close(
         output, multidevice_test.shard_tensor(unsharded.sum(0), 0, mesh)
     )
@@ -154,7 +154,7 @@ def test_reduce_scatter_noncontiguous(multidevice_test):
     sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded])
+    (output,), _ = fd.execute([sharded])
     torch.testing.assert_close(
         output, multidevice_test.shard_tensor(unsharded.sum(0), 1, mesh)
     )

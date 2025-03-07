@@ -1191,7 +1191,6 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.print(ss);
             return ss.str();
           })
-      .def("get_output_shardings", &FusionDefinition::getOutputShardings)
       .def(
           "_execute",
           [](FusionDefinition& self,
@@ -1202,7 +1201,7 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool profile,
              std::vector<std::string> _enable_options,
              std::vector<std::string> _disable_options)
-              -> std::vector<at::Tensor> {
+              -> std::pair<std::vector<at::Tensor>, std::vector<Sharding>> {
             KernelArgumentHolder ins;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -1220,7 +1219,7 @@ void initNvFuserPythonBindings(PyObject* module) {
               NVF_CHECK(device.value() < 256, "Maximum device index is 255");
               int8_device = (int8_t)device.value();
             }
-            KernelArgumentHolder outs = self.execute(
+            auto&& [outs, out_shardings] = self.execute(
                 ins,
                 int8_device,
                 override_user_schedule,
@@ -1232,9 +1231,11 @@ void initNvFuserPythonBindings(PyObject* module) {
             std::vector<at::Tensor> out_tensors;
             out_tensors.reserve(outs.size());
             for (const auto& out : outs) {
+              // Should we append toIValue(out) instead?
               out_tensors.push_back(out.as<at::Tensor>());
             }
-            return out_tensors;
+            return std::make_pair(
+                std::move(out_tensors), std::move(out_shardings));
           },
           py::arg("inputs"),
           py::kw_only(),

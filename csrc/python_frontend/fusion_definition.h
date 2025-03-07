@@ -195,10 +195,9 @@ class NVF_API FusionDefinition : public FusionState {
   NVF_API void print(std::ostream& os) const;
   //! Executes a fusion if a valid definition or cache lookup occurred prior.
   //!
-  //! This method returns a list of `DistributedTensor`s. Each
-  //! `DistributedTensor` is either the local view of a distributed tensor
-  //! (when the mesh is non-empty) or a non-distributed tensor
-  //! (when the mesh is empty).
+  //! This method returns a KernelArgumentHolder for output tensors and a list
+  //! of output shardings. If it was a single-GPU execution, output shardings
+  //! will be empty.
   //!
   //! Alternatives considered:
   //! 1. Return std::vector<std::variant<at::Tensor, DistributedTensor>>.
@@ -211,7 +210,12 @@ class NVF_API FusionDefinition : public FusionState {
   //! mapping) to a field of FusionDefinition and retrieve it using another
   //! method. This would be similar to getDebugOutput. I didn't choose that
   //! because it introduced a new state in the class that could get out of sync.
-  NVF_API KernelArgumentHolder execute(
+  //! 4. Return a list of `DistributedTensor`s. Each
+  //! `DistributedTensor` is either the local view of a distributed tensor
+  //! (when the mesh is non-empty) or a non-distributed tensor
+  //! (when the mesh is empty). This enforces Python to unpack
+  //! DistributedTensor, which is confirmed to be slow.
+  NVF_API std::pair<KernelArgumentHolder, std::vector<Sharding>> execute(
       KernelArgumentHolder inputs,
       std::optional<int8_t> device,
       bool override_user_schedule,
@@ -219,8 +223,6 @@ class NVF_API FusionDefinition : public FusionState {
       bool profile,
       std::vector<std::string> _enable_options,
       std::vector<std::string> _disable_options) const;
-
-  NVF_API std::vector<Sharding> getOutputShardings();
 
   //! Return debugging output captured through exeuction with
   //! capture_debug_output=true
