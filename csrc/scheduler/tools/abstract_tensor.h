@@ -344,6 +344,28 @@ struct DispatchParallelize {
 
 } // namespace
 
+struct EmptyInfo {
+  static EmptyInfo merge(const EmptyInfo&, const EmptyInfo&) {
+    return {};
+  }
+
+  static std::pair<EmptyInfo, EmptyInfo> split(const EmptyInfo& a) {
+    return {{}, {}};
+  }
+
+  template <typename SwizzleT>
+  static std::pair<EmptyInfo, EmptyInfo> swizzle(
+      SwizzleT swizzle_type,
+      const EmptyInfo& a,
+      const EmptyInfo& b) {
+    return {{}, {}};
+  }
+
+  bool operator==(const EmptyInfo& t) const {
+    return true;
+  }
+};
+
 // AbstractTensor is similar to TensorView, it has multiple dimensions, where
 // each dimension is represented by an Abstract IterDomain. The interface of
 // AbstractTensor is also similar to that of TensorViews, that is, it has merge,
@@ -930,31 +952,13 @@ class AbstractTensorWithInfo {
     return *this;
   }
 
+  AbstractTensorWithInfo<EmptyInfo> dropInfo() const {
+    return AbstractTensorWithInfo<EmptyInfo>(domain_);
+  }
+
  protected:
   std::vector<AbstractId> domain_;
   std::vector<Info> info_;
-};
-
-struct EmptyInfo {
-  static EmptyInfo merge(const EmptyInfo&, const EmptyInfo&) {
-    return {};
-  }
-
-  static std::pair<EmptyInfo, EmptyInfo> split(const EmptyInfo& a) {
-    return {{}, {}};
-  }
-
-  template <typename SwizzleT>
-  static std::pair<EmptyInfo, EmptyInfo> swizzle(
-      SwizzleT swizzle_type,
-      const EmptyInfo& a,
-      const EmptyInfo& b) {
-    return {{}, {}};
-  }
-
-  bool operator==(const EmptyInfo& t) const {
-    return true;
-  }
 };
 
 using AbstractTensor = AbstractTensorWithInfo<EmptyInfo>;
