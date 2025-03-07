@@ -41,7 +41,7 @@ using HopperLdStMatrixTutorial = HopperBase;
 
 # LdMatrix and StMatrix Support in NVFuser
 
-### What is LdMatrix?
+## What is LdMatrix?
 A warp-level instruction to load matrices from shared memory to registers.
 
 ```
@@ -59,7 +59,7 @@ ldmatrix.sync.aligned.m16n16.num.trans{.ss}.dst_fmt.src_fmt r, [p];
 ```
 Reference: [LdMatrix PTX](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-load-instruction-ldmatrix)
 
-### What is StMatrix?
+## What is StMatrix?
 A warp-level instruction to store matrices from registers to shared memory.
 
 ```
@@ -73,7 +73,7 @@ stmatrix.sync.aligned.shape.num{.trans}{.ss}.type [p], r;
 
 Reference: [StMatrix PTX](https://docs.nvidia.com/cuda/parallel-thread-execution/#warp-level-matrix-store-instruction-stmatrix)
 
-### General Details
+## General Details
 
 For 16-bit element size, the matrix shape is (8, 8).
 The instruction can process one, two, or four (8, 8) matrices per instruction.
@@ -95,7 +95,7 @@ Each threads stores two adjacent elements along the inner-most dimension.
 * `[m(8), no(4), ni(2)]`  // Split column dimension by 2
 * `[m(8) * no(4) (TDX), ni[2])` // Merge row dimension and column stride
 
-#### Register layout for one 8x8 Matrix with 16-bit elements
+### Register layout for one 8x8 Matrix with 16-bit elements
 ![Register-Layout](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/mma-stmatrix-fragments.png)
 
 # Example 1: A copy kernel using TMA, LdMatrix, and StMatrix.
@@ -469,149 +469,6 @@ TEST_F(HopperLdStMatrixTutorial, LdStMatrixSet) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), at_tv0));
 } /*
 ```
-
-# Example 2: An epilogue computation after WGMMA operation.
-
-This example explains how to schedule the epilogue computation in a matrix
-multiplication fusion. One operand is the result from a wgmma operation. The
-other operand is another tensor in global memory.
-
-```python
-# The result from matmul
-c_reg = matmul(a, b)
-
-# Load epilogue input into shared memory using TMA load with 128B swizzle.
-d_smem = tma_load(d)
-
-# Load epilogue input into registers using LdMatrix
-d_reg = ldmatrix(d_smem)
-
-# Epilogue computation
-e_reg = pointwise(c_reg, d_reg)
-
-# Store epilogue result into shared memory using StMatrix
-e_smem = stmatrix(e_reg)
-
-# Store epilogue result into global memory using TMA store with 128B swizzle.
-e = tma_store(e_smem)
-```
-
-* All tensors are transformed by `blockTileTensors` and
-`transformLikeMmaOutputWithoutK`. `blockTileTensors` divides logical domain by
-CTA tile, while `transformLikeMmaOutputWithoutK` splits the TensorView by warp
-tile and mma macro.
-
-## How to compute the index into register TensorView?
-
-Same as the previous example, the register index is based on loop domain and
-is handled by IdModel indexing. For LdMatrix, we must set the allocation domain
-using the scheduled loop domain.
-
-## How to compute the index into shared memory TensorView?
-
-The index into shared memory requires a custom index from shared memory loop
-domain to the TMA LoadStoreOp allocation domain.
-
-* `c_reg`, `d_reg`, and `e_reg` have an allocation domain created using
-`scheduleMmaOutputAllocation`, which is required by the TensorCore ptx
-instructions.
-* The loop domains for `d_reg` and `e_smem` are transformed from the domain
-created by `scheduleMmaOutputAllocation` using `scheduleStmatrixForMmaOutput`.
-* To create the shared memory index, we map from loop domain for LdMatrix or
-StMatrix to `MmaOutputAllocation` first. Then, those iterDomains are mapped to
-TMA allocation domain.
-
-## What is the loop domain for LdMatrix and StMatrix?
-
-Given a 2D tensor, applying the following transformations to schedule the loop
-domain.
-
-1. `blockTileTensors` divides logical domain by CTA tile.
-2. `transformLikeMmaOutputWithoutK` splits by warp tile and mma macro.
-3. `mma_utils::scheduleStMatrixForMmaOutput` schedules iterDomains corresponding
-with mma macro for StMatrix expression.
-
-Loop Domain: `moo * mi * nio (128) (TDX), noo(16), noi * moi * nii (2) (V)`
-
-## The for-loop structure given loop domain
-
-``` python
-for TDY(2):
-  for TDX(128):
-    for Serial(16):
-      for V(8):
-        # LdMatrix(registers, shared_memory)
-    for Serial(32):
-      for Serial(2):
-        for Serial(2):
-          for Serial(2):
-            # epilogue compute
-    for Serial(16):
-      for V(8):
-        # StMatrix(shared_memory, registers)
-```
-
-## How to derive shared memory index?
-**Step 1:** Derive WGMMA index components from for-loop indices.
-
-<details>
-
-* TDY(2)
-* TDX(128) maps to [moo(4), mi(8), nio(4)]
-* Serial(16) maps [noo(16)]
-* Vectorize(8) maps [noi(2), moi(2), nii(2)]
-
-</details>
-
-**Step 2:** Create index components for the four ldmatrix.x4 instructions issued
-by 128 thread warp-group.
-
-**LdMatrix warp-group.x4 IterDomain Layout:**
-
-`TDY(2), moo(4), nooo(4), nooi(4), (mi * moi)(16), (nio * nii * noi)(16)`
-
-<details>
-
-1. `moo(4) = (mma_m == tma_m == 64) / (ldmatrix == stmatrix == 16)`
-2. Split `noo(16) into `nooo(4)` and `nooi(4)`
-  * `nooo(4) = (mma_n == 256) / (tma_n == 64)`
-  * `nooi(4) = (tma_n == 64) / (ldmatrix == stmatrix == 16)`
-3. Remaining m and n components from wgmma are combined into (16, 16)
-ldmatrix and stmatrix
-  * `16 = mi(8) * moi(2)` is the m component of ldmatrix and stmatrix
-  * `16 = nio(4) * nii (2) * noi(2)` is the n component of ldmatrix and stmatrix
-
-</details>
-
-**Step 3:** Split (16, 16) LdMatrix into four (8, 8) LdMatrix components.
-
-**LdMatrix (8, 8) IterDomain Layout:**
-
-`TDY(2), moo(4), nooo(4), nooi(4), m_o(2), m_i(8), n_o(2), n_i(8)`
-
-**Step 4:** Merge and reorder components to get the allocation domain for TMA
-LoadStoreOp with 128B swizzle.
-
-**TMA LoadStoreOp with 128B swizzle IterDomain Layout:**
-
-`TDY(2), no(4), moo * m_o (8), m_io(8), m_ii(1), nooi * n_o (8), n_i(8)`
-
-<details>
-
- * `no(4) == nooo(4)` is the outer loop index in ldmatrix and tma
- * Merge `moo(4)` and `m_o(2)` = 8
- * `m_i(8)` is the maximum number of rows in swizzle.
- * Split `m_i(8)` into `m_io(8)` and `m_ii(1)` by repetitions for 128B swizzle.
- * Merge `nooi(4)` and `n_o(2)` = 8
-
-</details>
-
-**Step 5:** XOR swizzle `m_io(8)` and `(nooi * n_o)(8)` to get new ldmatrix tile
-column.
-
-**Step 6:** Combine index components according to TMA LoadStoreOp to create the
-input index into shared memory.
-
 <!--*/
 } // namespace nvfuser
 // \-->
