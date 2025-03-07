@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <device_lower/utils.h>
+#include <expr_simplifier.h>
 #include <host_ir/lower.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
@@ -276,29 +277,76 @@ int64_t numDeviceDims(const TensorView* tv) {
 }
 
 namespace {
+std::pair<Val*, bool> computeIndex(
+    IterDomain* id,
+    const std::vector<IterDomain*>& sources,
+    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& known_indices) {
+  if (id == nullptr) {
+    return {nullptr, false};
+  }
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
-    const std::vector<IterDomain*>& target_domain) {
-  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id}, {target_domain.begin(), target_domain.end()});
+  std::vector<Expr*> transforms =
+      StmtSort::getExprsBetween({sources.begin(), sources.end()}, {id});
+  for (Expr* transform : transforms) {
+    if (std::all_of(
+            transform->outputs().begin(),
+            transform->outputs().end(),
+            [&](Val* val) {
+              return known_indices.count(val->as<IterDomain>()) > 0;
+            })) {
+      continue;
+    }
 
-  std::vector<IterDomain*> inputs_as_iter_domains;
-  inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  std::transform(
-      inputs_as_vals.begin(),
-      inputs_as_vals.end(),
-      std::back_inserter(inputs_as_iter_domains),
-      [](Val* val) { return val->as<IterDomain>(); });
-  return inputs_as_iter_domains;
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      auto* in = split->in()->as<IterDomain>();
+      auto* outer = split->outer()->as<IterDomain>();
+      auto* inner = split->inner()->as<IterDomain>();
+
+      const auto& in_info = known_indices.at(in);
+      known_indices[outer] = {
+          div(in_info.first, inner->extent()), in_info.second};
+      known_indices[inner] = {
+          mod(in_info.first, inner->extent()), in_info.second};
+    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
+      auto* outer = merge->outer()->as<IterDomain>();
+      auto* inner = merge->inner()->as<IterDomain>();
+      auto* out = merge->out()->as<IterDomain>();
+
+      const auto& outer_info = known_indices.at(outer);
+      const auto& inner_info = known_indices.at(inner);
+      known_indices[out] = {
+          add(mul(outer_info.first, inner->extent()), inner_info.first),
+          outer_info.second || inner_info.second};
+    } else {
+      NVF_THROW("Unexpected transform: ", transform);
+    }
+  }
+
+  return known_indices.at(id);
 }
 
-bool overlaps(
-    const std::vector<IterDomain*>& a,
-    const std::unordered_set<IterDomain*>& b) {
-  return std::any_of(
-      a.begin(), a.end(), [&](IterDomain* id) { return b.count(id); });
-}
+class StatementGuard {
+ public:
+  StatementGuard(Fusion* fusion)
+      : fusion_([fusion] {
+          // Trigger lazy initialization of axioms. Without this, we'd have to
+          // remove axioms in the destructor, which no APIs can do at this
+          // moment.
+          fusion->axioms();
+          return fusion;
+        }()),
+        prev_num_exprs_(fusion_->numExprs()),
+        prev_num_vals_(fusion_->numVals(/*include_shortcuts=*/false)) {}
+
+  ~StatementGuard() {
+    fusion_->removeStatementsCreatedAfter(prev_num_exprs_, prev_num_vals_);
+  }
+
+ private:
+  Fusion* fusion_;
+  const int64_t prev_num_exprs_;
+  const int64_t prev_num_vals_;
+};
 
 } // namespace
 
@@ -347,10 +395,18 @@ bool haveDifferentShardings(
   // consistently.
   const std::unordered_map<IterDomain*, IterDomain*>& p2c =
       PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  std::unordered_set<IterDomain*> mapped_p_logical_ids;
-  mapped_p_logical_ids.reserve(p2c.size());
-  std::unordered_set<IterDomain*> mapped_c_root_ids;
-  mapped_c_root_ids.reserve(p2c.size());
+
+  Fusion* fusion = producer->fusion();
+  NVF_ERROR(
+      fusion == consumer->fusion(),
+      "The producer and consumer must be in the same fusion.");
+  FusionGuard fg(fusion);
+  StatementGuard sg(fusion);
+
+  // FIXME: can we reuse IterDomain* which is also a Val*?
+  // FIXME: remove Val* and Expr*
+  std::unordered_map<IterDomain*, std::pair<Val*, bool>> known_indices;
+  std::vector<Val*> assumptions;
   for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
     const auto i = p2c.find(p_logical_id);
     if (i == p2c.end()) {
@@ -359,8 +415,37 @@ bool haveDifferentShardings(
       // dimension is size-1 and doesn't trigger resharding.
       continue;
     }
-    mapped_p_logical_ids.insert(p_logical_id);
-    mapped_c_root_ids.insert(i->second);
+    IterDomain* c_root_id = i->second;
+
+    auto* index = IrBuilder::create<Val>(DataType::Index);
+    known_indices[p_logical_id] = {index, true};
+    known_indices[c_root_id] = {index, true};
+    assumptions.push_back(
+        SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+    assumptions.push_back(
+        SimplifyingIrBuilder::ltExpr(index, p_logical_id->extent()));
+  }
+
+  // FIXME: the two loops below can be consolidated.
+  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
+    Val*& index = known_indices[p_logical_id].first;
+    if (index == nullptr) {
+      index = IrBuilder::create<Val>(DataType::Index);
+      assumptions.push_back(
+          SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+      assumptions.push_back(
+          SimplifyingIrBuilder::ltExpr(index, p_logical_id->extent()));
+    }
+  }
+  for (IterDomain* c_root_id : consumer->getMaybeRootDomain()) {
+    Val*& index = known_indices[c_root_id].first;
+    if (index == nullptr) {
+      index = IrBuilder::create<Val>(DataType::Index);
+      assumptions.push_back(
+          SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
+      assumptions.push_back(
+          SimplifyingIrBuilder::ltExpr(index, c_root_id->extent()));
+    }
   }
 
   // In practice, only loop IterDomains can be parallelized, and no two loop
@@ -380,49 +465,40 @@ bool haveDifferentShardings(
       mapDeviceParallelTypeToId(consumer->getLoopDomain());
 
   for (const auto parallel_type : kParallelTypeDIDs) {
-    IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
-    if (p_loop_id != nullptr) {
-      auto p_inputs =
-          getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain());
-      if (!overlaps(p_inputs, mapped_p_logical_ids)) {
-        p_loop_id = nullptr;
-      }
+    IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
+    Val* p_index = nullptr;
+    bool p_mapped = false;
+    std::tie(p_index, p_mapped) =
+        computeIndex(p_id, producer->getLogicalDomain(), known_indices);
+    if (!p_mapped) {
+      p_index = nullptr;
     }
 
-    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
-    if (c_loop_id != nullptr) {
-      auto c_inputs =
-          getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain());
-      if (!overlaps(c_inputs, mapped_c_root_ids)) {
-        c_loop_id = nullptr;
-      }
+    IterDomain* c_id = getOrDefault(c_parallel_type_to_id, parallel_type);
+    Val* c_index = nullptr;
+    bool c_mapped = false;
+    std::tie(c_index, c_mapped) =
+        computeIndex(c_id, consumer->getMaybeRootDomain(), known_indices);
+    if (!c_mapped) {
+      c_index = nullptr;
     }
 
-    auto is_mapped_in_id_model =
-        [](IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
-      if (a == nullptr && b == nullptr) {
+    const bool is_equivalent = [&]() -> bool {
+      if (p_index == nullptr && c_index == nullptr) {
         return true;
       }
-
-      if (a == nullptr || b == nullptr) {
+      if (p_index == nullptr || c_index == nullptr) {
         return false;
       }
 
-      // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
-      // would be flagged by ALMOSTEXACT as a false positive.
-      if (id_model.idGraph(IdMappingMode::BROADCAST)
-              .disjointValSets()
-              .strictAreMapped(a, b)) {
-        return true;
-      }
+      return simplifyExpr(
+                 SimplifyingIrBuilder::eqExpr(p_index, c_index),
+                 /*variables=*/{},
+                 assumptions)
+          ->isTrue();
+    }();
 
-      // Check ALMOSTEXACT so iDIDx{N}*b{1} and iDIDx{N} are mapped.
-      return id_model.idGraph(IdMappingMode::ALMOSTEXACT)
-          .disjointValSets()
-          .strictAreMapped(a, b);
-    };
-
-    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
+    if (!is_equivalent) {
       return true;
     }
   }

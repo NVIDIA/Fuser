@@ -357,4 +357,38 @@ void IrContainer::assumeNonNegative(Val* val) {
   axioms_->emplace_back(IrBuilder::geExpr(val, zeroVal()));
 }
 
+void IrContainer::removeStatementsCreatedAfter(
+    int64_t prev_num_exprs,
+    int64_t prev_num_vals) {
+  NVF_ERROR(
+      exprs_up_.size() == exprs_.size(),
+      "exprs_up_ (size ",
+      exprs_up_.size(),
+      ") and exprs_ (size ",
+      exprs_.size(),
+      ") are out of sync.");
+  NVF_ERROR(
+      std::ssize(exprs_up_) >= prev_num_exprs,
+      "exprs_up_ size (",
+      std::ssize(exprs_up_),
+      ") is less than prev_num_exprs (",
+      prev_num_exprs,
+      ").");
+
+  // Remove expressions before values because we need to change Val::uses_.
+  while (std::ssize(exprs_up_) > prev_num_exprs) {
+    Expr* e = exprs_up_.back().get();
+    for (Val* in : e->inputs()) {
+      in->removeUse(e);
+    }
+    exprs_.erase(e);
+    exprs_up_.pop_back();
+  }
+
+  while (std::ssize(vals_up_) > prev_num_vals) {
+    vals_.erase(vals_up_.back().get());
+    vals_up_.pop_back();
+  }
+}
+
 } // namespace nvfuser
