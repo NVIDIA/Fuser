@@ -1121,8 +1121,8 @@ In the above example, we store and load the tensor memory like the table below:
 
 ## Vectorization of TMem load and store
 
-Tensor memory load and store can be vectorized as a power of 2, from 1 all the
-way to 128:<!-- */ //-->\
+Tensor memory load and store can be vectorized as a power of 2, from 4 bytes all the
+way to 512 bytes:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Vectorization) {
   const std::vector<int64_t> vec_factors = {1, 2, 4, 8, 16, 32, 64, 128};
@@ -1189,6 +1189,75 @@ TEST_F(TMemTutorialR, Vectorization) {
       EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
     }
   }
+} /*
+```
+
+Note that the minimum unit of TMem load/store is 4 bytes, and the vectorization
+factor used for TMem load/store must makes sure that the total size of the vector
+is a multiple of 4 bytes. For example, char2, half1 are invalid vectorization
+factors, but char4, half2 are valid:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, VectorizeMultipleOf4Bytes) {
+  auto run = [](DataType dtype, int64_t vec) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigConcreteTensor({128, 256}, dtype);
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    auto tv3 = set(tv2);
+    auto tv4 = set(tv3);
+    fusion.addOutput(tv4);
+    tv2->setMemoryType(MemoryType::Tensor);
+    tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+    tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+    for (auto tv : {tv1, tv2, tv3, tv4}) {
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    if (vec != 1) {
+      for (auto tv : {tv1, tv2, tv3, tv4}) {
+        tv->split(1, vec);
+      }
+      tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+      tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+    tv2->setTMemDimSepPos(1);
+
+    inlineMost();
+
+    if constexpr (verbose) {
+      fusion.printKernel();
+    }
+
+    KernelExecutor ke;
+
+    ke.compile(&fusion);
+
+    at::TensorOptions options = at::TensorOptions()
+                                    .dtype(data_type_to_aten(dtype))
+                                    .device(at::kCUDA, 0);
+    at::Tensor t0 = dtype == DataType::Char
+        ? at::randint(0, 256, {128, 256}, options)
+        : at::rand({128, 256}, options);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
+  };
+
+  EXPECT_THAT(
+      [&]() { run(DataType::Char, 2); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Vectorize size is not a multiple of 4 bytes")));
+  EXPECT_THAT(
+      [&]() { run(DataType::Half, 1); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Vectorize size is not a multiple of 4 bytes")));
+  run(DataType::Char, 4);
+  run(DataType::Half, 2);
 } /*
 ```
 
