@@ -399,7 +399,7 @@ bool haveDifferentShardings(
     }
 
     auto is_mapped_in_id_model =
-        [consumer](
+        [producer, consumer, mapped_p_logical_ids, mapped_c_root_ids](
             IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
       if (a == nullptr && b == nullptr) {
         return true;
@@ -413,24 +413,63 @@ bool haveDifferentShardings(
         // Consider the reshape: [h]-> [a, h/a] where `h` and `a` are sharded,
         // IdModel currently does not map the two DID axes. Similarly for the
         // corresponding merge reshape. This is a temporary workaround to check
-        // if the reshape is resharding.
-        NVF_ERROR(
-            a->definition()->isA<Split>(),
-            a,
-            " is not a Split: ",
-            a->definition());
-        NVF_ERROR(
-            b->definition()->isA<Split>(),
-            b,
-            " is not a Split: ",
-            b->definition());
-        // Get the split producing the sharded axis
-        auto* a_split = a->definition()->as<Split>();
-        auto* b_split = b->definition()->as<Split>();
-        // Reshape is not resharding if both the DID splits are either inner or
-        // outer splits. Note that we currently do not exercise inner splits in
-        // the multidevice tests.
-        return a_split->innerSplit() == b_split->innerSplit();
+        // if the reshape is resharding when sharding is on reshaped ids.
+
+        // Get the root iterdomains in the consumer that produce reshape logical
+        // Ids.
+        std::unordered_set<IterDomain*> c_reshape_ids;
+        for (auto id : consumer->getLogicalDomain()) {
+          if (id->isRFactorProduct() && id->definition() &&
+              !id->definition()->isA<Resize>()) {
+            auto root_ids = getInputsInTargetDomain(
+                id, {mapped_c_root_ids.begin(), mapped_c_root_ids.end()});
+            for (auto root_id : root_ids) {
+              c_reshape_ids.insert(root_id);
+            }
+          }
+        }
+
+        // Get the logical iterdomains in the producer that are reshaped.
+        const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+            PairwiseLogicalDomainMap(producer, consumer)
+                .mapConsumerToProducer();
+        std::unordered_set<IterDomain*> p_reshape_ids;
+        for (auto id : c_reshape_ids) {
+          auto p_id = c2p.find(id);
+          if (p_id != c2p.end()) {
+            p_reshape_ids.insert(p_id->second);
+          }
+        }
+
+        auto is_id_reshaped = [](IterDomain* loop_id,
+                                 std::unordered_set<IterDomain*> reshape_ids) {
+          if (reshape_ids.count(loop_id)) {
+            return true;
+          }
+          auto transforms = DependencyCheck::getAllExprsBetween(
+              {reshape_ids.begin(), reshape_ids.end()}, {loop_id});
+          return !transforms.empty();
+        };
+        if (is_id_reshaped(p_loop_id, p_reshape_ids) &&
+            is_id_reshaped(c_loop_id, c_reshape_ids)) {
+          NVF_ERROR(
+              a->definition()->isA<Split>(),
+              a,
+              " is not a Split: ",
+              a->definition());
+          NVF_ERROR(
+              b->definition()->isA<Split>(),
+              b,
+              " is not a Split: ",
+              b->definition());
+          // Get the split producing the sharded axis
+          auto* a_split = a->definition()->as<Split>();
+          auto* b_split = b->definition()->as<Split>();
+          // Reshape is not resharding if both the DID splits are either inner
+          // or outer splits. Note that we currently do not exercise inner
+          // splits in the multidevice tests.
+          return a_split->innerSplit() == b_split->innerSplit();
+        }
       }
 
       // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
