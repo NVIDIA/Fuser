@@ -91,9 +91,9 @@ TensorView.
 ### Indices for register tensor
 For an (8, 8) matrix of 16-bit elements, this is the register layout for a warp.
 Each threads stores two adjacent elements along the inner-most dimension.
-* [m(8), n(8)] // An (8, 8) matrix of 16-bit elements
-* [m(8), no(4), ni(2)]  // Split column dimension by 2
-* [m(8) * no(4) (TDX), ni[2]) // Merge row dimension and column stride
+* `[m(8), n(8)]` // An (8, 8) matrix of 16-bit elements
+* `[m(8), no(4), ni(2)]`  // Split column dimension by 2
+* `[m(8) * no(4) (TDX), ni[2])` // Merge row dimension and column stride
 
 #### Register layout for one 8x8 Matrix with 16-bit elements
 ![Register-Layout](https://docs.nvidia.com/cuda/parallel-thread-execution/_images/mma-stmatrix-fragments.png)
@@ -124,6 +124,8 @@ Figure 1 shows how the CTA tile is transformed into the loop domain
 for LdMatrix or StMatrix. Figure 2 displays the loop transformations for TMA
 Load or Store operations. Figure 3 illustrates the following steps to compute
 index from LdMatrix or StMatrix loop domain to TMA shared memory domain.
+
+---
 
 **Step 1:** Derive (8, 8) core matrix components for LdMatrix / StMatrix from
 for-loop indices.
@@ -161,8 +163,12 @@ column.
 **Step 4:** Combine index components according to TMA LoadStoreOp to create the
 input index into shared memory.
 
+---
+
 ### Figure 1: Loop domain for LdMatrix and StMatrix
 ![Register layout for LdMatrix / StMatrix](ldstmatrix/ldstmatrix_register_layout.svg)
+
+---
 
 ### Figure 2: TMA shared memory domain
 
@@ -205,9 +211,11 @@ The CTA tile is m(128), n(256)
 
 ![TMA Shared Memory Layout](ldstmatrix/tma_layout.svg)
 
+---
 
 ### Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory domain
 ![Map Loop Domain toTMA Shared Memory Layout](ldstmatrix/ldstmatrix_to_tma.svg)
+
 
 ## Code Walkthrough
 The LdStMatrixSet example is a simple copy kernel that load and stores data
