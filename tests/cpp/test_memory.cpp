@@ -3005,7 +3005,7 @@ TEST_F(TMemTest, dtypes) {
                                         .dtype(data_type_to_aten(dtype))
                                         .device(at::kCUDA, 0);
         at::Tensor t0 = dtype == DataType::Char
-            ? at::randint(0, 256, {128, 256}, options)
+            ? at::randint(-128, 128, {128, 256}, options)
             : at::randn({128, 256}, options);
         auto out = ke.run({t0});
         EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
