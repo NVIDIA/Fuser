@@ -117,8 +117,18 @@ scheduled loop domain.
 
 ### How to compute the index into shared memory TensorView?
 
-The index into shared memory requires a custom index from shared memory loop
-domain to the TMA LoadStoreOp allocation domain.
+The index into shared memory requires a custom index from loop domain to the
+TMA LoadStoreOp allocation domain.
+
+#### Figure 1: Loop domain for LdMatrix and StMatrix
+![Register layout for LdMatrix / StMatrix](ldstmatrix/ldstmatrix_register_layout.svg)
+
+#### Figure 2: TMA shared memory domain
+* TODO
+
+#### Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory domain
+* TODO
+
 
 ### Code Walkthrough
 The LdStMatrixSet example is a simple copy kernel that load and stores data
