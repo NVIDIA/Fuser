@@ -161,7 +161,7 @@ class AutotunePointwise:
             assert False
 
     # A decorator to create a pointwise fusion given some input arguments.
-    def create_fusion_func(self, inputs):
+    def create_fusion_func(self):
         def gelu_bias(fd: FusionDefinition):
             T0 = fd.define_tensor(
                 shape=[1, -1],
