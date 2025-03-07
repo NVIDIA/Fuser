@@ -18,7 +18,6 @@
 #include <sstream>
 
 namespace nvfuser {
-
 class LowerToInlinePtx : public kir::ExprMutator {
  private:
   // create a new predicate with the inverted value, used for cpAsync
@@ -133,7 +132,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       std::stringstream ptx_ss;
       ptx_ss << "tcgen05.ld.sync.aligned."
              << tmem_info.load_data_path.at(ir_utils::getTvInput(ldst)) << ".x"
-             << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ir_utils::getTMemLdStVectorizeSize(ir_utils::getTvOutput(ldst))
              << ".b32";
       registerReplace(
           ldst,
@@ -154,7 +153,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
       std::stringstream ptx_ss;
       ptx_ss << "tcgen05.st.sync.aligned."
              << tmem_info.store_data_path.at(ir_utils::getTvOutput(ldst))
-             << ".x" << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ".x"
+             << ir_utils::getTMemLdStVectorizeSize(ir_utils::getTvOutput(ldst))
              << ".b32";
       registerReplace(
           ldst,
