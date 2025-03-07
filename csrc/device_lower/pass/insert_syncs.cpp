@@ -433,6 +433,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // TODO: unify the handle of cp.async
     std::unordered_map<AsyncOpType, std::unordered_set<Expr*>> input_async_ops;
     for (auto inp : expr->inputs()) {
+      if (auto* inp_tv = dynamic_cast<TensorView*>(inp)) {
+        inp = GpuLower::current()->getMaybeTensorProducerAlias(inp_tv);
+      }
       auto def = inp->definition();
       auto async_type = ir_utils::getAsyncOpType(def);
 
@@ -657,6 +660,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       const std::vector<Val*>& tvs) const {
     std::unordered_set<Expr*> last_writes;
     for (auto tv : ir_utils::filterByType<TensorView>(tvs)) {
+      tv = GpuLower::current()->getMaybeTensorProducerAlias(tv);
+
       if (GpuLower::current()->syncMap()->needsRawSync(tv).none()) {
         continue;
       }
