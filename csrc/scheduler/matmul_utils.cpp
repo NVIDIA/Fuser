@@ -11,6 +11,7 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/cache_model.h>
 
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
@@ -228,6 +229,144 @@ bool fillDefaultAmpereHeuristic(
   return true;
 }
 
+// This is just a convenience struct that holds just the parameters that we
+// optimize
+struct ConfigSubset {
+  GemmTile cta;
+  GemmTile warp;
+  GemmTile instr;
+  MatmulParams::TileRasterizationOrder cta_order =
+      MatmulParams::TileRasterizationOrder::RowMajor;
+  int64_t grid_swizzle_factor = 1L;
+  int64_t cluster_dim_x = 1L;
+  int64_t cluster_dim_y = 1L;
+  int64_t splitk_factor = 1L;
+};
+
+void incrementTilePosition(
+    int64_t& i,
+    int64_t& j,
+    int64_t tiles_m,
+    int64_t tiles_n,
+    const ConfigSubset& cfg) {
+  // TODO: Model grid swizzle here
+  int64_t& fast =
+      cfg.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor ? j
+                                                                         : i;
+  int64_t& slow =
+      cfg.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor ? i
+                                                                         : j;
+  int64_t tiles_fast =
+      cfg.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+      ? tiles_m
+      : tiles_n;
+  fast++;
+  if (fast >= tiles_fast) {
+    slow++;
+    fast = 0L;
+  }
+}
+
+// This is a naive model of the L2 cache behavior of a matmul kernel. We start
+// by ordering all the output tiles and splitting them into waves. For each
+// wave, each tile is computed with a single K loop. We assume that the
+// iterations of the K loop are synchronized across all blocks in any given
+// wave; this assumption might not always hold but should hold approximately
+// especially for short K loops. For each K loop iteration, we loop over all the
+// tiles in that wave and access the A and B operands, modelling L2 hits and
+// misses. We do not model circular buffering explicitly.
+//
+// Implicit multicast is modelled by collecting accesses for all tiles within a
+// CGA before processing. That means that if two CTAs in a CGA make a
+// simultaneous request to L2 it is serviced as a single request.
+float simulateHopperL2(
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    const ConfigSubset& cfg) {
+  NVF_ERROR(
+      cfg.cluster_dim_x == 1L && cfg.cluster_dim_y == 1L,
+      "CGA L2 modeling is not yet supported");
+  NVF_ERROR(
+      cfg.splitk_factor == 1L, "Split-K L2 modeling is not yet supported");
+  NVF_ERROR(
+      cfg.splitk_factor == 1L, "Split-K L2 modeling is not yet supported");
+
+  auto prop = at::cuda::getCurrentDeviceProperties();
+  const int64_t num_sms = prop->multiProcessorCount;
+  scheduler_tools::NonOverlappingLRUCacheModel l2(prop->l2CacheSize);
+
+  float total_time = 0.0f;
+  const auto do_access = [&l2, &total_time](int64_t address, int64_t size) {
+    bool hit = l2.access(address, size);
+    if (hit) {
+      total_time += (float)size;
+    } else {
+      // Model gmem as 4x slower than L2. This is not accurate.
+      total_time += 4.0f * (float)size;
+    }
+  };
+
+  // Compute how many total bytes need to be computed, summed over all tiles in
+  // the output
+  const int64_t tiles_m = ceilDiv(m, cfg.cta.m);
+  const int64_t tiles_n = ceilDiv(n, cfg.cta.n);
+  const int64_t tiles_k = ceilDiv(k, cfg.cta.k);
+
+  const int64_t tile_size_a = ceilDiv(cfg.cta.m, cfg.cta.k) * 2;
+  const int64_t tile_size_b = ceilDiv(cfg.cta.n, cfg.cta.k) * 2;
+  // TODO: handle other than 2-byte outputs
+  const int64_t tile_size_c = ceilDiv(cfg.cta.m, cfg.cta.n) * 2;
+
+  // The number of possible A tiles is tiles_m*tiles_k
+  // The number of possible B tiles is tiles_n*tiles_k
+  // The number of possible output tiles is tiles_m*tiles_n
+  // Each of these tiles needs a unique address, so we lay them out sequentially
+  // in the A, B, output order
+  int64_t offset_a = 0L;
+  int64_t offset_b = offset_a + tiles_m * tiles_k;
+  int64_t offset_c = offset_b + tiles_n * tiles_k;
+
+  // This will be filled with the MN coordinates of the tiles for each wave
+  std::vector<std::pair<int64_t, int64_t>> wave_tile_coords;
+  wave_tile_coords.reserve((size_t)num_sms);
+  int64_t next_i = 0L;
+  int64_t next_j = 0L;
+  while (true) {
+    // There is one iteration of this loop per wave
+
+    wave_tile_coords.clear();
+    for ([[maybe_unused]] size_t sm : c10::irange(num_sms)) {
+      if (next_i < tiles_m && next_j < tiles_n) {
+        wave_tile_coords.emplace_back(next_i, next_j);
+      }
+      // Advance to next tile
+      incrementTilePosition(next_i, next_j, tiles_m, tiles_n, cfg);
+    }
+
+    if (wave_tile_coords.empty()) {
+      break;
+    }
+
+    // TODO: handle multiple operands/outputs, and different precisions here
+    // Model synchronous K loops for all the tiles in wave_tile_coords
+    for (size_t k_pos : c10::irange(tiles_k)) {
+      for (const auto& [i, j] : wave_tile_coords) {
+        // Load A and B tiles for this stage
+        do_access(offset_a + i * tiles_k + k_pos, tile_size_a);
+        do_access(offset_b + j * tiles_k + k_pos, tile_size_b);
+      }
+    }
+    // After K loop, write each output tile
+    for (const auto& [i, j] : wave_tile_coords) {
+      // NOTE: we might want to use different output throughput than operands
+      do_access(offset_c + i * j, tile_size_c);
+    }
+  }
+
+  return total_time;
+}
+
 // This function sets cta_tile, warp_tile, and the mma instruction for Hopper
 // problems. Our strategy is as follows:
 // 1) We use warp_tile.k=cta_tile.k=64 usually, but we also check 16, 32,
@@ -248,40 +387,9 @@ void fillOptimalHopperTileSizes(
   const int64_t n = problem_shape[(size_t)MatmulDimRole::N];
   const int64_t k = problem_shape[(size_t)MatmulDimRole::K];
 
-  struct TileConfig {
-    GemmTile cta;
-    GemmTile warp;
-    GemmTile instr;
-  };
-
-  // Compute how many total bytes need to be computed, summed over all tiles in
-  // the output
-  const auto bytes_transferred = [m, n, k](const GemmTile& cta) {
-    const int64_t tiles_m = ceilDiv(m, cta.m);
-    const int64_t tiles_n = ceilDiv(n, cta.n);
-    const int64_t tiles_k = ceilDiv(k, cta.k);
-
-    // This is the number of bytes that get loaded per circular buffering stage
-    // in a single tile.
-    const int64_t bytes_per_output_tile = tiles_k * (cta.m + cta.n) * cta.k;
-
-    // Now we model wave quantization of the MN tile grid. For example if there
-    // are 132 SMs, then we round up the number of tiles to a multiple of 132
-    // and then multiply the bytes per output tile by that number. The last wave
-    // might run faster than we model it here because it is not really loading
-    // that full amount of data, but it is still wasted computation and so this
-    // is how we model it. Note that we also do not model L2 locality here at
-    // all, so this number is meant as a very rough estimate of compute time for
-    // memory-bound problems.
-    const int64_t num_sms =
-        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-    const int64_t num_waves = ceilDiv(tiles_m * tiles_n, num_sms);
-    return num_waves * num_sms * bytes_per_output_tile;
-  };
-
-  TileConfig best_config{
+  ConfigSubset best_config{
       /*cta=*/{64, 64, 64}, /*warp=*/{64, 64, 64}, /*instr=*/{64, 64, 16}};
-  int64_t best_bytes_tx = std::numeric_limits<int64_t>::max();
+  float best_time = std::numeric_limits<int64_t>::infinity();
 
   // If two sizes result in the same number of total byte, prefer the larger CTA
   // K. To do this we iterate backwards here.
@@ -310,14 +418,14 @@ void fillOptimalHopperTileSizes(
           // CTA tile is limited to 256 is each dim
           continue;
         }
-        const TileConfig cfg{
+        const ConfigSubset cfg{
             .cta = {cta_m, cta_n, cta_k},
             .warp = {64L, instr_n, cta_k},
             .instr = {64L, instr_n, 16L},
         };
-        const int64_t bytes_tx = bytes_transferred(cfg.cta);
-        if (bytes_tx < best_bytes_tx) {
-          best_bytes_tx = bytes_tx;
+        const float time = simulateHopperL2(m, n, k, cfg);
+        if (time < best_time) {
+          best_time = time;
           best_config = cfg;
         }
       }

@@ -32,7 +32,7 @@ class NonOverlappingLRUCacheModel {
   int64_t capacity() const {
     return capacity_;
   }
-  
+
   int64_t allocated() const {
     return allocated_;
   }
