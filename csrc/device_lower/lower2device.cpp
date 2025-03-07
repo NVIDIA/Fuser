@@ -41,10 +41,10 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
-
 namespace nvfuser {
 
 thread_local GpuLower* active_gpu_lower = nullptr; // NOLINT
@@ -291,6 +291,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"instrumentKernel", instrumentKernel},
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
+  device_prop_ = at::cuda::getCurrentDeviceProperties();
   analysis(fusion);
 }
 
@@ -543,12 +544,6 @@ void GpuLower::analysis(Fusion* fusion) {
   thread_pred_map_.build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
 
-  // Fuse cetain patterns of reductions, such as a grid reduction
-  // followed by a grid broadcast. Only depends on parallelization and
-  // thread predicate map.
-  fuseReductionsAndBroadcasts(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
-
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
@@ -558,6 +553,12 @@ void GpuLower::analysis(Fusion* fusion) {
   // validateAndConvertIterDomainGrouping
   validateGroupedReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
+
+  // Fuse cetain patterns of reductions, such as a grid reduction
+  // followed by a grid broadcast. Only depends on parallelization and
+  // thread predicate map.
+  fuseReductionsAndBroadcasts(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
   // Want to run this after parallel map is created.
   // Needs info about grouped reductions.

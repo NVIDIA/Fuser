@@ -513,6 +513,8 @@ class ValReplacementMutator : public OptOutMutator {
       return OptOutMutator::dispatchMutate(val);
     }
     auto replaced_val = replacement_map_.at(val);
+    std::cout << "Replacing " << val->toString() << " with "
+              << replaced_val->toInlineString() << std::endl;
     registerMutation(val, replaced_val);
   }
 

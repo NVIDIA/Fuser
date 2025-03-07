@@ -273,6 +273,32 @@ void replaceSymbolicSizes(Fusion* fusion) {
 
   auto mutation_map = ir_utils::replaceValue(fusion, extent_simplification_map);
 
+  // avoid duplicated logical size array
+  // a427 = s107.logical_size
+  // i429 = a427[0]
+  // a431 = s107.logical_size
+  // i433 = a431[1]
+  std::vector<GetAttr*> get_attr_vect;
+  std::unordered_map<Val*, Val*> replace_get_attr_map;
+  for(auto expr: fusion->exprs()) {
+    if (auto get_attr = dynamic_cast<GetAttr*>(expr)) {
+      std::cout << "get_attr: " << get_attr->toString() << std::endl;
+      bool is_dup = false;
+      for(auto existing_get_attr: get_attr_vect) {
+        if (get_attr->sameAs(existing_get_attr)) {
+          std::cout << "same get attr, a= " << get_attr->toString() << ", b= " << existing_get_attr->toString();
+          replace_get_attr_map.insert({get_attr->out(), existing_get_attr->out()});
+          is_dup = true;
+          break;
+        }
+      }
+      if(!is_dup){
+        get_attr_vect.push_back(get_attr);
+      }
+    }
+  }
+  auto mutation_map_attr = ir_utils::replaceValue(fusion, replace_get_attr_map);
+
   fusion->resetExactMappings();
 
   auto get_maybe_mutated = [&mutation_map](IterDomain* id) -> IterDomain* {

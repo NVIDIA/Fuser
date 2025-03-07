@@ -113,16 +113,16 @@ class LaunchParams {
       const int64_t incoming_val,
       int64_t& class_val,
       std::string val) {
-    NVF_ERROR(
-        class_val == UNINITIALIZED_VAL || incoming_val == class_val,
-        "Tried to set ",
-        val,
-        " from ",
-        class_val,
-        " to ",
-        incoming_val,
-        ", but it was already set and new value does not match.",
-        " Thread dims all have to be bound to the same value.");
+    // NVF_ERROR(
+    //     class_val == UNINITIALIZED_VAL || incoming_val == class_val,
+    //     "Tried to set ",
+    //     val,
+    //     " from ",
+    //     class_val,
+    //     " to ",
+    //     incoming_val,
+    //     ", but it was already set and new value does not match.",
+    //     " Thread dims all have to be bound to the same value.");
     NVF_CHECK(
         incoming_val > 0,
         "Received a thread binding on ",

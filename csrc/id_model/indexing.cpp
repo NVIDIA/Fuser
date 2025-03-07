@@ -895,6 +895,8 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
+  std::cout << "\n\n getLinearIndex fot tv: " << tv->toString() << std::endl;
+
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
 
@@ -906,16 +908,39 @@ Val* TensorIndexer::getLinearIndex(
         linear_index,
         SimplifyingIrBuilder::mulExpr(contig_indices.at(i), stride));
   }
-
+  // std::cout << "linear_index: " << linear_index->toInlineString() << std::endl;
   // If a tensor is circular buffered, it also requires indexing of
   // the circular buffer itself
   if (tv->isCircularBuffered()) {
     auto circular_buffer_offset =
         getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
+    // std::cout << "circular_buffer_offset: " << circular_buffer_offset->toInlineString() << std::endl;
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
+  // Modulo the linear index if the expr is a UBLK copy to avoid out of bound
+  // access. For example, in test `UblkPredicate`, tensor [I0,I1] is split as:
+  // [sm_count, I0/stages/sm_count, stages, I1] and parallelized as:
+  // [BIDx, Serial, Serial, Bulk]. The TMA load is nested within two for-loops,
+  // one for [I0/stages/sm_count] and the other for [stages], since predicate is
+  // not generated for TMA load, out of bound access may happen if any of the
+  // split is not disvisible. The modulo operation is added to avoid this issue
+  // at the cost of several useless loads in the last iteration.
+  if (ir_utils::isCpAsyncUblk(expr)) {
+    auto gmem_tv = expr->input(0)->as<TensorView>();
+    if(gmem_tv == tv){
+      auto logical_size = gmem_tv->fusion()->oneVal();
+      const auto& logical_domain = gmem_tv->getLogicalDomain();
+      for (const auto i : c10::irange(logical_domain.size())) {
+        logical_size = SimplifyingIrBuilder::mulExpr(
+            logical_size, logical_domain.at(i)->extent());
+      }
+      linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
+    }
+  }
+  // std::cout << "final_linear_index: " << linear_index->toInlineString() << std::endl;
+  // std::cout << "\n\n" << std::endl;
   return linear_index;
 }
 
@@ -998,6 +1023,23 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     const std::unordered_map<ValGroup, Val*>& index_map) const {
   std::unordered_map<Val*, Val*> replacement_map;
 
+  // // Set to 0, if warp specialized in this id
+  bool is_warp_specialized = false;
+  ParallelType warp_specialized_pt = ParallelType::Serial;
+  // needs this when TIDy is used to parallelize iter dim and warp specialized on TIDy
+  // for(auto loop_id : loop_domains){
+  //   if(!GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(loop_id)){
+  //     continue;
+  //   }
+  //   auto type = GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(loop_id).type;
+  //   if(std::holds_alternative<WarpSpecialized>(type)){
+  //     warp_specialized_pt = std::get<WarpSpecialized>(type).on;
+  //     is_warp_specialized = true;
+  //     std::cout << "getIndexReplacementMap warp_specialized_pt: " << warp_specialized_pt << std::endl;
+  //     break;
+  //   }
+  // }
+
   for (const auto loop_id : loop_domains) {
     Val* cur_index = getLoopIndex(loop_id, for_loops);
 
@@ -1008,7 +1050,8 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
     // always done with zero.
     if (loop_id->getParallelType() == ParallelType::Vectorize ||
         loop_id->getParallelType() == ParallelType::Bulk ||
-        loop_id->getParallelType() == ParallelType::Mma) {
+        loop_id->getParallelType() == ParallelType::Mma ||
+        (is_warp_specialized && loop_id->getParallelType() == warp_specialized_pt)) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
       ForLoop* for_loop = indexing_utils::getForLoop(
@@ -1039,10 +1082,15 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         }
       }
     }
+    std::cout << "loop_id: " << loop_id->toString() 
+          << ", cur_index: " << cur_index->toInlineString()  << std::endl;
 
     if (replacement_index == nullptr || replacement_index == cur_index) {
       continue;
     }
+    // std::cout << "loop_id: " << loop_id->toString() 
+    //       << ", cur_index: " << cur_index->toInlineString()
+    //       << ", replacement_index: " << replacement_index->toInlineString() << std::endl;
 
     replacement_map.emplace(cur_index, replacement_index);
   }
@@ -1318,6 +1366,9 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         bool as_consumer,
         const IndexingAllocationInfo& alloc_info,
         const std::vector<ForLoop*>& for_loops) const {
+
+  // std::cout << "==============getContigIndexFor: " << expr->toString() << std::endl;
+
   auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
@@ -1354,6 +1405,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         contig_domain_group->front()->toString());
     Val* idx = idx_it->second;
     Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
+    std::cout << "get indice idx: " << idx->toInlineString() 
+              << ", replaced_idx: " << replaced_idx->toInlineString() << std::endl;
     result.push_back(replaced_idx);
   }
 

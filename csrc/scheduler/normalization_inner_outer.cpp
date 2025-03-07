@@ -48,44 +48,6 @@ int64_t roundUpSharedMemory(
   return max_smem;
 }
 
-// Return the broadcast tvs that are broadcast to the iteration dimensions of
-// the inner reduction tv. These tvs are reused in the loop over the iteration
-// dimension. This reuse reduced the number loads from gmem and this tensor
-// is likely the first candidate to be moved to shared memory when the register
-// space runs low.
-std::vector<TensorView*> getOuterBroadcastTvs(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs) {
-  // set reference broadcast mask using the first inner reduction tv
-  std::vector<bool> ref_broadcast_mask;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      const auto& logical = tv->getLogicalDomain();
-      ref_broadcast_mask.reserve(logical.size());
-      for (const auto i : c10::irange(logical.size())) {
-        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
-      }
-      break;
-    }
-  }
-  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
-
-  // find the broadcast tensor whose broadcast mask is same to the reference
-  std::vector<TensorView*> outer_broadcast_tvs;
-  for (auto tv : fusion->allTvs()) {
-    if (std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) { return id->isBroadcast(); })) {
-      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
-        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
-          outer_broadcast_tvs.emplace_back(tv);
-        }
-      }
-    }
-  }
-  return outer_broadcast_tvs;
-}
 
 // Size of buffers storing intermediate outer reduction results
 // TODO: check if we can directly start with [buffer_size = 1]
@@ -213,7 +175,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // reload from gmem for each iteration.
   // Note: in current use cases (layer norm bwd and RMS norm bwd), there are
   // outer broadcast tvs and always project to inputs.
-  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
+  const auto& outer_broadcast_tvs = reduction_scheduler_utils::getOuterBroadcastTvs(fusion, reduction_tvs);
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
