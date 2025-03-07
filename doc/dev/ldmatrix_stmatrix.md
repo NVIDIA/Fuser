@@ -124,10 +124,10 @@ TMA LoadStoreOp allocation domain.
 ![Register layout for LdMatrix / StMatrix](ldstmatrix/ldstmatrix_register_layout.svg)
 
 #### Figure 2: TMA shared memory domain
-* TODO
+![TMA Shared Memory Layout](ldstmatrix/tma_layout.svg)
 
 #### Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory domain
-* TODO
+![Map Loop Domain toTMA Shared Memory Layout](ldstmatrix/ldstmatrix_to_tma.svg)
 
 
 ### Code Walkthrough
