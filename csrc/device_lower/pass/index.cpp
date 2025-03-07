@@ -2228,7 +2228,8 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
             std::make_shared<DataType>(
                 dataTypeSize(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
                                                        : DataType::UInt32),
-            (size_t)ir_utils::getTMemLdStVectorizeSize(ldst->out()->as<TensorView>())};
+            (size_t)ir_utils::getTMemLdStVectorizeSize(
+                ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
