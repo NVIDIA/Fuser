@@ -37,6 +37,14 @@ class NonOverlappingLRUCacheModel {
     return allocated_;
   }
 
+  int64_t missedBytes() const {
+    return bytes_missed_;
+  }
+
+  int64_t hitBytes() const {
+    return bytes_hit_;
+  }
+
  private:
   //! Remove least recently used entries until allocated_ is within capacity_
   void evict();
@@ -60,6 +68,9 @@ class NonOverlappingLRUCacheModel {
   // This should always be equal to the sum of the sizes of all entries in
   // priority_
   int64_t allocated_ = 0L;
+
+  int64_t bytes_missed_ = 0L;
+  int64_t bytes_hit_ = 0L;
 };
 
 } // namespace scheduler_tools

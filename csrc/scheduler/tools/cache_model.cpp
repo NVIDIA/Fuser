@@ -10,6 +10,8 @@
 
 #include <ATen/cuda/CUDAContextLight.h>
 
+#include <iostream>
+
 namespace nvfuser {
 
 namespace scheduler_tools {
@@ -35,6 +37,11 @@ bool NonOverlappingLRUCacheModel::access(int64_t address, int64_t size) {
   }
   priority_.push_front({address, size});
   lookup_[address] = priority_.cbegin();
+  if (hit) {
+    bytes_hit_ += size;
+  } else {
+    bytes_missed_ += size;
+  }
   return hit;
 }
 

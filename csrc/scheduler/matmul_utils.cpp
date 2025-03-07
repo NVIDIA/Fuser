@@ -17,6 +17,7 @@
 // 'SchedulerRuntimeInfo'
 #include <debug.h>
 #include <id_model/id_model.h>
+#include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
@@ -243,28 +244,84 @@ struct ConfigSubset {
   int64_t splitk_factor = 1L;
 };
 
-void incrementTilePosition(
-    int64_t& i,
-    int64_t& j,
+int64_t numBlocks(int64_t tiles_m, int64_t tiles_n, const ConfigSubset& cfg) {
+  int64_t unsplit_blocks;
+  if (cfg.grid_swizzle_factor == 1L) {
+    unsplit_blocks = tiles_m * tiles_n;
+  } else {
+    bool row_maj =
+        cfg.cta_order == MatmulParams::TileRasterizationOrder::RowMajor;
+    int64_t tiles_fast = row_maj ? tiles_m : tiles_n;
+    int64_t tiles_slow = row_maj ? tiles_n : tiles_m;
+    unsplit_blocks = tiles_fast * cfg.grid_swizzle_factor *
+        ceilDiv(tiles_slow, cfg.grid_swizzle_factor);
+  }
+  return unsplit_blocks * cfg.splitk_factor;
+}
+
+std::pair<int64_t, int64_t> blockTilePos(
     int64_t tiles_m,
     int64_t tiles_n,
+    int64_t block,
     const ConfigSubset& cfg) {
-  // TODO: Model grid swizzle here
-  int64_t& fast =
-      cfg.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor ? j
-                                                                         : i;
-  int64_t& slow =
-      cfg.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor ? i
-                                                                         : j;
-  int64_t tiles_fast =
-      cfg.cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
-      ? tiles_m
-      : tiles_n;
-  fast++;
-  if (fast >= tiles_fast) {
-    slow++;
-    fast = 0L;
+  // Row major maps BIDx to Mo and BIDy to No
+  bool row_maj =
+      cfg.cta_order == MatmulParams::TileRasterizationOrder::RowMajor;
+  int64_t tiles_fast = row_maj ? tiles_m : tiles_n;
+
+  int64_t i, j;
+
+  if (cfg.grid_swizzle_factor == 1L) {
+    // Simple raster
+    i = block % tiles_fast;
+    j = block / tiles_fast;
+  } else {
+    // For grid swizzling, we split the BIDy dimension, then we take the inner
+    // dimension from the split and we merge it on the inside of the BIDx
+    // dimension. The BIDx dimension is the fast dim and BIDy is slow.
+    // This takes us from a [Tf, Ts] grid to a [Tf*factor, ceilDiv(Ts,factor)]
+    // grid.
+    int64_t i_swiz = block % (tiles_fast * cfg.grid_swizzle_factor);
+    int64_t j_swiz = block / (tiles_fast * cfg.grid_swizzle_factor);
+    i = i_swiz / cfg.grid_swizzle_factor;
+    j = j_swiz * cfg.grid_swizzle_factor + i_swiz % cfg.grid_swizzle_factor;
   }
+
+  if (!row_maj) {
+    std::swap(i, j);
+  }
+  return {i, j};
+}
+
+// This is a fast computation that does not do a full L2 model. Instead it
+// ignores caching altogether and simply computes the total amount of data
+// transferred to and from global memory if there were no caching.
+int64_t expectedTransferredBytes(
+    int64_t m,
+    int64_t n,
+    int64_t k,
+    const ConfigSubset& cfg) {
+  const int64_t tiles_m = ceilDiv(m, cfg.cta.m);
+  const int64_t tiles_n = ceilDiv(n, cfg.cta.n);
+  const int64_t tiles_k = ceilDiv(k, cfg.cta.k);
+
+  // This is the number of bytes that get loaded per circular buffering stage
+  // in a single tile.
+  const int64_t bytes_per_output_tile =
+      tiles_k * (cfg.cta.m + cfg.cta.n) * cfg.cta.k;
+
+  // Now we model wave quantization of the MN tile grid. For example if there
+  // are 132 SMs, then we round up the number of tiles to a multiple of 132
+  // and then multiply the bytes per output tile by that number. The last wave
+  // might run faster than we model it here because it is not really loading
+  // that full amount of data, but it is still wasted computation and so this
+  // is how we model it. Note that we also do not model L2 locality here at
+  // all, so this number is meant as a very rough estimate of compute time for
+  // memory-bound problems.
+  const int64_t num_sms =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const int64_t num_waves = ceilDiv(tiles_m * tiles_n, num_sms);
+  return num_waves * num_sms * bytes_per_output_tile;
 }
 
 // This is a naive model of the L2 cache behavior of a matmul kernel. We start
@@ -289,8 +346,6 @@ float simulateHopperL2(
       "CGA L2 modeling is not yet supported");
   NVF_ERROR(
       cfg.splitk_factor == 1L, "Split-K L2 modeling is not yet supported");
-  NVF_ERROR(
-      cfg.splitk_factor == 1L, "Split-K L2 modeling is not yet supported");
 
   auto prop = at::cuda::getCurrentDeviceProperties();
   const int64_t num_sms = prop->multiProcessorCount;
@@ -313,10 +368,12 @@ float simulateHopperL2(
   const int64_t tiles_n = ceilDiv(n, cfg.cta.n);
   const int64_t tiles_k = ceilDiv(k, cfg.cta.k);
 
-  const int64_t tile_size_a = ceilDiv(cfg.cta.m, cfg.cta.k) * 2;
-  const int64_t tile_size_b = ceilDiv(cfg.cta.n, cfg.cta.k) * 2;
+  const int64_t num_waves = ceilDiv(numBlocks(tiles_m, tiles_n, cfg), num_sms);
+
+  const int64_t tile_size_a = cfg.cta.m * cfg.cta.k * 2;
+  const int64_t tile_size_b = cfg.cta.n * cfg.cta.k * 2;
   // TODO: handle other than 2-byte outputs
-  const int64_t tile_size_c = ceilDiv(cfg.cta.m, cfg.cta.n) * 2;
+  const int64_t tile_size_c = cfg.cta.m * cfg.cta.n * 2;
 
   // The number of possible A tiles is tiles_m*tiles_k
   // The number of possible B tiles is tiles_n*tiles_k
@@ -328,30 +385,24 @@ float simulateHopperL2(
   int64_t offset_c = offset_b + tiles_n * tiles_k;
 
   // This will be filled with the MN coordinates of the tiles for each wave
-  std::vector<std::pair<int64_t, int64_t>> wave_tile_coords;
-  wave_tile_coords.reserve((size_t)num_sms);
-  int64_t next_i = 0L;
-  int64_t next_j = 0L;
-  while (true) {
-    // There is one iteration of this loop per wave
-
-    wave_tile_coords.clear();
-    for ([[maybe_unused]] size_t sm : c10::irange(num_sms)) {
-      if (next_i < tiles_m && next_j < tiles_n) {
-        wave_tile_coords.emplace_back(next_i, next_j);
-      }
-      // Advance to next tile
-      incrementTilePosition(next_i, next_j, tiles_m, tiles_n, cfg);
-    }
-
-    if (wave_tile_coords.empty()) {
-      break;
+  std::vector<std::pair<int64_t, int64_t>> wave_tile_coords(num_sms);
+  // There is one iteration of this loop per wave
+  for (size_t wave : c10::irange(num_waves)) {
+    // Fill coords of all tiles in this wave
+    for (size_t sm : c10::irange(num_sms)) {
+      size_t block = wave * num_sms + sm;
+      std::pair<int64_t, int64_t> pos =
+          blockTilePos(tiles_m, tiles_n, (int64_t)block, cfg);
+      wave_tile_coords[sm] = std::move(pos);
     }
 
     // TODO: handle multiple operands/outputs, and different precisions here
     // Model synchronous K loops for all the tiles in wave_tile_coords
     for (size_t k_pos : c10::irange(tiles_k)) {
       for (const auto& [i, j] : wave_tile_coords) {
+        if (i >= tiles_m || j >= tiles_n) {
+          continue;
+        }
         // Load A and B tiles for this stage
         do_access(offset_a + i * tiles_k + k_pos, tile_size_a);
         do_access(offset_b + j * tiles_k + k_pos, tile_size_b);
@@ -359,6 +410,9 @@ float simulateHopperL2(
     }
     // After K loop, write each output tile
     for (const auto& [i, j] : wave_tile_coords) {
+      if (i >= tiles_m || j >= tiles_n) {
+        continue;
+      }
       // NOTE: we might want to use different output throughput than operands
       do_access(offset_c + i * j, tile_size_c);
     }
@@ -383,15 +437,19 @@ float simulateHopperL2(
 void fillOptimalHopperTileSizes(
     MatmulParams* mparams,
     const ProblemShape& problem_shape) {
+  FUSER_PERF_SCOPE("fillOptimalHopperTileSizes");
   const int64_t m = problem_shape[(size_t)MatmulDimRole::M];
   const int64_t n = problem_shape[(size_t)MatmulDimRole::N];
   const int64_t k = problem_shape[(size_t)MatmulDimRole::K];
 
+  const int64_t smem_bytes =
+      at::cuda::getCurrentDeviceProperties()->sharedMemPerMultiprocessor;
+
   ConfigSubset best_config{
       /*cta=*/{64, 64, 64}, /*warp=*/{64, 64, 64}, /*instr=*/{64, 64, 16}};
-  float best_time = std::numeric_limits<int64_t>::infinity();
+  int64_t best_expected_bytes = std::numeric_limits<int64_t>::max();
 
-  // If two sizes result in the same number of total byte, prefer the larger CTA
+  // If two sizes result in the same estimated time, prefer the larger CTA
   // K. To do this we iterate backwards here.
   for (int64_t cta_k = 256; cta_k > 0; cta_k -= 64) {
     for (const auto& [m_ratio, n_ratio] :
@@ -401,15 +459,12 @@ void fillOptimalHopperTileSizes(
              {1L, 1L}, // single math group
          }) {
       for (int64_t instr_n = 256; instr_n > 8; instr_n -= 64) {
-        // for (int64_t instr_n = 64; instr_n <= 64; instr_n += 64) {
         const int64_t cta_m = m_ratio * 64;
         const int64_t cta_n = n_ratio * instr_n;
 
         const int64_t bytes_per_stage = (cta_m + cta_n) * cta_k * 2;
-        // Don't consider cases where we would need fewer than 3 load stages due
-        // to smem constraint (add 1K bytes overhead as fudge factor)
-        const int64_t smem_bytes =
-            at::cuda::getCurrentDeviceProperties()->sharedMemPerMultiprocessor;
+        // Don't consider cases where we would need fewer than 3 load stages
+        // due to smem constraint (add 1K bytes overhead as fudge factor)
         if (bytes_per_stage * 3L > smem_bytes - 1024L) {
           continue;
         }
@@ -423,11 +478,32 @@ void fillOptimalHopperTileSizes(
             .warp = {64L, instr_n, cta_k},
             .instr = {64L, instr_n, 16L},
         };
-        const float time = simulateHopperL2(m, n, k, cfg);
-        if (time < best_time) {
-          best_time = time;
+        const int64_t expected_bytes = expectedTransferredBytes(m, n, k, cfg);
+        if (expected_bytes < best_expected_bytes) {
+          best_expected_bytes = expected_bytes;
           best_config = cfg;
         }
+      }
+    }
+  }
+
+  const int64_t tiles_m = ceilDiv(m, best_config.cta.m);
+  const int64_t tiles_n = ceilDiv(n, best_config.cta.n);
+
+  float best_time = std::numeric_limits<float>::infinity();
+  for (auto cta_order :
+       {MatmulParams::TileRasterizationOrder::RowMajor,
+        MatmulParams::TileRasterizationOrder::ColumnMajor}) {
+    // NOTE: we don't need to simulate larger than half the total grid size
+    for (size_t grid_swizzle_factor : c10::irange(
+             1, std::min((size_t)21, (size_t)std::min(tiles_m, tiles_n) / 2))) {
+      ConfigSubset cfg = best_config;
+      cfg.cta_order = cta_order;
+      cfg.grid_swizzle_factor = (int64_t)grid_swizzle_factor;
+      const float time = simulateHopperL2(m, n, k, cfg);
+      if (time < best_time) {
+        best_time = time;
+        best_config = cfg;
       }
     }
   }
@@ -439,6 +515,8 @@ void fillOptimalHopperTileSizes(
       (uint16_t)64,
       (uint16_t)best_config.instr.n,
       (uint16_t)16};
+  mparams->cta_order = best_config.cta_order;
+  mparams->grid_swizzle_factor = best_config.grid_swizzle_factor;
 }
 
 bool fillDefaultHopperHeuristic(
@@ -486,37 +564,6 @@ bool fillDefaultHopperHeuristic(
 
   // Always use TMA on Hopper
   mparams->async_gmem_load_operands = true;
-
-  // See here for more information:
-  // https://research.colfax-intl.com/cutlass-tutorial-wgmma-hopper/
-
-  // We count the number of tiles in each dimension to determine the
-  // rasterization order. The fast rasterization axis is the shortest axis, to
-  // encourage L2 hits by looping over the same rows or cols more frequently.
-  int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
-  int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
-
-  // When we choose the rasterization direction, that becomes the fast
-  // dimension. However, when we swizzle, we pull groups of a fixed size from
-  // the _other_ dimension to create a new inner dimension. We find the swizzle
-  // factor that is largest and has the least quantization when we divide that
-  // other dimension by the swizzle factor.
-  int64_t swizzled_tiles = Mtiles <= Ntiles ? Ntiles : Mtiles;
-  mparams->cta_order = Mtiles <= Ntiles
-      ? MatmulParams::TileRasterizationOrder::ColumnMajor
-      : MatmulParams::TileRasterizationOrder::RowMajor;
-
-  // We also swizzle the tiles as much as possible up to 16 tiles. Like choosing
-  // the rasterization order, this is used to increase L2 locality
-  mparams->grid_swizzle_factor = std::min(swizzled_tiles, 16L);
-  while (swizzled_tiles % mparams->grid_swizzle_factor != 0) {
-    // Decrease the swizzle factor if it would result in nondivisible splits,
-    // since this would unnecessarily increase the grid size.
-    mparams->grid_swizzle_factor--;
-  }
-  // TODO: grid swizzling is currently disabled on Hopper since we cannot
-  // properly inline when we swizzle unmapped loop broadcasts
-  mparams->grid_swizzle_factor = 1L;
 
   // TODO: Finally, we set the CGA size
 
