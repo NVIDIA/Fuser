@@ -220,7 +220,7 @@ std::vector<ParallelType> getInterestedThreadParallelTypes(Fusion* fusion) {
 
 // Get the [TIDz, TIDy, TIDx] projected to the given expression as ValGroups,
 // and merge them by contiguity. If any of the TIDz, TIDy, TIDx is not
-// interested, we just ignore it. Return the merged ValGroups as an
+// interested (see above), we just ignore it. Return the merged ValGroups as an
 // AbstractTensor.
 //
 // Why do we need this function?
@@ -234,36 +234,54 @@ std::vector<ParallelType> getInterestedThreadParallelTypes(Fusion* fusion) {
 //
 // We need to construct a ValGroup that represents "warp" for an expression from
 // its consumer's loop domain. Naively speaking, it is just:
-//   split(TIDz * TIDy * TIDx, 32).inner
-// where TIDz, TIDy and TIDx are the IterDomains in the loop domain that has
-// such parallelization. But unfortunately, in reality, it is not that simple.
+//   split(Iz * Iy * Ix, 32).inner
+// where Iz, Iy, Ix are the IterDomains in the loop domain that are parallelized
+// on TIDz, TIDy and TIDx. But unfortunately, in reality, it is not that simple.
 // NVFuser allows parallelizating IterDomains in an inexact way, for example, if
-// the kernel's parallel dimension size for TIDx is 64, then the IterDomain
-// being parallelized with TIDx does not have to be exactly 64. This inexactness
+// the kernel's parallel dimension size for TIDx is 8, then the IterDomain being
+// parallelized with TIDx (Ix) does not have to be exactly 8. This inexactness
 // is especially common in warp-specialized kernels. If, for example, the TIDx
-// parallelized IterDomain in the loop domain is not exact, then
-//   split(TIDz * TIDy * TIDx, 32).inner
+// parallelized IterDomain (Ix) in the loop domain is not exact (for example,
+// have extent 7), then
+//   split(Iz * Iy * Ix, 32).inner
 // may not be the warp. To handle this, we need to create a new concept
-// "contiguity of parallel types in the loop domain". We can represent warp as
-//   split(TIDz * TIDy * TIDx, 32).inner
-// if and only if TIDz and TIDy are contiguous. If TIDz is not contiguous but
-// TIDy is, then warp would be:
-//   split(TIDy * TIDx, 32).inner
-// If neither TIDz nor TIDy is contiguous, then warp would be:
-//   split(TIDx, 32).inner
+// "contiguity of thread parallelized IterDomains in the loop domain". We can
+// represent warp as
+//   split(Iz * Iy * Ix, 32).inner
+// if and only if Iz and Iy are contiguous. If Iz is not contiguous but Iy is,
+// then warp would be:
+//   split(Iy * Ix, 32).inner
+// If neither Iz nor Iy is contiguous, then warp would be:
+//   split(Ix, 32).inner
+// Another way to think about the contiguity as described above is to consider
+// all threads in the CTA as a 3D lattice, and we are drawing a 3d box from the
+// origin to some point in the lattice. The length of the edges of the box are
+// Ix.extent, Iy.extent, and Iz.extent. The contiguity of Ix, Iy, Iz are just
+// like considering the lattice as a 3D tensor, and the box as a slice of the
+// tensor.
 AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
   auto& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto interested_tid_ptypes = getInterestedThreadParallelTypes(expr->fusion());
   const auto& loop_domain = ir_utils::getTvOutput(expr)->getLoopDomain();
   const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-  // Get the contiguity of interested_tid_ptypes in the loop domain.
-  // The contiguity of each item in interested_tid_ptypes are defined as
-  // follows:
+  // Get the contiguity of interested_tid_ptypes in the loop domain as described
+  // above. The contiguity of each item in interested_tid_ptypes can be computed
+  // as follows:
   // - The innermost parallel type of interested_tid_ptypes is always
   // contiguous.
   // - The item at index i is contiguous if the item at index i+1 is
-  //   exact(its extent in the loop domain is the same as parallel
+  //   exact (its extent in the loop domain is the same as parallel
   //   dimension size of the kernel).
+  // For example, if the parallel dimension sizes of the kernel are:
+  //   TIDz: 32, TIDy: 8, TIDx: 8
+  // and the loop domain is:
+  //   I0: TIDz, extent 32
+  //   I1: TIDy, extent 7
+  //   I2: TIDx, extent 8
+  // then the contiguity of TIDz, TIDy, TIDx in the loop domain is:
+  //   TIDz: false, TIDy: true, TIDx: true
+  // A true contiguity of I1 with respect to I2 means that I1 and I2 can be
+  // merged
   std::vector<bool> contiguity;
   contiguity.reserve(interested_tid_ptypes.size());
   bool prev_exact = true;
