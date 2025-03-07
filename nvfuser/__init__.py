@@ -251,7 +251,7 @@ class FusionDefinition(_C._FusionDefinition):
         """
         self.profiled = profile
 
-        if device is not None:
+        if not isinstance(device, int) and device is not None:
             if not isinstance(device, torch.device):
                 device = torch.device(device)
             assert (
