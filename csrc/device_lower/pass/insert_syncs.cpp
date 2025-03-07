@@ -39,7 +39,13 @@ class SmemAllocMap {
   //! Insert a new node if it's a SMEM allocation
   void insert(kir::Allocate* alloc) {
     if (auto tv = dynamic_cast<TensorView*>(alloc->buffer())) {
-      if (tv->getMemoryType() == MemoryType::Shared) {
+      // Tensor memory is similar to shared memory because they are both
+      // shared between threads in a block. In that sense, we can consider
+      // tensor memory as special type of shared memory. In this file, we use
+      // the term "shared memory", "smem" to refer to both shared and tensor
+      // memories.
+      if (tv->getMemoryType() == MemoryType::Shared ||
+          tv->getMemoryType() == MemoryType::Tensor) {
         // Note that a TensorView can have two allocations due to
         // unswitch.
         auto p = map_.insert({tv, alloc});
@@ -203,7 +209,13 @@ class WarSyncInserter : private kir::ExprMutator {
     // Mark write has been hit for all output tvs
     auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (auto out_tv : out_tvs) {
-      if (out_tv->getMemoryType() != MemoryType::Shared ||
+      // Tensor memory is similar to shared memory because they are both
+      // shared between threads in a block. In that sense, we can consider
+      // tensor memory as special type of shared memory. In this file, we use
+      // the term "shared memory", "smem" to refer to both shared and tensor
+      // memories.
+      if ((out_tv->getMemoryType() != MemoryType::Shared &&
+           out_tv->getMemoryType() != MemoryType::Tensor) ||
           GpuLower::current()->syncMap()->needsRawSync(out_tv).none()) {
         continue;
       }
@@ -221,7 +233,13 @@ class WarSyncInserter : private kir::ExprMutator {
     // Mark read was hit, if sync_after_read was set, clear it.
     auto inp_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto inp_tv : inp_tvs) {
-      if (inp_tv->getMemoryType() != MemoryType::Shared ||
+      // Tensor memory is similar to shared memory because they are both
+      // shared between threads in a block. In that sense, we can consider
+      // tensor memory as special type of shared memory. In this file, we use
+      // the term "shared memory", "smem" to refer to both shared and tensor
+      // memories.
+      if ((inp_tv->getMemoryType() != MemoryType::Shared &&
+           inp_tv->getMemoryType() != MemoryType::Tensor) ||
           GpuLower::current()->syncMap()->needsRawSync(inp_tv).none()) {
         continue;
       }
@@ -507,12 +525,19 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
+      // Tensor memory is similar to shared memory because they are both
+      // shared between threads in a block. In that sense, we can consider
+      // tensor memory as special type of shared memory. In this file, we use
+      // the term "shared memory", "smem" to refer to both shared and tensor
+      // memories.
       if (!sync_bitmap.hasBID() &&
           std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
                 return !val->isA<TensorView>() ||
-                    val->as<TensorView>()->getMemoryType() !=
-                    MemoryType::Shared ||
+                    (val->as<TensorView>()->getMemoryType() !=
+                         MemoryType::Shared &&
+                     val->as<TensorView>()->getMemoryType() !=
+                         MemoryType::Tensor) ||
                     ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
@@ -642,7 +667,13 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           GpuLower::current()->syncMap()->needsRawSync(tv).none()) {
         continue;
       }
-      if (tv->getMemoryType() != MemoryType::Shared) {
+      // Tensor memory is similar to shared memory because they are both
+      // shared between threads in a block. In that sense, we can consider
+      // tensor memory as special type of shared memory. In this file, we use
+      // the term "shared memory", "smem" to refer to both shared and tensor
+      // memories.
+      if (tv->getMemoryType() != MemoryType::Shared &&
+          tv->getMemoryType() != MemoryType::Tensor) {
         continue;
       }
       auto it = smem.find(tv);
@@ -755,7 +786,13 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // Circular buffered tensors do not need RAW sync to be inserted
         // here, except for the initial load part, which is taken care
         // separately by CircularBufferInserter.
-        if (tv->getMemoryType() == MemoryType::Shared &&
+        // Tensor memory is similar to shared memory because they are both
+        // shared between threads in a block. In that sense, we can consider
+        // tensor memory as special type of shared memory. In this file, we use
+        // the term "shared memory", "smem" to refer to both shared and tensor
+        // memories.
+        if ((tv->getMemoryType() == MemoryType::Shared ||
+             tv->getMemoryType() == MemoryType::Tensor) &&
             (!tv->isCircularBuffered() ||
              tv->circularBufferOptions().prefetch == 0)) {
           smem[tv] = expr;

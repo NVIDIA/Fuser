@@ -2331,8 +2331,12 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
       "Matmul with all broadcasting dimension is not supported yet.");
   ValGroup inner = alloc_domain.back();
 
+  // We do not require all groups to be visited. Only the inner allocation group
+  // must be visited, which we check later.
+  // See https://github.com/NVIDIA/Fuser/issues/3962
   auto exprs =
-      ValGraphBFS::getExprGroupsBetween(id_graph, loop_domain, alloc_domain)
+      ValGraphBFS::getExprGroupsBetween(
+          id_graph, loop_domain, alloc_domain, /*require_all_to_visited=*/false)
           .first;
   while (!exprs.empty()) {
     auto [expr, direction] = exprs.back();

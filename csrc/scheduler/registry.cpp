@@ -33,11 +33,11 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
 
   FusionGuard fg(fusion);
 
-  // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
+  // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
-  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
+  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        scheduler_type, "SdpaOps are not supported.");
+        scheduler_type, "Has unsupported ops");
     return false;
   }
 
