@@ -2955,6 +2955,7 @@ TEST_F(TMemTest, dtypes) {
         if (ld_vec_bytes > 512) {
           continue;
         }
+        std::cout << dtype << " " << st_vec << " " << ld_vec << std::endl;
         Fusion fusion;
         FusionGuard fg(&fusion);
 
