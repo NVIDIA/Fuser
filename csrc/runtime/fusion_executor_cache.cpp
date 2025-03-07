@@ -40,11 +40,11 @@ FusionExecutorCache::FusionExecutorCache(
     int64_t fusion_id,
     bool auto_schedule)
     : fusion_(std::move(fusion)),
-      exact_map_(std::make_unique<ExactLogicalDomainMap>(fusion_.get())),
+      exact_map_(fusion_.get()),
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
-std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
+KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
     KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
@@ -89,15 +89,13 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // semantically correct to actually return them as outputs from
   // fusion.
   NVF_ERROR(fusion->outputs().size() == outputs.size());
-  size_t new_size = 0;
-  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+  KernelArgumentHolder unaliased_outputs;
+  for (auto out_index : c10::irange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];
     if (!fusion->getOutputAlias(out).hide_output) {
-      outputs[new_size] = outputs[out_index];
-      new_size++;
+      unaliased_outputs.push(outputs[out_index]);
     }
   }
-  outputs.resize(new_size);
 
   // NOTE: This should be the last code in the method to capture all host time
   if (isProfilerEnabled()) {
@@ -107,7 +105,7 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     debug() << FusionProfiler::profile();
   }
 
-  return outputs;
+  return unaliased_outputs;
 }
 
 void FusionExecutorCache::setCacheId(KernelArgumentHolder& args) {
@@ -443,7 +441,7 @@ void FusionExecutorCache::deserialize(
       auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
       cached_conc_info_.emplace_back(
           std::make_unique<DynamicTransformConcretizationInfo>(
-              &initial_info, &expr_eval, exact_map_.get()));
+              &initial_info, &expr_eval, &exact_map_));
       conc_info = cached_conc_info_.back().get();
     }
 
@@ -584,7 +582,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
     cached_conc_info_.emplace_back(
         std::make_unique<DynamicTransformConcretizationInfo>(
-            &initial_info, &expr_eval, exact_map_.get()));
+            &initial_info, &expr_eval, &exact_map_));
     conc_info = cached_conc_info_.back().get();
   }
 

@@ -7,6 +7,9 @@
 // clang-format on
 #pragma once
 
+#include <type.h>
+
+#include <unordered_map>
 #include <vector>
 
 namespace nvfuser {
@@ -14,8 +17,9 @@ namespace nvfuser {
 class Val;
 class TensorView;
 class Fusion;
+class IterDomain;
 
-// Information used to lower tensor memory. So far, it is just about allocation.
+// Information used to lower tensor memory.
 struct TensorMemoryInfo;
 TensorMemoryInfo computeTMemInfo(Fusion* fusion);
 
@@ -141,19 +145,29 @@ struct TMemAlllocationInfo {
     // The TMem TensorViews covered by this region. Each region can be used to
     // store multiple TensorViews. The (lane_offset, column_offset) specifies
     // the starting offset of each TensorView in this region.
+    // The lane_allocation is the part of allocation domain on the left of the
+    // TMem dimsep position that is actually being allocated.
+    // The column_allocation is the part of allocation domain on the right of
+    // the TMem dimsep position that is actually being allocated.
     struct TVInfo {
       TensorView* tensor;
+      std::vector<IterDomain*> lane_allocation;
+      std::vector<IterDomain*> column_allocation;
       Val* lane_offset;
       Val* column_offset;
     };
     std::vector<TVInfo> covered_tensors;
   };
   std::vector<Region> regions;
+
+  const Region::TVInfo& getTVInfo(TensorView* tv) const;
 };
 
 // The actual definition of TensorMemoryInfo.
 struct TensorMemoryInfo {
   TMemAlllocationInfo allocation;
+  std::unordered_map<TensorView*, TMemRegisterDataPath> load_data_path;
+  std::unordered_map<TensorView*, TMemRegisterDataPath> store_data_path;
 };
 
 } // namespace nvfuser
