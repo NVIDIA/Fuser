@@ -2966,15 +2966,9 @@ TEST_F(TMemTest, dtypes) {
 
       for (auto tv : {tv1, tv2, tv3, tv4}) {
         tv->axis(0)->parallelize(ParallelType::TIDx);
-      }
-
-      for (auto tv : {tv2, tv1}) {
         tv->split(1, vec);
       }
       tv2->axis(-1)->parallelize(ParallelType::Vectorize);
-      for (auto tv : {tv3, tv4}) {
-        tv->split(1, vec);
-      }
       tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
       tv2->setAllocationDomain(tv2->getLoopDomain(), true);
@@ -3017,9 +3011,8 @@ TEST_F(TMemTest, dtypes) {
       EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_st.str()));
       EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
     }
+    expect_dtype_bytes *= 2;
   }
-  expect_dtype_bytes *= 2;
-}
 }
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
