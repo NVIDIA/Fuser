@@ -2945,89 +2945,81 @@ TEST_F(TMemTest, dtypes) {
   int64_t expect_dtype_bytes = 1;
   for (auto dtype : data_types) {
     EXPECT_EQ(dataTypeSize(dtype), expect_dtype_bytes);
-    for (int64_t st_vec : vec_factors) {
-      int64_t st_vec_bytes = expect_dtype_bytes * st_vec;
-      if (st_vec_bytes > 512) {
+    for (int64_t vec : vec_factors) {
+      int64_t vec_bytes = expect_dtype_bytes * vec;
+      if (vec_bytes > 512) {
         continue;
       }
-      for (int64_t ld_vec : vec_factors) {
-        int64_t ld_vec_bytes = expect_dtype_bytes * ld_vec;
-        if (ld_vec_bytes > 512) {
-          continue;
-        }
-        std::cout << dtype << " " << st_vec << " " << ld_vec << std::endl;
-        Fusion fusion;
-        FusionGuard fg(&fusion);
+      Fusion fusion;
+      FusionGuard fg(&fusion);
 
-        auto tv0 = makeContigConcreteTensor({128, 512}, dtype);
-        fusion.addInput(tv0);
-        auto tv1 = set(tv0);
-        auto tv2 = set(tv1);
-        auto tv3 = set(tv2);
-        auto tv4 = set(tv3);
-        fusion.addOutput(tv4);
-        tv2->setMemoryType(MemoryType::Tensor);
-        tv2->definition()->as<LoadStoreOp>()->setOpType(
-            LoadStoreOpType::StTMem);
-        tv3->definition()->as<LoadStoreOp>()->setOpType(
-            LoadStoreOpType::LdTMem);
+      auto tv0 = makeContigConcreteTensor({128, 512}, dtype);
+      fusion.addInput(tv0);
+      auto tv1 = set(tv0);
+      auto tv2 = set(tv1);
+      auto tv3 = set(tv2);
+      auto tv4 = set(tv3);
+      fusion.addOutput(tv4);
+      tv2->setMemoryType(MemoryType::Tensor);
+      tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+      tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
-        for (auto tv : {tv1, tv2, tv3, tv4}) {
-          tv->axis(0)->parallelize(ParallelType::TIDx);
-        }
-
-        for (auto tv : {tv2, tv1}) {
-          tv->split(1, st_vec);
-        }
-        tv2->axis(-1)->parallelize(ParallelType::Vectorize);
-        for (auto tv : {tv3, tv4}) {
-          tv->split(1, ld_vec);
-        }
-        tv3->axis(-1)->parallelize(ParallelType::Vectorize);
-
-        tv2->setAllocationDomain(tv2->getLoopDomain(), true);
-        tv2->setTMemDimSepPos(1);
-
-        inlineMost();
-
-        KernelExecutor ke;
-
-        if (ld_vec_bytes % 4 != 0 || st_vec_bytes % 4 != 0) {
-          std::string message = (ld_vec_bytes == 1 || st_vec_bytes == 1)
-              ? "Tried to vectorize a dim resulting in a word size of 1 however, vector sizes only upto and including 512 bytes are supported."
-              : "Vectorize size is not a multiple of 4 bytes";
-          EXPECT_THAT(
-              [&]() { ke.compile(&fusion); },
-              ::testing::ThrowsMessage<nvfuser::nvfError>(
-                  ::testing::HasSubstr(message)));
-          continue;
-        }
-
-        ke.compile(&fusion);
-
-        at::TensorOptions options = at::TensorOptions()
-                                        .dtype(data_type_to_aten(dtype))
-                                        .device(at::kCUDA, 0);
-        at::Tensor t0 = dtype == DataType::Char
-            ? at::randint(-128, 128, {128, 512}, options)
-            : at::randn({128, 512}, options);
-        auto out = ke.run({t0});
-        EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
-
-        // Check that vectorized PTX instructions are used
-        GpuLower gpulw(&fusion);
-        auto kernel_str = codegen::generateCudaKernel(gpulw.run());
-        std::stringstream expect_st, expect_ld;
-        expect_st << "tcgen05.st.sync.aligned.32x32b.x"
-                  << ir_utils::getTMemLdStVectorizeSize(tv2) << ".b32";
-        expect_ld << "tcgen05.ld.sync.aligned.32x32b.x"
-                  << ir_utils::getTMemLdStVectorizeSize(tv3) << ".b32";
-        EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_st.str()));
-        EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
+      for (auto tv : {tv1, tv2, tv3, tv4}) {
+        tv->axis(0)->parallelize(ParallelType::TIDx);
       }
+
+      for (auto tv : {tv2, tv1}) {
+        tv->split(1, vec);
+      }
+      tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+      for (auto tv : {tv3, tv4}) {
+        tv->split(1, vec);
+      }
+      tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+      tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+      tv2->setTMemDimSepPos(1);
+
+      inlineMost();
+
+      KernelExecutor ke;
+
+      if (vec_bytes % 4 != 0) {
+        std::string message = vec_bytes == 1
+            ? "Tried to vectorize a dim resulting in a word size of 1 however, vector sizes only upto and including 512 bytes are supported."
+            : "Vectorize size is not a multiple of 4 bytes";
+        EXPECT_THAT(
+            [&]() { ke.compile(&fusion); },
+            ::testing::ThrowsMessage<nvfuser::nvfError>(
+                ::testing::HasSubstr(message)));
+        continue;
+      }
+
+      ke.compile(&fusion);
+
+      at::TensorOptions options = at::TensorOptions()
+                                      .dtype(data_type_to_aten(dtype))
+                                      .device(at::kCUDA, 0);
+      at::Tensor t0 = dtype == DataType::Char
+          ? at::randint(-128, 128, {128, 512}, options)
+          : at::randn({128, 512}, options);
+      auto out = ke.run({t0});
+      EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
+
+      // Check that vectorized PTX instructions are used
+      GpuLower gpulw(&fusion);
+      auto kernel_str = codegen::generateCudaKernel(gpulw.run());
+      std::stringstream expect_st, expect_ld;
+      expect_st << "tcgen05.st.sync.aligned.32x32b.x"
+                << ir_utils::getTMemLdStVectorizeSize(tv2) << ".b32";
+      expect_ld << "tcgen05.ld.sync.aligned.32x32b.x"
+                << ir_utils::getTMemLdStVectorizeSize(tv3) << ".b32";
+      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_st.str()));
+      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
     }
-    expect_dtype_bytes *= 2;
   }
+  expect_dtype_bytes *= 2;
+}
 }
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
