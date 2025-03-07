@@ -804,6 +804,6 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
 // in the PTX instruction is the number of this unit, not the number of items.
 // For example, tcgen05.st.sync.aligned.32x32b.x4.b32 could mean 1 complex
 // double, 2 doubles, 4 floats, 8 halfs, or 16 bytes.
-int64_t getTMemLdStVectorizeSize(TensorView* tv);
+int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv);
 
 } // namespace nvfuser::ir_utils
