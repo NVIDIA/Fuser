@@ -425,6 +425,7 @@ const std::string Asm::utility() const {
        "tmem::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
        "tmem::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
