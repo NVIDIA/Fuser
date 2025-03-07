@@ -262,14 +262,12 @@ class FusionDefinition(_C._FusionDefinition):
             device = device.index
 
         # if definition is not defined by a context manager, try a child class
+        defined_multidevice_schedule = hasattr(self, "multidevice_schedule")
         if self.id() is None:
             self._setup_definition()
             self.definition()
             self._finalize_definition()
 
-            defined_multidevice_schedule = hasattr(
-                self, "multidevice_schedule"
-            ) and isinstance(self.multidevice_schedule, Callable)
             defined_schedule = hasattr(self, "schedule") and isinstance(
                 self.schedule, Callable
             )
