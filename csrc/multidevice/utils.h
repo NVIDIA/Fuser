@@ -114,7 +114,7 @@ at::Tensor shardTensor(
     DeviceIdxType device_id);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
-void reorderDIDToFront(TensorView*);
+int64_t reorderDIDToFront(TensorView*);
 
 // Given a TensorView and the shape of a sharded tensor of which certain
 // dimensions are partially allocated, returns the global shape that'll be used
