@@ -2992,10 +2992,13 @@ TEST_F(TMemTest, dtypes) {
         KernelExecutor ke;
 
         if (ld_vec_bytes % 4 != 0 || st_vec_bytes % 4 != 0) {
+          std::string message = (ld_vec_bytes == 1 || st_vec_bytes == 1)
+              ? "Tried to vectorize a dim resulting in a word size of 1 however, vector sizes only upto and including 512 bytes are supported."
+              : "Vectorize size is not a multiple of 4 bytes";
           EXPECT_THAT(
               [&]() { ke.compile(&fusion); },
-              ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
-                  "Vectorize size is not a multiple of 4 bytes")));
+              ::testing::ThrowsMessage<nvfuser::nvfError>(
+                  ::testing::HasSubstr(message)));
           continue;
         }
 
