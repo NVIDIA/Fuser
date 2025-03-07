@@ -1214,9 +1214,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IndexSelectOp* sop) final {
-    if (sop->out()->isA<kir::TensorIndex>()) {
+    if (sop->output(0)->isA<kir::TensorIndex>()) {
       // Get vectorization information
-      auto out_tv = sop->out()->as<kir::TensorIndex>()->view();
+      auto out_tv = sop->output(0)->as<kir::TensorIndex>()->view();
       int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
       bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
       if (is_vector_op) {
