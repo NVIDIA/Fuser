@@ -4484,6 +4484,7 @@ void SegmentCandidateFinder::forwardInputs() {
       // Either way, `uop` is excluded from merging until
       // `resolveNonscalarForwardedInput` adds it back to one of the segments.
       excluded_inp_unary_exprs_.pushBack(uop);
+      std::cout << "Excluded unary expr: " << uop->toString() << std::endl;
     }
   }
 
@@ -4828,19 +4829,26 @@ void SegmentCandidateFinder::finalize() {
   //  finalize. Need to re-structure in a follow up.
 
   // Finalize connections between segmented groups
-  segmented_fusion_->finalize();
+  // segmented_fusion_->finalize();
 
   // Resolve all the scalar expressions needed in each group
-  for (auto group : segmented_fusion_->groups()) {
-    resolveScalarsInGroup(group);
-  }
+  // for (auto group : segmented_fusion_->groups()) {
+  //   resolveScalarsInGroup(group);
+  // }
 
-  for (auto group : segmented_fusion_->groups()) {
-    revertPrivatizedUpcast(group);
-  }
+  // for (auto group : segmented_fusion_->groups()) {
+  //   revertPrivatizedUpcast(group);
+  // }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
+    std::cout << "\nFinalizing group inputs:\n";
+    for(auto val: g->input_vals) {
+      std::cout << val->toString() << std::endl;
+    }
+    std::cout << "group: " << g->groupId() << std::endl;
+    g->print();
+
     g->setSchedulerType(deriveSchedulerType(g));
     g->finalize();
   }
