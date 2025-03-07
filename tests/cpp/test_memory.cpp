@@ -2959,7 +2959,7 @@ TEST_F(TMemTest, dtypes) {
         Fusion fusion;
         FusionGuard fg(&fusion);
 
-        auto tv0 = makeContigConcreteTensor({512, 512}, dtype);
+        auto tv0 = makeContigConcreteTensor({128, 512}, dtype);
         fusion.addInput(tv0);
         auto tv1 = set(tv0);
         auto tv2 = set(tv1);
@@ -3009,8 +3009,8 @@ TEST_F(TMemTest, dtypes) {
                                         .dtype(data_type_to_aten(dtype))
                                         .device(at::kCUDA, 0);
         at::Tensor t0 = dtype == DataType::Char
-            ? at::randint(-128, 128, {512, 512}, options)
-            : at::randn({512, 512}, options);
+            ? at::randint(-128, 128, {128, 512}, options)
+            : at::randn({128, 512}, options);
         auto out = ke.run({t0});
         EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 
