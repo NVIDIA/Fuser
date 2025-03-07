@@ -4829,26 +4829,29 @@ void SegmentCandidateFinder::finalize() {
   //  finalize. Need to re-structure in a follow up.
 
   // Finalize connections between segmented groups
-  // segmented_fusion_->finalize();
+  segmented_fusion_->finalize();
 
   // Resolve all the scalar expressions needed in each group
-  // for (auto group : segmented_fusion_->groups()) {
-  //   resolveScalarsInGroup(group);
-  // }
+  for (auto group : segmented_fusion_->groups()) {
+    resolveScalarsInGroup(group);
+  }
 
-  // for (auto group : segmented_fusion_->groups()) {
-  //   revertPrivatizedUpcast(group);
-  // }
+  for (auto group : segmented_fusion_->groups()) {
+    auto scheduler_type = group->schedulerType();
+    // If the pre-upcasted tensor is a persistent buffer, revert privatized
+    // upcast changes the persistent tensor from the pre-upcasted tensor (e.g.
+    // bool) to the post-upcasted tensor (e.g. float) may leads a fusion can't
+    // be scheduled by persistent schedulders due to this increased buffer size.
+    if (scheduler_type == SchedulerType::InnerPersistent ||
+        scheduler_type == SchedulerType::OuterPersistent ||
+        scheduler_type == SchedulerType::InnerOuterPersistent) {
+      continue;
+    }
+    revertPrivatizedUpcast(group);
+  }
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
-    std::cout << "\nFinalizing group inputs:\n";
-    for(auto val: g->input_vals) {
-      std::cout << val->toString() << std::endl;
-    }
-    std::cout << "group: " << g->groupId() << std::endl;
-    g->print();
-
     g->setSchedulerType(deriveSchedulerType(g));
     g->finalize();
   }
