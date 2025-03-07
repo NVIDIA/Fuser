@@ -211,7 +211,7 @@ class NVF_API FusionDefinition : public FusionState {
   //! mapping) to a field of FusionDefinition and retrieve it using another
   //! method. This would be similar to getDebugOutput. I didn't choose that
   //! because it introduced a new state in the class that could get out of sync.
-  NVF_API std::vector<DistributedTensor> execute(
+  NVF_API KernelArgumentHolder execute(
       KernelArgumentHolder inputs,
       std::optional<int8_t> device,
       bool override_user_schedule,
@@ -219,6 +219,9 @@ class NVF_API FusionDefinition : public FusionState {
       bool profile,
       std::vector<std::string> _enable_options,
       std::vector<std::string> _disable_options) const;
+
+  NVF_API std::vector<Sharding> getOutputShardings();
+
   //! Return debugging output captured through exeuction with
   //! capture_debug_output=true
   std::optional<std::string> getDebugOutput() const {

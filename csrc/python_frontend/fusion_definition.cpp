@@ -344,7 +344,7 @@ void FusionDefinition::print(std::ostream& os) const {
   os << std::endl;
 }
 
-std::vector<DistributedTensor> FusionDefinition::execute(
+KernelArgumentHolder FusionDefinition::execute(
     KernelArgumentHolder args,
     std::optional<int8_t> selected_device,
     bool override_user_schedule,
@@ -453,44 +453,40 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     debug_output_ = debug_ss.str();
   }
 
-  // Convert `at::Tensor`s to `DistributedTensor`s.
-  std::vector<DistributedTensor> out_dtensors;
-  out_dtensors.reserve(outputs.size());
-  if (user_sched == nullptr) {
-    FusionKernelRuntime* runtime =
-        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
-    Fusion* fusion = runtime->fusionSegments()->completeFusion();
+  return outputs;
+}
 
-    int64_t tensor_index = 0;
-    for (auto out_val : fusion->outputs()) {
-      NVF_ERROR(
-          out_val->isA<TensorView>(),
-          "Non tensor outputs not supported currently due to lack of support of DistributedTensor in KernelArgumentHolder");
-      auto* out_tv = out_val->as<TensorView>();
-      if (fusion->getOutputAlias(out_tv).hide_output) {
-        continue;
-      }
-      const at::Tensor& out_tensor = outputs[tensor_index++].as<at::Tensor>();
-      const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      out_dtensors.emplace_back(out_tensor, mesh);
+std::vector<Sharding> FusionDefinition::getOutputShardings() {
+  FusionSchedules* scheds = fusionCache()->queryFusionSchedules(*id());
+  FusionKernelRuntime* runtime =
+      scheds->auto_gen_schedules->getMostRecentKernelRuntime();
+  Fusion* fusion = runtime->fusionSegments()->completeFusion();
 
-      if (mesh.size() > 0) {
-        for (const ParallelType parallel_type : kParallelTypeDIDs) {
-          if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
-              axis != -1) {
-            out_dtensors.back().setAxisIsShardedOn(axis, parallel_type);
-          }
+  std::vector<Sharding> out_shardings;
+  out_shardings.reserve(fusion->outputs().size());
+
+  for (Val* out_val : fusion->outputs()) {
+    NVF_ERROR(
+        out_val->isA<TensorView>(),
+        "Non tensor outputs not supported currently due to lack of support of DistributedTensor in KernelArgumentHolder");
+    auto* out_tv = out_val->as<TensorView>();
+    if (fusion->getOutputAlias(out_tv).hide_output) {
+      continue;
+    }
+
+    const DeviceMesh& mesh = out_tv->getDeviceMesh();
+    Sharding& out_sharding = out_shardings.emplace_back(mesh);
+    if (mesh.size() > 0) {
+      for (const ParallelType parallel_type : kParallelTypeDIDs) {
+        if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
+            axis != -1) {
+          out_sharding.setAxisIsShardedOn(axis, parallel_type);
         }
       }
     }
-    NVF_ERROR(out_dtensors.size() == outputs.size());
-  } else {
-    for (const auto& out_tensor : outputs) {
-      out_dtensors.emplace_back(out_tensor.as<at::Tensor>());
-    }
   }
 
-  return out_dtensors;
+  return out_shardings;
 }
 
 std::string FusionDefinition::fusionIr() {

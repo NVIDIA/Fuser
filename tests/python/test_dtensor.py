@@ -80,26 +80,24 @@ class FusionDefinitionWrapper:
 
         in_tensors = [in_dtensor.to_local() for in_dtensor in in_dtensors]
         out_tensors = fusion_def.execute(in_tensors)
+        out_shardings = fusion_def.get_output_shardings()
+        assert len(out_tensors) == len(out_shardings)
 
-        for i, out_tensor in enumerate(out_tensors):
-            if isinstance(out_tensor, nvfuser.DistributedTensor):
-                mesh = dist.device_mesh.init_device_mesh(
-                    "cuda", (out_tensor.mesh.size,)
-                )
-                placements: list[Placement] = []
-                for parallel_type in [nvfuser.ParallelType.mesh_x]:
-                    axis: int = out_tensor.axis_sharded_on(parallel_type)
-                    placements.append(Replicate() if axis == -1 else Shard(axis))
-                out_tensors[i] = DTensor.from_local(out_tensor.local, mesh, placements)
-        return out_tensors
+        out_dtensors: list[DTensor] = []
+        for out_tensor, out_sharding in zip(out_tensors, out_shardings):
+            mesh = dist.device_mesh.init_device_mesh("cuda", (out_sharding.mesh.size,))
+            placements: list[Placement] = []
+            for parallel_type in [nvfuser.ParallelType.mesh_x]:
+                axis: int = out_sharding.axis_sharded_on(parallel_type)
+                placements.append(Replicate() if axis == -1 else Shard(axis))
+            out_dtensors.append(DTensor.from_local(out_tensor, mesh, placements))
+        return out_dtensors
 
 
 @pytest.mark.mpi
 def test_plus_one(setup_process_group):
     def define_fusion(fd: FusionDefinition):
-        inp = fd.define_tensor(
-            (-1, -1), contiguity=(False, False), dtype=DataType.Float
-        )
+        inp = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
         one = fd.define_scalar(1.0, dtype=DataType.Float)
         out = fd.ops.add(inp, one)
         fd.add_output(out)
@@ -133,8 +131,8 @@ def test_linear(setup_process_group):
     def define_linear_forward(config: LinearConfig, fd: FusionDefinition) -> None:
         d, b, s, e = config.d, config.b, config.s, config.e
         inp = fd.define_tensor([b, s, e])
-        weight = fd.define_tensor([d, e, e], contiguity=[True, True, True])
-        bias = fd.define_tensor([d, e], contiguity=[True, True])
+        weight = fd.define_tensor([d, e, e], contiguity=True)
+        bias = fd.define_tensor([d, e], contiguity=True)
         out = fd.ops.linear(inp, weight, bias)
         fd.add_output(out)
 
