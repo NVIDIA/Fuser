@@ -123,6 +123,10 @@ class Communicator {
     return false;
   }
 
+  c10d::TCPStore* getTcpStore() {
+    return store_.get();
+  }
+
  private:
   Communicator(
       CommunicatorBackend backend = comm_backend_default,
