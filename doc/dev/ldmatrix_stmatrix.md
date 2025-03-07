@@ -127,13 +127,56 @@ for LdMatrix / StMatrix and TMA Load / Store operations.
 ![Register layout for LdMatrix / StMatrix](ldstmatrix/ldstmatrix_register_layout.svg)
 
 ### Figure 2: TMA shared memory domain
+
+<details>
+
+Let `swizzle_bytes` = 128B.
+The CTA tile is m(128), n(256)
+
+**Step 1:** Split m by two compute warp groups; Split n by four tiles for 128B swizzle
+* IterDomain: [mo(2), mi(64), no(4), ni(64)]
+
+**Step 2:**  Reorder to create tma box
+* IterDomain: [mo(2), no(4), mi(64), ni(64)]
+
+**Step 3:** Split mi(64) by max swizzle rows
+* `(128B / swizzle_bytes) * (swizzle_bytes / 16B) = max swizzle rows (8)`
+* IterDomain: mo(2), no(4), mio(8), mii(8), nio(8), nii(8)
+
+**Step 4:** Split ni by megabank size (128-bit or 16B or 8 elements)
+* ni(64) is 64x2B elements = 128B. 8x2B elements is 16B or 128-bits.
+* IterDomain: [mo(2), no(4), mi(64), nio(8), nii(8)]
+
+**Step 5:** Split mii(8) by number of swizzle repetitions
+* `(128B / swizzle_bytes) = number of swizzle-repetitions`
+* IterDomain: [mo(2), no(4), mio(8), miio(8), miii(8), nio(8), nii(8)]
+
+**Step 6:** Apply XOR swizzle between rows (miio) and megabanks(nio) for swizzle
+* IterDomain: mo(2), no(4), mio(8), miio(8), miii(1), nio(8), nii(8)
+* Description for each IterDomain:
+1. TDY
+2. Serial
+3. Serial
+4. Serial
+5. Number of rows in swizzle
+6. Number of row the swizzle pattern is repeated.
+7. Number of megabanks in swizzle.
+8. Size of Megabanks.
+
+</details>
+
 ![TMA Shared Memory Layout](ldstmatrix/tma_layout.svg)
+
 
 ### Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory domain
 ![Map Loop Domain toTMA Shared Memory Layout](ldstmatrix/ldstmatrix_to_tma.svg)
 
 **Step 1:** Derive (8, 8) core matrix components for LdMatrix / StMatrix from
 for-loop indices.
+
+**LdMatrix (8, 8) IterDomain Layout:**
+
+`mo(2), no(4), mio(4), nio(4), miio(2), miii(8), niio(2), niii(8)`
 
 <details>
 
@@ -147,14 +190,14 @@ LoadStoreOp with 128B swizzle.
 
 **TMA LoadStoreOp with 128B swizzle IterDomain Layout:**
 
-`mo(2), no(4), moo * m_o (8), m_io(8), m_ii(1), nooi * n_o (8), n_i(8)`
+`mo(2), no(4), mio * miio (8), miiio(8), miiii(1), nio * niio (8), niii(8)`
 
 <details>
 
- * Merge `moo(4)` and `m_o(2)` = 8
- * `m_i(8)` is the maximum number of rows in swizzle.
- * Split `m_i(8)` into `m_io(8)` and `m_ii(1)` by repetitions for 128B swizzle.
- * Merge `nooi(4)` and `n_o(2)` = 8
+ * Merge `mio(4)` and `miio(2)` = 8
+ * `miii(8)` is the maximum number of rows in swizzle.
+ * Split `miii(8)` into `miiio(8)` and `miiii(1)` by repetitions for 128B swizzle.
+ * Merge `nio(4)` and `niio(2)` = 8
 
 </details>
 
