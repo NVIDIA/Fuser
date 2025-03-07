@@ -215,7 +215,13 @@ class Asm final : public Expr {
   // The name of the utility function that we want to wrap the inline PTX code
   // in. If this is empty, then the inline PTX code will be emitted directly
   // into the kernel.
-  const std::string utility() const;
+  std::string utility() const;
+
+  // The signature of the utility function that we want to wrap the inline PTX
+  // code in. Something like "void my_utility(int*, int*, int*)". This is
+  // used to determine if the utility function has already been generated when
+  // we convert Kernel IR to CUDA C++ code.
+  std::string signature() const;
 
   const Options& options() const {
     return attribute<Options>(1);
