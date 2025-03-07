@@ -13,6 +13,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -95,6 +96,13 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         outputs_without_mesh.push_back(tv);
       }
     }
+
+    int64_t did_pos = reorderDIDToFront(ref_input);
+    TransformPropagator propagator(ref_input, did_pos);
+    SetSelector selector(
+        {outputs_without_mesh.begin(), outputs_without_mesh.end()});
+    MaxLogicalDomainInfoSpanningTree(ref_input, &selector)
+        .traverse(&propagator);
     shardAllLike(ref_input, outputs_without_mesh);
   }
 
