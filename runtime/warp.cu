@@ -256,7 +256,9 @@ __device__ void warpReduceTIDXY(
     // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim) {
+    BlockDimT block_dim,
+    const unsigned int thread_idx_x,
+    uint32_t barrier_id = 0) {
   constexpr int WARP_SIZE = 32;
   constexpr int num_of_warps = BDIMX * BDIMY / WARP_SIZE;
 
@@ -279,11 +281,11 @@ __device__ void warpReduceTIDXY(
     unsigned int idx = threadIdx.x + threadIdx.y * BDIMX;
     unsigned int warp_idx = idx / WARP_SIZE;
     unsigned int lane_idx = idx % WARP_SIZE;
-    block_sync::sync<Aligned>(block_dim);
+    block_sync::sync<Aligned>(block_dim, barrier_id);
     if (lane_idx == 0) {
       shared_mem[warp_idx] = reduce_val;
     }
-    block_sync::sync<Aligned>(block_dim);
+    block_sync::sync<Aligned>(block_dim, barrier_id);
 
     if (warp_idx == 0) {
       reduce_val = lane_idx < num_of_warps ? shared_mem[lane_idx] : init_val;
@@ -298,7 +300,7 @@ __device__ void warpReduceTIDXY(
     }
     // needs sync, otherwise other warps may access shared memory before this
     // reduction is done.
-    block_sync::sync<Aligned>(block_dim);
+    block_sync::sync<Aligned>(block_dim, barrier_id);
   } else {
     reduction_op(out, reduce_val);
   }
