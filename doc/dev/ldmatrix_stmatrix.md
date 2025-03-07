@@ -465,20 +465,26 @@ for TDY(2):
 ```
 
 ### How to derive shared memory index?
-Step 1: Derive WGMMA index components from for-loop indices.
+**Step 1:** Derive WGMMA index components from for-loop indices.
+
+<details>
+
 * TDY(2)
 * TDX(128) --> moo(4), mi(8), nio(4)
 * Serial(16) --> noo(16)
 * Vectorize(8) --> noi(2), moi(2), nii(2)
 
-Step 2: Create index components for the four ldmatrix.x4 instructions issued
+</details>
+
+**Step 2:** Create index components for the four ldmatrix.x4 instructions issued
 by 128 thread warp-group.
 
-LdMatrix warp-group.x4 IterDomain Layout:
+**LdMatrix warp-group.x4 IterDomain Layout:**
 
 `TDY(2), moo(4), nooo(4), nooi(4), (mi * moi)(16), (nio * nii * noi)(16)`
 
-Details:
+<details>
+
 1. moo(4) = (mma_m == tma_m == 64) / (ldmatrix == stmatrix == 16)
 2. Split noo(16) into nooo(4) and nooi(4)
   * nooo(4) = (mma_n == 256) / (tma_n == 64)
@@ -488,30 +494,35 @@ ldmatrix and stmatrix
   * 16 = mi(8) * moi(2) is the m component of ldmatrix and stmatrix
   * 16 = nio(4) * nii (2) * noi(2) is the n component of ldmatrix and stmatrix
 
-Step 3: Split (16, 16) LdMatrix into four (8, 8) LdMatrix components.
+</details>
 
-LdMatrix (8, 8) IterDomain Layout:
+**Step 3:** Split (16, 16) LdMatrix into four (8, 8) LdMatrix components.
+
+**LdMatrix (8, 8) IterDomain Layout:**
 
 `TDY(2), moo(4), nooo(4), nooi(4), m_o(2), m_i(8), n_o(2), n_i(8)`
 
-Step 4: Merge and reorder components to get the allocation domain for TMA
+**Step 4:** Merge and reorder components to get the allocation domain for TMA
 LoadStoreOp with 128B swizzle.
 
-TMA LoadStoreOp with 128B swizzle IterDomain Layout:
+**TMA LoadStoreOp with 128B swizzle IterDomain Layout:**
 
 `TDY(2), no(4), moo * m_o (8), m_io(8), m_ii(1), nooi * n_o (8), n_i(8)`
 
-Details:
+<details>
+
  * no(4) == nooo(4) is the outer loop index in ldmatrix and tma
  * Merge moo(4) and m_o(2) = 8
  * m_i(8) is the maximum number of rows in swizzle.
  * Split m_i(8) into m_io(8) and m_ii(1) by repetitions for 128B swizzle.
  * Merge nooi(4) and n_o(2) = 8
 
-Step 5: XOR swizzle m_io(8) and (nooi * n_o)(8) to get new ldmatrix tile
+</details>
+
+**Step 5:** XOR swizzle m_io(8) and (nooi * n_o)(8) to get new ldmatrix tile
 column.
 
-Step 6: Combine index components according to TMA LoadStoreOp to create the
+**Step 6:** Combine index components according to TMA LoadStoreOp to create the
 input index into shared memory.
 
 <!--*/
