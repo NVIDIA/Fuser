@@ -400,8 +400,10 @@ bool haveDifferentShardings(
 
     auto is_mapped_in_id_model =
         [producer, consumer, mapped_p_logical_ids, mapped_c_root_ids](
-            IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
-      if (a == nullptr && b == nullptr) {
+            IterDomain* p_loop_id,
+            IterDomain* c_loop_id,
+            const IdModel& id_model) -> bool {
+      if (p_loop_id == nullptr && c_loop_id == nullptr) {
         return true;
       }
 
@@ -441,34 +443,31 @@ bool haveDifferentShardings(
           }
         }
 
-        auto is_id_reshaped = [](IterDomain* loop_id,
-                                 std::unordered_set<IterDomain*> reshape_ids) {
-          if (reshape_ids.count(loop_id)) {
-            return true;
-          }
-          auto transforms = DependencyCheck::getAllExprsBetween(
-              {reshape_ids.begin(), reshape_ids.end()}, {loop_id});
-          return !transforms.empty();
-        };
-        if (is_id_reshaped(p_loop_id, p_reshape_ids) &&
-            is_id_reshaped(c_loop_id, c_reshape_ids)) {
+        auto p_transforms = DependencyCheck::getAllExprsBetween(
+            {p_reshape_ids.begin(), p_reshape_ids.end()}, {p_loop_id});
+        auto c_transforms = DependencyCheck::getAllExprsBetween(
+            {c_reshape_ids.begin(), c_reshape_ids.end()}, {c_loop_id});
+
+        if (p_transforms.size() > 0 && c_transforms.size() > 0) {
+          // Both a and b come from reshaped ids.
           NVF_ERROR(
-              a->definition()->isA<Split>(),
-              a,
+              p_loop_id->definition()->isA<Split>(),
+              p_loop_id,
               " is not a Split: ",
-              a->definition());
+              p_loop_id->definition());
           NVF_ERROR(
-              b->definition()->isA<Split>(),
-              b,
+              c_loop_id->definition()->isA<Split>(),
+              c_loop_id,
               " is not a Split: ",
-              b->definition());
+              c_loop_id->definition());
           // Get the split producing the sharded axis
-          auto* a_split = a->definition()->as<Split>();
-          auto* b_split = b->definition()->as<Split>();
+          auto* p_split = p_transforms.back()->as<Split>();
+          auto* c_split = c_transforms.back()->as<Split>();
+
           // Reshape is not resharding if both the DID splits are either inner
           // or outer splits. Note that we currently do not exercise inner
           // splits in the multidevice tests.
-          return a_split->innerSplit() == b_split->innerSplit();
+          return p_split->innerSplit() == c_split->innerSplit();
         }
       }
 
