@@ -1106,7 +1106,7 @@ def test_transformer_forward(multidevice_test, benchmark):
 
     # Benchmark and profile. The profile can be collected and displayed using
     # `nsys`. See instructions in test_transformer_engine.py.
-    benchmark.pedantic(benchmark_fn, rounds=5)
+    # benchmark.pedantic(benchmark_fn, rounds=5)
 
 
 # All tensors are replicated to all devices at this moment; future PRs will try
@@ -1685,4 +1685,4 @@ def test_transformer_backward(multidevice_test, benchmark):
     _assert_shape_dtype(layernorm0_weight_grad, [e], torch.bfloat16)
     _assert_shape_dtype(inp_grad, [b, s, e], torch.bfloat16)
 
-    benchmark.pedantic(benchmark_fn, rounds=5)
+    # benchmark.pedantic(benchmark_fn, rounds=5)
