@@ -2724,6 +2724,7 @@ class TranslateApplicableWelford {
   static bool run(
       SegmentedFusion* segmented_fusion,
       const KernelArgumentHolder& runtime_inputs) {
+    FUSER_PERF_SCOPE("TranslateApplicableWelford::run");
     TranslateApplicableWelford translate_welford(
         segmented_fusion, runtime_inputs);
     return translate_welford.translated_any_welford_;
@@ -2732,6 +2733,7 @@ class TranslateApplicableWelford {
   //! Try translation on complete fusion,
   //!  returns true if any welford has been translated
   static bool run(Fusion* fusion, const KernelArgumentHolder& runtime_inputs) {
+    FUSER_PERF_SCOPE("TranslateApplicableWelford::run");
     TranslateApplicableWelford translate_welford(fusion, runtime_inputs);
     return translate_welford.translated_any_welford_;
   }
@@ -3065,6 +3067,15 @@ bool SegmentCandidateFinder::translateWelfordInFusion(
     Fusion* fusion,
     const KernelArgumentHolder& runtime_inputs) {
   return TranslateApplicableWelford::run(fusion, runtime_inputs);
+}
+
+void SegmentCandidateFinder::validateIfDebug(bool require_disjoint) {
+#ifndef NDEBUG
+  resetLevels();
+  if (require_disjoint) {
+    segmented_fusion_->validateDisjoint();
+  }
+#endif // NDEBUG
 }
 
 //! CombineReductions:
@@ -3970,6 +3981,7 @@ SchedulerRuntimeInfo& SegmentCandidateFinder::runtimeInfo() {
 }
 
 void SegmentCandidateFinder::buildInitialSegments() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::buildInitialSegments");
   groups().clear();
   edges().clear();
 
@@ -4075,6 +4087,7 @@ void SegmentCandidateFinder::trySetUpMerge(
 }
 
 void SegmentCandidateFinder::resolveForwardedInputs() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::resolveForwardedInputs");
   for (Val* forwarded_input : forwarded_fusion_inputs_) {
     if (forwarded_input->isFusionInput()) {
       // Nothing to resolve.
@@ -4116,7 +4129,7 @@ void SegmentCandidateFinder::findSegments() {
 
   buildInitialSegments();
 
-  segmented_fusion_->validateIfDebug();
+  validateIfDebug();
 
   auto has_welford_ops =
       ir_utils::hasOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
@@ -4130,7 +4143,7 @@ void SegmentCandidateFinder::findSegments() {
     }
   }
 
-  segmented_fusion_->validateIfDebug();
+  validateIfDebug();
 
   for (auto group : groups()) {
     if (!group->outputs().empty()) {
@@ -4145,13 +4158,13 @@ void SegmentCandidateFinder::findSegments() {
 
   // Run pre-merge heuristics
   MergeUpAndDownCast::run(this);
-  segmented_fusion_->validateIfDebug(true);
+  validateIfDebug(true);
 
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
   }
 
-  segmented_fusion_->validateIfDebug();
+  validateIfDebug();
 
   if (options_.run_herrmann_merge) {
     bool merged_nodes = true;
@@ -4182,11 +4195,11 @@ void SegmentCandidateFinder::findSegments() {
 
       mergeNodes();
 
-      segmented_fusion_->validateIfDebug();
+      validateIfDebug();
     }
   }
 
-  segmented_fusion_->validateIfDebug();
+  validateIfDebug();
 
   if (options_.run_final_merge) {
     // TODO: consider interleaving herrmman merge and bruteforce merge, as
@@ -4194,7 +4207,7 @@ void SegmentCandidateFinder::findSegments() {
     finalMerge();
   }
 
-  segmented_fusion_->validateIfDebug();
+  validateIfDebug();
 
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
@@ -4202,15 +4215,16 @@ void SegmentCandidateFinder::findSegments() {
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
   // from fusion inputs may be shared in multiple groups.
-  segmented_fusion_->validateIfDebug(/*require_disjoint=*/false);
+  validateIfDebug(/*require_disjoint=*/false);
 
   // Forwarded input groups are no longer used. Clean them up.
   cleanupForwardedInputs();
 
   finalize();
 
-  // Do sanity check on the final graph.
-  segmented_fusion_->validate(/*require_disjoint=*/false);
+  // run reset levels to validate the final graph is a DAG. reset levels will
+  // fail if not.
+  resetLevels();
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegmentsDrawing)) {
     segmented_fusion_->draw();
@@ -4518,6 +4532,7 @@ void SegmentCandidateFinder::forwardInputs() {
 }
 
 void SegmentCandidateFinder::cleanupForwardedInputs() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::cleanupForwardedInputs");
   std::unordered_set<SegmentedGroup*> input_groups;
   for (auto input : forwarded_fusion_inputs_) {
     input_groups.insert(input2group_.at(input));
@@ -4785,6 +4800,7 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
 }
 
 void SegmentCandidateFinder::removeScalarEdges() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::removeScalarEdges");
   // Remove all scalar edges between groups
   //  They may have been created by welford
   //   translation.
@@ -4809,6 +4825,7 @@ void SegmentCandidateFinder::removeScalarEdges() {
 }
 
 void SegmentCandidateFinder::finalize() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::finalize");
   // Remove unconnected groups
   groups().erase(
       std::remove_if(
@@ -4883,71 +4900,8 @@ void SegmentedFusion::setCachedHeuristicDataFor(
   heuristic_data_cache_[group] = std::move(data);
 }
 
-void SegmentedFusion::validateDAG() const {
-  // Make sure the groups are a DAG
-  std::unordered_set<SegmentedGroup*> input_groups;
-  std::copy_if(
-      groups().begin(),
-      groups().end(),
-      std::inserter(input_groups, input_groups.end()),
-      [](SegmentedGroup* group) { return group->isInputGroup(); });
-
-  // DFS traversal from each input group. If a group is visited
-  // multiple times in any of the DFS traversal paths, there must be a
-  // cycle.
-  for (auto input_group : input_groups) {
-    std::unordered_set<SegmentedGroup*> visited_groups;
-
-    // Traversal stack to represent frontier groups to visit
-    std::deque<std::deque<SegmentedGroup*>> dfs_stack(
-        {std::deque<SegmentedGroup*>({input_group})});
-
-    while (!dfs_stack.empty()) {
-      auto& cur_frontiers = dfs_stack.back();
-
-      // If cur_frontiers is empty, it means the traversal to the
-      // frontiers from their parent group is completed.
-      if (cur_frontiers.empty()) {
-        dfs_stack.pop_back();
-        // Traversal from the parent group is done. Remove the parent
-        // group from the visited group set
-        if (!dfs_stack.empty()) {
-          auto& parent_frame = dfs_stack.back();
-          NVF_ERROR(!parent_frame.empty());
-          auto parent_group = parent_frame.back();
-          parent_frame.pop_back();
-          // Remove parent group from visited
-          NVF_ERROR(visited_groups.erase(parent_group) == 1);
-        }
-      } else {
-        // DFS traversal to one of the frontier groups
-        auto group_to_visit = cur_frontiers.back();
-        NVF_ERROR(
-            visited_groups.count(group_to_visit) == 0,
-            "Cycle detected at ",
-            group_to_visit);
-        // If no outgoing edge exists, the traversal to this group is done
-        if (group_to_visit->consumer_edges.empty()) {
-          cur_frontiers.pop_back();
-        } else {
-          // If there are further groups to visit, mark this group as
-          // visited and create a new frame with the consumer groups
-          visited_groups.insert(group_to_visit);
-          // Creates a new frame for traversals from group_to_visit
-          std::deque<SegmentedGroup*> next_frame;
-          std::transform(
-              group_to_visit->consumer_edges.begin(),
-              group_to_visit->consumer_edges.end(),
-              std::back_inserter(next_frame),
-              [](SegmentedEdge* edge) { return edge->to; });
-          dfs_stack.emplace_back(next_frame);
-        }
-      }
-    }
-  }
-}
-
 void SegmentedFusion::validateDisjoint() const {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::validateDisjoint");
   // Make sure it's disjoint. This property is not maintained after
   // the finalization as some of UnaryOp exprs using inputs may be
   // shared between multiple groups.
@@ -4969,22 +4923,6 @@ void SegmentedFusion::validateDisjoint() const {
           expr->toString());
     }
   }
-}
-
-void SegmentedFusion::validate(bool require_disjoint) const {
-  validateDAG();
-
-  if (require_disjoint) {
-    validateDisjoint();
-  }
-
-  // No error detected
-}
-
-void SegmentedFusion::validateIfDebug(bool require_disjoint) const {
-#ifndef NDEBUG
-  validate(require_disjoint);
-#endif // NDEBUG
 }
 
 namespace {

@@ -64,7 +64,7 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
     }
     // checks that the segments are disjoints and that the graph of segment is
     // acyclic
-    segmented_fusion->validate();
+    segmented_fusion->validateDisjoint();
   }
 
   std::unique_ptr<Fusion> fusion_;
