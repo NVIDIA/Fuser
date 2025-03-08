@@ -2059,54 +2059,92 @@ bool SegmentCandidateFinder::hasSegmentHints(Fusion* fusion) {
   return false;
 }
 
-void SegmentCandidateFinder::resetTraversal() {
-  for (auto group : groups()) {
-    // Start traversal at input groups
-    if (group->producer_edges.empty()) {
-      to_visit_.push_back(group);
-    }
-    group->visited_ = false;
-    group->level_ = 0;
-  }
-}
-
 void SegmentCandidateFinder::resetLevels() {
-  while (!to_visit_.empty()) {
-    auto visit = to_visit_.front();
-    to_visit_.pop_front();
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::resetLevels");
 
-    // All inputs processed?
-    bool ready = true;
-    if (!visit->producer_edges.empty()) {
-      ready = std::all_of(
-          visit->producer_edges.begin(),
-          visit->producer_edges.end(),
-          [&](SegmentedEdge* dep) { return dep->from->visited_; });
+  std::deque<SegmentedGroup*> to_visit;
+  std::vector<SegmentedGroup*> next_to_visit;
+
+  // Special initialization for
+  // https://github.com/Lightning-AI/lightning-thunder/issues/1490 and
+  // https://github.com/NVIDIA/Fuser/issues/3510 (same issue).
+  //
+  // The issue is if we have a DAG that's a long chain that keeps adding inputs.
+  // e.g.
+  // tv3 = inp0 + inp1
+  // tv4 = tv3
+  // tv6 = tv4 + inp5
+  // tv7 = tv6
+  // tv9 = tv7 + inp8
+  // ...
+  //
+  // If we simply start from all inputs, then we will add all expressions to the
+  // to_visit list. We will check the first expression, process it, add the next
+  // expression to the end of the to_visit list. Then check all other expression
+  // which cannot be processed, until finally getting back to the second
+  // expression, and process it.
+  //
+  // The solution to this is to start from expressions where all producer edges
+  // are inputs.
+
+  // Mark all input groups as viisted and mark their level as 0
+  // Initialize all other groups as not visited and level as 0
+  for (auto group : groups()) {
+    group->level_ = 0;
+    if (group->producer_edges.empty()) {
+      group->visited_ = true;
+    } else {
+      group->visited_ = false;
+      if (std::all_of(
+              group->producer_edges.begin(),
+              group->producer_edges.end(),
+              [&](SegmentedEdge* edge) {
+                return edge->from->producer_edges.empty();
+              })) {
+        to_visit.push_back(group);
+      }
     }
+  }
 
-    if (!ready) {
-      // In case traversal doesn't complete because there's an error in the
-      // DAG topology.
-      next_to_visit_.push_back(visit);
+  while (!to_visit.empty()) {
+    auto visiting = to_visit.front();
+    to_visit.pop_front();
+
+    if (visiting->visited_) {
       continue;
     }
 
-    visit->visited_ = true;
-
-    to_visit_.insert(
-        to_visit_.end(), next_to_visit_.begin(), next_to_visit_.end());
-    next_to_visit_.clear();
-
-    for (auto out : visit->consumer_edges) {
-      to_visit_.push_back(out->to);
+    if (visiting->producer_edges.size() > 0 &&
+        std::any_of(
+            visiting->producer_edges.begin(),
+            visiting->producer_edges.end(),
+            [&](SegmentedEdge* dep) { return !dep->from->visited_; })) {
+      // Node isn't ready, push back to the next_to_visit list
+      // Next_to_visit is used in case traversal doesn't complete because
+      // there's an error in the DAG topology.
+      next_to_visit.push_back(visiting);
+      continue;
     }
 
-    visit->level_ = 0;
-    for (auto inp : visit->producer_edges) {
-      visit->level_ = std::max(visit->level_, inp->from->level_ + 1);
+    // Node is ready, visit it
+    visiting->visited_ = true;
+
+    // Add all nodes that are ready to visit to the to_visit list
+    to_visit.insert(to_visit.end(), next_to_visit.begin(), next_to_visit.end());
+    next_to_visit.clear();
+
+    // Add all consumer nodes to the to_visit list
+    for (auto out : visiting->consumer_edges) {
+      to_visit.push_back(out->to);
+    }
+
+    visiting->level_ = 0;
+    for (auto inp : visiting->producer_edges) {
+      visiting->level_ = std::max(visiting->level_, inp->from->level_ + 1);
     }
   }
-  NVF_ERROR(next_to_visit_.empty(), "Error in graph, is not a DAG.");
+
+  NVF_ERROR(next_to_visit.empty(), "Error in graph, is not a DAG.");
 }
 
 // Disconect group from neighbors, and return edges that were disconnected
@@ -2173,6 +2211,7 @@ void SegmentCandidateFinder::eraseGroups(
 }
 
 SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::mergeNodes");
   SegmentedGroup* last_merged = nullptr;
   auto it = to_merge_.begin();
   NVF_ERROR(to_merge_.size() % 2 == 0);
@@ -3905,6 +3944,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 bool SegmentCandidateFinder::codeGenSupportedMerge(
     SegmentedGroup* group1,
     SegmentedGroup* group2) {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::codeGenSupportedMerge");
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
@@ -3926,6 +3966,7 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 //       called twice
 SchedulerType SegmentCandidateFinder::deriveSchedulerType(
     SegmentedGroup* group) {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::deriveSchedulerType");
   if (options_.only_segment_resharding_exprs) {
     // We don't need to generate a SchedulerType for multidevice segments at
     // this moment
@@ -3944,6 +3985,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     SegmentCandidateFinderOptions options,
     bool multi_device)
     : options_(options), runtime_inputs_(inputs) {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::SegmentCandidateFinder");
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
           (!options_.run_translate_welford &&
@@ -4041,6 +4083,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
 void SegmentCandidateFinder::trySetUpMerge(
     SegmentedGroup* group,
     std::vector<SegmentedGroup::NeighborGroup> candidates) {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::trySetUpMerge");
   if (group->merged_ || group->isFusionInputGroup()) {
     return;
   }
@@ -4112,7 +4155,7 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
 }
 
 void SegmentCandidateFinder::findSegments() {
-  FUSER_PERF_SCOPE("Finding valid fusion segment solutions");
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::findSegments");
 
   buildInitialSegments();
 
@@ -4157,9 +4200,6 @@ void SegmentCandidateFinder::findSegments() {
     bool merged_nodes = true;
     // Initial merge iteration
     while (merged_nodes) {
-      // Reset stateful traversal details in SegmentedGroups
-      resetTraversal();
-
       resetLevels();
 
       // Try preferred merge first
@@ -4530,6 +4570,7 @@ void SegmentCandidateFinder::cleanupForwardedInputs() {
 }
 
 void SegmentCandidateFinder::finalMerge() {
+  FUSER_PERF_SCOPE("SegmentCandidateFinder::finalMerge");
   auto producer_check = getGroupDependency();
 
   bool merged_nodes = true;
