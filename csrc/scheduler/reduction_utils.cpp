@@ -777,6 +777,7 @@ class PersistentBufferProjector {
   }
 
   void projectToProducers() {
+    std::cout << "Projecting to producers" << std::endl;
     // visit consumer before producer. e.g.
     // T1 = f(T0); Tx = add(T1, broadcast(sum(T1)));
     // T2 = f(T1); Ty = add(T2, broadcast(sum(T2)));
@@ -809,6 +810,18 @@ class PersistentBufferProjector {
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i,
             std::vector<Val*>(producers.begin(), producers.end()));
+      }else {
+        auto consumers = ir_utils::consumerTvsOf(buffer);
+        if(consumers.size() ==1 && scheduler_utils::getInputToUpCastIfExist(consumers.at(0)) == buffer){
+          auto consumers_of_consumer = ir_utils::consumerTvsOf(consumers.at(0));
+          for(int i=1; i<consumers_of_consumer.size(); i++){
+            auto tv = consumers_of_consumer.at(i);
+            auto tv_replicate = RecomputeTv::recompute(consumer, {buffer});
+          ir_utils::replaceValInExprInputs(
+              tv->definition(), tv, buffer_replicate);
+          }
+        }
+
       }
     }
   }

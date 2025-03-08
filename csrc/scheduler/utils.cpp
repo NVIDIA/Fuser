@@ -557,6 +557,18 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
   return std::make_pair(true, target_broadcast_tvs);
 }
 
+TensorView* getInputToUpCastIfExist(TensorView* tv) {
+  if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+    if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+        dataTypeSize(uop->input(0)->getDataType().value()) <
+            dataTypeSize(uop->output(0)->getDataType().value()) &&
+        !uop->input(0)->isFusionInput()) {
+      return uop->input(0)->as<TensorView>();
+    }
+  }
+  return nullptr;
+}
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -573,16 +585,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     // tv2 = op(tv1)
     // If tv1's definition is a promoting dtpye cast, always use tv0 as the
     // persistent buffer, which saves register usage at the cost of extra cast.
-    TensorView* producer_cast_tv = nullptr;
-    if (auto uop = dynamic_cast<UnaryOp*>(producer->definition())) {
-      if (uop->getUnaryOpType() == UnaryOpType::Cast &&
-          dataTypeSize(uop->input(0)->getDataType().value()) <
-              dataTypeSize(uop->output(0)->getDataType().value())) {
-        producer_cast_tv = uop->input(0)->as<TensorView>();
-        std::cout << "producer_cast_tv: " << producer_cast_tv->toString()
-                  << std::endl;
-      }
-    }
+    TensorView* producer_cast_tv = getInputToUpCastIfExist(producer);
 
     // Are all producer ids mappable to all consumers
     bool mappable = true;
@@ -590,7 +593,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (consumers.empty()) {
       continue;
     }
-
 
     auto candidate = producer_cast_tv ? producer_cast_tv : producer;
 
