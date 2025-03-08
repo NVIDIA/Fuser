@@ -230,3 +230,33 @@ def test_linear(setup_process_group):
     assert_close(expected_grad_x, grad_x)
     assert_close(expected_grad_w[rank : rank + 1], grad_w)
     assert_close(expected_grad_b[rank : rank + 1], grad_b)
+
+
+@pytest.mark.mpi
+def test_cat(setup_process_group):
+    num_devices = dist.get_world_size()
+    assert num_devices == 2
+
+    rank = dist.get_rank()
+    torch.cuda.set_device(rank)
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [2])
+    q = DTensor.from_local(torch.tensor([0, 1, 2, 3]), mesh).redistribute(placements=[Shard(0)])
+    k = DTensor.from_local(torch.tensor([4, 5, 6, 7]), mesh).redistribute(placements=[Shard(0)])
+    out = torch.cat([q, k])
+    print(out)
+
+
+@pytest.mark.mpi
+def test_slice(setup_process_group):
+    num_devices = dist.get_world_size()
+    assert num_devices == 2
+    rank = dist.get_rank()
+    torch.cuda.set_device(rank)
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [2])
+    w_qk = DTensor.from_local(torch.tensor([0, 1, 4, 5]) + rank * 2, mesh, placements=[Shard(0)])
+    w_q = w_qk[:4]
+    w_k = w_qk[4:]
+    print(w_q)
+    print(w_k)
