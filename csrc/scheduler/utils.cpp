@@ -564,9 +564,26 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   ComputeAtLogicalDomainMap logical_map;
   logical_map.build();
 
+  std::cout << logical_map.toString() << std::endl;
+
   auto all_tvs = fusion->allTvs();
 
   for (auto producer : all_tvs) {
+    // tv1 = castOp(tv0)
+    // tv2 = op(tv1)
+    // If tv1's definition is a promoting dtpye cast, always use tv0 as the
+    // persistent buffer, which saves register usage at the cost of extra cast.
+    TensorView* producer_cast_tv = nullptr;
+    if (auto uop = dynamic_cast<UnaryOp*>(producer->definition())) {
+      if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+          dataTypeSize(uop->input(0)->getDataType().value()) <
+              dataTypeSize(uop->output(0)->getDataType().value())) {
+        producer_cast_tv = uop->input(0)->as<TensorView>();
+        std::cout << "producer_cast_tv: " << producer_cast_tv->toString()
+                  << std::endl;
+      }
+    }
+
     // Are all producer ids mappable to all consumers
     bool mappable = true;
     auto consumers = ir_utils::consumerTvsOf(producer);
@@ -574,7 +591,10 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       continue;
     }
 
-    // Track which consumers have unmappable dims from producer
+
+    auto candidate = producer_cast_tv ? producer_cast_tv : producer;
+
+    // Track which consumers have unmappable dims from candidate
     std::vector<TensorView*> unmappable_consumers;
 
     for (auto consumer : consumers) {
@@ -585,9 +605,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       }
       bool consumer_mappable = true;
       auto mappable_roots =
-          logical_map.getMappableDims(producer->domain(), consumer->domain());
+          logical_map.getMappableDims(candidate->domain(), consumer->domain());
 
-      auto p_logical = producer->getLogicalDomain();
+      auto p_logical = candidate->getLogicalDomain();
 
       for (auto p_logical_id : p_logical) {
         if (p_logical_id->isReduction() || p_logical_id->isBroadcast()) {
@@ -606,9 +626,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
 
     if (!mappable) {
-      // If there's unmappable dims from producer to consumer, producer is a
+      // If there's unmappable dims from candidate to consumer, candidate is a
       // persistent buffer.
-      persistent_buffer_info.persistent_buffers.emplace_back(producer);
+      persistent_buffer_info.persistent_buffers.emplace_back(candidate);
     }
   }
 

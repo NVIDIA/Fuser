@@ -1557,4 +1557,31 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+
+TEST_F(PersistentBufferTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int64_t dim0 = 128, dim1 = 1024;
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = rand({IrBuilder::create<Val>(dim0), IrBuilder::create<Val>(dim1)}, DataType::Float);
+  auto tv2 = gt(tv1, IrBuilder::create<Val>(0.5));
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = add(tv5, tv3);
+  auto tv7 = add(tv6, tv0);
+  fusion.addOutput(tv7);
+
+// Expected equality of these values:
+//   persistent_buffer_info.persistent_buffers
+//     Which is: { T3_l_float[iS6{128}, iS7{1024}] }
+//   std::vector<TensorView*>{tv2}
+//     Which is: { T2_l_bool[iS4{128}, iS5{1024}] }
+  // tv3 is the persistent tensor. The resolution point is tv8.
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffers, std::vector<TensorView*>{tv2});
+}
 } // namespace nvfuser
