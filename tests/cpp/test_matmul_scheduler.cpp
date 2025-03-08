@@ -18,10 +18,13 @@
 #include <scheduler/matmul_heuristic_plugin.h>
 #include <scheduler/matmul_heuristic_plugin_api.h>
 #include <scheduler/mma_utils.h>
+#include <scheduler/tools/cache_model.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
+#include <ATen/cuda/CUDAContextLight.h>
 #include <memory>
+#include "scheduler/tools/cache_model.h"
 
 namespace nvfuser {
 
@@ -3547,5 +3550,48 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Values(1) // SplitK Factor
         ),
     hopperTestNameSwizzle);
+
+using L2CacheModelTest = NVFuserTest;
+
+TEST_F(L2CacheModelTest, BasicFunctionality) {
+  // Check that we can instantiate a cache for this device and that its capacity
+  // matches the device's L2 cache size.
+  scheduler_tools::NonOverlappingLRUCacheModel cache(50);
+
+  EXPECT_EQ(cache.capacity(), 50);
+  EXPECT_EQ(cache.allocated(), 0);
+
+  // First access is a miss []
+  EXPECT_FALSE(cache.access(0, 16));
+  EXPECT_EQ(cache.allocated(), 16);
+  // Second access is a hit [{0, 16}]
+  EXPECT_TRUE(cache.access(0, 16));
+  EXPECT_EQ(cache.allocated(), 16);
+
+  // Check that we check sizes for cache hits
+  EXPECT_THAT(
+      [&]() { cache.access(0, 8); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "but new size 8 does not match cache entry size 16")));
+
+  // [{0, 16}]
+  EXPECT_FALSE(cache.access(256, 8));
+  // [{256, 8}, {0, 16}]
+  EXPECT_EQ(cache.allocated(), 24);
+  EXPECT_FALSE(cache.access(512, 16));
+  // [{512, 16}, {256, 8}, {0, 16}]
+  EXPECT_EQ(cache.allocated(), 40);
+
+  // This causes eviction of the first 16 byte access
+  EXPECT_FALSE(cache.access(1024, 22));
+  // [{1024, 22}, {512, 16}, {256, 8}]
+  EXPECT_EQ(cache.allocated(), 46);
+
+  // This is now a miss, and we evict the 8 byte access as well as the next 16
+  // byte access
+  EXPECT_FALSE(cache.access(0, 16));
+  // [{0, 16}, {1024, 22}]
+  EXPECT_EQ(cache.allocated(), 38);
+}
 
 } // namespace nvfuser
