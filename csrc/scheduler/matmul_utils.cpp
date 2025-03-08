@@ -497,6 +497,14 @@ void fillOptimalHopperTileSizes(
     // NOTE: we don't need to simulate larger than half the total grid size
     for (size_t grid_swizzle_factor : c10::irange(
              1, std::min((size_t)21, (size_t)std::min(tiles_m, tiles_n) / 2))) {
+      if ((cta_order == MatmulParams::TileRasterizationOrder::RowMajor
+               ? tiles_n
+               : tiles_m) %
+              grid_swizzle_factor !=
+          0) {
+        // Only consider swizzles that do not introduce nondivisible splits
+        continue;
+      }
       ConfigSubset cfg = best_config;
       cfg.cta_order = cta_order;
       cfg.grid_swizzle_factor = (int64_t)grid_swizzle_factor;
@@ -1196,26 +1204,42 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           mparams->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
-  if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
-    // Always promote smem reuse for Hopper. This is needed because we use TMA
-    // which has higher alignment requirements, so it's important that we place
-    // our TMA buffers at an offset that's a multiple of 64 (like 0) if
-    // possible.
-    mparams->promote_prologue_smem_reuse = true;
+  if (isHopper(mparams->mma_macro)) {
+    if (mparams->async_gmem_load_operands) {
+      NVF_CHECK(
+          problem_shape[(size_t)MatmulDimRole::M] <=
+                  std::numeric_limits<int32_t>::max() &&
+              problem_shape[(size_t)MatmulDimRole::N] <=
+                  std::numeric_limits<int32_t>::max() &&
+              problem_shape[(size_t)MatmulDimRole::K] <=
+                  std::numeric_limits<int32_t>::max(),
+          "Cannot safely use TMA because one of the M, N, or K dimensions overflows Int32");
+    }
+    if (mparams->use_smem_epilogue) {
+      if (problem_shape[(size_t)MatmulDimRole::M] % 64 != 0 ||
+          problem_shape[(size_t)MatmulDimRole::N] % 64 != 0) {
+        mparams->use_smem_epilogue = false;
+      }
+      // Always promote smem reuse for Hopper. This is needed because we use TMA
+      // which has higher alignment requirements, so it's important that we
+      // place our TMA buffers at an offset that's a multiple of 64 (like 0) if
+      // possible.
+      mparams->promote_prologue_smem_reuse = true;
 
-    // TMA allows us to nearly always avoid linear indexing.
-    // verify here that we will be able to use Int32 indexing. If not,
-    // then disable use_smem_epilogue.
-    NVF_CHECK(
-        problem_shape[(size_t)MatmulDimRole::M] <=
-                std::numeric_limits<int32_t>::max() &&
-            problem_shape[(size_t)MatmulDimRole::N] <=
-                std::numeric_limits<int32_t>::max() &&
-            problem_shape[(size_t)MatmulDimRole::K] <=
-                std::numeric_limits<int32_t>::max(),
-        "Cannot safely use TMA because one of the M, N, or K dimensions overflows Int32");
-    // TODO: Setting index type like this causes launch failure
-    // mparams->cparams.index_type = PrimDataType::Int32;
+      // TMA allows us to nearly always avoid linear indexing.
+      // verify here that we will be able to use Int32 indexing. If not,
+      // then disable use_smem_epilogue.
+      NVF_CHECK(
+          problem_shape[(size_t)MatmulDimRole::M] <=
+                  std::numeric_limits<int32_t>::max() &&
+              problem_shape[(size_t)MatmulDimRole::N] <=
+                  std::numeric_limits<int32_t>::max() &&
+              problem_shape[(size_t)MatmulDimRole::K] <=
+                  std::numeric_limits<int32_t>::max(),
+          "Cannot safely use TMA because one of the M, N, or K dimensions overflows Int32");
+      // TODO: Setting index type like this causes launch failure
+      // mparams->cparams.index_type = PrimDataType::Int32;
+    }
   }
 
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
