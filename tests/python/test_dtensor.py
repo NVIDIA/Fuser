@@ -7,11 +7,13 @@ import nvfuser
 import pytest
 import torch
 import torch.distributed as dist
+
 from collections.abc import Iterable
 from dataclasses import dataclass
 from functools import partial
 from nvfuser import DataType, FusionDefinition
 from torch.distributed.tensor import DTensor
+from torch.distributed.tensor.parallel import parallelize_module, RowwiseParallel, ColwiseParallel
 from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
 from typing import Callable, cast
 
@@ -241,8 +243,12 @@ def test_cat(setup_process_group):
     torch.cuda.set_device(rank)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [2])
-    q = DTensor.from_local(torch.tensor([0, 1, 2, 3]), mesh).redistribute(placements=[Shard(0)])
-    k = DTensor.from_local(torch.tensor([4, 5, 6, 7]), mesh).redistribute(placements=[Shard(0)])
+    q = DTensor.from_local(torch.tensor([0, 1, 2, 3]), mesh).redistribute(
+        placements=[Shard(0)]
+    )
+    k = DTensor.from_local(torch.tensor([4, 5, 6, 7]), mesh).redistribute(
+        placements=[Shard(0)]
+    )
     out = torch.cat([q, k])
     print(out)
 
@@ -255,8 +261,47 @@ def test_slice(setup_process_group):
     torch.cuda.set_device(rank)
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [2])
-    w_qk = DTensor.from_local(torch.tensor([0, 1, 4, 5]) + rank * 2, mesh, placements=[Shard(0)])
+    w_qk = DTensor.from_local(
+        torch.tensor([0, 1, 4, 5]) + rank * 2, mesh, placements=[Shard(0)]
+    )
     w_q = w_qk[:4]
     w_k = w_qk[4:]
     print(w_q)
     print(w_k)
+
+
+@pytest.mark.mpi
+def test_parallelize_module(setup_process_group):
+    d = dist.get_world_size()
+    rank = dist.get_rank()
+    torch.cuda.set_device(rank)
+
+    class Model(torch.nn.Module):
+        def __init__(self, h_q: int, h_k: int):
+            super().__init__()
+
+            assert h_q % d == 0
+            assert h_k % d == 0
+
+            self.h_q = h_q
+            self.h_k = h_k
+            self.linear = torch.nn.Linear(1, h_q + h_k, bias=False)
+            with torch.no_grad():
+                weight = self.linear.weight
+                weight.copy_(torch.arange(weight.numel()).view(weight.size()))
+
+        def forward(self, x):
+            y = self.linear(x)
+            q, k = y.split([self.h_q // d, self.h_k // d], dim=-1)
+            return q, k
+
+    model = Model(d * 2, d * 3).cuda()
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+    model = parallelize_module(model, mesh, {"linear": ColwiseParallel()})
+    assert isinstance(model.linear.weight, DTensor)
+
+    x = torch.ones([1, 1]).cuda()
+    q, k = model(x)
+    torch.testing.assert_close(q.cpu(), torch.tensor([[0., 1.]]) + rank * 5)
+    torch.testing.assert_close(k.cpu(), torch.tensor([[2., 3., 4.]]) + rank * 5)
