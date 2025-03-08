@@ -810,18 +810,35 @@ class PersistentBufferProjector {
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i,
             std::vector<Val*>(producers.begin(), producers.end()));
-      }else {
-        auto consumers = ir_utils::consumerTvsOf(buffer);
-        if(consumers.size() ==1 && scheduler_utils::getInputToUpCastIfExist(consumers.at(0)) == buffer){
-          auto consumers_of_consumer = ir_utils::consumerTvsOf(consumers.at(0));
-          for(int i=1; i<consumers_of_consumer.size(); i++){
-            auto tv = consumers_of_consumer.at(i);
-            auto tv_replicate = RecomputeTv::recompute(consumer, {buffer});
-          ir_utils::replaceValInExprInputs(
-              tv->definition(), tv, buffer_replicate);
+      } else {
+        // T1 = upcastFrom(T0);
+        // T2 = sum(T1)
+        // T3 = broadcast(T2);
+        // T4 = add(T1, T3)
+        // T0 was saved as `buffer`, however, T1 is the real persistent buffer
+        // in the generated code. Here, need to recompute T1 from T0 in expr `T4
+        // = add(T1, T3)`, after that fusion becomes:
+        // T1 = upcastFrom(T0);
+        // T2 = sum(T1)
+        // T3 = broadcast(T2);
+        // T5 = upcastFrom(T0);
+        // T4 = add(T5, T3)
+        // Mapping between vars and the prototype fusion:
+        // buffer : T0
+        // upcasted_tvs : T1
+        // consumers_of_upcasted_tvs : T2, T4
+        auto upcasted_tvs = ir_utils::consumerTvsOf(buffer);
+        if (upcasted_tvs.size() == 1 &&
+            scheduler_utils::getInputToUpCastIfExist(upcasted_tvs.at(0))) {
+          auto upcasted_tv = upcasted_tvs.at(0);
+          auto consumers_of_upcasted_tvs = ir_utils::consumerTvsOf(upcasted_tv);
+          for (int i = 1; i < (int)consumers_of_upcasted_tvs.size(); i++) {
+            ir_utils::replaceValInExprInputs(
+                consumers_of_upcasted_tvs.at(i)->definition(),
+                upcasted_tv,
+                RecomputeTv::recompute(upcasted_tv, {buffer}));
           }
         }
-
       }
     }
   }
