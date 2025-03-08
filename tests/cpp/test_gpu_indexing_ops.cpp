@@ -663,14 +663,14 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorLoad) {
   auto t1 = at::randint(0, shape1[0], shape2, options_i);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_FALSE(runtime->isSegmented())
       << "Should not segmented";
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  // should have vectorization
   EXPECT_NE(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
