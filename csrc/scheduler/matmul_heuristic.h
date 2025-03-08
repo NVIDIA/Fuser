@@ -432,10 +432,14 @@ class MatmulParams : public HeuristicParams {
     return other->cparams == cparams && other->mma_macro == mma_macro &&
         other->async_gmem_load_operands == async_gmem_load_operands &&
         other->tile_sizes == tile_sizes &&
+        other->tiling_strategy == tiling_strategy &&
+        other->buffering_loop_level == buffering_loop_level &&
+        other->circular_buffering_strategy == circular_buffering_strategy &&
         other->circular_buffer_options == circular_buffer_options &&
         other->supported_vec_size == supported_vec_size &&
         other->cta_order == cta_order &&
         other->grid_swizzle_factor == grid_swizzle_factor &&
+        other->cluster_dims == cluster_dims &&
         other->use_smem_epilogue == use_smem_epilogue &&
         other->promote_prologue_smem_reuse == promote_prologue_smem_reuse &&
         other->splitk_factor == splitk_factor;
