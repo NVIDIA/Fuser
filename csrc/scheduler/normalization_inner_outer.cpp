@@ -40,8 +40,8 @@ int64_t getMinimumBatch(int64_t inner_dim_numel, int64_t outer_dim_numel) {
 // elements in the inner dimension after vectorization.
 // Start from 128 or a smaller number if inner dim is small.
 std::vector<int64_t> getPossibleThreadsPerBlock(
-    int64_t inner_dim_numel,
     int64_t outer_dim_numel,
+    int64_t inner_dim_numel,
     int64_t vect_factor,
     int64_t hp_threads_per_block_min,
     int64_t hp_threads_per_block_max) {
