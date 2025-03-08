@@ -4836,6 +4836,17 @@ void SegmentCandidateFinder::finalize() {
   }
 
   for (auto group : segmented_fusion_->groups()) {
+    auto scheduler_type = group->schedulerType();
+    // If the pre-upcasted tensor is a persistent buffer, revert privatized
+    // upcast may change the persistent tensor from the pre-upcasted type (e.g.,
+    // bool) to the post-upcasted type (e.g., float), which can increase buffer
+    // size. This increase may prevent the fusion from being scheduled by
+    // persistent schedulers.
+    if (scheduler_type == SchedulerType::InnerPersistent ||
+        scheduler_type == SchedulerType::OuterPersistent ||
+        scheduler_type == SchedulerType::InnerOuterPersistent) {
+      continue;
+    }
     revertPrivatizedUpcast(group);
   }
 
