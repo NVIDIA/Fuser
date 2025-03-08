@@ -638,9 +638,42 @@ TEST_F(NVFuserTest, MultipleIndexSelectIssue_CUDA) {
   ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
       << "Should not segmented";
 
-  auto ref = at::index_select(t0, 0, t2) + at::index_select(t1, 0, t2);
-
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorLoad) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = indexSelect(tv0, 0, tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  std::vector<int64_t> shape1({1024, 1024});
+  std::vector<int64_t> shape2({7});
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randint(0, shape1[0], shape2, options_i);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+
+  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
+      << "Should not segmented";
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+  // should have vectorization
+  EXPECT_NE(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
+
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
