@@ -4527,7 +4527,7 @@ TEST_F(NVFuserTest, FusionValidateParallelize6_CUDA) {
   ASSERT_ANY_THROW(fusion.printKernel());
 }
 
-// Repro of #2046
+// Repro of https://github.com/csarofeen/pytorch/issues/2046
 TEST_F(NVFuserTest, FusionValidateParallelize7_CUDA) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -4535,7 +4535,10 @@ TEST_F(NVFuserTest, FusionValidateParallelize7_CUDA) {
   auto tv0 = makeSymbolicTensor(2);
   fusion.addInput(tv0);
 
-  auto tv1 = set(tv0);
+  // The original repro used set instead of exp. However, that is now aliased as
+  // a tensor producer alias so it gets skipped when tv1 is scheduled on Global
+  // memory.
+  auto tv1 = exp(tv0);
   auto tv2 = set(tv1);
   auto tv3 = set(tv1);
   fusion.addOutput(tv2);
