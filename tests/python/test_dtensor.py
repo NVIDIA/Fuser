@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from functools import partial
 from nvfuser import DataType, FusionDefinition
 from torch.distributed.tensor import DTensor
-from torch.distributed.tensor.parallel import parallelize_module, RowwiseParallel, ColwiseParallel
+from torch.distributed.tensor.parallel import (
+    parallelize_module,
+    ColwiseParallel,
+)
 from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
 from typing import Callable, cast
 
@@ -272,19 +275,16 @@ def test_slice(setup_process_group):
 
 @pytest.mark.mpi
 def test_parallelize_module(setup_process_group):
-    d = dist.get_world_size()
-    rank = dist.get_rank()
-    torch.cuda.set_device(rank)
-
     class Model(torch.nn.Module):
-        def __init__(self, h_k: int, h_v: int):
+        def __init__(self, h_k: int, h_v: int, tp: int = 1):
             super().__init__()
 
-            assert h_k % d == 0
-            assert h_v % d == 0
-
+            assert h_k % tp == 0
+            assert h_v % tp == 0
             self.h_k = h_k
             self.h_v = h_v
+            self.tp = tp
+
             self.linear = torch.nn.Linear(1, h_k + h_v, bias=False)
             with torch.no_grad():
                 weight = self.linear.weight
@@ -292,10 +292,14 @@ def test_parallelize_module(setup_process_group):
 
         def forward(self, x):
             y = self.linear(x)
-            q, k = y.split([self.h_k // d, self.h_v // d], dim=-1)
+            q, k = y.split([self.h_k // self.tp, self.h_v // self.tp], dim=-1)
             return q, k
 
-    model = Model(d * 2, d * 3).cuda()
+    d = dist.get_world_size()
+    rank = dist.get_rank()
+    torch.cuda.set_device(rank)
+
+    model = Model(d * 2, d * 3, d).cuda()
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
     model = parallelize_module(model, mesh, {"linear": ColwiseParallel()})
@@ -303,5 +307,5 @@ def test_parallelize_module(setup_process_group):
 
     x = torch.ones([1, 1]).cuda()
     q, k = model(x)
-    torch.testing.assert_close(q.cpu(), torch.tensor([[0., 1.]]) + rank * 5)
-    torch.testing.assert_close(k.cpu(), torch.tensor([[2., 3., 4.]]) + rank * 5)
+    torch.testing.assert_close(q.cpu(), torch.tensor([[0.0, 1.0]]) + rank * 5)
+    torch.testing.assert_close(k.cpu(), torch.tensor([[2.0, 3.0, 4.0]]) + rank * 5)
