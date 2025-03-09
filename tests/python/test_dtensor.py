@@ -277,22 +277,22 @@ def test_parallelize_module(setup_process_group):
     torch.cuda.set_device(rank)
 
     class Model(torch.nn.Module):
-        def __init__(self, h_q: int, h_k: int):
+        def __init__(self, h_k: int, h_v: int):
             super().__init__()
 
-            assert h_q % d == 0
             assert h_k % d == 0
+            assert h_v % d == 0
 
-            self.h_q = h_q
             self.h_k = h_k
-            self.linear = torch.nn.Linear(1, h_q + h_k, bias=False)
+            self.h_v = h_v
+            self.linear = torch.nn.Linear(1, h_k + h_v, bias=False)
             with torch.no_grad():
                 weight = self.linear.weight
                 weight.copy_(torch.arange(weight.numel()).view(weight.size()))
 
         def forward(self, x):
             y = self.linear(x)
-            q, k = y.split([self.h_q // d, self.h_k // d], dim=-1)
+            q, k = y.split([self.h_k // d, self.h_v // d], dim=-1)
             return q, k
 
     model = Model(d * 2, d * 3).cuda()
