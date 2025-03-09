@@ -557,6 +557,16 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
   return std::make_pair(true, target_broadcast_tvs);
 }
 
+TensorView* getUpCastInputOf(const TensorView* tv) {
+  if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+    if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+        dataTypeSize(uop->input(0)->getDataType().value()) <
+            dataTypeSize(uop->output(0)->getDataType().value())) {
+      return uop->input(0)->as<TensorView>();
+    }
+  }
+  return nullptr;
+}
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -961,11 +971,21 @@ int64_t getPersistentBufferSizeOfTensor(
       buffer_bytes *= id_size.as<int64_t>();
     }
   }
+  // If the persistent buffer is the output of an upcast op, scheduler will
+  // project it back to the input to save register usage. This is similar to
+  // project to inputs, not abosutely necessary but we always do it to
+  // save register usage. So, need to compute the buffer size using the data
+  // type before upcast.
+  int64_t dtype_size = 1;
+  if (auto upcast_input = getUpCastInputOf(buffer)) {
+    dtype_size = dataTypeSize(
+        upcast_input->getDataType().value(), runtime_info.getIndexType());
+  } else {
+    dtype_size = dataTypeSize(
+        buffer->getDataType().value(), runtime_info.getIndexType());
+  }
 
-  buffer_bytes = buffer_bytes == -1 ? 0
-                                    : buffer_bytes *
-          (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                runtime_info.getIndexType());
+  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
   return buffer_bytes;
 }
 
