@@ -1557,7 +1557,11 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
-TEST_F(PersistentBufferTest, TMP) {
+// If the persistent buffer is the output of an upcast op, project
+// it back to the input to save register usage. This is similar to
+// project to inputs, not abosutely necessary but we always do it to
+// save register usage.
+TEST_F(PersistentBufferTest, ProjectToUpcastInput) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1574,13 +1578,26 @@ TEST_F(PersistentBufferTest, TMP) {
   fusion.addOutput(tv6);
   auto fusion_copy = fusion;
 
-  // tv3 is the persistent tensor. The resolution point is tv8.
+  // tv3 is the persistent tensor
   auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
   EXPECT_EQ(
-      persistent_buffer_info.persistent_buffers, std::vector<TensorView*>{tv2});
+      persistent_buffer_info.persistent_buffers, std::vector<TensorView*>{tv3});
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor aten_input = at::randn({dim0, dim1}, options);
+
+  // The persistent buffer size is dim1 * sizeof(bool) not sizeof(float)
+  // becase tv3 is the output of an upcast op, the scheduler will project it
+  // back to the input which is tv2 and its data type is bool.
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_input});
+  auto persistent_buffer_size = scheduler_utils::persistentBufferSize(
+      &fusion, runtime_info, persistent_buffer_info);
+  EXPECT_EQ(
+      persistent_buffer_size.persistent_buffer_size,
+      dim1 * dataTypeSize(DataType::Bool));
+
+  // Check the compute position of the bool tensor, tv2, is at the top of the
+  // kernel.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({aten_input});
   auto runtime = executor_cache.getMostRecentKernelRuntime();

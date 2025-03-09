@@ -799,7 +799,9 @@ class PersistentBufferProjector {
               persistent_buffers[a], persistent_buffers[b]);
         });
 
-    // try to project buffer to its producers
+    // try to project buffer to its producers when
+    // (1) all producers are persistent buffers
+    // (2) or, the buffer is the input to an upcast op
     std::unordered_set<TensorView*> persistent_buffer_set(
         persistent_buffers.begin(), persistent_buffers.end());
     for (auto buffer_i : visiting_order) {
@@ -810,34 +812,14 @@ class PersistentBufferProjector {
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i,
             std::vector<Val*>(producers.begin(), producers.end()));
-      } else {
-        // T1 = upcastFrom(T0);
-        // T2 = sum(T1)
-        // T3 = broadcast(T2);
-        // T4 = add(T1, T3)
-        // T0 was saved as `buffer`, however, T1 is the real persistent buffer
-        // in the generated code. Here, need to recompute T1 from T0 in expr `T4
-        // = add(T1, T3)`, after that fusion becomes:
-        // T1 = upcastFrom(T0);
-        // T2 = sum(T1)
-        // T3 = broadcast(T2);
-        // T5 = upcastFrom(T0);
-        // T4 = add(T5, T3)
-        // Mapping between vars and the prototype fusion:
-        // buffer : T0
-        // upcasted_tvs : T1
-        // consumers_of_upcasted_tvs : T2, T4
-        auto upcasted_tvs = ir_utils::consumerTvsOf(buffer);
-        if (upcasted_tvs.size() == 1 &&
-            scheduler_utils::getInputToUpCastIfExist(upcasted_tvs.at(0))) {
-          auto upcasted_tv = upcasted_tvs.at(0);
-          auto consumers_of_upcasted_tvs = ir_utils::consumerTvsOf(upcasted_tv);
-          for (int i = 1; i < (int)consumers_of_upcasted_tvs.size(); i++) {
-            ir_utils::replaceValInExprInputs(
-                consumers_of_upcasted_tvs.at(i)->definition(),
-                upcasted_tv,
-                RecomputeTv::recompute(upcasted_tv, {buffer}));
-          }
+      } else if (
+          auto upcast_input = scheduler_utils::getUpCastInputOf(buffer)) {
+        auto consumers = ir_utils::consumerTvsOf(buffer);
+        for (auto i : c10::irange(1, consumers.size())) {
+          ir_utils::replaceValInExprInputs(
+              consumers.at(i)->definition(),
+              buffer,
+              RecomputeTv::recompute(buffer, {upcast_input}));
         }
       }
     }

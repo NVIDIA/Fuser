@@ -557,18 +557,16 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
   return std::make_pair(true, target_broadcast_tvs);
 }
 
-TensorView* getInputToUpCastIfExist(TensorView* tv) {
+TensorView* getUpCastInputOf(const TensorView* tv) {
   if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
     if (uop->getUnaryOpType() == UnaryOpType::Cast &&
         dataTypeSize(uop->input(0)->getDataType().value()) <
-            dataTypeSize(uop->output(0)->getDataType().value()) &&
-        !uop->input(0)->isFusionInput()) {
+            dataTypeSize(uop->output(0)->getDataType().value())) {
       return uop->input(0)->as<TensorView>();
     }
   }
   return nullptr;
 }
-
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -576,17 +574,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   ComputeAtLogicalDomainMap logical_map;
   logical_map.build();
 
-  std::cout << logical_map.toString() << std::endl;
-
   auto all_tvs = fusion->allTvs();
 
   for (auto producer : all_tvs) {
-    // tv1 = castOp(tv0)
-    // tv2 = op(tv1)
-    // If tv1's definition is a promoting dtpye cast, always use tv0 as the
-    // persistent buffer, which saves register usage at the cost of extra cast.
-    TensorView* producer_cast_tv = getInputToUpCastIfExist(producer);
-
     // Are all producer ids mappable to all consumers
     bool mappable = true;
     auto consumers = ir_utils::consumerTvsOf(producer);
@@ -594,9 +584,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       continue;
     }
 
-    auto candidate = producer_cast_tv ? producer_cast_tv : producer;
-
-    // Track which consumers have unmappable dims from candidate
+    // Track which consumers have unmappable dims from producer
     std::vector<TensorView*> unmappable_consumers;
 
     for (auto consumer : consumers) {
@@ -607,9 +595,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       }
       bool consumer_mappable = true;
       auto mappable_roots =
-          logical_map.getMappableDims(candidate->domain(), consumer->domain());
+          logical_map.getMappableDims(producer->domain(), consumer->domain());
 
-      auto p_logical = candidate->getLogicalDomain();
+      auto p_logical = producer->getLogicalDomain();
 
       for (auto p_logical_id : p_logical) {
         if (p_logical_id->isReduction() || p_logical_id->isBroadcast()) {
@@ -628,9 +616,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
 
     if (!mappable) {
-      // If there's unmappable dims from candidate to consumer, candidate is a
+      // If there's unmappable dims from producer to consumer, producer is a
       // persistent buffer.
-      persistent_buffer_info.persistent_buffers.emplace_back(candidate);
+      persistent_buffer_info.persistent_buffers.emplace_back(producer);
     }
   }
 
@@ -983,11 +971,21 @@ int64_t getPersistentBufferSizeOfTensor(
       buffer_bytes *= id_size.as<int64_t>();
     }
   }
+  // If the persistent buffer is the output of an upcast op, scheduler will
+  // project it back to the input to save register usage. This is similar to
+  // project to inputs, not abosutely necessary but we always do it to
+  // save register usage. So, need to compute the buffer size using the data
+  // type before upcast.
+  int64_t dtype_size = 1;
+  if (auto upcast_input = getUpCastInputOf(buffer)) {
+    dtype_size = dataTypeSize(
+        upcast_input->getDataType().value(), runtime_info.getIndexType());
+  } else {
+    dtype_size = dataTypeSize(
+        buffer->getDataType().value(), runtime_info.getIndexType());
+  }
 
-  buffer_bytes = buffer_bytes == -1 ? 0
-                                    : buffer_bytes *
-          (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                runtime_info.getIndexType());
+  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
   return buffer_bytes;
 }
 
