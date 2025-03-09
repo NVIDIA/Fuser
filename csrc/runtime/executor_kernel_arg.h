@@ -123,6 +123,10 @@ class NVF_API KernelArgumentHolder {
     return arguments_.at(ind);
   }
 
+  std::vector<PolymorphicValue> vector() const {
+    return arguments_;
+  }
+
   // Returns iterator pointing to the beginning of vector container
   auto begin() const {
     return arguments_.begin();

@@ -2,6 +2,10 @@
 #include <chrono>
 #include <iostream>
 #include <thread>
+#include <vector>
+#include <numeric>
+#include <cmath>
+#include <functional>
 
 #include <fusion.h>
 #include <fusion_guard.h>
@@ -17,6 +21,80 @@
 
 namespace nvfuser {
 
+#define NUM_WARMUP_ITERATIONS 5
+#define NUM_OUTER_ITERATIONS 10
+#define NUM_INNER_ITERATIONS 30
+#define SLEEP_TIME 2
+
+// Helper function to run performance test with consistent timing and reporting
+template <typename BenchmarkFn>
+void runPerformanceTest(
+    const std::string& test_name,
+    int num_warmup_iterations,
+    int num_outer_iterations,
+    int num_inner_iterations,
+    BenchmarkFn benchmark_fn) {
+    
+  // Warm-up runs
+  for (int i = 0; i < num_warmup_iterations; i++) {
+    benchmark_fn();
+  }
+
+  // Store individual iteration times
+  std::vector<double> iteration_times;
+  iteration_times.reserve(num_outer_iterations);
+  
+  std::chrono::duration<double, std::micro> elapsed{0};
+  for (int i = 0; i < num_outer_iterations; i++) {
+    // Make sure CUDA operations are completed before starting the timing
+    cudaDeviceSynchronize();
+
+    // Add sleep time
+    std::this_thread::sleep_for(std::chrono::seconds(SLEEP_TIME));
+
+    // Start CPU timer
+    auto start = std::chrono::high_resolution_clock::now();
+
+    // Run benchmark multiple times
+    for (int j = 0; j < num_inner_iterations; j++) {
+      benchmark_fn();
+    }
+
+    // Stop timer
+    auto end = std::chrono::high_resolution_clock::now();
+
+    // Track elapsed time for this iteration
+    auto iter_time = std::chrono::duration<double, std::micro>(end - start).count();
+    iteration_times.push_back(iter_time);
+    elapsed += end - start;
+  }
+
+  // Calculate average and standard deviation
+  double avg = std::accumulate(iteration_times.begin(), iteration_times.end(), 0.0) / 
+              iteration_times.size();
+  
+  double variance = 0.0;
+  for (const auto& time : iteration_times) {
+    variance += (time - avg) * (time - avg);
+  }
+  variance /= iteration_times.size();
+  double std_dev = std::sqrt(variance);
+
+  // Use separator based on test name length
+  std::string separator(test_name.length() + 6, '=');
+
+  std::cout << "\n" << separator << std::endl;
+  std::cout << test_name << " Performance Test" << std::endl;
+  std::cout << separator << std::endl;
+  std::cout << "Total time for " << num_outer_iterations * num_inner_iterations
+            << " iterations: " << elapsed.count() << " μs" << std::endl;
+  std::cout << "Average time per iteration: "
+            << elapsed.count() / (num_outer_iterations * num_inner_iterations)
+            << " μs" << std::endl;
+  std::cout << "StdDev / Avg of outer iterations: " << 100 * (std_dev / avg) << "%" << std::endl;
+  std::cout << separator << std::endl;
+}
+
 TEST_F(NVFuserTest, LinearPerfAten_CUDA) {
   // Create input tensors for linear operation
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -25,42 +103,62 @@ TEST_F(NVFuserTest, LinearPerfAten_CUDA) {
   auto bias = at::randn({16}, options);
 
   at::Tensor output;
-  // Warm-up run
-  for (int i = 0; i < 5; i++) {
-    output = at::linear(input, weight, bias);
-  }
+  
+  // Use the common performance test function
+  runPerformanceTest(
+    "ATen Linear 16x16",
+    NUM_WARMUP_ITERATIONS,
+    NUM_OUTER_ITERATIONS,
+    NUM_INNER_ITERATIONS,
+    [&]() { output = at::linear(input, weight, bias); }
+  );
+}
 
-  // Make sure CUDA operations are completed before starting the timing
-  cudaDeviceSynchronize();
+TEST_F(NVFuserTest, LinearPerfEvaluate_CUDA) {
+  // Create input tensors for linear operation
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input_at = at::randn({16, 16}, options);
+  auto weight_at = at::randn({16, 16}, options);
+  auto bias_at = at::randn({16}, options);
+  
+  // Create a Fusion to execute
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
-  // Add 5-second sleep
-  std::this_thread::sleep_for(std::chrono::seconds(5));
+  // Create inputs
+  auto input = makeSymbolicTensor(2); // 16x16
+  auto weight = makeSymbolicTensor(2); // 16x16
+  auto bias = makeSymbolicTensor(1); // 16
 
-  // Start CPU timer
-  auto start = std::chrono::high_resolution_clock::now();
+  fusion->addInput(input);
+  fusion->addInput(weight);
+  fusion->addInput(bias);
 
-  // Run linear 100 times
-  for (int i = 0; i < 100; i++) {
-    output = at::linear(input, weight, bias);
-  }
+  // Create linear op
+  auto output = linear(input, weight, bias);
 
-  // Stop timer
-  auto end = std::chrono::high_resolution_clock::now();
+  fusion->addOutput(output);
 
-  // Calculate elapsed time in microseconds
-  std::chrono::duration<double, std::micro> elapsed = end - start;
+  // Setup inputs to test
+  KernelArgumentHolder args;
+  args.push(input_at);
+  args.push(weight_at);
+  args.push(bias_at);
 
-  std::cout << "\n===================================" << std::endl;
-  std::cout << "ATen Linear 16x16 Performance Test" << std::endl;
-  std::cout << "===================================" << std::endl;
-  std::cout << "Total time for 100 iterations: " << elapsed.count() << " μs"
-            << std::endl;
-  std::cout << "Average time per iteration: " << elapsed.count() / 100.0
-            << " μs" << std::endl;
-  std::cout << "===================================" << std::endl;
+  auto linear_op = fusion->exprs().at(0)->as<LinearOp>();
 
-  // Basic verification
-  ASSERT_EQ(output.sizes(), std::vector<int64_t>({16, 16}));
+  std::vector<PolymorphicValue> outputs;
+ 
+  ExpressionEvaluator ee;
+
+  // Use the common performance test function
+  runPerformanceTest(
+    "LinearOp::evaluate 16x16",
+    NUM_WARMUP_ITERATIONS,
+    NUM_OUTER_ITERATIONS,
+    NUM_INNER_ITERATIONS,
+    [&]() { outputs = linear_op->evaluate(ee, args.vector()); }
+  );
 }
 
 TEST_F(NVFuserTest, LinearPerfExprEvalExec_CUDA) {
@@ -95,47 +193,19 @@ TEST_F(NVFuserTest, LinearPerfExprEvalExec_CUDA) {
   args.push(bias_at);
 
   // Create the ExprEvalExecutor
-  ExprEvalExecutor eee;
-  eee.compile(&fusion);
+  ExprEvalExecutor executor(0, 0, 0, 0);
+  executor.compile(&fusion);
+
   KernelArgumentHolder outputs;
-
-  // Warm up run
-  for (int i = 0; i < 5; i++) {
-    outputs = eee.run(args);
-  }
-
-  // Make sure CUDA operations are completed before starting the timing
-  cudaDeviceSynchronize();
-
-  // Add 5-second sleep
-  std::this_thread::sleep_for(std::chrono::seconds(5));
-
-  // Start CPU timer
-  auto start = std::chrono::high_resolution_clock::now();
-
-  // Run linear op 100 times
-  for (int i = 0; i < 100; i++) {
-    outputs = eee.run(args);
-  }
-
-  // Stop timer
-  auto end = std::chrono::high_resolution_clock::now();
-
-  // Calculate elapsed time in microseconds
-  std::chrono::duration<double, std::micro> elapsed = end - start;
-
-  std::cout << "\n=========================================" << std::endl;
-  std::cout << "NVFuser Linear 16x16 Performance Test" << std::endl;
-  std::cout << "=========================================" << std::endl;
-  std::cout << "Total time for 100 iterations: " << elapsed.count() << " μs"
-            << std::endl;
-  std::cout << "Average time per iteration: " << elapsed.count() / 100.0
-            << " μs" << std::endl;
-  std::cout << "=========================================" << std::endl;
-
-  // Basic verification
-  ASSERT_EQ(
-      outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({16, 16}));
+  
+  // Use the common performance test function
+  runPerformanceTest(
+    "ExprEval Linear 16x16",
+    NUM_WARMUP_ITERATIONS,
+    NUM_OUTER_ITERATIONS,
+    NUM_INNER_ITERATIONS,
+    [&]() { outputs = executor.run(args); }
+  );
 }
 
 TEST_F(NVFuserTest, LinearPerfFusionKernelRuntime_CUDA) {
@@ -174,43 +244,14 @@ TEST_F(NVFuserTest, LinearPerfFusionKernelRuntime_CUDA) {
   fkr.compileFusionParallel(args);
   KernelArgumentHolder outputs;
 
-  // Warm up run
-  for (int i = 0; i < 5; i++) {
-    outputs = fkr.runWithInputs(args);
-  }
 
-  // Make sure CUDA operations are completed before starting the timing
-  cudaDeviceSynchronize();
-
-  // Add 5-second sleep
-  std::this_thread::sleep_for(std::chrono::seconds(5));
-
-  // Start CPU timer
-  auto start = std::chrono::high_resolution_clock::now();
-
-  // Run linear op 100 times
-  for (int i = 0; i < 100; i++) {
-    outputs = fkr.runWithInputs(args);
-  }
-
-  // Stop timer
-  auto end = std::chrono::high_resolution_clock::now();
-
-  // Calculate elapsed time in microseconds
-  std::chrono::duration<double, std::micro> elapsed = end - start;
-
-  std::cout << "\n=========================================" << std::endl;
-  std::cout << "NVFuser Linear 16x16 Performance Test" << std::endl;
-  std::cout << "=========================================" << std::endl;
-  std::cout << "Total time for 100 iterations: " << elapsed.count() << " μs"
-            << std::endl;
-  std::cout << "Average time per iteration: " << elapsed.count() / 100.0
-            << " μs" << std::endl;
-  std::cout << "=========================================" << std::endl;
-
-  // Basic verification
-  ASSERT_EQ(
-      outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({16, 16}));
+  runPerformanceTest(
+    "ATen Linear 16x16",
+    NUM_WARMUP_ITERATIONS,
+    NUM_OUTER_ITERATIONS,
+    NUM_INNER_ITERATIONS,
+    [&]() { outputs = fkr.runWithInputs(args); }
+  );
 }
 
 TEST_F(NVFuserTest, LinearPerfFusionExecutorCache_CUDA) {
@@ -248,43 +289,13 @@ TEST_F(NVFuserTest, LinearPerfFusionExecutorCache_CUDA) {
   FusionExecutorCache fec(std::move(fusion));
   KernelArgumentHolder outputs;
 
-  // Warm up run
-  for (int i = 0; i < 5; i++) {
-    outputs = fec.runFusionWithInputs(args);
-  }
-
-  // Make sure CUDA operations are completed before starting the timing
-  cudaDeviceSynchronize();
-
-  // Add 5-second sleep
-  std::this_thread::sleep_for(std::chrono::seconds(5));
-
-  // Start CPU timer
-  auto start = std::chrono::high_resolution_clock::now();
-
-  // Run linear op 100 times
-  for (int i = 0; i < 100; i++) {
-    outputs = fec.runFusionWithInputs(args);
-  }
-
-  // Stop timer
-  auto end = std::chrono::high_resolution_clock::now();
-
-  // Calculate elapsed time in microseconds
-  std::chrono::duration<double, std::micro> elapsed = end - start;
-
-  std::cout << "\n=========================================" << std::endl;
-  std::cout << "NVFuser Linear 16x16 Performance Test" << std::endl;
-  std::cout << "=========================================" << std::endl;
-  std::cout << "Total time for 100 iterations: " << elapsed.count() << " μs"
-            << std::endl;
-  std::cout << "Average time per iteration: " << elapsed.count() / 100.0
-            << " μs" << std::endl;
-  std::cout << "=========================================" << std::endl;
-
-  // Basic verification
-  ASSERT_EQ(
-      outputs[0].as<at::Tensor>().sizes(), std::vector<int64_t>({16, 16}));
+  runPerformanceTest(
+    "FusionExecutorCache Linear 16x16",
+    NUM_WARMUP_ITERATIONS,
+    NUM_OUTER_ITERATIONS,
+    NUM_INNER_ITERATIONS,
+    [&]() { outputs = fec.runFusionWithInputs(args); }
+  );
 }
 
 } // namespace nvfuser
