@@ -29,34 +29,6 @@
 
 namespace nvfuser {
 
-class ExprEvalExecutor : public ExecutorAbstract {
- public:
-  ExprEvalExecutor(
-      int64_t fusion_id = 0,
-      int64_t concrete_id = 0,
-      int64_t runtime_id = 0,
-      int64_t group_id = 0)
-      : ExecutorAbstract(fusion_id, concrete_id, runtime_id, group_id) {}
-
-  // Returns true if all fusion outputs are expression evaluated.
-  static bool supported(Fusion* fusion);
-
-  void compile(Fusion* fusion);
-
-  bool isCompiled() const override;
-
-  NVF_API KernelArgumentHolder
-  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
-
-  const std::unique_ptr<Fusion>& fusion() {
-    return fusion_;
-  }
-
- private:
-  // TODO: Set properly
-  std::unique_ptr<Fusion> fusion_;
-};
-
 // struct used to hold necessary information to launch compiled kernel on a
 // given input set.
 //
