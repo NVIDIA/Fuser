@@ -39,6 +39,7 @@ namespace inst {
 class Trace : public NonCopyable {
  public:
   using Clock = std::chrono::steady_clock;
+  int64_t times_called_ = 0;
 
  public:
   NVF_API static Trace* instance() {
@@ -46,23 +47,9 @@ class Trace : public NonCopyable {
     return &trace;
   }
 
-  void beginEvent(const char* name) {
-    if (log_file_ != nullptr) {
-      logEvent('B', name);
-    }
-    if (record_nvtx_range_) {
-      nvtxRangePushA(name);
-    }
-  }
+  void beginEvent(const char* name) {}
 
-  void endEvent(const char* name) {
-    if (record_nvtx_range_) {
-      nvtxRangePop();
-    }
-    if (log_file_ != nullptr) {
-      logEvent('E', name);
-    }
-  }
+  void endEvent(const char* name) {}
 
  private:
   NVF_API Trace();

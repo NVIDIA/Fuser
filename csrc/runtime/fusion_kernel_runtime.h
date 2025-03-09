@@ -43,7 +43,7 @@ struct FusionKernelRuntime;
 //! SegmentCandidateFinder::segment pass in the constructor and compile the
 //! fusions. When serde_buffer exists, we deserialize the segmented_fusion_ and
 //! executors_ objects from the flatbuffer binary.
-class FusionKernelRuntime {
+class NVF_API FusionKernelRuntime {
  public:
   explicit FusionKernelRuntime(
       std::unique_ptr<Fusion> fusion,
