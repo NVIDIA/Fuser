@@ -1390,7 +1390,7 @@ class CircularBufferInserter : private kir::ExprMutator {
         GpuLower::current()
             ->parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
-    Val* warp_specilization_pad_val =
+    Val* warp_specialization_pad_val =
         IrBuilder::create<Val>(warp_specilization_pad, DataType::Index);
 
     kir::Predicate* predicate_val = nullptr;
