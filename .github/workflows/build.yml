@@ -15,7 +15,7 @@ env:
   working_directory: .
 
 jobs:
-  clang-build:
+  clang-build-23:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +31,7 @@ jobs:
           tools/pip-install-things.sh &
           source tools/setup-env.sh
           wait
-          python setup.py build
+          python setup.py build --cpp=23
 
   dynamic-type-meson:
     runs-on: ubuntu-latest

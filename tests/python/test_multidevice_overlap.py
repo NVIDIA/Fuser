@@ -80,8 +80,8 @@ def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
 
     # warmup
     for _ in range(N_WARMUPS):
-        outs = fd.execute(ins)
-        out = outs[0].local.cpu()
+        outputs, _ = fd.execute(ins)
+        out = outputs[0].cpu()
         assert out.dtype == torch.bfloat16
         assert out.shape == torch.Size([s, d, m // (s * d), n])
         torch.testing.assert_close(out, out_ref, rtol=1e-1, atol=1e-1)

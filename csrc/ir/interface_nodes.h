@@ -614,7 +614,11 @@ class NVF_API TensorView : public Val {
   //! Resize an IterDomain by expanding both the left and right sides
   //! by given widths. The resulting IterDomain has an extent of
   //! (left_expansion + axis->extent() + right_expansion).
-  TensorView* resize(int64_t axis, Val* left_expansion, Val* right_expansion);
+  TensorView* resize(
+      int64_t axis,
+      Val* left_expansion,
+      Val* right_expansion,
+      std::optional<IterType> iter_type = std::nullopt);
 
   // WARNING: rFactor does not return this TensorView, ir returns a new
   //  tensorview consumed by this!
