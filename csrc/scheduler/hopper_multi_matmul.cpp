@@ -593,10 +593,10 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     const int64_t tma_m = params_->tile_sizes.warp_tile.m;
     const int64_t tma_n = params_->tile_sizes.warp_tile.n;
 
-    fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
-    fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
-    fusion_->manage("st_matrix_m", tma_m);
-    fusion_->manage("st_matrix_n", tma_n);
+    fusion_->manage("ldst_matrix_m_tile", stmatrix_tile_m);
+    fusion_->manage("ldst_matrix_n_tile", stmatrix_tile_n);
+    fusion_->manage("ldst_matrix_m_smem", tma_m);
+    fusion_->manage("ldst_matrix_n_smem", tma_n);
 
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {
