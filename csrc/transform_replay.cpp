@@ -283,22 +283,23 @@ void TransformReplay::selfAllocationReplay(
     }
   }
 
-  // Replay producer dimensions.
-  const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
-  const std::vector<std::optional<bool>>& self_contiguity = self->contiguity();
-  const std::vector<IterDomain*>& self_allocation_no_reduction =
-      TensorDomain::noReductions(self_allocation);
+  if (self->hasAllocation()) {
+    // Replay producer dimensions.
+    const std::vector<IterDomain*>& self_allocation = self->maybeAllocation();
+    const std::vector<std::optional<bool>>& self_contiguity =
+        self->contiguity();
+    const std::vector<IterDomain*>& self_allocation_no_reduction =
+        TensorDomain::noReductions(self_allocation);
 
-  // we replay only non-reduction IDs. The reason is that, we might have
-  // non-mapping reduction IDs between self and new_self. This is used in
-  // `RemoveBcastSqueeze`.
-  ReplaySelf replay(self_allocation_no_reduction, axis_map);
-  std::vector<IterDomain*> new_alloc_domain;
-  std::vector<std::optional<bool>> new_contiguity;
-  new_alloc_domain.reserve(self_allocation.size());
-  new_contiguity.reserve(self_allocation.size());
+    // we replay only non-reduction IDs. The reason is that, we might have
+    // non-mapping reduction IDs between self and new_self. This is used in
+    // `RemoveBcastSqueeze`.
+    ReplaySelf replay(self_allocation_no_reduction, axis_map);
+    std::vector<IterDomain*> new_alloc_domain;
+    std::vector<std::optional<bool>> new_contiguity;
+    new_alloc_domain.reserve(self_allocation.size());
+    new_contiguity.reserve(self_allocation.size());
 
-  {
     // Push back the reduction IDs that are not mapped
     for (auto id : new_self->logical()) {
       if (id->isReduction()) {
@@ -329,11 +330,32 @@ void TransformReplay::selfAllocationReplay(
       } else {
         new_contiguity.push_back(self_contiguity[i]);
       }
+      it->second->parallelize(id->getParallelType());
       new_alloc_domain.push_back(it->second);
     }
+
+    new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
   }
 
-  return new_self->setAllocationDomain(new_alloc_domain, new_contiguity);
+  if (self->loop() != self->logical()) {
+    std::vector<IterDomain*> new_loop;
+    ReplaySelf replay(self->loop(), axis_map);
+    for (auto id : new_self->logical()) {
+      if (id->isReduction()) {
+        new_loop.push_back(id);
+      }
+    }
+
+    for (IterDomain* id : self->loop()) {
+      auto it = replay.getReplay().find(id);
+      NVF_ERROR(
+          it != replay.getReplay().end(), "failed to replay IterDomain: ", id);
+      it->second->parallelize(id->getParallelType());
+      new_loop.push_back(it->second);
+    }
+
+    new_self->setLoopDomain(new_loop);
+  }
 }
 
 namespace {
