@@ -94,7 +94,6 @@ flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
       toUnderlying(scheduler_type_),
       &exprs_fb,
       level_,
-      visited_,
       merge_with_segmented_group,
       merge_through_segmented_edge,
       merged_,
@@ -127,7 +126,6 @@ void SegmentedGroup::deserialize(
   exprs_ = convertContainer<int64_t, Expr*>(exprs, *buffer->exprs());
 
   level_ = buffer->level();
-  visited_ = buffer->visited();
 
   // -1 corresponds with a nullptr value
   if (buffer->merge_with_segmented_group() != -1) {
@@ -282,7 +280,6 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
 
 void SegmentedGroup::clearTraversalInfo() {
   level_ = -1;
-  visited_ = false;
   merge_with_ = nullptr;
   merge_through_ = nullptr;
   merged_ = false;
@@ -2063,87 +2060,35 @@ void SegmentCandidateFinder::resetLevels() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::resetLevels");
 
   std::deque<SegmentedGroup*> to_visit;
-  std::vector<SegmentedGroup*> next_to_visit;
-
-  // Special initialization for
-  // https://github.com/Lightning-AI/lightning-thunder/issues/1490 and
-  // https://github.com/NVIDIA/Fuser/issues/3510 (same issue).
-  //
-  // The issue is if we have a DAG that's a long chain that keeps adding inputs.
-  // e.g.
-  // tv3 = inp0 + inp1
-  // tv4 = tv3
-  // tv6 = tv4 + inp5
-  // tv7 = tv6
-  // tv9 = tv7 + inp8
-  // ...
-  //
-  // If we simply start from all inputs, then we will add all expressions to the
-  // to_visit list. We will check the first expression, process it, add the next
-  // expression to the end of the to_visit list. Then check all other expression
-  // which cannot be processed, until finally getting back to the second
-  // expression, and process it.
-  //
-  // The solution to this is to start from expressions where all producer edges
-  // are inputs.
-
-  // Mark all input groups as visited and mark their level as 0
-  // Initialize all other groups as not visited and level as 0
-  for (auto group : groups()) {
+  std::unordered_map<SegmentedGroup*, int64_t> num_producer_edges;
+  for (SegmentedGroup* group : groups()) {
     group->level_ = 0;
-    if (group->producer_edges.empty()) {
-      group->visited_ = true;
-    } else {
-      group->visited_ = false;
-      if (std::all_of(
-              group->producer_edges.begin(),
-              group->producer_edges.end(),
-              [&](SegmentedEdge* edge) {
-                return edge->from->producer_edges.empty();
-              })) {
-        to_visit.push_back(group);
+    if ((num_producer_edges[group] = std::ssize(group->producer_edges)) == 0) {
+      // Start by visiting groups that have no producer edges.
+      to_visit.push_back(group);
+    }
+  }
+
+  int64_t num_visited = 0;
+  while (!to_visit.empty()) {
+    SegmentedGroup* visiting = to_visit.front();
+    to_visit.pop_front();
+    num_visited++;
+
+    for (SegmentedEdge* out : visiting->consumer_edges) {
+      SegmentedGroup* consumer = out->to;
+      consumer->level_ = std::max(consumer->level_, visiting->level_ + 1);
+      // After visiting a group, decrement the number of producer edges of each
+      // consumer. When that number reaches 0, add the consumer to the visit
+      // list.
+      if ((--num_producer_edges.at(consumer)) == 0) {
+        to_visit.push_back(consumer);
       }
     }
   }
 
-  while (!to_visit.empty()) {
-    auto visiting = to_visit.front();
-    to_visit.pop_front();
-
-    if (visiting->visited_) {
-      continue;
-    }
-
-    if (std::any_of(
-            visiting->producer_edges.begin(),
-            visiting->producer_edges.end(),
-            [&](SegmentedEdge* dep) { return !dep->from->visited_; })) {
-      // Node isn't ready, push back to the next_to_visit list
-      // Next_to_visit is used in case traversal doesn't complete because
-      // there's an error in the DAG topology.
-      next_to_visit.push_back(visiting);
-      continue;
-    }
-
-    // Node is ready, visit it
-    visiting->visited_ = true;
-
-    // Add all nodes that are ready to visit to the to_visit list
-    to_visit.insert(to_visit.end(), next_to_visit.begin(), next_to_visit.end());
-    next_to_visit.clear();
-
-    // Add all consumer nodes to the to_visit list
-    for (auto out : visiting->consumer_edges) {
-      to_visit.push_back(out->to);
-    }
-
-    visiting->level_ = 0;
-    for (auto inp : visiting->producer_edges) {
-      visiting->level_ = std::max(visiting->level_, inp->from->level_ + 1);
-    }
-  }
-
-  NVF_ERROR(next_to_visit.empty(), "Error in graph, is not a DAG.");
+  NVF_ERROR(
+      num_visited == std::ssize(groups()), "Error in graph, is not a DAG.");
 }
 
 // Disconect group from neighbors, and return edges that were disconnected
