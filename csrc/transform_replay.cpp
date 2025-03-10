@@ -26,9 +26,9 @@
 
 namespace nvfuser {
 
-using id_map = std::unordered_map<IterDomain*, IterDomain*>;
-
 namespace {
+
+using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
 
 class ReplaySelf : public ReplayTransformations {
  private:
@@ -154,7 +154,9 @@ class ReplaySelf : public ReplayTransformations {
   }
 
  public:
-  ReplaySelf(const std::vector<IterDomain*>& _target_domain, id_map _id_map)
+  ReplaySelf(
+      const std::vector<IterDomain*>& _target_domain,
+      IterDomainMap _id_map)
       : ReplayTransformations(_target_domain, std::move(_id_map)) {
     setErrorOnFailure(false);
   }
@@ -176,7 +178,7 @@ TensorDomain* TransformReplay::fullSelfReplay(
       self->maybeRoot());
 
   // Map for replay, should be pretty simple.
-  id_map axis_map;
+  IterDomainMap axis_map;
   {
     int64_t i = 0;
     for (auto id : self->maybeRoot()) {
@@ -258,7 +260,7 @@ void TransformReplay::selfAllocationReplay(
       self_logical.size());
 
   // Map for replay
-  id_map axis_map;
+  IterDomainMap axis_map;
   {
     int64_t i = 0;
     for (IterDomain* id : self_logical) {
@@ -436,7 +438,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
       !opt.replay_resize);
 
   // Make a new map based on all the loop ids resulting from best effort replay
-  id_map forwarded_replay_map;
+  IterDomainMap forwarded_replay_map;
   auto forwarded_replay_loop = forward_replay.getUnorderedLeafIDs();
   for (auto entry : forward_replay.getReplay()) {
     if (forwarded_replay_loop.find(entry.second) !=
@@ -487,7 +489,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayPasC(
   // producer_loop_ids now contains all producer ID products that are not used
   // to satisfy the computeAt. Put them in a replay map so we can play forward
   // these IDs in producer (if possible):
-  id_map producer_self_replay_map;
+  IterDomainMap producer_self_replay_map;
   for (auto entry : producer_loop_ids) {
     producer_self_replay_map[entry.first] = entry.first;
   }
@@ -677,7 +679,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   // BestEffortReplay::replayCasP these don't have any equivalent in producer
   // so they're not in the map. We will simply map them to themselves so we
   // don't lose them.
-  id_map forwarded_replay_map;
+  IterDomainMap forwarded_replay_map;
   auto forwarded_replay_loop = forward_replay.getUnorderedLeafIDs();
   for (auto entry : forward_replay.getReplay()) {
     if (forwarded_replay_loop.find(entry.second) !=
@@ -729,7 +731,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
   // consumer_loop_ids now contains all consumer ID products that are not used
   // to satisfy the computeAt. Turn into a  map so we can play forward these IDs
   // in consumer (if possible):
-  id_map consumer_self_replay_map;
+  IterDomainMap consumer_self_replay_map;
   for (auto entry : consumer_loop_ids) {
     consumer_self_replay_map[entry.first] = entry.first;
   }
@@ -950,7 +952,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayPasC(
   // Allow replay through indexing exprs
   const auto pairwise_map =
       PairwiseLogicalDomainMap(producer, consumer).mapIndexedDomains(true);
-  id_map c2p_logical_map = pairwise_map.mapConsumerToProducer();
+  IterDomainMap c2p_logical_map = pairwise_map.mapConsumerToProducer();
 
   // IterDomains in `consumer` root also in `producer` root
   const auto consumer_domain = consumer->getLoopDomain();
@@ -1022,7 +1024,7 @@ int64_t TransformReplay::getMatchedLeafPosWithoutReplayCasP(
   // Allow replay through indexing exprs
   const auto pairwise_map =
       PairwiseLogicalDomainMap(producer, consumer).mapIndexedDomains(true);
-  id_map p2c_logical_map = pairwise_map.mapProducerToConsumer();
+  IterDomainMap p2c_logical_map = pairwise_map.mapProducerToConsumer();
 
   // IterDomains in `producer` root that are not reduction
   const auto producer_domain = producer->getLoopDomain();
