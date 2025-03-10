@@ -14,13 +14,12 @@ multidevice_test = multidevice_fixtures.multidevice_test
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
     def __init__(self, m, k, n, s, num_devices):
-        super().__init__()
+        super().__init__(use_multidevice_executor=True)
         self.m = m
         self.k = k
         self.n = n
         self.s = s
         self._num_devices = num_devices
-        self.use_multidevice_executor()
 
     def definition(self) -> None:
         m, k, n, s, d = (

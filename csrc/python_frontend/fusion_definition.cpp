@@ -60,7 +60,7 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
+FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length, bool use_multidevice_executor)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
@@ -69,7 +69,8 @@ FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
       prev_fusion_(nullptr),
       user_sched_(nullptr),
       ops(this),
-      sched(this) {}
+      sched(this),
+      use_multidevice_executor_(use_multidevice_executor) {}
 
 FusionCache* FusionDefinition::fusionCache() const {
   NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");
@@ -400,8 +401,8 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   KernelArgumentHolder outputs;
   if (user_sched == nullptr) {
-    scheds->createExecutorIfNotExists(use_multidevice_executor);
-    if (use_multidevice_executor) {
+    scheds->createExecutorIfNotExists(use_multidevice_executor_);
+    if (use_multidevice_executor_) {
       outputs = scheds->multi_device_executor->runWithInput(args);
     } else {
       outputs = scheds->auto_gen_schedules->runFusionWithInputs(
@@ -409,7 +410,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     }
   } else {
     NVF_ERROR(
-        !use_multidevice_executor,
+        !use_multidevice_executor_,
         "multidevice_executor is not supported "
         "for user-defined schedules.");
     if (isProfilerEnabledWithCupti()) {
@@ -465,7 +466,7 @@ std::vector<DistributedTensor> FusionDefinition::execute(
   std::vector<DistributedTensor> out_dtensors;
   out_dtensors.reserve(outputs.size());
   if (user_sched == nullptr) {
-    Fusion* fusion = use_multidevice_executor
+    Fusion* fusion = use_multidevice_executor_
         ? scheds->multi_device_executor->hirEvaluator()->container()
         : scheds->auto_gen_schedules->getMostRecentKernelRuntime()
               ->fusionSegments()
