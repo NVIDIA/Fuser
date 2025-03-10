@@ -85,7 +85,7 @@ TensorView.
 
 * Threads 0-7 correspond with matrix rows of first matrix. (x1, x2, and x4)
 * Threads 8-15 correspond with matrix rows of second matrix. (x2 and x4)
-* Threads 16-23 correspond with matrix rows of third matrix. (x2 and x4)
+* Threads 16-23 correspond with matrix rows of third matrix. (x4 only)
 * Threads 24-31 correspond with matrix rows of fourth matrix. (x4 only)
 
 ### Indices for register tensor
@@ -124,44 +124,6 @@ Figure 1 shows how the CTA tile is transformed into the loop domain
 for LdMatrix or StMatrix. Figure 2 displays the loop transformations for TMA
 Load or Store operations. Figure 3 illustrates the following steps to compute
 index from LdMatrix or StMatrix loop domain to TMA shared memory domain.
-
----
-
-**Step 1:** Derive (8, 8) core matrix components for LdMatrix / StMatrix from
-for-loop indices.
-
-**LdMatrix (8, 8) IterDomain Layout:**
-
-`mo(2), no(4), mio(4), nio(4), miio(2), miii(8), niio(2), niii(8)`
-
-<details>
-
- * Undo last two steps, **Merge And Parallelize** and **Reorder** from Figure 1
- * Merge `n_iiio(4)` and `n_iiii(2)` together to form megabank size IterDomain
-
-</details>
-
-**Step 2:** Merge and reorder components to get the allocation domain for TMA
-LoadStoreOp with 128B swizzle.
-
-**TMA LoadStoreOp with 128B swizzle IterDomain Layout:**
-
-`mo(2), no(4), mio * miio (8), miiio(8), miiii(1), nio * niio (8), niii(8)`
-
-<details>
-
- * Merge `mio(4)` and `miio(2)` = 8
- * `miii(8)` is the maximum number of rows in swizzle.
- * Split `miii(8)` into `miiio(8)` and `miiii(1)` by repetitions for 128B swizzle.
- * Merge `nio(4)` and `niio(2)` = 8
-
-</details>
-
-**Step 3:** XOR swizzle `m_io(8)` and `(nooi * n_o)(8)` to get new ldmatrix tile
-column.
-
-**Step 4:** Combine index components according to TMA LoadStoreOp to create the
-input index into shared memory.
 
 ---
 
@@ -215,6 +177,47 @@ The CTA tile is m(128), n(256)
 
 ### Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory domain
 ![Map Loop Domain toTMA Shared Memory Layout](ldstmatrix/ldstmatrix_to_tma.svg)
+
+
+---
+
+#### Derivation of Figure 3
+
+**Step 1:** Derive (8, 8) core matrix components for LdMatrix / StMatrix from
+for-loop indices.
+
+**LdMatrix (8, 8) IterDomain Layout:**
+
+`mo(2), no(4), mio(4), nio(4), miio(2), miii(8), niio(2), niii(8)`
+
+<details>
+
+ * Undo last two steps, **Merge And Parallelize** and **Reorder** from Figure 1
+ * Merge `n_iiio(4)` and `n_iiii(2)` together to form megabank size IterDomain
+
+</details>
+
+**Step 2:** Merge and reorder components to get the allocation domain for TMA
+LoadStoreOp with 128B swizzle.
+
+**TMA LoadStoreOp with 128B swizzle IterDomain Layout:**
+
+`mo(2), no(4), mio * miio (8), miiio(8), miiii(1), nio * niio (8), niii(8)`
+
+<details>
+
+ * Merge `mio(4)` and `miio(2)` = 8
+ * `miii(8)` is the maximum number of rows in swizzle.
+ * Split `miii(8)` into `miiio(8)` and `miiii(1)` by repetitions for 128B swizzle.
+ * Merge `nio(4)` and `niio(2)` = 8
+
+</details>
+
+**Step 3:** XOR swizzle `m_io(8)` and `(nooi * n_o)(8)` to get new ldmatrix tile
+column.
+
+**Step 4:** Combine index components according to TMA LoadStoreOp to create the
+input index into shared memory.
 
 
 ## Code Walkthrough
