@@ -800,8 +800,8 @@ TEST_F(NVFuserTest, IndexSelectVectorizationIndexTensorNoBroadcast) {
   fusion.addInput(tv0);
   auto tv1 = TensorViewBuilder()
                  .ndims(2)
-                .shape({-1, 1})
-                .dtype(DataType::Int)
+                 .shape({-1, 1})
+                 .dtype(DataType::Int)
                  .contiguity({true, std::nullopt})
                  .build();
   fusion.addInput(tv1);
