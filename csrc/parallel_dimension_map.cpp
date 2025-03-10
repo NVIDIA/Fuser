@@ -180,7 +180,8 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   auto pt = *ws_with_register_sharing_.begin();
   auto dim_it = dim_map_.find(pt);
 
-  auto check_and_pad_dim = [&](ParallelType pt_checked, ParallelType pt_padded) {
+  auto check_and_pad_dim = [&](ParallelType pt_checked,
+                               ParallelType pt_padded) {
     Val* bdim = dim_map_.at(pt_checked);
     NVF_ERROR(
         bdim->isConstScalar(),
@@ -198,12 +199,12 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
           bdim_val);
     } else {
       if (dim_it->second->isConstScalar()) {
-        int64_t threads_bofore_pad =
+        int64_t threads_before_pad =
             dim_it->second->value().as<int64_t>() * bdim_val;
         NVF_ERROR(
             threads_before_pad >= 128 && threads_before_pad % 128 == 0,
             "Before warp specialization padding, there must be 128 * N threads, bdim= ",
-            threads_bofore_pad);
+            threads_before_pad);
       } else {
         // we can't verify wheter the block size is multiple of 128. Defer check
         // to executor.
@@ -232,6 +233,8 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
     dim_map_[pt_pad] = IrBuilder::addExpr(dim_it->second, off_set);
     return 128;
   };
+
+  // Warp specialization with register sharing on parallel type pt
   switch (pt) {
     // threadIdx = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *
     // blockDim.x * blockDim.y If on TIDx, we need to patch additional 128
@@ -247,7 +250,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
         // If TIDx is used, pad [128 / bdimx] or 1 (when bdimx > 128 &
         // bdimx%128==0) threads to TIDy
         warp_specialization_padded_vals_[pt] =
-            checkAndPadDim(ParallelType::TIDx, pt);
+            check_and_pad_dim(ParallelType::TIDx, pt);
       }
       break;
     case ParallelType::TIDz:
@@ -259,14 +262,14 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
           // If TIDx is not used, TIDy is used, pad 128 / bdimx threads or 1 to
           // TIDz
           warp_specialization_padded_vals_[pt] =
-              checkAndPadDim(ParallelType::TIDy, pt);
+              check_and_pad_dim(ParallelType::TIDy, pt);
         }
       } else {
         // If TIDx is used, TIDy is not used, pad 128 / bdimx threads or 1 to
         // TIDz
         if (!dim_map_.contains(ParallelType::TIDy)) {
           warp_specialization_padded_vals_[pt] =
-              checkAndPadDim(ParallelType::TIDx, pt);
+              check_and_pad_dim(ParallelType::TIDx, pt);
         } else {
           // If TIDx & TIDy are used, pad 128/(bdimx*bdimy) threads or 1 to TIDz
           Val* bdimx = dim_map_.at(ParallelType::TIDx);

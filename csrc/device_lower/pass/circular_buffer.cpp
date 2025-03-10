@@ -1390,15 +1390,12 @@ class CircularBufferInserter : private kir::ExprMutator {
         GpuLower::current()
             ->parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
-    Val* warp_specialization_pad_val =
-        IrBuilder::create<Val>(warp_specilization_pad, DataType::Index);
-
     kir::Predicate* predicate_val = nullptr;
     Val* raw =
         GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
     Val* raw_minus_pad =
-        SimplifyingIrBuilder::subExpr(raw, warp_specilization_pad_val);
-    if (warp_specilization_pad == 1) {
+        SimplifyingIrBuilder::subExpr(raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+    if (warp_specialization_pad == 1) {
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
           NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
     } else {
@@ -1445,7 +1442,7 @@ class CircularBufferInserter : private kir::ExprMutator {
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
 
     // Nest load loop inside the warp dispatch if-then-else
-    if (warp_specilization_pad > 1) {
+    if (warp_specialization_pad > 1) {
       kir::IfThenElse* load_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
               NamedScalar::getParallelIndex(warp_specialize_on),
