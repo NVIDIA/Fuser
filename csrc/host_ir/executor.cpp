@@ -447,6 +447,9 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       get_zcopy::sendPost(p2p_ipc_handle, current_stream);
     }
   } else {
+    NVF_ERROR(
+        communication->type() == P2PCommunicationType::RECV,
+        "Wrong communication type");
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
