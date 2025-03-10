@@ -400,7 +400,6 @@ table SegmentedGroup {
   heuristic: long;
   exprs: [long];
   level: int;
-  visited: bool;
   merge_with_segmented_group: long;
   merge_through_segmented_edge: long;
   merged: bool;
