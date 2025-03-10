@@ -377,12 +377,6 @@ class SegmentedFusion {
   //! Grab edges with val
   std::vector<SegmentedEdge*> getEdgesByVal(Val* val) const;
 
-  //! Make sure it's a DAG and optionally disjoint
-  void validate(bool require_disjoint = true) const;
-
-  //! Same as validate but only enabled when NDEBUG is undefined
-  void validateIfDebug(bool require_disjoint = true) const;
-
   //! Serialize SegmentedFusion using flatbuffers
   flatbuffers::Offset<serde::SegmentedFusion> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
@@ -390,10 +384,9 @@ class SegmentedFusion {
   //! Deserialize SegmentedFusion using flatbuffers
   void deserialize(const serde::SegmentedFusion* buffer);
 
- private:
-  void validateDAG() const;
   void validateDisjoint() const;
 
+ private:
   //! Serialize SegmentedEdge using flatbuffers
   flatbuffers::Offset<serde::SegmentedEdge> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -555,6 +548,10 @@ class SegmentCandidateFinder {
   NVF_API static bool translateWelfordInFusion(
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
+
+  //! Validate the graph is a DAG, and if require_disjoint that exprs are
+  //! disjoint
+  void validateIfDebug(bool require_disjoint = false);
 
  private:
   // Perform segmentation on and take ownership of the given fusion
