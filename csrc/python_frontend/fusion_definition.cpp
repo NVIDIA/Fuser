@@ -446,10 +446,14 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
 
   KernelArgumentHolder outputs;
   if (user_sched == nullptr) {
-    scheds->createExecutorIfNotExists(use_multidevice_executor_);
     if (use_multidevice_executor_) {
+      if (scheds->multi_device_executor == nullptr) {
+        scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
+          std::make_unique<Fusion>(*scheds->preschedFusion()));
+      }
       outputs = scheds->multi_device_executor->runWithInput(args);
     } else {
+      scheds->createExecutorIfNotExists();
       outputs = scheds->auto_gen_schedules->runFusionWithInputs(
           args, std::nullopt, args.getDeviceIndex());
     }

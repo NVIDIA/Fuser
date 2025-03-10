@@ -280,19 +280,11 @@ Fusion* FusionSchedules::preschedFusion() {
   NVF_THROW("Prescheduled Fusion is unexpectedly null!");
 }
 
-void FusionSchedules::createExecutorIfNotExists(
-    bool use_multi_device_executor) {
-  if (use_multi_device_executor) {
-    if (multi_device_executor == nullptr) {
-      multi_device_executor = std::make_unique<MultiDeviceExecutor>(
-          std::make_unique<Fusion>(*presched_fusion_));
-    }
-  } else {
-    if (auto_gen_schedules == nullptr) {
-      auto_gen_schedules = std::make_unique<FusionExecutorCache>(
-          std::move(presched_fusion_), fusion_id_);
-      presched_fusion_ = nullptr;
-    }
+void FusionSchedules::createExecutorIfNotExists() {
+  if (auto_gen_schedules == nullptr) {
+    auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+        std::move(presched_fusion_), fusion_id_);
+    presched_fusion_ = nullptr;
   }
 }
 
