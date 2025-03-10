@@ -641,42 +641,7 @@ TEST_F(NVFuserTest, MultipleIndexSelectIssue_CUDA) {
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorLoad) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  auto tv0 = makeContigTensor(2);
-  fusion.addInput(tv0);
-  auto tv1 = makeContigTensor(1, DataType::Int);
-  fusion.addInput(tv1);
-
-  auto tv2 = indexSelect(tv0, 0, tv1);
-  fusion.addOutput(tv2);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
-  // vectorization friendly size
-  std::vector<int64_t> shape1({1029, 1024});
-  std::vector<int64_t> shape2({1025});
-  auto t0 = at::randn(shape1, options);
-  auto t1 = at::randint(0, shape1[0], shape2, options_i);
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
-
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_NE(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
-
-  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, IndexSelectNonVectorization) {
+TEST_F(NVFuserTest, IndexSelectVectorizationUnfriendlySize) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -711,7 +676,41 @@ TEST_F(NVFuserTest, IndexSelectNonVectorization) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, IndexSelectIndicesInnermost) {
+TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = indexSelect(tv0, 0, tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  std::vector<int64_t> shape1({1029, 1024});
+  std::vector<int64_t> shape2({1025});
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randint(0, shape1[0], shape2, options_i);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+  EXPECT_NE(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
+
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, IndexSelectVectorizationIndices) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -748,7 +747,7 @@ TEST_F(NVFuserTest, IndexSelectIndicesInnermost) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, IndexSelect3DNonVectorization) {
+TEST_F(NVFuserTest, IndexSelectVectorization3DCase0) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -784,7 +783,7 @@ TEST_F(NVFuserTest, IndexSelect3DNonVectorization) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, IndexSelect3DVectorization) {
+TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
