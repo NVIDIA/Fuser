@@ -2,7 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
-from nvfuser import FusionDefinition
+from nvfuser import FusionDefinition, MatmulTileRasterizationOrder
 from .core import run_benchmark
 import torch
 
@@ -41,6 +41,9 @@ def test_matmul_baseline_benchmark(
 ):
     m, n, k, layout = config
 
+    if (m * n + m * k + n * k) * 2 > 12 * (2**30):
+        pytest.skip("Probable OOM")
+
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
@@ -75,6 +78,9 @@ def test_matmul_nvf_benchmark(
 ):
     m, n, k, layout = config
 
+    if (m * n + m * k + n * k) * 2 > 12 * (2**30):
+        pytest.skip("Probable OOM")
+
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
@@ -103,3 +109,39 @@ def test_matmul_nvf_benchmark(
 
     if not disable_benchmarking:
         run_benchmark(benchmark, lambda *args: fd.execute(*args, **kwargs), [a, b])
+
+    heuristic_params = {}
+
+    # Record the automatic parameters
+    def record_params():
+        schedule_params = fd.sched.compute_matmul_heuristics()
+
+        heuristic_params["cluster_x"] = schedule_params.cluster_dims.x
+        heuristic_params["cluster_y"] = schedule_params.cluster_dims.y
+        heuristic_params["cluster_z"] = schedule_params.cluster_dims.z
+        heuristic_params["cta_m"] = schedule_params.tile_sizes.cta_tile.m
+        heuristic_params["cta_n"] = schedule_params.tile_sizes.cta_tile.n
+        heuristic_params["cta_k"] = schedule_params.tile_sizes.cta_tile.k
+        heuristic_params["warp_m"] = schedule_params.tile_sizes.warp_tile.m
+        heuristic_params["warp_n"] = schedule_params.tile_sizes.warp_tile.n
+        heuristic_params["warp_k"] = schedule_params.tile_sizes.warp_tile.k
+        heuristic_params["instruction_m"] = schedule_params.mma_macro.m
+        heuristic_params["instruction_n"] = schedule_params.mma_macro.n
+        heuristic_params["instruction_k"] = schedule_params.mma_macro.k
+        heuristic_params[
+            "stages"
+        ] = schedule_params.circular_buffer_options.smem_circular_buffer_stage
+        heuristic_params["cta_order"] = (
+            "column_major"
+            if schedule_params.cta_order == MatmulTileRasterizationOrder.column_major
+            else "row_major"
+        )
+        heuristic_params["grid_swizzle_factor"] = schedule_params.grid_swizzle_factor
+        heuristic_params["splitk_factor"] = schedule_params.splitk_factor
+
+        # Schedule fusion
+        fd.sched.schedule()
+
+    fd.schedule = record_params
+    fd.execute([a, b], **kwargs)
+    benchmark.extra_info["heuristic_params"] = heuristic_params
