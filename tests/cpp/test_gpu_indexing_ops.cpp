@@ -792,7 +792,7 @@ TEST_F(NVFuserTest, IndexSelect3DVectorization) {
   auto tv0 = TensorViewBuilder()
                  .ndims(3)
                  .contiguity({true, true, true})
-                 .strideOrder({1, 2, 0})
+                 .strideOrder({2, 0, 1})
                  .build();
   fusion.addInput(tv0);
   auto tv1 = makeContigTensor(1, DataType::Int);
@@ -819,7 +819,7 @@ TEST_F(NVFuserTest, IndexSelect3DVectorization) {
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
+  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 2);
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
