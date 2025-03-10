@@ -714,6 +714,10 @@ TEST_F(NVFuserTest, IndexSelectVectorizationUnfriendlySize) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
+  // lookup tv [ 1029, 1023 ]
+  // index  tv [ 1025 ]
+  // output tv [ 1025, 1023 ]
+  // due to the unfriendly size, we won't have any vectorization at all
   checkIndexSelectVectorization(executor_cache, 1, false, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -739,16 +743,11 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randint(0, shape1[0], shape2, options_i);
 
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
-
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_NE(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
-
+  // lookup tv [ 1029, 1024 ]
+  // index  tv [ 1025 ]
+  // output tv [ 1025, 1024 ]
+  // output tv and lookup tv share the innermost dimension 1024. We'll have
+  // vectorized store and load on lookup tv
   checkIndexSelectVectorization(executor_cache, 2, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -773,13 +772,18 @@ TEST_F(NVFuserTest, IndexSelectVectorizationIndices) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   std::vector<int64_t> shape1({1024, 1024});
-  std::vector<int64_t> shape2({1024});
+  std::vector<int64_t> shape2({768});
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randint(0, shape1[0], shape2, options_i);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
+  // lookup tv [ 1024, 1024 ]
+  // index  tv [ 768 ]
+  // output tv [ 768,  1024 ] (stride [1, 768])
+  // output tv and index tv share the innermost dimension 768. We'll have
+  // vectorized store and load on index tv
   checkIndexSelectVectorization(executor_cache, 2, false, true);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -810,6 +814,11 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase0) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
+  // lookup tv [ 1024, 256, 4 ]
+  // index  tv [ 768 ]
+  // output tv [ 768,  256, 4 ] (stride [ 1024, 1, 256 ])
+  // output tv doesn't share the innermost dimension with inputs. We'll have
+  // vectorized store only
   checkIndexSelectVectorization(executor_cache, 2, false, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -844,6 +853,11 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
+  // lookup tv [ 1024, 256, 4 ] (stride [ 1024, 1, 256 ])
+  // index  tv [ 768 ]
+  // output tv [ 768,  256, 4 ] (stride [ 1024, 1, 256 ])
+  // output tv and lookup tv share the innermost dimension 1024. We'll have
+  // vectorized store and load on lookup tv
   checkIndexSelectVectorization(executor_cache, 2, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
