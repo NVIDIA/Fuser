@@ -561,8 +561,6 @@ class SegmentCandidateFinder {
       SegmentCandidateFinderOptions options,
       bool multi_device = false);
 
-  void resetTraversal();
-
   void resetLevels();
 
   SegmentedGroup* mergeNodes();
@@ -710,9 +708,6 @@ class SegmentCandidateFinder {
 
   //! options to configure and debug the segment process
   SegmentCandidateFinderOptions options_;
-
-  std::deque<SegmentedGroup*> to_visit_;
-  std::vector<SegmentedGroup*> next_to_visit_;
 
   std::unordered_set<SegmentedGroup*> clean_up_groups_;
   std::unordered_set<SegmentedEdge*> clean_up_edges_;
