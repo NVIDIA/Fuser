@@ -298,7 +298,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       int64_t initial_reg_count =
           getRegPerThreadGivenThreadsPerSM(num_threads_per_cta.value());
-      auto [decreased_reg_count, increased_register_count] = kernel_->summary().dec_inc_register_usage;
+      auto [decreased_reg_count, increased_register_count] =
+          kernel_->summary().dec_inc_register_usage;
       NVF_ERROR(
           initial_reg_count >= decreased_reg_count,
           "Undefined behavior to decrease register count from ",

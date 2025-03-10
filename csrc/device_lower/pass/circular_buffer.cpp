@@ -1439,19 +1439,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
 
-    // // Nest load loop inside the warp dispatch if-then-else
-    // if (warp_specialization_pad > 1) {
-    //   kir::IfThenElse* load_dispatch_ite =
-    //   IrBuilder::create<kir::IfThenElse>(
-    //       IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-    //           NamedScalar::getParallelIndex(warp_specialize_on),
-    //           IrBuilder::subExpr(
-    //               raw, circular_buffer_loop->fusion()->oneVal()))));
-    //   load_dispatch_ite->thenBody().push_back(load_loop);
-    //   warp_dispatch_ite->thenBody().push_back(load_dispatch_ite);
-    // } else {
     warp_dispatch_ite->thenBody().push_back(load_loop);
-    // }
 
     if (enable_register_sharing) {
       // Terminate the warp group handling Load loop immediately after
