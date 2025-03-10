@@ -15,6 +15,50 @@
 
 namespace nvfuser {
 
+namespace {
+void checkIndexSelectVectorization(
+    const FusionExecutorCache& executor_cache,
+    bool overall_vectorization_factor,
+    bool lookup_vectorization_flag,
+    bool index_vectorization_flag) {
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+  EXPECT_EQ(
+      heuristic_param->as<PointwiseParams>()->vectorization_factor,
+      overall_vectorization_factor);
+
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  scheduled_fusion->printMath(0);
+  for (auto index_select_op :
+       ir_utils::getOpsOfType<IndexSelectOp>(scheduled_fusion)) {
+    EXPECT_EQ(
+        lookup_vectorization_flag,
+        std::any_of(
+            index_select_op->lookupTv()->getLoopDomain().begin(),
+            index_select_op->lookupTv()->getLoopDomain().end(),
+            [&](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Vectorize;
+            }));
+    EXPECT_EQ(
+        index_vectorization_flag,
+        std::any_of(
+            index_select_op->indexTv()->getLoopDomain().begin(),
+            index_select_op->indexTv()->getLoopDomain().end(),
+            [&](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Vectorize;
+            }));
+  }
+}
+
+} // namespace
+
 TEST_F(NVFuserTest, FusionSelectOpPointwise_CUDA) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
@@ -666,13 +710,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationUnfriendlySize) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
-
+  checkIndexSelectVectorization(executor_cache, 1, false, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -707,6 +745,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
   EXPECT_NE(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
 
+  checkIndexSelectVectorization(executor_cache, 2, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -737,13 +776,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationIndices) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 2);
-
+  checkIndexSelectVectorization(executor_cache, 2, false, true);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -773,13 +806,7 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase0) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 2);
-
+  checkIndexSelectVectorization(executor_cache, 2, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -807,19 +834,13 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
 
   std::vector<int64_t> shape1({1024, 256, 4});
   std::vector<int64_t> shape2({768});
-  auto t0 = at::randn(shape1, options).as_strided(shape1, {256*4, 1, 256});
+  auto t0 = at::randn(shape1, options).as_strided(shape1, {256 * 4, 1, 256});
   auto t1 = at::randint(0, shape1[0], shape2, options_i);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
-  const auto& heuristic_param =
-      runtime->schedulerHeuristics()->heuristicsList().front();
-  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 2);
-
+  checkIndexSelectVectorization(executor_cache, 2, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
