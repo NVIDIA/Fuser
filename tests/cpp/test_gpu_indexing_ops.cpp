@@ -743,6 +743,9 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
   auto t0 = at::randn(shape1, options);
   auto t1 = at::randint(0, shape1[0], shape2, options_i);
 
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
   // lookup tv [ 1029, 1024 ]
   // index  tv [ 1025 ]
   // output tv [ 1025, 1024 ]
