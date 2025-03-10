@@ -39,8 +39,11 @@ void checkIndexSelectVectorization(
     EXPECT_EQ(
         vectorized_IndexSelectOp,
         std::any_of(
-            index_select_op->output(0)->getLoopDomain().begin(),
-            index_select_op->output(0)->getLoopDomain().end(),
+            index_select_op->output(0)
+                ->as<TensorView>()
+                ->getLoopDomain()
+                .begin(),
+            index_select_op->output(0)->as<TensorView>()->getLoopDomain().end(),
             [&](IterDomain* id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
