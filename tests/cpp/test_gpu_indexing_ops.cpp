@@ -725,6 +725,7 @@ TEST_F(NVFuserTest, IndexSelectIndicesInnermost) {
   fusion.addOutput(tv2);
 
   // Indices dimension as the fastest dimension
+  // This will map to vectorized load on indices tensor tv1.
   tv2->setAllocationDomain({tv2->axis(1), tv2->axis(0)}, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -742,7 +743,7 @@ TEST_F(NVFuserTest, IndexSelectIndicesInnermost) {
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
+  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 2);
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -761,7 +762,6 @@ TEST_F(NVFuserTest, IndexSelect3DNonVectorization) {
   fusion.addOutput(tv2);
 
   tv2->setAllocationDomain({tv2->axis(0), tv2->axis(2), tv2->axis(1)}, true);
-  // tv0 is not permuted, we shouldn't have vectorization;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -779,7 +779,7 @@ TEST_F(NVFuserTest, IndexSelect3DNonVectorization) {
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
-  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
+  EXPECT_EQ(heuristic_param->as<PointwiseParams>()->vectorization_factor, 2);
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
@@ -789,7 +789,11 @@ TEST_F(NVFuserTest, IndexSelect3DVectorization) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeContigTensor(3);
+  auto tv0 = TensorViewBuilder()
+                 .ndims(3)
+                 .contiguity({true, true, true})
+                 .strideOrder({1, 2, 0})
+                 .build();
   fusion.addInput(tv0);
   auto tv1 = makeContigTensor(1, DataType::Int);
   fusion.addInput(tv1);
@@ -798,15 +802,13 @@ TEST_F(NVFuserTest, IndexSelect3DVectorization) {
   fusion.addOutput(tv2);
 
   tv2->setAllocationDomain({tv2->axis(0), tv2->axis(2), tv2->axis(1)}, true);
-  // tv0 is permuted
-  tv0->setAllocationDomain({tv0->axis(0), tv0->axis(2), tv0->axis(1)}, true);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
 
   std::vector<int64_t> shape1({1024, 256, 4});
   std::vector<int64_t> shape2({768});
-  auto t0 = at::randn(shape1, options);
+  auto t0 = at::randn(shape1, options).as_strided(shape1, {256*4, 1, 256});
   auto t1 = at::randint(0, shape1[0], shape2, options_i);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
