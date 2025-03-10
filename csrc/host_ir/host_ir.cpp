@@ -327,6 +327,34 @@ std::string EndCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
 }
 
+ShareMemHandles::ShareMemHandles(
+    IrBuilderPasskey passkey,
+    std::vector<P2PCommunication*> communications)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer");
+  addDataAttribute(std::move(communications));
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ShareMemHandles)
+
+std::string ShareMemHandles::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "ShareMemHandles(";
+  for (auto communication : communications()) {
+    ss << communication->toInlineString() << ", ";
+  }
+  ss << std::endl;
+  return ss.str();
+}
+
+std::string ShareMemHandles::toInlineString(int indent_size) const {
+  NVF_THROW("Cannot be printed inline");
+}
+
 } // namespace hir
 
 } // namespace nvfuser
