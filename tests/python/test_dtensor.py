@@ -274,6 +274,24 @@ def test_slice(setup_process_group):
 
 
 @pytest.mark.mpi
+def test_add(setup_process_group):
+    num_devices = dist.get_world_size()
+    assert num_devices == 2
+    rank = dist.get_rank()
+    torch.cuda.set_device(rank)
+
+    mesh = dist.device_mesh.init_device_mesh("cuda", [2])
+    x = dist.tensor.distribute_tensor(
+        torch.randn(8, 8), device_mesh=mesh, placements=[Shard(0)]
+    )
+    y = dist.tensor.distribute_tensor(
+        torch.randn(8, 8), device_mesh=mesh, placements=[Shard(1)]
+    )
+    z = x + y
+    assert z.to_local().size() == (4, 8)
+
+
+@pytest.mark.mpi
 def test_parallelize_module(setup_process_group):
     class Model(torch.nn.Module):
         def __init__(self, h_k: int, h_v: int, tp: int = 1):
