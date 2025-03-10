@@ -2087,7 +2087,7 @@ void SegmentCandidateFinder::resetLevels() {
   // The solution to this is to start from expressions where all producer edges
   // are inputs.
 
-  // Mark all input groups as viisted and mark their level as 0
+  // Mark all input groups as visited and mark their level as 0
   // Initialize all other groups as not visited and level as 0
   for (auto group : groups()) {
     group->level_ = 0;
@@ -2114,8 +2114,7 @@ void SegmentCandidateFinder::resetLevels() {
       continue;
     }
 
-    if (visiting->producer_edges.size() > 0 &&
-        std::any_of(
+    if (std::any_of(
             visiting->producer_edges.begin(),
             visiting->producer_edges.end(),
             [&](SegmentedEdge* dep) { return !dep->from->visited_; })) {
