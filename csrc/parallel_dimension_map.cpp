@@ -180,7 +180,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   auto pt = *ws_with_register_sharing_.begin();
   auto dim_it = dim_map_.find(pt);
 
-  auto checkAndPadDim = [&](ParallelType pt_checked, ParallelType pt_padded) {
+  auto check_and_pad_dim = [&](ParallelType pt_checked, ParallelType pt_padded) {
     Val* bdim = dim_map_.at(pt_checked);
     NVF_ERROR(
         bdim->isConstScalar(),
