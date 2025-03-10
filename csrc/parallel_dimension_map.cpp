@@ -201,7 +201,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
         int64_t threads_bofore_pad =
             dim_it->second->value().as<int64_t>() * bdim_val;
         NVF_ERROR(
-            threads_bofore_pad >= 128 && threads_bofore_pad % 128 == 0,
+            threads_before_pad >= 128 && threads_before_pad % 128 == 0,
             "Before warp specialization padding, there must be 128 * N threads, bdim= ",
             threads_bofore_pad);
       } else {
