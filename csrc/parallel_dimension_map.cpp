@@ -151,7 +151,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   NVF_ERROR(
       ws_with_register_sharing_.size() <= 1,
-      "Warp specilization with register sharing is only supported on one parallel type.");
+      "Warp specialization with register sharing is only supported on one parallel type.");
   // shortcut for case without register sharing
   if (ws_with_register_sharing_.empty()) {
     for (auto pt : warp_specialized_types_) {
