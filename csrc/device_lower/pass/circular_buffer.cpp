@@ -1386,7 +1386,7 @@ class CircularBufferInserter : private kir::ExprMutator {
             circular_buffer_loop->iter_domain());
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
 
-    int64_t warp_specilization_pad =
+    int64_t warp_specialization_pad =
         GpuLower::current()
             ->parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
