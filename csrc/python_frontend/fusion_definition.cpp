@@ -449,7 +449,7 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
     if (use_multidevice_executor_) {
       if (scheds->multi_device_executor == nullptr) {
         scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
-          std::make_unique<Fusion>(*scheds->preschedFusion()));
+            std::make_unique<Fusion>(*scheds->preschedFusion()));
       }
       outputs = scheds->multi_device_executor->runWithInput(args);
     } else {
@@ -518,8 +518,7 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
         : scheds->auto_gen_schedules->getMostRecentKernelRuntime()
               ->fusionSegments()
               ->completeFusion();
-    output_shardings =
-        getOutputShardings(fusion);
+    output_shardings = getOutputShardings(fusion);
     NVF_ERROR(
         output_shardings.empty() || output_shardings.size() == outputs.size(),
         "Found ",
