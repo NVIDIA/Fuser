@@ -755,7 +755,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, IndexSelectVectorizationIndices) {
+TEST_F(NVFuserTest, IndexSelectVectorizationIndexTensor) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -784,6 +784,47 @@ TEST_F(NVFuserTest, IndexSelectVectorizationIndices) {
 
   // lookup tv [ 1024, 1024 ]
   // index  tv [ 768 ]
+  // output tv [ 768,  1024 ] (stride [1, 768])
+  // output tv and index tv share the innermost dimension 768. We'll have
+  // vectorized store and load on index tv
+  checkIndexSelectVectorization(executor_cache, 2, false, true);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, IndexSelectVectorizationIndexTensorNoBroadcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = TensorViewBuilder()
+                 .ndims(2)
+                .shape({-1, 1})
+                .dtype(DataType::Int)
+                 .contiguity({true, std::nullopt})
+                 .build();
+  fusion.addInput(tv1);
+
+  auto tv2 = indexSelect(tv0, 0, tv1);
+  fusion.addOutput(tv2);
+
+  // Indices dimension as the fastest dimension
+  // This will map to vectorized load on indices tensor tv1.
+  tv2->setAllocationDomain({tv2->axis(1), tv2->axis(0)}, true);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  std::vector<int64_t> shape1({1024, 1024});
+  std::vector<int64_t> shape2({768, 1});
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randint(0, shape1[0], shape2, options_i);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // lookup tv [ 1024, 1024 ]
+  // index  tv [ 768, 1 ]
   // output tv [ 768,  1024 ] (stride [1, 768])
   // output tv and index tv share the innermost dimension 768. We'll have
   // vectorized store and load on index tv
