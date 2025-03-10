@@ -745,4 +745,66 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
       __FILE__);
 }
 
+TEST_F(MultiDeviceTest, ShardedSplitReshapeIds) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 2, h = 4, e = 3;
+
+  TensorView* tv0 = makeContigConcreteTensor(
+      {b, s, d * h * e}); // in: loop domain: {b, s, d*h*e}
+  TensorView* tv1 = reshape(
+      tv0,
+      {b, s, d * h * e},
+      {b, s, d * h, e}); // out: loop domain: {b, s, d*h, e}
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  // Propagate transform from reshaped output to input.
+  // Without this propagation, the two DID axes on `in` and `out` will not be
+  // mapped in together in ID model. This causes scheduling to fail due to
+  // resharding.
+  TransformPropagator propagator_c2p(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator_c2p);
+  // in: loop domain: {b, s, d*h, e} after transform propagation
+
+  // Loop split and parallelize input
+  tv0->setDeviceMesh(mesh);
+  tv0->split(-2, d, /*inner_split=*/false);
+  tv0->axis(-3)->parallelize(ParallelType::DIDx);
+  // in: loop domain: {b, s, DIDx{d}, h, e}
+
+  // Propagate DID loop split to output
+  TransformPropagator propagator_p2c(tv0);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
+  // out: loop domain: {b, s, d, h, e} after transform propagation
+
+  // Parallelize output
+  scheduler_utils::parallelizeAllLike(
+      tv0,
+      /*pos=*/-1,
+      /*selected_tv=*/{tv1});
+  // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
+
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options);
+  at::Tensor sharded_inp = shardTensor(inp, tv0);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
+  testValidate(
+      executor_cache.fusion(),
+      {nvf_out},
+      {sharded_inp},
+      {sharded_inp.view({b, s, h, e})},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser
