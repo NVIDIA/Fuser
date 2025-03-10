@@ -973,6 +973,10 @@ TensorView* reshape(
     out_tv = broadcast(out_tv, view_analysis.broadcast_axes);
   }
 
+  if (out_tv == inp_tv) {
+    out_tv = set(inp_tv);
+  }
+
   return out_tv;
 }
 
