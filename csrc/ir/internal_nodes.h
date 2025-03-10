@@ -129,6 +129,45 @@ class IndexSelectOp : public Expr {
   }
 };
 
+class IndexAccumulateOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  IndexAccumulateOp(IrBuilderPasskey, Val* out, Val* in1, Val* in2, Val* in3);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "IndexAccumulateOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  TensorView* accumulateTv() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* indexTv() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* valuesTv() const {
+    return input(2)->as<TensorView>();
+  }
+
+  IterDomain* getIndexedID() const;
+
+  IterDomain* getConsumerOfIndexedID() const;
+
+  int64_t dim() const {
+    return attribute<int64_t>(0);
+  }
+};
+
 class NVF_API TorchGatherOp : public Expr {
  public:
   using Expr::Expr;
