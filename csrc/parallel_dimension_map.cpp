@@ -202,7 +202,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
             dim_it->second->value().as<int64_t>() * bdim_val;
         NVF_ERROR(
             threads_bofore_pad >= 128 && threads_bofore_pad % 128 == 0,
-            "Before warp specilization padding, there must be 128 * N threads, bdim= ",
+            "Before warp specialization padding, there must be 128 * N threads, bdim= ",
             threads_bofore_pad);
       } else {
         // we can't verify wheter the block size is multiple of 128. Defer check
