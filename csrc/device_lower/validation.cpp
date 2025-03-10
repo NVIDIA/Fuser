@@ -732,9 +732,9 @@ class VectorizeValidator : public OptInDispatch {
         continue;
       }
       if (tv_def->isA<IndexSelectOp>()) {
-         if (producer_tv == tv_def->input(0)) {
-                break;
-         }
+        if (producer_tv == tv_def->input(0)) {
+          break;
+        }
       }
       NVF_ERROR(
           producer_tv == nullptr,

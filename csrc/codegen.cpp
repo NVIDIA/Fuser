@@ -1223,7 +1223,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       if (is_vector_op) {
         indent();
         generateVectorizedLdSt(
-          sop->input(0), sop->output(0), CacheOp::AllLevels, vector_word_size);
+            sop->input(0),
+            sop->output(0),
+            CacheOp::AllLevels,
+            vector_word_size);
         code_ << ";\n";
         return;
       }
