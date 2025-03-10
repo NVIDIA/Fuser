@@ -238,10 +238,10 @@ TensorDomain* TransformReplay::fullSelfReplay(
       new_self_root->contiguity());
 }
 
-void TransformReplay::selfAllocationReplay(
+void TransformReplay::selfReplay(
     const TensorDomain* self,
     TensorDomain* new_self) {
-  FUSER_PERF_SCOPE("TransformReplay::selfAllocationReplay");
+  FUSER_PERF_SCOPE("TransformReplay::selfReplay");
 
   // NOTE: We could also have reduction IDs involved in transformation that
   // leads to allocation domain, so technically we should have included

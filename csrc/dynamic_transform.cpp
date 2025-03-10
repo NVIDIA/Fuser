@@ -833,7 +833,7 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
       old_logical.size() == new_logical.size(),
       "Concretized reshape logical size does not match symbolic logical size");
 
-  TransformReplay::selfAllocationReplay(
+  TransformReplay::selfReplay(
       incomplete_out_tv->domain(), concrete_reshape_out_tv->domain());
 
   for (const auto idx : c10::irange(new_logical.size())) {
