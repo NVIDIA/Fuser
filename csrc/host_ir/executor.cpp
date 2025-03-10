@@ -571,10 +571,24 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
     } else {
       inputs.push_back(expr_evaluator_.evaluate(input));
     }
+    std::cout << "Expr= " << expr << "TensorView input: " << input << ", data=" << inputs.back() << std::endl;
+    if (inputs.back().is<at::Tensor>()) {
+      std::cout << ", data_ptr=" << inputs.back().as<at::Tensor>().data_ptr() << std::endl;
+    }
   }
   // using ExpressionEvaluator::evaluate to evaluate the output is not valid here if the output or one of its producer is an alias
+
+// Here it cannot work because we need to really write the data to some buffer.
+// What we should do is to check if the output is already allocated. If yes, then we should use a new `Expr::evaluate_out`, erroring out if not implemented, OR having a generic `Expr::evaluate + at::copy_`. 
+// If the output is not pre-allocated, then we can simply use `Expr::evaluate` and bind the output to the result.
+
+
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
+    std::cout << "Expr= " << expr << "TensorView output: " << expr->output(i)  << ", data=" << concrete_outputs.at(i) << std::endl;
+    if (concrete_outputs.at(i).is<at::Tensor>()) {
+      std::cout << ", data_ptr=" << concrete_outputs.at(i).as<at::Tensor>().data_ptr() << std::endl;
+    }
     bind(expr->output(i), concrete_outputs.at(i));
   }
 }
