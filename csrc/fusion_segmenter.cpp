@@ -2064,6 +2064,7 @@ void SegmentCandidateFinder::resetLevels() {
   for (SegmentedGroup* group : groups()) {
     group->level_ = 0;
     if ((num_producer_edges[group] = std::ssize(group->producer_edges)) == 0) {
+      // Start by visiting groups that have no producer edges.
       to_visit.push_back(group);
     }
   }
@@ -2077,6 +2078,9 @@ void SegmentCandidateFinder::resetLevels() {
     for (SegmentedEdge* out : visiting->consumer_edges) {
       SegmentedGroup* consumer = out->to;
       consumer->level_ = std::max(consumer->level_, visiting->level_ + 1);
+      // After visiting a group, decrement the number of producer edges of each
+      // consumer. When that number reaches 0, add the consumer to the visit
+      // list.
       if ((--num_producer_edges.at(consumer)) == 0) {
         to_visit.push_back(consumer);
       }
