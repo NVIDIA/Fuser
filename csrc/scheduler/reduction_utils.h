@@ -140,5 +140,11 @@ void sharedMemoryConsumerVectorization(
     std::vector<TensorView*>& smem_consumers,
     const int64_t io_vectorization_factor);
 
+// Return the broadcast tvs that are broadcast to the iteration dimensions of
+// the inner reduction tv.
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs);
+
 } // namespace reduction_scheduler_utils
 } // namespace nvfuser

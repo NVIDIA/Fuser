@@ -1156,7 +1156,6 @@ class ReusableAllocationFinder : private kir::IrVisitor {
            alloc_to_reuse_it != (*reuse_stack_it)->rend();
            alloc_to_reuse_it++) {
         auto alloc_to_reuse = *alloc_to_reuse_it;
-
         // Check if this re-use candidate is an alias
         if (alloc_to_reuse->alias_to != nullptr) {
           continue;
@@ -1168,7 +1167,20 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Check if this alloc has the same size
-        if (alloc_info->size_expr != alloc_to_reuse->size_expr) {
+        bool skip_size_check = false;
+        if(std::getenv("BUFFER_REUSE") && std::atoi(std::getenv("BUFFER_REUSE")) == 1) {
+          auto buffer_tv = dynamic_cast<TensorView*>(alloc_info->alloc_expr->buffer());
+          const auto& consumers = ir_utils::consumerTvsOf(buffer_tv);
+          if(consumers.size() == 1) {
+            auto user_tv = ir_utils::consumerTvsOf(buffer_tv).at(0);
+            if(alloc_to_reuse->is_cp_async_bulk && ir_utils::isCpAsyncBulk(user_tv->definition())) {
+              std::cout << "skip_size_check\n";
+              skip_size_check = true;
+            }
+          }
+        }
+
+        if (!skip_size_check && (alloc_info->size_expr != alloc_to_reuse->size_expr)) {
           continue;
         }
 
@@ -1209,7 +1221,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
         }
 
         // Special checks for inner sharing pass
-        if (inner_aliasing_pass_ &&
+        if (!skip_size_check && inner_aliasing_pass_ &&
             !isValidInnerSharing(alloc_to_reuse, alloc_info)) {
           continue;
         }

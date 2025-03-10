@@ -256,6 +256,7 @@ void IterVisitor::traverseBetween(
         all_inputs_visited = true;
       } else {
         // check for cycle in fusion
+        bool is_empty_cycle = false;
         if (std::any_of(
                 next_stmts.begin(),
                 next_stmts.end(),
@@ -264,19 +265,27 @@ void IterVisitor::traverseBetween(
                 })) {
           std::unordered_set<Statement*> from_stmt(from.begin(), from.end());
           auto cycle = ir_utils::checkCycle(fusion, from_stmt, to);
-          TORCH_WARN("A cycle is detected in the fusion.");
-          std::stringstream ss;
-          ss << "Statements found in the cycle: " << std::endl;
-          for (auto expr :
-               ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
-            ss << expr << std::endl;
+          if(!cycle.empty()){
+            TORCH_WARN("A cycle is detected in the fusion.");
+            std::stringstream ss;
+            ss << "Statements found in the cycle: " << std::endl;
+            for (auto expr :
+                ir_utils::filterByType<Expr>(cycle.begin(), cycle.end())) {
+              ss << expr << std::endl;
+            }
+            NVF_THROW(ss.str());
+          }else{
+            is_empty_cycle = true;
           }
-          NVF_THROW(ss.str());
         }
-        // Add all these new stmts to visit to the stack.
-        stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
-        // We have new things to visit,
-        all_inputs_visited = false;
+        if(!is_empty_cycle){
+          // Add all these new stmts to visit to the stack.
+          stmt_stack.emplace_back(next_stmts.rbegin(), next_stmts.rend());
+          // We have new things to visit,
+          all_inputs_visited = false;
+        }else{
+          all_inputs_visited = true;
+        }
       }
     }
   }

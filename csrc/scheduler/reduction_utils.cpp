@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <expr_evaluator.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
@@ -17,7 +18,6 @@
 #include <scheduler/tools/maxinfo_propagator.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
-
 namespace nvfuser {
 
 namespace reduction_scheduler_utils {
@@ -175,7 +175,9 @@ TensorView* scheduleReductionTV(
     reduction_tv->split(
         outer_i++, rparams->batches_per_block_inner_reduction, false);
 
-    outer_unswitch(outer_i++);
+    if (!rparams->use_tma_load) {
+      outer_unswitch(outer_i++);
+    }
 
     if (!rparams->vectorize_inner_reduction &&
         rparams->unroll_factor_inner_reduction > 1) {
@@ -264,6 +266,16 @@ TensorView* scheduleReductionTV(
   if (has_iter_axis) {
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
+    // only used by inner persistent scheduler
+    // [iter]  --> [iter/stages, stages [Serial]]
+    // [number-of-sms [BIDx], iter/stages/number-of-sms, stages [Serial]]
+    // bool split_stages =
+    //     (std::getenv("PERSISTENT") && std::getenv("PERSISTENT_STAGES")) ||
+    //     std::getenv("WARPTIDZ");
+    // if (split_stages && rparams->circular_buffer_options.isEnable()) {
+    //   reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
+    // }
+
     if (rparams->vectorize_iter_dom) {
       vectorize(iter_axis, rparams->unroll_factor_iter_dom);
     }
@@ -274,9 +286,29 @@ TensorView* scheduleReductionTV(
         inner_parallel_static(
             iter_axis, rparams->block_dim_iter_dom, rparams->lparams.bdimx());
       } else {
-        inner_parallel(iter_axis, rparams->block_dim_iter_dom);
+        if (rparams->multiple_reds_per_blk) {
+          int64_t bdimy = 1;
+          if (std::getenv("BDIMY") && std::atoi(std::getenv("BDIMY")) > 1) {
+            bdimy = std::atoi(std::getenv("BDIMY"));
+            if(std::getenv("BDIMY_SERIAL")){
+              reduction_tv->split(iter_axis, bdimy);
+            }else{
+              inner_parallel_static(
+                  iter_axis, rparams->block_dim_iter_dom, bdimy);
+            }
+          }
+        } else {
+          inner_parallel(iter_axis, rparams->block_dim_iter_dom);
+        }
       }
     }
+
+    // if (std::getenv("PERSISTENT")) {
+    //   // reduction_tv->split(iter_axis, rparams->lparams.gdimx(), false);
+    //   // reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDx);
+    //   reduction_tv->split(iter_axis, rparams->lparams.gdimx());
+    //   reduction_tv->axis(iter_axis+1)->parallelize(ParallelType::BIDx);
+    // }
 
     if (!rparams->vectorize_iter_dom && rparams->unroll_factor_iter_dom > 1) {
       inner_unroll(iter_axis, rparams->unroll_factor_iter_dom);
@@ -285,7 +317,8 @@ TensorView* scheduleReductionTV(
     // Do not unswitch interation domain in the case of outer grid
     // persistence as it's unclear if it's beneficial.
     if (rparams->unroll_factor_iter_dom > 1 && !is_outer_grid_persistence) {
-      inner_unswitch(iter_axis);
+      std::cout << "============== unswitching iter axis is disabled ===========" << std::endl;
+      // inner_unswitch(iter_axis);
     }
 
     if (isParallelTypeThread(rparams->grid_dim_iter_dom)) {
@@ -297,14 +330,20 @@ TensorView* scheduleReductionTV(
           outer_parallel(iter_axis, rparams->grid_dim_iter_dom);
         }
       } else if (rparams->split_grid_dim_iter_dom_inner) {
-        inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
+        // inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
+        inner_parallel_static(
+            iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimx());
       } else {
         reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
     }
   }
 
+  std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
+
   auto reduction_rf_tv = sortAndRFactor(reduction_tv);
+
+  std::cout << "reduction_rf_tv: " << reduction_rf_tv->toString() << std::endl;
 
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.
@@ -474,6 +513,20 @@ void clearUnrollVectorizationAddGroupReduction(
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs) {
   std::vector<TensorView*> rfactor_and_reduction_tvs = {
       reference_tv, reduction_tv};
+
+  bool is_inner_reduction =
+      scheduler_utils::isFastestDimReduction(reduction_tv);
+  auto convertParallelToGrouped = [&is_inner_reduction](IterDomain* id) {
+    auto pt = id->getParallelType();
+    // For inner reduction, convert outer dim unroll to group.
+    // For outer reduction, convert inner dim vectorization to group.
+    if (is_inner_reduction) {
+      return pt == ParallelType::Unroll && !id->isReduction();
+    } else {
+      return pt == ParallelType::Vectorize;
+    }
+  };
+
   for (auto tv : rfactor_and_reduction_tvs) {
     if (unroll_vectorizable_cached_tvs.count(tv) != 0) {
       continue;
@@ -483,7 +536,7 @@ void clearUnrollVectorizationAddGroupReduction(
       if (use_grouped_reduction &&
           std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
               reduction_tvs.end() &&
-          id->getParallelType() == ParallelType::Vectorize) {
+          convertParallelToGrouped(id)) {
         tv->axis(i)->parallelize(ParallelType::Group);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
           sibling->axis(i)->parallelize(ParallelType::Group);
@@ -634,17 +687,32 @@ int idPos(const IterDomain* id) {
   }
   outer_most++;
 
-  // Iter and constant
-  if (!id->isReduction() && id->extent()->isConstScalar()) {
-    return outer_most;
-  }
-  outer_most++;
+  if (std::getenv("PERSISTENT_ORDER")) {
+    // Iter and non-constant
+    if (!id->isReduction() && !id->extent()->isConstScalar()) {
+      return outer_most;
+    }
+    outer_most++;
 
-  // Iter and non-constant
-  if (!id->isReduction() && !id->extent()->isConstScalar()) {
-    return outer_most;
+    // Iter and constant
+    if (!id->isReduction() && id->extent()->isConstScalar()) {
+      return outer_most;
+    }
+    outer_most++;
+
+  } else {
+    // Iter and constant
+    if (!id->isReduction() && id->extent()->isConstScalar()) {
+      return outer_most;
+    }
+    outer_most++;
+
+    // Iter and non-constant
+    if (!id->isReduction() && !id->extent()->isConstScalar()) {
+      return outer_most;
+    }
+    outer_most++;
   }
-  outer_most++;
 
   return 0;
 }
@@ -1007,6 +1075,40 @@ void sharedMemoryConsumerVectorization(
     }
     tv->axis(vect_axis_pos)->parallelize(ParallelType::Vectorize);
   }
+}
+
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // set reference broadcast mask using the first inner reduction tv
+  std::vector<bool> ref_broadcast_mask;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : c10::irange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
+      }
+      break;
+    }
+  }
+  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
+
+  // find the broadcast tensor whose broadcast mask is same to the reference
+  std::vector<TensorView*> outer_broadcast_tvs;
+  for (auto tv : fusion->allTvs()) {
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isBroadcast(); })) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
+          outer_broadcast_tvs.emplace_back(tv);
+        }
+      }
+    }
+  }
+  return outer_broadcast_tvs;
 }
 
 } // namespace reduction_scheduler_utils
