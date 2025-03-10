@@ -60,7 +60,10 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
+FusionDefinition::FusionDefinition(
+    std::optional<size_t> id,
+    size_t max_length,
+    bool use_multidevice_executor)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
@@ -69,7 +72,8 @@ FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
       prev_fusion_(nullptr),
       user_sched_(nullptr),
       ops(this),
-      sched(this) {}
+      sched(this),
+      use_multidevice_executor_(use_multidevice_executor) {}
 
 FusionCache* FusionDefinition::fusionCache() const {
   NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");
@@ -442,10 +446,22 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
 
   KernelArgumentHolder outputs;
   if (user_sched == nullptr) {
-    scheds->createExecutorIfNotExists();
-    outputs = scheds->auto_gen_schedules->runFusionWithInputs(
-        args, std::nullopt, args.getDeviceIndex());
+    if (use_multidevice_executor_) {
+      if (scheds->multi_device_executor == nullptr) {
+        scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
+            std::make_unique<Fusion>(*scheds->preschedFusion()));
+      }
+      outputs = scheds->multi_device_executor->runWithInput(args);
+    } else {
+      scheds->createExecutorIfNotExists();
+      outputs = scheds->auto_gen_schedules->runFusionWithInputs(
+          args, std::nullopt, args.getDeviceIndex());
+    }
   } else {
+    NVF_ERROR(
+        !use_multidevice_executor_,
+        "multidevice_executor is not supported "
+        "for user-defined schedules.");
     if (isProfilerEnabledWithCupti()) {
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
@@ -497,10 +513,12 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
 
   std::vector<Sharding> output_shardings;
   if (user_sched == nullptr) {
-    FusionKernelRuntime* runtime =
-        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
-    output_shardings =
-        getOutputShardings(runtime->fusionSegments()->completeFusion());
+    Fusion* fusion = use_multidevice_executor_
+        ? scheds->preschedFusion()
+        : scheds->auto_gen_schedules->getMostRecentKernelRuntime()
+              ->fusionSegments()
+              ->completeFusion();
+    output_shardings = getOutputShardings(fusion);
     NVF_ERROR(
         output_shardings.empty() || output_shardings.size() == outputs.size(),
         "Found ",

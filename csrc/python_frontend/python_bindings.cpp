@@ -837,7 +837,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("tma", ParallelType::Bulk)
       .value("unroll", ParallelType::Unroll)
       .value("unswitch", ParallelType::Unswitch)
-      .value("vectorize", ParallelType::Vectorize);
+      .value("vectorize", ParallelType::Vectorize)
+      .value("stream", ParallelType::Stream);
 
   //! LoadStoreOpType used for scheduling
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
@@ -1083,9 +1084,10 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<std::optional<size_t>, size_t>(),
+          py::init<std::optional<size_t>, size_t, bool>(),
           py::arg("id") = py::none(),
-          py::arg("max_length") = int(1024))
+          py::arg("max_length") = int(1024),
+          py::arg("use_multidevice_executor") = false)
       .def_readwrite("ops", &FusionDefinition::ops)
       .def_readwrite("sched", &FusionDefinition::sched)
       .def(

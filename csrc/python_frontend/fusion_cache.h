@@ -9,6 +9,7 @@
 #include <exceptions.h>
 #include <visibility.h>
 
+#include <multidevice/executor.h>
 #include <python_frontend/fusion_record.h>
 #include <runtime/fusion_executor_cache.h>
 #include <scheduler/compile_time_info.h>
@@ -126,10 +127,12 @@ class FusionSchedules {
   std::vector<int64_t> outputs_fid_;
   //! Map Fusion Val to its corresponding FusionDefinition index
   std::unordered_map<const Val*, int64_t> map_value_to_fid_;
+  //! stores the executor if FusionDefinition::use_multidevice_executor is true
+  std::unique_ptr<MultiDeviceExecutor> multi_device_executor;
 
  private:
   //! Holds the presched fusion that will be `std::move`d to a
-  //! FusionExecutorCache at first execution.
+  //! FusionExecutorCache or MultiDeviceExecutor at first execution.
   std::unique_ptr<Fusion> presched_fusion_;
 };
 
