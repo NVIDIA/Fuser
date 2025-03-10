@@ -162,11 +162,14 @@ struct Vector {
 //! Example:
 //!   help(FusionDefinition.Operators)
 //!
-//! (Experimental) `use_multidevice_executor` toggles using MultiDeviceExecutor directly instead of the
-//! main stack
+//! (Experimental) `use_multidevice_executor` toggles using MultiDeviceExecutor
+//! directly instead of the main stack
 class NVF_API FusionDefinition : public FusionState {
  public:
-  FusionDefinition(std::optional<size_t> id, size_t max_length = 256, bool use_multidevice_executor = false);
+  FusionDefinition(
+      std::optional<size_t> id,
+      size_t max_length = 256,
+      bool use_multidevice_executor = false);
 
   // The copy/move/assign constructors/operators are removed
   FusionDefinition(const FusionDefinition& fd) = delete;

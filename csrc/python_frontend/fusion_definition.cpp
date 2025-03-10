@@ -60,7 +60,10 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length, bool use_multidevice_executor)
+FusionDefinition::FusionDefinition(
+    std::optional<size_t> id,
+    size_t max_length,
+    bool use_multidevice_executor)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),

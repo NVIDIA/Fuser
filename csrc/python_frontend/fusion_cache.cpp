@@ -280,7 +280,8 @@ Fusion* FusionSchedules::preschedFusion() {
   NVF_THROW("Prescheduled Fusion is unexpectedly null!");
 }
 
-void FusionSchedules::createExecutorIfNotExists(bool use_multi_device_executor) {
+void FusionSchedules::createExecutorIfNotExists(
+    bool use_multi_device_executor) {
   if (use_multi_device_executor) {
     if (multi_device_executor == nullptr) {
       multi_device_executor = std::make_unique<MultiDeviceExecutor>(
