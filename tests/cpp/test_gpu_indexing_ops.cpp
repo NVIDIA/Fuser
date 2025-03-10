@@ -667,8 +667,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorLoad) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented())
-      << "Should not segmented";
+  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
@@ -703,8 +702,7 @@ TEST_F(NVFuserTest, IndexSelectNonVectorization) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  ASSERT_FALSE(runtime->isSegmented())
-      << "Should not segmented";
+  ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
   const auto& heuristic_param =
       runtime->schedulerHeuristics()->heuristicsList().front();
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
