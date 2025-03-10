@@ -19,7 +19,8 @@ namespace {
 void checkIndexSelectVectorization(
     const FusionExecutorCache& executor_cache,
     int64_t overall_vectorization_factor,
-    bool vectorized_IndexSelectOp) {
+    bool vectorized_lookup,
+    bool vectorized_index) {
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   ASSERT_FALSE(runtime->isSegmented()) << "Should not segmented";
   const auto& heuristic_param =
@@ -36,14 +37,24 @@ void checkIndexSelectVectorization(
                                  ->kernel();
   for (auto index_select_op :
        ir_utils::getOpsOfType<IndexSelectOp>(scheduled_fusion)) {
+    // lookup TV load
+    auto* lookup_tv_consumer = index_select_op->output(0)->as<TensorView>();
     EXPECT_EQ(
-        vectorized_IndexSelectOp,
+        vectorized_lookup,
         std::any_of(
-            index_select_op->output(0)
-                ->as<TensorView>()
-                ->getLoopDomain()
-                .begin(),
-            index_select_op->output(0)->as<TensorView>()->getLoopDomain().end(),
+            lookup_tv_consumer->getLoopDomain().begin(),
+            lookup_tv_consumer->getLoopDomain().end(),
+            [&](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Vectorize;
+            }));
+    // index TV load
+    auto* index_tv_consumer =
+        index_select_op->indexTv()->definition()->input(0)->as<TensorView>();
+    EXPECT_EQ(
+        vectorized_index,
+        std::any_of(
+            index_tv_consumer->getLoopDomain().begin(),
+            index_tv_consumer->getLoopDomain().end(),
             [&](IterDomain* id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
@@ -703,7 +714,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationUnfriendlySize) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  checkIndexSelectVectorization(executor_cache, 1, false);
+  checkIndexSelectVectorization(executor_cache, 1, false, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -738,7 +749,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
   EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
   EXPECT_NE(heuristic_param->as<PointwiseParams>()->vectorization_factor, 1);
 
-  checkIndexSelectVectorization(executor_cache, 2, true);
+  checkIndexSelectVectorization(executor_cache, 2, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -769,7 +780,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationIndices) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  checkIndexSelectVectorization(executor_cache, 2, true);
+  checkIndexSelectVectorization(executor_cache, 2, false, true);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -799,7 +810,7 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase0) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  checkIndexSelectVectorization(executor_cache, 2, true);
+  checkIndexSelectVectorization(executor_cache, 2, false, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -833,7 +844,7 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  checkIndexSelectVectorization(executor_cache, 2, true);
+  checkIndexSelectVectorization(executor_cache, 2, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
