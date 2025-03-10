@@ -1420,10 +1420,8 @@ class CircularBufferInserter : private kir::ExprMutator {
       auto&& [decrease_num_registers, increase_num_registers] =
           std::get<WarpSpecialized>(circular_buffer_options.type)
               .num_registers.value();
-      GpuLower::current()->kernel()->manage(
-          "decreased_register_count", decrease_num_registers);
-      GpuLower::current()->kernel()->manage(
-          "increased_register_count", increase_num_registers);
+      GpuLower::current()->decIncRegisterUsage() =
+          std::make_pair(decrease_num_registers, increase_num_registers);
       // Decrease registers in load warp group
       kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(decrease_num_registers, DataType::Index),

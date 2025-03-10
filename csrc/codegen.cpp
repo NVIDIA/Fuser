@@ -298,16 +298,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       int64_t initial_reg_count =
           getRegPerThreadGivenThreadsPerSM(num_threads_per_cta.value());
-
-      NVF_ERROR(
-          kernel_->hasManaged("decreased_register_count") &&
-              kernel_->hasManaged("increased_register_count"),
-          "Decreased and increased register count must be set for register sharing warp specialization");
-
-      int64_t decreased_reg_count =
-          kernel_->getManaged<int64_t>("decreased_register_count");
-      int64_t increased_register_count =
-          kernel_->getManaged<int64_t>("increased_register_count");
+      auto [decreased_reg_count, increased_register_count] = kernel_->summary().dec_inc_register_usage;
       NVF_ERROR(
           initial_reg_count >= decreased_reg_count,
           "Undefined behavior to decrease register count from ",
