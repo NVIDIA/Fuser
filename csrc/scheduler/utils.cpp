@@ -560,6 +560,7 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
 TensorView* getUpCastInputOf(const TensorView* tv) {
   if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
     if (uop->getUnaryOpType() == UnaryOpType::Cast &&
+        !uop->input(0)->isFusionInput() &&
         dataTypeSize(uop->input(0)->getDataType().value()) <
             dataTypeSize(uop->output(0)->getDataType().value())) {
       return uop->input(0)->as<TensorView>();
@@ -567,6 +568,7 @@ TensorView* getUpCastInputOf(const TensorView* tv) {
   }
   return nullptr;
 }
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;

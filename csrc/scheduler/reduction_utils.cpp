@@ -777,7 +777,6 @@ class PersistentBufferProjector {
   }
 
   void projectToProducers() {
-    std::cout << "Projecting to producers" << std::endl;
     // visit consumer before producer. e.g.
     // T1 = f(T0); Tx = add(T1, broadcast(sum(T1)));
     // T2 = f(T1); Ty = add(T2, broadcast(sum(T2)));
