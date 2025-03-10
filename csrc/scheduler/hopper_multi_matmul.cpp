@@ -197,7 +197,7 @@ void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
   for (size_t i : c10::irange(operands.size())) {
     TensorView* operand = operands[i];
 
-    NVF_ERROR(operand->uses().size() == 1);
+    NVF_ERROR(!operand->uses().empty());
     smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
 
     LoadStoreOpType load_op = params_->async_gmem_load_operands
@@ -408,7 +408,9 @@ void HopperMultipleMatmulScheduler::inspectPrologues() const {
       // might be introduced when translating a MatmulOp or LinearOp to MmaOp.
       Expr* def = op_input->definition();
       NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
-      NVF_ERROR(def->input(0)->isFusionInput());
+      NVF_ERROR(
+          def->input(0)->as<TensorView>()->getMemoryType() ==
+          MemoryType::Global);
     }
   }
 }

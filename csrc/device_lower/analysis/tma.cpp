@@ -1068,6 +1068,9 @@ std::vector<TMADim> run(
 
 TMAInfo getTMAInfo(LoadStoreOp* ldst) {
   TensorView* producer_tv = ldst->in()->as<TensorView>();
+  // In case the producer is aliased, use the alias instead
+  producer_tv = GpuLower::current()->getMaybeTensorProducerAlias(producer_tv);
+
   TensorView* consumer_tv = ldst->out()->as<TensorView>();
   TensorView *smem_tv = nullptr, *gmem_tv = nullptr;
   if (producer_tv->getMemoryType() == MemoryType::Shared) {

@@ -36,10 +36,28 @@ void MultipleMatmulScheduler::translatePatterns() {
       }
     }
 
-    MmaOp* mma = pattern.translateToMmaOp(
+    mma_utils::MatmulPattern::TranslationResult res = pattern.translateToMmaOp(
         /*avoid_intermediates=*/!isAmpere(params_->mma_macro) &&
         !isTuring(params_->mma_macro));
-    mma_results_.push_back(mma->out()->as<TensorView>());
+    mma_results_.push_back(res.mma->out()->as<TensorView>());
+
+    // During MatmulPattern translation, we might replace some tensors in the
+    // fusion. If those replaced tensors were themselves the A or B members of
+    // another MatmulPattern, we should update the pattern to point to the
+    // replacement.
+    for (mma_utils::MatmulPattern& other_pattern : patterns_) {
+      if (&other_pattern == &pattern) {
+        continue;
+      }
+      if (auto it = res.replacements.find(other_pattern.A);
+          it != res.replacements.end()) {
+        other_pattern.A = it->second;
+      }
+      if (auto it = res.replacements.find(other_pattern.B);
+          it != res.replacements.end()) {
+        other_pattern.B = it->second;
+      }
+    }
   }
 
   // Build IdModel graphs now since translateToMmaOp creates new TVs. Before
@@ -65,6 +83,31 @@ void MultipleMatmulScheduler::findRoles() {
 
   as_ = tensor_roles_.at(MatmulTensorRole::OPERAND_A);
   bs_ = tensor_roles_.at(MatmulTensorRole::OPERAND_B);
+  // When translating MatmulOp or LinearOp with avoid_intermediates, we
+  // introduce some intermediate Global tensors which will be ignored during
+  // lowering. We update as_ and bs_ to point at the last of these tensors
+  // before their next consumer is in local memory.
+  for (std::vector<TensorView*>* tensors : {&as_, &bs_}) {
+    for (TensorView*& tv : *tensors) {
+      while (true) {
+        if (tv->uses().size() != 1) {
+          break;
+        }
+        Expr* use = tv->uses().front();
+        if (use->outputs().size() != 1) {
+          break;
+        }
+        TensorView* consumer = dynamic_cast<TensorView*>(use->output(0));
+        if (consumer == nullptr) {
+          break;
+        }
+        if (consumer->getMemoryType() != MemoryType::Global) {
+          break;
+        }
+        tv = consumer;
+      }
+    }
+  }
 
   countDims();
 }
