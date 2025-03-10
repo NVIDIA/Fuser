@@ -798,7 +798,9 @@ class PersistentBufferProjector {
               persistent_buffers[a], persistent_buffers[b]);
         });
 
-    // try to project buffer to its producers
+    // try to project buffer to its producers when
+    // (1) all producers are persistent buffers
+    // (2) or, the buffer is the input to an upcast op
     std::unordered_set<TensorView*> persistent_buffer_set(
         persistent_buffers.begin(), persistent_buffers.end());
     for (auto buffer_i : visiting_order) {
@@ -809,6 +811,15 @@ class PersistentBufferProjector {
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i,
             std::vector<Val*>(producers.begin(), producers.end()));
+      } else if (
+          auto upcast_input = scheduler_utils::getUpCastInputOf(buffer)) {
+        auto consumers = ir_utils::consumerTvsOf(buffer);
+        for (auto i : c10::irange(1, consumers.size())) {
+          ir_utils::replaceValInExprInputs(
+              consumers.at(i)->definition(),
+              buffer,
+              RecomputeTv::recompute(buffer, {upcast_input}));
+        }
       }
     }
   }
