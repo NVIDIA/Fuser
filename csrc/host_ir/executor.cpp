@@ -188,7 +188,6 @@ HostIrEvaluator::HostIrEvaluator(
       {container_->getDefaultStream(),
        c10::cuda::getDefaultCUDAStream(
            static_cast<c10::DeviceIndex>(device_index))});
-  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
   NVF_ERROR(
       std::all_of(
           container_->inputs().begin(),
@@ -197,7 +196,15 @@ HostIrEvaluator::HostIrEvaluator(
       "Inputs cannot be aliased");
 }
 
-KernelArgumentHolder HostIrEvaluator::dispatchAndCollectOutputs() {
+KernelArgumentHolder HostIrEvaluator::runWithInput(
+    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
+  expr_evaluator_ = ExpressionEvaluator();
+  expr_evaluator_.bind("numberOfStreams", params_.number_of_streams);
+  // process input values, converting IValue to PolymorphicValue
+  for (const auto& [val, pvalue] : val_to_PValue) {
+    bind(val, pvalue);
+  }
+
   // Interpret each instruction in an "eager" way by iterate over the Host Ir
   // Container's top level expression list
   for (auto expr : container_->topLevelExprs()) {
@@ -214,16 +221,6 @@ KernelArgumentHolder HostIrEvaluator::dispatchAndCollectOutputs() {
         return this->getKnownTensorOrUndefined(val);
       });
   return KernelArgumentHolder(outputs);
-}
-
-KernelArgumentHolder HostIrEvaluator::runWithInput(
-    const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue) {
-  // process input values, converting IValue to PolymorphicValue
-  for (const auto& [val, pvalue] : val_to_PValue) {
-    bind(val, pvalue);
-  }
-
-  return dispatchAndCollectOutputs();
 }
 
 std::string HostIrEvaluator::canRun() const {
@@ -590,10 +587,6 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
     } else {
       inputs.push_back(expr_evaluator_.evaluate(input));
     }
-    std::cout << "Expr= " << expr << "TensorView input: " << input << ", data=" << inputs.back() << std::endl;
-    if (inputs.back().is<at::Tensor>()) {
-      std::cout << ", data_ptr=" << inputs.back().as<at::Tensor>().data_ptr() << std::endl;
-    }
   }
   // using ExpressionEvaluator::evaluate to evaluate the output is not valid here if the output or one of its producer is an alias
 
@@ -601,13 +594,14 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
 // What we should do is to check if the output is already allocated. If yes, then we should use a new `Expr::evaluate_out`, erroring out if not implemented, OR having a generic `Expr::evaluate + at::copy_`. 
 // If the output is not pre-allocated, then we can simply use `Expr::evaluate` and bind the output to the result.
 
-
+  NVF_ERROR(
+      std::all_of(
+          expr->outputs().begin(),
+          expr->outputs().end(),
+          [this](Val* output) { return !this->expr_evaluator_.isKnown(output); }),
+      "Do not support pre-allocated outputs for the op ", expr);
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
-    std::cout << "Expr= " << expr << "TensorView output: " << expr->output(i)  << ", data=" << concrete_outputs.at(i) << std::endl;
-    if (concrete_outputs.at(i).is<at::Tensor>()) {
-      std::cout << ", data_ptr=" << concrete_outputs.at(i).as<at::Tensor>().data_ptr() << std::endl;
-    }
     bind(expr->output(i), concrete_outputs.at(i));
   }
 }

@@ -1155,7 +1155,7 @@ TEST_F(AllocationTest, inHostForLoop) {
   TensorView* tv0 = makeConcreteTensor(sizes);
   tv0->setMemoryType(MemoryType::Global);
   auto* allocate = IrBuilder::create<kir::Allocate>(tv0, MemoryType::Global);
-  TensorView* tv1 = abs(tv0);
+  TensorView* tv1 = set(tv0);
 
   for_loop->body().push_back(allocate);
   for_loop->body().push_back(tv1->definition());
@@ -1218,6 +1218,32 @@ TEST_F(HirAlias, ThrowOnInputAlias) {
 }
 
 using HirSetTest = NVFuserTest;
+
+TEST_F(HirSetTest, HostIr) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeConcreteTensor(sizes);
+  auto* out = makeConcreteTensor(sizes);
+  auto* set = IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in);
+  hic->addInput(in);
+  hic->addInput(out);
+  hic->pushBackTopLevelExprs(set);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto in_aten = at::randn(sizes, options);
+  auto out_aten = at::empty(sizes, options);
+
+  hie.runWithInput({{in, in_aten}, {out, out_aten}});
+
+  EXPECT_TRUE(out_aten.equal(in_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << in_aten;
+}
 
 TEST_F(HirSetTest, HostIr) {
   const std::vector<int64_t> sizes = {8, 64};

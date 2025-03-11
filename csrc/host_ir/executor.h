@@ -134,8 +134,6 @@ class HostIrEvaluator final : public OptOutDispatch {
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
-  KernelArgumentHolder dispatchAndCollectOutputs();
-
   Val* getAlias(Val* val) const {
     const auto& aliases = container_->alias();
     auto it = aliases.find(val);
