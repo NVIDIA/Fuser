@@ -953,10 +953,11 @@ void scheduleReductionCombinedOuter(
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
-    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString() << "\n";
     auto outer_reference_tv =
         reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
     outer_reference_tvs.emplace_back(outer_reference_tv);
+    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString() << "\n";
+    std::cout << "outer_reference_tv: " << outer_reference_tv->toString() << "\n";
   }
 }
 
@@ -1027,6 +1028,7 @@ void scheduleInnerOuterPersistentKernel(
   for(auto tv : cached_gmem_reload){
     std::cout << "cached_gmem_reload1 " << tv->toString() << std::endl;
   }
+    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
 
   std::vector<TensorView*> tma_load_tvs;
   if (rparams->use_tma_load) {
@@ -1042,31 +1044,31 @@ void scheduleInnerOuterPersistentKernel(
     // tma tvs are excluded in transform propagation, to add a valid path from
     // reduction tv to output tv, needs to connect pre-reduction tv and
     // post-reduction tv with dummy outputs
-    if (!rparams->project_persistent_buffers) {
-      for (auto tv : tma_load_tvs) {
-        const auto& consumers = ir_utils::consumerTvsOf(tv);
-        TensorView* pre_redu_tv = nullptr;
-        TensorView* post_redu_tv = nullptr;
-        for (auto tv : consumers) {
-          if (DependencyCheck::isDependencyOf(tv, inner_reduction_tvs.at(0))) {
-            pre_redu_tv = tv;
-            continue;
-          } else if(!DependencyCheck::isDependencyOf(tv, outer_reduction_tvs.at(0))) {
-            post_redu_tv = tv;
-            continue;
-          }
-          if (pre_redu_tv && post_redu_tv) {
-            break;
-          }
-        }
-        NVF_CHECK(
-            pre_redu_tv && post_redu_tv,
-            "Expect at least one pre- and one post- reduction tv.");
-        TensorView* dummy_output = add(pre_redu_tv, post_redu_tv);
-        dummy_outputs.emplace_back(dummy_output);
-        fusion->addOutput(dummy_output);
-      }
-    }
+    // if (!rparams->project_persistent_buffers) {
+    //   for (auto tv : tma_load_tvs) {
+    //     const auto& consumers = ir_utils::consumerTvsOf(tv);
+    //     TensorView* pre_redu_tv = nullptr;
+    //     TensorView* post_redu_tv = nullptr;
+    //     for (auto tv : consumers) {
+    //       if (DependencyCheck::isDependencyOf(tv, inner_reduction_tvs.at(0))) {
+    //         pre_redu_tv = tv;
+    //         continue;
+    //       } else if(!DependencyCheck::isDependencyOf(tv, outer_reduction_tvs.at(0))) {
+    //         post_redu_tv = tv;
+    //         continue;
+    //       }
+    //       if (pre_redu_tv && post_redu_tv) {
+    //         break;
+    //       }
+    //     }
+    //     NVF_CHECK(
+    //         pre_redu_tv && post_redu_tv,
+    //         "Expect at least one pre- and one post- reduction tv.");
+    //     TensorView* dummy_output = add(pre_redu_tv, post_redu_tv);
+    //     dummy_outputs.emplace_back(dummy_output);
+    //     fusion->addOutput(dummy_output);
+    //   }
+    // }
   }
 
   const bool is_unroll_or_vectorization = rparams->isUnrolled();
@@ -1083,9 +1085,18 @@ void scheduleInnerOuterPersistentKernel(
       std::cout << "boundary_tv: " << tv->toString() << std::endl;
       special_tvs.emplace_back(tv);
     }
-    TransformPropagator propagator_circular_buffer(inner_reference_tv, 1);
-    MaxLogicalDomainInfoSpanningTree(inner_reference_tv)
-        .traverse(&propagator_circular_buffer);
+    // TransformPropagator propagator_circular_buffer(inner_reference_tv, 1);
+    // MaxLogicalDomainInfoSpanningTree(inner_reference_tv)
+    //     .traverse(&propagator_circular_buffer);
+    TransformPropagator propagator1(inner_reference_tv, 1);
+    std::vector<TensorView*> all_tvs_except = ir_utils::allTvsExcept(
+        fusion, {outer_reference_tvs.begin(), outer_reference_tvs.end()});
+    SetSelector selector1(
+        {all_tvs_except.begin(), all_tvs_except.end()});
+    MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector1)
+        .traverse(&propagator1);
+
+    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
 
     TransformPropagator propagator(inner_reference_tv);
     std::vector<TensorView*> all_tvs_except_cache = ir_utils::allTvsExcept(
@@ -1094,6 +1105,8 @@ void scheduleInnerOuterPersistentKernel(
         {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
     MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
         .traverse(&propagator);
+    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
+
 
   } else {
     reduction_scheduler_utils::propagateTransformation(
@@ -1123,6 +1136,7 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
 
   for(auto tv : cached_gmem_reload){
     std::cout << "cached_gmem_reload3 " << tv->toString() << std::endl;
