@@ -616,6 +616,7 @@ void fillOptimalHopperTileSizes(
       (uint16_t)16};
   mparams->cta_order = best_config.cta_order;
   mparams->grid_swizzle_factor = best_config.grid_swizzle_factor;
+  mparams->splitk_factor = best_config.splitk_factor;
 }
 
 bool fillDefaultHopperHeuristic(
