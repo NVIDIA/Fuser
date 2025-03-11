@@ -4,7 +4,6 @@
 import pytest
 
 import torch
-import thunder
 
 from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 from .cross_entropy_loss import cross_entropy_loss_setup
@@ -29,9 +28,12 @@ def test_rope_fwd_benchmark(
     kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
+    if executor == "thunder":
+        kwargs["nv_enable_embedding"] = True
 
-    model, gen_inputs, _, _ = cross_entropy_loss_setup[variation](dtype=torch.bfloat16)
-    inputs = gen_inputs()
+    test_case = cross_entropy_loss_setup[variation](dtype=torch.bfloat16)
+    inputs = test_case.inputs()
+    model = test_case.model()
 
     def fwd_call(inp):
         return model(**inp)
@@ -60,11 +62,12 @@ def test_rope_bwd_benchmark(
     kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
+    if executor == "thunder":
+        kwargs["nv_enable_embedding"] = True
 
-    model, gen_inputs, grad, iobytes = cross_entropy_loss_setup[variation](
-        dtype=torch.bfloat16
-    )
-    fwd_inputs = gen_inputs()
+    test_case = cross_entropy_loss_setup[variation](dtype=torch.bfloat16)
+    fwd_inputs = test_case.inputs()
+    model = test_case.model()
 
     def fwd_call(inp):
         return model(**inp)
@@ -75,13 +78,9 @@ def test_rope_bwd_benchmark(
 
     assert len(outputs) == 1
 
-    # NOTE: the iobytes is computed based on how thunder autograd worked. So this is just
-    # a reference point for torchcompile and eager executor for comparison.
-    # NOTE: passing in *list(model.parameters()), so we would clear all computed grad before
-    # calling backwards, this avoid the accumulation kernel
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs[0], grad(), *list(model.parameters())],
-        iobytes=iobytes(),
+        [outputs[0], test_case.grads(), *list(model.parameters())],
+        iobytes=test_case.grad_iobytes(),
     )
