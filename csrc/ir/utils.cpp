@@ -1577,4 +1577,22 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
       primDataTypeSize(*inp_prim_type), primDataTypeSize(*out_prim_type));
 }
 
+int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv) {
+  int64_t vec_size = ir_utils::getVectorizeSize(consumer_tv);
+  int64_t dtype_size = dataTypeSize(consumer_tv->dtype());
+  int64_t vec_size_in_bytes = vec_size * dtype_size;
+  constexpr int64_t tmem_unit_size_bytes = 4;
+  NVF_ERROR(
+      vec_size_in_bytes % tmem_unit_size_bytes == 0,
+      "Vectorize size is not a multiple of ",
+      tmem_unit_size_bytes,
+      " bytes. vec_size: ",
+      vec_size,
+      ", dtype_size: ",
+      dtype_size,
+      ", vec_size_in_bytes: ",
+      vec_size_in_bytes);
+  return vec_size_in_bytes / tmem_unit_size_bytes;
+}
+
 } // namespace nvfuser::ir_utils

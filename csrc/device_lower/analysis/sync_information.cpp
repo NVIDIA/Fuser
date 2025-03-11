@@ -833,7 +833,6 @@ SyncMap::SyncMap(Fusion* fusion) {
       if (raw_dims.any()) {
         needs_raw_sync_[producer] |= raw_dims;
       }
-
     } // end producer
   }
 }
