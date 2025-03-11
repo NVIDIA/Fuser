@@ -273,6 +273,7 @@ std::pair<int64_t, int64_t> blockTilePos(
 
   if (cfg.grid_swizzle_factor == 1L) {
     // Simple raster
+    block %= tiles_m * tiles_n; // accomodate splitk
     i = block % tiles_fast;
     j = block / tiles_fast;
   } else {
@@ -281,6 +282,11 @@ std::pair<int64_t, int64_t> blockTilePos(
     // dimension. The BIDx dimension is the fast dim and BIDy is slow.
     // This takes us from a [Tf, Ts] grid to a [Tf*factor, ceilDiv(Ts,factor)]
     // grid.
+    if (cfg.splitk_factor != 1L) {
+      int64_t tiles_slow = row_maj ? tiles_n : tiles_m;
+      block %=
+          roundUpToMultiple(tiles_slow, cfg.grid_swizzle_factor) * tiles_fast;
+    }
     int64_t i_swiz = block % (tiles_fast * cfg.grid_swizzle_factor);
     int64_t j_swiz = block / (tiles_fast * cfg.grid_swizzle_factor);
     i = i_swiz / cfg.grid_swizzle_factor;
@@ -303,12 +309,14 @@ int64_t expectedTransferredBytes(
     const ConfigSubset& cfg) {
   const int64_t tiles_m = ceilDiv(m, cfg.cta.m);
   const int64_t tiles_n = ceilDiv(n, cfg.cta.n);
-  const int64_t tiles_k = ceilDiv(k, cfg.cta.k);
+  const int64_t tiles_k = ceilDiv(ceilDiv(k, cfg.splitk_factor), cfg.cta.k);
 
   // This is the number of bytes that get loaded per circular buffering stage
   // in a single tile.
+  // TODO: handle multiple outputs, different dtypes here
   const int64_t bytes_per_output_tile =
-      tiles_k * (cfg.cta.m + cfg.cta.n) * cfg.cta.k;
+      tiles_k * (cfg.cta.m + cfg.cta.n) * cfg.cta.k * 2 +
+      (cfg.cta.m * cfg.cta.n * (2 + (cfg.splitk_factor - 1) * 8));
 
   // Now we model wave quantization of the MN tile grid. For example if there
   // are 132 SMs, then we round up the number of tiles to a multiple of 132
@@ -320,7 +328,8 @@ int64_t expectedTransferredBytes(
   // memory-bound problems.
   const int64_t num_sms =
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-  const int64_t num_waves = ceilDiv(tiles_m * tiles_n, num_sms);
+  const int64_t num_waves =
+      ceilDiv(cfg.splitk_factor * tiles_m * tiles_n, num_sms);
   return num_waves * num_sms * bytes_per_output_tile;
 }
 
@@ -344,8 +353,6 @@ float simulateHopperL2(
   NVF_ERROR(
       cfg.cluster_dim_x == 1L && cfg.cluster_dim_y == 1L,
       "CGA L2 modeling is not yet supported");
-  NVF_ERROR(
-      cfg.splitk_factor == 1L, "Split-K L2 modeling is not yet supported");
 
   auto prop = at::cuda::getCurrentDeviceProperties();
   const int64_t num_sms = prop->multiProcessorCount;
@@ -372,7 +379,8 @@ float simulateHopperL2(
   const int64_t tiles_n = ceilDiv(n, cfg.cta.n);
   const int64_t tiles_k = ceilDiv(k, cfg.cta.k);
 
-  const int64_t num_waves = ceilDiv(numBlocks(tiles_m, tiles_n, cfg), num_sms);
+  const int64_t num_waves =
+      ceilDiv(cfg.splitk_factor * numBlocks(tiles_m, tiles_n, cfg), num_sms);
 
   const int64_t tile_size_a = cfg.cta.m * cfg.cta.k * 2;
   const int64_t tile_size_b = cfg.cta.n * cfg.cta.k * 2;
@@ -476,6 +484,12 @@ float simulateHopperL2(
         if (i >= tiles_m || j >= tiles_n) {
           continue;
         }
+        // TODO: splitk
+        // For split-K, we will do one read and one write at single precision,
+        // but to a temporary buffer. For the first partition, there is only the
+        // write. For the last partition there is only the read. Then Only the
+        // last partition writes the result.
+        //   do_access(offset_c + i * j, tile_size_c * 2);
         // NOTE: we might want to use different output throughput than operands
         do_access(offset_c + i * j, tile_size_c);
       }
@@ -541,15 +555,18 @@ void fillOptimalHopperTileSizes(
           // CTA tile is limited to 256 is each dim
           continue;
         }
-        const ConfigSubset cfg{
-            .cta = {cta_m, cta_n, cta_k},
-            .warp = {64L, instr_n, cta_k},
-            .instr = {64L, instr_n, 16L},
-        };
-        const int64_t expected_bytes = expectedTransferredBytes(m, n, k, cfg);
-        if (expected_bytes < best_expected_bytes) {
-          best_expected_bytes = expected_bytes;
-          best_config = cfg;
+        for (int64_t splitk_factor = 1L; splitk_factor < 7L; ++splitk_factor) {
+          const ConfigSubset cfg{
+              .cta = {cta_m, cta_n, cta_k},
+              .warp = {64L, instr_n, cta_k},
+              .instr = {64L, instr_n, 16L},
+              .splitk_factor = splitk_factor,
+          };
+          const int64_t expected_bytes = expectedTransferredBytes(m, n, k, cfg);
+          if (expected_bytes < best_expected_bytes) {
+            best_expected_bytes = expected_bytes;
+            best_config = cfg;
+          }
         }
       }
     }
