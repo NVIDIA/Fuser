@@ -580,11 +580,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(shapes_to_load),
         testing::Values(DataType::Half, DataType::Float, DataType::Double),
-        testing::Values(
-            MmaInputSmemSwizzle::None,
-            MmaInputSmemSwizzle::B128,
-            MmaInputSmemSwizzle::B64,
-            MmaInputSmemSwizzle::B32)));
+        testing::ValuesIn(kAllSmemSwizzleModes)));
 
 TEST_P(TMASimpleLdstTest, Store) {
   Fusion fusion;
@@ -635,7 +631,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     TMASimpleLdstTest,
     testing::Combine(
-        kAllSmemSwizzleModes,
+        testing::ValuesIn(kAllSmemSwizzleModes),
         testing::Values(DataType::Half, DataType::Float, DataType::Double),
         testing::Values(1, 2, 3, 4, 5)),
     testNameTMASimpleLdstTest);
@@ -3083,7 +3079,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     StMatrixTest,
     testing::Combine(
-        kAllHopperMacros,
+        testing::ValuesIn(kAllHopperMacros),
         testing::Values(
             // tile_m, tile_n
             std::vector<int>{16, 8},

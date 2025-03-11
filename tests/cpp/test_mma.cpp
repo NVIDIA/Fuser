@@ -256,7 +256,7 @@ TEST_P(MmaTest, SingleTileWithStridedInput) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
-auto all_dtypes = testing::Values(DataType::Half, DataType::BFloat16);
+auto all_dtypes = std::vector<PrimDataType>{DataType::Half, DataType::BFloat16};
 
 std::string testName(const testing::TestParamInfo<MmaTestParams>& info) {
   std::ostringstream os;
@@ -282,7 +282,7 @@ INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     testing::Combine(
         testing::Values(MmaMacro::Ampere_16_8_16, MmaMacro::Ampere_16_16_16),
-        all_dtypes),
+        testing::ValuesIn(all_dtypes)),
     testName);
 
 // For smem mma input tensors, the schedule does not matter, we just naively
@@ -581,7 +581,7 @@ INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     HopperRSStmatrix,
     testing::Combine(
-        kAllHopperMacros,
+        testing::ValuesIn(kAllHopperMacros),
         testing::Values(DataType::Half),
         testing::Values(MmaLayout::TN),
         testing::Values(MmaInputSmemSwizzle::None),
