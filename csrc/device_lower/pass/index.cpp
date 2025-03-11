@@ -23,6 +23,8 @@
 
 #include <device_lower/pass/index.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 std::vector<Expr*> IndexLowering::getIndexedExprs(
@@ -2070,6 +2072,69 @@ Val* hardCodedSharedMemoryIndexForLdStMatrixSwizzle(
   return IrBuilder::create<kir::TensorIndex>(smem_tv, smem_index);
 }
 
+Val* indexTMemLdSt(
+    TensorView* tmem_tv,
+    TensorView* consumer_tv,
+    const std::vector<ForLoop*>& for_loops) {
+  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+  const auto& tmem_info = GpuLower::current()->tmemInfo();
+  const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
+  TMemRegisterDataPath dp;
+  if (tmem_tv == consumer_tv) {
+    dp = tmem_info.store_data_path.at(tmem_tv);
+  } else {
+    dp = tmem_info.load_data_path.at(tmem_tv);
+  }
+  NVF_ERROR(
+      dp == TMemRegisterDataPath::Path32x32b,
+      "Data path ",
+      dp,
+      " is not supported yet");
+  const std::vector<IterDomain*>& lane_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).lane_allocation;
+  const std::vector<IterDomain*>& column_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).column_allocation;
+
+  auto get_index_for = [&](const std::vector<IterDomain*>& domain) {
+    std::vector<Val*> indices = tensor_indexer.getIndexFor(
+        consumer_tv->definition(), consumer_tv == tmem_tv, domain, for_loops);
+    Val* stride = tmem_tv->fusion()->oneVal();
+    Val* index = tmem_tv->fusion()->zeroVal();
+    for (const auto& [id, idx] :
+         zip(std::ranges::views::reverse(domain),
+             std::ranges::views::reverse(indices))) {
+      index = SimplifyingIrBuilder::addExpr(
+          index, SimplifyingIrBuilder::mulExpr(idx, stride));
+      stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
+    }
+    return index;
+  };
+
+  Val* lane_index = get_index_for(lane_allocation_domain);
+  // All threads must provide the beginning address of the lane: i / 32 * 32
+  Val* thirty_two = IrBuilder::create<Val>(32);
+  lane_index = SimplifyingIrBuilder::mulExpr(
+      SimplifyingIrBuilder::divExpr(lane_index, thirty_two), thirty_two);
+  lane_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, lane_index);
+
+  Val* column_index = get_index_for(column_allocation_domain);
+  // The column_index above is in the unit of items, but the PTX instruction
+  // of TMem load/store is in the unit of 4 bytes.
+  column_index = SimplifyingIrBuilder::divExpr(
+      SimplifyingIrBuilder::mulExpr(
+          column_index,
+          IrBuilder::create<Val>(
+              dataTypeSize(consumer_tv->dtype()), DataType::Index)),
+      IrBuilder::create<Val>(4, DataType::Index));
+  column_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
+
+  Val* index = SimplifyingIrBuilder::arrayExpr(
+      std::vector<Val*>{lane_index, column_index});
+  return GpuLower::current()->commonScalarMap().hoistScalar(index, for_loops);
+}
+
 } // namespace
 
 void IndexLowering::handle(const LoadStoreOp* ldst) {
@@ -2184,27 +2249,24 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
           ldst->opType() == LoadStoreOpType::StTMem;
       if (is_ldst_tmem) {
-        // TODO: support other types
         NVF_ERROR(
-            dataTypeSize(ldst->in()->dtype()) == 4,
-            "For now, we only support 32-bit types in tmem");
-        NVF_ERROR(
-            dataTypeSize(ldst->out()->dtype()) == 4,
-            "For now, we only support 32-bit types in tmem");
+            ldst->in()->dtype() == ldst->out()->dtype(),
+            "TMem load/store must have the same type for input and output");
         // According to the specification of tcgen05.{ld,st}, the register
         // operand must be viewed as a vector of 32-bit elements.
         // See:
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
         as_type = ArrayType{
-            std::make_shared<DataType>(ldst->in()->dtype()),
-            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>())};
+            std::make_shared<DataType>(
+                dataTypeSize(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
+                                                       : DataType::UInt32),
+            (size_t)ir_utils::getTMemLdStVectorizeSize(
+                ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
-        // TODO: hard coded index zero for now.
-        auto index = IrBuilder::create<Val>(
-            std::vector<int64_t>{0, 0},
-            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        auto index =
+            indexTMemLdSt(tv, ldst->out()->as<TensorView>(), for_loops_);
         in = IrBuilder::create<kir::TensorIndex>(
             tv, index, DataType::TMemAddress);
       } else {
@@ -2218,9 +2280,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       if (auto tv = dynamic_cast<TensorView*>(ldst->out());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
         // TODO: hard coded index zero for now.
-        auto index = IrBuilder::create<Val>(
-            std::vector<int64_t>{0, 0},
-            ArrayType{std::make_shared<DataType>(DataType::UInt16), 2});
+        auto index = indexTMemLdSt(tv, tv, for_loops_);
         out = IrBuilder::create<kir::TensorIndex>(
             tv, index, DataType::TMemAddress);
       } else {
