@@ -8,10 +8,15 @@
 
 #include <device_lower/analysis/tensor_memory.h>
 #include <device_lower/lower2device.h>
+#include <expr_simplifier.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
+#include <options.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <type.h>
+#include <utils.h>
 
+#include <ranges>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -183,6 +188,178 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
   return result;
 }
 
+// Get the TID Parallel types that are not trivial. We are not interested
+// in the parallel types that are not used in the kernel, and the ones that have
+// size 1. The order of the returned parallel types is from z to x.
+std::vector<ParallelType> getNonTrivialActiveThreadParallelTypes(
+    Fusion* fusion) {
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  std::vector<ParallelType> nontrivial_tid_ptypes;
+  for (auto pt : std::views::reverse(kParallelTypeTIDs)) {
+    Val* size = pdim_map.getRaw(pt);
+    if (size == nullptr) {
+      continue;
+    }
+    Val* size_is_one =
+        simplifyExpr(SimplifyingIrBuilder::eqExpr(size, fusion->oneVal()));
+    if (size_is_one->isTrue()) {
+      continue;
+    }
+    nontrivial_tid_ptypes.push_back(pt);
+  }
+
+  NVF_CHECK(
+      !nontrivial_tid_ptypes.empty(),
+      "Invalid data access pattern in TMem load/store: ",
+      "TMem load/store must be warp-collective, but CTA size is one.");
+  return nontrivial_tid_ptypes;
+}
+
+// Get the [TIDz, TIDy, TIDx] projected to the given expression as ValGroups,
+// and merge them by contiguity. If any of the TIDz, TIDy, TIDx is not
+// interested (see above), we just ignore it. Return the merged ValGroups as an
+// AbstractTensor.
+//
+// Why do we need this function?
+//
+// In the CUDA programming model, each CTA has TIDx, TIDy, and TIDz.
+// Unfortunately, the mapping of these TIDs to hardware concepts like warp, warp
+// group, are not clear and depend on the kernel launch configuration. Here, we
+// try to not assume anything like "TIDx must be a multiple of 32", but still,
+// we must be able to validate and pattern match the data access of the tensor
+// memory load/store.
+//
+// We need to construct a ValGroup that represents "warp" for an expression from
+// its consumer's loop domain. Naively speaking, it is just:
+//   split(Iz * Iy * Ix, 32).inner
+// where Iz, Iy, Ix are the IterDomains in the loop domain that are parallelized
+// on TIDz, TIDy and TIDx. But unfortunately, in reality, it is not that simple.
+// NVFuser allows parallelizating IterDomains in an inexact way, for example, if
+// the kernel's parallel dimension size for TIDx is 8, then the IterDomain being
+// parallelized with TIDx (Ix) does not have to be exactly 8. This inexactness
+// is especially common in warp-specialized kernels. If, for example, the TIDx
+// parallelized IterDomain (Ix) in the loop domain is not exact (for example,
+// have extent 7), then
+//   split(Iz * Iy * Ix, 32).inner
+// may not be the warp. To handle this, we need to create a new concept
+// "contiguity of thread parallelized IterDomains in the loop domain". We can
+// represent warp as
+//   split(Iz * Iy * Ix, 32).inner
+// if and only if Iz and Iy are contiguous. If Iz is not contiguous but Iy is,
+// then warp would be:
+//   split(Iy * Ix, 32).inner
+// If neither Iz nor Iy is contiguous, then warp would be:
+//   split(Ix, 32).inner
+// Another way to think about the contiguity as described above is to consider
+// all threads in the CTA as a 3D lattice, and we are drawing a 3d box from the
+// origin to some point in the lattice. The length of the edges of the box are
+// Ix.extent, Iy.extent, and Iz.extent. The contiguity of Ix, Iy, Iz are just
+// like considering the lattice as a 3D tensor, and the box as a slice of the
+// tensor.
+AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
+  auto& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  auto nontrivial_tid_ptypes =
+      getNonTrivialActiveThreadParallelTypes(expr->fusion());
+  const auto& loop_domain = ir_utils::getTvOutput(expr)->getLoopDomain();
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  // Get the contiguity of nontrivial_tid_ptypes in the loop domain as described
+  // above. The contiguity of each item in nontrivial_tid_ptypes can be computed
+  // as follows:
+  // - The innermost parallel type of nontrivial_tid_ptypes is always
+  // contiguous.
+  // - The item at index i is contiguous if the item at index i+1 is
+  //   exact (its extent in the loop domain is the same as parallel
+  //   dimension size of the kernel).
+  // For example, if the parallel dimension sizes of the kernel are:
+  //   TIDz: 32, TIDy: 8, TIDx: 8
+  // and the loop domain is:
+  //   I0: TIDz, extent 32
+  //   I1: TIDy, extent 7
+  //   I2: TIDx, extent 8
+  // then the contiguity of TIDz, TIDy, TIDx in the loop domain is:
+  //   TIDz: false, TIDy: true, TIDx: true
+  // A true contiguity of I1 with respect to I2 means that I1 and I2 can be
+  // merged
+  std::vector<bool> contiguity;
+  contiguity.reserve(nontrivial_tid_ptypes.size());
+  bool prev_exact = true;
+  for (ParallelType pt : std::views::reverse(nontrivial_tid_ptypes)) {
+    contiguity.push_back(prev_exact);
+    // Update prev_exact
+    if (pdim_map.isExact(pt)) {
+      // If the parallel dimension map says exact, then all IDs with this
+      // parallel type have the same extent, so we can skip the equality check
+      // below.
+      prev_exact = true;
+      continue;
+    }
+    // If the parallel dimension map does not say exact, then pt could still
+    // be exact in this loop domain if the corresponding ID's extent is the
+    // same as the parallel dimension size of the kernel.
+    Val* pt_extent = pdim_map.getRaw(pt);
+    auto pt_in_loop_domain_it = std::find_if(
+        loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
+          return id->getParallelType() == pt;
+        });
+    if (pt_in_loop_domain_it == loop_domain.end()) {
+      prev_exact = false;
+      continue;
+    }
+    IterDomain* pt_in_loop_domain = *pt_in_loop_domain_it;
+    Val* extent_in_loop_domain = pt_in_loop_domain->extent();
+    // If we can not symbolically prove that the extents are the same, then
+    // we assume that they are not the same.
+    prev_exact = simplifyExpr(SimplifyingIrBuilder::eqExpr(
+                                  pt_extent, extent_in_loop_domain))
+                     ->isTrue();
+  }
+  std::reverse(contiguity.begin(), contiguity.end());
+
+  // Grab ValGroups for each parallel type from loop domain and store it in
+  // AbstractTensor
+  struct Contiguity {
+    bool contiguity;
+    static Contiguity merge(Contiguity x, Contiguity y) {
+      NVF_ERROR(x.contiguity);
+      return {y.contiguity};
+    }
+    static std::pair<Contiguity, Contiguity> split(Contiguity x) {
+      return {{true}, x};
+    }
+    static std::pair<Contiguity, Contiguity> swizzle(
+        Contiguity x,
+        Contiguity y) {
+      NVF_THROW("Should not reach here");
+    }
+  };
+  AbstractTensorWithInfo<Contiguity> pdims;
+  for (auto [i, pt] : enumerate(nontrivial_tid_ptypes)) {
+    auto id_it = std::find_if(
+        loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
+          // NOLINTNEXTLINE
+          return id->getParallelType() == pt;
+        });
+    if (id_it == loop_domain.end()) {
+      continue;
+    }
+    IterDomain* id = *id_it;
+    const ValGroup& val_group = id_graph.toGroup(id);
+    pdims.pushBack(
+        ValGroupAndItsGraph{val_group, &id_graph}, Contiguity{contiguity[i]});
+  }
+
+  // Merge contiguous parallel types
+  for (int64_t index = 0; index < (int64_t)pdims.size() - 1;) {
+    if (pdims.info(index).contiguity) {
+      pdims.merge(index);
+    } else {
+      index++;
+    }
+  }
+
+  return pdims.dropInfo();
+}
+
 // Infer the data path of TMem load/store operations from the loop domain of
 // the consumer and the allocation domain of the TMem tensor. Based on the
 // parallelization of the loop domain and the IterDomain transformations between
@@ -193,7 +370,13 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
 std::pair<
     std::unordered_map<TensorView*, TMemRegisterDataPath>,
     std::unordered_map<TensorView*, TMemRegisterDataPath>>
-computeTMemLdStDataPath(Fusion* fusion) {
+computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
+  // This function uses simplifyExpr extensively. If we have disable expression
+  // simplification in order to help inspect generated kernels then we will get
+  // incorrect results here. Instead, we ensure it is enabled using this guard.
+  DisableOptionsGuard dog;
+  DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
+
   // For all expressions in the fusion, find the data path
   using DPMap = std::unordered_map<TensorView*, TMemRegisterDataPath>;
   DPMap load_data_path;
@@ -214,6 +397,30 @@ computeTMemLdStDataPath(Fusion* fusion) {
     } else {
       continue;
     }
+    const auto& tmem_tv_info = allocation.getTVInfo(tmem_tv);
+    auto& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+    ValGroups lane_allocation_valgroups =
+        id_graph.toGroups(tmem_tv_info.lane_allocation);
+
+    // Get the merged parallel types of the interested TID parallel types
+    // projected to expr.
+    AbstractTensor pdims = getThreadParallelTypesMergedByContiguity(expr);
+
+    // The innermost merged parallel type must be a multiple of 32, otherwise
+    // the expr won't be warp-collective.
+    Val* inner_extent = pdims.back()
+                            .as<ValGroupAndItsGraph>()
+                            .group->front()
+                            ->as<IterDomain>()
+                            ->extent();
+    Val* inner_extent_is_multiple_of_32 = SimplifyingIrBuilder::eqExpr(
+        SimplifyingIrBuilder::modExpr(
+            inner_extent, IrBuilder::create<Val>(32, DataType::Index)),
+        fusion->zeroVal());
+    GpuLower::current()->validate(
+        inner_extent_is_multiple_of_32,
+        "Invalid data access pattern in TMem load/store: ",
+        "TMem load/store must be warp-collective, but the innermost extent is not a multiple of 32.");
 
     // Start pattern matching:
     // fail_reasons will be used to store the reasons why the pattern does
@@ -223,11 +430,23 @@ computeTMemLdStDataPath(Fusion* fusion) {
     // Pattern match 32x32b
     if (!matched) {
       std::string reason_32x32b = "";
-      if (true) { // TODO: Implement the pattern matching
+      AbstractTensor t = pdims;
+      t.split(-1, 32);
+      const ValGroup& warp = t.back().as<ValGroupAndItsGraph>().group;
+      Val* stride = lower_utils::proveLinearAndGetStride(
+          id_graph, warp, lane_allocation_valgroups);
+      if (stride == nullptr) {
+        reason_32x32b =
+            "Not 32x32b because warps are not linearly accessing the lane allocation.";
+        fail_reasons.push_back(std::move(reason_32x32b));
+      } else {
+        GpuLower::current()->validate(
+            SimplifyingIrBuilder::eqExpr(stride, fusion->oneVal()),
+            "Invalid data access pattern in TMem load/store: ",
+            "Warp linearly accessing lanes, but not with stride 1.");
+        matched = true;
         (*target)[tmem_tv] = TMemRegisterDataPath::Path32x32b;
-        continue;
       }
-      fail_reasons.push_back(std::move(reason_32x32b));
     }
     // TODO: Pattern match 16x64b
     if (!matched) {
@@ -274,7 +493,7 @@ TensorMemoryInfo computeTMemInfo(Fusion* fusion) {
   TensorMemoryInfo result;
   result.allocation = computeTMemAlllocationInfo(fusion);
   std::tie(result.load_data_path, result.store_data_path) =
-      computeTMemLdStDataPath(fusion);
+      computeTMemLdStDataPath(fusion, result.allocation);
   return result;
 }
 
