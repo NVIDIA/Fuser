@@ -188,17 +188,14 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
   return result;
 }
 
-// Get the TID Parallel types that we are interested in. We are not interested
+// Get the TID Parallel types that are not trivial. We are not interested
 // in the parallel types that are not used in the kernel, and the ones that have
 // size 1. The order of the returned parallel types is from z to x.
-std::vector<ParallelType> getInterestedThreadParallelTypes(Fusion* fusion) {
+std::vector<ParallelType> getNonTrivialActiveThreadParallelTypes(
+    Fusion* fusion) {
   const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-  std::vector<ParallelType> interested_tid_ptypes;
-  for (auto pt : {
-           ParallelType::TIDz,
-           ParallelType::TIDy,
-           ParallelType::TIDx,
-       }) {
+  std::vector<ParallelType> nontrivial_tid_ptypes;
+  for (auto pt : std::views::reverse(kParallelTypeTIDs)) {
     Val* size = pdim_map.getRaw(pt);
     if (size == nullptr) {
       continue;
@@ -208,14 +205,14 @@ std::vector<ParallelType> getInterestedThreadParallelTypes(Fusion* fusion) {
     if (size_is_one->isTrue()) {
       continue;
     }
-    interested_tid_ptypes.push_back(pt);
+    nontrivial_tid_ptypes.push_back(pt);
   }
 
   NVF_CHECK(
-      !interested_tid_ptypes.empty(),
+      !nontrivial_tid_ptypes.empty(),
       "Invalid data access pattern in TMem load/store: ",
       "TMem load/store must be warp-collective, but CTA size is one.");
-  return interested_tid_ptypes;
+  return nontrivial_tid_ptypes;
 }
 
 // Get the [TIDz, TIDy, TIDx] projected to the given expression as ValGroups,
@@ -226,7 +223,7 @@ std::vector<ParallelType> getInterestedThreadParallelTypes(Fusion* fusion) {
 // Why do we need this function?
 //
 // In the CUDA programming model, each CTA has TIDx, TIDy, and TIDz.
-// Unfortunatly, the mapping of these TIDs to hardware concepts like warp, warp
+// Unfortunately, the mapping of these TIDs to hardware concepts like warp, warp
 // group, are not clear and depend on the kernel launch configuration. Here, we
 // try to not assume anything like "TIDx must be a multiple of 32", but still,
 // we must be able to validate and pattern match the data access of the tensor
@@ -261,13 +258,14 @@ std::vector<ParallelType> getInterestedThreadParallelTypes(Fusion* fusion) {
 // tensor.
 AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
   auto& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  auto interested_tid_ptypes = getInterestedThreadParallelTypes(expr->fusion());
+  auto nontrivial_tid_ptypes =
+      getNonTrivialActiveThreadParallelTypes(expr->fusion());
   const auto& loop_domain = ir_utils::getTvOutput(expr)->getLoopDomain();
   const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-  // Get the contiguity of interested_tid_ptypes in the loop domain as described
-  // above. The contiguity of each item in interested_tid_ptypes can be computed
+  // Get the contiguity of nontrivial_tid_ptypes in the loop domain as described
+  // above. The contiguity of each item in nontrivial_tid_ptypes can be computed
   // as follows:
-  // - The innermost parallel type of interested_tid_ptypes is always
+  // - The innermost parallel type of nontrivial_tid_ptypes is always
   // contiguous.
   // - The item at index i is contiguous if the item at index i+1 is
   //   exact (its extent in the loop domain is the same as parallel
@@ -283,9 +281,9 @@ AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
   // A true contiguity of I1 with respect to I2 means that I1 and I2 can be
   // merged
   std::vector<bool> contiguity;
-  contiguity.reserve(interested_tid_ptypes.size());
+  contiguity.reserve(nontrivial_tid_ptypes.size());
   bool prev_exact = true;
-  for (ParallelType pt : std::views::reverse(interested_tid_ptypes)) {
+  for (ParallelType pt : std::views::reverse(nontrivial_tid_ptypes)) {
     contiguity.push_back(prev_exact);
     // Update prev_exact
     if (pdim_map.isExact(pt)) {
@@ -335,7 +333,7 @@ AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
     }
   };
   AbstractTensorWithInfo<Contiguity> pdims;
-  for (auto [i, pt] : enumerate(interested_tid_ptypes)) {
+  for (auto [i, pt] : enumerate(nontrivial_tid_ptypes)) {
     auto id_it = std::find_if(
         loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
           // NOLINTNEXTLINE
