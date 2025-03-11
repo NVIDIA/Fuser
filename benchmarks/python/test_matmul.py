@@ -42,6 +42,13 @@ def test_matmul_baseline_benchmark(
 ):
     m, n, k, layout = config
 
+    if (m * n + m * k + n * k) * 2 > 12 * (2**30):
+        pytest.skip("OOM case")
+
+    if torch.cuda.memory_allocated() > 4 * (2**30):
+        gc.collect()
+        torch.cuda.empty_cache()
+
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
