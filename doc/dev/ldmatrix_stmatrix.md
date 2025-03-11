@@ -123,7 +123,9 @@ TMA LoadStoreOp allocation domain.
 Figure 1 shows how the CTA tile is transformed into the loop domain
 for LdMatrix or StMatrix. Figure 2 displays the loop transformations for TMA
 Load or Store operations. Figure 3 illustrates the following steps to compute
-index from LdMatrix or StMatrix loop domain to TMA shared memory domain.
+index from LdMatrix or StMatrix loop domain to TMA shared memory allocation
+domain. For the TMA shared memory TensorView, the allocation and loop domain
+are the same.
 
 ---
 
@@ -132,7 +134,7 @@ index from LdMatrix or StMatrix loop domain to TMA shared memory domain.
 
 ---
 
-### Figure 2: TMA shared memory domain
+### Figure 2: TMA shared memory allocation domain
 
 <details>
 
@@ -175,7 +177,7 @@ The CTA tile is m(128), n(256)
 
 ---
 
-### Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory domain
+### Figure 3: Map from LdMatrix / StMatrix loop domain to TMA shared memory allocation domain
 ![Map Loop Domain toTMA Shared Memory Layout](ldstmatrix/ldstmatrix_to_tma.svg)
 
 
