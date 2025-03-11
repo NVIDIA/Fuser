@@ -26,8 +26,6 @@ namespace nvfuser {
 
 class ThreadPredicateMap;
 
-using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
-
 namespace scope_utils {
 
 //! Create an **empty** Forloop and copy the metadata.
