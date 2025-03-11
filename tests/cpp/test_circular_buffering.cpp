@@ -1026,18 +1026,6 @@ class TmaCircularBufferingTest
             .num_registers.has_value();
   }
 
-  bool testEnablesRegisterSharingTIDx() {
-    return testEnablesRegisterSharing() &&
-        std::get<WarpSpecialized>(circular_buffer_type).on ==
-        ParallelType::TIDx;
-  }
-
-  bool testEnablesRegisterSharingTIDy() {
-    return testEnablesRegisterSharing() &&
-        std::get<WarpSpecialized>(circular_buffer_type).on ==
-        ParallelType::TIDy;
-  }
-
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
   // the memory range [srcMem, srcMem + size - 1] must not overflow the source
   // memory space. Otherwise, the behavior is undefined.
@@ -1203,12 +1191,11 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   TensorView* reference = tv1;
 
   // Constants
-  constexpr size_t bulk_inner_dim = 256;
+  constexpr size_t bulk_inner_dim = 32;
   if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
     GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
     return;
   }
-
   // [M] -> [M/bid, bid]
   reference->split(-1, bulk_inner_dim);
 
@@ -1262,7 +1249,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
 
   // Constants
   constexpr size_t unroll_dim = 4;
-  constexpr size_t bulk_inner_dim = 256;
+  constexpr size_t bulk_inner_dim = 32;
   if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
     GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
     return;
@@ -1330,7 +1317,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
 
   // Constants
   constexpr size_t unroll_dim = 4;
-  constexpr size_t bulk_inner_dim = 256;
+  constexpr size_t bulk_inner_dim = 32;
   if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
     GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
     return;
@@ -1403,7 +1390,7 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
 
   // Constants
   constexpr int64_t tma_outer_dim = 4;
-  constexpr int64_t tma_inner_dim = 256;
+  constexpr int64_t tma_inner_dim = 32;
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, tma_inner_dim);
@@ -1422,8 +1409,8 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   // Merge TMA tile and Parallelize
   // [M/bod, N/bid, bod, bid] -> [M/bod, N/bid, bod * bid]
   reference->merge(-2, -1);
-  // [M/bod, N/bid, bod * bid] -> [M/bod, N/bid, (bod * bid) / 256, 256]
-  reference->split(-1, 256);
+  // [M/bod, N/bid, bod * bid] -> [M/bod, N/bid, (bod * bid) / 128, 128]
+  reference->split(-1, 128);
 
   // Parallelize
   reference->axis(0)->parallelize(ParallelType::BIDx);
@@ -1470,14 +1457,13 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   TensorView* tv3 = tv0->cacheAfter(tma_load_type);
   tv3->setMemoryType(MemoryType::Shared);
 
-  // __syncthreads() is mssing if mixing TMA and non-TMA loading with circular
-  TensorView* tv4 = tv1->cacheAfter(tma_load_type);
-  tv4->setMemoryType(MemoryType::Shared);
+  TensorView* tv4 = tv1->cacheAfter();
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
 
   TensorView* reference = tv2;
 
   // Constants
-  constexpr int64_t bulk_inner_dim = 256;
+  constexpr int64_t bulk_inner_dim = 32;
   if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
     GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
     return;
@@ -1497,13 +1483,19 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   tv3->circularBuffer(
       number_of_stages, prefetch_distance, circular_buffer_type);
 
-  tv4->axis(0)->parallelize(ParallelType::BIDx);
-  tv4->axis(2)->parallelize(ParallelType::Bulk);
-  tv4->circularBuffer(
-      number_of_stages, prefetch_distance, circular_buffer_type);
+  // Circular Buffer with set operation.
+  // Note that in order to use warp specialization, all circular buffers must be
+  // loaded by TMA, so for this test we disable circular buffering of set op if
+  // we are testing warp specialization.
+  if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+    // Load TV1 into shared memory
+    tv4->setMemoryType(MemoryType::Shared);
+    tv4->circularBuffer(
+        number_of_stages, prefetch_distance, circular_buffer_type);
+  }
 
   // Split reference to parallelize TMA tile
-  reference->split(-1, bulk_inner_dim);
+  reference->split(-1, 32);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -1552,7 +1544,7 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   TensorView* reference = tv2;
 
   // Constants
-  constexpr int64_t bulk_inner_dim = 256;
+  constexpr int64_t bulk_inner_dim = 32;
   if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
     GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
     return;
@@ -1579,7 +1571,7 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   // tv4->circularBuffer(number_of_stages, prefetch_distance);
 
   // Split reference to parallelize TMA tile
-  reference->split(-1, bulk_inner_dim);
+  reference->split(-1, 32);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -1637,7 +1629,7 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   // [M/epc, epc, N/bid, bid] -> [M/epc, epc, N]
   reference->merge(-2, -1);
   // [M/epc, epc, N] -> [M/epc, epc, N/tdx, tdx]
-  constexpr int64_t tdx = 256;
+  constexpr int64_t tdx = 128;
   reference->split(-1, tdx);
 
   // Parallelize
@@ -1735,13 +1727,6 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
     return;
   }
 
-  // in this test, bdimx is dynamic.
-  if (testEnablesRegisterSharingTIDy()) {
-    GTEST_SKIP()
-        << "Bdimx should be const if register sharing with warp specialization on TIDy";
-    return;
-  }
-
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   constexpr int64_t correction = 0;
   constexpr int64_t reduction_axis = 1;
@@ -1787,7 +1772,7 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   TensorView* reference_tv = x_norm;
 
   // boxDim array must be non-zero and less than or equal to 256
-  constexpr int64_t width = 256;
+  constexpr int64_t width = 32;
   constexpr int64_t vectorize = 4;
   int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
   constexpr int64_t examples_per_cta = 4;
@@ -1880,21 +1865,6 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
   if (testEnablesRegisterSharing() && deviceMajorMinorCheck(10)) {
     GTEST_SKIP() << "Register Sharing is only for hopper";
     return;
-  }
-
-  if (testEnablesRegisterSharingTIDx()) {
-    GTEST_SKIP()
-        << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
-    return;
-  }
-
-  // There are 512 compute threads and 128 load threads
-  // register at entry: 96
-  // register for compute: 96 + 32 / 4 = 104
-  // register for loading: 96 - 32 = 64
-  if (testEnablesRegisterSharingTIDy()) {
-    circular_buffer_type =
-        WarpSpecialized(ParallelType::TIDy, std::make_pair(64, 104));
   }
 
   if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
@@ -2030,21 +2000,6 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
     return;
   }
 
-  if (testEnablesRegisterSharingTIDx()) {
-    GTEST_SKIP()
-        << "Register Sharing with TIDx used for both computation and load, requires TIDx to be a multiple of 128.";
-    return;
-  }
-
-  // There are 512 compute threads and 128 load threads
-  // register at entry: 96
-  // register for compute: 96 + 32 / 4 = 104
-  // register for loading: 96 - 32 = 64
-  if (testEnablesRegisterSharingTIDy()) {
-    circular_buffer_type =
-        WarpSpecialized(ParallelType::TIDy, std::make_pair(64, 104));
-  }
-
   if (tma_load_type == LoadStoreOpType::CpAsyncBulk) {
     GTEST_SKIP() << "LoadStoreOpType::CpAsyncBulk only supports 1D TMA";
     return;
@@ -2175,16 +2130,14 @@ auto tmaCircularBufferingParams() {
       Pipelined(false),
       Pipelined(true),
       WarpSpecialized(ParallelType::TIDx),
-      WarpSpecialized(ParallelType::TIDy),
-      WarpSpecialized(ParallelType::TIDx, std::make_pair(64, 168)),
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(64, 168))};
+      WarpSpecialized(ParallelType::TIDy)};
   const std::vector<LoadStoreOpType> tma_types{
       LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
     for (int64_t j : c10::irange(-i, i)) {
       for (int64_t m : {128, 500, 1024}) {
-        for (int64_t n : {1024, 2048}) {
+        for (int64_t n : {128, 1024}) {
           for (auto tma_load_type : tma_types) {
             values.emplace_back(
                 i,

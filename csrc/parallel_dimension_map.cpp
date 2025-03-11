@@ -38,6 +38,7 @@ struct hash<PAndID> {
 namespace nvfuser {
 
 void ParallelDimensionMap::build(Fusion* fusion) {
+  VectorOfUniqueEntries<ParallelType> warp_specialized_types;
   VectorOfUniqueEntries<PAndID> all_concrete_ids;
   auto all_vals = fusion->usedMathVals();
   for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
@@ -46,10 +47,7 @@ void ParallelDimensionMap::build(Fusion* fusion) {
             tv->circularBufferOptions().type)) {
       const auto& warp_specialized =
           std::get<WarpSpecialized>(tv->circularBufferOptions().type);
-      warp_specialized_types_.insert(warp_specialized.on);
-      if (warp_specialized.num_registers.has_value()) {
-        ws_with_register_sharing_.insert(warp_specialized.on);
-      }
+      warp_specialized_types.pushBack(warp_specialized.on);
     }
     for (auto id : tv->domain()->allIDs()) {
       auto ptype = id->getParallelType();
@@ -93,7 +91,10 @@ void ParallelDimensionMap::build(Fusion* fusion) {
   }
 
   adjustMappingsForWarpPadding();
-  adjustMappingsForWarpSpecialization();
+
+  for (auto pt : warp_specialized_types) {
+    setWarpSpecializeOn(pt);
+  }
 }
 
 void ParallelDimensionMap::adjustMappingsForWarpPadding() {
@@ -148,158 +149,25 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
-void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
-  NVF_ERROR(
-      ws_with_register_sharing_.size() <= 1,
-      "Warp specialization with register sharing is only supported on one parallel type.");
-  // shortcut for case without register sharing
-  if (ws_with_register_sharing_.empty()) {
-    for (auto pt : warp_specialized_types_) {
-      auto dim_it = dim_map_.find(pt);
-      if (dim_it == dim_map_.end()) {
-        dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
-      } else {
-        // Intentionally not using SimplifyingIrBuilder::addExpr here so that
-        // we still have access to the pointer to the original IR node.
-        // We need the pointer to the original IR node because we want
-        // getRawCompute to be callable in an environment without FusionGuard,
-        // that is, when the IR container is read-only. In such an environment,
-        // we can't create new IR nodes for (x - 1). By using
-        // IrBuilder::addExpr, we can always create IR nodes like addExpr(x, 1),
-        // and SimplifyingIrBuilder::addExpr in getRawCompute will be able to
-        // simplify find the x when we do addExpr(addExpr(x, 1) - 1).
-        dim_map_[pt] = IrBuilder::addExpr(
-            dim_it->second, IrBuilder::create<Val>(1, DataType::Index));
-      }
-      exact_types_.erase(pt);
-    }
-    return;
-  }
-  // For register sharing, require contiguous 128 threads calling the same
-  // setreg instruction
-  auto pt = *ws_with_register_sharing_.begin();
+void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
   auto dim_it = dim_map_.find(pt);
-
-  auto check_and_pad_dim = [&](ParallelType pt_checked,
-                               ParallelType pt_padded) {
-    Val* bdim = dim_map_.at(pt_checked);
-    NVF_ERROR(
-        bdim->isConstScalar(),
-        "bdim must be a constant scalar for register sharing, bdim= ",
-        bdim->toInlineString());
-    int64_t bdim_val = bdim->value().as<int64_t>();
-    NVF_ERROR(
-        (128 % bdim_val == 0 || bdim_val % 128 == 0),
-        "For register sharing bdim_val must can evenly divide or divide by 128, bdim= ",
-        bdim_val);
-    if (dim_it == dim_map_.end()) {
-      NVF_ERROR(
-          bdim_val >= 128 && bdim_val % 128 == 0,
-          "Before warp specialization padding, there must be 128 * N threads, bdim= ",
-          bdim_val);
-    } else {
-      if (dim_it->second->isConstScalar()) {
-        int64_t threads_before_pad =
-            dim_it->second->value().as<int64_t>() * bdim_val;
-        NVF_ERROR(
-            threads_before_pad >= 128 && threads_before_pad % 128 == 0,
-            "Before warp specialization padding, there must be 128 * N threads, bdim= ",
-            threads_before_pad);
-      } else {
-        // we can't verify wheter the block size is multiple of 128. Defer check
-        // to executor.
-      }
-    }
-
-    int64_t pad_val = bdim_val > 128 ? 1 : 128 / bdim_val;
-    auto off_set = IrBuilder::create<Val>(pad_val, DataType::Index);
-    auto current_val = dim_it == dim_map_.end()
-        ? IrBuilder::create<Val>(1, DataType::Index)
-        : dim_it->second;
-    dim_map_[pt_padded] = IrBuilder::addExpr(current_val, off_set);
-    return pad_val;
-  };
-
-  auto pad128 = [&](ParallelType pt_pad) {
-    auto off_set = IrBuilder::create<Val>(128, DataType::Index);
-    NVF_ERROR(
-        dim_it != dim_map_.end(),
-        "Padding 128 threads to a non-existing dim leads to 129 threads, which is not a multiply of 128.");
-    if (dim_it->second->isConstScalar()) {
-      NVF_ERROR(
-          dim_it->second->value().as<int64_t>() % 128 == 0,
-          "Padding 128 threads to a dim that is not a multiply of 128 leads to a dim can't be divised by 128.");
-    }
-    dim_map_[pt_pad] = IrBuilder::addExpr(dim_it->second, off_set);
-    return 128;
-  };
-
-  // Warp specialization with register sharing on parallel type pt
-  switch (pt) {
-    // threadIdx = threadIdx.x + threadIdx.y * blockDim.x + threadIdx.z *
-    // blockDim.x * blockDim.y If on TIDx, we need to patch additional 128
-    // threads executor should ensure there are 128 * N threads before padding
-    case ParallelType::TIDx:
-      warp_specialization_padded_vals_[pt] = pad128(pt);
-      break;
-    case ParallelType::TIDy:
-      if (!dim_map_.contains(ParallelType::TIDx)) {
-        // If TIDx is not used, pad 128 threads to TIDy
-        warp_specialization_padded_vals_[pt] = pad128(pt);
-      } else {
-        // If TIDx is used, pad [128 / bdimx] or 1 (when bdimx > 128 &
-        // bdimx%128==0) threads to TIDy
-        warp_specialization_padded_vals_[pt] =
-            check_and_pad_dim(ParallelType::TIDx, pt);
-      }
-      break;
-    case ParallelType::TIDz:
-      if (!dim_map_.contains(ParallelType::TIDx)) {
-        if (!dim_map_.contains(ParallelType::TIDy)) {
-          // If TIDx & TIDy are not used, pad 128 threads to TIDz
-          warp_specialization_padded_vals_[pt] = pad128(pt);
-        } else {
-          // If TIDx is not used, TIDy is used, pad 128 / bdimx threads or 1 to
-          // TIDz
-          warp_specialization_padded_vals_[pt] =
-              check_and_pad_dim(ParallelType::TIDy, pt);
-        }
-      } else {
-        // If TIDx is used, TIDy is not used, pad 128 / bdimx threads or 1 to
-        // TIDz
-        if (!dim_map_.contains(ParallelType::TIDy)) {
-          warp_specialization_padded_vals_[pt] =
-              check_and_pad_dim(ParallelType::TIDx, pt);
-        } else {
-          // If TIDx & TIDy are used, pad 128/(bdimx*bdimy) threads or 1 to TIDz
-          Val* bdimx = dim_map_.at(ParallelType::TIDx);
-          Val* bdimy = dim_map_.at(ParallelType::TIDy);
-          NVF_ERROR(
-              bdimx->isConstScalar() && bdimy->isConstScalar(),
-              "bdimx and bdimy must be constant scalars for register sharing on bdimz, bdimx= ",
-              bdimx->toString(),
-              ", bdimy= ",
-              bdimy->toString());
-          int64_t bdim_xy_val =
-              bdimx->value().as<int64_t>() * bdimy->value().as<int64_t>();
-          NVF_ERROR(
-              (128 % bdim_xy_val == 0 || bdim_xy_val % 128 == 0),
-              "For register sharing on TIDz, TIDx*TIDy must can evenly divide or divide by 128, bdim_xy_val= ",
-              bdim_xy_val);
-          int64_t pad_val = bdim_xy_val > 128 ? 1 : 128 / bdim_xy_val;
-          auto off_set = IrBuilder::create<Val>(pad_val, DataType::Index);
-          dim_map_[pt] = dim_it == dim_map_.end()
-              ? off_set
-              : IrBuilder::addExpr(dim_it->second, off_set);
-          warp_specialization_padded_vals_[pt] = pad_val;
-        }
-      }
-      break;
-    default:
-      NVF_THROW("Unsupported parallel type for register sharing: ", pt);
-      break;
+  if (dim_it == dim_map_.end()) {
+    dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
+  } else {
+    // Intentionally not using SimplifyingIrBuilder::addExpr here so that
+    // we still have access to the pointer to the original IR node.
+    // We need the pointer to the original IR node because we want getRawCompute
+    // to be callable in an environment without FusionGuard, that is, when the
+    // IR container is read-only. In such an environment, we can't create new IR
+    // nodes for (x - 1). By using IrBuilder::addExpr, we can always create IR
+    // nodes like addExpr(x, 1), and SimplifyingIrBuilder::addExpr in
+    // getRawCompute will be able to simplify find the x when we do
+    // addExpr(addExpr(x, 1) - 1).
+    dim_map_[pt] =
+        IrBuilder::addExpr(dim_it->second, dim_it->second->fusion()->oneVal());
   }
   exact_types_.erase(pt);
+  warp_specialized_types_.insert(pt);
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
@@ -327,8 +195,7 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
 Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   Val* raw = getRaw(pt);
   if (warp_specialized_types_.count(pt)) {
-    auto padded_val = getWarpSpecializationPaddedVal(pt);
-    return SimplifyingIrBuilder::addExpr(raw, -padded_val);
+    return SimplifyingIrBuilder::addExpr(raw, -1);
   }
   return raw;
 }
@@ -343,20 +210,6 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
   return num_threads;
-}
-
-int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
-    ParallelType pt) const {
-  NVF_ERROR(
-      warp_specialized_types_.contains(pt), "Can't find ParallelType: ", pt);
-  if (!ws_with_register_sharing_.contains(pt)) {
-    return 1;
-  }
-  NVF_ERROR(
-      warp_specialization_padded_vals_.contains(pt),
-      "Can't find padded val for: ",
-      pt);
-  return warp_specialization_padded_vals_.at(pt);
 }
 
 std::string ParallelDimensionMap::toString() const {
