@@ -24,9 +24,16 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 128;
-  int64_t tensor_inner_dim = 128;
+  int64_t tensor_inner_dim = 1024;
+
+  // with bdimx = 256, bdimy = 1,
+  // after warp specialization, bdimy = 2,
+  // kernel has 256 * 2 = 512 threads, each can use 128 registers.
+  // With register sharing, adjust to [64, 192]
+  constexpr int64_t bulk_inner_dim = 256;
+
   CircularBufferType circular_buffer_type =
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(160L, 160L));
+      WarpSpecialized(ParallelType::TIDy, std::make_pair(64L, 192L));
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -44,9 +51,6 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
-
-  // Constants
-  constexpr int64_t bulk_inner_dim = 32;
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
@@ -70,7 +74,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
       number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Split reference to parallelize TMA tile
-  reference->split(-1, 32);
+  reference->split(-1, bulk_inner_dim);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -95,16 +99,21 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
 }
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 128;
-  int64_t tensor_inner_dim = 128;
+  int64_t tensor_inner_dim = 1024;
+  // with bdimx = 256, bdimy = 1,
+  // after warp specialization, bdimy = 2,
+  // kernel has 256 * 2 = 512 threads, each can use 128 registers.
+  // With register sharing, adjust to [64, 192]
+  constexpr int64_t bulk_inner_dim = 256;
   CircularBufferType circular_buffer_type =
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(160L, 160L));
+      WarpSpecialized(ParallelType::TIDy, std::make_pair(64L, 192L));
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -122,9 +131,6 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
-
-  // Constants
-  constexpr int64_t bulk_inner_dim = 32;
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
@@ -148,7 +154,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
       number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Split reference to parallelize TMA tile
-  reference->split(-1, 32);
+  reference->split(-1, bulk_inner_dim);
   // reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
