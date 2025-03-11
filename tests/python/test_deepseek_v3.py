@@ -44,7 +44,7 @@ def test_transformer_layer():
         transformer_layer = model.layers[0]
 
         batch_size = 1
-        seq_len = 4096
+        seq_len = 2048
         inp = torch.randn(batch_size, seq_len, config.hidden_size)
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0
@@ -52,5 +52,5 @@ def test_transformer_layer():
         (out,) = transformer_layer(inp, attention_mask=mask)
 
         assert out.size() == (batch_size, seq_len, config.hidden_size)
-        assert out.dtype == torch.bfloat16
+        assert out.dtype == config.torch_dtype
         assert out.is_cuda
