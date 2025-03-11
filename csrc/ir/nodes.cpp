@@ -218,10 +218,7 @@ IterDomain* IndexAccumulateOp::getConsumerOfIndexedID() const {
 std::vector<PolymorphicValue> IndexAccumulateOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
-  const auto& acc = inputs.at(0).as<at::Tensor>();
-  std::vector<at::Tensor> indices = {inputs.at(1).as<at::Tensor>()};
-  const auto& value = inputs.at(2).as<at::Tensor>();
-  return {at::index_put_(acc, indices, value, true)};
+  return {at::index_put(inputs.at(0).as<at::Tensor>(),                                                                                  {inputs.at(1).as<at::Tensor>()}, inputs.at(2).as<at::Tensor>(), true)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexAccumulateOp)
