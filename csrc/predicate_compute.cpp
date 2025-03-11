@@ -638,21 +638,10 @@ Val* createMultipleExpressionElectSync(
       ? pred->fusion()->trueVal()
       : createElectSyncPredicate();
   for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-    if (!pdim_map.has(pt)) {
-      continue;
-    }
-    if (load_warp_on != pt) {
+    if (pdim_map.has(pt) && load_warp_on != pt) {
       conditional = SimplifyingIrBuilder::logicalAndExpr(
           conditional,
           IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
-    } else {
-      Val* raw = GpuLower::current()->parallelDimensionMap().get(load_warp_on);
-      conditional = SimplifyingIrBuilder::logicalAndExpr(
-          conditional,
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(pt),
-              IrBuilder::subExpr(
-                  raw, IrBuilder::create<Val>(1, DataType::Index))));
     }
   }
   return conditional;

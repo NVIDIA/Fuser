@@ -132,7 +132,8 @@ int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm) {
   // clamp down to register allocation granularity at warp level
   int64_t effective_max_reg_per_warp = max_reg_per_warp /
       reg_allocation_granularity * reg_allocation_granularity;
-  return effective_max_reg_per_warp / warp_size;
+  constexpr int64_t max_reg_count = 255;
+  return std::min(max_reg_count, effective_max_reg_per_warp / warp_size);
 }
 
 int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
