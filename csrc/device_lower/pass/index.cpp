@@ -2240,7 +2240,6 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->out());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
-        // TODO: hard coded index zero for now.
         auto index = indexTMemLdSt(tv, tv, for_loops_);
         out = IrBuilder::create<kir::TensorIndex>(
             tv, index, DataType::TMemAddress);
