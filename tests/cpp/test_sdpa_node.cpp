@@ -46,7 +46,7 @@ using AtenSdpaOut = std::tuple<
     at::Tensor,
     at::Tensor,
     at::Tensor>;
-auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
+auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
                                  AtenSdpaOut aten_out) {
   auto
       [attn,
@@ -62,8 +62,8 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   // Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with
   // garbage values for this case, so we skip validating those values.
-  EXPECT_TRUE(at::allclose(nvf_out[0], attn));
-  EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
+  NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
+  NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
 };
 
 // Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
@@ -687,7 +687,7 @@ TEST_F(SDPATest, AttnProgram) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({q, k, v});
-  EXPECT_TRUE(at::allclose(out[0], expected_out));
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), expected_out));
 }
 
 TEST_F(SDPATest, AttnFwdBwd) {

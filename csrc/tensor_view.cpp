@@ -121,7 +121,8 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
       promote_reuse_(src->promote_reuse_),
-      mesh_(src->mesh_) {}
+      mesh_(src->mesh_),
+      tmem_dim_sep_pos_(src->tmem_dim_sep_pos_) {}
 
 void TensorView::printTransforms() const {
   IrTransformPrinter(std::cout).printTransforms(this);
@@ -526,7 +527,8 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
 TensorView* TensorView::resize(
     int64_t axis,
     Val* left_expansion,
-    Val* right_expansion) {
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
   NVF_ERROR(
       nDims() > 0,
       "Tried to do resize on a 0-dim TensorView. ",
@@ -559,7 +561,7 @@ TensorView* TensorView::resize(
       " Parallelization strategy must be set after calling resize: ",
       toString());
 
-  domain()->resize(axis, left_expansion, right_expansion);
+  domain()->resize(axis, left_expansion, right_expansion, iter_type);
   return this;
 }
 

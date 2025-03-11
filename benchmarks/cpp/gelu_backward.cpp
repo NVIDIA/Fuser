@@ -180,7 +180,7 @@ static void NvFuserScheduler_GeluBackward_RunFusion(
   KernelArgumentHolder args = setupInputs();
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);
@@ -238,7 +238,7 @@ static void NvFuserScheduler_GeluBackward_RunFusion_CpuOnly(
   KernelArgumentHolder args = setupInputs();
 
   // outputs
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   auto heuristic_params =
       SchedulerEntry::scheduleWith(&fusion, SchedulerType::PointWise, args);

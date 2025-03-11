@@ -20,6 +20,7 @@
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir.h>
+#include <multidevice/utils.h>
 #include <options.h>
 #include <polymorphic_value.h>
 #include <runtime/allocations.h>
@@ -79,9 +80,9 @@ bool ExprEvalExecutor::isCompiled() const {
   return fusion_ != nullptr;
 }
 
-std::vector<at::Tensor> ExprEvalExecutor::run(
+KernelArgumentHolder ExprEvalExecutor::run(
     KernelArgumentHolder& args,
-    std::vector<at::Tensor> outputs) {
+    KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::run");
 
   if (isProfilerEnabled()) {
@@ -108,7 +109,7 @@ std::vector<at::Tensor> ExprEvalExecutor::run(
         auto out_tensor =
             expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
         expr_eval.bind(out_val, out_tensor);
-        outputs.emplace_back(out_tensor);
+        outputs.push(out_tensor);
       }
     }
   }
@@ -282,6 +283,46 @@ void KernelExecutor::compile(
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).stopCompile();
   }
+
+  for (auto expr : exprs) {
+    if (ir_utils::isCpAsyncBulk(expr)) {
+      has_tma_ = true;
+    }
+    if (expr->isA<RNGOp>()) {
+      has_rng_ = true;
+    }
+  }
+
+  // If an output has an alias to an input and is marked Evaluate, then
+  // expression evaluator evaluate is called on that output to produce the meta
+  // data manipulation it requires. If that manipulation is something like a
+  // slice, and that slice has a symbolic integer it depends on, then this
+  // function returns true.
+  //
+  // This could happen for other examples and has_dynamic_alias_ will be true if
+  // to evaluate the output that has an alias, other values besides the aliased
+  // input need to be bound to the expression evaluator to evaluate the output.
+  for (auto output : fusion->outputs()) {
+    if (output->isA<TensorView>()) {
+      auto out_tv = output->as<TensorView>();
+      auto alias_info = fusion->getOutputAlias(out_tv);
+      if (alias_info.type != AllocationType::Evaluate) {
+        continue;
+      }
+      auto aliased_to = alias_info.aliased_io->as<TensorView>();
+      auto inputs = InputsOf::output(out_tv);
+      for (auto input : inputs) {
+        if (input->isA<TensorView>() && input->sameAs(aliased_to)) {
+          continue;
+        }
+
+        if (input->isConst()) {
+          continue;
+        }
+        has_dynamic_alias_ = true;
+      }
+    }
+  }
 }
 
 LaunchParams KernelExecutor::computeLaunchParams(
@@ -330,7 +371,6 @@ LaunchParams KernelExecutor::computeLaunchParams(
         parallel_iter_extents, launch_constraints);
     expr_eval.precomputedValues()->evaluate();
   }
-
   // If any dimension was set in launch constraints we need to run through
   // IterDomains that have been parallelized, and bind those values. Or make
   // sure if they could be inferred the inference matches what was set.
@@ -470,20 +510,15 @@ std::vector<GlobalBufferInfo> KernelExecutor::getIntermediateBufferInfo(
     info.zero_init = alloc->zeroInit();
     info.resets_to_zero = alloc->resetsToZero();
     // TODO: Allocation size needs to consider both expanded domains
-    // as well as halo. Currently, allocation of tensors with halo is
-    // only supported by inferShapeOfIntermediate, whereas expanded
-    // domains are only supported by inferShapeOfOutput. Until the
-    // halo support is revisited, use the former for all tensors
-    // unless expanded and the latter otherwise. This assumes there's
-    // no expanded domains with halo, which is fine for now.
-    const auto has_expanded_domains = std::any_of(
-        tv->getMaybeAllocationDomain().begin(),
-        tv->getMaybeAllocationDomain().end(),
-        [](IterDomain* id) { return id->hasExpandedExtent(); });
-    std::tie(info.sizes, info.strides) = has_expanded_domains
-        ? inferShapeOfOutput(tv, expr_eval)
-        : inferShapeOfIntermediate(tv, alloc, expr_eval);
-    auto dtype = (tv->dtype() == DataType::Index ? index_type : tv->dtype());
+    // as well as halo. Currently, halo support has bene removed so we only need
+    // to worry about the expand case which is handled in inferShapeofOutputs.
+    // There used to also be a inferShapeOfIntermediate function before this
+    // commit, but that was safely removed with halo support. This will need to
+    // be revisited when halo support is added again.
+    auto [sizes, strides] = inferShapeOfOutput(tv, expr_eval);
+    info.shape_info.logical_sizes = sizes;
+    info.shape_info.logical_strides = strides;
+    auto dtype = tv->dtype() == DataType::Index ? index_type : tv->dtype();
     info.type = data_type_to_aten(dtype);
 
     // Remember the tensor buffer used for storing kernel profile
@@ -556,7 +591,7 @@ void dumpFusionArgs(
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
-    const std::vector<at::Tensor>& outputs) {
+    const KernelArgumentHolder& outputs) {
   debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
   for (auto i : c10::irange(args.size())) {
@@ -564,8 +599,7 @@ void dumpFusionArgs(
   }
   debug() << "Outputs:" << std::endl;
   for (const auto& output : outputs) {
-    debug() << "  " << output.scalar_type() << " " << output.sizes()
-            << " (strides = " << output.strides() << ")" << std::endl;
+    debug() << PolymorphicValue_functions::toString(output) << std::endl;
   }
   debug() << launch_constraints.toString();
   debug() << "maxrregcount= " << compile_params.maxrregcount << std::endl;
@@ -581,8 +615,8 @@ void dumpKernelArgs(
     const int64_t group_id,
     const KernelArgumentHolder& args,
     size_t num_inputs,
-    const std::vector<at::Tensor>& allocated_outputs,
-    const std::vector<at::Tensor>& intermediates,
+    const KernelArgumentHolder& allocated_outputs,
+    const KernelArgumentHolder& intermediates,
     const std::vector<GlobalBufferInfo>& intermediates_info) {
   using namespace PolymorphicValue_functions;
   debug() << "Arguments for fusion " << fusion_id << " group " << group_id
@@ -594,16 +628,14 @@ void dumpKernelArgs(
   debug() << "Outputs:" << std::endl;
   // note: add aliased outputs here.
   for (const auto& output : allocated_outputs) {
-    debug() << "  " << output.scalar_type() << " " << output.sizes()
-            << " (strides = " << output.strides()
-            << ", address = " << output.data_ptr() << ")" << std::endl;
+    debug() << "  " << PolymorphicValue_functions::toString(output)
+            << std::endl;
   }
   debug() << "Intermediate global buffers:" << std::endl;
   for (const auto i : c10::irange(intermediates.size())) {
-    const auto& buffer = intermediates.at(i);
     const auto& zero_init = intermediates_info.at(i).zero_init;
     const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
-    debug() << "  " << buffer.scalar_type() << " " << buffer.sizes()
+    debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
             << " is_zero_initialized: " << zero_init
             << " resets_to_zero: " << resets_to_zero << std::endl;
   }
@@ -612,17 +644,16 @@ void dumpKernelArgs(
 } // namespace
 
 void KernelExecutor::initializeExecutorEntry(
-    ExecutorEntry& executor_entry,
+    KernelExecutorEntry& executor_entry,
     const KernelArgumentHolder& args,
     const LaunchParams& launch_constraints,
     const CompileParams& compile_params,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     DataType index_type) {
   FUSER_PERF_SCOPE("KernelExecutor::initializeExecutorEntry");
 
-  ExpressionEvaluator expr_eval;
-  evaluatorPrecomputedValues()->bindInputs(args);
-  expr_eval.precomputedValues() = evaluatorPrecomputedValues().get();
+  ExpressionEvaluator expr_eval =
+      executor_utils::bindInputs(args, compiled_kernel_->kernel());
 
   auto launch_params = computeLaunchParams(
       launch_constraints, expr_eval, warp_size_, index_type);
@@ -634,7 +665,7 @@ void KernelExecutor::initializeExecutorEntry(
   executor_utils::validateVectorizedTensors(
       compiled_kernel_->kernel(),
       args,
-      outputs,
+      output_args,
       compileTimeDataCache(),
       expr_eval);
 
@@ -654,161 +685,168 @@ void KernelExecutor::initializeExecutorEntry(
       "Expected blockDim.x >= 32 but found ",
       launch_params.bdimx());
 
+  std::vector<GlobalBufferInfo> input_info;
+  NVF_ERROR(
+      compiled_kernel_->kernel()->inputs().size() == args.size(),
+      "Input size mismatch, expected: ",
+      compiled_kernel_->kernel()->inputs().size(),
+      " got: ",
+      args.size());
+  for (auto inp_idx :
+       c10::irange(compiled_kernel_->kernel()->inputs().size())) {
+    auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
+    if (auto input_tv = dynamic_cast<TensorView*>(input)) {
+      auto at_tensor = args[inp_idx].as<at::Tensor>();
+
+      std::vector<int64_t> alloc_sizes;
+      std::vector<int64_t> alloc_strides;
+      if (input_tv->hasAllocation()) {
+        std::tie(alloc_sizes, alloc_strides) =
+            inferAndValidateAllocationSizesAndStrides(
+                at_tensor, input_tv, expr_eval);
+      }
+
+      TensorShapeInfo shape_info;
+      shape_info.logical_sizes = args[inp_idx].as<at::Tensor>().sizes().vec();
+      shape_info.logical_strides =
+          args[inp_idx].as<at::Tensor>().strides().vec();
+      if (isSharded(input_tv)) {
+        shape_info.unsharded_logical_sizes =
+            unshardedSizes(input_tv, shape_info.logical_sizes);
+      }
+      shape_info.allocation_sizes = alloc_sizes;
+      shape_info.allocation_strides = alloc_strides;
+      GlobalBufferInfo info{
+          input_tv,
+          shape_info,
+          data_type_to_aten(input_tv->dtype()),
+          false,
+          false,
+          false};
+      input_info.emplace_back(info);
+    }
+  }
+
   std::vector<GlobalBufferInfo> output_info;
 
-  if (outputs.empty()) {
+  if (output_args.empty()) {
     output_info = getBufferInfos(
         expr_eval, index_type, compiled_kernel_->kernel()->outputs());
   } else {
     // Need to save the information necessary for allocations as
-    // future uses of this ExecutorEntry may not be provided with
+    // future uses of this KernelExecutorEntry may not be provided with
     // allocated outputs
-    for (const auto& output : outputs) {
-      output_info.emplace_back(GlobalBufferInfo{
-          .sizes = output.sizes().vec(),
-          .strides = output.strides().vec(),
-          .type = output.scalar_type()});
+    for (auto output_idx : c10::irange(output_args.size())) {
+      NVF_ERROR(
+          output_args[output_idx].hasValue() &&
+              output_args[output_idx].is<at::Tensor>(),
+          "Output is not populated or not a Tensor");
+      const auto& output_tensor = output_args[output_idx].as<at::Tensor>();
+      GlobalBufferInfo info;
+      info.type = output_tensor.scalar_type();
+      auto out_val = compiled_kernel_->kernel()->outputs()[output_idx];
+      NVF_ERROR(out_val->isA<TensorView>(), "Output is not a TensorView");
+      info.tv = out_val->as<TensorView>();
+      NVF_ERROR(
+          !info.tv->hasAllocation(),
+          "Accepting allocated outputs is not currently supported with allocation domain. ",
+          "Allocation domain found for tv: ",
+          info.tv->toString());
+      info.shape_info.logical_sizes = output_tensor.sizes().vec();
+      info.shape_info.logical_strides = output_tensor.strides().vec();
+      output_info.emplace_back(info);
     }
   }
 
   auto intermediates = getIntermediateBufferInfo(expr_eval, index_type);
 
-  // All information is gathered. Save it to ExecutorEntry
+  // All information is gathered. Save it to KernelExecutorEntry
   executor_entry.launch_params = launch_params;
   executor_entry.outputs = output_info;
+  executor_entry.output_aliased_to_input =
+      executor_utils::getOutputAliasToInputMap(compiled_kernel_->kernel());
   executor_entry.intermediates = intermediates;
+  executor_entry.inputs = input_info;
   executor_entry.init = true;
 }
 
-/// Copies the data, logical_size, and alloc_stride parameters to the
-/// appropriate parts of entry.args[idx].
-///
-/// For GPU tensors, we pass a Tensor<type, rank, rank> struct (see
-/// runtime/tensor.cu), where the rank describes the number of elements in the
-/// shape and stride arrays. The actual shapes and strides are dynamic, but the
-/// type and rank of the tensors are actually static (changing them would need
-/// a new FusionDefinition). So we create the storage area for the
-/// Tensor<t,r,r> during ::computeArgs, and then in this function we just
-/// update that memory with the current values for the tensor's base address,
-/// shape, and strides.
-///
-/// @param entry the entry we have previously setup for this fusion
-/// @param idx the index into entry.args and related parallel arrays in the
-///            entry.
-/// @param idx_type_size generally sizeof(int32_t) or sizeof(int64_t); used for
-///                      computing how large the arrays to copy are.
-static void fillTensorArgMetadata(
-    KernelExecutor::ExecutorEntry& entry,
-    const PolymorphicValue& tensor_metadata,
-    size_t idx,
-    size_t idx_type_size) {
-  void* data = tensor_metadata->*&TensorMetaData::data;
-  // g++ has trouble inferring the types of more complicated fields through our
-  // *& operators. Creating an `auto` alias as a temporary resolves this
-  // problem.
-#define TMD_ARRAY_REF(pv, field)                  \
-  ({                                              \
-    const auto& fld_tmp_ = pv->*&field;           \
-    const c10::IntArrayRef& fld_aref_ = fld_tmp_; \
-    fld_aref_;                                    \
-  })
-  const c10::IntArrayRef& shape =
-      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::logical_size);
-  const c10::IntArrayRef& strides =
-      TMD_ARRAY_REF(tensor_metadata, TensorMetaData::alloc_stride);
-#undef TMD_ARRAY_REF
-
-  // These are the three offsets we need to copy into.
-  std::array<std::byte*, 3> offsets = {
-      entry.args[idx].data(), // data ptr
-      entry.args[idx].data() + sizeof(void*), // shape array
-      // strides array:
-      entry.args[idx].data() + sizeof(void*) + shape.size() * idx_type_size,
-  };
-
-  memcpy(offsets[0], &data, sizeof(void*));
-  switch (idx_type_size) {
-    case sizeof(int64_t): {
-      // we use i64's for our sizes, so can use a simple copy here
-      memcpy(offsets[1], shape.data(), shape.size() * sizeof(int64_t));
-      memcpy(offsets[2], strides.data(), strides.size() * sizeof(int64_t));
-    } break;
-    case sizeof(int32_t): {
-      // we need to cast per-element, so need a loop.
-      // This case happens when the kernel uses 32bit indices. Since we
-      // (specifically TensorMetaData) store indices in 64bit, we can't
-      // directly copy our buffer into the args buffer. We thus have to
-      // manually downcast each element to fit in the smaller buffer.
-      for (size_t i = 0; i < shape.size(); ++i) {
-        const int32_t shp = static_cast<int32_t>(shape[i]);
-        memcpy(offsets[1] + i * sizeof(int32_t), &shp, sizeof(int32_t));
-      }
-      // In rare cases we have fewer strides than shapes
-      for (size_t i = 0; i < strides.size(); ++i) {
-        const int32_t strd = static_cast<int32_t>(strides[i]);
-        memcpy(offsets[2] + i * sizeof(int32_t), &strd, sizeof(int32_t));
-      }
-    } break;
-    default:
-      NVF_CHECK(0, "Unhandled index type size");
-      break;
+namespace {
+GlobalBufferInfo& linear_buffer_info_getter(
+    KernelExecutorEntry& entry,
+    size_t idx) {
+  if (idx < entry.inputs.size()) {
+    return entry.inputs[idx];
+  } else if (idx < entry.inputs.size() + entry.outputs.size()) {
+    return entry.outputs[idx - entry.inputs.size()];
+  } else if (
+      idx <
+      entry.inputs.size() + entry.outputs.size() + entry.intermediates.size()) {
+    return entry
+        .intermediates[idx - entry.inputs.size() - entry.outputs.size()];
+  } else {
+    NVF_CHECK(
+        0,
+        "Invalid buffer index: ",
+        idx,
+        " input size: ",
+        entry.inputs.size(),
+        " output size: ",
+        entry.outputs.size(),
+        " intermediate size: ",
+        entry.intermediates.size());
   }
-}
+};
+} // namespace
 
-// set the arguments that we'll pass to cuLaunchKernel. This should happen
-// when we change the rank of a tensor or the number of arguments to a kernel.
-// It does not need to happen when only shapes change---use recomputeArgs for
-// that.
 void KernelExecutor::computeArgs(
-    ExecutorEntry& entry,
-    ExpressionEvaluator& expr_eval,
-    const kir::Kernel* kernel) const {
+    KernelExecutorEntry& entry,
+    const KernelArgumentHolder& args) const {
   FUSER_PERF_SCOPE("KernelExecutor::computeArgs");
-
-  const std::vector<Val*>& params = kernel->parameters();
-  entry.args.resize(params.size());
-  entry.arg_ptrs.resize(params.size());
-  const PrimDataType idx_type = kernel->indexType();
-  for (size_t p = 0; p < params.size(); ++p) {
-    entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
-    entry.arg_ptrs[p] = entry.args[p].data();
+  if (entry.args.size() != args.size()) {
+    entry.args.resize(args.size());
+    entry.arg_ptrs.resize(args.size());
   }
-}
 
-// Reset the arguments that we'll pass to cuLaunchKernel. This needs to be
-// invoked on every shape change.
-void KernelExecutor::recomputeArgs(
-    ExecutorEntry& entry,
-    ExpressionEvaluator& expr_eval,
-    const kir::Kernel* kernel) const {
-  FUSER_PERF_SCOPE("KernelExecutor::recomputeArgs");
-  // assert(entry.init && "entry was never initialized");
+  NVF_ERROR(
+      args.size() == compiled_kernel_->kernel()->parameters().size(),
+      "Argument size mismatch, expected: ",
+      compiled_kernel_->kernel()->parameters().size(),
+      " got: ",
+      args.size());
 
-  const std::vector<Val*>& params = kernel->parameters();
-  const PrimDataType idx_type = kernel->indexType();
-  // assert(entry.args.size() == params.size());
-  // assert(entry.arg_ptrs.size() == params.size());
-  // assert(params.size() >= args.size());
-  for (size_t p = 0; p < params.size(); ++p) {
-    PolymorphicValue pv = expr_eval.evaluate(params[p]);
-    if (pv.is<at::Tensor>() && pv.as<at::Tensor>().is_cuda()) {
-      // GPU tensors are not passed directly: instead we pass a Tensor<type,
-      // rank, rank> struct. The pointer and dimensions are dynamic, but the
-      // types and ranks are actually static (changing the rank or the types
-      // would need to be done via a new FusionDefinition). As such, we created
-      // the Tensor<t, r, r> struct during ::computeArgs, and here we just fill
-      // in the base address, shape, and stride arrays to cover whatever new
-      // tensors we got this round.
-      TensorView* mtv = dynamic_cast<TensorView*>(params[p]);
-      const Val* mdexpr = IrBuilder::metadataExpr(mtv);
-      const PolymorphicValue& tmd = expr_eval.evaluate(mdexpr);
-      const size_t idx_type_size =
-          PrimDataType::Int == idx_type ? sizeof(int64_t) : sizeof(int32_t);
-      fillTensorArgMetadata(entry, tmd, p, idx_type_size);
-    } else {
-      entry.args[p] = getKernelArgument(expr_eval, params[p], idx_type);
+  for (auto inp : compiled_kernel_->kernel()->inputs()) {
+    if (!inp->isA<TensorView>()) {
+      continue;
     }
-    entry.arg_ptrs[p] = entry.args[p].data();
+  }
+
+  const PrimDataType idx_type = compiled_kernel_->kernel()->indexType();
+  int64_t buffer_info_idx = 0;
+  for (size_t arg_idx = 0; arg_idx < args.size(); ++arg_idx) {
+    if (args[arg_idx].is<at::Tensor>() &&
+        args[arg_idx].as<at::Tensor>().is_cuda()) {
+      const auto& buffer_info =
+          linear_buffer_info_getter(entry, buffer_info_idx++);
+      entry.args[arg_idx] = tensorToBytes(
+          args[arg_idx],
+          buffer_info.shape_info.logical_sizes,
+          buffer_info.shape_info.allocation_strides.empty()
+              ? buffer_info.shape_info.logical_strides
+              : buffer_info.shape_info.allocation_strides,
+          idx_type,
+          buffer_info.shape_info.unsharded_logical_sizes);
+      entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
+    } else {
+      if (args[arg_idx].is<at::Tensor>()) {
+        buffer_info_idx++;
+      }
+      auto bytes = polymorphicValueToBytes(
+          args[arg_idx],
+          compiled_kernel_->kernel()->parameters()[arg_idx]->dtype(),
+          idx_type);
+      entry.args[arg_idx] = bytes;
+      entry.arg_ptrs[arg_idx] = entry.args[arg_idx].data();
+    }
   }
 }
 
@@ -887,9 +925,65 @@ void KernelExecutor::resetCompiledKernelProperties() {
   static_smem_size_.reset();
 }
 
-std::vector<at::Tensor> KernelExecutor::run(
+namespace {
+KernelArgumentHolder resolveRNGSeed(
+    const kir::Kernel* kernel,
+    KernelArgumentHolder& args) {
+  ExpressionEvaluator expr_eval;
+  KernelArgumentHolder resolved_args;
+  resolved_args.reserve(args.size());
+  int64_t arg_idx = 0;
+  for (auto param : kernel->parameters()) {
+    if (param->definition() &&
+        param->definition()->isA<kir::GetRNGSeedAndOffsetFromHost>()) {
+      resolved_args.push(expr_eval.evaluate(param));
+    } else {
+      resolved_args.push(args[arg_idx++]);
+    }
+  }
+  return resolved_args;
+}
+} // namespace
+
+// TODO: Reduce bindings to only those necessary to resolve missing params.
+// TODO: Check if this could be reused to also resolve dynamic aliases.
+KernelArgumentHolder KernelExecutor::resolveTMA(
+    KernelExecutorEntry& entry,
+    const KernelArgumentHolder& args) const {
+  ExpressionEvaluator expr_eval;
+  int64_t arg_idx = 0;
+  NVF_ERROR(
+      entry.inputs.size() == compiled_kernel_->kernel()->inputs().size(),
+      "Input size mismatch");
+  for (auto inp_idx : c10::irange(entry.inputs.size())) {
+    expr_eval.bind(
+        compiled_kernel_->kernel()->inputs()[inp_idx], args[arg_idx++]);
+  }
+
+  NVF_ERROR(
+      entry.outputs.size() == compiled_kernel_->kernel()->outputs().size(),
+      "Output size mismatch");
+  for (auto out_idx : c10::irange(entry.outputs.size())) {
+    expr_eval.bind(
+        compiled_kernel_->kernel()->outputs()[out_idx], args[arg_idx++]);
+  }
+
+  for (const auto& intermediate_entry : entry.intermediates) {
+    if (args[arg_idx].hasValue()) {
+      expr_eval.bind(intermediate_entry.tv, args[arg_idx++]);
+    }
+  }
+
+  KernelArgumentHolder resolved_args;
+  for (auto param : compiled_kernel_->kernel()->parameters()) {
+    resolved_args.push(expr_eval.evaluate(param));
+  }
+  return resolved_args;
+}
+
+KernelArgumentHolder KernelExecutor::run(
     KernelArgumentHolder args,
-    std::vector<at::Tensor> outputs,
+    KernelArgumentHolder output_args,
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
   FUSER_PERF_SCOPE("KernelExecutor::runFusion");
@@ -908,13 +1002,13 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   NVF_ERROR(isCompiled());
   NVF_ERROR(
-      outputs.empty() ||
-          (outputs.size() == compiledKernel()->kernel()->outputs().size()),
+      output_args.empty() ||
+          (output_args.size() == compiledKernel()->kernel()->outputs().size()),
       __func__,
       " provided number of outputs does not match fusion output");
 
   NVF_ERROR(
-      !args.getCacheId().has_value() || outputs.empty(),
+      !args.getCacheId().has_value() || output_args.empty(),
       "short cut input cache is not compatible with pre-allocated output");
 
   validateIndexType(compiled_kernel_->kernel(), compile_params);
@@ -923,7 +1017,7 @@ std::vector<at::Tensor> KernelExecutor::run(
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionArgs)) {
     dumpFusionArgs(
-        fusion_id_, args, launch_constraints, compile_params, outputs);
+        fusion_id_, args, launch_constraints, compile_params, output_args);
   }
 
   c10::DeviceGuard dg(compiled_kernel_->device());
@@ -932,9 +1026,9 @@ std::vector<at::Tensor> KernelExecutor::run(
   NVF_ERROR(compiled_kernel_->lowered());
 
   // Placeholder for the case where parameter cache is not used
-  ExecutorEntry temporary_executor_entry;
+  KernelExecutorEntry temporary_executor_entry;
 
-  ExecutorEntry* executor_entry = args.getCacheId().has_value() &&
+  KernelExecutorEntry* executor_entry = args.getCacheId().has_value() &&
           !compiled_kernel_->disablePaarameterCache()
       ? &executor_entry_lookup_[*args.getCacheId()]
       : &temporary_executor_entry;
@@ -946,7 +1040,7 @@ std::vector<at::Tensor> KernelExecutor::run(
         args,
         launch_constraints,
         compile_params,
-        outputs,
+        output_args,
         compiled_kernel_->kernel()->indexType());
   }
 
@@ -964,48 +1058,72 @@ std::vector<at::Tensor> KernelExecutor::run(
   // context manager to disable auto grad for `empty_cuda` calls later
   at::AutoDispatchBelowADInplaceOrView non_variable_type_mode;
 
-  // Bind fusion inputs
-  auto expr_eval = executor_utils::bindInputs(args, compiled_kernel_->kernel());
-
   // only allocate outputs when not given
-  if (outputs.empty()) {
-    outputs = allocateOutputs(
-        compiled_kernel_->kernel()->as<Fusion>(),
+  if (output_args.empty()) {
+    output_args = allocateOutputs(
+        compiled_kernel_->kernel(),
         executor_entry->outputs,
+        executor_entry->output_aliased_to_input,
         compiled_kernel_->device(),
-        expr_eval);
-  }
-  args.push(outputs);
+        args,
+        has_dynamic_alias_);
+    if (has_dynamic_alias_) {
+      ExpressionEvaluator expr_eval;
+      if (has_dynamic_alias_ || has_tma_) {
+        expr_eval =
+            executor_utils::bindInputs(args, compiled_kernel_->kernel());
+      }
 
-  for (const auto i : c10::irange(outputs.size())) {
-    auto output = compiled_kernel_->kernel()->outputs()[i];
-    if (std::any_of(
-            compiled_kernel_->kernel()->inputs().begin(),
-            compiled_kernel_->kernel()->inputs().end(),
-            [&](const auto& in) { return in == output; })) {
-      // Skip trivially forwarded outputs because they are just placeholders
-      continue;
+      for (const auto i :
+           c10::irange(compiled_kernel_->kernel()->outputs().size())) {
+        auto param = compiled_kernel_->kernel()->outputs()[i];
+        if (!param->isA<TensorView>()) {
+          continue;
+        }
+        if (compiled_kernel_->kernel()
+                ->getOutputAlias(param->as<TensorView>())
+                .type == AllocationType::Evaluate) {
+          output_args[i] = expr_eval.evaluate(param);
+        }
+      }
     }
-    expr_eval.bind(
-        output, args[compiled_kernel_->kernel()->inputs().size() + i]);
+    NVF_ERROR(
+        std::all_of(
+            output_args.begin(),
+            output_args.end(),
+            [](const PolymorphicValue& arg) {
+              return arg.hasValue() && arg.is<at::Tensor>();
+            }),
+        "Output is not populated or not a Tensor");
   }
 
-  std::vector<at::Tensor> intermediates;
+  args.push(output_args);
+
+  KernelArgumentHolder intermediate_args;
   at::Tensor profile_buffer;
   {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::intermediates");
-    for (const auto i : c10::irange(executor_entry->intermediates.size())) {
-      const auto& buf_info = executor_entry->intermediates.at(i);
+    // Intermediates just use logical sizes and strides even though they're
+    // really allocation sizes and strides.
+    //
+    // This is simply because the convention used is that allocation
+    // sizes/strides are optional, logical are not.
+    for (const auto intermediate_i :
+         c10::irange(executor_entry->intermediates.size())) {
+      const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
       bool has_expansion = false;
       std::vector<int64_t> unexpanded_sizes;
-      unexpanded_sizes.reserve(buf_info.sizes.size());
-      NVF_ERROR(buf_info.sizes.size() == buf_info.strides.size())
-      for (const auto j : c10::irange(buf_info.sizes.size())) {
-        if (buf_info.strides[j] == 0) {
+      unexpanded_sizes.reserve(buf_info.shape_info.logical_sizes.size());
+      NVF_ERROR(
+          buf_info.shape_info.logical_sizes.size() ==
+          buf_info.shape_info.logical_strides.size())
+      for (const auto j :
+           c10::irange(buf_info.shape_info.logical_sizes.size())) {
+        if (buf_info.shape_info.logical_strides[j] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
         } else {
-          unexpanded_sizes.push_back(buf_info.sizes[j]);
+          unexpanded_sizes.push_back(buf_info.shape_info.logical_sizes[j]);
         }
       }
       at::Tensor intermediate_buffer;
@@ -1036,28 +1154,39 @@ std::vector<at::Tensor> KernelExecutor::run(
         }
       }
       if (has_expansion) {
-        intermediate_buffer =
-            at::native::expand(intermediate_buffer, buf_info.sizes);
+        intermediate_buffer = at::native::expand(
+            intermediate_buffer, buf_info.shape_info.logical_sizes);
       }
       args.push(intermediate_buffer);
-      intermediates.push_back(intermediate_buffer);
-      expr_eval.bind(
-          compiled_kernel_->kernel()
-              ->summary()
-              .global_allocations.at(i)
-              ->buffer(),
-          args
-              [compiled_kernel_->kernel()->inputs().size() + outputs.size() +
-               i]);
+      intermediate_args.push(intermediate_buffer);
       if (buf_info.is_profile_buffer) {
         profile_buffer = intermediate_buffer;
       }
     }
   }
 
-  if (executor_entry->args.empty()) {
-    computeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
+  if (args.size() != compiled_kernel_->kernel()->parameters().size()) {
+    NVF_ERROR(
+        has_tma_ || has_rng_,
+        "No TMA or RNG found in the kernel, but detected an argument size mismatch.");
+    // If args don't match one of two things is happening. We need to add TMA
+    // related args or RNG related args. Resolve these scenarios.
+    if (has_tma_) {
+      // Resolving TMA requires binding all values and evaluating the TMA
+      // arguments
+      //
+      // Resolving TMA also resolves RNG, so if TMA exists the resolveRNGSeed
+      // function shouldn't also be called.
+      args = resolveTMA(*executor_entry, args);
+    } else if (has_rng_) {
+      // Resolving RNG seed requires evaluating and adding those values, but
+      // doesn't require binding all values as getting RNG seed and offset
+      // doesn't depend on other values
+      args = resolveRNGSeed(compiled_kernel_->kernel(), args);
+    }
   }
+
+  computeArgs(*executor_entry, args);
 
   if (isDebugDumpEnabled(DebugDumpOption::LaunchParam)) {
     launch_params_.print();
@@ -1069,8 +1198,8 @@ std::vector<at::Tensor> KernelExecutor::run(
         group_id_,
         args,
         num_inputs,
-        outputs,
-        intermediates,
+        output_args,
+        intermediate_args,
         executor_entry->intermediates);
   }
 
@@ -1082,8 +1211,6 @@ std::vector<at::Tensor> KernelExecutor::run(
   if (execute_kernel_ && !compiled_kernel_->kernel()->topLevelExprs().empty()) {
     FUSER_PERF_SCOPE("KernelExecutor::runFusion::execute_kernel");
     ensureAvailableDynamicSmemSize(executor_entry->launch_params.smem());
-
-    recomputeArgs(*executor_entry, expr_eval, compiled_kernel_->kernel());
 
     if (isDebugDumpEnabled(DebugDumpOption::Occupancy) ||
         isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
@@ -1153,16 +1280,16 @@ std::vector<at::Tensor> KernelExecutor::run(
   if (isProfilerEnabled()) {
     auto& sprof = FusionProfiler::segment(group_id_);
     sprof.stopKernel();
-    sprof.outputBytesAccessed(computeBytes(outputs));
+    sprof.outputBytesAccessed(computeBytes(output_args));
   }
 
-  return outputs;
+  return output_args;
 }
 
 flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder) const {
   // See table definition for KernelExecutor in serde/fusion_cache.fbs
-  using fb_executor_entry = flatbuffers::Offset<serde::ExecutorEntry>;
+  using fb_executor_entry = flatbuffers::Offset<serde::KernelExecutorEntry>;
 
   // Separate unordered_map for executor_entry_lookup into key and value
   // vectors. The key value is the cache_id value in the KernelArgumentHolder.
@@ -1194,7 +1321,10 @@ flatbuffers::Offset<serde::KernelExecutor> KernelExecutor::serialize(
       &executor_entry_lookup_keys_fb,
       &executor_entry_lookup_values_fb,
       toUnderlying(compiledKernel()->kernel()->indexType()),
-      serialize(builder, compiledKernel()->cudaExecutable().get()));
+      serialize(builder, compiledKernel()->cudaExecutable().get()),
+      has_rng_,
+      has_tma_,
+      has_dynamic_alias_);
 }
 
 flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
@@ -1243,10 +1373,10 @@ flatbuffers::Offset<serde::CudaKernel> KernelExecutor::serialize(
   return ckb.Finish();
 }
 
-flatbuffers::Offset<serde::ExecutorEntry> KernelExecutor::serialize(
+flatbuffers::Offset<serde::KernelExecutorEntry> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const ExecutorEntry& data) const {
-  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+    const KernelExecutorEntry& data) const {
+  // See table definition for KernelExecutorEntry in serde/fusion_cache.fbs
 
   // Serialize GlobalBufferInfo for outputs.
   // We map the output TensorView pointer to its corresponding position in
@@ -1263,8 +1393,14 @@ flatbuffers::Offset<serde::ExecutorEntry> KernelExecutor::serialize(
         ? -1
         : std::distance(
               compiledKernel()->kernel()->outputs().cbegin(), tv_iter);
-    outputs_fb.push_back(
-        serialize(builder, buffer, tv_position, true /* is_fusion_output */));
+    NVF_ERROR(
+        tv_position != -1, "Output TensorView not found in kernel outputs");
+    outputs_fb.push_back(serialize(
+        builder,
+        buffer,
+        tv_position,
+        true /* is_fusion_output */,
+        false /* is_fusion_input */));
   }
 
   // Serialize GlobalBufferInfo for intermediates.
@@ -1288,34 +1424,66 @@ flatbuffers::Offset<serde::ExecutorEntry> KernelExecutor::serialize(
         : std::distance(
               compiledKernel()->kernel()->summary().global_allocations.cbegin(),
               tv_iter);
-    intermediates_fb.push_back(
-        serialize(builder, buffer, tv_position, false /* is_fusion_output */));
+    NVF_ERROR(
+        tv_position != -1,
+        "Intermediate TensorView not found in kernel global allocations");
+    intermediates_fb.push_back(serialize(
+        builder,
+        buffer,
+        tv_position,
+        false /* is_fusion_output */,
+        false /* is_fusion_input */));
   }
 
-  return serde::CreateExecutorEntryDirect(
+  std::vector<fb_global_buffer_info> inputs_fb;
+  inputs_fb.reserve(data.inputs.size());
+  for (const auto& buffer : data.inputs) {
+    auto tv_iter = std::find(
+        compiledKernel()->kernel()->inputs().cbegin(),
+        compiledKernel()->kernel()->inputs().cend(),
+        buffer.tv);
+    auto tv_position = (tv_iter == compiledKernel()->kernel()->inputs().cend())
+        ? -1
+        : std::distance(compiledKernel()->kernel()->inputs().cbegin(), tv_iter);
+    NVF_ERROR(tv_position != -1, "Input TensorView not found in kernel inputs");
+    inputs_fb.push_back(serialize(
+        builder,
+        buffer,
+        tv_position,
+        false /* is_fusion_output */,
+        true /* is_fusion_input */));
+  }
+  return serde::CreateKernelExecutorEntryDirect(
       builder,
       data.init,
       data.launch_params.serialize(builder),
       &outputs_fb,
-      &intermediates_fb);
+      &intermediates_fb,
+      &inputs_fb,
+      &data.output_aliased_to_input);
 }
 
 flatbuffers::Offset<serde::GlobalBufferInfo> KernelExecutor::serialize(
     flatbuffers::FlatBufferBuilder& builder,
     const GlobalBufferInfo& data,
     int64_t tv_position,
-    bool is_fusion_output) const {
+    bool is_fusion_output,
+    bool is_fusion_input) const {
   // See table definition for GlobalBufferInfo in serde/fusion_cache.fbs
   return serde::CreateGlobalBufferInfoDirect(
       builder,
       tv_position,
-      &data.sizes,
-      &data.strides,
+      &data.shape_info.logical_sizes,
+      &data.shape_info.logical_strides,
+      &data.shape_info.unsharded_logical_sizes,
+      &data.shape_info.allocation_sizes,
+      &data.shape_info.allocation_strides,
       nvfuser::toUnderlying(data.type),
       data.zero_init,
       data.resets_to_zero,
       data.is_profile_buffer,
-      is_fusion_output);
+      is_fusion_output,
+      is_fusion_input);
 }
 
 void KernelExecutor::deserialize(
@@ -1329,7 +1497,6 @@ void KernelExecutor::deserialize(
     int64_t runtime_id,
     int64_t group_id) {
   // See table definition for KernelExecutor in serde/fusion_cache.fbs
-
   NVF_ERROR(buffer != nullptr, "serde::KernelExecutor is nullptr.");
   NVF_ERROR(_fusion != nullptr, "Fusion is nullptr.");
 
@@ -1380,15 +1547,19 @@ void KernelExecutor::deserialize(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));
   }
+
+  has_rng_ = buffer->has_rng();
+  has_tma_ = buffer->has_tma();
+  has_dynamic_alias_ = buffer->has_dynamic_alias();
 }
 
-KernelExecutor::ExecutorEntry KernelExecutor::deserialize(
-    const serde::ExecutorEntry* buffer) {
-  // See table definition for ExecutorEntry in serde/fusion_cache.fbs
+KernelExecutorEntry KernelExecutor::deserialize(
+    const serde::KernelExecutorEntry* buffer) {
+  // See table definition for KernelExecutorEntry in serde/fusion_cache.fbs
 
-  NVF_ERROR(buffer != nullptr, "serde::ExecutorEntry is nullptr.");
+  NVF_ERROR(buffer != nullptr, "serde::KernelExecutorEntry is nullptr.");
 
-  ExecutorEntry entry;
+  KernelExecutorEntry entry;
 
   entry.init = buffer->init();
 
@@ -1402,6 +1573,14 @@ KernelExecutor::ExecutorEntry KernelExecutor::deserialize(
     entry.intermediates.push_back(deserialize(intermediate_buffer));
   }
 
+  for (auto input_buffer : *buffer->inputs()) {
+    entry.inputs.push_back(deserialize(input_buffer));
+  }
+
+  for (auto output_aliased_to_input : *buffer->output_aliased_to_input()) {
+    entry.output_aliased_to_input.push_back(output_aliased_to_input);
+  }
+
   return entry;
 }
 
@@ -1412,7 +1591,8 @@ GlobalBufferInfo KernelExecutor::deserialize(
   NVF_ERROR(buffer != nullptr, "serde::GlobalBufferInfo is nullptr.");
 
   NVF_ERROR(
-      buffer->tv() != -1, "Serialization failed to encode buffer tv position.");
+      buffer->tv_pos() != -1,
+      "Serialization failed to encode buffer tv position.");
 
   NVF_ERROR(
       compiled_kernel_->lowered() != nullptr,
@@ -1420,23 +1600,43 @@ GlobalBufferInfo KernelExecutor::deserialize(
 
   GlobalBufferInfo info;
   if (buffer->is_fusion_output()) {
-    auto out_val = compiled_kernel_->kernel()->outputs().at(buffer->tv());
+    auto out_val = compiled_kernel_->kernel()->outputs().at(buffer->tv_pos());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val);
+  } else if (buffer->is_fusion_input()) {
+    auto in_val = compiled_kernel_->kernel()->inputs().at(buffer->tv_pos());
+    NVF_ERROR(in_val != nullptr);
+    info.tv = dynamic_cast<TensorView*>(in_val);
   } else {
     auto out_val = compiled_kernel_->kernel()->summary().global_allocations.at(
-        buffer->tv());
+        buffer->tv_pos());
     NVF_ERROR(out_val != nullptr);
     info.tv = dynamic_cast<TensorView*>(out_val->buffer());
   }
 
-  for (auto dim_size : *buffer->sizes()) {
-    info.sizes.emplace_back(dim_size);
+  TensorShapeInfo shape_info;
+
+  for (auto dim_size : *buffer->logical_sizes()) {
+    shape_info.logical_sizes.emplace_back(dim_size);
   }
 
-  for (auto dim_stride : *buffer->strides()) {
-    info.strides.emplace_back(dim_stride);
+  for (auto dim_stride : *buffer->logical_strides()) {
+    shape_info.logical_strides.emplace_back(dim_stride);
   }
+
+  for (auto dim_size : *buffer->unsharded_logical_sizes()) {
+    shape_info.unsharded_logical_sizes.emplace_back(dim_size);
+  }
+
+  for (auto dim_size : *buffer->alloc_sizes()) {
+    shape_info.allocation_sizes.emplace_back(dim_size);
+  }
+
+  for (auto dim_stride : *buffer->alloc_strides()) {
+    shape_info.allocation_strides.emplace_back(dim_stride);
+  }
+
+  info.shape_info = shape_info;
 
   info.type = serde::mapToAtenDtype(buffer->dtype());
   info.zero_init = buffer->zero_init();

@@ -210,7 +210,8 @@ TEST_F(MultiDeviceTest, BackpropMeshes) {
   at::Tensor x_tensor = shardTensor(unsharded_x_tensor, x);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor z_tensor = executor_cache.runFusionWithInputs({x_tensor})[0];
+  at::Tensor z_tensor =
+      executor_cache.runFusionWithInputs({x_tensor})[0].as<at::Tensor>();
   EXPECT_THAT(z_tensor.sizes(), ElementsAre(1, 4))
       << "Due to sharding propagation, z is supposed to "
       << "be sharded in the same way as x.";
@@ -248,7 +249,8 @@ TEST_F(MultiDeviceTest, DivideBySum) {
   at::Tensor x_tensor = shardTensor(unsharded_x_tensor, x);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor y_tensor = executor_cache.runFusionWithInputs({x_tensor})[0];
+  at::Tensor y_tensor =
+      executor_cache.runFusionWithInputs({x_tensor})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(),
       {y_tensor},
@@ -324,7 +326,8 @@ TEST_F(MultiDeviceTest, Issue2758) {
   at::Tensor in_tensor = shardTensor(unsharded_in_tensor, in);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   at::Tensor expected_out_tensor =
       shardTensor(unsharded_in_tensor.sum(0), reduce_scattered) +
@@ -362,7 +365,8 @@ TEST_F(MultiDeviceTest, Transpose) {
   // Sizes need to be large enough to trigger the transpose scheduler.
   at::Tensor in_tensor = at::randn({1024, 1024}, tensor_options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   testValidate(
       executor_cache.fusion(),
@@ -399,7 +403,8 @@ TEST_F(MultiDeviceTest, LoopSplit) {
 
   at::Tensor in_tensor = at::randn({3}, tensor_options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   testValidate(
       executor_cache.fusion(),
@@ -437,7 +442,8 @@ TEST_F(MultiDeviceTest, LoopSplitWithReorder) {
 
   at::Tensor in_tensor = at::randn({3, 2}, tensor_options).t();
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   testValidate(
       executor_cache.fusion(),
@@ -483,7 +489,8 @@ TEST_P(MultiDeviceBroadcastTest, NotExpanded) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({1, 8}, options);
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
@@ -521,7 +528,8 @@ TEST_P(MultiDeviceBroadcastTest, Expanded) {
       at::randn({8}, tensor_options)
           .as_strided(
               {parallelizes_broadcast ? 3 : num_devices * 3, 8}, {0, 1});
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
@@ -608,7 +616,8 @@ TEST_F(MultiDeviceTest, BiasAddRelu) {
   at::Tensor in_tensor = at::randn({b, s, h / d}, tensor_options);
   at::Tensor bias_tensor = at::randn({h / d}, tensor_options);
   KernelArgumentHolder args = {in_tensor, bias_tensor};
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs(args)[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs(args)[0].as<at::Tensor>();
   testValidate(executor_cache.fusion(), {out_tensor}, args, __LINE__, __FILE__);
 }
 
@@ -640,7 +649,8 @@ TEST_F(MultiDeviceTest, ViewWithSplit) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 15}, tensor_options);
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(),
       {out_tensor},
@@ -683,7 +693,8 @@ TEST_F(MultiDeviceTest, ViewWithMerge) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({2, 3, 5}, tensor_options);
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
   testValidate(
       executor_cache.fusion(),
       {out_tensor},
@@ -722,13 +733,76 @@ TEST_F(MultiDeviceTest, ReorderDIDToFront) {
 
   at::Tensor in_tensor = at::randn({b, s, h}, tensor_options);
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
   testValidate(
       executor_cache.fusion(),
       {out_tensor},
       {in_tensor},
       {in_tensor},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_F(MultiDeviceTest, ShardedSplitReshapeIds) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 2, h = 4, e = 3;
+
+  TensorView* tv0 = makeContigConcreteTensor(
+      {b, s, d * h * e}); // in: loop domain: {b, s, d*h*e}
+  TensorView* tv1 = reshape(
+      tv0,
+      {b, s, d * h * e},
+      {b, s, d * h, e}); // out: loop domain: {b, s, d*h, e}
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  // Propagate transform from reshaped output to input.
+  // Without this propagation, the two DID axes on `in` and `out` will not be
+  // mapped in together in ID model. This causes scheduling to fail due to
+  // resharding.
+  TransformPropagator propagator_c2p(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator_c2p);
+  // in: loop domain: {b, s, d*h, e} after transform propagation
+
+  // Loop split and parallelize input
+  tv0->setDeviceMesh(mesh);
+  tv0->split(-2, d, /*inner_split=*/false);
+  tv0->axis(-3)->parallelize(ParallelType::DIDx);
+  // in: loop domain: {b, s, DIDx{d}, h, e}
+
+  // Propagate DID loop split to output
+  TransformPropagator propagator_p2c(tv0);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
+  // out: loop domain: {b, s, d, h, e} after transform propagation
+
+  // Parallelize output
+  scheduler_utils::parallelizeAllLike(
+      tv0,
+      /*pos=*/-1,
+      /*selected_tv=*/{tv1});
+  // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
+
+  tv0->setAllocationDomain(tv0->getLoopDomain(), true);
+  tv1->setAllocationDomain(tv1->getLoopDomain(), true);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp = at::randn({b, s, d * h * e}, tensor_options);
+  at::Tensor sharded_inp = shardTensor(inp, tv0);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
+  testValidate(
+      executor_cache.fusion(),
+      {nvf_out},
+      {sharded_inp},
+      {sharded_inp.view({b, s, h, e})},
       __LINE__,
       __FILE__);
 }

@@ -164,8 +164,8 @@ class NvrtcCompileDriver {
     char* log_buf = log_backing_buf.data();
     NVFUSER_NVRTC_SAFE_CALL(nvrtcGetProgramLog(program, log_buf));
     if (result != NVRTC_SUCCESS) {
-      // Print CUDA starting at first global function
-      size_t kernel_start = src.find("__global__");
+      // Print CUDA starting at generated utility
+      size_t kernel_start = src.find("// Codegen generated code");
       NVF_THROW(
           "\n",
           src.substr(kernel_start),
@@ -1395,7 +1395,7 @@ void RtcKernel::compile(
 
 float RtcKernel::run(
     const LaunchParams& launch_params,
-    const std::vector<at::Tensor>& args,
+    const KernelArgumentHolder& args,
     PrimDataType index_type) {
   FUSER_PERF_SCOPE("RtcKernel::run");
 
@@ -1416,21 +1416,15 @@ float RtcKernel::run(
   std::vector<void*> pointers;
 
   for (const auto& input : args) {
-    auto dtype =
-        std::get<PrimDataType>(aten_to_data_type(input.scalar_type()).type);
-    DataType metadata_type = globalTensorMetaData(dtype, input.dim());
-
-    std::shared_ptr<Struct> struct_ = std::make_shared<TensorMetaData>();
-    TensorMetaData* metadata = (TensorMetaData*)struct_.get();
-    metadata->dtype = dtype;
-    metadata->data = input.data_ptr();
-    metadata->logical_size = input.sizes();
-    metadata->logical_stride = input.strides();
-    metadata->alloc_size = input.sizes();
-    metadata->alloc_stride = input.strides();
-
-    data.emplace_back(polymorphicValueToBytes(
-        PolymorphicValue(std::move(struct_)), metadata_type, index_type));
+    NVF_ERROR(
+        input.is<at::Tensor>() && input.as<at::Tensor>().is_cuda(),
+        "Only CUDA tensors are supported for direct nvRTC launches at this time.");
+    auto input_tensor = input.as<at::Tensor>();
+    data.emplace_back(tensorToBytes(
+        input_tensor,
+        input_tensor.sizes().vec(),
+        input_tensor.strides().vec(),
+        index_type));
     pointers.emplace_back(data.back().data());
   }
 

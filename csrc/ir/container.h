@@ -193,13 +193,6 @@ class IrContainer : public PolymorphicBase {
   // something like check if an Expr is in this container
   std::unordered_set<Expr*> exprs_;
 
-  // Used to implement a generic "inContainer" that can be passed an invalid
-  // pointer. Specifically a pointer to a Statement owned by another container
-  // that has been freed. We can't check normally with the unordered_sets we
-  // already have because it would require a const_cast from a constant
-  // expr/val, or a dynamic cast from a Statement.
-  std::unordered_set<void*> raw_ptrs_;
-
   // Values names counters
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;
 

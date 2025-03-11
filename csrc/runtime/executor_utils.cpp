@@ -437,7 +437,7 @@ void validateAlignedVectorizedFusionInputOutput(
 void validateAlignedVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   // Verify extents of aligned vectorized tensors
@@ -464,13 +464,13 @@ void validateAlignedVectorizedTensors(
     validateAlignedVectorizedFusionInputOutput(
         args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
   }
-  if (!outputs.empty()) {
+  if (!output_args.empty()) {
     for (auto pos : tensor_vectorization_validation_entry.get()
                         .aligned_vectorized_out_tensor_pos) {
       auto tv = kernel->outputs().at(pos)->as<TensorView>();
       auto word_size = kernel->summary().vectorized_accesses.at(tv);
       validateAlignedVectorizedFusionInputOutput(
-          outputs[pos], word_size, tv, expr_eval);
+          output_args[pos].as<at::Tensor>(), word_size, tv, expr_eval);
     }
   }
 }
@@ -481,7 +481,7 @@ void validateAlignedVectorizedTensors(
 void validateMisalignedVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   auto tensor_vectorization_validation_entry =
@@ -508,13 +508,13 @@ void validateMisalignedVectorizedTensors(
 
   const auto& out_misaligned_tensors_pos =
       tensor_vectorization_validation_entry.get().out_misaligned_tensors_pos;
-  if (!outputs.empty()) {
+  if (!output_args.empty()) {
     out_misaligned_tensors.reserve(out_misaligned_tensors_pos.size());
     std::transform(
         out_misaligned_tensors_pos.begin(),
         out_misaligned_tensors_pos.end(),
         std::back_inserter(out_misaligned_tensors),
-        [&outputs](int idx) { return outputs[idx]; });
+        [&output_args](int idx) { return output_args[idx].as<at::Tensor>(); });
   }
   // If input stride is non-contiguous + no outputs, return false
   NVF_ERROR(
@@ -550,16 +550,16 @@ void validateCircularBuffering(
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& output_args,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval) {
   FUSER_PERF_SCOPE("KernelExecutor::validateVectorizedTensors");
 
   validateAlignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      kernel, args, output_args, data_cache, expr_eval);
 
   validateMisalignedVectorizedTensors(
-      kernel, args, outputs, data_cache, expr_eval);
+      kernel, args, output_args, data_cache, expr_eval);
 }
 
 ExpressionEvaluator bindInputs(
@@ -597,6 +597,44 @@ ExpressionEvaluator bindInputs(
   }
 
   return expr_eval;
+}
+
+std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
+  std::vector<int> output_to_input_map(fusion->outputs().size(), -1);
+  for (auto output_idx : c10::irange(fusion->outputs().size())) {
+    auto alias_info = fusion->getOutputAlias(fusion->outputs()[output_idx]);
+    if (alias_info.type == AllocationType::New) {
+      continue;
+    }
+    NVF_ERROR(
+        alias_info.aliased_io && alias_info.aliased_io->isA<TensorView>(),
+        "Alias information is missing the aliased tensor.");
+
+    auto aliased_to = alias_info.aliased_io->as<TensorView>();
+    auto aliased_to_idx = std::distance(
+        fusion->inputs().begin(),
+        std::find(
+            fusion->inputs().begin(), fusion->inputs().end(), aliased_to));
+    if (aliased_to_idx < (int64_t)fusion->inputs().size()) {
+      output_to_input_map[output_idx] = (int)aliased_to_idx;
+    } else {
+      auto aliased_out = std::find(
+          fusion->outputs().begin(), fusion->outputs().end(), aliased_to);
+      NVF_ERROR(
+          aliased_out != fusion->outputs().end(),
+          "Could not find the alias tensor of: ",
+          fusion->outputs()[output_idx]->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
+      NVF_THROW(
+          "Kernel found with output to output aliasing, this is unsupported at this moment.\n",
+          "Output: ",
+          fusion->outputs()[output_idx]->toString(),
+          "\nAliased to: ",
+          aliased_to->toString());
+    }
+  }
+  return output_to_input_map;
 }
 
 CudaExecutable::~CudaExecutable() {

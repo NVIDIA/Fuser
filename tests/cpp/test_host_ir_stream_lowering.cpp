@@ -97,7 +97,7 @@ TEST_F(HirLowerStreamTest, SingleUnaryOp) {
   auto options = at::TensorOptions().device(at::kCUDA, 0);
 
   at::Tensor input = at::rand({4, 8}, options);
-  auto output = hie.runWithInput({{tv0, input}}).at(0);
+  auto output = hie.runWithInput({{tv0, input}})[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   EXPECT_TRUE(output.equal(input))
@@ -126,7 +126,7 @@ TEST_F(HirLowerStreamTest, SingleUnaryOpNonOutermost) {
   auto options = at::TensorOptions().device(at::kCUDA, 0);
 
   at::Tensor input = at::rand({4, 8}, options);
-  auto output = hie.runWithInput({{tv0, input}}).at(0);
+  auto output = hie.runWithInput({{tv0, input}})[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   EXPECT_TRUE(output.equal(input))
@@ -159,7 +159,7 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
   at::Tensor tv0_input = at::rand({4, 4}, options);
   at::Tensor tv1_input = at::rand({4, 4}, options);
   // std::unordered_map<Val*, PolymorphicValue> inputs = {{tv0, input}};
-  auto output = hie.runWithInput({{tv0, tv0_input}, {tv1, tv1_input}}).at(0);
+  auto output = hie.runWithInput({{tv0, tv0_input}, {tv1, tv1_input}})[0].as<at::Tensor>();
   auto expected_output = tv0_input + tv1_input;
   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "Expected: " << expected_output;
 }
