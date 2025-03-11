@@ -290,9 +290,9 @@ TensorView* scheduleReductionTV(
           int64_t bdimy = 1;
           if (std::getenv("BDIMY") && std::atoi(std::getenv("BDIMY")) > 1) {
             bdimy = std::atoi(std::getenv("BDIMY"));
-            if(std::getenv("BDIMY_SERIAL")){
+            if (std::getenv("BDIMY_SERIAL")) {
               reduction_tv->split(iter_axis, bdimy);
-            }else{
+            } else {
               inner_parallel_static(
                   iter_axis, rparams->block_dim_iter_dom, bdimy);
             }
@@ -317,7 +317,9 @@ TensorView* scheduleReductionTV(
     // Do not unswitch interation domain in the case of outer grid
     // persistence as it's unclear if it's beneficial.
     if (rparams->unroll_factor_iter_dom > 1 && !is_outer_grid_persistence) {
-      std::cout << "============== unswitching iter axis is disabled ===========" << std::endl;
+      std::cout
+          << "============== unswitching iter axis is disabled ==========="
+          << std::endl;
       // inner_unswitch(iter_axis);
     }
 
@@ -445,7 +447,11 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto vectorizable_inputs_outputs =
       scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
-  auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
+  auto vectorizable_expr = [](Expr* e) {
+    return e->isA<LoadStoreOp>() &&
+        (e->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set ||
+         e->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsync);
+  };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (auto cached_input : cached_inputs) {
