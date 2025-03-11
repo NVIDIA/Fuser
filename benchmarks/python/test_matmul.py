@@ -3,10 +3,11 @@
 # SPDX-License-Identifier: BSD-3-Clause
 import pytest
 from nvfuser import FusionDefinition
-from .core import run_benchmark
+from .core import BENCHMARK_CONFIG, clear_l2_cache, run_benchmark
 import torch
 
 import csv
+import gc
 import os
 
 
@@ -60,6 +61,35 @@ def test_matmul_baseline_benchmark(
     )
 
 
+def run_nvfuser_benchmark(
+    benchmark, fd: FusionDefinition, inputs: list[torch.Tensor], **kwargs
+):
+    total_kernel_secs = 0.0
+
+    def run():
+        nonlocal total_kernel_secs
+        fd.execute(inputs, profile=True, **kwargs)
+        profile = fd.profile()
+        elapsed_kernel_time = profile.kernel_time_ms * 1e-3
+        total_kernel_secs += elapsed_kernel_time
+
+    def timer():
+        return total_kernel_secs
+
+    benchmark._timer = timer
+    outputs = benchmark.pedantic(
+        run,
+        setup=clear_l2_cache,
+        rounds=BENCHMARK_CONFIG["rounds"],
+        warmup_rounds=BENCHMARK_CONFIG["warmup_rounds"],
+    )
+
+    # TODO: Record additional metrics (IOBytes, Bandwidth)
+    # nvf_benchmark.set_metrics(inputs, outputs, iobytes)
+
+    return outputs
+
+
 @pytest.mark.parametrize("half_reduction", [False, True], ids=["fullred", "halfred"])
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
 @pytest.mark.parametrize(
@@ -74,6 +104,10 @@ def test_matmul_nvf_benchmark(
     disable_benchmarking: bool,
 ):
     m, n, k, layout = config
+
+    if torch.cuda.memory_allocated() > 4 * (2**30):
+        gc.collect()
+        torch.cuda.empty_cache()
 
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
@@ -102,4 +136,4 @@ def test_matmul_nvf_benchmark(
         fd.validate([a, b], [eager_output], **kwargs)
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, lambda *args: fd.execute(*args, **kwargs), [a, b])
+        run_nvfuser_benchmark(benchmark, fd, [a, b], **kwargs)
