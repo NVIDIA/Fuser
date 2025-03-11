@@ -47,8 +47,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
   at::Tensor in_tensor = at::randn({4, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
@@ -58,7 +57,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
        slices[1].view({2, 2, 3}).permute({1, 0, 2})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
 }
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
@@ -87,8 +86,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
   at::Tensor in_tensor = at::randn({4, 5}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
@@ -97,7 +95,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
       {-slices[0].view({2, 2, 2}), -slices[1].view({2, 2, 3})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
 }
 
 } // namespace nvfuser

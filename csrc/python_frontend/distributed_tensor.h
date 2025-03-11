@@ -15,26 +15,16 @@
 
 namespace nvfuser::python_frontend {
 
-// A class that represents a distributed tensor. It wraps a local tensor, a
-// mesh, and a mapping from mesh axes to tensor axes. If the mesh is empty,
-// it degenerates into a non-distributed tensor.
-class DistributedTensor {
+class Sharding {
  public:
-  explicit DistributedTensor(
-      at::Tensor local_tensor,
-      DeviceMesh mesh = DeviceMesh())
-      : local_(std::move(local_tensor)), mesh_(std::move(mesh)) {}
-  DistributedTensor(const DistributedTensor&) = delete;
-  DistributedTensor& operator=(const DistributedTensor&) = delete;
-  DistributedTensor(DistributedTensor&&) = default;
-  DistributedTensor& operator=(DistributedTensor&&) = default;
+  explicit Sharding(DeviceMesh mesh = DeviceMesh()) : mesh_(std::move(mesh)) {}
+  Sharding(const Sharding&) = delete;
+  Sharding& operator=(const Sharding&) = delete;
+  Sharding(Sharding&&) = default;
+  Sharding& operator=(Sharding&&) = default;
 
   const DeviceMesh& mesh() const {
     return mesh_;
-  }
-
-  at::Tensor local() const {
-    return local_;
   }
 
   void setAxisIsShardedOn(int64_t axis, ParallelType parallel_type);
@@ -42,7 +32,6 @@ class DistributedTensor {
   int64_t axisShardedOn(ParallelType parallel_type) const;
 
  private:
-  at::Tensor local_;
   DeviceMesh mesh_;
   std::unordered_map<ParallelType, int64_t> axis_sharded_on_;
 };

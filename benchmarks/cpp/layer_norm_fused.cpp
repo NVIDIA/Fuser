@@ -102,9 +102,9 @@ static void NvFuserScheduler_LayerNormFused(
   at::Tensor tv3 = at::randn({num_features}, options);
   at::Tensor tv4 = at::randn({num_features}, options);
 
-  std::vector<c10::IValue> aten_inputs({tv0, tv1, tv2, tv3, tv4});
+  KernelArgumentHolder args = {tv0, tv1, tv2, tv3, tv4};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

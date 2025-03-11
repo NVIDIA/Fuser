@@ -2227,25 +2227,53 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
     std::unordered_map<int64_t, int64_t> old2new;
     // Make sure rfactor dims we need are in domain, and reorder them in domain
-    // so they're consecutive starting from the left of domain. TODO: We could
-    // improve this so that if there's transformations replayed after the
-    // rfactor dims we could try and pull those through the fusion instead of
-    // enforcing rfactor dims are in domain.
+    // so they're consecutive starting from the left of domain.
+    // The reordering is to limit the propagation to only the view
+    // transformations.
     for (auto logical_id : tv->getLogicalDomain()) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
-        auto find_it = std::find(
-            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), logical_id);
+        // The rfactor dims are not in the loop domain directly if they are
+        // sharded. For example, Consider the split reshape: `[h]->[a, h/a]` `h`
+        // and `a` are both sharded by `d`. The loop domain of the consumer is
+        // `[DIDx(d), a/d, h/a]`. Hence, we cannot directly find logical ID `a`
+        // in the loop domain. Similarly, for merge reshape: `[a, h/a]->[h]`, we
+        // cannot directly find `h` in the loop domain when `h` is sharded by
+        // `d`.
+
+        // Find all reachable ids between the logical id and the loop domain.
+        // If the ids are in the loop domain, reorder them to the front.
+        auto transforms = DependencyCheck::getAllExprsBetween(
+            {logical_id},
+            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+        std::unordered_set<IterDomain*> reachable_ids;
+        // Add the logical id for the case where it is directly in the loop
+        // domain.
+        reachable_ids.insert(logical_id);
+
+        for (auto expr : transforms) {
+          auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
+          reachable_ids.insert(outputs.begin(), outputs.end());
+        }
+
+        bool has_reachable_loop_id = false;
+        for (auto loop_idx :
+             c10::irange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
+          if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
+            continue;
+          }
+          has_reachable_loop_id = true;
+          // Reorder the reshape dimensions to the front of the domain
+          old2new[loop_idx] = (int64_t)old2new.size();
+        }
+
         NVF_ERROR(
-            find_it != tv->getLoopDomain().end(),
+            has_reachable_loop_id,
             "Require ",
             logical_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
-
-        old2new[old_pos] = (int64_t)old2new.size();
       }
     }
 
@@ -2822,30 +2850,16 @@ namespace {
 int getCoresPerSM(int major, int minor) {
   int sm_version = (major << 4) + minor;
   std::unordered_map<int, int> cores_per_sm_map = {
-      {0x30, 192},
-      {0x32, 192},
-      {0x35, 192},
-      {0x37, 192},
-      {0x50, 128},
-      {0x52, 128},
-      {0x53, 128},
-      {0x60, 64},
-      {0x61, 128},
-      {0x62, 128},
-      {0x70, 64},
-      {0x72, 64},
-      {0x75, 64},
-      {0x80, 64},
-      {0x86, 128},
-      {0x87, 128},
-      {0x89, 128},
-      {0x90, 128},
-      {0xa0, 128}};
+      {0x30, 192}, {0x32, 192}, {0x35, 192}, {0x37, 192}, {0x50, 128},
+      {0x52, 128}, {0x53, 128}, {0x60, 64},  {0x61, 128}, {0x62, 128},
+      {0x70, 64},  {0x72, 64},  {0x75, 64},  {0x80, 64},  {0x86, 128},
+      {0x87, 128}, {0x89, 128}, {0x90, 128}, {0xa0, 128}, {0xc0, 128}};
   auto it = cores_per_sm_map.find(sm_version);
   if (it != cores_per_sm_map.end()) {
     return it->second;
   }
-  NVF_THROW("Unknown GPU architecture: ", major, ".", minor);
+  // Use the default value of 128 for any architecture not listed,
+  // applicable to all current Blackwell GPUs.
   return 128;
 }
 } // namespace

@@ -14,6 +14,86 @@ namespace nvfuser {
 class IdModel;
 struct StatefulInliningInfo;
 
+struct CoveredGroup;
+
+using CoveredGroups = std::unordered_set<CoveredGroup>;
+
+std::string toString(const CoveredGroups& covered_groups);
+
+// Represents an input (or split output) ID group that an exact group
+// depends on (i.e., covers). If an input ID group is split, split_in_
+// refers to the covered groups of the input ID group, and group_
+// refers to either inner or outer output group.
+struct CoveredGroup {
+  CoveredGroup() = default;
+  CoveredGroup(
+      ValGroup group,
+      std::shared_ptr<CoveredGroups> split_in = nullptr,
+      bool is_inner = false)
+      : group_(std::move(group)),
+        split_in_(std::move(split_in)),
+        is_inner_(is_inner) {}
+
+  const ValGroup& group() const {
+    return group_;
+  }
+
+  const std::shared_ptr<CoveredGroups>& splitIn() const {
+    return split_in_;
+  }
+
+  bool isInner() const {
+    return is_inner_;
+  }
+
+  // Note that the equality of this information is only determined by
+  // group_ and that split_in_ does not matter.
+  bool operator==(const CoveredGroup& other) const {
+    return group_ == other.group_;
+  }
+
+  bool operator!=(const CoveredGroup& other) const {
+    return !(group_ == other.group_);
+  }
+
+  // Check if this CoveredGroup is equal to or covers a given other
+  // CoveredGroup
+  bool isEqualToOrSuperSetOf(const CoveredGroup& other) const;
+
+  std::string toString() const;
+
+ private:
+  // Covered group
+  ValGroup group_;
+  // If this group is an output of a split, keep track of the covered
+  // groups of the split input group.
+  std::shared_ptr<CoveredGroups> split_in_;
+  // Indicates if the split is inner or not. Not relevant if split_in_
+  // is nullptr.
+  bool is_inner_ = false;
+};
+
+// Returns true if covered_groups_x is equal to or a superset of
+// covered_groups_y, that is, for all of CoveredGroup of
+// covered_groups_y, if there's a CoveredGroup in covered_groups_x
+// that is equal or a superset.
+bool isEqualToOrSuperSetOf(
+    const CoveredGroups& covered_groups_x,
+    const CoveredGroups& covered_groups_y);
+
+} // namespace nvfuser
+
+namespace std {
+template <>
+struct hash<nvfuser::CoveredGroup> {
+  size_t operator()(const nvfuser::CoveredGroup& x) const {
+    return std::hash<nvfuser::ValGroup>()(x.group());
+  }
+};
+} // namespace std
+
+namespace nvfuser {
+
 // Callback interface for LoopPromotionMapBuilder. Allow exposing the
 // temporary maps for testing and debugging
 class LoopPromotionMapBuilderCallback {
@@ -58,15 +138,18 @@ class LoopPromotionMapBuilder {
       LoopPromotionMapBuilderCallback* callback = nullptr,
       bool force_full_loop_promotion_analysis = false);
 
+  // Computes coverage info of each exact group. Coverage is
+  // represented as a set of CoveredGroup, which is either an exact
+  // group of input IDs or an output group of split.
+  static std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>
+  computeCoveredGroups(const ValGraph& exact_graph, const IdModel& id_model);
+
  private:
   LoopPromotionMapBuilder(
       IdModel& id_model,
       const StatefulInliningInfo& inlining_info,
       LoopPromotionMapBuilderCallback* callback = nullptr,
       bool force_full_loop_promotion_analysis = false);
-
-  std::unordered_map<ValGroup, ValGroups> computeCoveredGroups(
-      const ValGraph& graph) const;
 
   // Given an Exact graph, get val groups that should be used as
   // starting groups when propagating promotion info. For non-cyclic
@@ -96,13 +179,17 @@ class LoopPromotionMapBuilder {
   // informatiom of the IDs of the fusion inputs, i.e., i0, so the
   // propagation should start from i0, then i1, i2 and i3, ignoring
   // the back edge to i0.
-  ValGroups getInputGroupsOfExactGraph(const ValGraph& exact_graph) const;
+  static ValGroups getInputGroupsOfExactGraph(
+      const ValGraph& exact_graph,
+      const IdModel& id_model);
 
   // Similar to getInputGroupsOfExactGraph but for an IEL graph.
   // We first get the inputs of the Exact graph. For the
   // IEL propagation, any IEL group that has an ID that is included
   // in any of the input groups of the exact graph is used as an input.
-  ValGroups getInputGroupsOfIELGraph(const ValGraph& iel_graph) const;
+  static ValGroups getInputGroupsOfIELGraph(
+      const ValGraph& iel_graph,
+      const IdModel& id_model);
 
   std::unordered_map<ValGroup, IterDomain*> build();
 
@@ -179,7 +266,8 @@ class LoopPromotionMapBuilder {
       const ValGroup& loop_group,
       const ValGraph& iel_graph,
       const std::unordered_map<ValGroup, IterDomain*>& iel_promotion_map,
-      const std::unordered_map<ValGroup, ValGroups>& exact_covered_ids,
+      const std::unordered_map<ValGroup, std::shared_ptr<CoveredGroups>>&
+          exact_covered_ids,
       const VectorOfUniqueEntries<IterDomain*>& terminal_loop_ids) const;
 
   // Terminal loop ids are iteration domains in each loop group that:

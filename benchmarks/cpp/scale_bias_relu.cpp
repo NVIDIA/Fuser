@@ -134,9 +134,9 @@ static void NvFuserScheduler_SBR(
   at::Tensor at_bias = at::zeros(static_bcast_shape, options);
 
   // inputs
-  std::vector<c10::IValue> aten_inputs = {at_x, at_scale, at_bias};
+  KernelArgumentHolder args({at_x, at_scale, at_bias});
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];
@@ -212,10 +212,9 @@ static void NvFuserScheduler_SBR_Norm(
   at::Tensor at_var = at::ones(bcast_shape, options);
 
   // inputs
-  std::vector<c10::IValue> aten_inputs = {
-      at_x, at_weight, at_bias, at_mean, at_var};
+  KernelArgumentHolder args({at_x, at_weight, at_bias, at_mean, at_var});
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   const size_t size =
       input_shape[0] * input_shape[1] * input_shape[2] * input_shape[3];

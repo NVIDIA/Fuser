@@ -99,7 +99,7 @@ def test_matmul_nvf_benchmark(
 
     if not disable_validation:
         eager_output = torch.matmul(a, b)
-        fd.validate([a, b], [eager_output], kwargs=kwargs)
+        fd.validate([a, b], [eager_output], **kwargs)
 
     if not disable_benchmarking:
         run_benchmark(benchmark, lambda *args: fd.execute(*args, **kwargs), [a, b])

@@ -12,6 +12,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
 #include <options.h>
+#include <string_view>
 
 #include <atomic>
 
@@ -53,7 +54,7 @@ class OptimizationPass {
       return;
     }
 
-    FUSER_PERF_SCOPE(DerivedClass::name().c_str());
+    FUSER_PERF_SCOPE(DerivedClass::name().data());
     DerivedClass::runPass(fusion);
 
     // TODO: skip the logging of the pass where the fusion has not been changed.

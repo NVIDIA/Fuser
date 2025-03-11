@@ -13,6 +13,7 @@
 #include <index_compute.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
+#include <kernel_ir.h>
 #include <ops/arith.h>
 #include <options.h>
 #include <predicate_compute.h>
@@ -45,7 +46,7 @@ Val* IndexLowering::lowerSrcIndex(
     DataType as_type) const {
   if (auto tv = dynamic_cast<TensorView*>(src)) {
     NVF_ERROR(dst->isA<TensorView>());
-    return Index::getProducerIndex(
+    kir::TensorIndex* tind = Index::getProducerIndex(
         tv,
         dst->as<TensorView>(),
         for_loops_,
@@ -53,6 +54,13 @@ Val* IndexLowering::lowerSrcIndex(
         override_index,
         generate_pointer,
         as_type);
+    if (TensorView* aliased_producer =
+            GpuLower::current()->getTensorProducerAlias(tv)) {
+      return IrBuilder::create<kir::TensorIndex>(
+          aliased_producer, tind->index());
+    } else {
+      return tind;
+    }
   } else {
     return src;
   }
@@ -2151,12 +2159,13 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
         NVF_ERROR(
             dataTypeSize(ldst->out()->dtype()) == 4,
             "For now, we only support 32-bit types in tmem");
-        // TODO: hard code size 1 for now.
         // According to the specification of tcgen05.{ld,st}, the register
         // operand must be viewed as a vector of 32-bit elements.
         // See:
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
-        as_type = ArrayType{std::make_shared<DataType>(ldst->in()->dtype()), 1};
+        as_type = ArrayType{
+            std::make_shared<DataType>(ldst->in()->dtype()),
+            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
@@ -2269,8 +2278,12 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
       "Matmul with all broadcasting dimension is not supported yet.");
   ValGroup inner = alloc_domain.back();
 
+  // We do not require all groups to be visited. Only the inner allocation group
+  // must be visited, which we check later.
+  // See https://github.com/NVIDIA/Fuser/issues/3962
   auto exprs =
-      ValGraphBFS::getExprGroupsBetween(id_graph, loop_domain, alloc_domain)
+      ValGraphBFS::getExprGroupsBetween(
+          id_graph, loop_domain, alloc_domain, /*require_all_to_visited=*/false)
           .first;
   while (!exprs.empty()) {
     auto [expr, direction] = exprs.back();

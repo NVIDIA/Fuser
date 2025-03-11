@@ -13,6 +13,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -387,6 +388,14 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       needs_resharding = true;
       break;
     }
+  }
+
+  // If we are replacing an output, we need to preserve the memory layout by
+  // replaying the allocation domain. Otherwise it might alter user semantics,
+  // violating memory layout required by aliasing
+  if (orig->isFusionOutput()) {
+    TransformReplay::selfAllocationReplay(
+        orig->domain(), replacement->domain());
   }
 
   if (needs_resharding) {

@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/builder.h>
 #include <ir/iostream.h>
+#include <ir/printer.h>
 #include <iter_visitor.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
@@ -933,12 +934,19 @@ int64_t getVectorizationFactorTransposeGroup(
   std::vector<IterDomain*> virtual_innermost_dim;
   // find the virtual_innermost_dim in reference so we can later map
   // that to individual TensorView in vec_tv.
-  for (const auto& dim : dims_to_merge) {
+  for (const auto dim : dims_to_merge) {
     virtual_innermost_dim.insert(
-        virtual_innermost_dim.begin(), reference->axis(static_cast<int>(dim)));
+        virtual_innermost_dim.begin(), reference->axis(dim));
   }
-  virtual_innermost_dim.push_back(
-      reference->getLogicalDomain()[inner_most_dim]);
+  virtual_innermost_dim.push_back(reference->axis(inner_most_dim));
+
+  if (reference->axis(inner_most_dim)->isParallelized()) {
+    std::ostringstream oss;
+    IrTransformPrinter printer(oss);
+    printer.printTransforms(reference);
+    NVF_THROW(
+        "Loop axis ", inner_most_dim, " is expected to be Serial: ", oss.str());
+  }
 
   // NOTE: do I need to consider stride here?! sounds like
   // ContiguousInnerDimensionsMapper::map requires reference to be

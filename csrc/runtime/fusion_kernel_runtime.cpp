@@ -29,10 +29,9 @@ namespace nvfuser {
 namespace {
 // Replace CUDA tensor with Meta tensor because storing tensors can cause
 // out-of-memory issues. Other arguments are returned as-is.
-std::shared_ptr<PolymorphicValue> convertMetadataArg(
-    std::shared_ptr<PolymorphicValue> arg) {
-  if (arg->is<at::Tensor>()) {
-    if (const auto& tensor = arg->as<at::Tensor>(); tensor.is_cuda()) {
+PolymorphicValue convertMetadataArg(PolymorphicValue arg) {
+  if (arg.is<at::Tensor>()) {
+    if (const auto& tensor = arg.as<at::Tensor>(); tensor.is_cuda()) {
       auto meta_tensor = at::Tensor(at::detail::empty_strided_meta(
           tensor.sizes(),
           tensor.strides(),
@@ -40,7 +39,7 @@ std::shared_ptr<PolymorphicValue> convertMetadataArg(
           c10::nullopt,
           c10::Device(c10::DeviceType::Meta, 0),
           c10::nullopt));
-      return std::make_shared<PolymorphicValue>(std::move(meta_tensor));
+      return std::move(meta_tensor);
     }
   }
   return arg;
@@ -99,7 +98,7 @@ FusionKernelRuntime::FusionKernelRuntime(
     // Default compilation path applies segmentation before scheduling and
     // compiling the fusion.
     segmented_fusion_ =
-        SegmentCandidateFinder::segment(std::move(fusion), &args, runtime_info);
+        SegmentCandidateFinder::segment(std::move(fusion), args, runtime_info);
   } else {
     // Serialization path that generates segmented fusion from flatbuffers.
     // Convert Welford to two-pass if option is enabled and the original
@@ -154,11 +153,15 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
 }
 
 bool FusionKernelRuntime::isCompiled() const {
-  std::lock_guard<std::mutex> guard(mutex_);
-  return std::all_of(
-      executors_.begin(), executors_.end(), [](const auto& executor) {
-        return ExecutorDispatch::isCompiled(executor.get());
-      });
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    return hie_ != nullptr;
+  } else {
+    std::lock_guard<std::mutex> guard(mutex_);
+    return std::all_of(
+        executors_.begin(), executors_.end(), [](const auto& executor) {
+          return ExecutorDispatch::isCompiled(executor.get());
+        });
+  }
 }
 
 flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
@@ -174,7 +177,7 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   executors_fb.reserve(executors_.size());
   for (auto& ea : executors_) {
     if (auto ke = dynamic_cast<KernelExecutor*>(ea.get())) {
-      executors_fb.push_back(ke->serialize(builder));
+      executors_fb.emplace_back(ke->serialize(builder));
     }
   }
 
@@ -276,9 +279,27 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
   return index_type.value();
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
+KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
+
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      debug() << "=================RUNNING HOSTIR EVALUATOR================="
+              << std::endl;
+    }
+
+    std::unordered_map<Val*, PolymorphicValue> tensor_map;
+    for (const auto i : c10::irange(args.size())) {
+      tensor_map.emplace(hie_->inputs()[i], args[i]);
+    }
+    auto outputs = hie_->runWithInput(tensor_map);
+    if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
+      debug() << "============= FINISHED RUNNING HOSTIR EVALUATOR ============"
+              << std::endl;
+    }
+    return outputs;
+  }
 
   if (isDebugDumpEnabled(DebugDumpOption::PerfDebugVerbose)) {
     debug() << "=================RUNNING FUSION SEGMENTS================="
@@ -294,16 +315,14 @@ std::vector<at::Tensor> FusionKernelRuntime::runWithInputs(
   }
 
   // Produce final global output
-  std::vector<at::Tensor> fusion_outputs;
-  fusion_outputs.reserve(segmented_fusion_->outputs().size());
+  KernelArgumentHolder fusion_outputs;
   for (Val* output : segmented_fusion_->outputs()) {
     NVF_ERROR(
         tensor_map.count(output),
         "Segmented fusion output ",
         output->toString(),
         " does not exist in `tensor_map`.");
-    const PolymorphicValue* runtime_output = tensor_map.at(output);
-    fusion_outputs.push_back(runtime_output->as<at::Tensor>());
+    fusion_outputs.push(tensor_map.at(output));
   }
   return fusion_outputs;
 }
@@ -333,6 +352,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionProfiler::startCompile();
   }
 
+  // host ir
+  std::unique_ptr<hir::HostIrContainer> hic;
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    hic = std::make_unique<hir::HostIrContainer>(
+        num_groups); // Some indices will be empty
+  }
+
   std::atomic<bool> detect_exception_in_thread_pool{false};
   std::string thread_pool_error_message;
   std::mutex thread_pool_error_message_mutex;
@@ -349,21 +375,20 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
-    KernelArgumentHolder group_runtime_inputs;
+    auto group_runtime_inputs =
+        args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
-    }
-    for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
       FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
       c10::cuda::CUDAGuard dg(args.getDeviceIndex());
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-      compileKernel(group_runtime_inputs, group_to_run);
+      compileKernel(group_runtime_inputs, group_to_run, hic.get());
     } else {
+      hir::HostIrContainer* hic_p = hic.get();
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
@@ -371,12 +396,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             group_to_run,
                             &detect_exception_in_thread_pool,
                             &thread_pool_error_message,
-                            &thread_pool_error_message_mutex]() {
+                            &thread_pool_error_message_mutex,
+                            hic_p]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-          compileKernel(group_runtime_inputs, group_to_run);
+          compileKernel(group_runtime_inputs, group_to_run, hic_p);
         } catch (const std::exception& e) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
@@ -398,7 +424,40 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
+    num_live_args_after_segment_runs_.emplace_back((int64_t)args.size());
+  }
+
+  // add all expressions and compiled kernels to the host ir container
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    IrCloner ir_cloner(hic.get());
+    FusionGuard::setCurFusion(hic.get());
+    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
+      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+      if (hic->hasKernelExecutor(run_order_id)) {
+        auto in_clone = ir_cloner.clone(group_to_run->inputs());
+        auto out_clone = ir_cloner.clone(group_to_run->outputs());
+        auto heuristic_params = schedulers().at(run_order_id).get();
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+            run_order_id,
+            heuristic_params->lparams,
+            heuristic_params->cparams,
+            std::vector<Val*>{in_clone},
+            std::vector<Val*>{out_clone});
+        hic->pushBackTopLevelExprs(launch_kernel);
+      } else {
+        // push back segment's exprs into the container as top level expressions
+        for (auto* expr : group_to_run->exprs()) {
+          auto cloned_expr = ir_cloner.clone(expr);
+          hic->pushBackTopLevelExprs(cloned_expr);
+        }
+      }
+    }
+    for (const Val* in : segmented_fusion_->inputs()) {
+      hic->addInput(ir_cloner.clone(in));
+    }
+    for (const Val* out : segmented_fusion_->outputs()) {
+      hic->addOutput(ir_cloner.clone(out));
+    }
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
@@ -411,6 +470,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         thread_pool_error_message,
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
+
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    hie_ = std::make_unique<hir::HostIrEvaluator>(
+        hir::HostIrEvaluator(std::move(hic)));
+  }
+
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
   }
@@ -455,9 +520,8 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
   // We make a mutable copy of args so that we can use it in an
   // ArgumentManager
-  KernelArgumentHolder mutable_args(args);
   ArgumentManager args_manager(
-      mutable_args, runtime_workspace_, segmented_fusion_->inputs());
+      args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
@@ -468,10 +532,9 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
     FusionGuard fg(fusion_to_run);
 
     // Get input arguments for SchedulerRuntimeInfo
-    KernelArgumentHolder group_runtime_inputs;
-    for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
-    }
+    KernelArgumentHolder group_runtime_inputs =
+        args_manager.translateValsToArgs(group_to_run->inputs());
+    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
 
     // Create PrecomputedValues for fusion segment
     std::unique_ptr<PrecomputedValues> evaluator_precomputed_values;
@@ -559,7 +622,7 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
   return executors_;
 }
 
-std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
+std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     runSegmentsWithInputs(KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
   NVF_ERROR(
@@ -581,21 +644,20 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-    KernelArgumentHolder group_runtime_inputs;
+    KernelArgumentHolder group_runtime_inputs =
+        args_manager.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
-    }
-    for (auto input : group_to_run->inputs()) {
-      group_runtime_inputs.push(*args_manager.checkTensorMap(input));
     }
 
     // TODO: currently we are still outputing PyTorch tensors, instead of
     // something abstract. This is quite unsatisfying.
 
     // Run graph segment
-    std::vector<at::Tensor> group_runtime_outputs =
+    KernelArgumentHolder group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
+
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
@@ -603,20 +665,19 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
 
   if (isProfilerEnabled()) {
     int64_t input_bytes = 0;
-    for (auto inp : fusionSegments()->inputs()) {
-      if (dynamic_cast<TensorView*>(inp)) {
-        auto aten_ten = args_manager.checkTensorMap(inp);
-        input_bytes +=
-            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+    for (auto* inp : fusionSegments()->inputs()) {
+      if (inp->isA<TensorView>()) {
+        const auto& tensor = args_manager.checkTensorMap(inp).as<at::Tensor>();
+        input_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
     FusionProfiler::inputBytesAccessed(input_bytes);
+
     int64_t output_bytes = 0;
-    for (auto outp : fusionSegments()->outputs()) {
-      if (dynamic_cast<TensorView*>(outp)) {
-        auto aten_ten = args_manager.checkTensorMap(outp);
-        output_bytes +=
-            static_cast<int64_t>(aten_ten->as<at::Tensor>().storage().nbytes());
+    for (auto* outp : fusionSegments()->outputs()) {
+      if (outp->isA<TensorView>()) {
+        const auto& tensor = args_manager.checkTensorMap(outp).as<at::Tensor>();
+        output_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
     FusionProfiler::outputBytesAccessed(output_bytes);
@@ -625,7 +686,7 @@ std::unordered_map<Val*, const PolymorphicValue*> FusionKernelRuntime::
   return args_manager.getTensorMap();
 }
 
-std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
+KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
     KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
@@ -654,14 +715,16 @@ std::vector<at::Tensor> FusionKernelRuntime::runKernelWithInput(
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
-  auto outputs = ExecutorDispatch::run(ea, args, launch_params, compile_params);
+  auto outputs =
+      ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
 
   return outputs;
 }
 
 void FusionKernelRuntime::compileKernel(
     const KernelArgumentHolder& args,
-    SegmentedGroup* sg) {
+    SegmentedGroup* sg,
+    hir::HostIrContainer* hic) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
@@ -684,17 +747,36 @@ void FusionKernelRuntime::compileKernel(
       heuristic_params->cparams.index_type.has_value(),
       "Kernel index type is not defined.");
 
-  // Initialize associated executors
-  executors_[group_id] = ExecutorDispatch::makeExecutor(
-      fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
+  if (hic != nullptr) {
+    // if it's a kernel executor, compile the segment and append to hic
+    // otherwise, push the segment's exprs directly to the hic
+    if (!HostIrExecutor::supported(fusion_to_run.get()) &&
+        !ExprEvalExecutor::supported(fusion_to_run.get())) {
+      NVF_ERROR(
+          KernelExecutor::supported(fusion_to_run.get()),
+          "Fusion not supported by any executor type");
+      auto ke = std::make_unique<KernelExecutor>();
+      ke->compile(
+          fusion_to_run.get(),
+          args,
+          heuristic_params->lparams,
+          heuristic_params->cparams,
+          heuristic_params->scheduler_type);
+      hic->setKernelExecutor(group_id, std::move(ke));
+    }
+  } else {
+    // Initialize associated executors
+    executors_[group_id] = ExecutorDispatch::makeExecutor(
+        fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
 
-  ExecutorDispatch::compile(
-      executors_.at(group_id).get(),
-      fusion_to_run.get(),
-      args,
-      heuristic_params->lparams,
-      heuristic_params->cparams,
-      heuristic_params->scheduler_type);
+    ExecutorDispatch::compile(
+        executors_.at(group_id).get(),
+        fusion_to_run.get(),
+        args,
+        heuristic_params->lparams,
+        heuristic_params->cparams,
+        heuristic_params->scheduler_type);
+  }
 }
 
 std::pair<LaunchParams, CompileParams> FusionKernelRuntime::getKernelConfig(

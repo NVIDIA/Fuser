@@ -16,6 +16,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <parallel_dimension_map.h>
+#include <type.h>
 #include <utils.h>
 #include <vectorization_info.h>
 #include <visibility.h>
@@ -127,6 +128,10 @@ struct KernelSummary {
   //! Reason: At runtime, we check that at least a single warp along TIDx axis
   //! exists.
   bool has_elect_sync_predicate = false;
+
+  //! Do we have any possibly narrowing casts from DataType::Index variables?
+  //! These need to be validated to prevent overflow.
+  bool has_narrowing_index_casts = false;
 };
 
 class KernelPerformanceProfile {
@@ -218,6 +223,10 @@ class NVF_API Kernel final : public Fusion {
 
   PrimDataType indexType() const {
     return index_type_;
+  }
+
+  void setIndexType(PrimDataType new_index_type) {
+    index_type_ = new_index_type;
   }
 
   //! Checks if parallel type is padded

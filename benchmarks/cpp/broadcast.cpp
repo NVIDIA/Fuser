@@ -72,9 +72,9 @@ static void NvFuserScheduler_Broadcast(
 
   at::Tensor t1 = at::randn({iter_size}, options);
 
-  std::vector<c10::IValue> aten_inputs({t0, t1});
+  KernelArgumentHolder args = {t0, t1};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

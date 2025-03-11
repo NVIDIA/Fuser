@@ -173,6 +173,30 @@ inline void parallelizeAllLike(
       propagate_padding);
 }
 
+inline void parallelizeAllLike(
+    TensorView* reference_tv,
+    std::initializer_list<TensorView*> selected_tvs,
+    const std::unordered_set<ParallelType>& selected_parallel_types = {},
+    bool propagate_padding = true) {
+  parallelizeAllLike(
+      reference_tv,
+      std::vector<TensorView*>(selected_tvs),
+      selected_parallel_types,
+      propagate_padding);
+}
+
+inline void parallelizeAllLike(
+    TensorView* reference_tv,
+    const std::unordered_set<ParallelType>& selected_parallel_types,
+    bool propagate_padding = true) {
+  parallelizeAllLike(
+      reference_tv,
+      -1,
+      std::vector<TensorView*>{},
+      selected_parallel_types,
+      propagate_padding);
+}
+
 // Common hyperparameters used in heuristic scheduler. These hyperparameters
 // are passed to SchedulerEntry::computeHeuristics through the
 // HeuristicDataCache. These hyperparameters alter the generation of the

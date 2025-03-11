@@ -99,10 +99,10 @@ static void NvFuserScheduler_BatchNorm(
   at::Tensor at_bias = at::zeros({input_shape[1]}, options);
   at::Tensor at_run_mean = at::zeros({input_shape[1]}, fp32_options);
   at::Tensor at_run_var = at::ones({input_shape[1]}, fp32_options);
-  std::vector<c10::IValue> aten_inputs(
-      {at_x, at_weight, at_bias, at_run_mean, at_run_var});
+  KernelArgumentHolder args = {
+      at_x, at_weight, at_bias, at_run_mean, at_run_var};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

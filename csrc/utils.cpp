@@ -8,8 +8,10 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+
 #include <debug.h>
 #include <options.h>
+#include <runtime/executor_kernel_arg.h>
 #include <utils.h>
 
 #include <cstdlib>
@@ -37,16 +39,6 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-std::string debug_str(const c10::IValue& val) {
-  if (val.isTensor()) {
-    return debug_str(val.toTensor());
-  }
-
-  std::stringstream out_s;
-  out_s << val.toScalar();
-  return out_s.str();
-}
-
 std::string debug_str(const at::Tensor& tensor) {
   std::stringstream ss;
   ss << "Tensor:";
@@ -70,7 +62,7 @@ bool is_meta_scalar(const at::Tensor& tensor) {
 }
 
 int8_t getCommonDeviceCUDA(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device) {
   int8_t index = 0;
   // have we found or selected at least one device yet?
@@ -80,15 +72,18 @@ int8_t getCommonDeviceCUDA(
     found_device = true;
   }
   for (const auto& input : inputs) {
-    if (!input.isTensor() || !input.toTensor().defined()) {
+    if (!input.is<at::Tensor>() || !input.as<at::Tensor>().defined()) {
       continue;
     }
-    const auto& device = input.toTensor().device();
+    const auto& device = input.as<at::Tensor>().device();
     // skip cpu scalar tensor as they'll be promoted to scalar later
-    if (device.is_cpu() && is_cpu_scalar(input.toTensor())) {
+    if (device.is_cpu() && is_cpu_scalar(input.as<at::Tensor>())) {
       continue;
     }
-    NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    NVF_CHECK(
+        device.is_cuda() || device.is_meta(),
+        "nvfuser only supports cuda or meta device, found: ",
+        device);
     auto cur_index = device.index();
     if (found_device && index != cur_index) {
       return -1;

@@ -1011,17 +1011,16 @@ TEST_F(TransposeTest, UnswitchPredicateIssueRepro667) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
 
   auto ref = t0.transpose(1, 4).transpose(0, 3);
 
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // small transpose dimension with merge but no split
@@ -1041,10 +1040,9 @@ TEST_F(TransposeTest, TransposeAggregatedVectorizationWidth) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1063,7 +1061,7 @@ TEST_F(TransposeTest, TransposeAggregatedVectorizationWidth) {
 
   auto ref = t0.transpose(0, 4).transpose(1, 3);
 
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(TransposeTest, ViewTransposeReshape) {
@@ -1083,10 +1081,9 @@ TEST_F(TransposeTest, ViewTransposeReshape) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1095,7 +1092,7 @@ TEST_F(TransposeTest, ViewTransposeReshape) {
   auto t2 = t1.transpose(1, 2);
   auto ref = at::reshape(t2, {1024, 2, 6});
 
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
@@ -1116,10 +1113,9 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1134,8 +1130,7 @@ TEST_F(TransposeTest, ReshapePermuteTransposeScheduler) {
       "Unexpected heuristic: ",
       heuristic);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(
@@ -1161,10 +1156,9 @@ TEST_F(
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1179,8 +1173,7 @@ TEST_F(
       "Unexpected heuristic: ",
       heuristic);
 
-  testValidate(
-      executor_cache.fusion(), cg_outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test reshape with small transpose dimension
@@ -1238,10 +1231,9 @@ TEST_F(TransposeTest, ViewTransposeMergedInnermostOnGroupTwo) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1251,8 +1243,8 @@ TEST_F(TransposeTest, ViewTransposeMergedInnermostOnGroupTwo) {
   auto t3 = at::reshape(t2, {8, 64, 1024});
   auto t4 = t1.transpose(0, 3);
 
-  NVF_CHECK(t3.equal(cg_outputs.at(0)));
-  NVF_CHECK(t4.equal(cg_outputs.at(1)));
+  NVF_CHECK(t3.equal(cg_outputs[0].as<at::Tensor>()));
+  NVF_CHECK(t4.equal(cg_outputs[1].as<at::Tensor>()));
 }
 
 // TODO: we don't yet support vectorization on split dimension
@@ -1273,10 +1265,9 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(!runtime->isSegmented(), "Segmentation not expected");
@@ -1290,7 +1281,7 @@ TEST_F(TransposeTest, TransposeSplitAggregatedVectorizationWidth) {
 
   auto ref = t0.transpose(0, 2);
 
-  NVF_CHECK(ref.equal(cg_outputs.at(0)));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Testing transpose scheduler to handle fusion inputs with reduction IterDomain
@@ -1324,10 +1315,9 @@ TEST_F(TransposeTest, ReductionIterDomainOnInputsIssue1659) {
 
   auto t0 = at::randn({1024, 512, 1}, options);
   auto t1 = at::randn({1024, 1, 512}, options);
-  std::vector<c10::IValue> aten_inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
   auto runtime = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(runtime->isSegmented(), "Segmentation expected");

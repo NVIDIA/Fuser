@@ -103,7 +103,7 @@ sass::Container getSASSFor(
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
 
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 
   return sass::parse(ke.compiledKernel()->disassembledKernelSASS());
 }
@@ -172,7 +172,7 @@ sass::Container getBinaryOpMulEpilogueSASSFor(
                   alpha)
                   .to(at::kFloat);
 
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 
   return sass::parse(ke.compiledKernel()->disassembledKernelSASS());
 }

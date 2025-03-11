@@ -15,7 +15,7 @@ env:
 
 jobs:
   check-license:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -28,7 +28,7 @@ jobs:
           test ! -s missing-header-files.txt
 
   clang-tidy:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,9 +42,6 @@ jobs:
           tools/apt-install-things.sh &
           tools/pip-install-things.sh &
           source tools/setup-env.sh
-
-          # clang-tidy does not work well with gcc-13 headers, remove them
-          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
 
           # Install lintrunner
           pip install lintrunner
@@ -72,7 +69,7 @@ jobs:
           git --no-pager diff --diff-filter=d --name-only $head_commit | grep -e "csrc/.*\.cpp" -e "csrc/.*\.h" | xargs lintrunner --take CLANGTIDY --force-color
 
   lintrunner:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
@@ -90,7 +87,7 @@ jobs:
           lintrunner init 2> /dev/null
 
           # Install dependencies
-          sudo apt install -y libtinfo5
+          sudo apt install -y libtinfo6
 
           # Run lintrunner except clang-tidy
           lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK,TORCH_INTERNAL_ASSERT,TORCH_CHECK,C10_ERROR,TORCH_CUDA_CU_API --all-files

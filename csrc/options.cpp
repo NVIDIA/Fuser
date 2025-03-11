@@ -167,6 +167,7 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"static_fusion_count", EnableOption::StaticFusionCount},
           {"wait_debugger", EnableOption::WaitDebugger},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
+          {"host_ir_lowering", EnableOption::HostIrLowering},
       };
   return available_options;
 }

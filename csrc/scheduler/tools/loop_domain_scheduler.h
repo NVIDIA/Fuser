@@ -107,7 +107,13 @@ void scheduleLoopDomainsBy(
 // iter domain is reduced, the split needs to remain. If a reshape
 // only consists of merge transforms, cancellation should be possible,
 // but that is not currently supported.
-void cancelReshapeInLoopDomains(TensorView* from_tv);
+//
+// When the skip_innermost_id flag is true, any reshape that involves
+// innermost logical ID is not canceled even when it's technically
+// possible. This is a WAR for the resize scheduler.
+void cancelReshapeInLoopDomains(
+    TensorView* from_tv,
+    bool skip_innermost_id = false);
 
 } // namespace scheduler_tools
 } // namespace nvfuser

@@ -82,9 +82,9 @@ static void NvFuserScheduler_LayerNorm(
   at::Tensor weight = at::randn({input_shape[1]}, options);
   at::Tensor bias = at::randn({input_shape[1]}, options);
 
-  std::vector<c10::IValue> aten_inputs({input, weight, bias});
+  KernelArgumentHolder args = {input, weight, bias};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -160,9 +160,9 @@ static void NvFuserScheduler_TIMM_LayerNorm(
   at::Tensor weight = at::randn({input_shape[1]}, options);
   at::Tensor bias = at::randn({input_shape[1]}, options);
 
-  std::vector<c10::IValue> aten_inputs({input, weight, bias});
+  KernelArgumentHolder args = {input, weight, bias};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

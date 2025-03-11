@@ -20,8 +20,10 @@
 
 #include <c10/core/thread_pool.h>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -49,10 +51,11 @@
 
 namespace nvfuser {
 
+class KernelArgumentHolder;
+
 int getNumThreads();
 c10::ThreadPool* getThreadPool();
 
-std::string debug_str(const c10::IValue& val);
 std::string debug_str(const at::Tensor& tensor);
 
 bool is_cpu_scalar(const at::Tensor& tensor);
@@ -65,8 +68,8 @@ bool is_meta_scalar(const at::Tensor& tensor);
 //! selected_device will be returned. If tensor inputs are found their devices
 //! must match one another, and if selected_device is given they must match it
 //! as well, otherwise -1 is returned.
-int8_t getCommonDeviceCUDA(
-    const c10::ArrayRef<c10::IValue>& inputs,
+int8_t NVF_API getCommonDeviceCUDA(
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
@@ -614,6 +617,90 @@ void checkAllEqual(std::initializer_list<T> elements) {
         toDelimitedString(elements),
         "]");
   }
+}
+
+#if __cplusplus >= 202302L
+
+using std::views::zip;
+
+#else
+
+namespace views {
+
+template <std::ranges::input_range... Rs>
+class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
+ private:
+  std::tuple<Rs...> bases;
+
+  // Iterator for begin()
+  struct begin_iterator {
+    std::tuple<std::ranges::iterator_t<Rs>...> iterators;
+
+    using value_type = std::tuple<std::ranges::range_value_t<Rs>...>;
+    using reference = std::tuple<std::ranges::range_reference_t<Rs>...>;
+    using difference_type = std::ptrdiff_t;
+
+    begin_iterator& operator++() {
+      std::apply([](auto&... it) { ((++it), ...); }, iterators);
+      return *this;
+    }
+
+    reference operator*() const {
+      return std::apply(
+          [](auto&... it) -> reference { return {*it...}; }, iterators);
+    }
+
+    bool operator==(const begin_iterator& other) const {
+      return iterators == other.iterators;
+    }
+  };
+
+  // Sentinel for end()
+  struct end_iterator {
+    std::tuple<std::ranges::sentinel_t<Rs>...> sentinels;
+
+    bool operator==(const begin_iterator& it) const {
+      return compare(it, std::make_index_sequence<sizeof...(Rs)>{});
+    }
+
+   private:
+    template <std::size_t... I>
+    bool compare(const begin_iterator& it, std::index_sequence<I...>) const {
+      return ((std::get<I>(it.iterators) == std::get<I>(sentinels)) || ...);
+    }
+  };
+
+ public:
+  explicit zip_view(Rs&&... ranges)
+      : bases{std::forward<Rs>(ranges)...} {} // Ensure perfect forwarding
+
+  auto begin() {
+    return begin_iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::begin(r)...}; },
+        bases)};
+  }
+
+  auto end() {
+    return end_iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::end(r)...}; }, bases)};
+  }
+};
+
+template <std::ranges::input_range... Rs>
+zip_view(Rs&&...) -> zip_view<Rs...>;
+
+template <std::ranges::input_range... Rs>
+auto zip(Rs&&... rs) {
+  return zip_view{std::forward<Rs>(rs)...};
+}
+} // namespace views
+using views::zip;
+
+#endif // C++23
+
+auto enumerate(auto&& range) {
+  return zip(
+      std::views::iota((int64_t)0), std::forward<decltype(range)>(range));
 }
 
 } // namespace nvfuser

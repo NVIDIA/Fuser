@@ -78,9 +78,9 @@ static void NvFuserScheduler_RMSNorm(
   at::Tensor input = at::randn(input_shape, options);
   at::Tensor weight = at::randn({input_shape[1]}, options);
 
-  std::vector<c10::IValue> aten_inputs({input, weight});
+  KernelArgumentHolder args({input, weight});
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

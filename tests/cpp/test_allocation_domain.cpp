@@ -99,7 +99,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC4d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -137,7 +138,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC1d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -176,7 +178,8 @@ TEST_F(AllocationDomainTest, NCHW4d_To_NHWC2d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -222,7 +225,8 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC3d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(
       &fusion,
@@ -281,7 +285,8 @@ TEST_F(AllocationDomainTest, Tensor3d_To_NHWC4d_FwdBwd) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(
       &fusion,
@@ -341,7 +346,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -399,7 +405,8 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC4d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -454,7 +461,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC1d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -514,7 +522,8 @@ TEST_F(AllocationDomainTest, NHWC1d_To_NHWC1d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -581,7 +590,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -645,7 +655,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheBefore) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -721,7 +732,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheBefore) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -785,7 +797,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheAfter) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -855,7 +868,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheAfter) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -926,7 +940,8 @@ TEST_F(AllocationDomainTest, NHWC4d_To_NHWC4d_cacheFork) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1015,7 +1030,8 @@ TEST_F(AllocationDomainTest, NHWC2d_To_NHWC2d_cacheFork) {
 
   auto cg_outputs = ke.run({t0});
 
-  ASSERT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
 
   testValidate(&fusion, cg_outputs, {t0}, __LINE__, __FILE__);
 }
@@ -1041,12 +1057,11 @@ TEST_F(AllocationDomainTest, VectorizationIssue902) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
-  ASSERT_TRUE(cg_outputs[0].equal(t0));
+  ASSERT_TRUE(cg_outputs[0].as<at::Tensor>().equal(t0));
 }
 
 TEST_F(AllocationDomainTest, TransposeMatrix) {
@@ -1067,8 +1082,8 @@ TEST_F(AllocationDomainTest, TransposeMatrix) {
   at::Tensor t0 = at::randn(in_shape, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<at::Tensor> outputs = executor_cache.runFusionWithInputs({t0});
-  at::Tensor t1 = outputs[0];
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  at::Tensor t1 = outputs[0].as<at::Tensor>();
 
   auto get_data = [](const at::Tensor& t) -> std::vector<float> {
     const float* base = t.data_ptr<float>();
@@ -1255,7 +1270,7 @@ TEST_F(AllocationDomainTest, Issue1290_ReplayCasPFailedDueToDifferentRanks) {
   at::Tensor in_tensor = at::randn({2, 3}).cuda();
   KernelExecutor ke;
   ke.compile(&fusion, {in_tensor});
-  at::Tensor out_tensor = ke.run({in_tensor})[0];
+  at::Tensor out_tensor = ke.run({in_tensor})[0].as<at::Tensor>();
   EXPECT_THAT(out_tensor.sizes(), ElementsAre(2));
 }
 
@@ -1334,14 +1349,13 @@ TEST_F(AllocationDomainTest, ReductionSchedulerIssue1895) {
   auto t0 =
       at::randn({x, y, z, w, h}, options)
           .as_strided({x, y, z, w, h}, {w * h * z * y, w * h * z, w * h, 1, w});
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
   auto ref = t0.to(at::kDouble).sum({2, 4});
   testValidate(
-      executor_cache.fusion(), cg_outputs, inputs, {ref}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ReductionVectorization) {
@@ -1375,12 +1389,12 @@ TEST_F(AllocationDomainTest, ReductionVectorization) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({x, 1, z}, options);
   auto t1 = at::randn({x, y, z}, options).as_strided({x, y, z}, {1, x, x * y});
-  std::vector<c10::IValue> inputs({t0, t1});
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(AllocationDomainTest, ClearReductionIterDomainsPatch) {

@@ -198,7 +198,7 @@ class FusionDefinition(_C._FusionDefinition):
         save_repro_inputs=False,
         _enable_options: list[str] = [],
         _disable_options: list[str] = [],
-    ) -> list[torch.Tensor | DistributedTensor]:
+    ) -> list[torch.Tensor] | tuple[list[torch.Tensor], list[Sharding]]:
         """
         Executes an nvFuser set of kernels for a given Fusion
 
@@ -247,11 +247,13 @@ class FusionDefinition(_C._FusionDefinition):
                     Reset the FusionCache manually to avoid inadvertent kernel reuse when between different sets of options.
 
         Returns:
-            List[Tensor]
+            A list of output tensors and, if multidevice_schedule is defined, a
+            list of output shardings. The latter is important to pack the outputs
+            into DTensors for framework integration.
         """
         self.profiled = profile
 
-        if device is not None:
+        if not isinstance(device, int) and device is not None:
             if not isinstance(device, torch.device):
                 device = torch.device(device)
             assert (
@@ -260,42 +262,40 @@ class FusionDefinition(_C._FusionDefinition):
             device = device.index
 
         # if definition is not defined by a context manager, try a child class
+        defined_multidevice_schedule = hasattr(self, "multidevice_schedule")
         if self.id() is None:
             self._setup_definition()
             self.definition()
             self._finalize_definition()
 
-        defined_multidevice_schedule = hasattr(
-            self, "multidevice_schedule"
-        ) and isinstance(self.multidevice_schedule, Callable)
-        defined_schedule = hasattr(self, "schedule") and isinstance(
-            self.schedule, Callable
-        )
-        assert not (
-            defined_multidevice_schedule and defined_schedule
-        ), "I haven't tested what if both are defined. We don't plan to support this use case although it may just work."
+            defined_schedule = hasattr(self, "schedule") and isinstance(
+                self.schedule, Callable
+            )
+            assert not (
+                defined_multidevice_schedule and defined_schedule
+            ), "I haven't tested what if both are defined. We don't plan to support this use case although it may just work."
 
-        if defined_multidevice_schedule:
-            # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
-            # scheduling, The scheduling is done before concretization and therefore
-            # before pre-segmentation. `schedule` however assumes the FusionDefinition
-            # has been concretized and pre-segmented, and therefore requires
-            # `_setup_schedule` and `_finalize_schedule` to be called before and after.
-            #
-            # Note: there's a plan to embed multidevice schedules into FusionDefinition
-            # as annotating nodes. This may eventually replace `multidevice_schedule`.
-            self._setup_multidevice_schedule()
-            self.multidevice_schedule()
-            self._finalize_multidevice_schedule()
+            if defined_multidevice_schedule:
+                # Unlike `schedule`, `multidevice_schedule` is designed for inter-device
+                # scheduling, The scheduling is done before concretization and therefore
+                # before pre-segmentation. `schedule` however assumes the FusionDefinition
+                # has been concretized and pre-segmented, and therefore requires
+                # `_setup_schedule` and `_finalize_schedule` to be called before and after.
+                #
+                # Note: there's a plan to embed multidevice schedules into FusionDefinition
+                # as annotating nodes. This may eventually replace `multidevice_schedule`.
+                self._setup_multidevice_schedule()
+                self.multidevice_schedule()
+                self._finalize_multidevice_schedule()
 
-        # If schedule is defined by child class and schedule is not defined for
-        # inputs, make a schedule.
-        if defined_schedule:
-            # Schedule fusion if it does not exist yet or profiling fusion
-            if profile or not self._exist_schedule(inputs):
-                self._setup_schedule(inputs, overwrite_existing_schedule=profile)
-                self.schedule()
-                self._finalize_schedule(inputs)
+            # If schedule is defined by child class and schedule is not defined for
+            # inputs, make a schedule.
+            if defined_schedule:
+                # Schedule fusion if it does not exist yet or profiling fusion
+                if profile or not self._exist_schedule(inputs):
+                    self._setup_schedule(inputs, overwrite_existing_schedule=profile)
+                    self.schedule()
+                    self._finalize_schedule(inputs)
 
         if save_repro_inputs:
             from torch._subclasses.fake_tensor import FakeTensorMode
@@ -314,7 +314,7 @@ class FusionDefinition(_C._FusionDefinition):
                     "Reset the FusionCache manually to avoid reusing kernels when re-executing the fusion definition with different options."
                 )
 
-            out_tensors: list[DistributedTensor] = self._execute(
+            out_tensors, out_shardings = self._execute(
                 inputs,
                 device=device,
                 override_user_schedule=override_user_schedule,
@@ -323,10 +323,13 @@ class FusionDefinition(_C._FusionDefinition):
                 _enable_options=_enable_options,
                 _disable_options=_disable_options,
             )
-            for i, out_tensor in enumerate(out_tensors):
-                if out_tensor.mesh.size == 0:
-                    out_tensors[i] = out_tensor.local
+
+            if defined_multidevice_schedule:
+                return out_tensors, out_shardings
+
+            assert len(out_shardings) == 0
             return out_tensors
+
         except Exception as err:
             logger.exception(self._repro_error_str("executing", inputs))
             raise

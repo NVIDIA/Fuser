@@ -110,9 +110,9 @@ static void NvFuserScheduler_GeluBackwardReduction(
       (reduction_dim ? at::randn({iter_size, reduction_size}, options)
                      : at::randn({reduction_size, iter_size}, options));
 
-  std::vector<c10::IValue> aten_inputs = {aten_input_grad, aten_input_x};
+  KernelArgumentHolder args = {aten_input_grad, aten_input_x};
 
-  runBenchmarkIterations(benchmark_state, executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   // inputs: gradient tensor + input tensor
   // outputs: output, output_of_reduction

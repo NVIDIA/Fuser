@@ -13,7 +13,7 @@
 
 namespace nvfuser::python_frontend {
 
-void DistributedTensor::setAxisIsShardedOn(
+void Sharding::setAxisIsShardedOn(
     const int64_t axis,
     const ParallelType parallel_type) {
   NVF_CHECK(isParallelTypeDeviceDim(parallel_type));
@@ -28,8 +28,7 @@ void DistributedTensor::setAxisIsShardedOn(
   axis_sharded_on_[parallel_type] = axis;
 }
 
-int64_t DistributedTensor::axisShardedOn(
-    const ParallelType parallel_type) const {
+int64_t Sharding::axisShardedOn(const ParallelType parallel_type) const {
   return getOrDefault(axis_sharded_on_, parallel_type, -1L);
 }
 

@@ -11,7 +11,7 @@ install_subdir('src/dynamic_type', install_dir : 'include')
 gtest_dep = dependency('gtest_main')
 gmock_dep = dependency('gmock')
 
-foreach standard : ['17', '20', '23']
+foreach standard : ['20', '23']
     name = 'test_dynamic_type_' + standard
     test_exe = executable(name,
         [
@@ -45,7 +45,7 @@ endforeach
 # benchmarks
 gbench_dep = dependency('benchmark')
 
-foreach standard : ['17', '20', '23']
+foreach standard : ['20', '23']
     name = 'bench_dynamic_type_' + standard
     bench_exe = executable(name,
         [
