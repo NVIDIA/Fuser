@@ -44,9 +44,9 @@ void checkIndexSelectVectorization(
         std::any_of(
             lookup_tv_consumer->getLoopDomain().begin(),
             lookup_tv_consumer->getLoopDomain().end(),
-            [&](IterDomain* id) {
+            [](IterDomain* id) {
               return id->getParallelType() == ParallelType::Vectorize;
-            }));
+            })) << lookup_tv_consumer->getLoopDomain() << " vs vectorized_lookup = " << vectorized_lookup;
     // index TV load
     auto* index_tv_consumer =
         index_select_op->indexTv()->definition()->input(0)->as<TensorView>();
@@ -55,7 +55,7 @@ void checkIndexSelectVectorization(
         std::any_of(
             index_tv_consumer->getLoopDomain().begin(),
             index_tv_consumer->getLoopDomain().end(),
-            [&](IterDomain* id) {
+            [](IterDomain* id) {
               return id->getParallelType() == ParallelType::Vectorize;
             }));
   }
