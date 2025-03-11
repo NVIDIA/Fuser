@@ -133,7 +133,7 @@ class IndexAccumulateOp : public Expr {
  public:
   using Expr::Expr;
 
-  IndexAccumulateOp(IrBuilderPasskey, Val* out, Val* in1, Val* in2, Val* in3);
+  IndexAccumulateOp(IrBuilderPasskey, Val* out, Val* acc, Val* index, int64_t dim, Val* value);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -155,7 +155,7 @@ class IndexAccumulateOp : public Expr {
     return input(1)->as<TensorView>();
   }
 
-  TensorView* valuesTv() const {
+  TensorView* valueTv() const {
     return input(2)->as<TensorView>();
   }
 
