@@ -352,14 +352,18 @@ float simulateHopperL2(
   scheduler_tools::NonOverlappingLRUCacheModel l2(prop->l2CacheSize);
 
   float total_time = 0.0f;
-  const auto do_access = [&l2, &total_time](int64_t address, int64_t size) {
-    bool hit = l2.access(address, size);
+  const auto update_time = [&total_time](int64_t size, bool hit) {
     if (hit) {
       total_time += (float)size;
     } else {
       // Model gmem as 4x slower than L2. This is not accurate.
       total_time += 4.0f * (float)size;
     }
+  };
+
+  const auto do_access = [&l2, &update_time](int64_t address, int64_t size) {
+    bool hit = l2.access(address, size);
+    update_time(size, hit);
   };
 
   // Compute how many total bytes need to be computed, summed over all tiles in
@@ -384,38 +388,102 @@ float simulateHopperL2(
   int64_t offset_b = offset_a + tiles_m * tiles_k;
   int64_t offset_c = offset_b + tiles_n * tiles_k;
 
+  // TODO: if there are more than a certain number of waves, don't simulate them
+  // all since that can take up to multiple seconds. Instead, simulate at most
+  // this many waves then extrapolate from there. The first waves are commonly
+  // the most organized and the last waves the most disorganized. In order to
+  // get a good estimate of the overall behavior, we spread the simulations out
+  // across the entire set.
+  constexpr int64_t max_waves_to_simulate = 10L;
+  size_t simulate_every_nth_wave =
+      (size_t)ceilDiv(num_waves, max_waves_to_simulate);
+  std::vector<size_t> waves_to_simulate;
+  for (size_t wave = 0; wave < (size_t)num_waves;
+       wave += simulate_every_nth_wave) {
+    waves_to_simulate.push_back(wave);
+  }
+
   // This will be filled with the MN coordinates of the tiles for each wave
   std::vector<std::pair<int64_t, int64_t>> wave_tile_coords(num_sms);
+  // Each wave, this is filled with how many tiles are accessing each operand
+  // tile
+  std::vector<int64_t> tiles_with_a(tiles_m);
+  std::vector<int64_t> tiles_with_b(tiles_n);
   // There is one iteration of this loop per wave
-  for (size_t wave : c10::irange(num_waves)) {
+  for (size_t wave : waves_to_simulate) {
+    // TODO: handle multiple operands/outputs, and different precisions here
+    std::fill(tiles_with_a.begin(), tiles_with_a.end(), 0L);
+    std::fill(tiles_with_b.begin(), tiles_with_b.end(), 0L);
+    // How many unique M and N locations are there in this wave?
+    int64_t unique_m = 0L;
+    int64_t unique_n = 0L;
     // Fill coords of all tiles in this wave
     for (size_t sm : c10::irange(num_sms)) {
       size_t block = wave * num_sms + sm;
       std::pair<int64_t, int64_t> pos =
           blockTilePos(tiles_m, tiles_n, (int64_t)block, cfg);
+      if (pos.first < tiles_m) {
+        if (tiles_with_a.at(pos.first) == 0) {
+          unique_m++;
+        }
+        tiles_with_a.at(pos.first)++;
+      }
+      if (pos.second < tiles_n) {
+        if (tiles_with_b.at(pos.second) == 0) {
+          unique_n++;
+        }
+        tiles_with_b.at(pos.second)++;
+      }
       wave_tile_coords[sm] = std::move(pos);
     }
 
-    // TODO: handle multiple operands/outputs, and different precisions here
-    // Model synchronous K loops for all the tiles in wave_tile_coords
-    for (size_t k_pos : c10::irange(tiles_k)) {
+    // If we had this much L2, we could fit the whole wave into L2
+    int64_t total_operand_size =
+        (unique_m * tile_size_a + unique_n * tile_size_b) * tiles_k;
+
+    if (total_operand_size > l2.capacity()) {
+      // When the total amount of operand data across all k loop stages is
+      // larger than the amount of available L2, we know that we will not hold
+      // it all in cache. In these cases, we will use a different method of
+      // counting. We will count the total amount of requests to each address
+      // and assume there is one miss and that the rest are hits. This speeds
+      // things up considerably in these cases.
+      update_time(unique_m * tile_size_a, /*hit=*/false);
+      update_time((num_sms - unique_m) * tile_size_a, /*hit=*/true);
+      update_time(unique_n * tile_size_b, /*hit=*/false);
+      update_time((num_sms - unique_n) * tile_size_b, /*hit=*/true);
+
+      // Since K is probably large, we assume that we will have all cache misses
+      // on the next set of K loops, so we just clear the cache here.
+      // TODO: Update this (and the other branch) if we implement Z-swizzle
+      l2.clear();
+    } else {
+      // This wave could potentially fit into L2
+
+      // Model synchronous K loops for all the tiles in wave_tile_coords
+      for (size_t k_pos : c10::irange(tiles_k)) {
+        for (const auto& [i, j] : wave_tile_coords) {
+          if (i >= tiles_m || j >= tiles_n) {
+            continue;
+          }
+          // Load A and B tiles for this stage
+          do_access(offset_a + i * tiles_k + k_pos, tile_size_a);
+          do_access(offset_b + j * tiles_k + k_pos, tile_size_b);
+        }
+      }
+      // After K loop, write each output tile
       for (const auto& [i, j] : wave_tile_coords) {
         if (i >= tiles_m || j >= tiles_n) {
           continue;
         }
-        // Load A and B tiles for this stage
-        do_access(offset_a + i * tiles_k + k_pos, tile_size_a);
-        do_access(offset_b + j * tiles_k + k_pos, tile_size_b);
+        // NOTE: we might want to use different output throughput than operands
+        do_access(offset_c + i * j, tile_size_c);
       }
     }
-    // After K loop, write each output tile
-    for (const auto& [i, j] : wave_tile_coords) {
-      if (i >= tiles_m || j >= tiles_n) {
-        continue;
-      }
-      // NOTE: we might want to use different output throughput than operands
-      do_access(offset_c + i * j, tile_size_c);
-    }
+  }
+
+  if ((size_t)num_waves > waves_to_simulate.size()) {
+    total_time *= (float)num_waves / (float)waves_to_simulate.size();
   }
 
   return total_time;
@@ -494,9 +562,14 @@ void fillOptimalHopperTileSizes(
   for (auto cta_order :
        {MatmulParams::TileRasterizationOrder::RowMajor,
         MatmulParams::TileRasterizationOrder::ColumnMajor}) {
+    const int64_t swizzled_size =
+        cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? tiles_n
+                                                                    : tiles_m;
+
     // NOTE: we don't need to simulate larger than half the total grid size
     for (size_t grid_swizzle_factor : c10::irange(
-             1, std::min((size_t)21, (size_t)std::min(tiles_m, tiles_n) / 2))) {
+             1, std::min((size_t)21, ((size_t)swizzled_size / 2) + 1))) {
+      /*
       if ((cta_order == MatmulParams::TileRasterizationOrder::RowMajor
                ? tiles_n
                : tiles_m) %
@@ -505,6 +578,7 @@ void fillOptimalHopperTileSizes(
         // Only consider swizzles that do not introduce nondivisible splits
         continue;
       }
+      */
       ConfigSubset cfg = best_config;
       cfg.cta_order = cta_order;
       cfg.grid_swizzle_factor = (int64_t)grid_swizzle_factor;
@@ -1216,8 +1290,8 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           "Cannot safely use TMA because one of the M, N, or K dimensions overflows Int32");
     }
     if (mparams->use_smem_epilogue) {
-      if (problem_shape[(size_t)MatmulDimRole::M] % 64 != 0 ||
-          problem_shape[(size_t)MatmulDimRole::N] % 64 != 0) {
+      if (problem_shape[(size_t)MatmulDimRole::M] % 16 != 0 ||
+          problem_shape[(size_t)MatmulDimRole::N] % 16 != 0) {
         mparams->use_smem_epilogue = false;
       }
       // Always promote smem reuse for Hopper. This is needed because we use TMA

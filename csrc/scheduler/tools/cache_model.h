@@ -45,6 +45,14 @@ class NonOverlappingLRUCacheModel {
     return bytes_hit_;
   }
 
+  //! This can be called to model a case when we know that the next accesses
+  //! should be misses.
+  void clear() {
+    priority_.clear();
+    lookup_.clear();
+    allocated_ = 0L;
+  }
+
  private:
   //! Remove least recently used entries until allocated_ is within capacity_
   void evict();
