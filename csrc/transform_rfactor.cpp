@@ -428,7 +428,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
         return replayed_id_it->second;
       });
 
-  TensorDomain* producer_domain = IrBuilder::createInContainer<TensorDomain>(
+  auto* producer_domain = IrBuilder::createInContainer<TensorDomain>(
       original_td->container(),
       new_producer_root,
       new_producer_logical_domain,

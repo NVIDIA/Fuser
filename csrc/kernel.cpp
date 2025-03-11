@@ -65,6 +65,25 @@ class KernelIrScanner : private IrVisitor {
       dispatch(out);
     }
   }
+
+  void handle(UnaryOp* uop) final {
+    // Do we have any elect sync predicates?
+    if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
+      summary_.has_elect_sync_predicate = true;
+    }
+  }
+
+  void handle(BinaryOp* bop) final {
+    if (bop->lhs()->definition() != nullptr &&
+        bop->lhs()->definition() != bop) {
+      dispatch(bop->lhs()->definition());
+    }
+    if (bop->rhs()->definition() != nullptr &&
+        bop->rhs()->definition() != bop) {
+      dispatch(bop->rhs()->definition());
+    }
+  }
+
   void handle(BlockSync* sync) final {
     // TODO: Move to a dedicated validation pass
     // which is not on the common execution/compilation path
@@ -96,10 +115,6 @@ class KernelIrScanner : private IrVisitor {
       default:
         NVF_THROW("Unknown memory type to allocate.");
     }
-  }
-
-  void handle(RNGOp* rng_op) final {
-    summary_.has_philox_op = true;
   }
 
   void handle(TensorIndex* tensor_index) final {
@@ -224,9 +239,11 @@ class KernelIrScanner : private IrVisitor {
   }
 
   void handle(IfThenElse* ite) final {
-    // Do we have any elect sync predicates?
-    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
-      summary_.has_elect_sync_predicate = true;
+    // Search for ElectSync UnaryOp in IfThenElse predicate
+    if (ite->predicate()->predicate_type() == PredicateType::ElectSync &&
+        ite->predicate()->value() != nullptr &&
+        ite->predicate()->value()->definition() != nullptr) {
+      dispatch(ite->predicate()->value()->definition());
     }
     // Run default handle
     IrVisitor::handle(ite);

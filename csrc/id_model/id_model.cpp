@@ -324,6 +324,11 @@ ValGraph& IdModel::buildExactGraph() {
   for (auto expr : tv_exprs_) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
 
+    NVF_ERROR(
+        c_tv != nullptr,
+        "Expected to have a TensorView output: ",
+        expr->toString());
+
     auto all_tv_outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 
     // Map siblings, as all other tv output domains must match the first tv
@@ -866,33 +871,29 @@ void IdModel::buildAllGraphs() {
   buildLoopGraph();
 }
 
-void IdModel::buildGraph(IdMappingMode mode) {
+ValGraph& IdModel::buildGraph(IdMappingMode mode) {
   switch (mode) {
     case IdMappingMode::EXACT:
-      buildExactGraph();
-      break;
+      return buildExactGraph();
     case IdMappingMode::ALMOSTEXACT:
-      buildAlmostExactGraph();
-      break;
+      return buildAlmostExactGraph();
     case IdMappingMode::BROADCAST:
-      buildBroadcastGraph();
-      break;
+      return buildBroadcastGraph();
     case IdMappingMode::PERMISSIVE:
-      buildPermissiveGraph();
-      break;
+      return buildPermissiveGraph();
     case IdMappingMode::LOOP:
-      buildLoopGraph();
-      break;
+      return buildLoopGraph();
     default:
       NVF_THROW("Unsupported mode: ", mode);
   }
 }
 
-void IdModel::maybeBuildGraph(IdMappingMode mode) {
-  if (id_graphs_.find(mode) != id_graphs_.end()) {
-    return;
+ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
+  auto it = id_graphs_.find(mode);
+  if (it != id_graphs_.end()) {
+    return it->second;
   } else {
-    buildGraph(mode);
+    return buildGraph(mode);
   }
 }
 

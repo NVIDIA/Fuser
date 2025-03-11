@@ -372,7 +372,7 @@ TEST_F(PresegTest, FusionRemoveEmptyOutput) {
   at::Tensor at0 = at::randn({0, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at0};
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   // In the FusionKernelRuntime, before segmentation a number of optimization
@@ -407,7 +407,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReduction) {
   at::Tensor at0 = at::randn({0, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at0};
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -440,7 +440,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReductionWithNonReduction) {
   at::Tensor at0 = at::randn({0, 3, 2}, options);
   std::vector<c10::IValue> aten_inputs = {at0};
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -472,7 +472,7 @@ TEST_F(PresegTest, FusionRemoveEmptyWelford) {
   at::Tensor at0 = at::randn({0, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at0};
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -527,7 +527,7 @@ TEST_F(PresegTest, FusionRemoveEmptyCat) {
   at::Tensor at2 = at::randn({4, 3}, options);
   std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -567,7 +567,7 @@ TEST_F(PresegTest, FusionRemoveEmptyPad) {
   at::Tensor at0 = at::randn({3, 0}, options);
   std::vector<c10::IValue> aten_inputs = {at0};
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -612,7 +612,7 @@ TEST_F(PresegTest, FusionRemoveEmptyMatmul) {
   at::Tensor at1 = at::randn({0, 8}, options);
   std::vector<c10::IValue> aten_inputs = {at0, at1};
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  auto args = KernelArgumentHolder(aten_inputs);
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();

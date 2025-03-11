@@ -109,8 +109,7 @@ static void NvFuserScheduler_LayerNormBackward_HeuristicLookup(
   auto runtime = getLayerBackwardNormRuntime(
       std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 
@@ -165,8 +164,7 @@ static void NvFuserScheduler_LayerNormForward_HeuristicLookup(
   auto runtime = getLayerForwardNormRuntime(
       std::move(fusion_ptr), executor_cache, aten_inputs, shape, norm_shape);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args = KernelArgumentHolder(aten_inputs);
 
   NVF_ERROR(runtime->getMaybeHeuristicsFor(args).has_value());
 

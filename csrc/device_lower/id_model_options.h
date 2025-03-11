@@ -16,7 +16,7 @@ namespace nvfuser {
 class IdModelOptions {
  public:
   IdModelOptions()
-      : build_id_model_(isOptionEnabled(EnableOption::IdModel)),
+      : build_id_model_(!isOptionDisabled(DisableOption::IdModel)),
         consumer_index_(
             isIdModelOptionEnabled(IdModelEnableOption::ConsumerIndex)),
         producer_index_(
@@ -108,16 +108,23 @@ class IdModelOptions {
 
  private:
   void ensureConsistency() {
-    // TensorIndexer is required if these options are enabled
-    build_tensor_indexer_ = build_tensor_indexer_ || consumer_index_ ||
-        producer_index_ || inline_predicate_ || unswitch_predicate_ || loop_;
-    // Similarly, IdModel needs to be built if TensorIndexer is used
-    build_id_model_ = build_id_model_ || build_tensor_indexer_;
+    if (!build_id_model_) {
+      build_tensor_indexer_ = false;
+      consumer_index_ = false;
+      producer_index_ = false;
+      inline_predicate_ = false;
+      unswitch_predicate_ = false;
+      loop_ = false;
+    } else {
+      // TensorIndexer is required if these options are enabled
+      build_tensor_indexer_ = build_tensor_indexer_ || consumer_index_ ||
+          producer_index_ || inline_predicate_ || unswitch_predicate_ || loop_;
+    }
   }
 
  private:
   // Build IdModel
-  bool build_id_model_ = false;
+  bool build_id_model_ = true;
   // Build TensorIndexer
   bool build_tensor_indexer_ = false;
   // Globally enables consumer indexing.

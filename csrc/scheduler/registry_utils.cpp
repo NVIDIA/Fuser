@@ -10,6 +10,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/registry_utils.h>
+#include <scheduler/tools/resize_utils.h>
 #include <scheduler/utils.h>
 
 namespace nvfuser {
@@ -1006,6 +1007,26 @@ bool SchedulerTopologyChecker::hasGatherToBroadcastBeforeReduction(
                   IdMappingMode::PERMISSIVE);
             });
       });
+}
+
+bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
+  bool has_resize = false;
+  bool has_index_op = false;
+
+  for (auto expr : fusion->exprs()) {
+    if (scheduler_tools::isResizeBasedOp(expr)) {
+      has_resize = true;
+    } else if (
+        expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+      has_index_op = true;
+    }
+
+    if (has_resize && has_index_op) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 } // namespace registry_utils

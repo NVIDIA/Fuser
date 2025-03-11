@@ -68,8 +68,8 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
 
 // Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
-  IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   ComputeAtMap compute_at_map(fusion);
@@ -135,8 +135,8 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
 
 // Check SDPABwdOp mapping in IdModel and ComputeAtMap.
 void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
-  IdModel id_model(fusion);
-  const ValGraph& vg = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const ValGraph& vg = id_model.buildExactGraph();
   vg.validateConsistency();
 
   ComputeAtMap compute_at_map(fusion);

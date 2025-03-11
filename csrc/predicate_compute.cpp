@@ -375,6 +375,181 @@ std::size_t UnswitchPredicateKeyHash::operator()(
   return h;
 };
 
+namespace {
+
+// Select first warp of threads along TIDx axis and then use ptx::elect_sync
+// TODO If TIDx is known at compile-time, generate custom mask.
+Val* createElectSyncPredicate() {
+  Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
+  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+  return SimplifyingIrBuilder::logicalAndExpr(
+      elect_sync_val,
+      IrBuilder::ltExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+}
+
+Val* createElectSyncPredicate(kir::Predicate* pred) {
+  NVF_ERROR(pred != nullptr);
+  NVF_ERROR(pred->expr() != nullptr);
+
+  TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
+  NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
+
+  bool is_tv_tidx_parallelized = std::any_of(
+      out_tv->domain()->loop().begin(),
+      out_tv->domain()->loop().end(),
+      [](IterDomain* id) {
+        return id->getParallelType() == ParallelType::TIDx;
+      });
+
+  // short-circuit: out_tv uses ParallelType::TIDx
+  if (is_tv_tidx_parallelized) {
+    return pred->fusion()->trueVal();
+  }
+
+  Val* tidx_paralleltype_dim =
+      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
+
+  // short-circuit: ParallelType::TIDx is not used in cuda kernel.
+  if (tidx_paralleltype_dim == nullptr) {
+    return pred->fusion()->trueVal();
+  }
+
+  // short-circuit: Expect ParallelType::TIDx to have at least one warp.
+  if (tidx_paralleltype_dim->isConstScalar() &&
+      tidx_paralleltype_dim->evaluate().as<int64_t>() < 32) {
+    Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+    return IrBuilder::eqExpr(
+        NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
+  }
+
+  return createElectSyncPredicate();
+}
+
+Val* createSingleExpressionElectSync(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& loops) {
+  NVF_ERROR(pred->expr() != nullptr);
+  NVF_ERROR(
+      ir_utils::isCpAsyncBulk(pred->expr()), "Limited to TMA expressions");
+
+  TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+  auto pred_map =
+      ParallelizedDomainPredicate::getPredicateMap(pred->expr(), loops);
+  Val* parallel_dom_pred = GpuLower::current()->kernel()->trueVal();
+  for (auto pt : {ParallelType::TIDx, ParallelType::TIDy, ParallelType::TIDz}) {
+    // short-circuit: parallelDim is not used by CTA
+    if (!pdim_map.has(pt)) {
+      continue;
+    }
+
+    // Case 1: TMA expression uses ParallelDim to launch multiple
+    // operations simultaneously. Use parallel domain predicate if it
+    // exists.
+    auto pred_info_it = pred_map.find(pt);
+    if (pred_info_it != pred_map.end()) {
+      const auto& pred_info = pred_info_it->second;
+      auto tid_pred = pred_info.getPredicate();
+      parallel_dom_pred =
+          SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
+    }
+
+    // Case 2: ParallelDim is used by CTA but not the TMA expression.
+    // Select a single thread along ParallelDim.
+    bool is_tv_tid_parallelized = std::any_of(
+        out_tv->domain()->loop().begin(),
+        out_tv->domain()->loop().end(),
+        [&](IterDomain* id) { return id->getParallelType() == pt; });
+    if (!is_tv_tid_parallelized) {
+      if (pt == ParallelType::TIDx) {
+        // Use createElectSyncPredicate for ParallelDim::TIDx.
+        parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+            parallel_dom_pred, createElectSyncPredicate(pred));
+      } else {
+        // Select first element of dimension for ParallelDim::TIDy and
+        // ParallelDim::TIDz.
+        Val* paralleltype_dim =
+            GpuLower::current()->parallelDimensionMap().get(pt);
+        if (paralleltype_dim == nullptr || !paralleltype_dim->isOneInt()) {
+          parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
+              parallel_dom_pred,
+              IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+        }
+      }
+    }
+  }
+  NVF_ERROR(parallel_dom_pred != nullptr);
+  return parallel_dom_pred;
+}
+
+// Multiple expressions exist in a for-loop. The common usage of this function
+// is to initialize mbarriers, invalidate mbarriers, or issue multiple TMA load
+// operations in a circular buffer for-loop.
+//
+// Assumptions required for this elect-sync predicate:
+//  1. ParallelType::TIDx >= 32 threads.
+//  2. TMA expression does not use ParallelType::TIDy or ParallelType::TIDz.
+Val* createMultipleExpressionElectSync(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& loops) {
+  NVF_ERROR(pred->expr() == nullptr);
+
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+  const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
+
+  // Determine if warp specialized tma load expression.
+  ParallelType load_warp_on = ParallelType::Serial;
+  auto load_warp_loop_it =
+      std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
+        return fl->circularBufferLoopStage() ==
+            CircularBufferLoopStage::LoadWarp;
+      });
+  if (load_warp_loop_it != loops.end()) {
+    load_warp_on =
+        std::get<WarpSpecialized>(GpuLower::current()
+                                      ->circularBufferInfo()
+                                      .getCircularBufferOptionsFor(
+                                          (*load_warp_loop_it)->iter_domain())
+                                      .type)
+            .on;
+  }
+
+  // If we are in a load warp, then the warp-dispatching IfThenElse
+  // already selects on `load_warp_on`, so we should not generate
+  // predicates for it here.
+  Val* conditional = load_warp_on == ParallelType::TIDx
+      ? pred->fusion()->trueVal()
+      : createElectSyncPredicate();
+  for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+    if (pdim_map.has(pt) && load_warp_on != pt) {
+      conditional = SimplifyingIrBuilder::logicalAndExpr(
+          conditional,
+          IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+    }
+  }
+  return conditional;
+}
+
+} // namespace
+
+Val* PredicateCompute::getElectSyncPredicate(
+    kir::Predicate* pred,
+    const std::vector<ForLoop*>& loops) {
+  FUSER_PERF_SCOPE("GpuLower::Lower::getElectSyncPredicate");
+
+  // Short-Circuit: A single expression is associated with the predicate.
+  if (pred->expr() != nullptr) {
+    return createSingleExpressionElectSync(pred, loops);
+  }
+
+  return createMultipleExpressionElectSync(pred, loops);
+}
+
 Val* PredicateCompute::getInlinePredicate(
     const Expr* expr,
     const std::vector<ForLoop*>& loops,

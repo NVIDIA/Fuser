@@ -23,7 +23,7 @@ namespace nvfuser {
 
 //! Maps TensorViews to a { ParallelTypeBitmap, SourceMap } pair
 //!
-//! Map from TensorView to bit set represnting <BIDx, BIDy, BIDz, TIDx, TIDy,
+//! Map from TensorView to bit set representing <BIDx, BIDy, BIDz, TIDx, TIDy,
 //! TIDz> If any dependency of TV had a parallelized reduction, we will track
 //! it here. This will be used for predicate generation to prevent
 //! parallelization on that axis. This is important if we have a reduction on

@@ -37,7 +37,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
 
   // Check if there's a cache
   if (auto ldst = dynamic_cast<LoadStoreOp*>(maybe_repeat_out->definition());
-      ldst->opType() == LoadStoreOpType::Set) {
+      ldst != nullptr && ldst->opType() == LoadStoreOpType::Set) {
     reshape_out = ldst->in()->as<TensorView>();
     repeat_tvs.insert(reshape_out);
   }

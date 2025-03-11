@@ -234,7 +234,7 @@ void ReductionSizeMapper::dispatch(Expr* expr) {
 
 ExpressionEvaluator bindInputsAndLaunchParams(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints) {
   KernelArgumentHolder argument_holder;
   argument_holder.push(aten_inputs);
@@ -284,7 +284,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 
 std::vector<std::pair<double, double>> get_val_constants(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
     const LaunchParams& lparams,
     const ValidationConstants& tolerances) {
   FusionGuard fg(fusion);

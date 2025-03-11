@@ -27,6 +27,10 @@ class PredicateCompute {
       const std::unordered_set<ForLoop*>& rotated_loops,
       Val* thread_pred,
       PredicateType pred_type);
+
+  static Val* getElectSyncPredicate(
+      kir::Predicate* pred,
+      const std::vector<ForLoop*>& loops);
 };
 
 //! Parallelized domains may need to be predicated with threading

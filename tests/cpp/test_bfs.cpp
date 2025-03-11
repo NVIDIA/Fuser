@@ -48,8 +48,8 @@ TEST_F(BFSTest, ValGraphBFS1) {
   // tv1: [i0*i1/4, 4]
   // tv2: [i1*i0/4, 4]
 
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion.get(), /*build_models=*/false);
+  const ValGraph& graph = id_model.buildExactGraph();
 
   ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
   ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
@@ -117,8 +117,8 @@ TEST_F(BFSTest, ValGraphBFS2) {
   // tv0: [i0, i1, i2]
   // tv1: [i0*(i1*i2)]
 
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion.get(), /*build_models=*/false);
+  const ValGraph& graph = id_model.buildExactGraph();
 
   ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
   ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
@@ -179,8 +179,8 @@ TEST_F(BFSTest, ValGraphBFS3) {
   // Traversal from tv4 to tv0 can be {tv4 -> tv1 -> tv0} or {tv4 ->
   // tv3 -> tv2 -> tv0}. The former should be seletected as it's shorter
 
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion.get(), /*build_models=*/false);
+  const ValGraph& graph = id_model.buildExactGraph();
 
   ValGroups tv4_groups = graph.toGroups(tv4->getLoopDomain());
   ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
@@ -225,8 +225,8 @@ TEST_F(BFSTest, ValGraphBFS4) {
 
   // Make sure the BFS traversal should still work even with a cycle.
 
-  const IdModel id_model(fusion.get());
-  const ValGraph& graph = id_model.idGraph(IdMappingMode::EXACT);
+  IdModel id_model(fusion.get(), /*build_models=*/false);
+  const ValGraph& graph = id_model.buildExactGraph();
 
   ValGroups tv4_groups = graph.toGroups(tv4->getLoopDomain());
   ValGroups tv0_groups = graph.toGroups(tv0->getLoopDomain());
@@ -557,7 +557,6 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
   //   Split: iS4{( i0 * i2 )} by factor 4 -> iS5{( ceilDiv(( i0 * i2 ), 4) )},
   //   iS6{4}
   //  loop domain : (iS5{( ceilDiv(( i0 * i2 ), 4) )}, iS6{4})
-  fusion.print();
 
   auto iS5 = tv1->axis(0);
   auto iS6 = tv1->axis(1);

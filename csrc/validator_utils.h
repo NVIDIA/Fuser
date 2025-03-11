@@ -80,12 +80,12 @@ class ReductionSizeMapper : private IterVisitor {
 
 ExpressionEvaluator bindInputsAndLaunchParams(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
     const LaunchParams& launch_constraints);
 
 std::vector<std::pair<double, double>> get_val_constants(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const c10::ArrayRef<c10::IValue>& aten_inputs,
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
 

@@ -1028,6 +1028,21 @@ PersistentKernelProperties getPersistentKernelProperties(
       has_rng_op = true;
     }
   }
+  auto buffers = project_persistent_buffers
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
+
+  // Add buffers that are not projectable.
+  if (project_persistent_buffers) {
+    std::unordered_set<TensorView*> projectable_set(
+        persistent_buffer_info.projectable_persistent_buffers.begin(),
+        persistent_buffer_info.projectable_persistent_buffers.end());
+    for (auto tv : persistent_buffer_info.persistent_buffers) {
+      if (projectable_set.find(tv) == projectable_set.end()) {
+        buffers.push_back(tv);
+      }
+    }
+  }
 
   // Return collected properties to get heuristics.
   return PersistentKernelProperties{

@@ -2094,7 +2094,7 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
               2};
     } else if (ir_utils::isStMatrixOp(ldst)) {
       NVF_ERROR(
-          ldst->out()->as<TensorView>()->getLogicalDomain().size() == 2,
+          ldst->out()->as<TensorView>()->getLogicalDomain().size() >= 2,
           "We only support 2D inputs stmatrix");
 
       NVF_ERROR(

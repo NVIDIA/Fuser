@@ -72,7 +72,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
 
   inlineMost();
 
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_models=*/true);
 
   ref = tv1->getLoopDomain();
   for (auto tv : fusion.allTvs()) {
@@ -139,7 +139,8 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
   }
 
   inlineMost();
-  IdModel id_model(&fusion);
+  IdModel id_model(&fusion, /*build_models=*/false);
+  id_model.buildExactGraph();
 
   ref_loop = tv0->getLoopDomain();
 

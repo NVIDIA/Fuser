@@ -2581,9 +2581,10 @@ bool isResharding(Fusion* fusion) {
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs) {
-  IdModel id_model(fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  const auto& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.maybeBuildGraph(IdMappingMode::EXACT);
+  const auto& permissive_graph =
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
   // This function is meant to be used as a preprocessing step of each
   // segment scheduling. The goal is to find unmapped non-concretized

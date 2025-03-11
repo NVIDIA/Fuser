@@ -8,6 +8,8 @@ from torch import nn
 from typing import Tuple
 from functools import partial
 
+from .model_configs import configs
+
 
 def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
     head_size = x.size(-1)
@@ -25,18 +27,7 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     return roped.to(dtype=x.dtype)
 
 
-def llama_hf_rope(config_str):
-    class Config:
-        def __init__(
-            self, n_head, head_size, n_query_groups, rope_n_elem, batches, seq_length
-        ):
-            self.n_head = n_head
-            self.head_size = head_size
-            self.n_query_groups = n_query_groups
-            self.rope_n_elem = rope_n_elem
-            self.batches = batches
-            self.seq_length = seq_length
-
+def llama_hf(config_str):
     class LitGPTRope(torch.nn.Module):
         def __init__(self, config):
             super(LitGPTRope, self).__init__()
@@ -79,25 +70,7 @@ def llama_hf_rope(config_str):
             k = torch.cat((k_roped, k[..., self.config.rope_n_elem :]), dim=-1)
             return q, k
 
-    configs = {}
-    configs["llama_2_7b_hf_rope"] = Config(
-        n_head=32,
-        head_size=128,
-        n_query_groups=32,
-        rope_n_elem=128,
-        batches=2,
-        seq_length=4096,
-    )
-    configs["llama_3_8B_rope"] = Config(
-        n_head=32,
-        head_size=128,
-        n_query_groups=8,
-        rope_n_elem=128,
-        batches=2,
-        seq_length=8192,
-    )
-
-    cfg = configs[config_str]
+    cfg = configs[config_str]()
 
     def inputs():
         qkv = torch.randn(
@@ -156,40 +129,7 @@ def llama_hf_rope(config_str):
     return LitGPTRope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
-def hf_qwen2_rope():
-    import json
-    from transformers.models.qwen2 import Qwen2Config
-
-    qwen_cfg_str = r"""{
-      "_name_or_path": "Qwen/Qwen2.5-7B-Instruct",
-      "architectures": [
-        "Qwen2ForCausalLM"
-      ],
-      "attention_dropout": 0.0,
-      "bos_token_id": 151643,
-      "eos_token_id": 151645,
-      "hidden_act": "silu",
-      "hidden_size": 3584,
-      "initializer_range": 0.02,
-      "intermediate_size": 18944,
-      "max_position_embeddings": 32768,
-      "max_window_layers": 28,
-      "model_type": "qwen2",
-      "num_attention_heads": 28,
-      "num_hidden_layers": 28,
-      "num_key_value_heads": 4,
-      "rms_norm_eps": 1e-06,
-      "rope_theta": 1000000.0,
-      "sliding_window": null,
-      "tie_word_embeddings": false,
-      "torch_dtype": "bfloat16",
-      "transformers_version": "4.43.3",
-      "use_cache": true,
-      "use_sliding_window": false,
-      "vocab_size": 152064
-    }
-    """
-
+def hf_qwen2():
     def rotate_half(x):
         """Rotates half the hidden dims of the input."""
         x1 = x[..., : x.shape[-1] // 2]
@@ -236,6 +176,8 @@ def hf_qwen2_rope():
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
     class Qwen2Rope(nn.Module):
+        from transformers.models.qwen2 import Qwen2Config
+
         def __init__(self, config: Qwen2Config):
             super().__init__()
             self.config = config
@@ -288,10 +230,7 @@ def hf_qwen2_rope():
             value_states = repeat_kv(value_states, self.num_key_value_groups)
             return query_states, key_states, value_states
 
-    cfg = Qwen2Config.from_dict(json.loads(qwen_cfg_str))
-    cfg.batch_size = 1
-    cfg.seq_len = 4096
-
+    cfg = configs["hf_qwen2"]()
     head_dim = cfg.hidden_size // cfg.num_attention_heads
 
     def inputs():
@@ -376,149 +315,7 @@ def hf_qwen2_rope():
     return Qwen2Rope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
-def hf_phi3_rope():
-    import json
-    from transformers.models.phi3 import Phi3Config
-
-    phi35_cfg_str = r"""{
-      "_name_or_path": "microsoft/Phi-3.5-mini-instruct",
-      "architectures": [
-        "Phi3ForCausalLM"
-      ],
-      "attention_bias": false,
-      "attention_dropout": 0.0,
-      "auto_map": {
-        "AutoConfig": "microsoft/Phi-3.5-mini-instruct--configuration_phi3.Phi3Config",
-        "AutoModelForCausalLM": "microsoft/Phi-3.5-mini-instruct--modeling_phi3.Phi3ForCausalLM"
-      },
-      "bos_token_id": 1,
-      "embd_pdrop": 0.0,
-      "eos_token_id": 32000,
-      "hidden_act": "silu",
-      "hidden_size": 3072,
-      "initializer_range": 0.02,
-      "intermediate_size": 8192,
-      "max_position_embeddings": 131072,
-      "model_type": "phi3",
-      "num_attention_heads": 32,
-      "num_hidden_layers": 32,
-      "num_key_value_heads": 32,
-      "original_max_position_embeddings": 4096,
-      "pad_token_id": 32000,
-      "resid_pdrop": 0.0,
-      "rms_norm_eps": 1e-05,
-      "rope_scaling": {
-        "long_factor": [
-          1.0800000429153442,
-          1.1100000143051147,
-          1.1399999856948853,
-          1.340000033378601,
-          1.5899999141693115,
-          1.600000023841858,
-          1.6200000047683716,
-          2.620000123977661,
-          3.2300000190734863,
-          3.2300000190734863,
-          4.789999961853027,
-          7.400000095367432,
-          7.700000286102295,
-          9.09000015258789,
-          12.199999809265137,
-          17.670000076293945,
-          24.46000099182129,
-          28.57000160217285,
-          30.420001983642578,
-          30.840002059936523,
-          32.590003967285156,
-          32.93000411987305,
-          42.320003509521484,
-          44.96000289916992,
-          50.340003967285156,
-          50.45000457763672,
-          57.55000305175781,
-          57.93000411987305,
-          58.21000289916992,
-          60.1400032043457,
-          62.61000442504883,
-          62.62000274658203,
-          62.71000289916992,
-          63.1400032043457,
-          63.1400032043457,
-          63.77000427246094,
-          63.93000411987305,
-          63.96000289916992,
-          63.970001220703125,
-          64.02999877929688,
-          64.06999969482422,
-          64.08000183105469,
-          64.12000274658203,
-          64.41000366210938,
-          64.4800033569336,
-          64.51000213623047,
-          64.52999877929688,
-          64.83999633789062
-        ],
-       "short_factor": [
-          1.0,
-          1.0199999809265137,
-          1.0299999713897705,
-          1.0299999713897705,
-          1.0499999523162842,
-          1.0499999523162842,
-          1.0499999523162842,
-          1.0499999523162842,
-          1.0499999523162842,
-          1.0699999332427979,
-          1.0999999046325684,
-          1.1099998950958252,
-          1.1599998474121094,
-          1.1599998474121094,
-          1.1699998378753662,
-          1.2899998426437378,
-          1.339999794960022,
-          1.679999828338623,
-          1.7899998426437378,
-          1.8199998140335083,
-          1.8499997854232788,
-          1.8799997568130493,
-          1.9099997282028198,
-          1.9399996995925903,
-          1.9899996519088745,
-          2.0199997425079346,
-          2.0199997425079346,
-          2.0199997425079346,
-          2.0199997425079346,
-          2.0199997425079346,
-          2.0199997425079346,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0299997329711914,
-          2.0799996852874756,
-          2.0899996757507324,
-          2.189999580383301,
-          2.2199995517730713,
-          2.5899994373321533,
-          2.729999542236328,
-          2.749999523162842,
-          2.8399994373321533
-        ],
-        "type": "longrope"
-      },
-      "rope_theta": 10000.0,
-      "sliding_window": 262144,
-      "tie_word_embeddings": false,
-      "torch_dtype": "bfloat16",
-      "transformers_version": "4.46.3",
-      "use_cache": true,
-      "vocab_size": 32064
-    }"""
-
+def hf_phi3():
     class Phi3RotaryEmbedding(nn.Module):
         def __init__(
             self, dim, max_position_embeddings=2048, base=10000.0, device=None
@@ -610,6 +407,8 @@ def hf_phi3_rope():
     class HfPhi3Rope(nn.Module):
         """Multi-headed attention from 'Attention Is All You Need' paper"""
 
+        from transformers.models.phi3 import Phi3Config
+
         def __init__(self, config: Phi3Config):
             super().__init__()
             self.config = config
@@ -681,9 +480,7 @@ def hf_phi3_rope():
 
             return query_states, key_states, value_states
 
-    cfg = Phi3Config.from_dict(json.loads(phi35_cfg_str))
-    cfg.batch_size = 1
-    cfg.seq_len = 8192
+    cfg = configs["hf_phi3"]()
     head_dim = cfg.hidden_size // cfg.num_attention_heads
 
     def inputs():
@@ -738,39 +535,7 @@ def hf_phi3_rope():
     return HfPhi3Rope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
-def hf_mistral_nemo_rope():
-    import json
-    from transformers.models.mistral import MistralConfig
-
-    mistral_cfg_str = r"""{
-      "_name_or_path": "mistralai/Mistral-Nemo-Base-2407",
-      "architectures": [
-        "MistralForCausalLM"
-      ],
-      "attention_dropout": 0.0,
-      "bos_token_id": 1,
-      "eos_token_id": 2,
-      "head_dim": 128,
-      "hidden_act": "silu",
-      "hidden_size": 5120,
-      "initializer_range": 0.02,
-      "intermediate_size": 14336,
-      "max_position_embeddings": 128000,
-      "model_type": "mistral",
-      "num_attention_heads": 32,
-      "num_hidden_layers": 40,
-      "num_key_value_heads": 8,
-      "rms_norm_eps": 1e-05,
-      "rope_theta": 1000000.0,
-      "sliding_window": null,
-      "tie_word_embeddings": false,
-      "torch_dtype": "bfloat16",
-      "transformers_version": "4.43.3",
-      "use_cache": true,
-      "vocab_size": 131072
-    }
-    """
-
+def hf_mistral_nemo():
     class MistralRotaryEmbedding(nn.Module):
         def __init__(
             self, dim, max_position_embeddings=2048, base=10000.0, device=None
@@ -863,6 +628,8 @@ def hf_mistral_nemo_rope():
         return hidden_states.reshape(batch, num_key_value_heads * n_rep, slen, head_dim)
 
     class MistralNemoRope(nn.Module):
+        from transformers.models.mistral import MistralConfig
+
         def __init__(self, config: MistralConfig):
             super().__init__()
             self.config = config
@@ -915,10 +682,7 @@ def hf_mistral_nemo_rope():
             value_states = repeat_kv(value_states, self.num_key_value_groups)
             return query_states, key_states, value_states
 
-    cfg = MistralConfig.from_dict(json.loads(mistral_cfg_str))
-    cfg.batch_size = 1
-    cfg.seq_len = 4096
-
+    cfg = configs["hf_mistral_nemo"]()
     head_dim = cfg.hidden_size // cfg.num_attention_heads
 
     def inputs():
@@ -990,9 +754,9 @@ def hf_mistral_nemo_rope():
 # The setup returns a function that would setup benchmark by returning:
 #    fwd_model, inputs_fn, grads_fn, iobytes_fn
 rope_setup = {
-    "llama_2_7b_hf_rope": partial(llama_hf_rope, config_str="llama_2_7b_hf_rope"),
-    "llama_3_8B_rope": partial(llama_hf_rope, config_str="llama_3_8B_rope"),
-    "hf_qwen2_rope": hf_qwen2_rope,
-    "hf_phi3_rope": hf_phi3_rope,
-    "hf_mistral_nemo_rope": hf_mistral_nemo_rope,
+    "llama_2_7b_hf": partial(llama_hf, config_str="llama_2_7b_hf"),
+    "llama_3_8B": partial(llama_hf, config_str="llama_3_8B"),
+    "hf_qwen2": hf_qwen2,
+    "hf_phi3": hf_phi3,
+    "hf_mistral_nemo": hf_mistral_nemo,
 }

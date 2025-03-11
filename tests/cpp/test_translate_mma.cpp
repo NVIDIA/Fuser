@@ -315,13 +315,18 @@ using MatmulNodeTranslationTest =
 // Test that a simple matmul op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const bool enable_fusion = std::get<2>(GetParam());
   const bool transpose_a_alloc = std::get<3>(GetParam());
   const bool expect_segmented = std::get<4>(GetParam());
   const SchedulerType expected_heuristic = std::get<5>(GetParam());
+
+  if (A_dim == 3 && B_dim == 2) {
+    // TODO: Fix the failure at checkConcreteStaticDim on Hopper in this case
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  }
 
   // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it enabled
   DisableOptionsGuard dog;

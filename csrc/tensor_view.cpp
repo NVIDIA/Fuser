@@ -523,6 +523,46 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   return this;
 }
 
+TensorView* TensorView::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion) {
+  NVF_ERROR(
+      nDims() > 0,
+      "Tried to do resize on a 0-dim TensorView. ",
+      "Tensor: ",
+      toString());
+
+  axis = wrapDim(axis);
+
+  NVF_CHECK(
+      axis >= getMaxComputePosition(),
+      "Cannot resize axis within compute at position. Axis = ",
+      axis,
+      " computePosition = ",
+      getMaxComputePosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      axis >= getMaybeMaxProducerPosition(),
+      "Cannot resize axis within max producer position. Axis = ",
+      axis,
+      " maxProducerPosition = ",
+      getMaybeMaxProducerPosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      this->axis(axis)->getParallelType() == ParallelType::Serial,
+      "Resizing an axis of non-Serial parallel type is not supported at this time."
+      " Parallelization strategy must be set after calling resize: ",
+      toString());
+
+  domain()->resize(axis, left_expansion, right_expansion);
+  return this;
+}
+
 TensorView* TensorView::flatten(int64_t from, int64_t to) {
   NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
   from = wrapDim(from);
@@ -750,12 +790,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
 
   // Split tensor view into 2 parts
-  auto domain_pair = domain()->rFactor(axes);
-
-  // Producer in the pair
-  auto producer_domain = domain_pair.first;
-  // Consumer in the pair
-  auto consumer_domain = domain_pair.second;
+  auto [producer_domain, consumer_domain] = domain()->rFactor(axes);
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =

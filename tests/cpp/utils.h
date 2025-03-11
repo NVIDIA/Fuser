@@ -56,7 +56,7 @@ const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
 CGResultsPackage scheduleAndRun(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const at::ArrayRef<c10::IValue>& runtime_inputs,
+    const c10::ArrayRef<c10::IValue>& runtime_inputs,
     bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
