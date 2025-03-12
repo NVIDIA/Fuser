@@ -538,6 +538,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   std::vector<TensorView*> cached_tvs;
+  std::vector<TensorView*> tma_load_epilogue_inputs;
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -545,31 +546,37 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
     auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
-    // Load/cache the epilogue inputs if there are any.
     for (auto* c : c_tvs) {
+      // cacheInputsAndOutputs creates a cache_after for each epilogue inputs
       NVF_ERROR(c->uses().size() == 1);
       TensorView* smem_tv = ir_utils::consumerTvsOf(c).at(0);
-      smem_tv->setMemoryType(MemoryType::Shared);
-      LoadStoreOpType load_op = params_->async_gmem_load_operands
-          ? LoadStoreOpType::CpAsyncBulkTensorTile
-          : LoadStoreOpType::Set;
-      smem_tv->definition()->as<LoadStoreOp>()->setOpType(load_op);
-
-      // Schedule shared memory for epilogue input
-      blockTileTensors({smem_tv});
-      parallelizeBlocks({smem_tv});
-
-      transformLikeMmaOutputWithoutK(smem_tv);
-
-      MmaInputSmemSwizzle swizzle_type =
-          mma_utils::tmaSwizzleSharedMemory(smem_tv);
-      smem_tv->applyMmaSwizzleForTMALoad(swizzle_type);
-
-      smem_epilogues_.push_back(smem_tv);
+      NVF_ERROR(smem_tv->definition()->isA<LoadStoreOp>());
       cached_tvs.push_back(smem_tv);
+
+      if (params_->async_gmem_load_operands) {
+        // Schedule TMA load into shared memory for epilogue input
+        smem_tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulkTensorTile);
+        smem_tv->setMemoryType(MemoryType::Shared);
+
+        blockTileTensors({smem_tv});
+        parallelizeBlocks({smem_tv});
+
+        transformLikeMmaOutputWithoutK(smem_tv);
+
+        // Swizzle to avoid shared memory bank conflicts
+        MmaInputSmemSwizzle swizzle_type =
+            mma_utils::tmaSwizzleSharedMemory(smem_tv);
+        smem_tv->applyMmaSwizzleForTMALoad(swizzle_type);
+
+        tma_load_epilogue_inputs.push_back(smem_tv);
+        // Do not propagate any other changes to TMA load.
+        propagate_to.push_back(smem_tv);
+      } else {
+        // Propagate changes to the cache_after tensor if not using TMA load.
+        propagate_to.push_back(c);
+      }
     }
-    propagate_to.insert(
-        propagate_to.end(), cached_tvs.begin(), cached_tvs.end());
   }
 
   if (!params_->use_smem_epilogue) {
@@ -620,27 +627,38 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     fusion_->manage("ldst_matrix_m_smem", tma_m);
     fusion_->manage("ldst_matrix_n_smem", tma_n);
 
-    for (TensorView* smem_tv : smem_epilogues_) {
+    // For each TMA load, create and schedule LdMatrix to load from shared
+    // memory to registers
+    for (TensorView* smem_tv : tma_load_epilogue_inputs) {
       TensorView* reg_tv = cacheAfter(smem_tv);
       reg_tv->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::LdMatrix);
 
+      // Apply the default schedule to all register TensorViews after wgmma.
       blockTileTensors({reg_tv});
       parallelizeBlocks({reg_tv});
-
       transformLikeMmaOutputWithoutK(reg_tv);
 
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+      // Schedule the loop and allocation domain of LdMatrix like the
+      // accumulation register TensorView of wgmma.
+      AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           reg_tv->getLoopDomain());
       reg_tv->setLoopDomain(s.as<IterDomain*>());
       reg_tv->setAllocationDomain(
           reg_tv->getLoopDomain(), /*new_contiguity=*/true);
 
+      // Apply LdStMatrix scheduling to the wgmma loop domain
       mma_utils::scheduleStMatrixForMmaOutput(
           reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
 
+      // Vectorize last iterDomain because LdMatrix loads all eight values with
+      // a single LdMatrix.x4 operation
       reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+      // Do not inline LdMatrix, Epilogue Computation, and StMatrix.
       epilogue_uninlinable_ids_.insert(reg_tv->axis(-3));
+
+      // Do not propagate any other changes to LdMatrix.
       propagate_to.push_back(reg_tv);
     }
 
@@ -716,9 +734,11 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       d_smem->setLoopDomain(s.as<IterDomain*>());
 
       if (store_with_stmatrix) {
-        // Schedule shared memory cache; Output from StMatrix
+        // Apply LdStMatrix scheduling to the wgmma loop domain
         mma_utils::scheduleStMatrixForMmaOutput(
             d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
+
+        // Do not inline LdMatrix, Epilogue Computation, and StMatrix.
         epilogue_uninlinable_ids_.insert(d_smem->axis(-3));
       }
 
@@ -728,7 +748,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);
     }
   }
-  fusion_->printMath();
 }
 
 void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
@@ -754,6 +773,7 @@ void HopperMultipleMatmulScheduler::setUpInlining() {
   smem_loads_and_mma_inputs.insert(bcrs_.begin(), bcrs_.end());
   smem_loads_and_mma_inputs.insert(abs_.begin(), abs_.end());
   smem_loads_and_mma_inputs.insert(bbs_.begin(), bbs_.end());
+  // Do not inline LdMatrix, Epilogue Computation, and StMatrix.
   inlineMost(
       ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs),
       epilogue_uninlinable_ids_);
