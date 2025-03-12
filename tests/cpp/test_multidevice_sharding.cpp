@@ -12,6 +12,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
@@ -1153,7 +1154,8 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
     tv->axis(-2)->parallelize(ParallelType::DIDx);
     reorderDIDToFront(tv);
   }
-  propagateShardings(fusion.get(), d);
+
+  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
 
   for (auto tv : fusion->allTvs()) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
