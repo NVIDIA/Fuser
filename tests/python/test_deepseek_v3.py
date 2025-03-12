@@ -7,8 +7,8 @@ import pytest
 import transformers
 import torch
 import torch.distributed as dist
-
 from contextlib import contextmanager
+from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
     RowwiseParallel,
@@ -86,15 +86,35 @@ def test_transformer_layer(setup_process_group):
         # https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L143-L144).
         transformer_layer.self_attn.num_heads //= d
 
+        # Create the parallel plan
+        parallel_plan = {
+            "self_attn.q_b_proj": ColwiseParallel(),
+            "self_attn.kv_b_proj": ColwiseParallel(),
+            "self_attn.o_proj": RowwiseParallel(),
+        }
+
+        for expert in range(config.n_routed_experts):
+            parallel_plan[f"mlp.experts.{expert}.gate_proj"] = ColwiseParallel()
+            parallel_plan[f"mlp.experts.{expert}.up_proj"] = ColwiseParallel()
+            parallel_plan[f"mlp.experts.{expert}.down_proj"] = RowwiseParallel()
+
+        parallel_plan["mlp.shared_experts.gate_proj"] = ColwiseParallel()
+        parallel_plan["mlp.shared_experts.up_proj"] = ColwiseParallel()
+        parallel_plan["mlp.shared_experts.down_proj"] = RowwiseParallel()
+
         transformer_layer = parallelize_module(
             transformer_layer,
             mesh,
-            {
-                "self_attn.q_b_proj": ColwiseParallel(),
-                "self_attn.kv_b_proj": ColwiseParallel(),
-                "self_attn.o_proj": RowwiseParallel(),
-            },
+            parallel_plan,
         )
+
+        # Sanity-check parameters are indeed distributed
+        distributed_params: list[str] = [
+            name
+            for name, parameter in transformer_layer.named_parameters()
+            if isinstance(parameter.data, DTensor)
+        ]
+        assert len(distributed_params) == 3 + (config.n_routed_experts + 1) * 3
 
         batch_size = 1
         seq_len = 2048
