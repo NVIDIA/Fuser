@@ -795,6 +795,7 @@ public:
 template <std::ranges::viewable_range R>
 enumerate_view(R&&) -> enumerate_view<std::views::all_t<R>>;
 
+// Helper function
 auto enumerate(std::ranges::viewable_range auto&& r) {
   return enumerate_view{std::forward<decltype(r)>(r)};
 };
