@@ -7,6 +7,7 @@ import pytest
 import transformers
 import torch
 import torch.distributed as dist
+import torch.utils._pytree as pytree
 from contextlib import contextmanager
 from enum import auto, Enum
 from torch.distributed.tensor import DTensor
@@ -177,6 +178,28 @@ work around that limitation.
             if isinstance(parameter.data, DTensor)
         ]
         assert len(distributed_params) == 3 + (config.n_routed_experts + 1) * 3
+
+        def print_size_hook(name):
+            def hook(module, inp, out):
+                def get_size_and_strides(x):
+                    if isinstance(x, DTensor):
+                        return get_size_and_strides(x.to_local())
+
+                    if isinstance(x, torch.Tensor):
+                        return x.size(), x.stride()
+
+                    return x
+
+                inp_sizes = pytree.tree_map(get_size_and_strides, inp)
+                weight_sizes = pytree.tree_map(get_size_and_strides, module.weight)
+                out_sizes = pytree.tree_map(get_size_and_strides, out)
+                print(f"{name}: inp = {inp_sizes}, weight = {weight_sizes}, out = {out_sizes}")
+
+            return hook
+
+        for name, module in transformer_layer.named_modules():
+            if isinstance(module, torch.nn.Linear):
+                module.register_forward_hook(print_size_hook(name))
 
         batch_size = 1
         seq_len = 2048
