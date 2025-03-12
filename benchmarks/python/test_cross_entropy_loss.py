@@ -28,8 +28,6 @@ def test_rope_fwd_benchmark(
     kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
-    if executor == "thunder":
-        kwargs["nv_enable_embedding"] = True
 
     test_case = cross_entropy_loss_setup[variation](dtype=torch.bfloat16)
     inputs = test_case.inputs()
@@ -62,8 +60,6 @@ def test_rope_bwd_benchmark(
     kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
-    if executor == "thunder":
-        kwargs["nv_enable_embedding"] = True
 
     test_case = cross_entropy_loss_setup[variation](dtype=torch.bfloat16)
     fwd_inputs = test_case.inputs()
@@ -81,6 +77,6 @@ def test_rope_bwd_benchmark(
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs[0], test_case.grads(), *list(model.parameters())],
+        [outputs[0], test_case.grads(), *fwd_inputs, *list(model.parameters())],
         iobytes=test_case.grad_iobytes(),
     )
