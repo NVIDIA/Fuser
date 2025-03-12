@@ -425,6 +425,7 @@ const std::string Asm::utility() const {
        "tmem::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
        "tmem::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
@@ -590,8 +591,13 @@ SetMaxNReg::SetMaxNReg(
 }
 
 std::string SetMaxNReg::toString(int indent_size) const {
-  return (increaseRegisters()) ? "setmaxnreg.inc.sync.aligned.u32"
-                               : "setmaxnreg.dec.sync.aligned.u32";
+  std::stringstream ss;
+  if (increaseRegisters()) {
+    indent(ss, indent_size) << "setmaxnreg.inc.sync.aligned.u32\n";
+  } else {
+    indent(ss, indent_size) << "setmaxnreg.dec.sync.aligned.u32\n";
+  }
+  return ss.str();
 }
 
 std::string SetMaxNReg::toInlineString(int indent_size) const {
@@ -608,7 +614,9 @@ Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
 }
 
 std::string Return::toString(int indent_size) const {
-  return "return";
+  std::stringstream ss;
+  indent(ss, indent_size) << "return\n";
+  return ss.str();
 }
 
 std::string Return::toInlineString(int indent_size) const {

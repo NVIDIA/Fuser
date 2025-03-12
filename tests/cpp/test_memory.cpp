@@ -2893,11 +2893,8 @@ void testTMemAddKernel(bool same_region) {
     auto check_pass = [same_region](const std::vector<Expr*>& exprs) {
       int64_t num_allocs =
           std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
-            auto asm_ = dynamic_cast<kir::Asm*>(expr);
-            if (asm_ == nullptr) {
-              return false;
-            }
-            return asm_->code().find("tcgen05.alloc") != std::string::npos;
+            std::string str = expr->toString();
+            return str.find("tcgen05.alloc") != std::string::npos;
           });
       EXPECT_EQ(num_allocs, same_region ? 1 : 2);
       int64_t num_deallocs = 0;
@@ -3016,10 +3013,10 @@ TEST_P(StMatrixTest, Regular) {
     GTEST_SKIP() << "Fractional tiling is not supported/tested";
   }
 
-  fusion.manage("st_matrix_m_tile", tile_m);
-  fusion.manage("st_matrix_n_tile", tile_n);
-  fusion.manage("st_matrix_m", sizeM);
-  fusion.manage("st_matrix_n", sizeN);
+  fusion.manage("ldst_matrix_m_tile", tile_m);
+  fusion.manage("ldst_matrix_n_tile", tile_n);
+  fusion.manage("ldst_matrix_m_smem", sizeM);
+  fusion.manage("ldst_matrix_n_smem", sizeN);
 
   auto tv0 = makeContigConcreteTensor({sizeM, sizeN}, dtype);
   fusion.addInput(tv0);

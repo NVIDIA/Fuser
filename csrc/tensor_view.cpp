@@ -527,7 +527,8 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
 TensorView* TensorView::resize(
     int64_t axis,
     Val* left_expansion,
-    Val* right_expansion) {
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
   NVF_ERROR(
       nDims() > 0,
       "Tried to do resize on a 0-dim TensorView. ",
@@ -560,7 +561,7 @@ TensorView* TensorView::resize(
       " Parallelization strategy must be set after calling resize: ",
       toString());
 
-  domain()->resize(axis, left_expansion, right_expansion);
+  domain()->resize(axis, left_expansion, right_expansion, iter_type);
   return this;
 }
 

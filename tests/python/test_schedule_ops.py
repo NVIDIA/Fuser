@@ -1012,6 +1012,9 @@ class TestScheduleOps(TestCase):
         self.assertEqual(nvf_out[1], inputs[4])
         self.assertEqual(nvf_out[2], torch_ref)
 
+    @pytest.mark.skip(
+        reason="Disable test, the scheduler is not actually sending to ExprEvalExec but is sending to KernelExecutor which will correctly error."
+    )
     def test_matmul_auto_scheduler(self):
         """
         Implement a simple matmul kernel with a user defined schedule

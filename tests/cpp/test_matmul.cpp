@@ -3783,10 +3783,10 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
-    fusion.manage("st_matrix_m_tile", stmatrix_tile_m);
-    fusion.manage("st_matrix_n_tile", stmatrix_tile_n);
-    fusion.manage("st_matrix_m", getM(macro));
-    fusion.manage("st_matrix_n", getN(macro));
+    fusion.manage("ldst_matrix_m_tile", stmatrix_tile_m);
+    fusion.manage("ldst_matrix_n_tile", stmatrix_tile_n);
+    fusion.manage("ldst_matrix_m_smem", getM(macro));
+    fusion.manage("ldst_matrix_n_smem", getN(macro));
 
     MmaInputSmemSwizzle store_swizzle =
         mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
@@ -4911,6 +4911,280 @@ TEST_F(HopperMatmulTest, IndexTypeValidation) {
         ::testing::ThrowsMessage<nvfuser::nvfError>(
             ::testing::HasSubstr("Found unsafe casts from DataType::Index")));
   }
+}
+
+TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
+  constexpr auto macro = MmaMacro::Hopper_64_256_16;
+  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
+  constexpr auto swizzle = MmaInputSmemSwizzle::B128;
+  const auto dtype = DataType::Half;
+
+  constexpr bool use_smem_epilogue = false;
+  constexpr bool use_warp_specialization = false;
+
+  constexpr int64_t stages = 4;
+  constexpr int64_t prefetch = 3;
+  const int64_t cta_m = 2 * getM(macro);
+  const int64_t cta_n = 1 * getN(macro);
+
+  constexpr std::tuple<int64_t, int64_t, int64_t> cluster_dims{2, 1, 1};
+
+  // auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype);
+  // auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype);
+  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype);
+  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv0b = broadcast(tv0, {false, false, true});
+  auto tv1b = broadcast(tv1, {false, true, false});
+
+  auto tv2 = fusedMultiplySum(tv0b, tv1b, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion.addOutput(tv3);
+
+  if constexpr (
+      cluster_dims != std::tuple<int64_t, int64_t, int64_t>{1, 1, 1}) {
+    fusion.manage("cluster_dims", cluster_dims);
+  }
+
+  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
+  NVF_CHECK(
+      1 == mma_ops.size(),
+      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
+      mma_ops.size());
+  mma_ops.front()->setMacro(macro);
+
+  // gmem [K, M, 1] x gmem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> gmem [M, N]
+
+  auto tv0c = tv0b->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv0c->setMemoryType(MemoryType::Shared);
+  auto tv1c = tv1b->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv1c->setMemoryType(MemoryType::Shared);
+
+  tv0b->setMemoryType(MemoryType::Global);
+  tv1b->setMemoryType(MemoryType::Global);
+
+  TensorView *tv3c = nullptr, *tv3_shmem = nullptr;
+  if (use_smem_epilogue) {
+    tv3_shmem = tv3->cacheBefore();
+    tv3c = tv3_shmem->cacheBefore();
+    tv3_shmem->setMemoryType(MemoryType::Shared);
+    tv3c->setMemoryType(MemoryType::Local);
+    tv3_shmem->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::StMatrix);
+    tv3->definition()->as<LoadStoreOp>()->setOpType(
+        LoadStoreOpType::CpAsyncBulkTensorTile);
+  } else {
+    tv3c = tv3->cacheBefore();
+    tv3c->setMemoryType(MemoryType::Local);
+  }
+
+  // gmem [K, M, 1] -TMA-> smem [K, M, 1]
+  // gmem [K, 1, N] -TMA-> smem [K, 1, N]
+  // smem [K, M, 1] x smem [K, 1, N] -mma-> register [M, N, rK]
+  // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
+
+  // Create tiles
+  tv2->split(-3, cta_m);
+  tv2->split(-2, cta_n);
+  tv2->split(-1, getK(macro));
+  // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
+  tv2->reorder({{-5, -3}, {-3, -2}});
+  tv2->axis(0)->parallelize(ParallelType::BIDy);
+  tv2->axis(1)->parallelize(ParallelType::BIDx);
+
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  // [..., Mi, Ki] -> [..., Ki, Mi]
+  tv0c->reorder({{-3, -1}});
+  tv0c->applyMmaSwizzleForTMALoad(swizzle);
+  tv0c->axis(-6)->parallelize(ParallelType::Unroll);
+  // [..., Ni, Ki] -> [..., Ki, Ni]
+  tv1c->reorder({{-1, -2}});
+  tv1c->applyMmaSwizzleForTMALoad(swizzle);
+  tv1c->axis(-6)->parallelize(ParallelType::Unroll);
+
+  // Strip ParallelType::Bulk from the broadcast tensors, since its definition
+  // is not a TMA
+  for (TensorView* tv : {tv0b, tv1b}) {
+    for (IterDomain* id : tv->getLoopDomain()) {
+      if (id->isBulk()) {
+        id->parallelize(ParallelType::Serial);
+      }
+    }
+  }
+
+  {
+    tv2->split(-3, getM(macro));
+    tv2->split(-2, getN(macro));
+    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
+    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
+    tv2->reorder({{-4, -3}});
+    tv2->merge(-5);
+    tv2->axis(-4)->parallelize(ParallelType::TIDy);
+    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
+        tv2,
+        -1,
+        {tv3},
+        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
+            .propagateParallelType()
+            .propagateToBoundary());
+  }
+
+  {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv2->getLoopDomain());
+    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
+    tv2->axis(-1)->parallelize(ParallelType::Mma);
+    tv2->axis(-2)->parallelize(ParallelType::Mma);
+    tv2->axis(-3)->parallelize(ParallelType::Mma);
+  }
+
+  if (!use_smem_epilogue) {
+    for (auto tv : {tv3c, tv3}) {
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          tv->getLoopDomain());
+      tv->setLoopDomain(s.as<IterDomain*>());
+    }
+    tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+  } else {
+    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+        tv3c->getLoopDomain());
+    tv3c->setLoopDomain(s.as<IterDomain*>());
+    tv3c->setAllocationDomain(s.as<IterDomain*>(), true);
+
+    constexpr int64_t stmatrix_tile_m = 16;
+    constexpr int64_t stmatrix_tile_n = 16;
+    fusion.manage("st_matrix_m_tile", stmatrix_tile_m);
+    fusion.manage("st_matrix_n_tile", stmatrix_tile_n);
+    fusion.manage("st_matrix_m", getM(macro));
+    fusion.manage("st_matrix_n", getN(macro));
+
+    MmaInputSmemSwizzle store_swizzle =
+        mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
+
+    // This internally calls
+    // Schedule shared memory cache; Output from StMatrix
+    mma_utils::scheduleStMatrixForMmaOutput(
+        tv3_shmem, stmatrix_tile_m, stmatrix_tile_n);
+
+    // Schedule global memory output; Output from TMA Store
+    mma_utils::scheduleTMAStoreForMmaOutput(tv3, store_swizzle);
+  }
+
+  inlineMost(ir_utils::allTvsExcept(&fusion, {tv0, tv1, tv0b, tv1b}));
+
+  if (use_warp_specialization) {
+    tv0c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
+    tv1c->circularBuffer(stages, prefetch, WarpSpecialized(ParallelType::TIDy));
+  } else {
+    tv0c->circularBuffer(stages, prefetch);
+    tv1c->circularBuffer(stages, prefetch);
+  }
+
+  auto inputs =
+      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  inputs.first = inputs.first.squeeze();
+  inputs.second = inputs.second.squeeze();
+
+  KernelExecutor ke;
+  ke.compile(
+      &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
+  auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
+
+  // The following check fails if the BroadcastOps are not removed at lowering
+  // time, resulting in two intermediate global allocations.
+  const kir::KernelSummary& summary = ke.compiledKernel()->kernel()->summary();
+  EXPECT_EQ(summary.global_allocations.size(), 0)
+      << "Expected to have no intermediate global allocations";
+}
+
+// See https://github.com/NVIDIA/Fuser/issues/3962
+TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
+  EnableOptionsGuard eog;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 8192, N = 8192, K = 8192;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, 1, -1}, dtype); // M, 1, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  auto tv2 = makeContigConcreteTensor({1, -1, -1}, dtype); // 1, N, K
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv4 = fusedMultiplySum(tv0, tv1, {2});
+  auto tv3 = castOp(dtype, tv4);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto a_ref = at::randn({M, 1, K}, options);
+  auto b_ref = at::randn({1, N, K}, options);
+  auto c_ref = at::randn({1, N, K}, options);
+  clearL2Cache();
+
+  auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
+  clearL2Cache();
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+  mparams.tiling_strategy =
+      MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.grid_swizzle_factor = 8;
+  // TODO reduced share memory aliasing because of persistent scheduling
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {2, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+  std::vector<c10::IValue> inputs = {a_ref, b_ref, c_ref};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(
+      cg_outputs[0].as<at::Tensor>().allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
 }
 
 } // namespace nvfuser

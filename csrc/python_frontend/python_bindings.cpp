@@ -1200,17 +1200,18 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool capture_debug_output,
              bool profile,
              std::vector<std::string> _enable_options,
-             std::vector<std::string> _disable_options) {
-            KernelArgumentHolder args;
+             std::vector<std::string> _disable_options)
+              -> std::pair<std::vector<at::Tensor>, std::vector<Sharding>> {
+            KernelArgumentHolder ins;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
               if (py::isinstance<py::list>(obj) ||
                   py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
-                  args.push(torch::jit::toIValue(item, c10::AnyType::get()));
+                  ins.push(torch::jit::toIValue(item, c10::AnyType::get()));
                 }
               } else {
-                args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+                ins.push(torch::jit::toIValue(obj, c10::AnyType::get()));
               }
             }
             std::optional<int8_t> int8_device = std::nullopt;
@@ -1218,14 +1219,23 @@ void initNvFuserPythonBindings(PyObject* module) {
               NVF_CHECK(device.value() < 256, "Maximum device index is 255");
               int8_device = (int8_t)device.value();
             }
-            return self.execute(
-                args,
+            auto&& [outs, out_shardings] = self.execute(
+                ins,
                 int8_device,
                 override_user_schedule,
                 capture_debug_output,
                 profile,
                 _enable_options,
                 _disable_options);
+
+            std::vector<at::Tensor> out_tensors;
+            out_tensors.reserve(outs.size());
+            for (const auto& out : outs) {
+              // Should we append toIValue(out) instead?
+              out_tensors.push_back(out.as<at::Tensor>());
+            }
+            return std::make_pair(
+                std::move(out_tensors), std::move(out_shardings));
           },
           py::arg("inputs"),
           py::kw_only(),
