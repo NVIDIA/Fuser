@@ -87,7 +87,36 @@ void MultipleMatmulScheduler::findRoles() {
   // introduce some intermediate Global tensors which will be ignored during
   // lowering. We update as_ and bs_ to point at the last of these tensors
   // before their next consumer is in local memory.
-  for (std::vector<TensorView*>* tensors : {&as_, &bs_}) {
+    auto find_first_local_consumer = [](TensorView* tv) -> TensorView* {
+    while (tv != nullptr) {
+      NVF_ERROR(tv->uses().size() == 1);
+
+      Expr* use = tv->uses().front();
+      NVF_ERROR(use->outputs().size() == 1);
+
+      NVF_ERROR(
+          use->isA<BroadcastOp>() || use->isA<SqueezeOp>() ||
+          use->isA<LoadStoreOp>());
+
+      TensorView* consumer = dynamic_cast<TensorView*>(use->output(0));
+      NVF_ERROR(consumer != nullptr);
+
+      if (consumer->getMemoryType() == MemoryType::Local) {
+        return tv;
+      }
+
+      // Traverse down consumers
+      tv = consumer;
+    }
+    NVF_THROW("Failed to find a consumer that is a local tensor.");
+    return nullptr;
+  };
+  
+  // Apply in-place transformation
+  std::transform(
+      as_.cbegin(), as_.cend(), as_.begin(), find_first_local_consumer);
+  std::transform(
+      bs_.cbegin(), bs_.cend(), bs_.begin(), find_first_local_consumer);
     for (TensorView*& tv : *tensors) {
       while (true) {
         if (tv->uses().size() != 1) {
