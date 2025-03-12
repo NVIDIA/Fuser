@@ -658,30 +658,25 @@ TEST_F(NVFuserTest, IndexAccumulate) {
   fusion.addInput(tv_index);
   // TODO: make this symbolic?!
   auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
-  auto buf = zeros({s_vocab, tv0->axis(-1)}, DataType::Float, true);
-
+  std::vector<nvfuser::Val*> buffer_size = {s_vocab, tv_value->axis(-1)};
+  auto buf = zeros(buffer_size, DataType::Float, true);
+  fusion.addOutput(buf);
+  auto segmented_buf = segment_set(buf);
   // this should be an inplace. Add it in indexAccumulate instead.
-  auto out = indexAccumulate(buf, tv_index, tv_value);
-  fusion.addOutput(out);
+  auto out = indexAccumulate(segmented_buf, tv_index, tv_value);
+  fusion.aliasOutputToInput(out, buf);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-
-  std::vector<int64_t> shape1({17, 19});
-  std::vector<int64_t> shape2({3});
-  auto t0 = at::randn(shape1, options);
-  auto t1 = at::randn(shape1, options);
-  auto t2 = at::randint(0, shape1[0], shape2, options_i);
+  std::vector<int64_t> shape1({seq, hidden});
+  std::vector<int64_t> shape2({seq});
+  auto t_value = at::randn(shape1, options);
+  auto t_index = at::randint(0, hidden, shape2, options_i);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  auto outputs = executor_cache.runFusionWithInputs({t_value, t_index});
 
-  ASSERT_FALSE(executor_cache.getMostRecentKernelRuntime()->isSegmented())
-      << "Should not segmented";
-
-  auto ref = at::index_select(t0, 0, t2) + at::index_select(t1, 0, t2);
-
-  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
