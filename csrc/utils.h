@@ -542,7 +542,9 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 }
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
-NVF_API const char* getNvFuserEnv(const char* env_name, const char* default_value=nullptr);
+NVF_API const char* getNvFuserEnv(
+    const char* env_name,
+    const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
 template <typename K, typename V>
