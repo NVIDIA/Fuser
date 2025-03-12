@@ -472,6 +472,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IndexSelectOp, deserializeIndexSelectRecord);
 
+  auto deserializeIndexAccumulateRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::IndexAccumulateOpRecord(
+        parseStateArgs(buffer->args()),
+        parseStateArgs(buffer->outputs()));
+  };
+  registerParser(RecordType::IndexAccumulateOp, deserializeIndexAccumulateRecord);
+
   auto deserializeSelectRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::SelectOpRecord(
         parseStateArgs(buffer->args()),

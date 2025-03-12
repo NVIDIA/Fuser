@@ -3084,6 +3084,31 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
+      "index_accumulate",
+      [](FusionDefinition::Operators& self,
+         Tensor acc,
+         Tensor index,
+         Tensor value) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.index_accumulate");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(acc.dims);
+        fd->defineRecord(new IndexAccumulateOpRecord(
+            {
+                fd->recordingState(acc()),
+                fd->recordingState(index()),
+                fd->recordingState(value()),
+            },
+            {fd->recordingState(output())},
+            dim));
+        return output;
+      },
+      py::arg("acc"),
+      py::arg("index"),
+      py::arg("value"),
+      py::return_value_policy::reference);
+  nvf_ops.def(
       "select",
       [](FusionDefinition::Operators& self,
          Tensor arg,

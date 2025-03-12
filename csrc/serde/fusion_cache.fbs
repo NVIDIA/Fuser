@@ -48,6 +48,7 @@ enum RecordType: int {
     FullOp,
     IotaOp,
     IndexSelectOp,
+    IndexAccumulateOp,
     SelectOp,
     TorchGatherOp,
     TakeAlongAxisOp,
