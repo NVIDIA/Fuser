@@ -203,6 +203,8 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   std::vector<TensorView*> acw_smems_, bcw_smems_, acrs_, bcrs_, abs_, bbs_,
       splitk_sums_, smem_epilogues_;
+
+  std::unordered_set<IterDomain*> epilogue_uninlinable_ids_;
 };
 
 } // namespace nvfuser

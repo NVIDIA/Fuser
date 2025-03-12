@@ -547,9 +547,29 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
     // Load/cache the epilogue inputs if there are any.
     for (auto* c : c_tvs) {
-      cached_tvs.push_back(c->cacheAfter());
+      NVF_ERROR(c->uses().size() == 1);
+      TensorView* smem_tv = ir_utils::consumerTvsOf(c).at(0);
+      smem_tv->setMemoryType(MemoryType::Shared);
+      LoadStoreOpType load_op = params_->async_gmem_load_operands
+          ? LoadStoreOpType::CpAsyncBulkTensorTile
+          : LoadStoreOpType::Set;
+      smem_tv->definition()->as<LoadStoreOp>()->setOpType(load_op);
+
+      // Schedule shared memory for epilogue input
+      blockTileTensors({smem_tv});
+      parallelizeBlocks({smem_tv});
+
+      transformLikeMmaOutputWithoutK(smem_tv);
+
+      MmaInputSmemSwizzle swizzle_type =
+          mma_utils::tmaSwizzleSharedMemory(smem_tv);
+      smem_tv->applyMmaSwizzleForTMALoad(swizzle_type);
+
+      smem_epilogues_.push_back(smem_tv);
+      cached_tvs.push_back(smem_tv);
     }
-    propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
+    propagate_to.insert(
+        propagate_to.end(), cached_tvs.begin(), cached_tvs.end());
   }
 
   if (!params_->use_smem_epilogue) {
@@ -584,8 +604,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       }
     }
   } else {
-    constexpr int64_t stmatrix_tile_m = 16;
-    constexpr int64_t stmatrix_tile_n = 16;
+    constexpr int64_t ldst_matrix_tile_m = 16;
+    constexpr int64_t ldst_matrix_tile_n = 16;
 
     // TODO: Support tma tile sizes that are a multiple of mma_macro.
     // The wgmma operation creates an output matrix of mma_macro size. The TMA
@@ -595,10 +615,34 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     const int64_t tma_m = params_->tile_sizes.warp_tile.m;
     const int64_t tma_n = params_->tile_sizes.warp_tile.n;
 
-    fusion_->manage("ldst_matrix_m_tile", stmatrix_tile_m);
-    fusion_->manage("ldst_matrix_n_tile", stmatrix_tile_n);
+    fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
+    fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
     fusion_->manage("ldst_matrix_m_smem", tma_m);
     fusion_->manage("ldst_matrix_n_smem", tma_n);
+
+    for (TensorView* smem_tv : smem_epilogues_) {
+      TensorView* reg_tv = cacheAfter(smem_tv);
+      reg_tv->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::LdMatrix);
+
+      blockTileTensors({reg_tv});
+      parallelizeBlocks({reg_tv});
+
+      transformLikeMmaOutputWithoutK(reg_tv);
+
+      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          reg_tv->getLoopDomain());
+      reg_tv->setLoopDomain(s.as<IterDomain*>());
+      reg_tv->setAllocationDomain(
+          reg_tv->getLoopDomain(), /*new_contiguity=*/true);
+
+      mma_utils::scheduleStMatrixForMmaOutput(
+          reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
+
+      reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+      epilogue_uninlinable_ids_.insert(reg_tv->axis(-3));
+      propagate_to.push_back(reg_tv);
+    }
 
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {
@@ -674,7 +718,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       if (store_with_stmatrix) {
         // Schedule shared memory cache; Output from StMatrix
         mma_utils::scheduleStMatrixForMmaOutput(
-            d_smem, stmatrix_tile_m, stmatrix_tile_n);
+            d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
+        epilogue_uninlinable_ids_.insert(d_smem->axis(-3));
       }
 
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -683,6 +728,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       mma_utils::scheduleTMAStoreForMmaOutput(d, swizzle);
     }
   }
+  fusion_->printMath();
 }
 
 void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
@@ -708,7 +754,9 @@ void HopperMultipleMatmulScheduler::setUpInlining() {
   smem_loads_and_mma_inputs.insert(bcrs_.begin(), bcrs_.end());
   smem_loads_and_mma_inputs.insert(abs_.begin(), abs_.end());
   smem_loads_and_mma_inputs.insert(bbs_.begin(), bbs_.end());
-  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
+  inlineMost(
+      ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs),
+      epilogue_uninlinable_ids_);
 
   // if auto inline, will inline to position-7, leads to performance
   // regression
