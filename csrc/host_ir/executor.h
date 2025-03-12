@@ -130,6 +130,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
   void handle(LoadStoreOp* load_store_op) override;
+  void handle(BinaryOp* binary_op) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);

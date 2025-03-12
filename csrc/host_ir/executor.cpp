@@ -576,6 +576,38 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   bind(tv, tensor);
 }
 
+void HostIrEvaluator::handle(BinaryOp* binary_op) {
+  if (!isKnown(binary_op->outputs().at(0))) {
+    return unhandled(binary_op);
+  }
+
+  auto lhs = getKnownConcreteData(binary_op->inputs().at(0)).as<at::Tensor>();
+  auto rhs = getKnownConcreteData(binary_op->inputs().at(1)).as<at::Tensor>();
+  auto output = getKnownConcreteData(binary_op->outputs().at(0)).as<at::Tensor>();
+
+  switch (binary_op->getBinaryOpType()) {
+    case BinaryOpType::Add:
+      at::add_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Sub:
+      at::sub_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Mul:
+      at::mul_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Div:
+      at::div_out(output, lhs, rhs);
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          binary_op->getBinaryOpType(),
+          " in ",
+          binary_op);
+  }
+}
+
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
@@ -588,18 +620,15 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
       inputs.push_back(expr_evaluator_.evaluate(input));
     }
   }
-  // using ExpressionEvaluator::evaluate to evaluate the output is not valid here if the output or one of its producer is an alias
 
-// Here it cannot work because we need to really write the data to some buffer.
-// What we should do is to check if the output is already allocated. If yes, then we should use a new `Expr::evaluate_out`, erroring out if not implemented, OR having a generic `Expr::evaluate + at::copy_`. 
-// If the output is not pre-allocated, then we can simply use `Expr::evaluate` and bind the output to the result.
-
+  // Check that there is no pre-allocated output
   NVF_ERROR(
       std::all_of(
           expr->outputs().begin(),
           expr->outputs().end(),
           [this](Val* output) { return !this->expr_evaluator_.isKnown(output); }),
       "Do not support pre-allocated outputs for the op ", expr);
+  // using ExpressionEvaluator::evaluate to evaluate the output is not valid here if the output or one of its producer is an alias
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
     bind(expr->output(i), concrete_outputs.at(i));

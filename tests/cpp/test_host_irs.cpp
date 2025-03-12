@@ -1245,31 +1245,94 @@ TEST_F(HirSetTest, HostIr) {
       << "Expected output: " << in_aten;
 }
 
-TEST_F(HirSetTest, HostIr) {
+class HirBinaryOpTest : public NVFuserFixtureParamTest<BinaryOpType> {
+ protected:
+  at::Tensor executeBinaryOp(at::Tensor lhs, at::Tensor rhs) {
+    switch (GetParam()) {
+      case BinaryOpType::Add:
+        return lhs + rhs;
+      case BinaryOpType::Sub:
+        return lhs - rhs;
+      case BinaryOpType::Mul:
+        return lhs * rhs;
+      case BinaryOpType::Div:
+        return lhs / rhs;
+      default:
+        NVF_ERROR("Unsupported binary op type ", GetParam());
+        return at::Tensor();
+    }
+  }
+};
+
+TEST_P(HirBinaryOpTest, PreAllocatedOutputs) {
   const std::vector<int64_t> sizes = {8, 64};
+  const auto& binary_op_type = GetParam();
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-  auto* in = makeConcreteTensor(sizes);
+  auto* lhs = makeConcreteTensor(sizes);
+  auto* rhs = makeConcreteTensor(sizes);
   auto* out = makeConcreteTensor(sizes);
-  auto* set = IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in);
-  hic->addInput(in);
+  auto* binary_op = IrBuilder::create<BinaryOp>(binary_op_type, out, lhs, rhs);
+  hic->addInput(lhs);
+  hic->addInput(rhs);
   hic->addInput(out);
-  hic->pushBackTopLevelExprs(set);
+  hic->pushBackTopLevelExprs(binary_op);
 
   HostIrEvaluator hie(std::move(hic));
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
-  auto in_aten = at::randn(sizes, options);
+  auto lhs_aten = at::randn(sizes, options);
+  auto rhs_aten = at::randn(sizes, options);
   auto out_aten = at::empty(sizes, options);
 
-  hie.runWithInput({{in, in_aten}, {out, out_aten}});
+  hie.runWithInput({{lhs, lhs_aten}, {rhs, rhs_aten}, {out, out_aten}});
 
-  EXPECT_TRUE(out_aten.equal(in_aten))
+  at::Tensor expected_out = executeBinaryOp(lhs_aten, rhs_aten);
+  EXPECT_TRUE(expected_out.equal(out_aten))
       << "Obtained output: " << out_aten << "\n"
-      << "Expected output: " << in_aten;
+      << "Expected output: " << expected_out;
 }
+
+TEST_P(HirBinaryOpTest, NonPreAllocatedOutputs) {
+  const std::vector<int64_t> sizes = {8, 64};
+  const auto& binary_op_type = GetParam();
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* lhs = makeConcreteTensor(sizes);
+  auto* rhs = makeConcreteTensor(sizes);
+  auto* out = binaryOp(binary_op_type, lhs, rhs);
+  hic->addInput(lhs);
+  hic->addInput(rhs);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto lhs_aten = at::randn(sizes, options);
+  auto rhs_aten = at::randn(sizes, options);
+
+  auto out_aten = hie.runWithInput({{lhs, lhs_aten}, {rhs, rhs_aten}})[0].as<at::Tensor>();
+
+  at::Tensor expected_out = executeBinaryOp(lhs_aten, rhs_aten);
+  EXPECT_TRUE(expected_out.equal(out_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    HirBinaryOpTest,
+    testing::Values(BinaryOpType::Add, BinaryOpType::Sub, BinaryOpType::Mul, BinaryOpType::Div),
+    [](const testing::TestParamInfo<BinaryOpType>& info) -> std::string {
+      std::stringstream ss;
+      ss << "BinaryOpType_" << info.param;
+      return ss.str();
+    });
 
 } // namespace hir
 
