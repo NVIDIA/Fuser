@@ -310,7 +310,11 @@ def test_parallelize_module(setup_process_group):
 
         def forward(self, x):
             y = self.linear(x)
-            q, k = y.split([self.h_k // self.tp, self.h_v // self.tp], dim=-1)
+            q, k = y.to_local().split(
+                [self.h_k // self.tp, self.h_v // self.tp], dim=-1
+            )
+            q = DTensor.from_local(q, x.device_mesh, placements=[Shard(0)])
+            k = DTensor.from_local(k, x.device_mesh, placements=[Shard(0)])
             return q, k
 
     d = dist.get_world_size()
@@ -320,10 +324,18 @@ def test_parallelize_module(setup_process_group):
     model = Model(d * 2, d * 3, d).cuda()
 
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
-    model = parallelize_module(model, mesh, {"linear": ColwiseParallel()})
+    model = parallelize_module(
+        model, mesh, {"linear": ColwiseParallel(use_local_output=False)}
+    )
     assert isinstance(model.linear.weight, DTensor)
 
-    x = torch.ones([1, 1]).cuda()
+    x = DTensor.from_local(torch.ones([1, 1]).cuda(), mesh, placements=[Replicate()])
     q, k = model(x)
-    torch.testing.assert_close(q.cpu(), torch.tensor([[0.0, 1.0]]) + rank * 5)
-    torch.testing.assert_close(k.cpu(), torch.tensor([[2.0, 3.0, 4.0]]) + rank * 5)
+    assert isinstance(q, DTensor)
+    assert isinstance(k, DTensor)
+    torch.testing.assert_close(
+        q.to_local().cpu(), torch.tensor([[0.0, 1.0]]) + rank * 5
+    )
+    torch.testing.assert_close(
+        k.to_local().cpu(), torch.tensor([[2.0, 3.0, 4.0]]) + rank * 5
+    )
