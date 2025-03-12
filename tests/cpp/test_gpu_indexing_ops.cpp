@@ -669,7 +669,7 @@ TEST_F(NVFuserTest, IndexAccumulate) {
   std::vector<int64_t> shape1({seq, hidden});
   std::vector<int64_t> shape2({seq});
   auto t_value = at::randn(shape1, options);
-  auto t_index = at::randint(0, hidden, shape2, options_i);
+  auto t_index = at::randint(0, vocab, shape2, options_i);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t_value, t_index});
