@@ -3100,8 +3100,7 @@ void initNvFuserPythonBindings(PyObject* module) {
                 fd->recordingState(index()),
                 fd->recordingState(value()),
             },
-            {fd->recordingState(output())},
-            dim));
+            {fd->recordingState(output())}));
         return output;
       },
       py::arg("acc"),
