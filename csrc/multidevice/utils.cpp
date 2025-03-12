@@ -275,7 +275,7 @@ int64_t numDeviceDims(const TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
-namespace {
+
 
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
@@ -293,6 +293,7 @@ std::vector<IterDomain*> getInputsInTargetDomain(
   return inputs_as_iter_domains;
 }
 
+namespace {
 bool overlaps(
     const std::vector<IterDomain*>& a,
     const std::unordered_set<IterDomain*>& b) {
