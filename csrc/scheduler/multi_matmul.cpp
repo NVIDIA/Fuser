@@ -86,8 +86,8 @@ void MultipleMatmulScheduler::findRoles() {
   // When translating MatmulOp or LinearOp with avoid_intermediates, we
   // introduce some intermediate Global tensors which will be ignored during
   // lowering. We update as_ and bs_ to point at the last of these tensors
-  // before their next consumer is in local memory.
-  auto find_first_local_consumer = [](TensorView* tv) -> TensorView* {
+  // before their next consumer is in non-global memory.
+  auto find_last_global_consumer = [](TensorView* tv) -> TensorView* {
     // Example: Suppose we start out with:
     //
     //   Inputs:
@@ -122,7 +122,8 @@ void MultipleMatmulScheduler::findRoles() {
       }
       Expr* use = tv->uses().front();
 
-      if (use->outputs().size() != 1) {
+      // TODO: support ViewOp
+      if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
         break;
       }
       TensorView* consumer = ir_utils::getTvOutput(use);
@@ -131,23 +132,17 @@ void MultipleMatmulScheduler::findRoles() {
         break;
       }
 
-      // TODO: support ViewOp
-      NVF_ERROR(
-          (use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()),
-          "Global-to-global ops must be broadcast, squeeze, or set");
-
       // Traverse down consumers
       tv = consumer;
     }
-    NVF_THROW("Failed to find any consumer that is a non-global tensor.");
-    return nullptr;
+    return tv;
   };
 
   // Apply in-place transformation
   std::transform(
-      as_.cbegin(), as_.cend(), as_.begin(), find_first_local_consumer);
+      as_.cbegin(), as_.cend(), as_.begin(), find_last_global_consumer);
   std::transform(
-      bs_.cbegin(), bs_.cend(), bs_.begin(), find_first_local_consumer);
+      bs_.cbegin(), bs_.cend(), bs_.begin(), find_last_global_consumer);
 
   countDims();
 }
