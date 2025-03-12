@@ -113,7 +113,6 @@ class HfPhi3(CrossEntropyLossBase):
         class MyModel(Phi3PreTrainedModel):
             def __init__(self, config):
                 super().__init__(config)
-                self.padding_idx = config.pad_token_id
                 self.lm_head = torch.nn.Linear(
                     config.hidden_size, config.vocab_size, bias=False
                 )
@@ -136,12 +135,11 @@ class HfMistralNemo(CrossEntropyLossBase):
         super().__init__("hf_mistral_nemo", dtype)
 
     def model(self):
-        from transformers.models.phi3 import Phi3PreTrainedModel
+        from transformers.models.phi3 import MistralPreTrainedModel 
 
-        class MyModel(Phi3PreTrainedModel):
+        class MyModel(MistralPreTrainedModel):
             def __init__(self, config):
                 super().__init__(config)
-                self.padding_idx = config.pad_token_id
                 self.lm_head = torch.nn.Linear(
                     config.hidden_size, config.vocab_size, bias=False
                 )
