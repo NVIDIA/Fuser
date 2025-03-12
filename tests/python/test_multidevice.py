@@ -38,7 +38,7 @@ def test_pointwise(multidevice_test):
     class Model(FusionDefinition):
         def definition(self):
             self.t0 = self.define_tensor(
-                (-1, -1), contiguity=(False, False), dtype=DataType.Float
+                (-1, -1), contiguity=False, dtype=DataType.Float
             )
             self.t1 = self.ops.relu(self.t0)
             self.t2 = self.ops.add(self.t1, self.t1)
@@ -54,9 +54,9 @@ def test_pointwise(multidevice_test):
     sharded_input = multidevice_test.shard_tensor(unsharded_input, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded_input])
-    torch.testing.assert_close(output.local.cpu(), unsharded_input.relu() * 2)
-    assert output.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
+    (output,), (output_sharding,) = fd.execute([sharded_input])
+    torch.testing.assert_close(output.cpu(), unsharded_input.relu() * 2)
+    assert output_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
 
 
 @pytest.mark.mpi
@@ -72,8 +72,8 @@ def test_linear(multidevice_test):
         def definition(self):
             d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
             self.inp = self.define_tensor([b, s, e])
-            self.weight = self.define_tensor([d, e, e], contiguity=[True, True, True])
-            self.bias = self.define_tensor([d, e], contiguity=[True, True])
+            self.weight = self.define_tensor([d, e, e], contiguity=True)
+            self.bias = self.define_tensor([d, e], contiguity=True)
             out = self.ops.linear(self.inp, self.weight, self.bias)
             self.add_output(out)
 
@@ -97,7 +97,9 @@ def test_linear(multidevice_test):
     bias_tensor = unsharded_bias_tensor.view([d, e])[rank : rank + 1]
 
     fd = Model(d, b, s, e)
-    (out_tensor,) = fd.execute([inp_tensor, weight_tensor, bias_tensor])
+    (out_tensor,), (out_sharding,) = fd.execute(
+        [inp_tensor, weight_tensor, bias_tensor]
+    )
 
     # [b, s, d*e]
     unsharded_out_tensor = torch.nn.functional.linear(
@@ -107,10 +109,8 @@ def test_linear(multidevice_test):
         rank : rank + 1
     ]
     # rtol is the same as the default for fp32. atol is slightly increased.
-    assert out_tensor.axis_sharded_on(nvfuser.ParallelType.mesh_x) == 0
-    torch.testing.assert_close(
-        out_tensor.local, expected_out_tensor, rtol=1.3e-6, atol=1e-3
-    )
+    assert out_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == 0
+    torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1.3e-6, atol=1e-3)
 
 
 @pytest.mark.mpi
@@ -154,7 +154,9 @@ def test_linear_loop_split(multidevice_test):
     sharded_bias_tensor = multidevice_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
 
     fd = Model()
-    (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor, sharded_bias_tensor])
+    (out_tensor,), _ = fd.execute(
+        [inp_tensor, sharded_weight_tensor, sharded_bias_tensor]
+    )
 
     # [b, s, d*e]
     unsharded_out_tensor = torch.nn.functional.linear(
@@ -162,9 +164,7 @@ def test_linear_loop_split(multidevice_test):
     )
     expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
     # rtol is the same as the default for fp32. atol is slightly increased.
-    torch.testing.assert_close(
-        out_tensor.local, expected_out_tensor, rtol=1.3e-6, atol=1e-3
-    )
+    torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1.3e-6, atol=1e-3)
 
 
 @pytest.mark.mpi
@@ -211,12 +211,10 @@ def test_matmul_allreduce(multidevice_test):
     weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
 
     fd = Model()
-    (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
+    (in_grad,), _ = fd.execute([out_grad.cuda(), weight.cuda()])
     # Use the default rtol for half because the output, although being float32,
     # is a straight cast from half.
-    torch.testing.assert_close(
-        in_grad.local.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2
-    )
+    torch.testing.assert_close(in_grad.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2)
 
 
 @pytest.mark.mpi
@@ -256,14 +254,14 @@ def test_matmul_loop_split(multidevice_test):
     )
 
     fd = Model()
-    (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor])
+    (out_tensor,), _ = fd.execute([inp_tensor, sharded_weight_tensor])
 
     # [b, s, d*e]
     unsharded_out_tensor = torch.matmul(inp_tensor.cpu(), unsharded_weight_tensor)
     expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
     # rtol is the same as the default for fp32. atol is slightly increased.
     torch.testing.assert_close(
-        out_tensor.local, expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
+        out_tensor, expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
     )
 
 
@@ -317,9 +315,9 @@ def test_matmul_allreduce_loop_split(multidevice_test):
     expected_out = torch.matmul(unsharded_inp, unsharded_weight)
 
     fd = Model()
-    (out,) = fd.execute([sharded_inp, sharded_weight])
+    (out,), _ = fd.execute([sharded_inp, sharded_weight])
 
-    torch.testing.assert_close(out.local.cpu(), expected_out, rtol=1e-3, atol=1e-2)
+    torch.testing.assert_close(out.cpu(), expected_out, rtol=1e-3, atol=1e-2)
 
 
 class QkvFormat(Enum):
@@ -423,7 +421,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
                 return t.permute(1, 0, 3, 2, 4).contiguous().transpose(2, 3)
 
     fd = Model(qkv_format)
-    outs = fd.execute(
+    outs, _ = fd.execute(
         [
             head_parallelize(q).requires_grad_(),
             head_parallelize(k).requires_grad_(),
@@ -433,15 +431,15 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
     )
     out, q_grad, k_grad, v_grad = outs
 
-    def assert_close(actual: nvfuser.DistributedTensor, expected: torch.Tensor):
+    def assert_close(actual: torch.Tensor, expected: torch.Tensor) -> None:
         match qkv_format:
             case QkvFormat.BHSE:
-                assert actual.local.is_contiguous()
+                assert actual.is_contiguous()
             case QkvFormat.BSHE:
-                assert actual.local.transpose(2, 3).is_contiguous()
+                assert actual.transpose(2, 3).is_contiguous()
 
         # Use the default rtol for bfloat16 and a relaxed atol.
-        torch.testing.assert_close(actual.local, expected, rtol=1.6e-2, atol=1e-2)
+        torch.testing.assert_close(actual, expected, rtol=1.6e-2, atol=1e-2)
 
     assert_close(out, head_parallelize(expected_out))
     assert_close(q_grad, head_parallelize(expected_q_grad))
@@ -570,7 +568,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             case QkvFormat.BSHE:
                 return t.transpose(1, 2).contiguous().transpose(1, 2)
 
-    attn, q_grad, k_grad, v_grad = fd.execute(
+    (attn, q_grad, k_grad, v_grad), _ = fd.execute(
         [
             reformat_tensor(sharded_q).requires_grad_(),
             reformat_tensor(sharded_k).requires_grad_(),
@@ -582,13 +580,13 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     def assert_close(actual, expected):
         match qkv_format:
             case QkvFormat.BHSE:
-                assert actual.local.is_contiguous()
+                assert actual.is_contiguous()
             case QkvFormat.BSHE:
-                assert actual.local.transpose(1, 2).is_contiguous()
+                assert actual.transpose(1, 2).is_contiguous()
 
         # Use the default rtol for bfloat16 and a relaxed atol.
         torch.testing.assert_close(
-            actual.local,
+            actual,
             multidevice_test.shard_tensor(expected, 1, mesh),
             rtol=1.6e-2,
             atol=1e-2,
@@ -995,10 +993,10 @@ class TransformerForwardFusion(FusionDefinition):
 # TODO(#2962): validate the numbers as well. Currently, the numbers are off
 # by a lot, making comparison infeasible.
 def _assert_shape_dtype(
-    t: nvfuser.DistributedTensor, expected_sizes: list[int], expected_dtype: torch.dtype
+    t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
 ) -> None:
-    assert t.local.shape == torch.Size(expected_sizes)
-    assert t.local.dtype == expected_dtype
+    assert t.shape == torch.Size(expected_sizes)
+    assert t.dtype == expected_dtype
 
 
 @pytest.mark.skipif(
@@ -1077,7 +1075,7 @@ def test_transformer_forward(multidevice_test, benchmark):
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     # Warm up and validate.
-    outs = warmup_fn()
+    outs, _ = warmup_fn()
     (
         layernorm0_mean,
         layernorm0_rstd,
@@ -1657,7 +1655,7 @@ def test_transformer_backward(multidevice_test, benchmark):
 
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
-    outs = warmup_fn()
+    outs, _ = warmup_fn()
     (
         mlp_linear1_weight_grad,
         mlp_linear1_bias_grad,

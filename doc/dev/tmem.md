@@ -485,7 +485,6 @@ With the above restrictions in mind, let's take a look at a few examples of how
 NOT to schedule TMem load and store:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotWarpCollective) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -507,8 +506,10 @@ TEST_F(TMemTutorialC, NotWarpCollective) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<nvfError>(
-          ::testing::HasSubstr("TMem load/store must be warp collective.")));
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
+          "Invalid data access pattern in TMem load/store: "
+          "TMem load/store must be warp-collective, "
+          "but the innermost extent is not a multiple of 32.")));
 } /*
 ```
 
@@ -516,7 +517,6 @@ The above example is invalid because there are only 16 threads in the kernel.
 Warp collective operations require at least a whole warp to run.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotContiguous) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -540,7 +540,8 @@ TEST_F(TMemTutorialC, NotContiguous) {
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+          "Invalid data access pattern in TMem load/store: "
+          "Warp linearly accessing lanes, but not with stride 1.")));
 } /*
 ```
 
@@ -552,7 +553,6 @@ patterns requires the warp to access a contiguous 32 or 16 lanes of data
 .<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, OneLane) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -576,7 +576,7 @@ TEST_F(TMemTutorialC, OneLane) {
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+          "Invalid data access pattern in TMem load/store:")));
 } /*
 ```
 
