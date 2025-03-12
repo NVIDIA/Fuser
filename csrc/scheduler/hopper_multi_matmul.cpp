@@ -127,19 +127,20 @@ void HopperMultipleMatmulScheduler::validate() const {
 }
 
 void HopperMultipleMatmulScheduler::run() {
-  // Clears memory spaces on intermediate tensors, calls
-  // cache{After,Before,Fork} on inputs and outputs
-  cacheInputsAndOutputs();
-
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
   findPatterns();
   translatePatterns();
-  findRoles();
 
+  // Clears memory spaces on intermediate tensors, calls
+  // cache{After,Before,Fork} on inputs and outputs.
   // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
-  // This also collects mma_results_
-  defineOperandCaches();
+  cacheInputsAndOutputs();
+
+  // We wait until we are done caching tensors to find roles, since this
+  // requires building an IdModel, which would not be updated during the cache
+  // calls.
+  findRoles();
 
   inspectPrologues();
 
@@ -169,16 +170,44 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
   // fusion segmentation
   scheduler_utils::clearMemorySpace(fusion_);
 
-  // Cache inputs
-  scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
+  // Cache operands
+  for (auto role : {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
+    VectorOfUniqueEntries<TensorView*> unique_operands;
+    for (const mma_utils::MatmulPattern& pattern : patterns_) {
+      TensorView* immediate_operand =
+          MatmulTensorRole::OPERAND_A ? pattern.A : pattern.B;
+      for (Val* v : InputsOf::output(immediate_operand)) {
+        if (auto* tv = dynamic_cast<TensorView*>(v)) {
+          unique_operands.pushBack(tv);
+        }
+      }
+    }
+    const std::vector<TensorView*>& operands =
+        (role == MatmulTensorRole::OPERAND_A) ? as_ : bs_;
+    std::vector<TensorView*>& cw_smems =
+        (role == MatmulTensorRole::OPERAND_A) ? acw_smems_ : bcw_smems_;
 
-  // Cache and fork outputs
-  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
-}
+    for (TensorView* tv : unique_operands.vector()) {
+      std::cout << "operand  tensor " << tv->toString() << std::endl;
+      // When translating MatmulOp or LinearOp with avoid_intermediates, we
+      // introduce some intermediate tensors which need to be ignored during
+      // lowering. We set as_ and bs_ to point at the last of these tensors
+      // before their next consumer is in non-global memory. Then we cache it
+      // and use that as the smem tensor.
+      TensorView* remapped =
+          scheduler_utils::scheduleInputToSkipIntermediates(tv);
+      TensorView* smem_tv = remapped->cacheAfter();
+      operands.push_back(remapped);
+      cw_smems.push_back(smem_tv);
 
-void HopperMultipleMatmulScheduler::defineOperandCaches() {
-  cacheOperandsToSmem(as_, acw_smems_);
-  cacheOperandsToSmem(bs_, bcw_smems_);
+      LoadStoreOpType load_op = params_->async_gmem_load_operands
+          ? LoadStoreOpType::CpAsyncBulkTensorTile
+          : LoadStoreOpType::Set;
+
+      smem_tv->definition()->as<LoadStoreOp>()->setOpType(load_op);
+      smem_tv->setMemoryType(MemoryType::Shared);
+    }
+  }
 
   // Now that we are finished possibly redefining the inputs to the MmaOps,
   // we can set the macro for those ops
@@ -187,26 +216,17 @@ void HopperMultipleMatmulScheduler::defineOperandCaches() {
     NVF_ERROR(mma != nullptr);
     mma->setMacro(params_->mma_macro);
   }
-}
 
-void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
-    const std::vector<TensorView*>& operands,
-    std::vector<TensorView*>& smem_operands) {
-  // Use cp.async.bulk (tma) as requested in scheduler params.
-  smem_operands.resize(operands.size(), nullptr);
-  for (size_t i : c10::irange(operands.size())) {
-    TensorView* operand = operands[i];
-
-    NVF_ERROR(!operand->uses().empty());
-    smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
-
-    LoadStoreOpType load_op = params_->async_gmem_load_operands
-        ? LoadStoreOpType::CpAsyncBulkTensorTile
-        : LoadStoreOpType::Set;
-
-    smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
-    smem_operands[i]->setMemoryType(MemoryType::Shared);
+  // Cache epilogue inputs
+  if (auto it = tensor_roles_.find(MatmulTensorRole::EPILOGUE_INPUT);
+      it != tensor_roles_.end()) {
+    for (TensorView* tv : it->second) {
+      tv->cacheAfter();
+    }
   }
+
+  // Cache and fork outputs
+  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
 }
 
 void HopperMultipleMatmulScheduler::swizzleBlockTiles(

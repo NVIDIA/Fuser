@@ -1035,8 +1035,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
-  // TODO: Make these tests work with Hopper as well as Ampere
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2493,7 +2492,7 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
 
 // Test that our fake plugin works to override the default heuristic
 TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
@@ -2954,7 +2953,7 @@ class AllocationDomainTest
 // [M, K] and [K, N], and all possible combinations of allocation domains.
 // Please note that inpout in B is transposed prior to creating a Mma op.
 TEST_P(AllocationDomainTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   bool a_m_inner = std::get<0>(GetParam());
   bool b_k_inner = std::get<1>(GetParam());
 
@@ -2973,6 +2972,8 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
   auto tv1b = broadcast(tv1t, {true, false, false});
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   fusion->addOutput(tv2);
+
+  fusion->printMath();
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);

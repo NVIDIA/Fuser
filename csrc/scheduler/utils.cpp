@@ -31,6 +31,8 @@
 
 #include <algorithm>
 #include <queue>
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "type.h"
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -2912,5 +2914,57 @@ bool hasExpensiveMUFUops(Fusion* fusion) {
   }
   return false;
 }
+
+TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
+  std::cout << "scheduleInputToSkipIntermediates " << tv->toString()
+            << std::endl;
+  // First check that tv is fully contiguous. If not, then we can't currently
+  // skip it.
+  for (std::optional<bool> c : tv->getContiguity()) {
+    if (c.has_value() && c.value() == false) {
+      std::cout << "  not contig" << std::endl;
+      return tv;
+    }
+  }
+
+  const std::vector<IterDomain*> target_alloc = tv->getMaybeAllocationDomain();
+
+  while (tv != nullptr) {
+    if (tv->uses().size() != 1) {
+      std::cout << "  tv has multiple uses" << std::endl;
+      break;
+    }
+    Expr* use = tv->uses().front();
+
+    // TODO: support ViewOp here too
+    if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
+      std::cout << "  use is not a trivial op: " << use->toString()
+                << std::endl;
+      break;
+    }
+    TensorView* consumer = ir_utils::getTvOutput(use);
+    if (consumer == nullptr) {
+      break;
+    }
+
+    std::cout << "  setting mtype and alloc dom for " << tv->toString()
+              << std::endl;
+
+    // Setting memory type to Global and allocation to be exact mapped with
+    // that of tv is enough to guarantee that it will be skipped during
+    // lowering as a tensor producer alias.
+    consumer->setMemoryType(MemoryType::Global);
+
+    // reorder consumer's allocation domain to match the original input
+    const std::vector<IterDomain*> old_loop = tv->getLoopDomain();
+    scheduler_tools::scheduleLoopDomainsLike({consumer}, target_alloc);
+    consumer->setAllocationDomain(consumer->getLoopDomain(), true);
+    consumer->setLoopDomain(old_loop);
+
+    tv = consumer;
+  }
+  return tv;
+}
+
 } // namespace scheduler_utils
 } // namespace nvfuser

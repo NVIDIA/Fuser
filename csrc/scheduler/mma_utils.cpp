@@ -1882,39 +1882,6 @@ TensorView* prepareOperandForMmaOp(
     group_position[graph.toGroup(operand_id)] = pos;
   }
 
-  // Reorders allocation domain and sets memory type for new TVs we
-  // introduce
-  const auto set_up_intermediate = [&input_alloc_groups,
-                                    &group_position](TensorView* tv) {
-    // A VectorOfUniqueEntries is used here so that we can check for
-    // unallocated groups easily later.
-    VectorOfUniqueEntries<IterDomain*> new_alloc;
-    // The new allocation domain will only contain IDs corresponding to
-    // input_alloc_groups. Any new broadcasts will be absent.
-    for (const ValGroup& group : input_alloc_groups) {
-      auto it = group_position.find(group);
-      // Check that this group was not deleted from group_position
-      NVF_ERROR(
-          it != group_position.end(),
-          "Couldn't find input allocation group's current logical position");
-      IterDomain* id = tv->getLogicalDomain().at(it->second);
-      new_alloc.pushBack(id);
-    }
-    // Validate that all non-broadcast logical IDs are allocated
-    for (IterDomain* id : tv->getLogicalDomain()) {
-      if (!id->isBroadcast()) {
-        NVF_ERROR(
-            new_alloc.has(id),
-            "Unallocated non-broadcast ID ",
-            id->toString(),
-            " found for ",
-            tv->toString());
-      }
-    }
-    tv->setAllocationDomain(new_alloc.vector(), /*new_contiguity=*/true);
-    tv->setMemoryType(MemoryType::Global);
-  };
-
   // Look for axes that we need to broadcast
   size_t num_broadcasts = 0;
   for (const ValGroup& g : output_groups) {
@@ -1935,7 +1902,6 @@ TensorView* prepareOperandForMmaOp(
         std::end(flags),
         true);
     new_operand = broadcast(new_operand, flags);
-    set_up_intermediate(new_operand);
   }
 
   // Now there should be one IterDomain in the logical domain of
@@ -1947,14 +1913,10 @@ TensorView* prepareOperandForMmaOp(
     size_t old_pos = group_position.at(group);
     if (new_pos != old_pos) {
       old2new[(int64_t)old_pos] = (int64_t)new_pos;
-      // We need to keep group_position up to date so that set_up_intermediate
-      // will be able to accurately rearrange the allocation domain
-      group_position[group] = new_pos;
     }
   }
   if (!old2new.empty()) {
     new_operand = permute(new_operand, old2new);
-    set_up_intermediate(new_operand);
   }
 
   return new_operand;

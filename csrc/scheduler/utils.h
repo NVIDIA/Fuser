@@ -791,5 +791,13 @@ inline int64_t nLogicalDims(const TensorView* tv) {
 // reference IDs. Non-matching loop IDs are placed outermost positions.
 void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
 
+//! Given an input TV, try and schedule trivial ops as global to global ops that
+//! will be skipped at lowering by modifying their allocation domains and memory
+//! types. Returns the last resulting global consumer of the given TV: its
+//! definition and those of all its producers will be skipped during lowering
+//! with the tensor producer alias mechanism.
+//! See device_lower/analysis/tensor_producer_aliases.h
+TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
