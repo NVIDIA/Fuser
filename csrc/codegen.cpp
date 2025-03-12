@@ -3066,7 +3066,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       template_args.arg(bdimx);
       template_args.arg(bdimy);
       template_args.arg(isAligned());
-      indent() << genCall("warp::warpReduceTIDXY", template_args, func_args)
+      template_args.arg(is_all_reduce);
+      template_args.arg(num_grouped_iterations);      
+      indent() << genCall("warp::iterGroupedWarpReduceTIDXY", template_args, func_args)
                << ";\n";
     } else {
       NVF_ERROR(false, "Invalid warp reduction dims");

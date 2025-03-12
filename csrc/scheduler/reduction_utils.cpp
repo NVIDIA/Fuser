@@ -557,6 +557,7 @@ void clearUnrollVectorizationAddGroupReduction(
         }
       }
     }
+    std::cout << "after group tv: " << tv->toString() << std::endl;
   }
 
   // Propagate group to other reduction tvs

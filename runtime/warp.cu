@@ -239,6 +239,131 @@ __device__ void warpReduceTIDX(
   }
 }
 
+
+template <
+    int BDIMX,
+    int BDIMY,
+    bool Aligned,
+    bool is_all_reduce,
+    int N, // Number of elements per input array
+    typename T,
+    typename Func,
+    typename BlockDimT>
+__device__ void iterGroupedWarpReduceTIDXY(
+    T out[N],
+    const T inp_val[N],
+    Func reduction_op,
+    T* shared_mem,
+    bool read_write_pred,
+    T init_val,
+    // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
+    // there is no warp specialization in the kernel. If there is warp
+    // specialization, block_dim is the the dimension of the compute warps.
+    BlockDimT block_dim,
+    uint32_t thread_idx_x,
+    uint32_t thread_idx_y,
+    uint32_t barrier_id = 1) {
+    
+  // pack T into uint64_t to reduce number of shuffles
+  // sizeof(T) * K = sizeof(uint64_t), e.g. T = float, K = 2.
+  constexpr int K = sizeof(uint64_t) / sizeof(T);
+  Array<T, K, K> packed_reduce_val;
+  T result[N];
+  // original N reductions are reduced to N / K reductions
+  static_assert(N % K == 0, "N must be a multiple of K");
+#pragma unroll N / K
+  for (int i = 0; i < N; i += K) {
+    packed_reduce_val.set(init_val);
+    if (read_write_pred) {
+#pragma unroll K
+      for (int j = 0; j < K; j++) {
+        packed_reduce_val[j] = inp_val[i + j];
+      }
+    }
+    // reduce within each warp
+    packedWarpReduce(packed_reduce_val, reduction_op);
+
+// unpack
+#pragma unroll K
+    for (int j = 0; j < K; j++) {
+      result[i + j] = packed_reduce_val[j];
+    }
+  }
+
+  // short circuit if we only have one warp
+  if (SINGLE_WARP) {
+    return;
+  }
+
+  // cross warp reduction using shared memory
+  constexpr int WARP_SIZE = 32;
+  constexpr int num_of_warps = BDIMX * BDIMY / WARP_SIZE;    
+  unsigned int idx = thread_idx_x + thread_idx_y * BDIMX;
+  unsigned int warp_idx = idx / WARP_SIZE;
+  unsigned int lane_idx = idx % WARP_SIZE;
+
+  // [warp_idx, N]
+  if (lane_idx == 0) {
+#pragma unroll N
+    for (int i = 0; i < N; i++) {
+      shared_mem[N * warp_idx + i] = result[i];
+    }
+  }
+  block_sync::sync<Aligned>(block_dim, barrier_id);
+
+  if constexpr (is_all_reduce){
+    #pragma unroll N
+    for (int j = 0; j < N; j++) {
+      out[j] = shared_mem[j];
+    }
+    for (int i = 1; i < num_of_warps; i++) {
+#pragma unroll N
+      for (int j = 0; j < N; j++) {
+        out[j] += shared_mem[i * N + j];
+      }
+    }
+  } else {
+    if (warp_idx == 0) {
+      // assuming N = 4, num_of_warps = 4, the warp reduction results are written
+      // to smem: [a0 b0 c0 d0, a1 b1 c1 d1, a2 b2 c2 d2, a3 b3 c3 d3] we need
+      // to further compute [a,b,c,d], where a = sum(a0,a1,a2,a3).
+      int np2 = 1U << (32 - __clz(num_of_warps - 1));
+      if (np2 * N <= 32) {
+        // collect results to threads [0, N-1]
+        T myVal = lane_idx < num_of_warps * N ? shared_mem[lane_idx] : init_val;
+        for (int i = np2 / 2; i >= 1; i /= 2) {
+          T peer = __shfl_down_sync(0xffffffff, myVal, i * N);
+          reduction_op(myVal, peer);
+        }
+        // thread 0 collect the final results from threads 1 to N-1
+        out[0] = myVal;
+        for (int i = 1; i < N; i++) {
+          T peer = __shfl_sync(0xffffffff, myVal, i);
+          if (lane_idx == 0) {
+            out[i] = peer;
+          }
+        }
+      }else{
+        #pragma unroll N
+        for (int j = 0; j < N; j++) {
+          out[j] = shared_mem[j];
+        }
+        for (int i = 1; i < num_of_warps; i++) {
+    #pragma unroll N
+          for (int j = 0; j < N; j++) {
+            out[j] += shared_mem[i * N + j];
+          }
+        }      
+      }
+    }
+  }
+
+
+  // needs sync, otherwise other warps may access shared memory before this
+  // reduction is done.
+  block_sync::sync<Aligned>(block_dim, barrier_id);
+}
+
 template <
     int BDIMX,
     int BDIMY,
@@ -258,7 +383,7 @@ __device__ void warpReduceTIDXY(
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
     const unsigned int thread_idx_x,
-    uint32_t barrier_id = 0) {
+    uint32_t barrier_id = 1) {
   constexpr int WARP_SIZE = 32;
   constexpr int num_of_warps = BDIMX * BDIMY / WARP_SIZE;
 

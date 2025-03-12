@@ -1184,9 +1184,12 @@ void scheduleInnerOuterPersistentKernel(
   const bool is_unroll_or_vectorization = rparams->isUnrolled();
   const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+  bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
 
+  if(rparams->unroll_factor_iter_dom > 1){
+    use_grouped_reduction = true;
+  }
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
   // propagation will not propagate to the final outer reduction.
   if (rparams->use_tma_load) {
@@ -1240,12 +1243,12 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs[0],
       inner_reference_tv,
       is_unroll_or_vectorization,
-      is_outer_grid_persistence,
+      use_grouped_reduction,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
-  std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString()
-            << "\n";
+  std::cout << "inner_reduction_tvs[0]: " << inner_reduction_tvs[0]->toString()<< "\n";
+  std::cout << "inner_reference_tv: " << inner_reference_tv->toString()<< "\n";
 
   for (auto tv : cached_gmem_reload) {
     std::cout << "cached_gmem_reload3 " << tv->toString() << std::endl;
@@ -1275,7 +1278,7 @@ void scheduleInnerOuterPersistentKernel(
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
         is_unroll_or_vectorization,
-        is_outer_grid_persistence,
+        /*use_grouped_reduction=*/false,
         outer_reduction_tvs,
         unroll_vectorizable_cached_tvs,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
