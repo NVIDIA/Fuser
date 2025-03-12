@@ -175,17 +175,19 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
     VectorOfUniqueEntries<TensorView*> unique_operands;
     for (const mma_utils::MatmulPattern& pattern : patterns_) {
       TensorView* immediate_operand =
-          MatmulTensorRole::OPERAND_A ? pattern.A : pattern.B;
+          role == MatmulTensorRole::OPERAND_A ? pattern.A : pattern.B;
       for (Val* v : InputsOf::output(immediate_operand)) {
         if (auto* tv = dynamic_cast<TensorView*>(v)) {
           unique_operands.pushBack(tv);
         }
       }
     }
-    const std::vector<TensorView*>& operands =
-        (role == MatmulTensorRole::OPERAND_A) ? as_ : bs_;
+    std::vector<TensorView*>& operands =
+        role == MatmulTensorRole::OPERAND_A ? as_ : bs_;
     std::vector<TensorView*>& cw_smems =
-        (role == MatmulTensorRole::OPERAND_A) ? acw_smems_ : bcw_smems_;
+        role == MatmulTensorRole::OPERAND_A ? acw_smems_ : bcw_smems_;
+
+    NVF_ERROR(operands.empty());
 
     for (TensorView* tv : unique_operands.vector()) {
       std::cout << "operand  tensor " << tv->toString() << std::endl;
