@@ -873,8 +873,9 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     auto resize_out = resize_based_op->output(0)->as<TensorView>();
     NVF_ERROR(
         resize_out->hasRoot(), "Unexpected op: ", resize_based_op->toString());
-    // To make sure the resize op of this resize_based_op tensor op,
-    // use both the root and logical domains as the traversal targets
+    // getAllExprGroupsBetween finds exprs between IDs. To make sure
+    // the the resize op of this resize_based_op tensor op is found,
+    // use both the root and logical domains as the traversal targets.
     ValGroups resize_inp_out;
     resize_inp_out.pushBack(graph.toGroups(resize_out->getRootDomain()));
     resize_inp_out.pushBack(graph.toGroups(resize_out->getLogicalDomain()));
