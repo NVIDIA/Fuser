@@ -837,9 +837,9 @@ def index_accumulate_generator(
 
     for vocab, hidden, seq in cases:
         for index_dtype in [torch.int, torch.long]:
-            acc = make_arg((vocab, hidden)
+            acc = make_arg((vocab, hidden))
             index = make_index((seq,), low=0, high=vocab, dtype=index_dtype)
-            value = make_arg((seq, hidden)
+            value = make_arg((seq, hidden))
             yield SampleInput(acc, index, value)
 
 def iota_error_generator(

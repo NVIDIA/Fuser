@@ -1036,7 +1036,7 @@ index_accumulate_opinfo = OpInfo(
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
         ArgumentType.Symbolic,
-        ArgumentType.Constant,
+        ArgumentType.Symbolic,
     ),
 )
 shape_ops.append(index_accumulate_opinfo)
