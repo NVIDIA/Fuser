@@ -198,6 +198,45 @@ TEST_F(HirLowerStreamTest, TwoUnaryOps) {
       << "Output: " << output << " Expected: " << input;
 }
 
+TEST_F(HirLowerStreamTest, ThreeUnaryOpsWithDisjointsForLoops) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = set(tv2);
+  hic->addInput(tv0);
+  hic->addOutput(tv3);
+  hic->pushBackTopLevelExprs(tv1->definition());
+  hic->pushBackTopLevelExprs(tv2->definition());
+  hic->pushBackTopLevelExprs(tv3->definition());
+  tv0->setMemoryType(MemoryType::Global);
+  tv1->setMemoryType(MemoryType::Global);
+  tv2->setMemoryType(MemoryType::Global);
+  tv3->setMemoryType(MemoryType::Global);
+  tv1->axis(0)->parallelize(ParallelType::Stream);
+  tv3->axis(0)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
+  EXPECT_EQ(hic->topLevelExprs().size(), 5);
+  EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
+  EXPECT_TRUE(hic->topLevelExprs().at(2)->isA<LoadStoreOp>());
+  EXPECT_TRUE(hic->topLevelExprs().at(3)->isA<kir::Allocate>());
+  EXPECT_TRUE(hic->topLevelExprs().at(4)->isA<ForLoop>());
+
+  HostIrEvaluator hie(std::move(hic));
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+
+  at::Tensor input = at::rand({4, 8}, options);
+  auto output = hie.runWithInput({{tv0, input}})[0].as<at::Tensor>();
+
+  torch::cuda::synchronize();
+  EXPECT_TRUE(output.equal(input))
+      << "Output: " << output << " Expected: " << input;
+}
+
 } // namespace hir
 
 } // namespace nvfuser
