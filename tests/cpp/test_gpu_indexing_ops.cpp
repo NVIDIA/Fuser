@@ -658,7 +658,7 @@ TEST_F(NVFuserTest, IndexAccumulate) {
   fusion.addInput(tv_index);
   // TODO: make this symbolic?!
   auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
-  std::vector<nvfuser::Val*> buffer_size = {s_vocab, tv_value->axis(-1)};
+  std::vector<nvfuser::Val*> buffer_size = {s_vocab, tv_value->axis(-1)->extent()};
   auto buf = zeros(buffer_size, DataType::Float, true);
   // this should be an inplace. handle it when we have codegen support
   auto out = indexAccumulate(buf, tv_index, tv_value);
