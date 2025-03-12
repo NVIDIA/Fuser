@@ -1332,7 +1332,64 @@ INSTANTIATE_TEST_SUITE_P(
       std::stringstream ss;
       ss << "BinaryOpType_" << info.param;
       return ss.str();
-    });
+});
+
+using HirReductionOpTest = NVFuserTest;
+
+TEST_F(HirReductionOpTest, PreAllocatedOutputs) {
+  constexpr int64_t size0 = 8, size1 = 64;
+  constexpr int64_t reduction_axis = 1;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeConcreteTensor({size0, size1});
+  auto* out = newForReduction(in, {reduction_axis}, in->dtype());
+  auto* reduction_op = IrBuilder::create<ReductionOp>(BinaryOpType::Add, hic->zeroVal(), out, in);
+  hic->addInput(in);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(reduction_op);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto in_aten = at::randn({size0, size1}, options);
+  auto out_aten = at::empty({size0}, options);
+
+  hie.runWithInput({{in, in_aten}, {out, out_aten}});
+
+  at::Tensor expected_out = in_aten.sum(reduction_axis);
+  EXPECT_TRUE(expected_out.equal(out_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
+}
+
+TEST_F(HirReductionOpTest, NonPreAllocatedOutputs) {
+  constexpr int64_t size0 = 8, size1 = 64;
+  constexpr int64_t reduction_axis = 1;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeConcreteTensor({size0, size1});
+  auto* out = sum(in, {reduction_axis});
+  hic->addInput(in);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto in_aten = at::randn({size0, size1}, options);
+  auto out_aten = at::empty({size0}, options);
+
+  hie.runWithInput({{in, in_aten}, {out, out_aten}});
+
+  at::Tensor expected_out = in_aten.sum(reduction_axis);
+  EXPECT_TRUE(expected_out.equal(out_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
+}
 
 } // namespace hir
 

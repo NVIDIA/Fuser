@@ -608,6 +608,46 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
   }
 }
 
+void HostIrEvaluator::handle(ReductionOp* reduction_op) {
+  auto input_tv = reduction_op->in()->as<TensorView>();
+  auto output_tv = reduction_op->out()->as<TensorView>();
+  if (!isKnown(output_tv)) {
+    return unhandled(reduction_op);
+  }
+
+  NVF_ERROR(
+      !output_tv->hasRoot(),
+      "Evaluation for rFactored reductions is not supported.");
+  auto input = getKnownConcreteData(input_tv).as<at::Tensor>();
+  auto output = getKnownConcreteData(output_tv).as<at::Tensor>();
+
+  std::vector<int64_t> reduction_axes;
+  for (const auto i : c10::irange(int64_t(output_tv->getLogicalDomain().size()))) {
+    auto ax = output_tv->getLogicalDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+    }
+  }
+  switch (reduction_op->getReductionOpType()) {
+    case BinaryOpType::Add:
+      at::sum_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Max:
+      at::amax_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Min:
+      at::amin_out(output, input, reduction_axes);
+      return;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          reduction_op->getReductionOpType(),
+          " in ",
+          reduction_op);
+  }
+}
+
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
