@@ -28,7 +28,7 @@ class ReductionParams : public HeuristicParams {
       : HeuristicParams(scheduler_type) {};
   // Reducing inner most dimension?
   bool fastest_dim = false;
-
+  bool use_tidx_only = false;
   // Store input in shared memory or registers to reduce global memory reads
   bool persistent_kernel = false;
 
