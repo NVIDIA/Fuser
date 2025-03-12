@@ -376,6 +376,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
   // incorrect results here. Instead, we ensure it is enabled using this guard.
   DisableOptionsGuard dog;
   DisableOptionsGuard::getCurOptions().unset(DisableOption::ExprSimplify);
+
   // For all expressions in the fusion, find the data path
   using DPMap = std::unordered_map<TensorView*, TMemRegisterDataPath>;
   DPMap load_data_path;
