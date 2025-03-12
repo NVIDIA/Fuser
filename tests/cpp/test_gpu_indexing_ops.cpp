@@ -660,11 +660,9 @@ TEST_F(NVFuserTest, IndexAccumulate) {
   auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
   std::vector<nvfuser::Val*> buffer_size = {s_vocab, tv_value->axis(-1)};
   auto buf = zeros(buffer_size, DataType::Float, true);
-  fusion.addOutput(buf);
-  auto segmented_buf = segment_set(buf);
-  // this should be an inplace. Add it in indexAccumulate instead.
-  auto out = indexAccumulate(segmented_buf, tv_index, tv_value);
-  fusion.aliasOutputToInput(out, buf);
+  // this should be an inplace. handle it when we have codegen support
+  auto out = indexAccumulate(buf, tv_index, tv_value);
+  fusion.addOutput(out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
