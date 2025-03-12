@@ -822,6 +822,26 @@ def index_select_error_generator(
     # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
 
 
+def index_accumulate_generator(
+    op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
+):
+    make_arg = partial(
+        make_tensor, device="cuda", dtype=dtype, requires_grad=requires_grad
+    )
+    make_index = partial(make_tensor, device="cuda", requires_grad=False)
+
+    # vocab_size, hidden_size, seq_size
+    cases = (
+        (1024, 12, 300),
+    )
+
+    for vocab, hidden, seq in cases:
+        for index_dtype in [torch.int, torch.long]:
+            acc = make_arg((vocab, hidden)
+            index = make_index((seq,), low=0, high=vocab, dtype=index_dtype)
+            value = make_arg((seq, hidden)
+            yield SampleInput(acc, index, value)
+
 def iota_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):

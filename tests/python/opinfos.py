@@ -1024,6 +1024,20 @@ index_select_opinfo = OpInfo(
 )
 shape_ops.append(index_select_opinfo)
 
+index_accumulate_opinfo = OpInfo(
+    lambda fd: fd.ops.index_accumulate,
+    "index_accumulate",
+    sample_input_generator=index_accumulate_generator,
+    error_input_generator=index_accumulate_error_generator,
+    reference=partial(torch.index_put, accumulate=True),
+    symbolic_parameter_list=(
+        ArgumentType.Symbolic,
+        ArgumentType.Symbolic,
+        ArgumentType.Constant,
+    ),
+)
+shape_ops.append(index_accumulate_opinfo)
+
 # NvFuser's API is significantly different than JAX.
 # TODO: Change python frontend api to match JAX using a cpp wrapper function.
 pad_opinfo = OpInfo(
