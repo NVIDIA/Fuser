@@ -276,7 +276,7 @@ TensorView* scheduleReductionTV(
     //   reduction_tv->split(iter_axis, rparams->circular_buffer_options.stage);
     // }
 
-    if (rparams->vectorize_iter_dom) {
+    if (rparams->vectorize_iter_dom && rparams->unroll_factor_iter_dom > 1) {
       vectorize(iter_axis, rparams->unroll_factor_iter_dom);
     }
 

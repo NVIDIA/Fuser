@@ -671,7 +671,8 @@ void KernelExecutor::initializeExecutorEntry(
   constexpr int64_t warp_size = 32;
   NVF_ERROR(
       !compiled_kernel_->kernel()->summary().has_elect_sync_predicate ||
-          launch_params.bdimx() >= warp_size,
+          (launch_params.bdimx() >= warp_size ||
+           warp_size % launch_params.bdimx() == 0),
       "This cuda kernel contains electSync predicate. "
       "Expected blockDim.x >= 32 but found ",
       launch_params.bdimx());

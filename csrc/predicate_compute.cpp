@@ -385,6 +385,29 @@ Val* createElectSyncPredicate() {
   Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+
+  Val* tidx_pt_dim =
+      GpuLower::current()->parallelDimensionMap().get(ParallelType::TIDx);
+  if (tidx_pt_dim->isConstScalar()) {
+    int64_t bdimx = tidx_pt_dim->value().as<int64_t>();
+    NVF_ERROR(
+        bdimx % 32 == 0 || 32 % bdimx == 0,
+        "Expecting bdimx divisible by 32 or 32 divisible by bdimx, bdimx= ",
+        bdimx);
+    if (bdimx % 32 == 0) {
+      return SimplifyingIrBuilder::logicalAndExpr(
+          elect_sync_val,
+          IrBuilder::ltExpr(
+              NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+    } else {
+      return SimplifyingIrBuilder::logicalAndExpr(
+          elect_sync_val,
+          IrBuilder::ltExpr(
+              NamedScalar::getParallelIndex(ParallelType::TIDy),
+              IrBuilder::create<Val>(32L / bdimx, PrimDataType::UInt64)));
+    }
+  }
+
   return SimplifyingIrBuilder::logicalAndExpr(
       elect_sync_val,
       IrBuilder::ltExpr(
@@ -525,7 +548,14 @@ Val* createMultipleExpressionElectSync(
   Val* conditional = load_warp_on == ParallelType::TIDx
       ? pred->fusion()->trueVal()
       : createElectSyncPredicate();
+  Val* tidx_pt_dim = pdim_map.get(ParallelType::TIDx);
+  bool tidx_less_than_warp = tidx_pt_dim->isConstScalar() &&
+      tidx_pt_dim->evaluate().as<int64_t>() < 32;
+
   for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+    if(tidx_less_than_warp && pt == ParallelType::TIDy) {
+      continue;
+    }
     if (pdim_map.has(pt) && load_warp_on != pt) {
       conditional = SimplifyingIrBuilder::logicalAndExpr(
           conditional,

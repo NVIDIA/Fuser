@@ -199,7 +199,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
   int64_t available_regs = scheduler_utils::register_file_size_56k;
   buffer_params.smem_overhead = smem_overhead;
-
+  buffer_params.regs_buffer_size =
+      partialOuterReductionBufferSize(reduction_tvs, runtime_info);
   // (1) Use both register and shared memory.
   // Start with all the cached input buffers in shared memory, they are loaded
   // from global memory uses async copy which bypasses L1 cache. Outer reduction
@@ -224,6 +225,27 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     }
   }
 
+  bool put_outer_bcast_tv_regs = false;
+  if (std::getenv("OUTER_BCAST_TV_REGS") &&
+      std::atoi(std::getenv("OUTER_BCAST_TV_REGS")) != 0) {
+    put_outer_bcast_tv_regs = true;
+  }
+  for (auto buffer : buffers) {
+    if (put_outer_bcast_tv_regs &&
+        std::any_of(
+            outer_broadcast_tvs.begin(),
+            outer_broadcast_tvs.end(),
+            [&buffer](TensorView* tv) {
+              return DependencyCheck::isDependencyOf(buffer, tv);
+            })) {
+      buffers.erase(
+          std::remove(buffers.begin(), buffers.end(), buffer), buffers.end());
+      buffer_params.regs_buffer_size +=
+          scheduler_utils::getPersistentBufferSizeOfTensor(
+              buffer, runtime_info, persistent_buffer_info);
+    }
+  }
+
   // Needs to use rounded shared memory size to avoid over usage.
   // key : buffer tv.
   // val : register size and rounded shared memory size
@@ -245,8 +267,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     total_smem_buffer_size += buffer_size_smem;
   }
   buffer_params.smem_buffer_size = total_smem_buffer_size;
-  buffer_params.regs_buffer_size =
-      partialOuterReductionBufferSize(reduction_tvs, runtime_info);
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
     buffer_params.smem_persistent_buffers = buffers;
@@ -585,6 +605,11 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   threads_per_block_max =
       std::min(threads_per_block_max, hp_threads_per_block_max);
 
+  if (std::getenv("THREADS") && std::atoi(std::getenv("THREADS")) != 0) {
+    threads_per_block_max = (int64_t)std::atoi(std::getenv("THREADS"));
+    threads_per_block_min = threads_per_block_max;
+  }
+
   // Store all the possible heuristics based on different threads per block.
   // Vectorizaton is fixed at the maximum value.
   std::vector<InnerOuterParams> iop_candidates;
@@ -693,6 +718,10 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
 
+  if (std::getenv("IUNROLL") && std::atoi(std::getenv("IUNROLL")) != 0) {
+    rparams->unroll_factor_iter_dom =
+        (int64_t)std::atoi(std::getenv("IUNROLL"));
+  }
 
   if (std::getenv("TIDX_ONLY") && std::atoi(std::getenv("TIDX_ONLY")) != 0) {
     rparams->use_tidx_only = true;
@@ -928,21 +957,33 @@ void scheduleReductionCombinedOuter(
     // merge tensorview to [reduction, iteraiton] domains
     mergeReductionOrIterDomains(outer_reduction_tv, true);
     mergeReductionOrIterDomains(outer_reduction_tv, false);
+    std::vector<int64_t> rfactor_axes{0};
+    // [R, I]
+    if (rparams->unroll_factor_iter_dom > 1 &&
+        !rparams->multiple_reds_per_blk) {
+      // [R/Unroll, Unroll]
+      outer_reduction_tv->split(0, rparams->unroll_factor_iter_dom);
+      outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+    }
+
     if (rparams->multiple_reds_per_blk) {
+      // [gdimy, R/bdimy/gdimy, bdimy]
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams->block_dim_iter_dom));
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams->grid_dim_iter_dom), false);
+      rfactor_axes.push_back(1);
     } else {
+      // [R/Unroll/gdimy, gdimy, Unroll]
       outer_reduction_tv->split(0, rparams->lparams.gdimy());
+      if (rparams->unroll_factor_iter_dom > 1) {
+        rfactor_axes.push_back(2);
+      }
     }
+    std::cout << "outer_reduction_tv_partial: "
+              << outer_reduction_tv->toString() << "\n";
 
-    if (rparams->multiple_reds_per_blk) {
-      outer_reduction_tv->rFactor({1});
-    }
-    TensorView* partialResult = rparams->multiple_reds_per_blk
-        ? outer_reduction_tv->rFactor({1})
-        : outer_reduction_tv->rFactor({0});
+    TensorView* partialResult = outer_reduction_tv->rFactor(rfactor_axes);
     partialResult->cacheBefore();
     partialResult->setMemoryType(MemoryType::Global);
     TensorView* partialResultReload = partialResult->cacheAfter();
@@ -951,7 +992,8 @@ void scheduleReductionCombinedOuter(
     cached_gmem.emplace_back(partialResult);
     cached_gmem_reload.emplace_back(partialResultReload);
 
-    std::cout << "cached_gmem_reload: " << partialResultReload->toString() << "\n";
+    std::cout << "cached_gmem_reload: " << partialResultReload->toString()
+              << "\n";
 
     if (rparams->multiple_reds_per_blk) {
       if (rparams->tidx_for_outer_reduction) {
@@ -1015,11 +1057,13 @@ void scheduleReductionCombinedOuter(
 
       outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
+    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
+              << "\n";
     auto outer_reference_tv =
         reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
     outer_reference_tvs.emplace_back(outer_reference_tv);
-    std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString() << "\n";
-    std::cout << "outer_reference_tv: " << outer_reference_tv->toString() << "\n";
+    std::cout << "outer_reference_tv: " << outer_reference_tv->toString()
+              << "\n";
   }
 }
 
@@ -1087,12 +1131,14 @@ void scheduleInnerOuterPersistentKernel(
   for (auto output : dummy_outputs) {
     fusion->addOutput(output);
   }
-  for(auto tv : cached_gmem_reload){
+  for (auto tv : cached_gmem_reload) {
     std::cout << "cached_gmem_reload1 " << tv->toString() << std::endl;
   }
-    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
+  std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString()
+            << "\n";
 
   std::vector<TensorView*> tma_load_tvs;
+
   if (rparams->use_tma_load) {
     for (auto tv : smem_consumers) {
       auto smem_tv = ir_utils::getSoleProducerTv(tv);
@@ -1112,10 +1158,12 @@ void scheduleInnerOuterPersistentKernel(
     //     TensorView* pre_redu_tv = nullptr;
     //     TensorView* post_redu_tv = nullptr;
     //     for (auto tv : consumers) {
-    //       if (DependencyCheck::isDependencyOf(tv, inner_reduction_tvs.at(0))) {
+    //       if (DependencyCheck::isDependencyOf(tv, inner_reduction_tvs.at(0)))
+    //       {
     //         pre_redu_tv = tv;
     //         continue;
-    //       } else if(!DependencyCheck::isDependencyOf(tv, outer_reduction_tvs.at(0))) {
+    //       } else if(!DependencyCheck::isDependencyOf(tv,
+    //       outer_reduction_tvs.at(0))) {
     //         post_redu_tv = tv;
     //         continue;
     //       }
@@ -1153,12 +1201,12 @@ void scheduleInnerOuterPersistentKernel(
     TransformPropagator propagator1(inner_reference_tv, 1);
     std::vector<TensorView*> all_tvs_except = ir_utils::allTvsExcept(
         fusion, {outer_reference_tvs.begin(), outer_reference_tvs.end()});
-    SetSelector selector1(
-        {all_tvs_except.begin(), all_tvs_except.end()});
+    SetSelector selector1({all_tvs_except.begin(), all_tvs_except.end()});
     MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector1)
         .traverse(&propagator1);
 
-    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
+    std::cout << "outer_reference_tvs[i]: "
+              << outer_reference_tvs[0]->toString() << "\n";
 
     TransformPropagator propagator(inner_reference_tv);
     std::vector<TensorView*> all_tvs_except_cache = ir_utils::allTvsExcept(
@@ -1167,22 +1215,20 @@ void scheduleInnerOuterPersistentKernel(
         {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
     MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
         .traverse(&propagator);
-    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
-
+    std::cout << "outer_reference_tvs[i]: "
+              << outer_reference_tvs[0]->toString() << "\n";
 
   } else {
     reduction_scheduler_utils::propagateTransformation(
         inner_reference_tv, boundaryNodesSet);
   }
 
-  for(auto tv : cached_gmem_reload){
+  for (auto tv : cached_gmem_reload) {
     std::cout << "cached_gmem_reload2 " << tv->toString() << std::endl;
   }
 
-
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
-
 
   // Don't allow parallelization propagation goes through boundaryNodesSet
   const auto& selected_tvs_inner =
@@ -1198,12 +1244,12 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
-    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString() << "\n";
+  std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[0]->toString()
+            << "\n";
 
-  for(auto tv : cached_gmem_reload){
+  for (auto tv : cached_gmem_reload) {
     std::cout << "cached_gmem_reload3 " << tv->toString() << std::endl;
   }
-
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
@@ -1215,7 +1261,8 @@ void scheduleInnerOuterPersistentKernel(
   for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
     const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
         {outer_reduction_tvs[i]}, {cached_gmem[i]});
-    std::cout << "outer_reference_tvs[i]: " << outer_reference_tvs[i]->toString() << "\n";
+    std::cout << "outer_reference_tvs[i]: "
+              << outer_reference_tvs[i]->toString() << "\n";
     reduction_scheduler_utils::propagateTransformation(
         outer_reference_tvs[i], boundaryNodesSet);
     const auto& unroll_vectorizable_cached_tvs =
@@ -1234,15 +1281,13 @@ void scheduleInnerOuterPersistentKernel(
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
   }
 
-
-  for(auto tv : cached_gmem_reload){
+  for (auto tv : cached_gmem_reload) {
     std::cout << "cached_gmem_reload4 " << tv->toString() << std::endl;
   }
 
-
   if (rparams->use_tma_load) {
     for (auto tv : tma_load_tvs) {
-      if(tv->nDims() > 1) {
+      if (tv->nDims() > 1) {
         tv->axis(0)->parallelize(ParallelType::BIDy);
       }
       tv->axis(-1)->parallelize(ParallelType::Bulk);
@@ -1298,7 +1343,39 @@ void scheduleInnerOuterPersistentKernel(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  inlineMost();
+
+  if (rparams->use_tma_load) {
+    std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
+    for (auto tv : tma_load_tvs) {
+      // adjust ca pos from 3 to 2
+      // [gdimy, I/Unroll/gdimy, Unroll]
+      // should be non-bcast dims >= 4
+      if (rparams->unroll_factor_iter_dom > 1 && tv->nDims() >= 4) {
+        tv_inline_pos_map.emplace(tv, 2);
+      }
+    }
+    if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
+      std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
+          fusion, {smem_consumers.begin(), smem_consumers.end()});
+      for(auto tv : smem_consumers){
+        tv_inline_pos_map.emplace(tv, 2);
+      }
+    }    
+    // special inline & inline most
+    std::unordered_set<TensorView*> exclude_tvs;
+    for (auto [k, v] : tv_inline_pos_map) {
+      std::cout << "inlineSelectedAt : " << k->toString() << ", pos= " << v
+                << std::endl;
+      exclude_tvs.insert(k);
+      inlineSelectedAt({k}, k, v);
+    }
+    std::vector<TensorView*> inline_most_tvs =
+        ir_utils::allTvsExcept(fusion, exclude_tvs);
+    inlineMost(inline_most_tvs);
+  } else {
+    inlineMost();
+  }
+
   // circular buffer
   if (rparams->use_tma_load && rparams->circular_buffer_options.isEnable()) {
     int64_t number_of_stages = rparams->circular_buffer_options.stage;
