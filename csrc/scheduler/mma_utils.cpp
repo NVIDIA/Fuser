@@ -9,18 +9,21 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include <device_lower/utils.h>
+#include <disjoint_set.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
+#include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
+#include <type.h>
 #include <val_graph.h>
 #include <variant>
-#include "options.h"
 
 namespace nvfuser {
 
@@ -1786,6 +1789,177 @@ std::string MatmulPattern::toString() const {
 
 namespace {
 
+// Check whether tv has all the output_groups in its logical domain, and
+// whether its allocation domain matches the order of the input's allocation
+// domains (ignoring broadcasts)
+bool needsSkippableGlobalIntermediates(
+    TensorView* tv,
+    const ValGraph& graph,
+    const std::vector<ValGroup>& output_groups,
+    const std::vector<ValGroup>& input_alloc_groups) {
+  if (tv->getLogicalDomain().size() != output_groups.size()) {
+    return true;
+  }
+  for (size_t pos : c10::irange(output_groups.size())) {
+    if (graph.toGroup(tv->getLogicalDomain().at(pos)) !=
+        output_groups.at(pos)) {
+      return true;
+    }
+  }
+  // TODO: check allocation domain order
+  size_t max_input_pos = 0;
+  for (IterDomain* id : tv->getMaybeAllocationDomain()) {
+    if (id->isBroadcast()) {
+      continue;
+    }
+    auto it = std::find(
+        input_alloc_groups.begin(),
+        input_alloc_groups.end(),
+        graph.toGroup(id));
+    if (it == input_alloc_groups.end()) {
+      return true;
+    }
+    size_t input_pos = std::distance(input_alloc_groups.begin(), it);
+    if (input_pos < max_input_pos) {
+      // When we look up the position of this group in the input
+      // allocation domain, that position should not decrease as we move
+      // through tv's allocation domain. If it does, that indicates a
+      // reordering.
+      return true;
+    }
+    max_input_pos = input_pos;
+  }
+  return false;
+};
+
+// This prepares a fusion input to be an MmaOp input by applying ops and
+// creating Global intermediates.
+//
+// For each operand
+// 1. find the fusion input
+// 2. broadcast to create missing dims
+// 3. permute into ...BMNK
+// 4. set all intermediate tensors to Global
+// 5. set all intermediate tensor allocation domains to match input's
+// 6. if already cached, cache the output
+//
+// After that, create the MmaOp
+TensorView* prepareOperandForMmaOp(
+    TensorView* orig_operand,
+    const ValGraph& graph,
+    const std::vector<ValGroup>& output_groups) {
+  // It is possible to have a horizontal fusion of two MatmulPatterns that
+  // share one operand. In these cases, we might wind up translating the
+  // same operand twice. We want to re-use the same tensor for such cases.
+  const std::vector<Val*> inputs = InputsOf::output(orig_operand);
+  NVF_ERROR(inputs.size() == 1);
+  auto* fusion_input = inputs.front()->as<TensorView>();
+  // TODO: should we verify that all ops between fusion_input and
+  // orig_operand are trivial?
+
+  // Save the fusion input's allocation domain so we can set the
+  // intermediate TVs' allocation domains and contiguity to match.
+  std::vector<ValGroup> input_alloc_groups;
+  input_alloc_groups.reserve(fusion_input->getMaybeAllocationDomain().size());
+  for (IterDomain* id : fusion_input->getMaybeAllocationDomain()) {
+    input_alloc_groups.push_back(graph.toGroup(id));
+  }
+
+  // First check whether the original operand already has all output logical
+  // groups and has an allocation domain that is compatible with the fusion
+  // input. If so then we should not need to replace it.
+  if (!needsSkippableGlobalIntermediates(
+          orig_operand, graph, output_groups, input_alloc_groups)) {
+    return orig_operand;
+  }
+
+  // Build a mapping from ValGroup to position. We will update this
+  // mapping when we broadcast then use it to perform a permute if
+  // necessary.
+  std::unordered_map<ValGroup, size_t> group_position;
+  for (size_t pos : c10::irange(orig_operand->getLogicalDomain().size())) {
+    IterDomain* operand_id = orig_operand->getLogicalDomain().at(pos);
+    group_position[graph.toGroup(operand_id)] = pos;
+  }
+
+  // Reorders allocation domain and sets memory type for new TVs we
+  // introduce
+  const auto set_up_intermediate = [&input_alloc_groups,
+                                    &group_position](TensorView* tv) {
+    // A VectorOfUniqueEntries is used here so that we can check for
+    // unallocated groups easily later.
+    VectorOfUniqueEntries<IterDomain*> new_alloc;
+    // The new allocation domain will only contain IDs corresponding to
+    // input_alloc_groups. Any new broadcasts will be absent.
+    for (const ValGroup& group : input_alloc_groups) {
+      auto it = group_position.find(group);
+      // Check that this group was not deleted from group_position
+      NVF_ERROR(
+          it != group_position.end(),
+          "Couldn't find input allocation group's current logical position");
+      IterDomain* id = tv->getLogicalDomain().at(it->second);
+      new_alloc.pushBack(id);
+    }
+    // Validate that all non-broadcast logical IDs are allocated
+    for (IterDomain* id : tv->getLogicalDomain()) {
+      if (!id->isBroadcast()) {
+        NVF_ERROR(
+            new_alloc.has(id),
+            "Unallocated non-broadcast ID ",
+            id->toString(),
+            " found for ",
+            tv->toString());
+      }
+    }
+    tv->setAllocationDomain(new_alloc.vector(), /*new_contiguity=*/true);
+    tv->setMemoryType(MemoryType::Global);
+  };
+
+  // Look for axes that we need to broadcast
+  size_t num_broadcasts = 0;
+  for (const ValGroup& g : output_groups) {
+    if (group_position.count(g) == 0) {
+      group_position[g] =
+          orig_operand->getLogicalDomain().size() + num_broadcasts++;
+    }
+  }
+
+  TensorView* new_operand = fusion_input;
+  if (num_broadcasts > 0) {
+    NVF_ERROR(num_broadcasts <= group_position.size());
+    std::vector<bool> flags(group_position.size(), false);
+    std::fill(
+        std::begin(flags) +
+            (std::vector<bool>::difference_type)(
+                group_position.size() - num_broadcasts),
+        std::end(flags),
+        true);
+    new_operand = broadcast(new_operand, flags);
+    set_up_intermediate(new_operand);
+  }
+
+  // Now there should be one IterDomain in the logical domain of
+  // new_operand for every group in output_groups. So we just need to
+  // reorder
+  std::unordered_map<int64_t, int64_t> old2new;
+  for (size_t new_pos : c10::irange(output_groups.size())) {
+    const ValGroup& group = output_groups.at(new_pos);
+    size_t old_pos = group_position.at(group);
+    if (new_pos != old_pos) {
+      old2new[(int64_t)old_pos] = (int64_t)new_pos;
+      // We need to keep group_position up to date so that set_up_intermediate
+      // will be able to accurately rearrange the allocation domain
+      group_position[group] = new_pos;
+    }
+  }
+  if (!old2new.empty()) {
+    new_operand = permute(new_operand, old2new);
+    set_up_intermediate(new_operand);
+  }
+
+  return new_operand;
+};
+
 // The `MatmulTranslator` helper class is used to map different matrix
 // multiplication patterns to `MmaOp`. The `MmaOp` expression maps to the
 //  TensorCore ptx function.
@@ -1811,10 +1985,12 @@ namespace {
 // `MmaOp` translation.
 class MatmulTranslator : public OptInDispatch {
  public:
-  static MmaOp* translate(MatmulPattern& pattern, bool avoid_intermediates) {
+  static MatmulPattern::TranslationResult translate(
+      MatmulPattern& pattern,
+      bool avoid_intermediates) {
     MatmulTranslator trans(pattern, avoid_intermediates);
     trans.dispatch(pattern.output->definition());
-    return trans.mma_;
+    return MatmulPattern::TranslationResult{trans.mma_, trans.replacements_};
   }
 
  private:
@@ -1836,6 +2012,79 @@ class MatmulTranslator : public OptInDispatch {
         pattern_.B,
         init,
         MmaOp::AxisMapping::trivialMapping(pattern_.output->nDims()));
+  }
+
+  //! Replace a TV, recording it in replacements_
+  void replaceTV(TensorView* old_tv, TensorView* new_tv) {
+    replacements_[old_tv] = new_tv;
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_tv, new_tv);
+  }
+
+  void replaceWithoutIntermediates(TensorView* bias = nullptr) {
+    bool is_cached = pattern_.A->getMemoryType() != MemoryType::Global;
+
+    // TODO: pass in graph as a parameter to avoid rebuilding
+    IdModel id_model(pattern_.A->fusion(), /*build_graphs=*/false);
+    id_model.buildBroadcastGraph();
+    const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+
+    // Find ValGroups of each dimension in output. We will use the broadcast
+    // map to determine equivalence for each operand.
+    std::vector<ValGroup> output_groups;
+    output_groups.reserve(pattern_.output->getLogicalDomain().size());
+    for (IterDomain* id : pattern_.output->getLogicalDomain()) {
+      output_groups.push_back(graph.toGroup(id));
+    }
+
+    TensorView* new_A =
+        prepareOperandForMmaOp(pattern_.A, graph, output_groups);
+    if (new_A != pattern_.A) {
+      replacements_[pattern_.A] = new_A;
+    }
+    TensorView* new_B =
+        prepareOperandForMmaOp(pattern_.B, graph, output_groups);
+    if (new_B != pattern_.B) {
+      replacements_[pattern_.B] = new_B;
+    }
+
+    TensorView* mma_result = fusedMultiplySum(new_A, new_B, {-1});
+
+    // This is mma_result, possibly with bias added
+    TensorView* float_output = mma_result;
+    if (bias != nullptr) {
+      float_output = add(float_output, bias);
+    }
+
+    finalizeMatmulOpOrLinearOp(float_output);
+
+    if (is_cached) {
+      // Load to registers if pattern_.A was originally also a
+      // non-Fusion input already residing in registers. Note that we
+      // use cacheAfter instead of set() so that we propagate allocation
+      // domain, and that we can only use cacheAfter on tensors that have
+      // uses, so we must do it after finalizing the replacement.
+      //
+      // Note that we do not want to double-cache the operand if we did not
+      // actually perform any replacement.
+      if (new_A != pattern_.A) {
+        new_A = new_A->cacheAfter();
+      }
+      if (new_B != pattern_.B) {
+        new_B = new_B->cacheAfter();
+      }
+    }
+
+    if (new_A != pattern_.A) {
+      replacements_[pattern_.A] = new_A;
+      pattern_.A = new_A;
+    }
+    if (new_B != pattern_.B) {
+      replacements_[pattern_.B] = new_B;
+      pattern_.B = new_B;
+    }
+
+    // cacheAfter() might replace the mma op, so we set mma_ last
+    mma_ = mma_result->definition()->as<MmaOp>();
   }
 
   void handle(LinearOp* lop) final {
@@ -1868,40 +2117,8 @@ class MatmulTranslator : public OptInDispatch {
     NVF_ERROR(
         b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
     if (avoid_intermediates_) {
-      MmaOp::AxisMapping axis_mapping;
-      int64_t out_dim = a_dims + 1L;
-      axis_mapping.a_axes.reserve(out_dim);
-      for (int64_t d : c10::irange(out_dim - 2L)) {
-        axis_mapping.a_axes.push_back((int64_t)d);
-      }
-      axis_mapping.a_axes.push_back(-1); // missing N dimension
-      axis_mapping.a_axes.push_back(a_dims - 1L); // K dimension
-
-      axis_mapping.b_axes.reserve(out_dim);
-      axis_mapping.b_axes.resize(out_dim, -1);
-      axis_mapping.b_axes[out_dim - 2] = 0; // N
-      axis_mapping.b_axes[out_dim - 1] = 1; // K
-
-      int64_t num_M_dims = 1 + a_dims - b_dims;
-
-      // Add loop broadcasts to A and B to mimic logical broadcasts for
-      // simpler scheduling
-      // Note that since operands can be shared among multiple patterns, we
-      // should avoid modifying the operand twice. This is why we first check
-      // for loop broadcasts.
-      if (pattern_.A->domain()->additionalIDs().empty()) {
-        pattern_.A->broadcast(-2); // There's always a single N dimension
-      }
-
-      if (pattern_.B->domain()->additionalIDs().empty()) {
-        for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-          // Broadcast B for every M dimension in A
-          pattern_.B->broadcast(0);
-        }
-      }
-
-      fms = fusedMultiplySum(
-          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
+      replaceWithoutIntermediates(
+          /*bias=*/dynamic_cast<TensorView*>(lop->bias()));
     } else {
       std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
       bcast_dim[bcast_dim.size() - 2] = true; // N
@@ -1912,15 +2129,14 @@ class MatmulTranslator : public OptInDispatch {
       pattern_.B = broadcast(pattern_.B, bcast_dim);
 
       fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
-    }
+      mma_ = fms->definition()->as<MmaOp>();
 
-    mma_ = fms->definition()->as<MmaOp>();
-
-    auto* bias = dynamic_cast<TensorView*>(lop->bias());
-    if (bias != nullptr) {
-      fms = add(fms, bias);
+      auto* bias = dynamic_cast<TensorView*>(lop->bias());
+      if (bias != nullptr) {
+        fms = add(fms, bias);
+      }
+      finalizeMatmulOpOrLinearOp(fms);
     }
-    finalizeMatmulOpOrLinearOp(fms);
   }
 
   void handle(MatmulOp* mop) final {
@@ -1955,52 +2171,10 @@ class MatmulTranslator : public OptInDispatch {
     NVF_ERROR(
         pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
-    TensorView* fms = nullptr;
     if (avoid_intermediates_) {
-      MmaOp::AxisMapping axis_mapping;
-      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims()) + 1;
-
-      axis_mapping.a_axes.resize((size_t)out_dims, -1);
-      axis_mapping.b_axes.resize((size_t)out_dims, -1);
-
-      for (size_t a_axis : c10::irange((size_t)pattern_.A->nDims() - 1)) {
-        // Output is [ ... M, N, K ]
-        // This loop maps everything but N and K to A
-        int64_t out_axis =
-            (int64_t)a_axis + (out_dims - 1 - pattern_.A->nDims());
-        axis_mapping.a_axes.at((size_t)out_axis) = (int64_t)a_axis;
-      }
-      // Map the K dim, skipping one position
-      axis_mapping.a_axes.at((size_t)out_dims - 1) = pattern_.A->nDims() - 1;
-
-      for (size_t b_axis : c10::irange((size_t)pattern_.B->nDims() - 2)) {
-        // Output is [ ... M, N, K ]
-        // This loop maps everything before M to B, skipping the output M dim
-        int64_t out_axis =
-            (int64_t)b_axis + (out_dims - pattern_.B->nDims()) - 1;
-        axis_mapping.b_axes.at((size_t)out_axis) = (int64_t)b_axis;
-      }
-      // Skip the K dim and map N and K
-      axis_mapping.b_axes.at((size_t)out_dims - 2) = pattern_.B->nDims() - 1;
-      axis_mapping.b_axes.at((size_t)out_dims - 1) = pattern_.B->nDims() - 2;
-
-      fms = fusedMultiplySum(
-          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
-
-      int64_t num_M_dims =
-          std::max(1 + pattern_.A->nDims() - pattern_.B->nDims(), (int64_t)1);
-
-      // Reorder to BMNK.
-      // Add loop broadcasts to A and B to mimick logical broadcasts for
-      // simpler scheduling
-      pattern_.A->broadcast(-2);
-
-      pattern_.B->reorder({{-2, -1}});
-      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-        // Broadcast B for every M dimension in A
-        pattern_.B->broadcast(-3);
-      }
+      replaceWithoutIntermediates(/*bias=*/nullptr);
     } else {
+      TensorView* fms = nullptr;
       TensorView* Btrans = transpose(pattern_.B, -2, -1);
       pattern_.A = unsqueeze(pattern_.A, -2);
       pattern_.B = unsqueeze(Btrans, -3);
@@ -2011,15 +2185,14 @@ class MatmulTranslator : public OptInDispatch {
       pattern_.A = ops::maybe_broadcast_inner_to_rank(pattern_.A, out_dims);
       pattern_.B = ops::maybe_broadcast_inner_to_rank(pattern_.B, out_dims);
       fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
+      mma_ = fms->definition()->as<MmaOp>();
+      finalizeMatmulOpOrLinearOp(fms);
     }
-    mma_ = fms->definition()->as<MmaOp>();
-    finalizeMatmulOpOrLinearOp(fms);
   }
 
   // The following is common to both MatmulOp and LinearOp translation
   void finalizeMatmulOpOrLinearOp(TensorView* fms) {
     NVF_ERROR(fms != nullptr);
-    NVF_ERROR(mma_ != nullptr);
 
     // TODO: skip downcasting if the only uses of `output` are casts back to
     // higher precision in order avoid the round trip cast in defining an
@@ -2033,30 +2206,29 @@ class MatmulTranslator : public OptInDispatch {
       // dtype as fms. We first collect these Vals then we do the replacements
       // separately in order to avoid dereferencing an Expr* that has already
       // been replaced.
-      std::vector<Val*> round_trip_vals;
+      std::vector<TensorView*> round_trip_tvs;
       for (Expr* use : pattern_.output->uses()) {
         if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
             uop->getUnaryOpType() == UnaryOpType::Cast &&
             uop->out()->dtype() == fms->dtype()) {
-          round_trip_vals.push_back(uop->out());
+          round_trip_tvs.push_back(uop->out()->as<TensorView>());
         }
       }
       // If there are any uses that were not round-trip casts, then we should
       // insert the castOp.
-      if (pattern_.output->uses().size() > round_trip_vals.size()) {
+      if (pattern_.output->uses().size() > round_trip_tvs.size()) {
         TensorView* old_output = pattern_.output;
         pattern_.output = castOp(pattern_.output->dtype(), fms);
-        ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-            old_output, pattern_.output);
+        replaceTV(old_output, pattern_.output);
       }
       // if any casts are skipped, then we reset output to point to the Float
       // output fms instead of the downcast.
-      if (!round_trip_vals.empty()) {
+      if (!round_trip_tvs.empty()) {
         pattern_.output = fms;
       }
-      // Finally, replace the round_trip_vals with fms
-      for (Val* v : round_trip_vals) {
-        ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
+      // Finally, replace the round_trip_tvs with fms
+      for (TensorView* tv : round_trip_tvs) {
+        replaceTV(tv, fms);
       }
     } else {
       // No cast needed, for example the inputs might be Float
@@ -2068,12 +2240,15 @@ class MatmulTranslator : public OptInDispatch {
  private:
   MatmulPattern& pattern_;
   bool avoid_intermediates_;
+  MatmulPattern::TranslationResult result_;
   MmaOp* mma_ = nullptr;
+  std::unordered_map<TensorView*, TensorView*> replacements_;
 };
 
 } // namespace
 
-MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
+MatmulPattern::TranslationResult MatmulPattern::translateToMmaOp(
+    bool avoid_intermediates) {
   return MatmulTranslator::translate(*this, avoid_intermediates);
 }
 
