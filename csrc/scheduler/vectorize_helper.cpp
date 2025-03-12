@@ -1020,6 +1020,10 @@ int64_t getVectorizationFactor(
         max_vec_size);
   }
 
+  // This is a WAR for vectorization through resize as the spanning
+  // tree based traversal is not guaranteed to reflect all resize ops
+  // that may affect vectorization. This is a safe but conservative
+  // analysis since it should only be necessary for innermost IDs.
   for (const auto resize_factor : resize_factors) {
     auto inferred_val =
         runtime_info.expressionEvaluator().evaluate(resize_factor);
