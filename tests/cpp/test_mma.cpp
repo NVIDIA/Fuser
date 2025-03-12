@@ -594,7 +594,8 @@ auto mmaHopperRSParamsGenerator() {
   // A very simple PRNG:
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
   uint32_t lcg_parkmiller = 1;
-  constexpr uint32_t dilute = 8; // Only select 1/dilute of the params
+  // Only select 1/dilute of the params, 1 means not diluting
+  const uint32_t dilute = std::stoi(getNvFuserEnv("MMA_TEST_DILUTE", "1")); 
   std::vector<HopperMmaRSTestParams> params;
   std::unordered_set<MmaMacro> macros;
   std::unordered_set<PrimDataType> dtypes;
@@ -1100,7 +1101,8 @@ auto mmaHopperSSParamsGenerator() {
   // A very simple PRNG:
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
   uint32_t lcg_parkmiller = 1;
-  constexpr uint32_t dilute = 8; // Only select 1/dilute of the params
+  // Only select 1/dilute of the params, 1 means not diluting
+  const uint32_t dilute = std::stoi(getNvFuserEnv("MMA_TEST_DILUTE", "1")); 
   std::vector<HopperMmaSSTestParams> params;
   std::unordered_set<MmaMacro> macros;
   std::unordered_set<PrimDataType> dtypes;
