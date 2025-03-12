@@ -15,6 +15,7 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
+#include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
@@ -429,25 +430,56 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       communicator_ != nullptr && communicator_->is_available(),
       "A valid communicator must be provided");
 
+  CommunicatorBackend backend_type = communication->backend();
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(communication->backend()),
-      buffer);
+  if (backend_type == CommunicatorBackend::kCuda) {
+    const P2pIpcHandle& p2p_ipc_handle = ipc_handle_cache_.get(communication);
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    if (communication->type() == P2PCommunicationType::RECV) {
+      get_zcopy::recvPost(
+          p2p_ipc_handle,
+          buffer.numel() * buffer.element_size(),
+          current_stream);
+    } else {
+      get_zcopy::sendPost(p2p_ipc_handle, current_stream);
+    }
+  } else {
+    NVF_ERROR(
+        communication->type() == P2PCommunicationType::RECV,
+        "Wrong communication type");
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+        communicator_->getWorld(communication->backend()),
+        buffer);
+  }
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
-  auto& work = works_.at(communication);
-  if (work != nullptr) {
-    work->wait();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
+    if (p2p_comm->type() == P2PCommunicationType::SEND) {
+      const auto current_stream = static_cast<CUstream>(
+          c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+      const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
+      get_zcopy::sendWait(ipc_handles, current_stream);
+    }
+  } else {
+    auto it = works_.find(communication);
+    if (it == works_.end()) {
+      return;
+    }
+    auto& work = it->second;
+    if (work != nullptr) {
+      work->wait();
+    }
+    works_.erase(communication);
   }
-  works_.erase(communication);
 }
 
 namespace {
