@@ -2,9 +2,34 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import multidevice_fixtures
+import pytest
 import transformers
 import torch
+import torch.distributed as dist
+
 from contextlib import contextmanager
+from torch.distributed.tensor.parallel import (
+    parallelize_module,
+    RowwiseParallel,
+    ColwiseParallel,
+)
+
+
+multidevice_test = multidevice_fixtures.multidevice_test
+
+
+@pytest.fixture(scope="module")
+def setup_process_group(multidevice_test):
+    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
+    dist.init_process_group(
+        backend="nccl",
+        init_method="tcp://localhost:29500",
+        world_size=multidevice_test.size,
+        rank=multidevice_test.rank,
+    )
+    yield
+    dist.destroy_process_group()
 
 
 @contextmanager
@@ -24,7 +49,8 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
-def test_transformer_layer():
+@pytest.mark.mpi
+def test_transformer_layer(setup_process_group):
     config = transformers.AutoConfig.from_pretrained(
         "deepseek-ai/deepseek-v3", trust_remote_code=True
     )
@@ -36,12 +62,39 @@ def test_transformer_layer():
     # Disable quantization so the test can run on A100 and is made easier for nvFuser.
     delattr(config, "quantization_config")
 
+    d = dist.get_world_size()
+    rank = dist.get_rank()
+    torch.cuda.set_device(rank)
+    mesh = dist.device_mesh.init_device_mesh("cuda", [d])
+
     with default_tensor_type(dtype=config.torch_dtype, device="cuda"):
         model = transformers.AutoModel.from_config(config, trust_remote_code=True)
         # Training is unavailable (cf. https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L439)
         model.eval()
 
         transformer_layer = model.layers[0]
+
+        # By default, RowwiseParallel and ColwiseParallel output a local tensor
+        # and therefore num_heads needs to be adjusted to accomodate the local
+        # size. Alternatively, I could RowwiseParallel(use_local_output=False)
+        # so the linear layer outputs a DTensor, which can be viewed using the
+        # original num_heads. This requires all activations, parameters, and
+        # buffers to be DTensor; otherwise aten ops would complain "got mixed
+        # torch.Tensor and DTensor". Doing so is challenging because
+        # DeepseekV3RotaryEmbedding creates cos_cached and sin_cached during
+        # the first forward call (cf.
+        # https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L143-L144).
+        transformer_layer.self_attn.num_heads //= d
+
+        transformer_layer = parallelize_module(
+            transformer_layer,
+            mesh,
+            {
+                "self_attn.q_b_proj": ColwiseParallel(),
+                "self_attn.kv_b_proj": ColwiseParallel(),
+                "self_attn.o_proj": RowwiseParallel(),
+            },
+        )
 
         batch_size = 1
         seq_len = 2048
