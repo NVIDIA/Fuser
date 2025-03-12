@@ -88,13 +88,39 @@ void MultipleMatmulScheduler::findRoles() {
   // lowering. We update as_ and bs_ to point at the last of these tensors
   // before their next consumer is in local memory.
   auto find_first_local_consumer = [](TensorView* tv) -> TensorView* {
+    // Example: Suppose we start out with:
+    //
+    //   Inputs:
+    //     tv0_g
+    //     tv1_g
+    //
+    //   tv2_l = matmul(tv0_g, tv1_g)
+    //
+    // Earlier in scheduling we replace the operands to produce something like:
+    //
+    //   Inputs:
+    //     tv0_g
+    //     tv1_g
+    //
+    //   tv3_g = broadcast(tv0_g)
+    //   tv4_g = broadcast(tv1_g)
+    //   tv5_g = permute(tv4_g)
+    //   tv2 = matmul(tv3, tv5)
+    //
+    // We start out with:
+    //
+    //   tensor_roles_[A] = {tv0_g}
+    //   tensor_roles_[B] = {tv1_g}
+    //
+    // Here we update that to:
+    //
+    //   tensor_roles_[A] = {tv3_g}
+    //   tensor_roles_[B] = {tv5_g}
     while (tv != nullptr) {
       if (tv->uses().size() != 1) {
         break;
       }
       Expr* use = tv->uses().front();
-
-      NVF_ERROR(use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>());
 
       if (use->outputs().size() != 1) {
         break;
@@ -104,6 +130,12 @@ void MultipleMatmulScheduler::findRoles() {
           consumer->getMemoryType() != MemoryType::Global) {
         break;
       }
+
+      // TODO: support ViewOp
+      NVF_ERROR(
+          (use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()),
+          "Global-to-global ops must be broadcast, squeeze, or set");
+
       // Traverse down consumers
       tv = consumer;
     }
