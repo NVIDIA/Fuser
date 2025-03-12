@@ -25,6 +25,17 @@ namespace nvfuser {
 
 namespace {
 
+TensorView* getTensorView(Val* v) {
+  if (v->isA<TensorView>()) {
+    return v->as<TensorView>();
+  } else if (v->isA<kir::TensorIndex>()) {
+    return v->as<kir::TensorIndex>()->view();
+  } else {
+    NVF_THROW(
+        "Expected input for LoadStoreOp to be a TensorView or kir::TensorIndex");
+  }
+}
+
 // Warp primitives are currently limited to un-predicated usage,
 //   predicating these ops will require extra steps to ensure that
 //   the whole warp will get the same value.
@@ -33,13 +44,14 @@ void assertOnWarpOps(const Expr* expr) {
   // Allow predicates for general LdMatrix usage.
   if (ir_utils::isLdMatrixOp(expr)) {
     const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-    NVF_ERROR(ldst->in()->isA<TensorView>());
-    TensorView* in_tv = ldst->in()->as<TensorView>();
+    TensorView* in_tv = getTensorView(ldst->in());
+    NVF_ERROR(in_tv != nullptr);
+
     NVF_ERROR(in_tv->definition() != nullptr);
     bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
 
-    NVF_ERROR(ldst->out()->isA<TensorView>());
-    TensorView* out_tv = ldst->out()->as<TensorView>();
+    TensorView* out_tv = getTensorView(ldst->out());
+    NVF_ERROR(out_tv != nullptr);
     bool any_mma_uses =
         std::any_of(out_tv->uses().begin(), out_tv->uses().end(), [](Expr* e) {
           return e->isA<MmaOp>();
