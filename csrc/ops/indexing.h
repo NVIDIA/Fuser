@@ -15,7 +15,7 @@
 
 namespace nvfuser {
 
-NVF_API TensorView* select(TensorView* tv, int64_t dim, Val* index);
+NVF_API TensorView* select(TensorView* tv, int64_t dim, Val* index, bool keep_reduction_axis = false);
 
 // torch.index_select
 NVF_API TensorView* indexSelect(

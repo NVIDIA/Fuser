@@ -99,13 +99,13 @@ IterDomain* newOutputIterDomain(
 // output tensorview, e.g., for BinaryOp. `vals` can contain scalars, e.g, when
 // creating the output TensorView for `tv0+scalar`. This is for convenience and
 // scalars will be ignored.
-std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals);
+std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals, bool keep_reduction_axis = false);
 
-TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype);
+TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype, bool keep_reduction_axis = false);
 
 std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals);
 
-NVF_API Val* newValLike(Val* val, DataType dtype);
+NVF_API Val* newValLike(Val* val, DataType dtype, bool keep_reduction_axis = false);
 
 // returns the minimum init value for reduction:
 //   -inf for floating type;
