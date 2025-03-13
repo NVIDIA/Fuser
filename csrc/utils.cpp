@@ -153,7 +153,7 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   return num_warps * warp_size;
 }
 
-char* getNvFuserEnv(const char* env_name) {
+const char* getNvFuserEnv(const char* env_name, const char* default_value) {
   // Prepend the default prefix and try if the variable is defined.
   const std::string prefix = "NVFUSER_";
   auto prefixed_name = prefix + env_name;
@@ -177,7 +177,7 @@ char* getNvFuserEnv(const char* env_name) {
     return pyt_env;
   }
 
-  return nullptr;
+  return default_value;
 }
 
 size_t deviceAvailableSharedMemoryBytes() {
