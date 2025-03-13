@@ -16,6 +16,7 @@
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
+#include "multidevice/utils.h"
 
 namespace nvfuser {
 
@@ -1194,5 +1195,33 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
       {ref_attn},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(MultiDeviceTest, ResidualAdd) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 3, h = 8;
+
+  TensorView* tv0 = makeContigConcreteTensor({b, d*s, h});
+  TensorView* tv1 = makeContigConcreteTensor({b, d*s, h});
+  TensorView* tv2 = add(tv0, tv1);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv1->split(1, d, /*inner_split=*/false);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  debug() << "tv0: " << tv0->toString() << std::endl;
+  debug() << "tv1: " << tv1->toString() << std::endl;
+  debug() << "tv2: " << tv2->toString() << std::endl;
+  NVF_CHECK(getShardedLoopAxis(tv0, ParallelType::DIDx) != -1);
 }
 } // namespace nvfuser
