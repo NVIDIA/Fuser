@@ -556,15 +556,17 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           cache_tv->definition() != nullptr &&
           cache_tv->definition()->isA<LoadStoreOp>());
 
-      if (params_->async_gmem_load_operands) {
+      bool is_2d_epilogue_input = cache_tv->domain()->logical().size() == 2;
+      if (is_2d_epilogue_input && params_->async_gmem_load_operands) {
         // Schedule TMA load into shared memory for epilogue input
         cache_tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsyncBulkTensorTile);
         cache_tv->setMemoryType(MemoryType::Shared);
 
+        // Apply the default scheduling that is common to all register
+        // TensorViews after wgmma.
         blockTileTensors({cache_tv});
         parallelizeBlocks({cache_tv});
-
         transformLikeMmaOutputWithoutK(cache_tv);
 
         // Swizzle to avoid shared memory bank conflicts
@@ -588,10 +590,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       TensorView* d = dv->as<TensorView>();
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
 
-      // Schedule the output TV
+      // Apply the default scheduling that is common to all register
+      // TensorViews after wgmma.
       blockTileTensors({d});
       parallelizeBlocks({d});
       transformLikeMmaOutputWithoutK(d);
+
       AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           d->getLoopDomain());
       d->setLoopDomain(s.as<IterDomain*>());
@@ -628,7 +632,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       reg_tv->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::LdMatrix);
 
-      // Apply the default schedule to all register TensorViews after wgmma.
+      // Apply the default scheduling that is common to all register
+      // TensorViews after wgmma.
       blockTileTensors({reg_tv});
       parallelizeBlocks({reg_tv});
       transformLikeMmaOutputWithoutK(reg_tv);
