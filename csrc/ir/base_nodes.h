@@ -401,6 +401,7 @@ class NVF_API Val : public Statement {
 
  protected:
   friend Fusion;
+  friend IrContainer;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   const ValType vtype_;
@@ -424,7 +425,6 @@ class NVF_API Val : public Statement {
   //! return whether an insertion occurred.
   bool addUse(Expr*);
 
- public:
   //! Remove an expression from uses() if it is already present and return
   //! whether a removal occurred.
   bool removeUse(Expr*);
