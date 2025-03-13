@@ -1035,8 +1035,7 @@ INSTANTIATE_TEST_SUITE_P(
     });
 
 TEST_F(MatmulSchedulerTest, FusedMultiplySumOnly) {
-  // TODO: Make these tests work with Hopper as well as Ampere
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -2461,7 +2460,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulSchedulerTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 class TestKernelConfig : public matmul_heuristic_plugin::KernelConfig {

@@ -341,11 +341,11 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       }
     } else if (producer_tv_->sameAs(iaop->valueTv())) {
       updatePairwiseLogicalDomainMap(
-          producer_logical.at(ndims_out-1), consumer_root.at(ndims_out-1));
+          producer_logical.at(ndims_out - 1), consumer_root.at(ndims_out - 1));
     }
     return dom_map;
   }
-    
+
   if (EmbeddingFwdOp* op =
           dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {
     // Producers:

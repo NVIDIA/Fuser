@@ -133,7 +133,12 @@ class IndexAccumulateOp : public Expr {
  public:
   using Expr::Expr;
 
-  IndexAccumulateOp(IrBuilderPasskey, Val* out, Val* acc, Val* index, Val* value);
+  IndexAccumulateOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* acc,
+      Val* index,
+      Val* value);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -162,7 +167,6 @@ class IndexAccumulateOp : public Expr {
   IterDomain* getIndexedID() const;
 
   IterDomain* getConsumerOfIndexedID() const;
-
 };
 
 class NVF_API TorchGatherOp : public Expr {
