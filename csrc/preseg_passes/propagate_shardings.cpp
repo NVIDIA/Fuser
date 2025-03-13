@@ -205,7 +205,7 @@ void handleViewOp(ViewOp* view_op, int64_t did_pos) {
     
     Val* split_factor = p_did_split->factor();
     consumer->split(sharded_axis, split_factor, /*inner_split=*/false);
-    consumer->axis(sharded_axis)->parallelize(ParallelType::DIDx);
+    consumer->axis(sharded_axis)->parallelize(p_loop_domain.at(idx)->getParallelType());
 
     // Move this did_pos to the end in producer to avoid using TransformPropagator on it.
     producer->reorder({{idx, -1}});
