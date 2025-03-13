@@ -1149,7 +1149,8 @@ TEST_F(IfThenElseTest, HostIr) {
   hic->addOutput(output_buffer);
   hic->pushBackTopLevelExprs(if_then_else);
 
-  HostIrEvaluator hie(std::move(hic));
+  // Need to use FusionExecutorCache, otherwise hitting error https://github.com/NVIDIA/Fuser/blob/4d032f74d2347fd68f5be607ef94956500eb917b/csrc/runtime/executor.cpp#L750
+  HostIrEvaluator hie(std::move(hic), /*Communicator=*/nullptr, {.use_fusion_executor_cache = true});
 
   for (auto boolean : {true, false}) {
     auto options =

@@ -676,6 +676,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     hic->addOutput(ir_cloner.clone(output));
   }
 
+  for (auto tv: hic->allTvs()) {
+    tv->setMemoryType(MemoryType::Global);
+  }
+
   preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
       hic.get());
 

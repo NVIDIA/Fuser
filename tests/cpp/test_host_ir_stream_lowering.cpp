@@ -412,9 +412,9 @@ TEST_F(HirLowerStreamTest, Matmul_K) {
 
 } // namespace hir
 
-using MultiDeviceExecutorLowerStreamTest = NVFuserFixtureParamTest<bool>;
+using MultiDeviceExecutorLowerStreamTest = NVFuserTest;
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, InputsAreNotStreamParallelized) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, InputsAreNotStreamParallelized) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv = makeContigTensor(2);
@@ -425,7 +425,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, InputsAreNotStreamParallelized) {
       MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, Split) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, Split) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -439,7 +439,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Split) {
       MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, Merge) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, Merge) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -453,15 +453,13 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Merge) {
       MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, SingleUnaryOp) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, SingleUnaryOp) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = set(tv0);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
-  // tv0->setMemoryType(MemoryType::Global);
-  // tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
@@ -480,15 +478,13 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, SingleUnaryOp) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, SingleUnaryOpNonOutermost) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, SingleUnaryOpNonOutermost) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = set(tv0);
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
   tv1->axis(1)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
@@ -507,7 +503,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, SingleUnaryOpNonOutermost) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -516,9 +512,6 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addOutput(tv2);
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
-  tv2->setMemoryType(MemoryType::Global);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
@@ -537,7 +530,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "Expected: " << expected_output;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, TwoUnaryOps) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, TwoUnaryOps) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -545,9 +538,6 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, TwoUnaryOps) {
   TensorView* tv2 = set(tv1);
   fusion->addInput(tv0);
   fusion->addOutput(tv2);
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
-  tv2->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
@@ -568,7 +558,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, TwoUnaryOps) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, ThreeUnaryOpsWithDisjointsForLoops) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, ThreeUnaryOpsWithDisjointsForLoops) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -577,10 +567,6 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, ThreeUnaryOpsWithDisjointsForLoops) {
   TensorView* tv3 = set(tv2);
   fusion->addInput(tv0);
   fusion->addOutput(tv3);
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
-  tv2->setMemoryType(MemoryType::Global);
-  tv3->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
   tv3->axis(0)->parallelize(ParallelType::Stream);
 
@@ -603,29 +589,25 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, ThreeUnaryOpsWithDisjointsForLoops) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, ReductionUnsupported) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, ReductionUnsupported) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = sum(tv0, {0});
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
   EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, Reduction) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, Reduction) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(3);
   TensorView* tv1 = sum(tv0, {2});
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
-  tv0->setMemoryType(MemoryType::Global);
-  tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
@@ -645,7 +627,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Reduction) {
       << "Output: " << output << " Expected: " << expected_output;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* a = makeContigTensor(2);
@@ -654,9 +636,6 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
-  a->setMemoryType(MemoryType::Global);
-  b->setMemoryType(MemoryType::Global);
-  c->setMemoryType(MemoryType::Global);
   c->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
@@ -678,7 +657,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
       << "Output: " << output << " Expected: " << expected_output;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* a = makeContigTensor(3);
@@ -687,9 +666,6 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
-  a->setMemoryType(MemoryType::Global);
-  b->setMemoryType(MemoryType::Global);
-  c->setMemoryType(MemoryType::Global);
   c->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
@@ -711,7 +687,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
       << "Output: " << output << " Expected: " << expected_output;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* a = makeContigTensor(2);
@@ -720,9 +696,6 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
-  a->setMemoryType(MemoryType::Global);
-  b->setMemoryType(MemoryType::Global);
-  c->setMemoryType(MemoryType::Global);
   c->axis(1)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), Communicator::getInstance());
@@ -744,7 +717,7 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
       << "Output: " << output << " Expected: " << expected_output;
 }
 
-TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_K) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_K) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* a = makeContigTensor(2);
@@ -753,22 +726,9 @@ TEST_P(MultiDeviceExecutorLowerStreamTest, Matmul_K) {
   fusion->addInput(a);
   fusion->addInput(b);
   fusion->addOutput(c);
-  a->setMemoryType(MemoryType::Global);
-  b->setMemoryType(MemoryType::Global);
-  c->setMemoryType(MemoryType::Global);
   c->axis(-1)->parallelize(ParallelType::Stream);
 
   EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
-
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    MultiDeviceExecutorLowerStreamTest,
-    testing::Bool(),
-    [](const testing::TestParamInfo<bool>& info) -> std::string {
-      return info.param ? "useFusionExecutorCache"
-                                     : "useFusionExecutor";
-    });
-
 
 } // namespace nvfuser
