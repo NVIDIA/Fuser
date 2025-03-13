@@ -5230,7 +5230,7 @@ TEST_F(HopperMatmulTest, AlignTMAStore) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  outputs = ke.run(inputs);
+  auto outputs = ke.run(inputs);
   EXPECT_TRUE(at::allclose(outputs[0].as<at::Tensor>(), out_ref, 1e-5, 1e-5));
 }
 
