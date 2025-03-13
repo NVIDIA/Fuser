@@ -1455,7 +1455,6 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
 }
 
 TEST_F(Tutorial, TMABankConflictFreeTranspose) {
-  GTEST_SKIP() << "This test needs new IdModel based indexing.";
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   Fusion fusion;
