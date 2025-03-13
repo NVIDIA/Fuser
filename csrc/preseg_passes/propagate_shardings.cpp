@@ -141,7 +141,7 @@ class PropagateShardingsSelector: public SetSelector {
   }
 };
 
-void handleViewOp(ViewOp* view_op, int64_t did_pos) {
+int64_t handleViewOp(ViewOp* view_op, int64_t did_pos) {
   // This implementation asserts that only one sharding is applied on the reshaped ids.
   // Inner split is not supported.
   // The cases are:
@@ -158,7 +158,8 @@ void handleViewOp(ViewOp* view_op, int64_t did_pos) {
   
   auto p_loop_domain = producer->getLoopDomain();
   auto c_loop_domain = consumer->getLoopDomain();
-
+  
+  int64_t num_reshape_shardings = 0;
   for (auto idx: c10::irange(did_pos)) {
     auto p_transforms = DependencyCheck::getAllExprsBetween(
         {p_reshaped_ids.begin(), p_reshaped_ids.end()}, {p_loop_domain.at(idx)});
@@ -166,7 +167,7 @@ void handleViewOp(ViewOp* view_op, int64_t did_pos) {
       // Sharding is not on reshaped ids. We will use the TransformPropagator.
       continue;
     }
-
+    num_reshape_shardings++;
     NVF_ERROR(p_transforms.size() == 1 && p_transforms.back()->isA<Split>(), "Expected only a single DID split on reshaped ids.");
     auto* p_did_split = p_transforms.front()->as<Split>();
 
@@ -210,6 +211,7 @@ void handleViewOp(ViewOp* view_op, int64_t did_pos) {
     // Move this did_pos to the end in producer to avoid using TransformPropagator on it.
     producer->reorder({{idx, -1}});
   }
+  return num_reshape_shardings;
 }
 
 } // namespace
@@ -238,8 +240,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       int64_t did_pos = reorderDIDToFront(ref_input);
 
       if (ViewOp* view_op = dynamic_cast<ViewOp*>(expr)) {
-        handleViewOp(view_op, did_pos);
-        did_pos = did_pos - 1;
+        int64_t num_reshape_shardings = handleViewOp(view_op, did_pos);
+        did_pos = did_pos - num_reshape_shardings;
       }
       
       // Propagate the DID loop split to the outputs without mesh.
