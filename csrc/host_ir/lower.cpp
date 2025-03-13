@@ -8,6 +8,7 @@
 #include <device_lower/utils.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
@@ -637,11 +638,20 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
         }
       }
     } else {
-      auto host_unit = IrBuilder::create<hir::HostUnit>(
-          staged_fusion->makeFusion(group).second);
-      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
-          host_unit, clone(group->inputs()), clone(group->outputs()));
-      hic->pushBackTopLevelExprs(post_on_stream);
+      if (std::all_of(
+              group->exprs().begin(),
+              group->exprs().end(),
+              [](Expr* expr) { return expr->isOneOf<MatmulOp, LoadStoreOp, SliceOp, BinaryOp, ReductionOp, LinearOp>(); })) {
+        std::for_each(group->exprs().begin(), group->exprs().end(), [&](auto expr) {
+          hic->pushBackTopLevelExprs(ir_cloner.clone(expr));
+        });
+      } else {
+        auto host_unit = IrBuilder::create<hir::HostUnit>(
+            staged_fusion->makeFusion(group).second);
+        auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+            host_unit, clone(group->inputs()), clone(group->outputs()));
+        hic->pushBackTopLevelExprs(post_on_stream);
+      }
     }
   }
   for (auto input : staged_fusion->inputs()) {
