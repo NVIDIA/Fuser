@@ -50,8 +50,14 @@ void checkIndexSelectVectorization(
         << lookup_tv_consumer->getLoopDomain()
         << " vs vectorized_lookup = " << vectorized_lookup;
     // index TV load
-    auto* index_tv_consumer =
-        index_select_op->indexTv()->definition()->input(0)->as<TensorView>();
+    auto* index_tv_consumer = index_select_op->indexTv()->as<TensorView>();
+    // NOTE, index_select_op->indexTv() could have a broadcast op before it. We
+    // trace it back until we find the TV loading fusion input. This would tell
+    // us whether vectorized load is happening in the fusion.
+    while (!index_tv_consumer->definition()->input(0)->isFusionInput()) {
+      index_tv_consumer =
+          index_tv_consumer->definition()->input(0)->as<TensorView>();
+    }
     EXPECT_EQ(
         vectorized_index,
         std::any_of(

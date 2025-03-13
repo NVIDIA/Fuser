@@ -724,13 +724,18 @@ class VectorizeValidator : public OptInDispatch {
       GpuLower::current()->vectorizedAccesses().emplace(tv, vector_word_size);
     }
 
-    // TernaryOp(where) is a could have multiple inputs. But we only support
-    // single TensorView input for vectorization.
     TensorView* producer_tv = nullptr;
     for (auto input : tv_def->inputs()) {
+      // TernaryOp(where) could have multiple inputs. But we only support single
+      // TensorView input for vectorization.
       if (!input->isA<TensorView>()) {
         continue;
       }
+      // IndexSelectOp during validation has already been lowered after
+      // indexing. At this point, we can only vectorize load on lookup_tv
+      // (input0). Prior to lowering, if vectorized load happened for index_tv,
+      // it would be handled by a load op via cached input. So we don't need to
+      // consider them here.
       if (tv_def->isA<IndexSelectOp>()) {
         if (producer_tv == tv_def->input(0)) {
           break;

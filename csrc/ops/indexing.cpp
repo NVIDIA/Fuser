@@ -74,10 +74,6 @@ TensorView* indexSelect(
         "index_tv must be a 1d or scalar tensor.");
     index_tv =
         ops::maybeBroadcastIndexTv(index_tv->as<TensorView>(), dim, n_dims);
-  } else {
-    // We do an explicit set here, which would allow vectorized load on index_tv
-    // when applicable.
-    index_tv = set(index_tv->as<TensorView>());
   }
 
   // create logical domain for output tensorview.
