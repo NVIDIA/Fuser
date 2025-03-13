@@ -58,14 +58,15 @@ class IrNodeLabel final : private OptInConstDispatch {
 
   void handle(const IterDomain* id) override {
     label_ << id->getIterType();
-    label_ << id->getParallelType();
-
-    label_ << "(";
-    if (!id->start()->isZeroInt()) {
-      label_ << IrNodeLabel::gen(id->start()) << " : ";
+    // label_ << id->getParallelType();
+    if(id->isConst()){
+      label_ << "(";
+      if (!id->start()->isZeroInt()) {
+        label_ << IrNodeLabel::gen(id->start()) << " : ";
+      }
+      label_ << IrNodeLabel::gen(id->extent());
+      label_ << ")";
     }
-    label_ << IrNodeLabel::gen(id->extent());
-    label_ << ")";
   }
 
   void handle(const Split* split) override {
@@ -323,16 +324,42 @@ void IrGraphGenerator::dispatch(const Expr* e) {
   if (!visited(e)) {
     visited_.insert(e);
 
-    // node
-    printExpr(e, e->getGraphvizLabel());
+    // // node
+    // printExpr(e, e->getGraphvizLabel());
 
-    // inputs & outputs
-    for (auto v : e->inputs()) {
-      addArc(v, e);
-    }
-    for (auto v : e->outputs()) {
-      addArc(e, v);
-    }
+    // // inputs & outputs
+    // for (auto v : e->inputs()) {
+    //   addArc(v, e);
+    // }
+    // for (auto v : e->outputs()) {
+    //   addArc(e, v);
+    // }
+    // Check if the expression is a reduction operation
+    if (e->isA<ReductionOp>()) {
+      // Plot the reduction expression
+      printExpr(e, e->getGraphvizLabel());
+
+      // Add arcs for inputs and outputs
+      for (auto v : e->inputs()) {
+        addArc(v, e);
+      }
+      for (auto v : e->outputs()) {
+        addArc(e, v);
+      }
+    } else {
+      // Directly connect inputs to outputs without plotting the expression node
+      for (auto v_in : e->inputs()) {
+        if (!v_in->isA<TensorView>()){
+          continue; 
+        }
+        for (auto v_out : e->outputs()) {
+          if (!v_out->isA<TensorView>()){
+            continue; 
+          }          
+          addArc(v_in, v_out);
+        }
+      }
+    }    
   }
 }
 
@@ -366,18 +393,23 @@ void IrGraphGenerator::handle(const NamedScalar* i) {
 
 void IrGraphGenerator::handle(const TensorView* tv) {
   std::stringstream label;
-  label << "{T" << tv->name() << "|";
-  label << "{";
-  bool first_axis = true;
-  for (auto iter_domain : tv->getLoopDomain()) {
-    if (first_axis) {
-      first_axis = false;
-    } else {
-      label << "|";
+  label << "{T" << tv->name();
+  if(tv->hasReduction()){
+    label << "|";
+    label << "{";
+    bool first_axis = true;
+    for (auto iter_domain : tv->getLoopDomain()) {
+      if (first_axis) {
+        first_axis = false;
+      } else {
+        label << "|";
+      }
+      label << IrNodeLabel::gen(iter_domain);
     }
-    label << IrNodeLabel::gen(iter_domain);
+    label << "}";
   }
-  label << "}}";
+  label << "}";
+
 
   const bool is_input = inputs_.find(tv) != inputs_.end();
   const bool is_output = outputs_.find(tv) != outputs_.end();
