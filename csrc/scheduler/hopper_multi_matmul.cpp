@@ -641,7 +641,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           reg_tv->getLoopDomain(), /*new_contiguity=*/true);
 
       // Apply LdStMatrix scheduling to the wgmma loop domain
-      mma_utils::scheduleStMatrixForMmaOutput(
+      mma_utils::scheduleLdStMatrixForMmaOutput(
           reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
 
       // Vectorize last iterDomain because LdMatrix loads all eight values with
@@ -734,7 +734,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       if (store_with_stmatrix) {
         // Apply LdStMatrix scheduling to the wgmma loop domain
-        mma_utils::scheduleStMatrixForMmaOutput(
+        mma_utils::scheduleLdStMatrixForMmaOutput(
             d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
 
         // Do not inline LdMatrix, Epilogue Computation, and StMatrix.

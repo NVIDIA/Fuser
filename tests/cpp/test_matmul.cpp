@@ -3793,7 +3793,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
     // This internally calls
     // Schedule shared memory cache; Output from StMatrix
-    mma_utils::scheduleStMatrixForMmaOutput(
+    mma_utils::scheduleLdStMatrixForMmaOutput(
         tv3_shmem, stmatrix_tile_m, stmatrix_tile_n);
 
     // Schedule global memory output; Output from TMA Store
@@ -5104,7 +5104,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
 
     // This internally calls
     // Schedule shared memory cache; Output from StMatrix
-    mma_utils::scheduleStMatrixForMmaOutput(
+    mma_utils::scheduleLdStMatrixForMmaOutput(
         tv3_shmem, stmatrix_tile_m, stmatrix_tile_n);
 
     // Schedule global memory output; Output from TMA Store
