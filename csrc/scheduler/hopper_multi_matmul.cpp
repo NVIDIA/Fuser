@@ -538,6 +538,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   std::vector<TensorView*> cached_tvs;
+  // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
   std::vector<TensorView*> tma_load_epilogue_inputs;
 
   // Propagate to (not including) the splitk output if there is a splitk
@@ -548,13 +549,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     const std::vector<TensorView*>& c_tvs =
         tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
     for (TensorView* c : c_tvs) {
-      // cacheInputsAndOutputs creates a cache_after for each epilogue inputs
+      // cacheInputsAndOutputs creates a cache_after for each epilogue input
       NVF_ERROR(c->uses().size() == 1);
       TensorView* smem_tv = ir_utils::consumerTvsOf(c).at(0);
       NVF_ERROR(
           smem_tv->definition() != nullptr &&
           smem_tv->definition()->isA<LoadStoreOp>());
-      cached_tvs.push_back(smem_tv);
 
       if (params_->async_gmem_load_operands) {
         // Schedule TMA load into shared memory for epilogue input
@@ -577,6 +577,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         propagate_to.push_back(smem_tv);
       } else {
         // Propagate changes to the cache_after tensor if not using TMA load.
+        cached_tvs.push_back(smem_tv);
         propagate_to.push_back(c);
       }
     }
@@ -647,9 +648,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // Vectorize last iterDomain because LdMatrix loads all eight values with
       // a single LdMatrix.x4 operation
       reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
-
-      // Do not inline LdMatrix, Epilogue Computation, and StMatrix.
-      epilogue_uninlinable_ids_.insert(reg_tv->axis(-3));
 
       // Do not propagate any other changes to LdMatrix.
       propagate_to.push_back(reg_tv);
@@ -736,9 +734,6 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
         // Apply LdStMatrix scheduling to the wgmma loop domain
         mma_utils::scheduleLdStMatrixForMmaOutput(
             d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
-
-        // Do not inline LdMatrix, Epilogue Computation, and StMatrix.
-        epilogue_uninlinable_ids_.insert(d_smem->axis(-3));
       }
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
@@ -771,10 +766,7 @@ void HopperMultipleMatmulScheduler::setUpInlining() {
   smem_loads_and_mma_inputs.insert(bcrs_.begin(), bcrs_.end());
   smem_loads_and_mma_inputs.insert(abs_.begin(), abs_.end());
   smem_loads_and_mma_inputs.insert(bbs_.begin(), bbs_.end());
-  // Do not inline LdMatrix, Epilogue Computation, and StMatrix.
-  inlineMost(
-      ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs),
-      epilogue_uninlinable_ids_);
+  inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
 
   // if auto inline, will inline to position-7, leads to performance
   // regression
