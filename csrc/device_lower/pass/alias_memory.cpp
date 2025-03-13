@@ -841,9 +841,14 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
-    alloc_info->is_cp_async_bulk =
-        (tv->definition() != nullptr &&
-         ir_utils::isCpAsyncBulk(tv->definition()));
+
+    bool is_tma_load = tv->definition() != nullptr &&
+        ir_utils::isCpAsyncBulk(tv->definition());
+    bool is_tma_store =
+        std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* e) {
+          return ir_utils::isCpAsyncBulk(e);
+        });
+    alloc_info->is_cp_async_bulk = (is_tma_load || is_tma_store);
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
