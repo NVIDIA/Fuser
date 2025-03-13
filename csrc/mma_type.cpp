@@ -16,6 +16,22 @@ GemmTile getMmaOpShape(MmaMacro macro) {
   return {getM(macro), getN(macro), getK(macro)};
 }
 
+int64_t getSharedMemoryByteAlignment(MmaInputSmemSwizzle swizzle) {
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      return 128;
+    case MmaInputSmemSwizzle::B32:
+      return 256;
+    case MmaInputSmemSwizzle::B64:
+      return 512;
+    case MmaInputSmemSwizzle::B128:
+      return 1024;
+    default:
+      NVF_CHECK(false, "Unknown swizzle type!");
+      break;
+  }
+}
+
 int64_t getBytesFromSwizzle(MmaInputSmemSwizzle swizzle) {
   switch (swizzle) {
     case MmaInputSmemSwizzle::None:
