@@ -456,6 +456,60 @@ TEST_P(HostIrTest, ForLoops) {
   EXPECT_TRUE(expected_result.equal(buffer_at));
 }
 
+TEST_P(HostIrTest, PreAllocatedOutputs) {
+  const std::vector<int64_t> input_sizes = {4, 8, 32};
+  const std::vector<int64_t> output_sizes = {input_sizes.at(1), input_sizes.at(2)};
+
+  auto get_fusion = [input_sizes] ()->std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeConcreteTensor(input_sizes);
+    auto tv1 = add(tv0, tv0);
+    auto tv2 = sum(tv1, {0});
+    fusion->addInput(tv0);
+    fusion->addOutput(tv2);
+    return fusion;
+  };
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto host_unit = IrBuilder::create<HostUnit>(get_fusion());
+
+  IrCloner ir_cloner(hic.get());
+  std::vector<Val*> post_on_stream_inputs = {
+      ir_cloner.clone(host_unit->fusion_to_execute()->inputs().at(0))};
+  std::vector<Val*> post_on_stream_outputs = {
+      ir_cloner.clone(host_unit->fusion_to_execute()->outputs().at(0))};
+
+  auto post_on_stream = IrBuilder::create<PostOnStream>(
+      host_unit, post_on_stream_inputs, post_on_stream_outputs);
+
+  hic->pushBackTopLevelExprs(post_on_stream);
+
+  hic->addInput(post_on_stream->inputs().at(0));
+  hic->addInput(post_on_stream->outputs().at(0));
+
+  HostIrEvaluatorParams params;
+  auto [use_fusion_executor_cache] = GetParam();
+  params.use_fusion_executor_cache = use_fusion_executor_cache;
+  HostIrEvaluator hie(std::move(hic), nullptr, params);
+
+  // define concrete inputs and compute ref output for validation
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto input = at::randn(input_sizes, options);
+  auto output = at::empty(output_sizes, options);
+  auto ref_output = at::sum(input * 2, {0});
+
+  hie.runWithInput({{post_on_stream->inputs().at(0), input}, {post_on_stream->outputs().at(0), output}});
+
+  // validate the obtained results
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, output)) << "Output: " << output
+                                                          << " Expected: " << ref_output;
+}
+
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     HostIrTest,

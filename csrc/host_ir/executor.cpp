@@ -330,6 +330,22 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   input_args.setDeviceIndex();
   // placeholder for storing the outputs
   KernelArgumentHolder outputs;
+  bool use_preallocated_outputs = std::all_of(
+          post_ir->outputs().begin(),
+          post_ir->outputs().end(),
+          [this](Val* output) { return this->expr_evaluator_.isKnown(output); });
+  NVF_ERROR(use_preallocated_outputs
+          || std::all_of(
+          post_ir->outputs().begin(),
+          post_ir->outputs().end(),
+          [this](Val* output) { return !this->expr_evaluator_.isKnown(output); }), "outputs must be all or none preallocated in expr ", post_ir);
+  if (use_preallocated_outputs) {
+    if (!params_.use_fusion_executor_cache) {
+    }
+    for (auto output : post_ir->outputs()) {
+      outputs.push(getKnownConcreteData(output));
+    }
+  }
 
   NVF_ERROR(
       post_ir->hostOpToPost()->isA<HostUnit>(),
@@ -346,16 +362,20 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           /*fusion_id=*/0,
           !params_.skip_auto_scheduling);
     }
-    outputs = fec_.at(hu).runFusionWithInputs(input_args);
+    if (use_preallocated_outputs) {
+      TORCH_WARN("FusionExecutorCache does not support with preallocated outputs, so we are copying the outputs in expr ", post_ir);
+      auto tmp_outputs = fec_.at(hu).runFusionWithInputs(input_args);
+      for (auto output_idx : c10::irange(tmp_outputs.size())) {
+        outputs[output_idx].as<at::Tensor>().copy_(tmp_outputs[output_idx].as<at::Tensor>());
+      }
+    } else {
+      outputs = fec_.at(hu).runFusionWithInputs(input_args);
+    }
   } else {
     // This path should generally be avoided as it will likely send the fusion
     // held in HostUnit directly to KernelExecutor which means it will try to
     // compile and run a device kernel with a single thread.
-    if (auto it = executors_.find(hu); it != executors_.end()) {
-      ExecutorAbstract* ea = it->second.get();
-      outputs = ExecutorDispatch::run(ea, input_args);
-
-    } else {
+    if (auto it = executors_.find(hu); it == executors_.end()) {
       DynamicTransform::concretizeFusion(hu->fusion_to_execute(), input_args);
       auto it2 = executors_.insert(
           {hu,
@@ -372,13 +392,20 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       } else {
         ExecutorDispatch::compile(ea, hu->fusion_to_execute());
       }
+    }
+    ExecutorAbstract* ea = executors_[hu].get();
+    if (use_preallocated_outputs) {
+      ExecutorDispatch::run(ea, input_args, outputs);
+    } else {
       outputs = ExecutorDispatch::run(ea, input_args);
     }
   }
 
-  // Store the outputs in the context
-  for (auto output_idx : c10::irange(outputs.size())) {
-    bind(post_ir->outputs().at(output_idx), outputs[output_idx]);
+  if (!use_preallocated_outputs) {
+    // Store the outputs in the context
+    for (auto output_idx : c10::irange(outputs.size())) {
+      bind(post_ir->outputs().at(output_idx), outputs[output_idx]);
+    }
   }
 }
 
