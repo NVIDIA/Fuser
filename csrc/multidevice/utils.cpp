@@ -325,6 +325,12 @@ std::pair<Val*, bool> computeIndex(
   return known_indices.at(id);
 }
 
+// A simple garbage collection mechanism to snapshot Exprs and Vals upon entry
+// and restore them upon exit. This avoids creating too many garbage Exprs and
+// Vals in the complete fusion, making cloning slow.
+//
+// Is it a good idea to move this to a separate file and make it a friend of
+// Fusion?
 class StatementGuard {
  public:
   StatementGuard(Fusion* fusion)
@@ -393,8 +399,8 @@ bool haveDifferentShardings(
   // Therefore, we collect all the loop IterDomains that depend on the
   // logical-domain-mapped IterDomains, and check if they are DID-parallelized
   // consistently.
-  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
-      PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
+  const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+      PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
 
   Fusion* fusion = producer->fusion();
   NVF_ERROR(
@@ -403,49 +409,32 @@ bool haveDifferentShardings(
   FusionGuard fg(fusion);
   StatementGuard sg(fusion);
 
-  // FIXME: can we reuse IterDomain* which is also a Val*?
-  // FIXME: remove Val* and Expr*
   std::unordered_map<IterDomain*, std::pair<Val*, bool>> known_indices;
   std::vector<Val*> assumptions;
-  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
-    const auto i = p2c.find(p_logical_id);
-    if (i == p2c.end()) {
-      // This happens e.g. when `p_logical_id` is squeezed or is a product of a
-      // reduction. Even if `p_logical_id` is parallelized on DID, the
-      // dimension is size-1 and doesn't trigger resharding.
+
+  auto create_index = [&](IterDomain* id) {
+    auto* index = IrBuilder::create<Val>(DataType::Index);
+    NVF_ERROR(known_indices.emplace(id, std::make_pair(index, false)).second);
+    assumptions.push_back(
+        SimplifyingIrBuilder::leExpr(fusion->zeroVal(), index));
+    assumptions.push_back(SimplifyingIrBuilder::ltExpr(index, id->extent()));
+  };
+
+  for (IterDomain* p_id : producer->getLogicalDomain()) {
+    create_index(p_id);
+  }
+  for (IterDomain* c_id : consumer->getMaybeRootDomain()) {
+    IterDomain* p_id = getOrDefault(c2p, c_id);
+    if (p_id == nullptr) {
+      create_index(c_id);
       continue;
     }
-    IterDomain* c_root_id = i->second;
 
-    auto* index = IrBuilder::create<Val>(DataType::Index);
-    known_indices[p_logical_id] = {index, true};
-    known_indices[c_root_id] = {index, true};
-    assumptions.push_back(
-        SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
-    assumptions.push_back(
-        SimplifyingIrBuilder::ltExpr(index, p_logical_id->extent()));
-  }
-
-  // FIXME: the two loops below can be consolidated.
-  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
-    Val*& index = known_indices[p_logical_id].first;
-    if (index == nullptr) {
-      index = IrBuilder::create<Val>(DataType::Index);
-      assumptions.push_back(
-          SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
-      assumptions.push_back(
-          SimplifyingIrBuilder::ltExpr(index, p_logical_id->extent()));
-    }
-  }
-  for (IterDomain* c_root_id : consumer->getMaybeRootDomain()) {
-    Val*& index = known_indices[c_root_id].first;
-    if (index == nullptr) {
-      index = IrBuilder::create<Val>(DataType::Index);
-      assumptions.push_back(
-          SimplifyingIrBuilder::leExpr(producer->fusion()->zeroVal(), index));
-      assumptions.push_back(
-          SimplifyingIrBuilder::ltExpr(index, c_root_id->extent()));
-    }
+    std::pair<Val*, bool>& index_and_mapped = known_indices.at(p_id);
+    index_and_mapped.second = true;
+    NVF_ERROR(known_indices
+                  .emplace(c_id, std::make_pair(index_and_mapped.first, true))
+                  .second);
   }
 
   // In practice, only loop IterDomains can be parallelized, and no two loop
