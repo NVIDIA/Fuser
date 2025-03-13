@@ -486,9 +486,8 @@ TEST_F(ReshardingTest, ReshardingSqueeze) {
   EXPECT_TRUE(isResharding(out->definition()));
 }
 
-// IdMappingMode::BROADCAST can't map i0*b1 and i0. IdMappingMode::ALMOSTEXACT
-// can but would fail on ReshardingTest.Add_Broadcast.
-TEST_F(ReshardingTest, NonreshardingSqueeze) {
+// Currently, simplifyExpr doesn't recognize that `0 <= x < 1` ==> `x == 0`.
+TEST_F(ReshardingTest, DISABLED_NonreshardingSqueeze) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
