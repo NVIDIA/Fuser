@@ -1026,7 +1026,7 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
   at::Tensor sharded_hk = shardTensor(hk_tensor, -1, mesh);
   at::Tensor sharded_hv = shardTensor(hv_tensor, -1, mesh);
 
-  at::Tensor nvf_out =
+  auto nvf_out =
       executor_cache
           .runFusionWithInputs({sharded_hq, sharded_hk, sharded_hv})[0]
           .as<at::Tensor>();
