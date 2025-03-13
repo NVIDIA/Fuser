@@ -36,10 +36,28 @@ void MultipleMatmulScheduler::translatePatterns() {
       }
     }
 
-    MmaOp* mma = pattern.translateToMmaOp(
+    mma_utils::MatmulPattern::TranslationResult res = pattern.translateToMmaOp(
         /*avoid_intermediates=*/!isAmpere(params_->mma_macro) &&
         !isTuring(params_->mma_macro));
-    mma_results_.push_back(mma->out()->as<TensorView>());
+    mma_results_.push_back(res.mma->out()->as<TensorView>());
+
+    // During MatmulPattern translation, we might replace some tensors in the
+    // fusion. If those replaced tensors were themselves the A or B members of
+    // another MatmulPattern, we should update the pattern to point to the
+    // replacement.
+    for (mma_utils::MatmulPattern& other_pattern : patterns_) {
+      if (&other_pattern == &pattern) {
+        continue;
+      }
+      if (auto it = res.replacements.find(other_pattern.A);
+          it != res.replacements.end()) {
+        other_pattern.A = it->second;
+      }
+      if (auto it = res.replacements.find(other_pattern.B);
+          it != res.replacements.end()) {
+        other_pattern.B = it->second;
+      }
+    }
   }
 
   // Build IdModel graphs now since translateToMmaOp creates new TVs. Before
@@ -65,6 +83,66 @@ void MultipleMatmulScheduler::findRoles() {
 
   as_ = tensor_roles_.at(MatmulTensorRole::OPERAND_A);
   bs_ = tensor_roles_.at(MatmulTensorRole::OPERAND_B);
+  // When translating MatmulOp or LinearOp with avoid_intermediates, we
+  // introduce some intermediate Global tensors which will be ignored during
+  // lowering. We update as_ and bs_ to point at the last of these tensors
+  // before their next consumer is in non-global memory.
+  auto find_last_global_consumer = [](TensorView* tv) -> TensorView* {
+    // Example: Suppose we start out with:
+    //
+    //   Inputs:
+    //     tv0_g
+    //     tv1_g
+    //
+    //   tv2_l = matmul(tv0_g, tv1_g)
+    //
+    // Earlier in scheduling we replace the operands to produce something like:
+    //
+    //   Inputs:
+    //     tv0_g
+    //     tv1_g
+    //
+    //   tv3_g = broadcast(tv0_g)
+    //   tv4_g = broadcast(tv1_g)
+    //   tv5_g = permute(tv4_g)
+    //   tv2 = matmul(tv3, tv5)
+    //
+    // We start out with:
+    //
+    //   tensor_roles_[A] = {tv0_g}
+    //   tensor_roles_[B] = {tv1_g}
+    //
+    // Here we update that to:
+    //
+    //   tensor_roles_[A] = {tv3_g}
+    //   tensor_roles_[B] = {tv5_g}
+    while (tv != nullptr) {
+      if (tv->uses().size() != 1) {
+        break;
+      }
+      Expr* use = tv->uses().front();
+
+      // TODO: support ViewOp
+      if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
+        break;
+      }
+      TensorView* consumer = ir_utils::getTvOutput(use);
+      if (consumer == nullptr ||
+          consumer->getMemoryType() != MemoryType::Global) {
+        break;
+      }
+
+      // Traverse down consumers
+      tv = consumer;
+    }
+    return tv;
+  };
+
+  // Apply in-place transformation
+  std::transform(
+      as_.cbegin(), as_.cend(), as_.begin(), find_last_global_consumer);
+  std::transform(
+      bs_.cbegin(), bs_.cend(), bs_.begin(), find_last_global_consumer);
 
   countDims();
 }

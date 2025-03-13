@@ -4292,11 +4292,6 @@ class MLPBenchmarkTest
 };
 
 TEST_P(MLPBenchmarkTest, FwdGEMM) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4374,11 +4369,6 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
 }
 
 TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4492,11 +4482,6 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
 }
 
 TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-  // TODO: This test currently fails on Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
   EnableOptionsGuard eog;
