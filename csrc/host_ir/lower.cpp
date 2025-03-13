@@ -638,13 +638,28 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
         }
       }
     } else {
+      // we decide whether to insert the Expr as a standalone op in the HostIRContainer, which will result in using ATen Op to evaluate it -- or, alternatively, to wrap them into a PostOnStream(HostUnit(.)) which will result in a kernel code generation.
       if (std::all_of(
               group->exprs().begin(),
               group->exprs().end(),
               [](Expr* expr) { return expr->isOneOf<MatmulOp, LoadStoreOp, SliceOp, BinaryOp, ReductionOp, LinearOp>(); })) {
-        std::for_each(group->exprs().begin(), group->exprs().end(), [&](auto expr) {
+        // we need to topologically sort the exprs inside the group. For this need to use StmtSort::getExprs(Fusion*) so we need to create a Fusion out of the segmented group, sort the expr (which are cloned from the segmented group to the newly created fusion), and infer back the order within the segmented group's expr.
+        std::vector<Expr*> sorted_exprs;
+        {
+          auto [/*IrCloner*/group_ir_cloner, /*std::unique_ptr<Fusion>*/group_fusion] = staged_fusion->makeFusion(group);
+          std::unordered_map<Expr*, Expr*> inverse_clone_map;
+          for (auto expr: group->exprs()) {
+            inverse_clone_map[group_ir_cloner.clone(expr)] = expr;
+          }
+          std::vector<Expr*> sorted_cloned_exprs = StmtSort::getExprs(group_fusion.get());
+          for (auto cloned_expr : sorted_cloned_exprs) {
+            sorted_exprs.push_back(inverse_clone_map[cloned_expr]);
+          }
+        }
+
+        for (Expr* expr: sorted_exprs) {
           hic->pushBackTopLevelExprs(ir_cloner.clone(expr));
-        });
+        }
       } else {
         auto host_unit = IrBuilder::create<hir::HostUnit>(
             staged_fusion->makeFusion(group).second);
