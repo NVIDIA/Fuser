@@ -1403,6 +1403,17 @@ void scheduleInnerOuterPersistentKernel(
     // auto input1 = dynamic_cast<TensorView*>(fusion->inputs()[1]);
     // auto war_tv = ir_utils::consumerTvsOf(ir_utils::consumerTvsOf(input1).at(0)).at(0);
     // tv_inline_pos_map.emplace(war_tv, 2);
+    
+    // WAR for rms_BWD, inline at 2, otherwise inlineMost will inline at 3 and leads
+    // to failure in expr sort.
+    for(auto tv : fusion->allTvs()){
+      if(tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
+         tv->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Reciprocal){
+          if(use_grouped_reduction){
+            tv_inline_pos_map.emplace(tv, 2);
+          }
+      }
+    }
 
     // special inline & inline most
     std::unordered_set<TensorView*> exclude_tvs;

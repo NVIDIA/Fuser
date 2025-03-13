@@ -611,7 +611,7 @@ class FusionDefinition(_C._FusionDefinition):
                     )
                 else:
                     print(
-                        f"Validation failed for output tensor {inx}, Max error: {max_err.item()} at position {tuple(idx.item() for idx in max_err_pos)}, "
+                        f"Validation pass for output tensor {inx}, Max error: {max_err.item()} at position {tuple(idx.item() for idx in max_err_pos)}, "
                         f"Fusion output at max error position: {fusion_val_at_max_err}, "
                         f"Reference output at max error position: {reference_val_at_max_err}, "
                         f"Absolute tolerance: {atol}, Relative tolerance: {rtol}"
