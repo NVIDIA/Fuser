@@ -5172,4 +5172,66 @@ TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
       cg_outputs[0].as<at::Tensor>().allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
 }
 
+// Test that TMA store smem buffers are sufficiently aligned
+// https://github.com/NVIDIA/Fuser/issues/3966
+TEST_F(HopperMatmulTest, AlignTMAStore) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // M, K
+  auto tv1 = makeContigConcreteTensor({1, -1, -1}, dtype); // K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {1});
+
+  // Reorder the accumulator as [M, N, K]
+  // [M, K, N] -> [M, N, K]
+  tv2->reorder({{-2, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion.addOutput(tv3);
+
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(192, 208, 64);
+  gemm_tile.warp_tile = GemmTile(192, 104, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_104_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = false;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+
+  constexpr int64_t M = 5320, N = 33928, K = 3464;
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+
+  auto a_ref = at::randn({M, K, 1}, options);
+  auto b_ref = at::randn({1, K, N}, options);
+  auto out_ref = at::matmul(a_ref.squeeze(), b_ref.squeeze()).to(at::kHalf);
+  const std::vector<c10::IValue> inputs = {a_ref, b_ref};
+
+  mparams.cparams.index_type = DataType::Int32;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  outputs = ke.run(inputs);
+  EXPECT_TRUE(at::allclose(outputs[0].as<at::Tensor>(), out_ref, 1e-5, 1e-5));
+}
+
 } // namespace nvfuser
