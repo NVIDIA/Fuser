@@ -323,7 +323,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   NVF_CHECK(
       found_non_rfactor_reduction,
-      "Must have at least one reduction axis not marked as rfactor.");
+      "Must have at least one reduction axis not marked as rfactor. original_td: ", original_td->toString());
 
   // Get root IterDomains of the logical domains, these will be the ones we will
   // replay marked as rfactor axes, those marked in the axes set will be

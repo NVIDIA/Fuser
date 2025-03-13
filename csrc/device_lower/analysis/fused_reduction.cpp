@@ -107,9 +107,10 @@ class FusionInspector : private IterVisitor {
 
     // Keep track of all output TVs if grid parallelized
     auto out = ir_utils::getTvOutput(grouped_rop);
-    bool fuse_bcast = std::getenv("FUSE_BCAST") != nullptr;
+    bool fuse_bcast = std::getenv("FUSE_BCAST") && 
+        std::atoi(std::getenv("FUSE_BCAST")) != 0;
     if (fuse_bcast || out->domain()->hasGridReduction()) {
-      std::cout << "Try to fuse bcast with grouped reduction: " << grouped_rop->toString() << std::endl;
+      std::cout << "Try to fuse bcast with grouped reduction out: " << out->toString() << std::endl;
       for (auto out : out_tvs) {
         reduction_dep_[out].insert(grouped_rop);
       }
@@ -137,14 +138,17 @@ class FusionInspector : private IterVisitor {
     // Detect a pattern where a reduction is followed by a broadcast
     auto bop_out = bop->out()->as<TensorView>();
     auto bop_in = bop->in()->as<TensorView>();
+    std::cout << "Try to fuse bcast with grouped reduction bop_in: " << bop_in->toString() << std::endl;
 
     for (Expr* preceding_expr : reduction_dep_[bop_in]) {
+      std::cout << "Try to fuse bcast with grouped reduction preceding_expr: " << preceding_expr->toString() << std::endl;
       auto parallel_reduction_axes =
           getReductionParallelTypeStates(preceding_expr);
 
       // If not matching, propagate the reduction further down to
       // subsequent expressions
       if (!isBroadcastFuseable(bop_out, parallel_reduction_axes)) {
+        std::cout << "Not fuseable: " << bop->toString() << std::endl;
         continue;
       }
 
@@ -152,6 +156,7 @@ class FusionInspector : private IterVisitor {
         // Already added to the fusion list. This can happen with
         // welford as there can be multiple broadcast consumer
         // expressions.
+        std::cout << "Already added: " << bop->toString() << std::endl;
         continue;
       }
 
@@ -165,6 +170,7 @@ class FusionInspector : private IterVisitor {
       } else {
         NVF_THROW("Invalid preceding expr: ", preceding_expr->toString());
       }
+      std::cout << "add to fused_exprs " << std::endl;
       fused_exprs_.insert(preceding_expr);
     }
   }

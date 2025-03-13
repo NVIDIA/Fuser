@@ -251,7 +251,7 @@ void dumpExprsIfEnabled(
         std::find(args.begin(), args.end(), pass_name) != args.end());
   };
   if (force_enable || enabled_by_env()) {
-    debug() << "After " << pass_name << ":" << std::endl;
+    debug() << "\nAfter " << pass_name << ":" << std::endl;
     for (auto exp : exprs) {
       // `Expr::toString()` already ends with a new line.
       debug() << exp->toString();
@@ -493,12 +493,14 @@ void GpuLower::analysis(Fusion* fusion) {
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
+    std::cout << "Building IdModel validateAndPropagatePType" << std::endl;
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
     id_model_->validateAndPropagatePType();
+    dumpExprsIfEnabled(fusion_->exprs(), "IdModel validateAndPropagatePType");
   }
 
   resolveComputeWith(fusion_);
@@ -642,6 +644,7 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
       continue;
     }
     if (tv->hasComputeWith()) {
+      std::cout << "Resolving compute with for " << tv->toString() << std::endl;
       if (exprs_sorted.empty()) {
         exprs_sorted = reorderExprsForComputeAt();
       }

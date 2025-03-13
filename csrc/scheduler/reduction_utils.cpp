@@ -149,7 +149,7 @@ TensorView* scheduleReductionTV(
     if (rparams->vectorize_inner_reduction) {
       vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
-    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
+    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk && !rparams->use_tidx_only) {
       // inner_parallel(inner_reduce_axis, rparams->block_dim_inner_reduction);
       NVF_ERROR(
           rparams->static_bdimx,
@@ -184,7 +184,7 @@ TensorView* scheduleReductionTV(
       outer_unroll(outer_i++, rparams->unroll_factor_inner_reduction);
     }
 
-    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
+    if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk && !rparams->use_tidx_only) {
       reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDz);
     } else {
       reduction_tv->axis(outer_i)->parallelize(

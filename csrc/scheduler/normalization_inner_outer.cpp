@@ -374,6 +374,9 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->use_tma_load = true;
   }
 
+  if (std::getenv("TIDX_ONLY") && std::atoi(std::getenv("TIDX_ONLY")) != 0) {
+    rparams->use_tidx_only = true;
+  }
   // Parameters for inner reduction:
   // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
   // Iteration dim: gdimy
@@ -532,6 +535,9 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   auto getBdimxBdimy = [&](int64_t threads_per_block,
                            int64_t vectorization_factor_outer,
                            int64_t gdimy) {
+    if(rparams->use_tidx_only){
+      return std::make_pair(threads_per_block, (int64_t)1);
+    }
     // For widely used hidden sizes, threads_per_block has factor of 8, roundup
     // to increase the probability of bdimx * bdimy == threads_per_block.
     int64_t bdimx = scheduler_utils::roundUpPow2Or8(
@@ -699,6 +705,9 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         iop.inner_batch);
     NVF_ERROR(iop.bdimz == 1, "bdimz must be 1.");
   }
+  if(rparams->use_tidx_only){
+    rparams->pad_inner_reduction_to_warp = true;
+  }
 
   // check all the parameters in InnerOuterParams are set.
   iop.verify();
@@ -723,9 +732,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         (int64_t)std::atoi(std::getenv("IUNROLL"));
   }
 
-  if (std::getenv("TIDX_ONLY") && std::atoi(std::getenv("TIDX_ONLY")) != 0) {
-    rparams->use_tidx_only = true;
-  }
 
   if (std::getenv("USE_TMA") && std::atoi(std::getenv("USE_TMA")) != 0) {
     rparams->use_tma_load = true;
@@ -962,8 +968,10 @@ void scheduleReductionCombinedOuter(
     if (rparams->unroll_factor_iter_dom > 1 &&
         !rparams->multiple_reds_per_blk) {
       // [R/Unroll, Unroll]
+      // Should mark as serial to avoid unrolling the outer reduction
+      // which requires extra registers
       outer_reduction_tv->split(0, rparams->unroll_factor_iter_dom);
-      outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+      outer_reduction_tv->axis(1)->parallelize(ParallelType::Serial);
     }
 
     if (rparams->multiple_reds_per_blk) {
@@ -1034,8 +1042,14 @@ void scheduleReductionCombinedOuter(
 
     } else {
       // reduction domain
-      outer_reduction_tv->split(0, rparams->lparams.bdimy());
-      outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+      if(rparams->lparams.bdimy() > 1){
+        outer_reduction_tv->split(0, rparams->lparams.bdimy());
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+      }else{
+        outer_reduction_tv->split(0, 2);
+        outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+      }
+
 
       // iteration domain
       int axisID = -1;
@@ -1045,22 +1059,35 @@ void scheduleReductionCombinedOuter(
             ParallelType::Vectorize);
       }
 
-      if (rparams->lparams.bdimx() > 1) {
-        outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
-        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+      if(rparams->use_tidx_only){
+        // [.., I/V, V] --> [.., gdimy, I/V/gdimy, V]
+        outer_reduction_tv->split(axisID, rparams->lparams.gdimy(), false);
+        outer_reduction_tv->axis(-3)->parallelize(ParallelType::BIDy);
+        outer_reduction_tv->axis(-2)->parallelize(ParallelType::TIDx);
+
+      }else{
+        if (rparams->lparams.bdimx() > 1) {
+          outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
+          outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+        }
+
+        if (rparams->combined_split_grid_inner_dim) {
+          outer_reduction_tv->split(
+              axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+        }
+
+        outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
       }
 
-      if (rparams->combined_split_grid_inner_dim) {
-        outer_reduction_tv->split(
-            axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
-      }
 
-      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     }
     std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
               << "\n";
-    auto outer_reference_tv =
-        reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
+    auto outer_reference_tv = outer_reduction_tv;
+    if(rparams->lparams.bdimy() > 1){
+      outer_reference_tv =
+          reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
+    }
     outer_reference_tvs.emplace_back(outer_reference_tv);
     std::cout << "outer_reference_tv: " << outer_reference_tv->toString()
               << "\n";
@@ -1187,7 +1214,8 @@ void scheduleInnerOuterPersistentKernel(
   bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
 
-  if(rparams->unroll_factor_iter_dom > 1){
+  if(rparams->unroll_factor_iter_dom > 1 && std::getenv("GROUPED_REDUCTION") && 
+     std::atoi(std::getenv("GROUPED_REDUCTION")) != 0){
     use_grouped_reduction = true;
   }
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
