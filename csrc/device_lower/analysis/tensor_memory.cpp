@@ -330,11 +330,14 @@ getThreadParallelTypesMergedByContiguity(const Expr* expr) {
   struct ContiguityAndStride {
     bool contiguity;
     Val* stride;
-    static ContiguityAndStride merge(ContiguityAndStride x, ContiguityAndStride y) {
+    static ContiguityAndStride merge(
+        ContiguityAndStride x,
+        ContiguityAndStride y) {
       NVF_ERROR(x.contiguity);
       return {y.contiguity, y.stride};
     }
-    static std::pair<ContiguityAndStride, ContiguityAndStride> split(ContiguityAndStride x) {
+    static std::pair<ContiguityAndStride, ContiguityAndStride> split(
+        ContiguityAndStride x) {
       NVF_THROW("Should not reach here");
     }
     static std::pair<ContiguityAndStride, ContiguityAndStride> swizzle(
@@ -359,7 +362,8 @@ getThreadParallelTypesMergedByContiguity(const Expr* expr) {
     IterDomain* id = *id_it;
     const ValGroup& val_group = id_graph.toGroup(id);
     pdims.pushBack(
-        ValGroupAndItsGraph{val_group, &id_graph}, ContiguityAndStride{contiguity[i], stride});
+        ValGroupAndItsGraph{val_group, &id_graph},
+        ContiguityAndStride{contiguity[i], stride});
     stride = SimplifyingIrBuilder::mulExpr(stride, pdim_size);
   }
   pdims.reverse();
@@ -443,14 +447,23 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
         "Invalid data access pattern in TMem load/store: ",
         "TMem load/store must be warp-collective, but the innermost extent is not a multiple of 32.");
 
-    // The outer parallel types must have "stride" being multiple of 32.
-    for (auto stride : strides | std::views::take(strides.size() - 1)) {
+    // For each outer parallel type that has extent > 1, its stride must be a
+    // multiple of 32.
+    for (auto [pdim, stride] :
+         zip(pdims, strides) | std::views::take(strides.size() - 1)) {
+      Val* pdim_extent = pdim.as<ValGroupAndItsGraph>()
+                             .group->front()
+                             ->as<IterDomain>()
+                             ->extent();
+      Val* pdim_extent_is_one =
+          SimplifyingIrBuilder::eqExpr(pdim_extent, fusion->oneVal());
       Val* stride_is_multiple_of_32 = SimplifyingIrBuilder::eqExpr(
           SimplifyingIrBuilder::modExpr(
               stride, IrBuilder::create<Val>(32, DataType::Index)),
           fusion->zeroVal());
       GpuLower::current()->validate(
-          stride_is_multiple_of_32,
+          SimplifyingIrBuilder::logicalOrExpr(
+              pdim_extent_is_one, stride_is_multiple_of_32),
           "Invalid data access pattern in TMem load/store: ",
           "Outer parallel types' strides must be a multiple of 32.");
     }

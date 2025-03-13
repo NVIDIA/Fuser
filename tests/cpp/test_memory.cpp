@@ -2943,13 +2943,20 @@ TEST_F(TMemTestCompileOnly, SetTMemDimSepPosNonTMem) {
   fusion.addOutput(tv1);
 
   EXPECT_THAT(
-      [&]() {
-        tv1->setTMemDimSepPos(-1);
-      },
-      ::testing::ThrowsMessage<nvfuser::nvfError>(
-          ::testing::HasSubstr("TMem dimension separator is only supported for tensor memory")));
+      [&]() { tv1->setTMemDimSepPos(-1); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "TMem dimension separator is only supported for tensor memory")));
 }
 
+// Test that we are checking the stride of the "outer parallel types".
+// If in a kernel, the parallel dimension map is [TIDy, TIDx] = [2, 33],
+// But in the TMem load/store's loop domain, Ix (the ID parallelized on TIDx)
+// have extent 32. Then we will generate code like:
+//   if (threadIdx.x < 32) {
+//     tmem::load
+//   }
+// For threadIdx.y == 0, it is correct. But for threadIdx.y == 1, it is wrong
+// because we are using the thread id 33-65 for the load, which is not a warp.
 TEST_F(TMemTestCompileOnly, WrongStride) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -2991,6 +2998,57 @@ TEST_F(TMemTestCompileOnly, WrongStride) {
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           "Invalid data access pattern in TMem load/store: "
           "Outer parallel types' strides must be a multiple of 32.")));
+}
+
+// This test is a variant of the WrongStride test, but this test is valid.
+// Test a case where the parallel types are not exact. The parallel dimension
+// map is [TIDy, TIDx] = [2, 33], but in the TMem load/store's loop domain,
+// we have Iy{1}, Ix{32}. the generated code will be like:
+//   if (threadIdx.x < 32 && threadIdx.y < 1) {
+//     tmem::load
+//   }
+// This is valid because we are using a whole warp for the load.
+TEST_F(TMemTest, InexactParallelType) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({2, 33});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0); // smem
+  auto tv2 = set(tv1); // register
+  auto tv3 = set(tv2); // tmem
+  auto tv4 = set(tv3); // register
+  auto tv5 = set(tv4); // gmem
+  fusion.addOutput(tv5);
+
+  tv1->setMemoryType(MemoryType::Shared);
+  tv3->setMemoryType(MemoryType::Tensor);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv4->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  // [TIDy{2}, TIDx{33}]
+  tv1->axis(0)->parallelize(ParallelType::TIDy);
+  tv1->axis(1)->parallelize(ParallelType::TIDx);
+
+  // [Serial{2}, TIDy{1}, Serial{2}, TIDx{32}]
+  for (auto tv : {tv2, tv3, tv4, tv5}) {
+    tv->split(1, 32);
+    tv->split(0, 1);
+    tv->axis(1)->parallelize(ParallelType::TIDy);
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+
+  tv3->setAllocationDomain(tv3->getLoopDomain(), true);
+  tv3->setTMemDimSepPos(-1);
+
+  inlineMost();
+
+  KernelExecutor ke;
+  ke.compile(&fusion);
+  auto t0 = at::randn(
+      {2, 33}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 using LdMatrixTestParam = std::tuple<MmaMacro, MmaOperand>;
