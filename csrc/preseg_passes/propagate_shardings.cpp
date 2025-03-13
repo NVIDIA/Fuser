@@ -170,19 +170,32 @@ void handleViewOp(ViewOp* view_op, int64_t did_pos) {
     NVF_ERROR(p_transforms.size() == 1 && p_transforms.back()->isA<Split>(), "Expected only a single DID split on reshaped ids.");
     auto* p_did_split = p_transforms.front()->as<Split>();
 
-    auto reshape_transform = DependencyCheck::getAllExprsBetween(
+    auto reshape_transforms = DependencyCheck::getAllExprsBetween(
         {c_reshaped_ids.begin(), c_reshaped_ids.end()}, {consumer->getLogicalDomain().begin(), consumer->getLogicalDomain().end()});
 
-    NVF_ERROR((reshape_transform.size() == 1 && reshape_transform.front()->isOneOf<Split, Merge>()), "Expected a split or merge transform between root and logical reshaped ids.");
-
-    if (reshape_transform.front()->isA<Merge>()){
-      // Check that the sharding is on the outer reshaped id. If it is on inner reshaped id (h/a for merge reshape), for non-resharding, the consumer should be inner split which is not supported.
-      auto* outer_id = reshape_transform.front()->as<Merge>()->outer();
-      auto* producer_outer_id = c2p.at(outer_id);
-      NVF_ERROR(p_did_split->in() == producer_outer_id, "Expected the sharding to be on the outer reshaped id.");
+    // Check if the producer is sharded on the outermost reshaped id.
+    IterDomain* reshaped_outer_id = nullptr;
+    for (auto transform_it = reshape_transforms.rbegin(); transform_it != reshape_transforms.rend(); transform_it++) {
+      auto* transform = *transform_it;
+      if (transform->isA<Merge>()) {
+        reshaped_outer_id = transform->as<Merge>()->outer();
+      }
+      if (transform->isA<Split>()) {
+        reshaped_outer_id = transform->as<Split>()->in();
+      }
     }
+    NVF_ERROR(c2p.find(reshaped_outer_id)!=c2p.end() && c2p.find(reshaped_outer_id)->second == p_did_split->in(), "Expected the sharding to be on the outer reshaped id.");
 
-    auto* c_sharded_id = reshape_transform.front()->isA<Split>() ? reshape_transform.front()->as<Split>()->outer() : reshape_transform.front()->as<Merge>()->out();
+    // Get the sharded id in the consumer.
+    IterDomain* c_sharded_id = nullptr;
+    for (auto transform: reshape_transforms) {
+      if (transform->isA<Split>()) {
+        c_sharded_id = transform->as<Split>()->outer();
+      }
+      if (transform->isA<Merge>()) {
+        c_sharded_id = transform->as<Merge>()->out();
+      }
+    }
 
     int64_t sharded_axis = std::distance(
       c_loop_domain.begin(),
