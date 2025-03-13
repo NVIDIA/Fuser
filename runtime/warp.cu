@@ -34,7 +34,7 @@ __device__ __forceinline__ void packedWarpReduce(
     Array<T, K, K> remote;
     *reinterpret_cast<uint64_t*>(remote.array) = __shfl_xor_sync(
         FINAL_MASK, *reinterpret_cast<uint64_t*>(val.array), mask, 32);
-#pragma unroll K
+#pragma unroll
     for (int i = 0; i < K; i++) {
       reduction_op(val[i], remote[i]);
     }
@@ -156,6 +156,78 @@ __device__ void iterGroupedWarpReduce(
   }
 
 
+  // needs sync, otherwise other warps may access shared memory before this
+  // reduction is done.
+  block_sync::sync<Aligned>(block_dim, barrier_id);
+}
+
+template <
+    bool SINGLE_WARP,
+    bool Aligned,
+    bool is_all_reduce,
+    int N, // Number of elements per input array
+    int n_threads,
+    typename T,
+    typename Func>
+__device__ void iterGroupedStaticWarpAllReduce(
+    T out[N],
+    const T inp_val[N],
+    Func reduction_op,
+    T* shared_mem,
+    uint32_t barrier_id = 1) {
+  // pack T into uint64_t to reduce number of shuffles
+  // sizeof(T) * K = sizeof(uint64_t), e.g. T = float, K = 2.
+  constexpr int K = sizeof(uint64_t) / sizeof(T);
+  constexpr dim3 block_dim = dim3(n_threads, 1, 1);
+  Array<T, K, K> packed_reduce_val;
+  // original N reductions are reduced to N / K reductions
+  static_assert(N % K == 0, "N must be a multiple of K");
+  #pragma unroll
+  for (int i = 0; i < N; i += K) {
+    #pragma unroll
+    for (int j = 0; j < K; j++) {
+      packed_reduce_val[j] = inp_val[i + j];
+    }
+    packedWarpReduce(packed_reduce_val, reduction_op);
+    #pragma unroll
+    for (int j = 0; j < K; j++) {
+      out[i + j] = packed_reduce_val[j];
+    }
+  }
+
+  // short circuit if we only have one warp
+  if constexpr (SINGLE_WARP) {
+    return;
+  }
+
+  // cross warp reduction using shared memory
+  constexpr int WARP_SIZE = 32;
+  constexpr int num_of_warps = n_threads / WARP_SIZE;
+  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+  unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+
+  // [warp_idx, N]
+  if (lane_idx == 0) {
+    #pragma unroll
+    for (int i = 0; i < N; i++) {
+      shared_mem[N * warp_idx + i] = out[i];
+    }
+  }
+  block_sync::sync<Aligned>(block_dim, barrier_id);
+
+  if constexpr (is_all_reduce){
+    #pragma unroll
+    for (int j = 0; j < N; j++) {
+      out[j] = shared_mem[j];
+    }
+    #pragma unroll
+    for (int i = 1; i < num_of_warps; i++) {
+      #pragma unroll
+      for (int j = 0; j < N; j++) {
+        out[j] += shared_mem[i * N + j];
+      }
+    }
+  }
   // needs sync, otherwise other warps may access shared memory before this
   // reduction is done.
   block_sync::sync<Aligned>(block_dim, barrier_id);

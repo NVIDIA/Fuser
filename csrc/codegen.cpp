@@ -3033,31 +3033,46 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           genStaticCast(genPtrType(output->dtype()), "shared_mem"));
     }
 
-    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
-    func_args.arg(genInline(read_pred));
-    func_args.arg(genStaticCast(output->dtype(), genInline(init)));
-    func_args.arg(genComputeBlockDim());
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
-      func_args.arg(
-          genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
-
-    } else {
-      func_args.arg(
-          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
-    }
-    func_args.arg(genBarrierId());
+    bool use_static = (std::getenv("USE_STATIC") && std::atoi(std::getenv("USE_STATIC")) > 0);
 
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
         reduction_dims.second == nullptr) {
-      template_args.arg(
-          kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
-      template_args.arg(isAligned());
-      template_args.arg(is_all_reduce);
-      template_args.arg(num_grouped_iterations);
-      indent() << genCall(
-                      "warp::iterGroupedWarpReduce", template_args, func_args)
-               << ";\n";
+      if(use_static){
+        int64_t number_of_threads = std::atoi(std::getenv("THREADS"));
+        func_args.arg(genBarrierId());
+        template_args.arg(
+            kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+        template_args.arg(isAligned());
+        template_args.arg(is_all_reduce);
+        template_args.arg(num_grouped_iterations);
+        template_args.arg(number_of_threads);
+        indent() << genCall(
+                        "warp::iterGroupedStaticWarpAllReduce", template_args, func_args)
+                << ";\n";
+      }else{
+        NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
+        func_args.arg(genInline(read_pred));
+        func_args.arg(genStaticCast(output->dtype(), genInline(init)));
+        func_args.arg(genComputeBlockDim());
+        if (std::getenv("CMP_WGROUPS") != nullptr) {
+          func_args.arg(
+              genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+        } else {
+          func_args.arg(
+              genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+        }
+        func_args.arg(genBarrierId());  
+        template_args.arg(
+            kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+        template_args.arg(isAligned());
+        template_args.arg(is_all_reduce);
+        template_args.arg(num_grouped_iterations);
+        indent() << genCall(
+                        "warp::iterGroupedWarpReduce", template_args, func_args)
+                << ";\n";
+      }
     } else if (
         reduction_dims.first->getParallelType() == ParallelType::TIDx &&
         reduction_dims.second->getParallelType() == ParallelType::TIDy) {
