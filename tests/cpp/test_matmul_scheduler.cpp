@@ -2896,10 +2896,18 @@ class AllocationDomainTest
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
   AllocationDomainTest() : optimization_guard_(false) {
     MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
 
-    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    if (cudaArchGuardShouldSkip(7, 5, 9, 0)) {
+      // Hopper or above
+      gemm_tile.cta_tile = GemmTile(128, 256, 64);
+      gemm_tile.warp_tile = GemmTile(64, 128, 64);
+      mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    } else {
+      // Ampere
+      gemm_tile.cta_tile = GemmTile(128, 128, 32);
+      gemm_tile.warp_tile = GemmTile(64, 64, 32);
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    }
     mparams.supported_vec_size = {8, 8, 4};
     mparams.tile_sizes = gemm_tile;
     mparams.async_gmem_load_operands = true;
@@ -2972,8 +2980,6 @@ TEST_P(AllocationDomainTest, BasicMatmul) {
   auto tv1b = broadcast(tv1t, {true, false, false});
   auto tv2 = fusedMultiplySum(tv0b, tv1b, {2});
   fusion->addOutput(tv2);
-
-  fusion->printMath();
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(fusion.get(), &mparams);

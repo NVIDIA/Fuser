@@ -2916,39 +2916,28 @@ bool hasExpensiveMUFUops(Fusion* fusion) {
 }
 
 TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
-  std::cout << "scheduleInputToSkipIntermediates " << tv->toString()
-            << std::endl;
   // First check that tv is fully contiguous. If not, then we can't currently
   // skip it.
   for (std::optional<bool> c : tv->getContiguity()) {
     if (c.has_value() && c.value() == false) {
-      std::cout << "  not contig" << std::endl;
       return tv;
     }
   }
 
-  const std::vector<IterDomain*> target_alloc = tv->getMaybeAllocationDomain();
-
   while (tv != nullptr) {
     if (tv->uses().size() != 1) {
-      std::cout << "  tv has multiple uses" << std::endl;
       break;
     }
     Expr* use = tv->uses().front();
 
     // TODO: support ViewOp here too
     if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
-      std::cout << "  use is not a trivial op: " << use->toString()
-                << std::endl;
       break;
     }
     TensorView* consumer = ir_utils::getTvOutput(use);
     if (consumer == nullptr) {
       break;
     }
-
-    std::cout << "  setting mtype and alloc dom for " << tv->toString()
-              << std::endl;
 
     // Setting memory type to Global and allocation to be exact mapped with
     // that of tv is enough to guarantee that it will be skipped during
@@ -2957,9 +2946,36 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
 
     // reorder consumer's allocation domain to match the original input
     const std::vector<IterDomain*> old_loop = tv->getLoopDomain();
-    scheduler_tools::scheduleLoopDomainsLike({consumer}, target_alloc);
-    consumer->setAllocationDomain(consumer->getLoopDomain(), true);
-    consumer->setLoopDomain(old_loop);
+
+    // TODO: Ideally we would use a tool like the following, but this does not
+    // preserve broadcasts that are missing in the target allocation domain.
+    //
+    //   scheduler_tools::scheduleLoopDomainsLike({consumer}, target_alloc);
+    //   consumer->setAllocationDomain(consumer->getLoopDomain(), true);
+    //   consumer->setLoopDomain(old_loop);
+    //
+    // Instead, we currently restrict to permutations and place new broadcasts
+    // on the outside
+
+    // Since we traverse in a p2c direction, we can use a pairwise map to
+    // propagate allocation domain from the producer tv to the consumer.
+    std::unordered_map<IterDomain*, IterDomain*> p2c =
+        PairwiseLogicalDomainMap(tv, consumer).mapProducerToConsumer();
+    std::vector<IterDomain*> new_consumer_alloc;
+    new_consumer_alloc.reserve(tv->getMaybeAllocationDomain().size());
+    for (IterDomain* p_id : tv->getMaybeAllocationDomain()) {
+      // NOTE: This simple approach assumes that the allocation domains of the
+      // producer are also logical domains. We can then map those to producer to
+      // get IDs to use in the consumer's allocation domain to get IDs to use in
+      // the consumer's allocation domain. This fails for ViewOp, which is why
+      // it is currently disabled. In the future, we should propagate through
+      // transforms as well using something similar to
+      // scheduler_tools::scheduleLoopDomainsLike();
+      auto it = p2c.find(p_id);
+      NVF_ERROR(it != p2c.end());
+      new_consumer_alloc.push_back(it->second);
+    }
+    consumer->setAllocationDomain(new_consumer_alloc, /*contiguity=*/true);
 
     tv = consumer;
   }

@@ -190,7 +190,6 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
     NVF_ERROR(operands.empty());
 
     for (TensorView* tv : unique_operands.vector()) {
-      std::cout << "operand  tensor " << tv->toString() << std::endl;
       // When translating MatmulOp or LinearOp with avoid_intermediates, we
       // introduce some intermediate tensors which need to be ignored during
       // lowering. We set as_ and bs_ to point at the last of these tensors
@@ -211,14 +210,6 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
     }
   }
 
-  // Now that we are finished possibly redefining the inputs to the MmaOps,
-  // we can set the macro for those ops
-  for (TensorView* mma_result : mma_results_) {
-    MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
-    NVF_ERROR(mma != nullptr);
-    mma->setMacro(params_->mma_macro);
-  }
-
   // Cache epilogue inputs
   if (auto it = tensor_roles_.find(MatmulTensorRole::EPILOGUE_INPUT);
       it != tensor_roles_.end()) {
@@ -229,6 +220,21 @@ void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
 
   // Cache and fork outputs
   scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
+  // In case a member of mma_results_ is a fusion output, we need to do the
+  // caching but we also need to update the input afterward
+  for (TensorView*& mma_result : mma_results_) {
+    if (mma_result->isFusionOutput()) {
+      Expr* def = mma_result->definition();
+      NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
+      mma_result = def->input(0)->as<TensorView>();
+    }
+
+    // Now that we are finished possibly redefining the inputs to the MmaOps,
+    // we can set the macro for those ops
+    auto* mma = dynamic_cast<MmaOp*>(mma_result->definition());
+    NVF_ERROR(mma != nullptr);
+    mma->setMacro(params_->mma_macro);
+  }
 }
 
 void HopperMultipleMatmulScheduler::swizzleBlockTiles(
