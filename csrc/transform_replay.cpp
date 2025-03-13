@@ -302,7 +302,7 @@ void TransformReplay::selfReplay(
     for (auto id : new_self->logical()) {
       if (id->isReduction()) {
         new_alloc_domain.push_back(id);
-        // NOLINTNEXTLINE (modernize-use-emplace)
+        // NOLINTNEXTLINE(modernize-use-emplace)
         new_contiguity.push_back(std::nullopt);
       }
     }
