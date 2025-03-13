@@ -31,8 +31,7 @@ TensorView* getTensorView(Val* v) {
   } else if (v->isA<kir::TensorIndex>()) {
     return v->as<kir::TensorIndex>()->view();
   } else {
-    NVF_THROW(
-        "Expected value to be a TensorView or kir::TensorIndex");
+    NVF_THROW("Expected value to be a TensorView or kir::TensorIndex");
   }
 }
 
