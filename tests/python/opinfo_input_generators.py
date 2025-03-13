@@ -831,9 +831,7 @@ def index_accumulate_generator(
     make_index = partial(make_tensor, device="cuda", requires_grad=False)
 
     # vocab_size, hidden_size, seq_size
-    cases = (
-        (1024, 12, 300),
-    )
+    cases = ((1024, 12, 300),)
 
     for vocab, hidden, seq in cases:
         for index_dtype in [torch.int, torch.long]:
@@ -841,6 +839,7 @@ def index_accumulate_generator(
             index = make_index((seq,), low=0, high=vocab, dtype=index_dtype)
             value = make_arg((seq, hidden))
             yield SampleInput(acc, index, value)
+
 
 def iota_error_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs

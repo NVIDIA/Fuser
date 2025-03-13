@@ -1025,8 +1025,17 @@ index_select_opinfo = OpInfo(
 )
 shape_ops.append(index_select_opinfo)
 
+
 def index_accumulate_ref(acc: torch.Tensor, index: torch.Tensor, value: torch.Tensor):
-  return torch.index_put(acc, [index,], value, accumulate=True)
+    return torch.index_put(
+        acc,
+        [
+            index,
+        ],
+        value,
+        accumulate=True,
+    )
+
 
 index_accumulate_opinfo = OpInfo(
     lambda fd: fd.ops.index_accumulate,
