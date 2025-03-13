@@ -261,28 +261,24 @@ void TransformReplay::selfReplay(
 
   // Map for replay
   IterDomainMap axis_map;
-  {
-    int64_t i = 0;
-    for (IterDomain* id : self_logical) {
-      // Note: we don't want to check for equal `isRFactorProduct`, since we
-      // could replay Allocation of the output of a reduction to a later
-      // consumer tensor, which would not have the rfactor flag on.
-      IterDomain* new_id = new_self_logical[i];
-      // Note: this function can be used prior to concretization, where we might
-      // have unresolved symbolic ID, where the broadcast flag might mismatch.
-      // We skip the check if either id or new_id is symbolic and expect a
-      // correct user program.
-      NVF_ERROR(
-          new_id->isSymbolic() || id->isSymbolic() ||
-              new_id->isBroadcast() == id->isBroadcast(),
-          "Axes ",
-          id,
-          " and ",
-          new_id,
-          " do not match for self replay.");
-      axis_map[id] = new_id;
-      i++;
-    }
+  for (auto&& [id, new_id] : zip(self_logical, new_self_logical)) {
+    // Note: we don't want to check for equal `isRFactorProduct`, since we
+    // could replay Allocation of the output of a reduction to a later
+    // consumer tensor, which would not have the rfactor flag on.
+    //
+    // Note: this function can be used prior to concretization, where we might
+    // have unresolved symbolic ID, where the broadcast flag might mismatch.
+    // We skip the check if either id or new_id is symbolic and expect a
+    // correct user program.
+    NVF_ERROR(
+        new_id->isSymbolic() || id->isSymbolic() ||
+            new_id->isBroadcast() == id->isBroadcast(),
+        "Axes ",
+        id,
+        " and ",
+        new_id,
+        " do not match for self replay.");
+    axis_map[id] = new_id;
   }
 
   if (self->hasAllocation()) {
