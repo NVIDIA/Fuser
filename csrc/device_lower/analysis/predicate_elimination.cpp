@@ -32,7 +32,7 @@ TensorView* getTensorView(Val* v) {
     return v->as<kir::TensorIndex>()->view();
   } else {
     NVF_THROW(
-        "Expected input for LoadStoreOp to be a TensorView or kir::TensorIndex");
+        "Expected value to be a TensorView or kir::TensorIndex");
   }
 }
 
