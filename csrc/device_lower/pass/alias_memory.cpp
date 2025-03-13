@@ -843,7 +843,10 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->should_try_alias = should_try_alias;
     alloc_info->is_cp_async_bulk =
         (tv->definition() != nullptr &&
-         ir_utils::isCpAsyncBulk(tv->definition()));
+         (ir_utils::isCpAsyncBulk(tv->definition()) ||
+          std::any_of(tv->uses().begin(), tv->uses().end(), [](Expr* expr) {
+            return ir_utils::isCpAsyncBulk(expr);
+          })));
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
