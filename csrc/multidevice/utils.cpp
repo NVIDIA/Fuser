@@ -280,7 +280,7 @@ namespace {
 std::pair<Val*, bool> computeIndex(
     IterDomain* id,
     const std::vector<IterDomain*>& sources,
-    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& known_indices) {
+    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& id_to_index) {
   if (id == nullptr) {
     return {nullptr, false};
   }
@@ -292,7 +292,7 @@ std::pair<Val*, bool> computeIndex(
             transform->outputs().begin(),
             transform->outputs().end(),
             [&](Val* val) {
-              return known_indices.count(val->as<IterDomain>()) > 0;
+              return id_to_index.count(val->as<IterDomain>()) > 0;
             })) {
       continue;
     }
@@ -302,19 +302,19 @@ std::pair<Val*, bool> computeIndex(
       auto* outer = split->outer()->as<IterDomain>();
       auto* inner = split->inner()->as<IterDomain>();
 
-      const auto& in_info = known_indices.at(in);
-      known_indices[outer] = {
+      const auto& in_info = id_to_index.at(in);
+      id_to_index[outer] = {
           div(in_info.first, inner->extent()), in_info.second};
-      known_indices[inner] = {
+      id_to_index[inner] = {
           mod(in_info.first, inner->extent()), in_info.second};
     } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
       auto* outer = merge->outer()->as<IterDomain>();
       auto* inner = merge->inner()->as<IterDomain>();
       auto* out = merge->out()->as<IterDomain>();
 
-      const auto& outer_info = known_indices.at(outer);
-      const auto& inner_info = known_indices.at(inner);
-      known_indices[out] = {
+      const auto& outer_info = id_to_index.at(outer);
+      const auto& inner_info = id_to_index.at(inner);
+      id_to_index[out] = {
           add(mul(outer_info.first, inner->extent()), inner_info.first),
           outer_info.second || inner_info.second};
     } else {
@@ -322,7 +322,7 @@ std::pair<Val*, bool> computeIndex(
     }
   }
 
-  return known_indices.at(id);
+  return id_to_index.at(id);
 }
 
 // A simple garbage collection mechanism to snapshot Exprs and Vals upon entry
@@ -409,12 +409,19 @@ bool haveDifferentShardings(
   FusionGuard fg(fusion);
   StatementGuard sg(fusion);
 
-  std::unordered_map<IterDomain*, std::pair<Val*, bool>> known_indices;
+  // The second element of the value pair indicates whether the IterDomain
+  // depends on a mapped producer logical IterDomain or a mapped consumer root
+  // IterDomain. Propagating this informatino is needed to solve the matmul
+  // example above.
+  std::unordered_map<IterDomain*, std::pair<Val*, bool>> id_to_index;
   std::vector<Val*> assumptions;
+  assumptions.reserve(
+      producer->getLogicalDomain().size() +
+      consumer->getMaybeRootDomain().size());
 
   auto create_index = [&](IterDomain* id) {
     auto* index = IrBuilder::create<Val>(DataType::Index);
-    NVF_ERROR(known_indices.emplace(id, std::make_pair(index, false)).second);
+    NVF_ERROR(id_to_index.emplace(id, std::make_pair(index, false)).second);
     assumptions.push_back(
         SimplifyingIrBuilder::leExpr(fusion->zeroVal(), index));
     assumptions.push_back(SimplifyingIrBuilder::ltExpr(index, id->extent()));
@@ -430,11 +437,11 @@ bool haveDifferentShardings(
       continue;
     }
 
-    std::pair<Val*, bool>& index_and_mapped = known_indices.at(p_id);
+    std::pair<Val*, bool>& index_and_mapped = id_to_index.at(p_id);
     index_and_mapped.second = true;
-    NVF_ERROR(known_indices
-                  .emplace(c_id, std::make_pair(index_and_mapped.first, true))
-                  .second);
+    NVF_ERROR(
+        id_to_index.emplace(c_id, std::make_pair(index_and_mapped.first, true))
+            .second);
   }
 
   // In practice, only loop IterDomains can be parallelized, and no two loop
@@ -458,7 +465,7 @@ bool haveDifferentShardings(
     Val* p_index = nullptr;
     bool p_mapped = false;
     std::tie(p_index, p_mapped) =
-        computeIndex(p_id, producer->getLogicalDomain(), known_indices);
+        computeIndex(p_id, producer->getLogicalDomain(), id_to_index);
     if (!p_mapped) {
       p_index = nullptr;
     }
@@ -467,7 +474,7 @@ bool haveDifferentShardings(
     Val* c_index = nullptr;
     bool c_mapped = false;
     std::tie(c_index, c_mapped) =
-        computeIndex(c_id, consumer->getMaybeRootDomain(), known_indices);
+        computeIndex(c_id, consumer->getMaybeRootDomain(), id_to_index);
     if (!c_mapped) {
       c_index = nullptr;
     }
