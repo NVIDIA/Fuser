@@ -1039,7 +1039,7 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
       /*dropout_p=*/0.0,
       /*is_causal=*/false,
       /*return_debug_mask=*/false,
-      /*scale=*/scale);
+      scale);
   at::Tensor ref_attn = shardTensor(
       std::get<0>(reference_out).transpose(1, 2).view(in_shape), -1, mesh);
 
