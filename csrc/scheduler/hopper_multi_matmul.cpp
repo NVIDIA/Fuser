@@ -551,33 +551,33 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     for (TensorView* c : c_tvs) {
       // cacheInputsAndOutputs creates a cache_after for each epilogue input
       NVF_ERROR(c->uses().size() == 1);
-      TensorView* smem_tv = ir_utils::consumerTvsOf(c).at(0);
+      TensorView* cache_tv = ir_utils::consumerTvsOf(c).at(0);
       NVF_ERROR(
-          smem_tv->definition() != nullptr &&
-          smem_tv->definition()->isA<LoadStoreOp>());
+          cache_tv->definition() != nullptr &&
+          cache_tv->definition()->isA<LoadStoreOp>());
 
       if (params_->async_gmem_load_operands) {
         // Schedule TMA load into shared memory for epilogue input
-        smem_tv->definition()->as<LoadStoreOp>()->setOpType(
+        cache_tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsyncBulkTensorTile);
-        smem_tv->setMemoryType(MemoryType::Shared);
+        cache_tv->setMemoryType(MemoryType::Shared);
 
-        blockTileTensors({smem_tv});
-        parallelizeBlocks({smem_tv});
+        blockTileTensors({cache_tv});
+        parallelizeBlocks({cache_tv});
 
-        transformLikeMmaOutputWithoutK(smem_tv);
+        transformLikeMmaOutputWithoutK(cache_tv);
 
         // Swizzle to avoid shared memory bank conflicts
         MmaInputSmemSwizzle swizzle_type =
-            mma_utils::tmaSwizzleSharedMemory(smem_tv);
-        smem_tv->applyMmaSwizzleForTMALoad(swizzle_type);
+            mma_utils::tmaSwizzleSharedMemory(cache_tv);
+        cache_tv->applyMmaSwizzleForTMALoad(swizzle_type);
 
-        tma_load_epilogue_inputs.push_back(smem_tv);
+        tma_load_epilogue_inputs.push_back(cache_tv);
         // Do not propagate any other changes to TMA load.
-        propagate_to.push_back(smem_tv);
+        propagate_to.push_back(cache_tv);
       } else {
+        cached_tvs.push_back(cache_tv);
         // Propagate changes to the cache_after tensor if not using TMA load.
-        cached_tvs.push_back(smem_tv);
         propagate_to.push_back(c);
       }
     }
