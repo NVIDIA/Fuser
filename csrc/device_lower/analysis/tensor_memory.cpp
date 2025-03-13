@@ -483,6 +483,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
       NVF_THROW(error.str());
     }
     // Validate that warps are accessing the correct sub-partition
+    // Warp i can only access the sub-partition i % 4
     AbstractTensor t = pdims;
     t.split(-1, 32);
     t.split(-2, 4);
