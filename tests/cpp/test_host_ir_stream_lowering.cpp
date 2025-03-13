@@ -69,7 +69,7 @@ TEST_F(HirLowerStreamTest, Merge) {
                    preseg_passes::StreamParallelType>::runPass(hic.get()));
 }
 
-TEST_F(HirLowerStreamTest, SingleUnaryOp) {
+TEST_F(HirLowerStreamTest, SingleSetOp) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -99,7 +99,7 @@ TEST_F(HirLowerStreamTest, SingleUnaryOp) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_F(HirLowerStreamTest, SingleUnaryOpNonOutermost) {
+TEST_F(HirLowerStreamTest, SingleSetOpNonOutermost) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -161,7 +161,7 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "Expected: " << expected_output;
 }
 
-TEST_F(HirLowerStreamTest, TwoUnaryOps) {
+TEST_F(HirLowerStreamTest, TwoSetOps) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -196,7 +196,7 @@ TEST_F(HirLowerStreamTest, TwoUnaryOps) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_F(HirLowerStreamTest, ThreeUnaryOpsWithDisjointsForLoops) {
+TEST_F(HirLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -410,6 +410,48 @@ TEST_F(HirLowerStreamTest, Matmul_K) {
       hic.get()));
 }
 
+// We don's support PostOnStream because it does not support well pre-allocated outputs. There is no strong motivation to support PostOnStream
+TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
+  const std::vector<int64_t> input_sizes = {4, 8, 32};
+  const std::vector<int64_t> output_sizes = {input_sizes.at(1), input_sizes.at(2)};
+
+  auto get_fusion = [input_sizes] ()->std::unique_ptr<Fusion> {
+    auto fusion = std::make_unique<Fusion>();
+    FusionGuard fg(fusion.get());
+
+    auto tv0 = makeConcreteTensor(input_sizes);
+    auto tv1 = add(tv0, tv0);
+    auto tv2 = sum(tv1, {0});
+    fusion->addInput(tv0);
+    fusion->addOutput(tv2);
+    return fusion;
+  };
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto host_unit = IrBuilder::create<HostUnit>(get_fusion());
+
+  IrCloner ir_cloner(hic.get());
+  TensorView* input = ir_cloner.clone(host_unit->fusion_to_execute()->inputs().at(0))->as<TensorView>();
+  TensorView* output = ir_cloner.clone(host_unit->fusion_to_execute()->outputs().at(0))->as<TensorView>();
+
+  std::vector<Val*> inputs = {input};
+  std::vector<Val*> outputs = {output};
+  auto post_on_stream = IrBuilder::create<PostOnStream>(
+      host_unit, inputs, outputs);
+
+  hic->pushBackTopLevelExprs(post_on_stream);
+
+  hic->addInput(input);
+  hic->addOutput(output);
+
+  output->axis(-1)->parallelize(ParallelType::Stream);
+
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get()));
+}
+
 } // namespace hir
 
 using MultiDeviceExecutorLowerStreamTest = NVFuserTest;
@@ -453,7 +495,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Merge) {
       MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
-TEST_F(MultiDeviceExecutorLowerStreamTest, SingleUnaryOp) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOp) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -478,7 +520,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleUnaryOp) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_F(MultiDeviceExecutorLowerStreamTest, SingleUnaryOpNonOutermost) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOpNonOutermost) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -530,7 +572,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
   EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "Expected: " << expected_output;
 }
 
-TEST_F(MultiDeviceExecutorLowerStreamTest, TwoUnaryOps) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, TwoSetOps) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -558,7 +600,7 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, TwoUnaryOps) {
       << "Output: " << output << " Expected: " << input;
 }
 
-TEST_F(MultiDeviceExecutorLowerStreamTest, ThreeUnaryOpsWithDisjointsForLoops) {
+TEST_F(MultiDeviceExecutorLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -730,5 +772,21 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_K) {
 
   EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
+
+// We only support Stream parallel type on ops that support pre-allocated output, which means they need a special handle in HostIrEvaluator and they need to be lowered as a Host Ir Op in the TopLevelExpression, no a PostOnStream(HostUnit(.))
+// See HostIrLower::isLoweredAsStandaloneHostOp and the test HirLowerStreamTest.DoNotSupportPostOnStream
+TEST_F(MultiDeviceExecutorLowerStreamTest, DoNotSupportPostOnStream) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = abs(tv0); // arbitrary example of an unsupported op. There is no deep reason why we not support it -- if needed we could widen the support. But I wanna make sure that an unsupported op do not silently fails
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  tv1->axis(0)->parallelize(ParallelType::Stream);
+
+  EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
+}
+
+
 
 } // namespace nvfuser

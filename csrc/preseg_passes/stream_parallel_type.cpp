@@ -7,6 +7,7 @@
 // clang-format on
 
 #include <host_ir/container.h>
+#include <host_ir/lower.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -81,6 +82,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
       new_top_level_exprs.push_back(expr);
       continue;
     }
+    NVF_ERROR(HostIrLower::isLoweredAsStandaloneHostOp(expr), "Stream parallel type not support for expr ", expr);
     // find the corresponding stream axis but in the Logical (and not Loop
     // Domain)
     auto it_logical_stream_axis = std::find(

@@ -642,7 +642,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       if (std::all_of(
               group->exprs().begin(),
               group->exprs().end(),
-              [](Expr* expr) { return expr->isOneOf<MatmulOp, LoadStoreOp, SliceOp, BinaryOp, ReductionOp, LinearOp>(); })) {
+              isLoweredAsStandaloneHostOp)) {
         // we need to topologically sort the exprs inside the group. For this need to use StmtSort::getExprs(Fusion*) so we need to create a Fusion out of the segmented group, sort the expr (which are cloned from the segmented group to the newly created fusion), and infer back the order within the segmented group's expr.
         std::vector<Expr*> sorted_exprs;
         {

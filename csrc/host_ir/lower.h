@@ -35,6 +35,10 @@ class HostIrLower {
       std::unique_ptr<Fusion> fusion,
       int64_t my_device_index);
 
+  static bool isLoweredAsStandaloneHostOp(Expr* expr) {
+    return expr->isOneOf<MatmulOp, LoadStoreOp, SliceOp, BinaryOp, ReductionOp, LinearOp>();
+  }
+
  private:
   std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);
   const HostIrLowerParams params_;
