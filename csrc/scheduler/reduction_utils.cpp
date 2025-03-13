@@ -582,15 +582,20 @@ void propagateParallelization(
     const std::vector<TensorView*>& reduction_tvs,
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs,
     const std::vector<TensorView*>& selected_tvs) {
+  std::unordered_set<ParallelType> ur_vect_pts{
+      ParallelType::Unroll,
+      ParallelType::Vectorize,
+      ParallelType::MisalignedVectorize};
+  if(std::getenv("ALL_UNROLL") && std::atoi(std::getenv("ALL_UNROLL")) > 0) {
+    ur_vect_pts.erase(ParallelType::Unroll);
+  }
+
   // Propagate parallelization except vectorization and unrolling
   scheduler_utils::parallelizeAllLike(
       reference_tv,
       -1,
       selected_tvs,
-      allParallelTypesExcept(
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize}));
+      allParallelTypesExcept(ur_vect_pts));
 
   if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
@@ -600,9 +605,7 @@ void propagateParallelization(
           -1,
           {unroll_vectorizable_cached_tvs.begin(),
            unroll_vectorizable_cached_tvs.end()},
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize});
+          ur_vect_pts);
     }
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group.

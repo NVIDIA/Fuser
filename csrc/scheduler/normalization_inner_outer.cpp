@@ -1275,6 +1275,7 @@ void scheduleInnerOuterPersistentKernel(
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+
   std::cout << "inner_reduction_tvs[0]: " << inner_reduction_tvs[0]->toString()<< "\n";
   std::cout << "inner_reference_tv: " << inner_reference_tv->toString()<< "\n";
 
@@ -1391,7 +1392,18 @@ void scheduleInnerOuterPersistentKernel(
       for(auto tv : smem_consumers){
         tv_inline_pos_map.emplace(tv, 2);
       }
-    }    
+    }
+    // WAR wrong compute at position
+    IdModel id_model(fusion, false, false, false);
+    id_model.buildExactGraph();
+    const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+    const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
+    std::cout << id_sets.toString() << std::endl;
+    // WAR for rms_bwd_copy
+    // auto input1 = dynamic_cast<TensorView*>(fusion->inputs()[1]);
+    // auto war_tv = ir_utils::consumerTvsOf(ir_utils::consumerTvsOf(input1).at(0)).at(0);
+    // tv_inline_pos_map.emplace(war_tv, 2);
+
     // special inline & inline most
     std::unordered_set<TensorView*> exclude_tvs;
     for (auto [k, v] : tv_inline_pos_map) {
