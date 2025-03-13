@@ -836,9 +836,9 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   TransformReplay::selfReplay(
       incomplete_out_tv->domain(), concrete_reshape_out_tv->domain());
 
-  for (const auto idx : c10::irange(new_logical.size())) {
-    auto old_extent = old_logical.at(idx)->extent();
-    auto new_extent = new_logical.at(idx)->extent();
+  for (auto&& [old_id, new_id] : zip(old_logical, new_logical)) {
+    Val* old_extent = old_id->extent();
+    Val* new_extent = new_id->extent();
     // If the old extent did not have a definition, we don't need to replace
     // it, since it will get bound whenever this tensor is a segmentation
     // edge.
