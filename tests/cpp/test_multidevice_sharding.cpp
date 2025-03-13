@@ -1219,9 +1219,55 @@ TEST_F(MultiDeviceTest, ResidualAdd) {
   fusion->addOutput(tv2);
 
   preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  debug() << "tv0: " << tv0->toString() << std::endl;
-  debug() << "tv1: " << tv1->toString() << std::endl;
-  debug() << "tv2: " << tv2->toString() << std::endl;
   NVF_CHECK(getShardedLoopAxis(tv0, ParallelType::DIDx) != -1);
 }
+
+TEST_F(MultiDeviceTest, MultipleMergeReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 3, h = 8;
+
+  TensorView* tv0 = makeContigConcreteTensor({d*b, s, h});
+  TensorView* tv1 = reshape(tv0, {d*b, s, h}, {d*b, s, h});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  tv0->setDeviceMesh(mesh);
+  tv0->split(0, d, /*inner_split=*/false);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  auto transform_exprs = StmtSort::getExprsBetween(
+      {tv1->getMaybeRootDomain().begin(), tv1->getMaybeRootDomain().end()},
+      {tv1->getLogicalDomain().begin(), tv1->getLogicalDomain().end()});
+
+  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  
+  NVF_CHECK(getShardedLoopAxis(tv1, ParallelType::DIDx) != -1);
+}
+
+TEST_F(MultiDeviceTest, MultipleSplitReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 3, h = 8;
+
+  TensorView* tv0 = makeContigConcreteTensor({d*b*s*h});
+  TensorView* tv1 = reshape(tv0, {d*b*s*h}, {d*b, s, h});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  tv0->setDeviceMesh(mesh);
+  tv0->split(0, d, /*inner_split=*/false);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  
+  NVF_CHECK(getShardedLoopAxis(tv1, ParallelType::DIDx) != -1);
+}
+
 } // namespace nvfuser
