@@ -269,6 +269,7 @@ TEST_F(HirLowerStreamTest, Reduction) {
       hic.get());
   EXPECT_EQ(hic->topLevelExprs().size(), 2);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
 
   HostIrEvaluator hie(std::move(hic));
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -280,6 +281,130 @@ TEST_F(HirLowerStreamTest, Reduction) {
   auto expected_output = input.sum(2);
   EXPECT_TRUE(output.equal(expected_output))
       << "Output: " << output << " Expected: " << expected_output;
+}
+
+TEST_F(HirLowerStreamTest, Matmul_M) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  TensorView* a = makeContigTensor(2);
+  TensorView* b = makeContigTensor(2);
+  TensorView* c = matmul(a, b);
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addOutput(c);
+  hic->pushBackTopLevelExprs(c->definition());
+  a->setMemoryType(MemoryType::Global);
+  b->setMemoryType(MemoryType::Global);
+  c->setMemoryType(MemoryType::Global);
+  c->axis(0)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
+  EXPECT_EQ(hic->topLevelExprs().size(), 2);
+  EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
+
+  HostIrEvaluator hie(std::move(hic));
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+
+  constexpr int64_t M=8, K=4, N=2;
+  at::Tensor a_aten = at::rand({M, K}, options);
+  at::Tensor b_aten = at::rand({K, N}, options);
+  auto output = hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
+
+  torch::cuda::synchronize();
+  auto expected_output = at::matmul(a_aten, b_aten);
+  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+      << "Output: " << output << " Expected: " << expected_output;
+}
+
+TEST_F(HirLowerStreamTest, BatchedMatmul) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  TensorView* a = makeContigTensor(3);
+  TensorView* b = makeContigTensor(2);
+  TensorView* c = matmul(a, b);
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addOutput(c);
+  hic->pushBackTopLevelExprs(c->definition());
+  a->setMemoryType(MemoryType::Global);
+  b->setMemoryType(MemoryType::Global);
+  c->setMemoryType(MemoryType::Global);
+  c->axis(0)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
+  EXPECT_EQ(hic->topLevelExprs().size(), 2);
+  EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
+
+  HostIrEvaluator hie(std::move(hic));
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+
+  constexpr int64_t B=16, M=8, K=4, N=2;
+  at::Tensor a_aten = at::rand({B, M, K}, options);
+  at::Tensor b_aten = at::rand({K, N}, options);
+  auto output = hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
+
+  torch::cuda::synchronize();
+  auto expected_output = at::matmul(a_aten, b_aten);
+  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+      << "Output: " << output << " Expected: " << expected_output;
+}
+
+TEST_F(HirLowerStreamTest, Matmul_N) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  TensorView* a = makeContigTensor(2);
+  TensorView* b = makeContigTensor(2);
+  TensorView* c = matmul(a, b);
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addOutput(c);
+  hic->pushBackTopLevelExprs(c->definition());
+  a->setMemoryType(MemoryType::Global);
+  b->setMemoryType(MemoryType::Global);
+  c->setMemoryType(MemoryType::Global);
+  c->axis(1)->parallelize(ParallelType::Stream);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
+  EXPECT_EQ(hic->topLevelExprs().size(), 2);
+  EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(hic->topLevelExprs().at(1)->isA<ForLoop>());
+
+  HostIrEvaluator hie(std::move(hic));
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+
+  constexpr int64_t M=8, K=4, N=2;
+  at::Tensor a_aten = at::rand({M, K}, options);
+  at::Tensor b_aten = at::rand({K, N}, options);
+  auto output = hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
+
+  torch::cuda::synchronize();
+  auto expected_output = at::matmul(a_aten, b_aten);
+  EXPECT_TRUE(torch::allclose(output, expected_output, 1e-2, 1e-2))
+      << "Output: " << output << " Expected: " << expected_output;
+}
+
+TEST_F(HirLowerStreamTest, Matmul_K) {
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+  TensorView* a = makeContigTensor(2);
+  TensorView* b = makeContigTensor(2);
+  TensorView* c = matmul(a, b);
+  hic->addInput(a);
+  hic->addInput(b);
+  hic->addOutput(c);
+  hic->pushBackTopLevelExprs(c->definition());
+  a->setMemoryType(MemoryType::Global);
+  b->setMemoryType(MemoryType::Global);
+  c->setMemoryType(MemoryType::Global);
+  c->axis(-1)->parallelize(ParallelType::Stream);
+
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get()));
 }
 
 } // namespace hir
