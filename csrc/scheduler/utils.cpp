@@ -558,13 +558,18 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
 }
 
 TensorView* getUpCastInputOf(const TensorView* tv) {
+  // skip if definition is not a unary op
   if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
-    if (uop->getUnaryOpType() == UnaryOpType::Cast &&
-        !uop->input(0)->isFusionInput() &&
-        dataTypeSize(uop->input(0)->getDataType().value()) <
-            dataTypeSize(uop->output(0)->getDataType().value())) {
-      return uop->input(0)->as<TensorView>();
+    // skip if the input is a fusion input
+    if (uop->input(0)->isFusionInput()) {
+      return nullptr;
     }
+    // skip if the cast is not upcast
+    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    if (!precisions.has_value() || precisions->first >= precisions->second) {
+      return nullptr;
+    }
+    return uop->input(0)->as<TensorView>();
   }
   return nullptr;
 }
