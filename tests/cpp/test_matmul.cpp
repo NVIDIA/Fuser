@@ -3642,7 +3642,7 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 using HopperMatmulTest = HopperBase;
@@ -3783,10 +3783,10 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
 
     constexpr int64_t stmatrix_tile_m = 16;
     constexpr int64_t stmatrix_tile_n = 16;
-    fusion.manage("st_matrix_m_tile", stmatrix_tile_m);
-    fusion.manage("st_matrix_n_tile", stmatrix_tile_n);
-    fusion.manage("st_matrix_m", getM(macro));
-    fusion.manage("st_matrix_n", getN(macro));
+    fusion.manage("ldst_matrix_m_tile", stmatrix_tile_m);
+    fusion.manage("ldst_matrix_n_tile", stmatrix_tile_n);
+    fusion.manage("ldst_matrix_m_smem", getM(macro));
+    fusion.manage("ldst_matrix_n_smem", getN(macro));
 
     MmaInputSmemSwizzle store_swizzle =
         mma_utils::tmaSwizzleSharedMemory(tv3_shmem);
@@ -4292,11 +4292,6 @@ class MLPBenchmarkTest
 };
 
 TEST_P(MLPBenchmarkTest, FwdGEMM) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4374,11 +4369,6 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
 }
 
 TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -4492,11 +4482,6 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
 }
 
 TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
-  if (test_params.persistent_kernel) {
-    GTEST_SKIP()
-        << "Persistent kernels do not yet support translation of LinearOp";
-  }
-  // TODO: This test currently fails on Ampere
   NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
 
   EnableOptionsGuard eog;
