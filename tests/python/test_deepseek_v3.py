@@ -193,7 +193,9 @@ work around that limitation.
                 inp_sizes = pytree.tree_map(get_size_and_strides, inp)
                 weight_sizes = pytree.tree_map(get_size_and_strides, module.weight)
                 out_sizes = pytree.tree_map(get_size_and_strides, out)
-                print(f"{name}: inp = {inp_sizes}, weight = {weight_sizes}, out = {out_sizes}")
+                print(
+                    f"{name}: inp = {inp_sizes}, weight = {weight_sizes}, out = {out_sizes}"
+                )
 
             return hook
 
