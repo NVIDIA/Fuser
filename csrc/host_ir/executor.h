@@ -96,6 +96,10 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->outputs();
   }
 
+  auto* container() const {
+    return container_.get();
+  }
+
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
