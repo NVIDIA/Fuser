@@ -23,6 +23,12 @@ NVF_API TensorView* indexSelect(
     int64_t dim,
     TensorView* index);
 
+// This is a restricted version of torch.index_put(..., accumulate=true)
+TensorView* indexAccumulate(
+    TensorView* acc_tv,
+    TensorView* index_tv,
+    TensorView* value_tv);
+
 // torch.gather
 NVF_API TensorView* torchGather(
     TensorView* input,
