@@ -36,5 +36,3 @@ print(tv0.axis(0).extent().to_string(0))
 print(tv1.axis(0).extent().to_string(0))
 print(tv2.axis(0).extent().to_string(0))
 print("=========\n")
-
-# TODO Fix Segmentation Fault atexit of python script

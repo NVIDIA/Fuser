@@ -15,10 +15,16 @@
 
 namespace nvfuser::python_frontend {
 
+// For all nodes, use multiple inheritance to disable destructor with
+// std::unique_ptr<nvfuser::Statement, py::nodelete>. This class will
+// disable memory management because it is handled automatically by IrContainer.
+
 namespace {
 void bindBaseNodes(py::module& nvfuser) {
   // Statement
-  py::class_<nvfuser::Statement>(nvfuser, "Statement")
+  py::class_<
+      nvfuser::Statement,
+      std::unique_ptr<nvfuser::Statement, py::nodelete>>(nvfuser, "Statement")
       .def(
           "name",
           &nvfuser::Statement::name,
@@ -53,7 +59,10 @@ void bindBaseNodes(py::module& nvfuser) {
           "Return the string representation of the statement");
 
   // Val
-  py::class_<nvfuser::Val, nvfuser::Statement>(nvfuser, "Val")
+  py::class_<
+      nvfuser::Val,
+      nvfuser::Statement,
+      std::unique_ptr<nvfuser::Val, py::nodelete>>(nvfuser, "Val")
       .def("vtype", &nvfuser::Val::vtype, "Return the ValType of the value")
       .def("dtype", &nvfuser::Val::dtype, "Return the DataType of the value")
       .def(
@@ -119,7 +128,10 @@ void bindBaseNodes(py::module& nvfuser) {
           "Returns if the value is a fusion output");
 
   // Expr
-  py::class_<nvfuser::Expr, nvfuser::Statement>(nvfuser, "Expr")
+  py::class_<
+      nvfuser::Expr,
+      nvfuser::Statement,
+      std::unique_ptr<nvfuser::Expr, py::nodelete>>(nvfuser, "Expr")
       .def(
           "input",
           &nvfuser::Expr::input,
@@ -170,7 +182,10 @@ void bindInternalBaseNodes(py::module& nvfuser) {
       .value("CyclicShift", nvfuser::SwizzleType::CyclicShift);
 
   // IterDomain
-  py::class_<nvfuser::IterDomain, nvfuser::Val>(nvfuser, "IterDomain")
+  py::class_<
+      nvfuser::IterDomain,
+      nvfuser::Val,
+      std::unique_ptr<nvfuser::IterDomain, py::nodelete>>(nvfuser, "IterDomain")
       .def(
           "same_as",
           &nvfuser::IterDomain::sameAs,
@@ -293,7 +308,11 @@ void bindInternalBaseNodes(py::module& nvfuser) {
           &nvfuser::IterDomain::isBulk,
           "Marks that this id represents an instruction loop, cp.async.bulk use only.");
 
-  py::class_<nvfuser::TensorDomain, nvfuser::Val>(nvfuser, "TensorDomain")
+  py::class_<
+      nvfuser::TensorDomain,
+      nvfuser::Val,
+      std::unique_ptr<nvfuser::TensorDomain, py::nodelete>>(
+      nvfuser, "TensorDomain")
       .def("__eq__", &TensorDomain::operator==, "Equality operator")
       .def("__ne__", &TensorDomain::operator!=, "Inequality operator")
       .def("n_dims", &TensorDomain::nDims, "Number of dimensions")
@@ -432,7 +451,10 @@ void bindInternalBaseNodes(py::module& nvfuser) {
 }
 
 void bindInterfaceNodes(py::module& nvfuser) {
-  py::class_<nvfuser::TensorView, nvfuser::Val>(nvfuser, "TensorView")
+  py::class_<
+      nvfuser::TensorView,
+      nvfuser::Val,
+      std::unique_ptr<nvfuser::TensorView, py::nodelete>>(nvfuser, "TensorView")
       .def(
           py::init<
               nvfuser::IrBuilderPasskey,
