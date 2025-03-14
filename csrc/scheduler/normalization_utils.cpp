@@ -1777,7 +1777,8 @@ bool isCacheableUnmappableTv(
         std::vector<Val*>{reduction_tv});
     // If the reduction tv doesn't depend on unmappable tv,
     // all_vals will be empty.
-    if (all_vals.empty() || std::any_of(
+    if (all_vals.empty() ||
+        std::any_of(
             reduction_tvs.begin(),
             reduction_tvs.end(),
             [&](const auto& reduction_tv_j) {
