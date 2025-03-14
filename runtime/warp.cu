@@ -205,27 +205,25 @@ __device__ void iterGroupedStaticWarpAllReduce(
   constexpr int num_of_warps = n_threads / WARP_SIZE;
   unsigned int warp_idx = threadIdx.x / WARP_SIZE;
   unsigned int lane_idx = threadIdx.x % WARP_SIZE;
-
+  constexpr unsigned int align_size = sizeof(T)*N;
+  static_assert(align_size <= 16, "max allowed vect r/w is 16 bytes");
   // [warp_idx, N]
+  // [w0r0, w0r1, w0r2, w0r3, w1r0, w1r1, w1r2, w1r3]
   if (lane_idx == 0) {
-    #pragma unroll
-    for (int i = 0; i < N; i++) {
-      shared_mem[N * warp_idx + i] = out[i];
-    }
+    loadGeneric<T, N>(shared_mem + N * warp_idx, out);
   }
   block_sync::sync<Aligned>(block_dim, barrier_id);
 
   if constexpr (is_all_reduce){
-    #pragma unroll
-    for (int j = 0; j < N; j++) {
-      out[j] = shared_mem[j];
-    }
+    loadGeneric<T, N>(out, shared_mem);
+    __align__(align_size) T other[N];
     #pragma unroll
     for (int i = 1; i < num_of_warps; i++) {
+      loadGeneric<T, N>(other, shared_mem + i * N);
       #pragma unroll
       for (int j = 0; j < N; j++) {
-        out[j] += shared_mem[i * N + j];
-      }
+        out[j] += other[j];
+      } 
     }
   }
   // needs sync, otherwise other warps may access shared memory before this

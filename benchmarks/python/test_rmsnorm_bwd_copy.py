@@ -132,7 +132,7 @@ def test_rmsnorm_bwd_nvf_benchmark(
         fd.validate([inputs, grads], [inputs.grad, weights.grad])
 
     if not disable_benchmarking:
-        run_benchmark(benchmark, fd.execute, [inputs, rms_eps, grads, weights])
+        run_benchmark(benchmark, fd.execute, [inputs, grads])
 
 
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)

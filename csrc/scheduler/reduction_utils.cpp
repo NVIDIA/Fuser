@@ -600,6 +600,9 @@ void propagateParallelization(
   if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
       // Propagate vectorization/unrolling to those tensors that need it
+      if(std::getenv("AVOID_UNROLL_IO") && std::atoi(std::getenv("AVOID_UNROLL_IO")) > 0) {
+        ur_vect_pts.erase(ParallelType::Unroll);
+      }      
       scheduler_utils::parallelizeAllLike(
           reference_tv,
           -1,
