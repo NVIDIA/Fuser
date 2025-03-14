@@ -1446,9 +1446,6 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
         if (id->getParallelType() == ParallelType::MisalignedVectorize) {
           reason << "MialignedVectorize is used: " << id->toString();
           break;
-        } else if (auto swizzle = dynamic_cast<Swizzle*>(id->definition())) {
-          reason << "Swizzle not supported: " << swizzle->toString();
-          break;
         } else if (
             auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
           reason << "Swizzle2D not supported: " << swizzle2d->toString();
