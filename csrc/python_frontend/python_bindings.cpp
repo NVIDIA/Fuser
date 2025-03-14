@@ -3719,6 +3719,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);
+
+  bindFusion(nvfuser);
 }
 
 void cleanup() {
