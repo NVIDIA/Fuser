@@ -500,9 +500,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
-  resolveComputeWith(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
-
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
@@ -513,6 +510,10 @@ void GpuLower::analysis(Fusion* fusion) {
         /*validate=*/false);
     id_model_->validateAndPropagatePType();
   }
+
+  // Requires IdModel as expression sorting is necessary
+  resolveComputeWith(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
   if (isDebugDumpEnabled(DebugDumpOption::ComputeAtMap)) {
     debug() << compute_at_map_->toString() << std::endl;
@@ -665,6 +666,17 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
         compute_at_map_->updateComputeWith(tv);
       }
     }
+  }
+
+  if (updated && hasIdModel()) {
+    // TODO: Don't rebuild from complete scratch. Only the loop graph
+    // needs to be updated.
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+    id_model_->validateAndPropagatePType();
   }
 
   return updated;
