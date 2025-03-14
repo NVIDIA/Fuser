@@ -67,7 +67,8 @@ class TensorIndexer {
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index = {}) const;
 
   // Get the index of a loop domain.
   Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
@@ -85,7 +86,8 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const IndexingAllocationInfo& alloc_info,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
