@@ -1775,7 +1775,9 @@ bool isCacheableUnmappableTv(
     auto all_vals = DependencyCheck::getAllValsBetween(
         std::unordered_set<Val*>{unmappable_tv},
         std::vector<Val*>{reduction_tv});
-    if (std::any_of(
+    // If the reduction tv doesn't depend on unmappable tv,
+    // all_vals will be empty.
+    if (all_vals.empty() || std::any_of(
             reduction_tvs.begin(),
             reduction_tvs.end(),
             [&](const auto& reduction_tv_j) {
