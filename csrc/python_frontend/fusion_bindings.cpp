@@ -12,6 +12,8 @@
 #include <ir/internal_base_nodes.h>
 #include <ops/all_ops.h>
 #include <python_frontend/python_bindings.h>
+#include <runtime/fusion_executor_cache.h>
+#include <runtime/fusion_kernel_runtime.h>
 
 namespace nvfuser::python_frontend {
 
@@ -981,7 +983,10 @@ void bindIrContainer(py::module& nvfuser) {
 
   // NOTE: manage, get_managed, get_managed_safe, stop_managing, has_managed are
   // template functions. Pybind requires explicit template specialization.
-  py::class_<nvfuser::Fusion, nvfuser::IrContainer>(nvfuser, "Fusion")
+  py::class_<
+      nvfuser::Fusion,
+      nvfuser::IrContainer,
+      std::unique_ptr<nvfuser::Fusion, py::nodelete>>(nvfuser, "Fusion")
       .def(py::init<>(), "Constructor for Fusion")
       .def("clear", &nvfuser::Fusion::clear, "Clear the fusion")
       .def("remove_expr", &nvfuser::Fusion::removeExpr, "Remove an expression")
@@ -1157,6 +1162,63 @@ void bindOperations(py::module& nvfuser) {
       "Add two TensorViews");
 }
 
+void bindRuntime(py::module& nvfuser) {
+  py::class_<nvfuser::FusionExecutorCache>(nvfuser, "FusionExecutorCache")
+      .def(
+          py::init([](Fusion* fusion, int64_t fusion_id, bool auto_schedule) {
+            return new FusionExecutorCache(
+                std::unique_ptr<Fusion>(fusion), fusion_id, auto_schedule);
+          }),
+          py::arg("fusion"),
+          py::arg("fusion_id") = 0,
+          py::arg("auto_schedule") = true,
+          "Create a new fusion executor cache")
+      // Main execution method
+      .def(
+          "run_fusion_with_inputs",
+          &FusionExecutorCache::runFusionWithInputs,
+          py::arg("args"),
+          py::arg("forced_index_type") = py::none(),
+          py::arg("selected_device") = py::none(),
+          "Execute fusion graph with given inputs")
+      // Query methods
+      .def(
+          "is_compiled",
+          &FusionExecutorCache::isCompiled,
+          py::arg("inputs"),
+          py::arg("device") = 0,
+          "Check if there's a kernel ready for given inputs")
+      // Accessor methods
+      .def(
+          "fusion",
+          static_cast<Fusion* (FusionExecutorCache::*)()>(
+              &FusionExecutorCache::fusion),
+          py::return_value_policy::reference,
+          "Get the underlying fusion")
+      // Debug/Profiling methods
+      .def(
+          "print_fusion",
+          &FusionExecutorCache::printFusion,
+          "Print the fusion IR")
+      .def(
+          "get_code",
+          &FusionExecutorCache::getCodeFor,
+          py::arg("args"),
+          py::arg("intrinsic_code") = false,
+          "Get the kernel code for the given inputs")
+      .def(
+          "get_scheduled_ir",
+          &FusionExecutorCache::getScheduledIrFor,
+          py::arg("args"),
+          py::arg("tensor_transforms") = false,
+          "Get the scheduled IR for the given inputs")
+      .def(
+          "get_most_recent_scheduled_ir",
+          &FusionExecutorCache::getMostRecentScheduledIr,
+          py::arg("tensor_transforms") = false,
+          "Get the most recently executed scheduled IR");
+}
+
 } // namespace
 
 void bindFusion(py::module& nvfuser) {
@@ -1166,6 +1228,7 @@ void bindFusion(py::module& nvfuser) {
   bindInternalBaseNodes(fusion);
   bindInterfaceNodes(fusion);
   bindOperations(fusion);
+  bindRuntime(fusion);
 }
 
 } // namespace nvfuser::python_frontend
