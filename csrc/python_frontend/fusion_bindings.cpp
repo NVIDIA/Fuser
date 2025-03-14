@@ -7,6 +7,7 @@
 // clang-format on
 #include <ir/base_nodes.h>
 #include <ir/container.h>
+#include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <python_frontend/python_bindings.h>
 
@@ -230,11 +231,7 @@ void bindInternalBaseNodes(py::module& nvfuser) {
           "is_device_dim",
           &nvfuser::IterDomain::isDeviceDim,
           "Return if this iter domain is device dimension")
-      .def(
-        "parallelize",
-        &nvfuser::IterDomain::parallelize,
-        py::arg("t"),
-        "")
+      .def("parallelize", &nvfuser::IterDomain::parallelize, py::arg("t"), "")
       .def("get_parallel_type", &nvfuser::IterDomain::getParallelType, "")
       .def("get_iter_type", &nvfuser::IterDomain::getIterType, "")
       .def("start", &nvfuser::IterDomain::start, "")
@@ -432,6 +429,458 @@ void bindInternalBaseNodes(py::module& nvfuser) {
       .def("r_factor", &TensorDomain::rFactor, "Apply rFactor");
 }
 
+void bindInterfaceNodes(py::module& nvfuser) {
+  py::class_<nvfuser::TensorView>(nvfuser, "TensorView")
+      .def(
+          py::init<
+              nvfuser::IrBuilderPasskey,
+              nvfuser::TensorDomain*,
+              nvfuser::DataType,
+              nvfuser::MemoryType>(),
+          py::arg("passkey"),
+          py::arg("domain"),
+          py::arg("dtype"),
+          py::arg("mtype") = nvfuser::MemoryType::Local,
+          "Constructor for TensorView")
+      .def("to_string", &nvfuser::TensorView::toString, "Convert to string")
+      .def(
+          "to_inline_string",
+          &nvfuser::TensorView::toInlineString,
+          "Convert to inline string")
+      .def(
+          "print_transforms",
+          &nvfuser::TensorView::printTransforms,
+          "Print transformations")
+      .def(
+          "domain",
+          &nvfuser::TensorView::domain,
+          py::return_value_policy::reference,
+          "Get the TensorDomain") // Assuming you want to return a reference
+      .def(
+          "set_contiguity",
+          static_cast<void (nvfuser::TensorView::*)(
+              const std::vector<std::optional<bool>>&)>(
+              &nvfuser::TensorView::setContiguity),
+          "Set contiguity (vector version)") // Overloaded function
+      .def(
+          "set_contiguity",
+          static_cast<void (nvfuser::TensorView::*)(bool)>(
+              &nvfuser::TensorView::setContiguity),
+          "Set contiguity (bool version)") // Overloaded function
+      .def(
+          "get_contiguity",
+          &nvfuser::TensorView::getContiguity,
+          "Get contiguity")
+      .def(
+          "has_reduction",
+          &nvfuser::TensorView::hasReduction,
+          "Check if has reduction")
+      .def(
+          "has_block_reduction",
+          &nvfuser::TensorView::hasBlockReduction,
+          "Check if has block reduction")
+      .def(
+          "has_grid_reduction",
+          &nvfuser::TensorView::hasGridReduction,
+          "Check if has grid reduction")
+      .def(
+          "has_broadcast",
+          &nvfuser::TensorView::hasBroadcast,
+          "Check if has broadcast")
+      .def("has_root", &nvfuser::TensorView::hasRoot, "Check if has root")
+      .def(
+          "has_allocation",
+          &nvfuser::TensorView::hasAllocation,
+          "Check if has allocation")
+      .def(
+          "is_zero_dim",
+          &nvfuser::TensorView::isZeroDim,
+          "Check if zero dimensional")
+      .def(
+          "is_empty_tensor",
+          &nvfuser::TensorView::isEmptyTensor,
+          "Check if empty tensor")
+      .def(
+          "get_reduction_axis",
+          &nvfuser::TensorView::getReductionAxis,
+          "Get reduction axis")
+      .def(
+          "get_root_domain",
+          &nvfuser::TensorView::getRootDomain,
+          py::return_value_policy::reference,
+          "Get root domain")
+      .def(
+          "get_maybe_root_domain",
+          &nvfuser::TensorView::getMaybeRootDomain,
+          py::return_value_policy::reference,
+          "Get maybe root domain")
+      .def(
+          "get_logical_domain",
+          &nvfuser::TensorView::getLogicalDomain,
+          py::return_value_policy::reference,
+          "Get logical domain")
+      .def(
+          "get_allocation_domain",
+          &nvfuser::TensorView::getAllocationDomain,
+          py::return_value_policy::reference,
+          "Get allocation domain")
+      .def(
+          "get_loop_domain",
+          &nvfuser::TensorView::getLoopDomain,
+          py::return_value_policy::reference,
+          "Get loop domain")
+      .def(
+          "get_initial_loop_domain",
+          &nvfuser::TensorView::getInitialLoopDomain,
+          py::return_value_policy::reference,
+          "Get initial loop domain")
+      .def(
+          "get_maybe_allocation_domain",
+          &nvfuser::TensorView::getMaybeAllocationDomain,
+          py::return_value_policy::reference,
+          "Get maybe allocation domain")
+      .def(
+          "set_loop_domain",
+          &nvfuser::TensorView::setLoopDomain,
+          "Set loop domain")
+      .def(
+          "set_allocation_domain",
+          static_cast<void (nvfuser::TensorView::*)(
+              std::vector<nvfuser::IterDomain*>,
+              std::vector<std::optional<bool>>)>(
+              &nvfuser::TensorView::setAllocationDomain),
+          "Set allocation domain (vector version)") // Overloaded function
+      .def(
+          "set_allocation_domain",
+          static_cast<void (nvfuser::TensorView::*)(
+              std::vector<nvfuser::IterDomain*>, bool)>(
+              &nvfuser::TensorView::setAllocationDomain),
+          "Set allocation domain (bool version)") // Overloaded function
+      .def(
+          "axis",
+          &nvfuser::TensorView::axis,
+          py::return_value_policy::reference,
+          "Get axis")
+      .def(
+          "has_compute_at",
+          &nvfuser::TensorView::hasComputeAt,
+          "Check if has computeAt")
+      .def(
+          "has_max_producer_position",
+          &nvfuser::TensorView::hasMaxProducerPosition,
+          "Check if has max producer position")
+      .def("n_dims", &nvfuser::TensorView::nDims, "Get number of dimensions")
+      .def(
+          "set_cpu_scalar",
+          &nvfuser::TensorView::setCpuScalar,
+          "Set CPU scalar")
+      .def(
+          "is_cpu_scalar",
+          &nvfuser::TensorView::isCpuScalar,
+          "Check if is CPU scalar")
+      .def(
+          "get_compute_at_position",
+          &nvfuser::TensorView::getComputeAtPosition,
+          "Get computeAt position")
+      .def(
+          "get_max_producer_position",
+          &nvfuser::TensorView::getMaxProducerPosition,
+          "Get max producer position")
+      .def(
+          "get_maybe_max_producer_position",
+          &nvfuser::TensorView::getMaybeMaxProducerPosition,
+          "Get maybe max producer position")
+      .def(
+          "clear_reduction_iter_domains",
+          &nvfuser::TensorView::clearReductionIterDomains,
+          "Clear reduction iter domains")
+      .def(
+          "compute_at",
+          &nvfuser::TensorView::computeAt,
+          py::return_value_policy::reference,
+          "Compute at")
+      .def(
+          "broadcast",
+          static_cast<nvfuser::TensorView* (nvfuser::TensorView::*)(int64_t,
+                                                                    int64_t)>(
+              &nvfuser::TensorView::broadcast),
+          py::return_value_policy::reference,
+          "Broadcast (int64_t version)") // Overloaded function
+      .def(
+          "broadcast",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(int64_t, nvfuser::Val*)>(
+              &nvfuser::TensorView::broadcast),
+          py::return_value_policy::reference,
+          "Broadcast (Val* version)") // Overloaded function
+      .def(
+          "split",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(int64_t, int64_t, bool)>(
+              &nvfuser::TensorView::split),
+          py::return_value_policy::reference,
+          "Split (int64_t version)") // Overloaded function
+      .def(
+          "split",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(int64_t, nvfuser::Val*, bool)>(
+              &nvfuser::TensorView::split),
+          py::return_value_policy::reference,
+          "Split (Val* version)") // Overloaded function
+      .def(
+          "merge",
+          static_cast<nvfuser::TensorView* (nvfuser::TensorView::*)(int64_t,
+                                                                    int64_t)>(
+              &nvfuser::TensorView::merge),
+          py::return_value_policy::reference,
+          "Merge (two axes)") // Overloaded function
+      .def(
+          "merge",
+          static_cast<nvfuser::TensorView* (nvfuser::TensorView::*)(int64_t)>(
+              &nvfuser::TensorView::merge),
+          py::return_value_policy::reference,
+          "Merge (one axis)") // Overloaded function
+      .def(
+          "flatten",
+          &nvfuser::TensorView::flatten,
+          py::return_value_policy::reference,
+          "Flatten")
+      .def(
+          "reorder",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::
+                  TensorView::*)(const std::unordered_map<int64_t, int64_t>&)>(
+              &nvfuser::TensorView::reorder),
+          py::return_value_policy::reference,
+          "Reorder (unordered_map version)") // Overloaded function
+      .def(
+          "reorder",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(const std::initializer_list<
+                                      std::pair<const int64_t, int64_t>>&)>(
+              &nvfuser::TensorView::reorder),
+          py::return_value_policy::reference,
+          "Reorder (initializer_list of pairs version)") // Overloaded function
+      .def(
+          "reorder",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(const std::vector<int64_t>&)>(
+              &nvfuser::TensorView::reorder),
+          py::return_value_policy::reference,
+          "Reorder (vector version)") // Overloaded function
+      .def(
+          "reorder",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(const std::initializer_list<int64_t>&)>(
+              &nvfuser::TensorView::reorder),
+          py::return_value_policy::reference,
+          "Reorder (initializer_list version)") // Overloaded function
+      .def(
+          "swizzle",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(nvfuser::SwizzleType, int64_t, int64_t)>(
+              &nvfuser::TensorView::swizzle),
+          py::return_value_policy::reference,
+          "Swizzle (SwizzleType version)") // Overloaded function
+      .def(
+          "swizzle",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(nvfuser::Swizzle2DType,
+                                      int64_t,
+                                      int64_t,
+                                      nvfuser::SwizzleMode)>(
+              &nvfuser::TensorView::swizzle),
+          py::return_value_policy::reference,
+          "Swizzle (Swizzle2DType version)") // Overloaded function
+      .def(
+          "resize",
+          &nvfuser::TensorView::resize,
+          py::return_value_policy::reference,
+          "Resize")
+      .def(
+          "r_factor",
+          static_cast<nvfuser::TensorView* (
+              nvfuser::TensorView::*)(const std::vector<int64_t>&)>(
+              &nvfuser::TensorView::rFactor),
+          "R factor (single output)") // Overloaded function
+      .def(
+          "r_factor",
+          static_cast<std::vector<nvfuser::TensorView*> (
+              nvfuser::TensorView::*)(
+              const std::vector<int64_t>&,
+              const std::vector<nvfuser::TensorView*>&)>(
+              &nvfuser::TensorView::rFactor),
+          "R factor (multi-output)") // Overloaded function
+      .def(
+          "cache_before",
+          &nvfuser::TensorView::cacheBefore,
+          py::return_value_policy::reference,
+          "Cache before")
+      .def(
+          "cache_after",
+          &nvfuser::TensorView::cacheAfter,
+          py::return_value_policy::reference,
+          "Cache after")
+      .def(
+          "cache_fork",
+          &nvfuser::TensorView::cacheFork,
+          py::return_value_policy::reference,
+          "Cache fork")
+      .def(
+          "get_memory_type",
+          &nvfuser::TensorView::getMemoryType,
+          "Get memory type")
+      .def(
+          "set_memory_type",
+          &nvfuser::TensorView::setMemoryType,
+          "Set memory type")
+      .def(
+          "circular_buffer",
+          &nvfuser::TensorView::circularBuffer,
+          "Apply circular buffer")
+      .def(
+          "is_circular_buffered",
+          &nvfuser::TensorView::isCircularBuffered,
+          "Check if circular buffered")
+      .def(
+          "circular_buffer_options",
+          &nvfuser::TensorView::circularBufferOptions,
+          "Get circular buffer options")
+      .def(
+          "apply_mma_swizzle",
+          static_cast<void (nvfuser::TensorView::*)(nvfuser::MmaOperand)>(
+              &nvfuser::TensorView::applyMmaSwizzle),
+          "Apply MMA swizzle (MmaOperand version)") // Overloaded function
+      .def(
+          "apply_mma_swizzle",
+          static_cast<void (nvfuser::TensorView::*)(
+              nvfuser::MmaInputSmemSwizzle)>(
+              &nvfuser::TensorView::applyMmaSwizzle),
+          "Apply MMA swizzle (MmaInputSmemSwizzle version)") // Overloaded
+                                                             // function
+      .def(
+          "swizzle_tma_box",
+          &nvfuser::TensorView::swizzleTMABox,
+          "Swizzle TMA box")
+      .def(
+          "apply_mma_swizzle_for_tma_load",
+          &nvfuser::TensorView::applyMmaSwizzleForTMALoad,
+          "Apply MMA swizzle for TMA load")
+      .def(
+          "has_swizzle_op",
+          &nvfuser::TensorView::hasSwizzleOp,
+          "Check if has swizzle op")
+      .def(
+          "set_has_swizzle_op",
+          &nvfuser::TensorView::setHasSwizzleOp,
+          "Set has swizzle op")
+      .def("compute_with", &nvfuser::TensorView::computeWith, "Compute with")
+      .def(
+          "resolve_compute_with",
+          &nvfuser::TensorView::resolveComputeWith,
+          "Resolve compute with")
+      .def(
+          "has_compute_with",
+          &nvfuser::TensorView::hasComputeWith,
+          "Check if has compute with")
+      .def(
+          "has_resolved_compute_with",
+          &nvfuser::TensorView::hasResolvedComputeWith,
+          "Check if has resolved compute with")
+      .def(
+          "is_computed_with",
+          &nvfuser::TensorView::isComputedWith,
+          "Check if is computed with")
+      .def(
+          "get_compute_with_consumers",
+          &nvfuser::TensorView::getComputeWithConsumers,
+          py::return_value_policy::reference,
+          "Get compute with consumers")
+      .def(
+          "get_compute_with_position",
+          &nvfuser::TensorView::getComputeWithPosition,
+          "Get compute with position")
+      .def(
+          "get_max_compute_position",
+          &nvfuser::TensorView::getMaxComputePosition,
+          "Get max compute position")
+      .def(
+          "get_compute_position",
+          &nvfuser::TensorView::getComputePosition,
+          "Get compute position")
+      .def(
+          "commit_leaf_to_logical",
+          &nvfuser::TensorView::commitLeafToLogical,
+          "Commit leaf to logical")
+      .def("promote_reuse", &nvfuser::TensorView::promoteReuse, "Promote reuse")
+      .def(
+          "should_promote_reuse",
+          &nvfuser::TensorView::shouldPromoteReuse,
+          "Check if should promote reuse")
+      .def(
+          "set_device_mesh",
+          &nvfuser::TensorView::setDeviceMesh,
+          "Set device mesh")
+      .def(
+          "get_device_mesh",
+          &nvfuser::TensorView::getDeviceMesh,
+          "Get device mesh")
+      .def(
+          "has_device_mesh",
+          &nvfuser::TensorView::hasDeviceMesh,
+          "Check if has device mesh")
+      .def(
+          "get_tmem_dim_sep_pos",
+          &nvfuser::TensorView::getTMemDimSepPos,
+          "Get TMEM dimension separator position")
+      .def(
+          "set_tmem_dim_sep_pos",
+          &nvfuser::TensorView::setTMemDimSepPos,
+          "Set TMEM dimension separator position");
+
+  py::class_<nvfuser::TensorViewBuilder>(nvfuser, "TensorViewBuilder")
+      .def(py::init<>(), "Constructor for TensorViewBuilder")
+      .def(
+          "n_dims",
+          &nvfuser::TensorViewBuilder::ndims,
+          "Set number of dimensions")
+      .def("dtype", &nvfuser::TensorViewBuilder::dtype, "Set data type")
+      .def(
+          "contiguity",
+          static_cast<nvfuser::TensorViewBuilder& (
+              nvfuser::TensorViewBuilder::*)(std::vector<std::optional<bool>>)>(
+              &nvfuser::TensorViewBuilder::contiguity),
+          "Set contiguity (vector version)") // Overloaded function
+      .def(
+          "contiguity",
+          static_cast<nvfuser::TensorViewBuilder& (
+              nvfuser::TensorViewBuilder::*)(bool)>(
+              &nvfuser::TensorViewBuilder::contiguity),
+          "Set contiguity (bool version)") // Overloaded function
+      .def(
+          "shape",
+          static_cast<nvfuser::TensorViewBuilder& (
+              nvfuser::TensorViewBuilder::*)(std::vector<nvfuser::Val*>)>(
+              &nvfuser::TensorViewBuilder::shape),
+          "Set shape (Val* version)") // Overloaded function
+      .def(
+          "shape",
+          static_cast<nvfuser::TensorViewBuilder& (
+              nvfuser::TensorViewBuilder::*)(const std::vector<int64_t>&)>(
+              &nvfuser::TensorViewBuilder::shape),
+          "Set shape (int64_t version)") // Overloaded function
+      .def("expanded", &nvfuser::TensorViewBuilder::expanded, "Set expanded")
+      .def(
+          "stride_order",
+          &nvfuser::TensorViewBuilder::strideOrder,
+          "Set stride order")
+      .def(
+          "build",
+          &nvfuser::TensorViewBuilder::build,
+          py::return_value_policy::reference,
+          "Build TensorView");
+}
+
 void bindIrContainer(py::module& nvfuser) {
   py::class_<nvfuser::IrContainer>(nvfuser, "IrContainer")
       .def(py::init<>(), "Constructor for IrContainer")
@@ -510,6 +959,7 @@ void bindFusion(py::module& nvfuser) {
   bindIrContainer(nvfuser);
   bindBaseNodes(nvfuser);
   bindInternalBaseNodes(nvfuser);
+  bindInterfaceNodes(nvfuser);
 }
 
 } // namespace nvfuser::python_frontend
