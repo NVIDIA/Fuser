@@ -730,7 +730,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationUnfriendlySize) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
+TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorCase0) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -760,6 +760,42 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensor) {
   // output tv and lookup tv share the innermost dimension 1024. We'll have
   // vectorized store and load on lookup tv
   checkIndexSelectVectorization(executor_cache, 2, true, false);
+  testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorCase1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  // slicing on fastest dimension
+  // This will map to vectorized load on lookup tensor tv0
+  // But it shouldn't have any vectorized load on lookup tensor
+  auto tv2 = indexSelect(tv0, 1, tv1);
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+
+  std::vector<int64_t> shape1({1028, 1024});
+  std::vector<int64_t> shape2({512});
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randint(0, shape1[1], shape2, options_i);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  // lookup tv [ 1028, 1024 ]
+  // index  tv [ 512]
+  // output tv [ 1028, 512 ]
+  // output tv and index tv share the innermost dimension 512. We'll have
+  // vectorized store and load on index tv
+  checkIndexSelectVectorization(executor_cache, 2, false, true);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
