@@ -731,6 +731,10 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     rparams->unroll_factor_iter_dom =
         (int64_t)std::atoi(std::getenv("IUNROLL"));
   }
+  if (std::getenv("VECT_OUTER") && std::atoi(std::getenv("VECT_OUTER")) != 0) {
+    rparams->vectorization_factor_outer =
+        (int64_t)std::atoi(std::getenv("VECT_OUTER"));
+  }
 
 
   if (std::getenv("USE_TMA") && std::atoi(std::getenv("USE_TMA")) != 0) {
@@ -1046,8 +1050,19 @@ void scheduleReductionCombinedOuter(
         outer_reduction_tv->split(0, rparams->lparams.bdimy());
         outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
       }else{
-        outer_reduction_tv->split(0, 2);
-        outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+        // [148] --> [74, 2]
+        if (std::getenv("UNROLL_OUTER") && std::atoi(std::getenv("UNROLL_OUTER")) >=1) {
+          int64_t unroll_outer = std::atoi(std::getenv("UNROLL_OUTER"));
+          outer_reduction_tv->split(0, unroll_outer);
+          // [148] --> [74, 2] --> [74, 1US, 2UR], 83 us --> 108 us
+          if (std::getenv("UNSWITCH_OUTER") && std::atoi(std::getenv("UNSWITCH_OUTER")) >=1) {
+            outer_reduction_tv->split(0, 1);
+            outer_reduction_tv->axis(1)->parallelize(ParallelType::Unswitch);
+            outer_reduction_tv->axis(2)->parallelize(ParallelType::Unroll);
+          }else{
+            outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+          }      
+        }        
       }
 
 
@@ -1055,16 +1070,20 @@ void scheduleReductionCombinedOuter(
       int axisID = -1;
       if (rparams->vectorization_factor_outer > 1) {
         outer_reduction_tv->split(axisID, rparams->vectorization_factor_outer);
-        outer_reduction_tv->axis(axisID--)->parallelize(
+        outer_reduction_tv->axis(axisID)->parallelize(
             ParallelType::Vectorize);
+        axisID--; // -2
       }
 
       if(rparams->use_tidx_only){
         // [.., I/V, V] --> [.., gdimy, I/V/gdimy, V]
-        outer_reduction_tv->split(axisID, rparams->lparams.gdimy(), false);
-        outer_reduction_tv->axis(-3)->parallelize(ParallelType::BIDy);
-        outer_reduction_tv->axis(-2)->parallelize(ParallelType::TIDx);
+        // outer_reduction_tv->split(axisID, rparams->lparams.gdimy(), false);
 
+        // [.., I/V, V] --> [.., I/V/128, 128, V]
+        outer_reduction_tv->split(axisID, 128);
+
+        outer_reduction_tv->axis(axisID - 1)->parallelize(ParallelType::BIDy);
+        outer_reduction_tv->axis(axisID)->parallelize(ParallelType::TIDx);
       }else{
         if (rparams->lparams.bdimx() > 1) {
           outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
@@ -1399,6 +1418,7 @@ void scheduleInnerOuterPersistentKernel(
     const ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
     const DisjointSets<Val*>& id_sets = exact_graph.disjointValSets();
     std::cout << id_sets.toString() << std::endl;
+
     // WAR for rms_bwd_copy
     if (std::getenv("WAR_COPY") && std::atoi(std::getenv("WAR_COPY")) != 0) {
       auto input1 = dynamic_cast<TensorView*>(fusion->inputs()[1]);
@@ -1413,6 +1433,21 @@ void scheduleInnerOuterPersistentKernel(
             if(use_grouped_reduction){
               tv_inline_pos_map.emplace(tv, 2);
             }
+        }
+      }
+    }
+
+    // move inner bcast input to top expr
+    if (std::getenv("CACHE_INNBER_BCAST") && std::atoi(std::getenv("CACHE_INNBER_BCAST")) != 0) {
+      for(auto val : fusion->inputs()){
+        if(auto tv = dynamic_cast<TensorView*>(val)){
+          if(tv->hasBroadcast()){
+            // tv->cacheAfter();
+            auto cached_tv = tv->cacheAfter();
+            tv_inline_pos_map.emplace(cached_tv, 2);
+            std::cout << "tv: " << tv->toString() << std::endl;
+            std::cout << "cached_tv: " << cached_tv->toString() << std::endl;
+          }
         }
       }
     }
