@@ -843,6 +843,10 @@ std::pair<TensorView*, TensorView*> getSdpaRngTvs(bool symbolic) {
     philox_seed = TensorViewBuilder().shape(philox_shape).dtype(dtype).build();
   }
   philox_offset = TensorViewBuilder().dtype(dtype).build();
+#if !(NVF_TORCH_VERSION_NO_LESS(2, 7, 0))
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
+#endif
   return std::make_pair(philox_seed, philox_offset);
 }
 
