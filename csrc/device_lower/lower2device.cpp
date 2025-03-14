@@ -600,8 +600,7 @@ void GpuLower::analysis(Fusion* fusion) {
     id_model_->allocateLoopIndexVariables();
   }
 
-  if (idModelOptions().buildTensorIndexer() &&
-      TensorIndexer::isSupported(fusion_)) {
+  if (idModelOptions().buildTensorIndexer()) {
     tensor_indexer_ = std::make_unique<TensorIndexer>(*id_model_);
   }
 
