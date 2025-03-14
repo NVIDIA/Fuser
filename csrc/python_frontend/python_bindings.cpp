@@ -3628,7 +3628,7 @@ void initNvFuserPythonBindings(PyObject* module) {
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
         philox_ndims = 1;
 #endif
-        Tensor philox_seed = fd->defineTensor(/*dims=*/philox_ndims);
+        Tensor philox_seed = fd->defineTensor(philox_ndims);
         Tensor philox_offset = fd->defineTensor(/*dims=*/0);
 
         auto dropout_p_state = dropout_p.has_value()
