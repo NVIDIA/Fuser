@@ -429,6 +429,14 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     }
   }
 
+  // If not supported, disable everything
+  if (!TensorIndexer::isSupported(fusion)) {
+    options.setBuildTensorIndexer(false);
+    options.setIndex(false);
+    options.setPredicate(false);
+    options.setLoop(false);
+  }
+
   return options;
 }
 
