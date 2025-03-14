@@ -1659,6 +1659,8 @@ TEST_F(PersistentBufferTest, BroadcastSync2) {
       SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
 }
 
+// Make sure isCacheableUnmappableTv does not falsely claim not
+// cacheable when an unmappable tensor is reduced through a reshape
 TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -1684,6 +1686,10 @@ TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({2, 32}, options);
   SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
+
+  // This fusion has only one unmappable tensor. If it's falsely
+  // detected as non cacheable, it will not be scheduled as a
+  // persistent kernel.
   ASSERT_TRUE(Schedule::canSchedule(
       SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
   auto scheduler =
@@ -1691,11 +1697,6 @@ TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
   auto heuristic_params =
       scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
   scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
-
-  // Lowering should succeed. Prior to the fix of the issue, the sync
-  // analysis raises an exception as there's mismatched
-  // parallelization between the cache of tv0 and its consumer
-  GpuLower gpulw(&fusion);
 
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), {t0});
