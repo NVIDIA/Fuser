@@ -737,7 +737,7 @@ class VectorizeValidator : public OptInDispatch {
       // it would be handled by a load op via cached input. So we don't need to
       // consider them here.
       if (tv_def->isA<IndexSelectOp>()) {
-        if (producer_tv == tv_def->input(0)) {
+        if (producer_tv == tv_def->as<IndexSelectOp>()->lookupTv()) {
           break;
         }
       }
