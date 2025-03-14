@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion.h>
 #include <ir/base_nodes.h>
 #include <ir/container.h>
 #include <ir/interface_nodes.h>
@@ -951,6 +952,161 @@ void bindIrContainer(py::module& nvfuser) {
           &nvfuser::IrContainer::unordered_exprs,
           "Return the set of unordered expressions.")
       .def("vals", &nvfuser::IrContainer::vals, "Return the set of values.");
+
+  py::class_<nvfuser::FusionGuard>(nvfuser, "FusionGuard")
+      .def(py::init<nvfuser::Fusion*>(), "Constructor for FusionGuard");
+
+  // NOTE: manage, get_managed, get_managed_safe, stop_managing, has_managed are
+  // template functions. Pybind requires explicit template specialization.
+  py::class_<nvfuser::Fusion>(nvfuser, "Fusion")
+      .def(py::init<>(), "Constructor for Fusion")
+      .def("clear", &nvfuser::Fusion::clear, "Clear the fusion")
+      .def("remove_expr", &nvfuser::Fusion::removeExpr, "Remove an expression")
+      .def("remove_val", &nvfuser::Fusion::removeVal, "Remove a value")
+      .def("add_input", &nvfuser::Fusion::addInput, "Register an input")
+      .def(
+          "add_output_internal",
+          &nvfuser::Fusion::addOutputInternal,
+          "Add output to outputs_ without modifying hide_output")
+      .def("add_output", &nvfuser::Fusion::addOutput, "Register an output")
+      .def("remove_input", &nvfuser::Fusion::removeInput, "Deregister an input")
+      .def(
+          "remove_output",
+          &nvfuser::Fusion::removeOutput,
+          "Deregister an output")
+      .def(
+          "replace_output",
+          &nvfuser::Fusion::replaceOutput,
+          "Replace an output with another value")
+      .def(
+          "validate_inputs",
+          &nvfuser::Fusion::validateInputs,
+          "Assert that all leaves found from outputs are registered as an input")
+      .def(
+          "print",
+          static_cast<std::ostream& (nvfuser::Fusion::*)(std::ostream&, bool)
+                          const>(&nvfuser::Fusion::print),
+          py::arg("os"),
+          py::arg("include_tensor_transforms") = true,
+          "Print this fusion to an output stream")
+      .def(
+          "print_math",
+          &nvfuser::Fusion::printMath,
+          py::arg("from_outputs_only") = true,
+          "Print Arith exprs")
+      .def(
+          "print_transforms",
+          &nvfuser::Fusion::printTransforms,
+          "Print transformations used in fusion")
+      .def(
+          "print_kernel",
+          &nvfuser::Fusion::printKernel,
+          py::arg("compile_params") = nvfuser::CompileParams(),
+          "Lower the fusion and print a kernel")
+      .def(
+          "is_no_op",
+          &nvfuser::Fusion::isNoOp,
+          "Returns if this fusion is noop")
+      .def(
+          "bank_conflict_info",
+          &nvfuser::Fusion::bankConflictInfo,
+          py::arg("compile_params") = nvfuser::CompileParams(),
+          "Lower the fusion and evaluate bank conflict info")
+      .def(
+          "exprs",
+          &nvfuser::Fusion::exprs,
+          "Return a list of topologically sorted expressions")
+      .def(
+          "inputs_of",
+          &nvfuser::Fusion::inputsOf,
+          "Return a vector of fusion inputs that feed this Val")
+      .def(
+          "used_math_vals",
+          &nvfuser::Fusion::usedMathVals,
+          "Return all Vals in math expressions that cannot be eliminated")
+      .def(
+          "terminating_math_vals",
+          &nvfuser::Fusion::terminatingMathVals,
+          "Returns all Vals that are produced by used math expressions and also do not have further consumers")
+      .def(
+          "unordered_uses",
+          &nvfuser::Fusion::unordered_uses,
+          "Return all Exprs that use val")
+      .def(
+          "definition",
+          &nvfuser::Fusion::definition,
+          "Return the Expr that produces val")
+      .def(
+          "segment",
+          &nvfuser::Fusion::segment,
+          "Run fusion segmentation algorithm to create a segmented fusion")
+      .def(
+          "inputs",
+          &nvfuser::Fusion::inputs,
+          py::return_value_policy::reference,
+          "Return the inputs of the fusion")
+      .def(
+          "inputs_and_created",
+          &nvfuser::Fusion::inputsAndCreated,
+          "Return all inputs and created Vals")
+      .def(
+          "outputs",
+          &nvfuser::Fusion::outputs,
+          py::return_value_policy::reference,
+          "Return the outputs of the fusion")
+      .def(
+          "get_terminating_outputs",
+          &nvfuser::Fusion::getTerminatingOutputs,
+          "Get terminating outputs")
+      .def(
+          "alias_output_to_input",
+          &nvfuser::Fusion::aliasOutputToInput,
+          "Aliasing output to input value")
+      .def(
+          "get_output_alias",
+          &nvfuser::Fusion::getOutputAlias,
+          "Returns the aliased input of a given output along with an AliasInfo describing how they alias")
+      .def(
+          "is_tv_use_info_valid",
+          &nvfuser::Fusion::isTVUseInfoValid,
+          "Check if TV use info is valid")
+      .def(
+          "is_updating_tv_use_info",
+          &nvfuser::Fusion::isUpdatingTVUseInfo,
+          "Check if TV use info is being updated")
+      .def(
+          "has_dynamic_transform",
+          &nvfuser::Fusion::hasDynamicTransform,
+          "True if any of tensors has a symblic axis")
+      .def("copy", &nvfuser::Fusion::copy, "Copy a fusion")
+      .def(
+          "expected_dynamic_smem_bytes",
+          &nvfuser::Fusion::expectedDynamicSmemBytes,
+          "Get expected dynamic shared memory bytes")
+      .def(
+          "set_expected_dynamic_smem_bytes",
+          &nvfuser::Fusion::setExpectedDynamicSmemBytes,
+          "Set expected dynamic shared memory bytes")
+      .def(
+          "all_tvs",
+          &nvfuser::Fusion::allTvs,
+          "Cached version of ir_utils::allTvs that is invalidated")
+      .def(
+          "register_exact_mapping",
+          &nvfuser::Fusion::registerExactMapping,
+          "Specify id0 and id1 are mapped in the Exact graph")
+      .def(
+          "has_registered_exact_mappings",
+          &nvfuser::Fusion::hasRegisteredExactMappings,
+          "Check if has registered exact mappings")
+      .def(
+          "registered_exact_mappings",
+          &nvfuser::Fusion::registeredExactMappings,
+          "Get registered exact mappings")
+      .def(
+          "reset_exact_mappings",
+          &nvfuser::Fusion::resetExactMappings,
+          "Reset exact mappings");
 }
 
 } // namespace
