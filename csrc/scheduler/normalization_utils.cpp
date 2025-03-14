@@ -1769,7 +1769,53 @@ bool isCacheableUnmappableTv(
     TensorView* unmappable_tv,
     const std::vector<TensorView*>& reduction_tvs,
     const ValGraph& almost_exact_graph) {
-  // Find immediate reduction tvs
+  // To make an unmmapble tensor persistent, we need to make sure it
+  // can be parallelized in the same way as the following reduction
+  // and residual paths. While the unmmapble tensor is transformed in
+  // the same way, since it is not inlineable, the effect of loop
+  // promotion by broadcast inling is not propagated to the unmappable
+  // tensor. For example, in the following fusion, both t2 and t3 are the
+  // unmappable tensors but t2 is problematic.
+  //
+  // t0: [i0]
+  // t1: [i1, i2]
+  //
+  // t2 = t0 // caching
+  // t3 = t1 // caching
+  // t4 = broadcast(t2, {false, true})
+  // t5 = t4 + t3
+  // t6 = sum(t5, {0, 1})
+  // t7 = broadcast(t6, {true, true})
+  // t8 = broadcast(t2, {false, true})
+  // t9 = t8 + t3
+  // t10 = t7 + t9
+  //
+  // The immediate consumer of t4 has a broadcast ID, which will be
+  // inlined into t5, making it effectively have the same extent as
+  // the corresponding non-broadcast ID of t5. Moreover, our
+  // schedulers are likely to merge all reductions IDs before applying
+  // parallelization. What this means is that the parallelized loop
+  // IDs of t4 will not be mapped with any of the loop IDs of t2, and
+  // thus a synchronization will be required. This may not a problem
+  // when t2 is cached on the shared memory, however, otherwise, it
+  // will result in a sync error when the fusion is lowered.
+  //
+  // It may be possible to avoid the issue by changing the scheduling
+  // and parallelization of these tensors, but a much simpler
+  // workaround here is to just give up caching such tensors. While
+  // it may cause some performance regressions, it is expected the
+  // impact would be limited since this pattern itself is not common.
+  //
+  // To find if a given unmappable tensor may result in cases
+  // like the above, we need to make sure that it is parallelized in
+  // the same way in its all use paths. Since this is an unmappable
+  // tensor in a normalization fusion, all we need to check is if it
+  // can be parallelized in the same way as the following reduction
+  // tensors.
+
+  // reduction_tvs are all reduction tensors in the fusion. Those
+  // tensors that do not appear immediately after unmappable_tv can be
+  // ignored since they
   std::vector<TensorView*> immediate_reduction_tvs;
   for (const auto& reduction_tv : reduction_tvs) {
     auto all_vals = DependencyCheck::getAllValsBetween(
@@ -1793,12 +1839,24 @@ bool isCacheableUnmappableTv(
 
   NVF_ERROR(!immediate_reduction_tvs.empty());
 
+  // For each (indirect) consumer reduction tensor, make sure the
+  // unmappble tensor is consistent with the reduction tensor with
+  // respect to the reduction IDs. The reduction IDs are those that
+  // are not inlineable, so they won't get the effect of loop
+  // promotion if that happens inside the group of inlined tensors.
   for (const auto& reduction_tv : immediate_reduction_tvs) {
     for (const auto& reduction_id : reduction_tv->getLogicalDomain()) {
       if (!reduction_id->isReduction()) {
         continue;
       }
 
+      // Here, we only look for a logical ID of the unmappble tensor
+      // that is mapped with the reduction ID. If found,
+      // parallelization of this reduction ID should be consistently
+      // applied to the unmappble tensor as well.
+      //
+      // TODO: Even if they are not mapped, is it possible that they
+      // are still mapped through reshape ops?
       auto it = std::find_if(
           unmappable_tv->getLogicalDomain().begin(),
           unmappable_tv->getLogicalDomain().end(),
