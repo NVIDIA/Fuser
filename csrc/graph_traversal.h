@@ -151,7 +151,7 @@ class FindAllExprs {
         }
 
         auto prev_edges = isReady(edge_to_visit);
-        if (!prev_edges.has_value()) {
+        if (prev_edges.empty()) {
           // To stop an infinite loop, the not-ready node is not moved
           // back to the to_visit_ queue but kept in the separate
           // queue. This way, if all nodes in to_visit_ are not ready,
@@ -202,7 +202,7 @@ class FindAllExprs {
   // Check if a node is ready to visit. If yes, return the direction
   // and the prev nodes that should be visited before the given node
   // is visited.
-  virtual std::optional<std::vector<Edge>> isReady(const Edge& edge) const {
+  virtual std::vector<Edge> isReady(const Edge& edge) const {
     Direction dir = getDirection(edge);
 
     // If a direction is specified, only that direction of edges are
@@ -211,7 +211,7 @@ class FindAllExprs {
          allowed_direction_ == Direction::Backward) ||
         (dir == Direction::Backward &&
          allowed_direction_ == Direction::Forward)) {
-      return std::nullopt;
+      return {};
     }
 
     if (const ExprT* e = std::get_if<ExprT>(&(edge.from))) {
@@ -231,7 +231,7 @@ class FindAllExprs {
   // the edges that this edge depends on are returned. For example, in
   // the case of a forward edge, all of the edges to from_expr are
   // returned.
-  virtual std::optional<std::vector<Edge>> isReady(
+  virtual std::vector<Edge> isReady(
       const ExprT& from_expr,
       const ValT& to_val,
       Direction dir) const {
@@ -261,7 +261,7 @@ class FindAllExprs {
       }
     }
 
-    return std::nullopt;
+    return {};
   }
 
   // Check if an edge from a val to an expr is ready to visit. In the
@@ -272,7 +272,7 @@ class FindAllExprs {
   // a merge producing i0 is visited, it should not automatically mean
   // the edge from i0 to the merge expr is ready to visit. Othewise,
   // the traversal would just move back and forth.
-  virtual std::optional<std::vector<Edge>> isReady(
+  virtual std::vector<Edge> isReady(
       const ValT& from_val,
       const ExprT& to_expr,
       Direction dir) const {
@@ -295,7 +295,7 @@ class FindAllExprs {
       }
     }
 
-    return prev_edges.empty() ? std::nullopt : std::make_optional(prev_edges);
+    return prev_edges;
   }
 
   // Check if a given node is already visited
