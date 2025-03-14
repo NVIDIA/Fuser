@@ -144,7 +144,8 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
   tv2->setMemoryType(MemoryType::Global);
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
-  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(hic.get());
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
 
   EXPECT_EQ(hic->topLevelExprs().size(), 2);
   EXPECT_TRUE(hic->topLevelExprs().at(0)->isA<kir::Allocate>());
@@ -156,9 +157,11 @@ TEST_F(HirLowerStreamTest, SingleBinaryOp) {
   at::Tensor tv0_input = at::rand({4, 4}, options);
   at::Tensor tv1_input = at::rand({4, 4}, options);
   // std::unordered_map<Val*, PolymorphicValue> inputs = {{tv0, input}};
-  auto output = hie.runWithInput({{tv0, tv0_input}, {tv1, tv1_input}})[0].as<at::Tensor>();
+  auto output = hie.runWithInput({{tv0, tv0_input}, {tv1, tv1_input}})[0]
+                    .as<at::Tensor>();
   auto expected_output = tv0_input + tv1_input;
-  EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "Expected: " << expected_output;
+  EXPECT_TRUE(output.equal(expected_output))
+      << "Output: " << output << "Expected: " << expected_output;
 }
 
 TEST_F(HirLowerStreamTest, TwoSetOps) {
@@ -248,8 +251,8 @@ TEST_F(HirLowerStreamTest, ReductionUnsupported) {
   tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
-      hic.get()));
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
+                   preseg_passes::StreamParallelType>::runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, Reduction) {
@@ -307,11 +310,12 @@ TEST_F(HirLowerStreamTest, Matmul_M) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  constexpr int64_t M=8, K=4, N=2;
+  constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor a_aten = at::rand({M, K}, options);
   at::Tensor b_aten = at::rand({K, N}, options);
-  auto output = hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
+  auto output =
+      hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
@@ -343,11 +347,12 @@ TEST_F(HirLowerStreamTest, BatchedMatmul) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  constexpr int64_t B=16, M=8, K=4, N=2;
+  constexpr int64_t B = 16, M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor a_aten = at::rand({B, M, K}, options);
   at::Tensor b_aten = at::rand({K, N}, options);
-  auto output = hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
+  auto output =
+      hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
@@ -379,11 +384,12 @@ TEST_F(HirLowerStreamTest, Matmul_N) {
 
   HostIrEvaluator hie(std::move(hic));
 
-  constexpr int64_t M=8, K=4, N=2;
+  constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor a_aten = at::rand({M, K}, options);
   at::Tensor b_aten = at::rand({K, N}, options);
-  auto output = hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
+  auto output =
+      hie.runWithInput({{a, a_aten}, {b, b_aten}})[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
@@ -406,16 +412,18 @@ TEST_F(HirLowerStreamTest, Matmul_K) {
   c->setMemoryType(MemoryType::Global);
   c->axis(-1)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
-      hic.get()));
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
+                   preseg_passes::StreamParallelType>::runPass(hic.get()));
 }
 
-// We don's support PostOnStream because it does not support well pre-allocated outputs. There is no strong motivation to support PostOnStream
+// We don's support PostOnStream because it does not support well pre-allocated
+// outputs. There is no strong motivation to support PostOnStream
 TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
   const std::vector<int64_t> input_sizes = {4, 8, 32};
-  const std::vector<int64_t> output_sizes = {input_sizes.at(1), input_sizes.at(2)};
+  const std::vector<int64_t> output_sizes = {
+      input_sizes.at(1), input_sizes.at(2)};
 
-  auto get_fusion = [input_sizes] ()->std::unique_ptr<Fusion> {
+  auto get_fusion = [input_sizes]() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -433,13 +441,17 @@ TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
   auto host_unit = IrBuilder::create<HostUnit>(get_fusion());
 
   IrCloner ir_cloner(hic.get());
-  TensorView* input = ir_cloner.clone(host_unit->fusion_to_execute()->inputs().at(0))->as<TensorView>();
-  TensorView* output = ir_cloner.clone(host_unit->fusion_to_execute()->outputs().at(0))->as<TensorView>();
+  TensorView* input =
+      ir_cloner.clone(host_unit->fusion_to_execute()->inputs().at(0))
+          ->as<TensorView>();
+  TensorView* output =
+      ir_cloner.clone(host_unit->fusion_to_execute()->outputs().at(0))
+          ->as<TensorView>();
 
   std::vector<Val*> inputs = {input};
   std::vector<Val*> outputs = {output};
-  auto post_on_stream = IrBuilder::create<PostOnStream>(
-      host_unit, inputs, outputs);
+  auto post_on_stream =
+      IrBuilder::create<PostOnStream>(host_unit, inputs, outputs);
 
   hic->pushBackTopLevelExprs(post_on_stream);
 
@@ -448,8 +460,8 @@ TEST_F(HirLowerStreamTest, DoNotSupportPostOnStream) {
 
   output->axis(-1)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
-      hic.get()));
+  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
+                   preseg_passes::StreamParallelType>::runPass(hic.get()));
 }
 
 } // namespace hir
@@ -513,7 +525,8 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOp) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   EXPECT_TRUE(output.equal(input))
@@ -538,7 +551,8 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleSetOpNonOutermost) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   EXPECT_TRUE(output.equal(input))
@@ -567,9 +581,12 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, SingleBinaryOp) {
 
   at::Tensor tv0_input = at::rand({4, 4}, options);
   at::Tensor tv1_input = at::rand({4, 4}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({tv0_input, tv1_input}))[0].as<at::Tensor>();
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({tv0_input, tv1_input}))[0]
+          .as<at::Tensor>();
   auto expected_output = tv0_input + tv1_input;
-  EXPECT_TRUE(output.equal(expected_output)) << "Output: " << output << "Expected: " << expected_output;
+  EXPECT_TRUE(output.equal(expected_output))
+      << "Output: " << output << "Expected: " << expected_output;
 }
 
 TEST_F(MultiDeviceExecutorLowerStreamTest, TwoSetOps) {
@@ -593,7 +610,8 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, TwoSetOps) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   EXPECT_TRUE(output.equal(input))
@@ -624,7 +642,8 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, ThreeSetOpsWithDisjointsForLoops) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   EXPECT_TRUE(output.equal(input))
@@ -640,7 +659,8 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, ReductionUnsupported) {
   fusion->addOutput(tv1);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
+  EXPECT_ANY_THROW(
+      MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
 TEST_F(MultiDeviceExecutorLowerStreamTest, Reduction) {
@@ -661,7 +681,8 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Reduction) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor input = at::rand({4, 8, 2}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
 
   torch::cuda::synchronize();
   auto expected_output = input.sum(2);
@@ -687,11 +708,12 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_M) {
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
 
-  constexpr int64_t M=8, K=4, N=2;
+  constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor a_aten = at::rand({M, K}, options);
   at::Tensor b_aten = at::rand({K, N}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({a_aten, b_aten}))[0].as<at::Tensor>();
+  auto output = executor.runWithInput(KernelArgumentHolder({a_aten, b_aten}))[0]
+                    .as<at::Tensor>();
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
@@ -717,11 +739,12 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, BatchedMatmul) {
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
 
-  constexpr int64_t B=16, M=8, K=4, N=2;
+  constexpr int64_t B = 16, M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor a_aten = at::rand({B, M, K}, options);
   at::Tensor b_aten = at::rand({K, N}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({a_aten, b_aten}))[0].as<at::Tensor>();
+  auto output = executor.runWithInput(KernelArgumentHolder({a_aten, b_aten}))[0]
+                    .as<at::Tensor>();
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
@@ -747,11 +770,12 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_N) {
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
 
-  constexpr int64_t M=8, K=4, N=2;
+  constexpr int64_t M = 8, K = 4, N = 2;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor a_aten = at::rand({M, K}, options);
   at::Tensor b_aten = at::rand({K, N}, options);
-  auto output = executor.runWithInput(KernelArgumentHolder({a_aten, b_aten}))[0].as<at::Tensor>();
+  auto output = executor.runWithInput(KernelArgumentHolder({a_aten, b_aten}))[0]
+                    .as<at::Tensor>();
 
   torch::cuda::synchronize();
   auto expected_output = at::matmul(a_aten, b_aten);
@@ -770,23 +794,30 @@ TEST_F(MultiDeviceExecutorLowerStreamTest, Matmul_K) {
   fusion->addOutput(c);
   c->axis(-1)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
+  EXPECT_ANY_THROW(
+      MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
 
-// We only support Stream parallel type on ops that support pre-allocated output, which means they need a special handle in HostIrEvaluator and they need to be lowered as a Host Ir Op in the TopLevelExpression, no a PostOnStream(HostUnit(.))
-// See HostIrLower::isLoweredAsStandaloneHostOp and the test HirLowerStreamTest.DoNotSupportPostOnStream
+// We only support Stream parallel type on ops that support pre-allocated
+// output, which means they need a special handle in HostIrEvaluator and they
+// need to be lowered as a Host Ir Op in the TopLevelExpression, no a
+// PostOnStream(HostUnit(.)) See HostIrLower::isLoweredAsStandaloneHostOp and
+// the test HirLowerStreamTest.DoNotSupportPostOnStream
 TEST_F(MultiDeviceExecutorLowerStreamTest, DoNotSupportPostOnStream) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
-  TensorView* tv1 = abs(tv0); // arbitrary example of an unsupported op. There is no deep reason why we not support it -- if needed we could widen the support. But I wanna make sure that an unsupported op do not silently fails
+  TensorView* tv1 =
+      abs(tv0); // arbitrary example of an unsupported op. There is no deep
+                // reason why we not support it -- if needed we could widen the
+                // support. But I wanna make sure that an unsupported op do not
+                // silently fails
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
+  EXPECT_ANY_THROW(
+      MultiDeviceExecutor(std::move(fusion), Communicator::getInstance()));
 }
-
-
 
 } // namespace nvfuser

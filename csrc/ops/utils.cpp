@@ -432,7 +432,9 @@ IterDomain* newOutputIterDomain(
 #pragma GCC diagnostic pop
 #endif
 
-std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals, bool keep_reduction_axis) {
+std::vector<IterDomain*> newOutputDomain(
+    const std::vector<Val*>& vals,
+    bool keep_reduction_axis) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
     if (auto* tv = dynamic_cast<TensorView*>(val)) {
@@ -443,8 +445,11 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals, bool kee
       !tvs.empty(),
       "Tried to create new output TensorView but received empty list.");
 
-  auto getLogicalDomain = [keep_reduction_axis] (TensorView* tv) -> std::vector<IterDomain*> {
-    return keep_reduction_axis ? tv->getLogicalDomain() : TensorDomain::noReductions(tv->getLogicalDomain());
+  auto getLogicalDomain =
+      [keep_reduction_axis](TensorView* tv) -> std::vector<IterDomain*> {
+    return keep_reduction_axis
+        ? tv->getLogicalDomain()
+        : TensorDomain::noReductions(tv->getLogicalDomain());
   };
 
   std::vector<IterDomain*> out_domain(getLogicalDomain(tvs[0]).size(), nullptr);
@@ -461,7 +466,10 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals, bool kee
   return out_domain;
 }
 
-TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype, bool keep_reduction_axis) {
+TensorView* newOutputTV(
+    const std::vector<Val*>& vals,
+    DataType dtype,
+    bool keep_reduction_axis) {
   auto out_domain = newOutputDomain(vals, keep_reduction_axis);
   auto* new_out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(

@@ -331,14 +331,17 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   // placeholder for storing the outputs
   KernelArgumentHolder outputs;
   bool use_preallocated_outputs = std::all_of(
-          post_ir->outputs().begin(),
-          post_ir->outputs().end(),
-          [this](Val* output) { return this->isKnown(output); });
-  NVF_ERROR(use_preallocated_outputs
-          || std::all_of(
-          post_ir->outputs().begin(),
-          post_ir->outputs().end(),
-          [this](Val* output) { return !this->isKnown(output); }), "outputs must be all or none preallocated in expr ", post_ir);
+      post_ir->outputs().begin(),
+      post_ir->outputs().end(),
+      [this](Val* output) { return this->isKnown(output); });
+  NVF_ERROR(
+      use_preallocated_outputs ||
+          std::all_of(
+              post_ir->outputs().begin(),
+              post_ir->outputs().end(),
+              [this](Val* output) { return !this->isKnown(output); }),
+      "outputs must be all or none preallocated in expr ",
+      post_ir);
   if (use_preallocated_outputs) {
     for (auto output : post_ir->outputs()) {
       outputs.push(getKnownConcreteData(output));
@@ -361,10 +364,13 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
           !params_.skip_auto_scheduling);
     }
     if (use_preallocated_outputs) {
-      TORCH_WARN("FusionExecutorCache does not support with preallocated outputs, so we are copying the outputs in expr ", post_ir);
+      TORCH_WARN(
+          "FusionExecutorCache does not support with preallocated outputs, so we are copying the outputs in expr ",
+          post_ir);
       auto tmp_outputs = fec_.at(hu).runFusionWithInputs(input_args);
       for (auto output_idx : c10::irange(tmp_outputs.size())) {
-        outputs[output_idx].as<at::Tensor>().copy_(tmp_outputs[output_idx].as<at::Tensor>());
+        outputs[output_idx].as<at::Tensor>().copy_(
+            tmp_outputs[output_idx].as<at::Tensor>());
       }
     } else {
       outputs = fec_.at(hu).runFusionWithInputs(input_args);
@@ -608,7 +614,8 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
 
   auto lhs = getKnownConcreteData(binary_op->inputs().at(0)).as<at::Tensor>();
   auto rhs = getKnownConcreteData(binary_op->inputs().at(1)).as<at::Tensor>();
-  auto output = getKnownConcreteData(binary_op->outputs().at(0)).as<at::Tensor>();
+  auto output =
+      getKnownConcreteData(binary_op->outputs().at(0)).as<at::Tensor>();
 
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
@@ -647,7 +654,8 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   auto output = getKnownConcreteData(output_tv).as<at::Tensor>();
 
   std::vector<int64_t> reduction_axes;
-  for (const auto i : c10::irange(int64_t(output_tv->getLogicalDomain().size()))) {
+  for (const auto i :
+       c10::irange(int64_t(output_tv->getLogicalDomain().size()))) {
     auto ax = output_tv->getLogicalDomain().at(i);
     if (ax->isReduction()) {
       reduction_axes.push_back(i);
@@ -691,9 +699,13 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
       std::all_of(
           expr->outputs().begin(),
           expr->outputs().end(),
-          [this](Val* output) { return !this->expr_evaluator_.isKnown(output); }),
-      "Do not support pre-allocated outputs for the op ", expr);
-  // using ExpressionEvaluator::evaluate to evaluate the output is not valid here if the output or one of its producer is an alias
+          [this](Val* output) {
+            return !this->expr_evaluator_.isKnown(output);
+          }),
+      "Do not support pre-allocated outputs for the op ",
+      expr);
+  // using ExpressionEvaluator::evaluate to evaluate the output is not valid
+  // here if the output or one of its producer is an alias
   auto concrete_outputs = expr->evaluate(expr_evaluator_, inputs);
   for (int64_t i : c10::irange(expr->outputs().size())) {
     bind(expr->output(i), concrete_outputs.at(i));

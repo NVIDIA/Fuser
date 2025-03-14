@@ -458,9 +458,10 @@ TEST_P(HostIrTest, ForLoops) {
 
 TEST_P(HostIrTest, PreAllocatedOutputs) {
   const std::vector<int64_t> input_sizes = {4, 8, 32};
-  const std::vector<int64_t> output_sizes = {input_sizes.at(1), input_sizes.at(2)};
+  const std::vector<int64_t> output_sizes = {
+      input_sizes.at(1), input_sizes.at(2)};
 
-  auto get_fusion = [input_sizes] ()->std::unique_ptr<Fusion> {
+  auto get_fusion = [input_sizes]() -> std::unique_ptr<Fusion> {
     auto fusion = std::make_unique<Fusion>();
     FusionGuard fg(fusion.get());
 
@@ -502,13 +503,14 @@ TEST_P(HostIrTest, PreAllocatedOutputs) {
   auto output = at::empty(output_sizes, options);
   auto ref_output = at::sum(input * 2, {0});
 
-  hie.runWithInput({{post_on_stream->inputs().at(0), input}, {post_on_stream->outputs().at(0), output}});
+  hie.runWithInput(
+      {{post_on_stream->inputs().at(0), input},
+       {post_on_stream->outputs().at(0), output}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, output)) << "Output: " << output
-                                                          << " Expected: " << ref_output;
+  GTEST_EXPECT_TRUE(torch::allclose(ref_output, output))
+      << "Output: " << output << " Expected: " << ref_output;
 }
-
 
 INSTANTIATE_TEST_SUITE_P(
     ,
@@ -1149,8 +1151,12 @@ TEST_F(IfThenElseTest, HostIr) {
   hic->addOutput(output_buffer);
   hic->pushBackTopLevelExprs(if_then_else);
 
-  // Need to use FusionExecutorCache, otherwise hitting error https://github.com/NVIDIA/Fuser/blob/4d032f74d2347fd68f5be607ef94956500eb917b/csrc/runtime/executor.cpp#L750
-  HostIrEvaluator hie(std::move(hic), /*Communicator=*/nullptr, {.use_fusion_executor_cache = true});
+  // Need to use FusionExecutorCache, otherwise hitting error
+  // https://github.com/NVIDIA/Fuser/blob/4d032f74d2347fd68f5be607ef94956500eb917b/csrc/runtime/executor.cpp#L750
+  HostIrEvaluator hie(
+      std::move(hic),
+      /*Communicator=*/nullptr,
+      {.use_fusion_executor_cache = true});
 
   for (auto boolean : {true, false}) {
     auto options =
@@ -1371,7 +1377,8 @@ TEST_P(HirBinaryOpTest, NonPreAllocatedOutputs) {
   auto lhs_aten = at::randn(sizes, options);
   auto rhs_aten = at::randn(sizes, options);
 
-  auto out_aten = hie.runWithInput({{lhs, lhs_aten}, {rhs, rhs_aten}})[0].as<at::Tensor>();
+  auto out_aten =
+      hie.runWithInput({{lhs, lhs_aten}, {rhs, rhs_aten}})[0].as<at::Tensor>();
 
   at::Tensor expected_out = executeBinaryOp(lhs_aten, rhs_aten);
   EXPECT_TRUE(expected_out.equal(out_aten))
@@ -1382,12 +1389,16 @@ TEST_P(HirBinaryOpTest, NonPreAllocatedOutputs) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     HirBinaryOpTest,
-    testing::Values(BinaryOpType::Add, BinaryOpType::Sub, BinaryOpType::Mul, BinaryOpType::Div),
+    testing::Values(
+        BinaryOpType::Add,
+        BinaryOpType::Sub,
+        BinaryOpType::Mul,
+        BinaryOpType::Div),
     [](const testing::TestParamInfo<BinaryOpType>& info) -> std::string {
       std::stringstream ss;
       ss << "BinaryOpType_" << info.param;
       return ss.str();
-});
+    });
 
 using HirReductionOpTest = NVFuserTest;
 
@@ -1400,7 +1411,8 @@ TEST_F(HirReductionOpTest, PreAllocatedOutputs) {
 
   auto* in = makeConcreteTensor({size0, size1});
   auto* out = newForReduction(in, {reduction_axis}, in->dtype());
-  auto* reduction_op = IrBuilder::create<ReductionOp>(BinaryOpType::Add, hic->zeroVal(), out, in);
+  auto* reduction_op = IrBuilder::create<ReductionOp>(
+      BinaryOpType::Add, hic->zeroVal(), out, in);
   hic->addInput(in);
   hic->addOutput(out);
   hic->pushBackTopLevelExprs(reduction_op);

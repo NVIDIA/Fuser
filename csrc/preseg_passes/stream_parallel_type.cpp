@@ -82,7 +82,10 @@ void StreamParallelType::runPass(Fusion* fusion) {
       new_top_level_exprs.push_back(expr);
       continue;
     }
-    NVF_ERROR(HostIrLower::isLoweredAsStandaloneHostOp(expr), "Stream parallel type not support for expr ", expr);
+    NVF_ERROR(
+        HostIrLower::isLoweredAsStandaloneHostOp(expr),
+        "Stream parallel type not support for expr ",
+        expr);
     // find the corresponding stream axis but in the Logical (and not Loop
     // Domain)
     auto it_logical_stream_axis = std::find(
@@ -187,8 +190,11 @@ void StreamParallelType::runPass(Fusion* fusion) {
         if (input_stream_id_logical_index == -1) {
           continue;
         }
-        TensorView* input_j =
-            select(input, input_stream_id_logical_index, for_loop->index(), /*keep_reduction_axis=*/true);
+        TensorView* input_j = select(
+            input,
+            input_stream_id_logical_index,
+            for_loop->index(),
+            /*keep_reduction_axis=*/true);
         new_loop_body.push_back(input_j->definition());
         for (auto it_running_expr = current_loop_body.begin();
              it_running_expr != current_loop_body.end();
@@ -238,8 +244,11 @@ void StreamParallelType::runPass(Fusion* fusion) {
         if (output_stream_id_logical_index == -1) {
           continue;
         }
-        TensorView* output_j =
-            select(output, output_stream_id_logical_index, for_loop->index(), /*keep_reduction_axis=*/true);
+        TensorView* output_j = select(
+            output,
+            output_stream_id_logical_index,
+            for_loop->index(),
+            /*keep_reduction_axis=*/true);
         new_top_level_exprs.push_back(
             IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
         new_loop_body.push_back(output_j->definition());
@@ -251,7 +260,8 @@ void StreamParallelType::runPass(Fusion* fusion) {
                ir_utils::filterByType<TensorView>(running_expr->outputs())) {
             if (running_output == output) {
               TensorView* output_j_alias =
-                  ops::newValLike(output_j, output_j->dtype(), /*keep_reduction_axis=*/true)
+                  ops::newValLike(
+                      output_j, output_j->dtype(), /*keep_reduction_axis=*/true)
                       ->as<TensorView>();
               hic->markAlias(output_j, output_j_alias);
               *it_running_expr = ir_utils::transferDefinitionToNewOutputs(

@@ -36,7 +36,13 @@ class HostIrLower {
       int64_t my_device_index);
 
   static bool isLoweredAsStandaloneHostOp(Expr* expr) {
-    return expr->isOneOf<MatmulOp, LoadStoreOp, SliceOp, BinaryOp, ReductionOp, LinearOp>();
+    return expr->isOneOf<
+        MatmulOp,
+        LoadStoreOp,
+        SliceOp,
+        BinaryOp,
+        ReductionOp,
+        LinearOp>();
   }
 
  private:
