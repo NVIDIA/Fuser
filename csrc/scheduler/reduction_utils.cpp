@@ -707,14 +707,17 @@ namespace {
 // the scheduling.
 class PersistentBufferProjector {
  public:
-  PersistentBufferProjector(Fusion* fusion, const bool project_to_inputs)
+  PersistentBufferProjector(
+      Fusion* fusion,
+      scheduler_utils::PersistentBufferInfo persistent_info,
+      const bool project_to_inputs)
       : fusion_(fusion),
-        persistent_info(scheduler_utils::persistentBuffers(fusion)),
-        persistent_buffers(persistent_info.persistent_buffers),
+        persistent_info_(std::move(persistent_info)),
+        persistent_buffers(persistent_info_.persistent_buffers),
         persistent_buffer_resolution_points(
-            persistent_info.persistent_buffer_resolution_points),
+            persistent_info_.persistent_buffer_resolution_points),
         projectable_persistent_buffers(
-            persistent_info.projectable_persistent_buffers),
+            persistent_info_.projectable_persistent_buffers),
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
@@ -728,7 +731,7 @@ class PersistentBufferProjector {
 
  private:
   Fusion* fusion_;
-  const scheduler_utils::PersistentBufferInfo persistent_info;
+  const scheduler_utils::PersistentBufferInfo persistent_info_;
   const std::vector<TensorView*>& persistent_buffers;
   const std::vector<std::vector<TensorView*>>&
       persistent_buffer_resolution_points;
@@ -909,8 +912,10 @@ class PersistentBufferProjector {
 } // namespace
 std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
+    const scheduler_utils::PersistentBufferInfo& persistent_info,
     const bool project_to_inputs) {
-  PersistentBufferProjector pb_projector(fusion, project_to_inputs);
+  PersistentBufferProjector pb_projector(
+      fusion, persistent_info, project_to_inputs);
   return pb_projector.project();
 }
 

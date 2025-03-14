@@ -13,6 +13,8 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>
+#include <val_graph.h>
+
 #include <cmath>
 #include <optional>
 #include <ostream>
@@ -223,7 +225,9 @@ struct PersistentKernelProperties {
        << "max allowed vectorize_factor: " << vectorize_factor << "\n"
        << "disable_project_to_avoid_recompute: "
        << disable_project_to_avoid_recompute << "\n"
-       << "project_persistent_buffers: " << project_persistent_buffers << "\n";
+       << "project_persistent_buffers: " << project_persistent_buffers << "\n"
+       << "persistent_buffers: " << toDelimitedString(persistent_buffers)
+       << "\n";
     return ss.str();
   }
 };
@@ -381,5 +385,14 @@ std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
 
 // Return empirical maximum persistent batch size for inner persistent scheduler
 int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio);
+
+// Check if an unmappable tensor can be persistent. The primary reason
+// of being unable to be persistent is broadcast inlining, which may
+// cause inconsistent parallelization
+bool isCacheableUnmappableTv(
+    TensorView* unmappable_tv,
+    const std::vector<TensorView*>& reduction_tvs,
+    const ValGraph& almost_exact_graph);
+
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

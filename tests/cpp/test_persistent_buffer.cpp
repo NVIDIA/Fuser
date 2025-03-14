@@ -329,7 +329,8 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection_CUDA) {
 
   fusion.addOutput(tv9);
 
-  reduction_scheduler_utils::projectPersistentBuffers(&fusion, true);
+  reduction_scheduler_utils::projectPersistentBuffers(
+      &fusion, scheduler_utils::persistentBuffers(&fusion), true);
 
   auto tv5_producers = ir_utils::producerTvsOf(tv5);
   auto tv7_producers = ir_utils::producerTvsOf(tv7);
@@ -659,7 +660,8 @@ TEST_F(PersistentBufferTest, FusionRecomputePersistentBuffer_CUDA) {
       persistent_buffer_info1.persistent_buffers.size() == 2,
       "Before project to other buffers, should have two persistent buffers!");
 
-  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
+  reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, scheduler_utils::persistentBuffers(fusion), false);
   auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
   NVF_CHECK(
       persistent_buffer_info2.persistent_buffers.size() == 1,
@@ -1556,5 +1558,105 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_hidden_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+// Repro of issue #4052 (https://github.com/NVIDIA/Fuser/issues/4052)
+// without the input projection. Note that the original repro is triggered
+// by the input projection.
+TEST_F(PersistentBufferTest, BroadcastSync1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {0, 1});
+  auto tv7 = broadcast(tv6, {true, true});
+
+  {
+    // Same sequence of the ops above
+    auto tv2 = broadcast(tv0, {false, true});
+    auto tv3 = castOp(DataType::Float, tv2);
+    auto tv4 = castOp(DataType::Float, tv1);
+    auto tv5 = add(tv3, tv4);
+
+    auto tv9 = add(tv5, tv7);
+    auto tv10 = castOp(DataType::BFloat16, tv9);
+    fusion.addOutput(tv10);
+  }
+
+  auto unscheduled_fusion_copy = fusion;
+
+  auto pb_info = scheduler_utils::persistentBuffers(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({64}, options);
+  auto t1 = at::randn({64, 16}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  // Lowering should succeed. Prior to the fix of the issue, the sync
+  // analysis raises an exception as there's mismatched
+  // parallelization between the cache of tv0 and its consumer
+  GpuLower gpulw(&fusion);
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Similar to BroadcastSync1 but just one of the reduction IDs is
+// resolved with the input tensor
+TEST_F(PersistentBufferTest, BroadcastSync2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {0, 1});
+  auto tv7 = broadcast(tv6, {true});
+
+  {
+    auto tv3 = castOp(DataType::Float, tv0);
+
+    auto tv9 = add(tv3, tv7);
+    auto tv10 = castOp(DataType::BFloat16, tv9);
+    fusion.addOutput(tv10);
+  }
+
+  // In this case, there's no persistent buffer, so it should not be
+  // scheduled as a persistent kernel. Note that it's possible to
+  // schedule it like a persistent kernel without segmentation, which
+  // may be more favorable.
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({64}, options);
+  auto t1 = at::randn({64, 16}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  EXPECT_FALSE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+}
 
 } // namespace nvfuser

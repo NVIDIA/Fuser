@@ -9,6 +9,7 @@
 #include <grouped_reduction.h>
 #include <id_model/id_model.h>
 #include <instrumentation.h>
+#include <iter_visitor.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
@@ -16,6 +17,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/utils.h>
 #include <utils.h>
 #include <val_graph_visitor.h>
 
@@ -1355,6 +1357,34 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   return smem_consumers;
 }
 
+namespace {
+void recomputeNonPersistentUnmappbleTvs(
+    const scheduler_utils::PersistentBufferInfo& persistent_info) {
+  for (auto non_persistent_buffer : persistent_info.non_persistent_buffers) {
+    // If there's only one use, it must be cached
+    if (non_persistent_buffer->uses().size() == 1) {
+      auto caching_load = non_persistent_buffer->uses().at(0);
+      NVF_ERROR(caching_load->isA<LoadStoreOp>());
+      non_persistent_buffer =
+          caching_load->as<LoadStoreOp>()->out()->as<TensorView>();
+    }
+    NVF_ERROR(non_persistent_buffer->uses().size() > 1);
+    bool is_first = true;
+    for (const auto& use : non_persistent_buffer->uses()) {
+      // No need to clone the tv for the first use
+      if (is_first) {
+        is_first = false;
+        continue;
+      } else {
+        auto recomputed_tv = RecomputeTv::recompute(non_persistent_buffer);
+        ir_utils::replaceValInExprInputs(
+            use, non_persistent_buffer, recomputed_tv);
+      }
+    }
+  }
+}
+} // namespace
+
 // common prepare for all persistent schedulers
 void beforeSchedule(
     Fusion* fusion,
@@ -1364,12 +1394,15 @@ void beforeSchedule(
     std::vector<TensorView*>& reduction_tvs,
     std::vector<TensorView*>& smem_consumers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
+  const scheduler_utils::PersistentBufferInfo persistent_info =
+      scheduler_utils::persistentBuffers(fusion);
+
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
   // dummy outputs are helper tensors to make sure persistent buffer projection
   // does not create trouble for transform propagation.
   dummy_outputs = reduction_scheduler_utils::projectPersistentBuffers(
-      fusion, rparams->project_persistent_buffers);
+      fusion, persistent_info, rparams->project_persistent_buffers);
 
   // Cache tensors before grabbing any references to reductions as cache_before
   // can invalidate the references since when applied to a reduction tensor view
@@ -1378,6 +1411,8 @@ void beforeSchedule(
   // Cache inputs even if not unrolled, as otherwise we may not create a
   // persistent buffer if that persistent buffer would be the input.
   cached_inputs = scheduler_utils::cacheInputs(fusion, true);
+
+  recomputeNonPersistentUnmappbleTvs(persistent_info);
 
   // Cache and fork outputs
   cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
@@ -1728,6 +1763,54 @@ std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer) {
 
 int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio) {
   return is_high_bandwidth_flops_ratio ? 12l : 10l;
+}
+
+bool isCacheableUnmappableTv(
+    TensorView* unmappable_tv,
+    const std::vector<TensorView*>& reduction_tvs,
+    const ValGraph& almost_exact_graph) {
+  // Find immediate reduction tvs
+  std::vector<TensorView*> immediate_reduction_tvs;
+  for (const auto& reduction_tv : reduction_tvs) {
+    auto all_vals = DependencyCheck::getAllValsBetween(
+        std::unordered_set<Val*>{unmappable_tv},
+        std::vector<Val*>{reduction_tv});
+    if (std::any_of(
+            reduction_tvs.begin(),
+            reduction_tvs.end(),
+            [&](const auto& reduction_tv_j) {
+              return reduction_tv_j != reduction_tv &&
+                  std::find(all_vals.begin(), all_vals.end(), reduction_tv_j) !=
+                  all_vals.end();
+            })) {
+      continue;
+    }
+    immediate_reduction_tvs.push_back(reduction_tv);
+  }
+
+  NVF_ERROR(!immediate_reduction_tvs.empty());
+
+  for (const auto& reduction_tv : immediate_reduction_tvs) {
+    for (const auto& reduction_id : reduction_tv->getLogicalDomain()) {
+      if (!reduction_id->isReduction()) {
+        continue;
+      }
+
+      auto it = std::find_if(
+          unmappable_tv->getLogicalDomain().begin(),
+          unmappable_tv->getLogicalDomain().end(),
+          [&](const auto& unmappable_tv_logical_id) {
+            return almost_exact_graph.disjointValSets().strictAreMapped(
+                reduction_id, unmappable_tv_logical_id);
+          });
+      if (it == unmappable_tv->getLogicalDomain().end()) {
+        // Non mapped logical ID found for reduction ID
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 } // namespace normalization_scheduler_utils

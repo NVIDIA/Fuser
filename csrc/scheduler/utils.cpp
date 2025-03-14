@@ -566,6 +566,12 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   auto all_tvs = fusion->allTvs();
 
+  // Find projectable persistent buffers
+  auto reduction_tvs = getReductionTvs(fusion);
+
+  // TODO: Reuse this id_model in getResolutionPointsOf
+  IdModel id_model(fusion);
+
   for (auto producer : all_tvs) {
     // Are all producer ids mappable to all consumers
     bool mappable = true;
@@ -574,16 +580,12 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       continue;
     }
 
-    // Track which consumers have unmappable dims from producer
-    std::vector<TensorView*> unmappable_consumers;
-
     for (auto consumer : consumers) {
       if (dynamic_cast<SelectOp*>(consumer->definition()) ||
           dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
           dynamic_cast<TorchGatherOp*>(consumer->definition())) {
         continue;
       }
-      bool consumer_mappable = true;
       auto mappable_roots =
           logical_map.getMappableDims(producer->domain(), consumer->domain());
 
@@ -595,19 +597,24 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
         }
         if (!mappable_roots.count(p_logical_id)) {
           mappable = false;
-          consumer_mappable = false;
           persistent_buffer_info.unmappable_dims.emplace(p_logical_id);
         }
       }
-
-      if (!consumer_mappable) {
-        unmappable_consumers.emplace_back(consumer);
-      }
     }
 
-    if (!mappable) {
-      // If there's unmappable dims from producer to consumer, producer is a
-      // persistent buffer.
+    if (mappable) {
+      continue;
+    }
+
+    // If there's unmappable dims from producer to consumer, producer is a
+    // persistent buffer. However, if it may not be possible to be
+    // persistent due to broadcast inlining
+    if (normalization_scheduler_utils::isCacheableUnmappableTv(
+            producer,
+            reduction_tvs,
+            id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
+      persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
+    } else {
       persistent_buffer_info.persistent_buffers.emplace_back(producer);
     }
   }
@@ -643,8 +650,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // don't project if there are view ops and no buffer can be projected
   persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
 
-  // Find projectable persistent buffers
-  auto reduction_tvs = getReductionTvs(fusion);
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
     // Inputs marked as persistent buffers can't be projected any further back
     if (persistent_buffer->isFusionInput()) {
