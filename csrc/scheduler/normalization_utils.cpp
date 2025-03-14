@@ -1805,12 +1805,12 @@ bool isCacheableUnmappableTv(
           });
       if (it == unmappable_tv->getLogicalDomain().end()) {
         // Non mapped logical ID found for reduction ID
-        return true;
+        return false;
       }
     }
   }
 
-  return false;
+  return true;
 }
 
 } // namespace normalization_scheduler_utils

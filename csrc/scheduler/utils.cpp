@@ -613,9 +613,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
             producer,
             reduction_tvs,
             id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
-      persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
-    } else {
       persistent_buffer_info.persistent_buffers.emplace_back(producer);
+    } else {
+      persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
     }
   }
 
