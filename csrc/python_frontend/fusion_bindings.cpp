@@ -10,6 +10,7 @@
 #include <ir/container.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
+#include <ops/all_ops.h>
 #include <python_frontend/python_bindings.h>
 
 namespace nvfuser::python_frontend {
@@ -1109,13 +1110,24 @@ void bindIrContainer(py::module& nvfuser) {
           "Reset exact mappings");
 }
 
+void bindOperations(py::module& nvfuser) {
+  py::module ops = nvfuser.def_submodule("ops", "CPP Fusion Operations");
+  // Add functions to the submodule
+  ops.def("add", static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>(nvfuser::add), "Add two Vals");
+  ops.def("add", static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*, nvfuser::Val*)>(nvfuser::add), "Add TensorView and Val");
+  ops.def("add", static_cast<nvfuser::TensorView* (*)(nvfuser::Val*, nvfuser::TensorView*)>(nvfuser::add), "Add Val and TensorView");
+  ops.def("add", static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*, nvfuser::TensorView*)>(nvfuser::add), "Add two TensorViews");
+}
+
 } // namespace
 
 void bindFusion(py::module& nvfuser) {
-  bindIrContainer(nvfuser);
-  bindBaseNodes(nvfuser);
-  bindInternalBaseNodes(nvfuser);
-  bindInterfaceNodes(nvfuser);
+  py::module fusion = nvfuser.def_submodule("fusion", "CPP Fusion");
+  bindIrContainer(fusion);
+  bindBaseNodes(fusion);
+  bindInternalBaseNodes(fusion);
+  bindInterfaceNodes(fusion);
+  bindOperations(fusion);
 }
 
 } // namespace nvfuser::python_frontend
