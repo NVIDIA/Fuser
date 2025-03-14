@@ -8,11 +8,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -78,7 +78,7 @@ static void setupBatchNorm(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_BatchNorm(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
 
@@ -99,10 +99,10 @@ static void NvFuserScheduler_BatchNorm(
   at::Tensor at_bias = at::zeros({input_shape[1]}, options);
   at::Tensor at_run_mean = at::zeros({input_shape[1]}, fp32_options);
   at::Tensor at_run_var = at::ones({input_shape[1]}, fp32_options);
-  std::vector<c10::IValue> aten_inputs(
-      {at_x, at_weight, at_bias, at_run_mean, at_run_var});
+  KernelArgumentHolder args = {
+      at_x, at_weight, at_bias, at_run_mean, at_run_var};
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

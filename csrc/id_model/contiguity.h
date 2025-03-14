@@ -9,7 +9,6 @@
 
 #include <contiguity.h>
 #include <id_model/id_model.h>
-#include <val_graph_visitor.h>
 
 namespace nvfuser {
 

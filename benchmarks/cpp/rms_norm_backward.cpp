@@ -8,11 +8,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -69,7 +69,7 @@ static void setupRMSNorm_BWD(Fusion* fusion, DataType dtype) {
 
 static void NvFuserScheduler_RMSNorm_BWD(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype) {
   NVF_ERROR(
       dtype == DataType::Float || dtype == DataType::Half ||
@@ -87,9 +87,9 @@ static void NvFuserScheduler_RMSNorm_BWD(
   at::Tensor weight = at::randn({input_shape[1]}, options);
   at::Tensor rstd = at::randn({input_shape[0], 1}, options);
 
-  std::vector<c10::IValue> aten_inputs({grad_out, input, weight, rstd});
+  KernelArgumentHolder args({grad_out, input, weight, rstd});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *

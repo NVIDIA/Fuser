@@ -121,3 +121,7 @@ class OpInfo:
     # All keyword arguments are considered constant.
     # If symbolic_parameter_list is None, then we assume all parameters to be symbolic.
     symbolic_parameter_list: Optional[list[ArgumentType]] = None
+
+    # Enable check_cpp_translation test
+    # Tests that translation from CPP Fusion back to Python FusionDefinition is correct.
+    is_clonable: bool = False

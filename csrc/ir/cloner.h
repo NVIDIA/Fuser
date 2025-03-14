@@ -39,9 +39,24 @@ class IrCloner {
 
   NVF_API Statement* clone(const Statement* statement);
 
-  int64_t clone(int64_t x) {
-    return x;
+#define DEFINE_CLONE_FOR_PRIM_TYPES(_t_y_p_e_) \
+  _t_y_p_e_ clone(_t_y_p_e_ x) {               \
+    return x;                                  \
   }
+
+  DEFINE_CLONE_FOR_PRIM_TYPES(bool)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int8_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint8_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int16_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint16_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int32_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint32_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(int64_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(uint64_t)
+  DEFINE_CLONE_FOR_PRIM_TYPES(float)
+  DEFINE_CLONE_FOR_PRIM_TYPES(double)
+
+#undef DEFINE_CLONE_FOR_PRIM_TYPES
 
   template <class T>
   T* clone(const T* node) {
@@ -100,8 +115,8 @@ class IrCloner {
     for (const auto& original_set : disjoint_sets.disjointSets()) {
       NVF_ERROR(!original_set->empty());
       bool first = true;
+      typename DisjointSets<T, Hash>::DisjointSet new_set;
       for (const auto& val : *original_set) {
-        typename DisjointSets<T, Hash>::DisjointSet new_set;
         auto clone_of_val = clone(val);
         if (first) {
           auto it = cloned_disjoint_sets.initializeSet(clone_of_val).first;

@@ -15,6 +15,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/inlining.h>
 #include <utils.h>
 #include <val_graph_visitor.h>
 
@@ -716,10 +717,69 @@ void checkReductionTvForScheduling(Fusion* fusion, TensorView* ref_red_tv) {
       "Tried to schedule a fusion with no tensor inputs, currently not supported.");
 }
 
-int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+namespace {
+// For inner persistent kernel, shared memory is allocated as:
+// ceilDiv(N/vect, batch) * vect * batch. The required shared memory size is
+// larger than buffer size when split is not divisible. The difference is
+// counted as roundup overhead. This function estimates the maximum possible
+// shared memory size due to this round up.
+int64_t roundUpSharedMemory(int64_t tv_buffer_size, int64_t data_type_size) {
+  auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  int64_t max_threads_per_block = (int64_t)dev_prop->maxThreadsPerBlock;
+  int64_t max_smem = 0;
+  int64_t max_vectorize_factor =
+      SchedulerRuntimeInfo::max_alignment_size_in_byte / data_type_size;
+  int64_t dim_size = tv_buffer_size / data_type_size;
+  // Check all possible combinations of vectorization factor, batch size and
+  // threads per block
+  for (int64_t vectorize_factor = 1; vectorize_factor <= max_vectorize_factor;
+       vectorize_factor *= 2) {
+    // heuristic only uses divisible vectorization factor
+    if (dim_size % vectorize_factor != 0) {
+      continue;
+    }
+    int64_t after_vect = dim_size / vectorize_factor;
+    // For shared memory persistence, heuristic always uses maximum threads
+    // per block
+    int64_t threads_per_block = max_threads_per_block;
+    int64_t persistent_batch = ceilDiv(after_vect, threads_per_block);
+    max_smem = std::max(
+        max_smem,
+        persistent_batch * vectorize_factor * threads_per_block *
+            data_type_size);
+  }
+  return max_smem;
+}
+int64_t sharedMemoryRoundUpOverhead(
     SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*>& persistent_buffers,
-    const bool can_use_smem_persistent) {
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const bool project_to_inputs) {
+  auto buffers = project_to_inputs
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
+  int64_t total_smem_overhead = 0;
+  for (auto buffer : buffers) {
+    // Buffer size derived from shape and dtype of the persistent tensor
+    int64_t logical_buffer_size =
+        scheduler_utils::getPersistentBufferSizeOfTensor(
+            buffer, runtime_info, persistent_buffer_info);
+    // Required shared memory size if store that tensor in shared memory
+    int64_t buffer_size_smem = roundUpSharedMemory(
+        logical_buffer_size, dataTypeSize(buffer->getDataType().value()));
+    // The difference is counted as roundup overhead
+    total_smem_overhead += (buffer_size_smem - logical_buffer_size);
+  }
+  return total_smem_overhead;
+}
+} // namespace
+
+int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& reduction_tvs,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const bool can_use_smem_persistent,
+    const bool project_to_inputs) {
   // Init to register file size, which is half of the full register file size
   int64_t available_persistent_buffer_size =
       scheduler_utils::register_file_size;
@@ -727,36 +787,30 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
   if (!can_use_smem_persistent) {
     return available_persistent_buffer_size;
   }
-  // Check available shared memory
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
-  const int64_t max_shared_memory_size =
-      (int64_t)dev_prop->sharedMemPerBlockOptin;
-  // Some shared memories are reserved for kernel launch overhead and
-  // reduction_broadcast_workspace. Estimation is conservative, but should
-  // be good enough. The actual threads per block is set in the heuristics
-  // and it may be smaller than maxThreadsPerBlock.
-  // TODO: More accurate estimation of available shared memory size.
-  const int64_t kernel_overhead = (int64_t)dev_prop->reservedSharedMemPerBlock;
-  int64_t max_buffer_dtype_size = 1;
-  for (auto tv : persistent_buffers) {
-    max_buffer_dtype_size = std::max(
-        max_buffer_dtype_size,
-        dataTypeSize(tv->getDataType().value(), runtime_info.getIndexType()));
-  }
-  const int64_t reduction_broadcast_workspace =
-      (int64_t)(dev_prop->maxThreadsPerBlock) * max_buffer_dtype_size;
-  const int64_t available_shared_memory_size =
-      max_shared_memory_size - kernel_overhead - reduction_broadcast_workspace;
+  int64_t smem_overhead =
+      scheduler_utils::getSharedMemoryOverheadPerBlock(fusion, reduction_tvs);
+
+  smem_overhead += sharedMemoryRoundUpOverhead(
+      runtime_info, persistent_buffer_info, project_to_inputs);
+
+  int64_t available_shared_memory_size =
+      (int64_t)dev_prop->sharedMemPerMultiprocessor - smem_overhead;
+
   available_persistent_buffer_size =
       std::max(available_persistent_buffer_size, available_shared_memory_size);
   return available_persistent_buffer_size;
 }
 
-// Returns true if persistent buffers are projected to inputs, meaning the
-// inputs are cached instead of the persistent buffers.
-bool isProjectBufferToInputs(
+// Returns BufferProjectionStrategy based on buffer size, hardware, and fusion
+// ops. ProjectToInputs: recompute buffer from cached inputs to save
+// register/shared memory usage. NoProjectToAvoidRecompute: don't recompute to
+// reduce computation cost. NoProjectOtherReasons: don't recompute due to other
+// reasons.
+BufferProjectionStrategy isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& reduction_tvs,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
@@ -767,7 +821,7 @@ bool isProjectBufferToInputs(
   bool can_project = !persistent_buffer_info.has_view_ops &&
       persistent_buffer_size_info.projected_persistent_buffer_size > 0;
   if (!can_project) {
-    return false;
+    return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
   // Enusre project to inputs can save persistent buffer size,
@@ -776,7 +830,7 @@ bool isProjectBufferToInputs(
   if (check_projected_buffer_size &&
       persistent_buffer_size_info.projected_persistent_buffer_size >=
           persistent_buffer_size_info.persistent_buffer_size) {
-    return false;
+    return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
   // must project to inputs otherwise don't have enough register or shared
@@ -787,57 +841,47 @@ bool isProjectBufferToInputs(
   if (scheduler_type != SchedulerType::InnerOuterPersistent) {
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
+            fusion,
             runtime_info,
-            persistent_buffer_info.persistent_buffers,
-            can_use_smem_persistent);
+            reduction_tvs,
+            persistent_buffer_info,
+            can_use_smem_persistent,
+            false);
     if (max_available_buffer <
         persistent_buffer_size_info.persistent_buffer_size) {
-      return true;
+      return BufferProjectionStrategy::ProjectToInputs;
     }
   }
 
   // don't project if recompute requires rng op
   if (persistent_buffer_info.projection_with_rng_op) {
-    return false;
+    return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
   // free to project if no exp op
   if (!persistent_buffer_info.projection_with_exp_op) {
-    return true;
+    return BufferProjectionStrategy::ProjectToInputs;
   }
 
-  // consider buffer size when exp op exists
+  // Recompute from inputs reduces regisger usage which may lead to higher
+  // occupancy and better performance. However, it also increases computation
+  // cost which may lead to lower performance, especially when the device has a
+  // high bandwidth to flops ratio where the kernel may change from memory bound
+  // to compute bound. Here, we use two empirical values derived from tests of
+  // softmax on H100 and B100/200. B100/200 are considered as devices with high
+  // bandwidth to flops ratio.
   if (scheduler_type == SchedulerType::InnerPersistent) {
-    // check if the non-projected persistent buffer is small enough,
-    // i.e., not affecting the occupancy, projecting back to the inputs
-    // isn't buying us anything.
-    // This check only works for inner persistent as outer persistent and
-    // inner outer persistent usually have large register pressure and always
-    // want to project back to the inputs.
-    // Assumptions:
-    // (1) 50% occupancy, which is 1024 active threads per SM.
-    // (2) 128 threads per block.
-    // (3) 24 registers per thread for overhead.
-    // (4) 8 extra register per thread allowing register spills.
-    // The derived [buffer_per_block] is 48*128*4 = 24KB.
-    constexpr int64_t active_threads_per_sm = 1024l;
-    constexpr int64_t threads_per_block = 128l;
-    constexpr int64_t overhead_register_per_thread = 24l;
-    constexpr int64_t extra_register_allowing_spills = 8l;
-    constexpr int64_t total_register_per_thread =
-        scheduler_utils::register_file_size_full /
-        scheduler_utils::bytes_per_register / active_threads_per_sm;
-    constexpr int64_t buffer_register_per_thread = total_register_per_thread -
-        overhead_register_per_thread + extra_register_allowing_spills;
-    constexpr int64_t buffer_per_block = threads_per_block *
-        buffer_register_per_thread * scheduler_utils::bytes_per_register;
+    bool is_high_bandwidth_flops_ratio =
+        scheduler_utils::isHighBandwidthFlopsRatio();
+    int64_t buffer_per_block =
+        is_high_bandwidth_flops_ratio ? 24 * 4 * 1024 : 6 * 4 * 1024;
     if (persistent_buffer_size_info.persistent_buffer_size <=
         buffer_per_block) {
-      return false;
+      return BufferProjectionStrategy::NoProjectToAvoidRecompute;
     }
   }
 
-  return true;
+  return BufferProjectionStrategy::ProjectToInputs;
 }
 
 PersistentKernelProperties getPersistentKernelProperties(
@@ -918,13 +962,18 @@ PersistentKernelProperties getPersistentKernelProperties(
   // reducing buffer size is larger than the pains of recalculations.
   bool can_use_smem_persistent =
       properties.inner_most_dimension_numel == properties.total_reduction_numel;
-  bool project_persistent_buffers = isProjectBufferToInputs(
+  auto project_strategy = isProjectBufferToInputs(
       fusion,
       runtime_info,
+      reduction_tvs,
       persistent_buffer_info,
       persistent_buffer_size_info,
       scheduler_type,
       can_use_smem_persistent);
+  bool project_persistent_buffers =
+      (project_strategy == BufferProjectionStrategy::ProjectToInputs);
+  bool disable_project_to_avoid_recompute =
+      (project_strategy == BufferProjectionStrategy::NoProjectToAvoidRecompute);
   int64_t max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
@@ -963,6 +1012,7 @@ PersistentKernelProperties getPersistentKernelProperties(
 
   // Exp op typically used in softmax is expensive and needs more registers.
   bool has_exp_op = false;
+  bool has_rng_op = false;
 
   // Could save fusion->exprs() instead of doing this, but allTvs is already
   // cached in fusion so using that for now.
@@ -973,7 +1023,24 @@ PersistentKernelProperties getPersistentKernelProperties(
     if (tv->definition()->isA<UnaryOp>() &&
         tv->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Exp) {
       has_exp_op = true;
-      break;
+    }
+    if (tv->definition()->isA<RNGOp>()) {
+      has_rng_op = true;
+    }
+  }
+  auto buffers = project_persistent_buffers
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
+
+  // Add buffers that are not projectable.
+  if (project_persistent_buffers) {
+    std::unordered_set<TensorView*> projectable_set(
+        persistent_buffer_info.projectable_persistent_buffers.begin(),
+        persistent_buffer_info.projectable_persistent_buffers.end());
+    for (auto tv : persistent_buffer_info.persistent_buffers) {
+      if (projectable_set.find(tv) == projectable_set.end()) {
+        buffers.push_back(tv);
+      }
     }
   }
 
@@ -989,7 +1056,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       .project_persistent_buffers = project_persistent_buffers,
       .index_type = runtime_info.getIndexType(),
       .has_exp_op = has_exp_op,
-      .persistent_buffers = persistent_buffer_info.persistent_buffers};
+      .has_rng_op = has_rng_op,
+      .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
+      .persistent_buffers = buffers};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type) {
@@ -1185,15 +1254,16 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
   return true;
 }
 
-void movePersistentBufferToSmem(
+std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs) {
+  std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
   // associated cached tensors.
   if (rparams->smem_persistent_buffers.empty()) {
-    return;
+    return {};
   }
   const auto& persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
@@ -1206,6 +1276,22 @@ void movePersistentBufferToSmem(
           // smem_persistent_buffers are from a cloned fusion.
           return tv->name() == lookup_tv->name();
         });
+  };
+  auto supportCpAsync = [rparams](const TensorView* smem_tv) {
+    // Only supported after device 8.0
+    int hw_major = at::cuda::getCurrentDeviceProperties()->major;
+    if (hw_major < 8) {
+      return false;
+    }
+    // requires 4, 8, or 16 loading bytes.
+    int vect_factor = rparams->vectorize_inner_reduction
+        ? (int)rparams->unroll_factor_inner_reduction
+        : 1;
+    size_t loading_size =
+        dataTypeSize(smem_tv->getDataType().value()) * vect_factor;
+    bool is_supported_bytes =
+        (loading_size == 4 || loading_size == 8 || loading_size == 16);
+    return is_supported_bytes;
   };
   for (auto tv : persistent_buffers) {
     // Persistent buffers are categorized into two types:
@@ -1220,17 +1306,53 @@ void movePersistentBufferToSmem(
     // isSharedMemoryPersistent() twice, one for the buffer iteself and the
     // other for the buffer's input tensor if the buffer is a cached input
     // and it is not in [smem_persistent_buffers].
+    bool is_cached_input = false;
     bool use_smem = isSharedMemoryPersistent(tv);
     if (!use_smem &&
         std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
             cached_inputs.end()) {
       auto input_tv = ir_utils::producerTvsOf(tv).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
+      is_cached_input = true;
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
+      // When loading from global memory (gmem), use CpAsync with a short data
+      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
+      // data path from gmem to shared memory (smem) follows this sequence: gmem
+      // -> L1 cache -> register -> smem.
+      if (supportCpAsync(tv) && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsync);
+        tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+      }
+      // do a register cache for all the uses of this smem tv.
+      // The load from smem to register cache will then be vectorized to avoid
+      // bank conflicts. The determination of bank conflicts is made per
+      // transaction, with 16 bytes vectorized load, each warp needs 4
+      // transactions (32 threads * 16 bytes per thread / 128 bytes per
+      // transaction). In each transaction, different banks are visited, e.g.
+      // transaction-1, threads 0-7 visit banks 0-31
+      auto cached_tv = tv->cacheAfter();
+      // At this point, if cached_tv has multiple uses,  it becomes the
+      // persistent buffer instead of tv due to the way the persistent buffer
+      // selector works. To make tv remain as the persistent buffer, all of the
+      // uses must be privatized.
+      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
+      smem_consumers.push_back(cached_tv);
+      for (auto i = 1; i < (int)consumers.size(); i++) {
+        auto consumer = consumers.at(i);
+        // recompute cached_tv for each consumer, so it is no longer persistent
+        // similar to project to inputs, here we are projecting to the shared
+        // memory buffer.
+        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+        ir_utils::replaceValInExprInputs(
+            consumer->definition(), cached_tv, cached_tv_replicate);
+        smem_consumers.push_back(cached_tv_replicate);
+      }
     }
   }
+  return smem_consumers;
 }
 
 // common prepare for all persistent schedulers
@@ -1240,6 +1362,7 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
+    std::vector<TensorView*>& smem_consumers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs) {
   // Project the persistent buffers to the inputs. Inputs will be cached in a
   // later step, this will move them to be in a register buffer as expected.
@@ -1266,7 +1389,7 @@ void beforeSchedule(
 
   // move persistent buffer marked in [smem_persistent_buffers] from register to
   // smem
-  movePersistentBufferToSmem(fusion, rparams, cached_inputs);
+  smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
@@ -1327,7 +1450,8 @@ void schedulePersistentKernel(
 
   // Grab the reduction, input, and output tensor views. dummy_outputs are
   // helper tensors for persistent buffer projection.
-  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs;
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
+      smem_consumers;
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
   beforeSchedule(
       fusion,
@@ -1335,6 +1459,7 @@ void schedulePersistentKernel(
       dummy_outputs,
       cached_inputs,
       reduction_tvs,
+      smem_consumers,
       cached_outputs);
 
   TensorView* reference_tv =
@@ -1352,22 +1477,47 @@ void schedulePersistentKernel(
     fusion->addOutput(output);
   }
 
-  const bool unroll = rparams->isUnrolled();
-  const bool vectorize =
+  const bool is_unroll_or_vectorization = rparams->isUnrolled();
+  const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+  const bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
-  reduction_scheduler_utils::multiReductionInliner(
-      fusion,
-      reduction_tvs[0],
+
+  // Propagate transformations before we rfactor the other reductions
+  auto reduction_tv = reduction_tvs.at(0);
+  reduction_scheduler_utils::propagateTransformation(reference_tv);
+  // If reduction_tv is rfactored, rfactor all reductions.
+  if (reference_tv != reduction_tv) {
+    reduction_scheduler_utils::propagateRFactor(
+        reference_tv, reduction_tv, reduction_tvs);
+  }
+
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  reduction_scheduler_utils::propagateParallelization(
+      reduction_tv,
       reference_tv,
-      unroll,
-      vectorize,
-      is_outer_grid_persistence,
+      is_unroll_or_vectorization,
+      use_grouped_reduction,
       reduction_tvs,
-      cached_inputs,
-      cached_outputs,
-      dummy_outputs);
+      unroll_vectorizable_cached_tvs);
+
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (is_vectorize) {
+    int64_t vectorization_factor = rparams->unroll_factor_inner_reduction;
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers, vectorization_factor);
+  }
+
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+
+  // Inline the schedule
+  inlineMost();
 
   if (rparams->compute_persistent_buffer_with_first_consumer) {
     NVF_ERROR(
@@ -1518,8 +1668,11 @@ class PersistentBufferResolution : public IterVisitor {
       // with the persistence of the persistent tensor
       const auto& producer_logical_ids =
           exact_graph_.toGroups(tv->getLogicalDomain());
-      auto reachable_ids = ValGraphBFS::getReachableValsFrom(
-          exact_graph_, persistent_ids, producer_logical_ids);
+      auto reachable_ids = getReachableValsFrom<ValGraphBFS>(
+          persistent_ids.vector(),
+          producer_logical_ids.vector(),
+          Direction::Undefined,
+          exact_graph_);
 
       return !reachable_ids.empty();
     };
@@ -1571,6 +1724,10 @@ class PersistentBufferResolution : public IterVisitor {
 
 std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer) {
   return PersistentBufferResolution::getResolutionPointsOf(persistent_buffer);
+}
+
+int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio) {
+  return is_high_bandwidth_flops_ratio ? 12l : 10l;
 }
 
 } // namespace normalization_scheduler_utils

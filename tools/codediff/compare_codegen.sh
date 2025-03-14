@@ -20,7 +20,7 @@
 # rest of the command line as the test to run. For example, to compare the
 # generated code for a single binary test, you could use:
 #
-#   tools/compare_codegen.sh -- build/nvfuser_tests --gtest_filter='*TestFoo*'
+#   tools/compare_codegen.sh -- build/test_nvfuser --gtest_filter='*TestFoo*'
 #
 # or to run all benchmarks you can use:
 #
@@ -122,11 +122,11 @@ scriptdir=$(mktemp -d -t codediffXXXXXX)
 cp -r "$nvfuserdir/tools/codediff/"* "$scriptdir/"
 
 movecudafiles() {
-    find . -maxdepth 1 \( -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' \) -exec mv '{}' "$1" \;
+    find . -maxdepth 1 \( -name '__tmp_*.cu' -o -name '__tmp_*.ptx' \) -exec mv '{}' "$1" \;
 }
 
 cleanup() {
-    numkernels=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' -o -name '__tmp_kernel*.ptx' | wc -l)
+    numkernels=$(find . -maxdepth 1 -name '__tmp_*.cu' -o -name '__tmp_*.ptx' | wc -l)
 
     if (( numkernels > 0 ))
     then
@@ -189,6 +189,7 @@ collect_kernels() {
     # Make tests reproducible
     export NVFUSER_TEST_RANDOM_SEED=0
     export NVFUSER_DISABLE=parallel_compile
+    export DEBUG_SERDE=disable
     # run tests and benchmarks with cuda_to_file and dump output to files
 
     mkdir -p "$outdir/$commit"
@@ -222,7 +223,7 @@ collect_kernels() {
 
         # binary tests
         "${bashcmd[@]}" -o "$binarytestdir" -- \
-            "$nvfuserdir/build/nvfuser_tests" --gtest_color=yes
+            "$nvfuserdir/build/test_nvfuser" --gtest_color=yes
     fi
 }
 

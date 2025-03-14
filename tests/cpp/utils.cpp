@@ -17,6 +17,32 @@
 
 namespace nvfuser {
 
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache) {
+  const auto& executors =
+      executor_cache.getMostRecentKernelRuntime()->executors();
+  NVF_CHECK(executors.size() == 1);
+  NVF_CHECK(executors.front()->isA<KernelExecutor>());
+  return executors.front()->as<KernelExecutor>();
+}
+
+CGResultsPackage scheduleAndRun(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const KernelArgumentHolder& runtime_inputs,
+    bool validate_scheduler) {
+  auto heuristic_params = SchedulerEntry::scheduleWith(
+      fusion, scheduler_type, runtime_inputs, validate_scheduler);
+  auto ke = std::make_unique<KernelExecutor>();
+  ke->compile(fusion, runtime_inputs, heuristic_params->lparams);
+  auto cg_outputs = ke->run(runtime_inputs, {}, heuristic_params->lparams);
+  CGResultsPackage results = {
+      .outputs = std::move(cg_outputs),
+      .heuristic_params = std::move(heuristic_params),
+      .kernel_executor = std::move(ke)};
+  return results;
+}
+
 int64_t prime_number(int64_t i) {
   static std::vector<int64_t> p{
       2,    3,    5,    7,    11,   13,   17,   19,   23,   29,   31,   37,
@@ -779,6 +805,23 @@ std::vector<DataType> getFloatingDataTypes(bool include_complex) {
 std::string sanitizeTestName(const std::string& name) {
   // Replace all non-alphanumeric characters with underscores
   return std::regex_replace(name, std::regex("[^a-zA-Z0-9]"), "_");
+}
+
+bool isVectorized(TensorView* tv) {
+  for (auto id : tv->getLoopDomain()) {
+    if (id->getParallelType() == ParallelType::Vectorize) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string macroToString(const MmaMacro macro) {
+  std::stringstream ss;
+  ss << "m" << getM(macro);
+  ss << "_n" << getN(macro);
+  ss << "_k" << getK(macro);
+  return ss.str();
 }
 
 } // namespace nvfuser

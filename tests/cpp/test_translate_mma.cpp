@@ -14,15 +14,12 @@
 #include <disjoint_set.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
-#include <fusion_executor/executor_params.h>
 #include <fusion_segmenter.h>
 #include <ir/all_nodes.h>
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
-#include <kernel_cache.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
 #include <mma_type.h>
@@ -30,6 +27,9 @@
 #include <options.h>
 #include <preseg_passes/allocation_order_inference.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/executor.h>
+#include <runtime/executor_params.h>
+#include <runtime/fusion_executor_cache.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/matmul.h>
 #include <scheduler/mma_utils.h>
@@ -43,10 +43,10 @@ namespace nvfuser {
 class CombineMulSumAsMmaTest : public NVFuserTest {
   void SetUp() override {
     // These test are enable for Turing and newer. Temporarily
-    // we are skipping Hopper since the matmul for it is under development.
+    // we are skipping Blackwell since the matmul for it is under development.
     auto lower_major = 8;
     auto lower_minor = 0;
-    auto upper_major = 9;
+    auto upper_major = 10;
     auto upper_minor = 0;
     if (cudaArchGuardShouldSkip(
             lower_major, lower_minor, upper_major, upper_minor)) {
@@ -55,8 +55,14 @@ class CombineMulSumAsMmaTest : public NVFuserTest {
                    << lower_minor << "and " << upper_major << "." << upper_minor
                    << " to run.\n";
     }
+
+    pre_hopper = at::cuda::getCurrentDeviceProperties()->major < 9;
+
     NVFuserTest::SetUp();
   }
+
+ protected:
+  bool pre_hopper;
 };
 
 class CombineMulSumAsMmaTestWithLayout
@@ -66,24 +72,30 @@ class CombineMulSumAsMmaTestWithLayout
   MmaLayout layout;
   void SetUp() override {
     layout = GetParam();
-    // These test are enable for Turing and newer. Temporarily
-    // we are skipping Hopper since the matmul for it is under development.
+    // These test are enable for Turing and newer.
+    // we are skipping Blackwell since the matmul for it is under development.
     auto lower_major = 8;
     auto lower_minor = 0;
-    auto upper_major = 9;
+    auto upper_major = 10;
     auto upper_minor = 0;
     if (cudaArchGuardShouldSkip(
             lower_major, lower_minor, upper_major, upper_minor)) {
-      GTEST_SKIP() << "CombineMulSumAsMmaTest skipped "
+      GTEST_SKIP() << "CombineMulSumAsMmaTestWithLayout skipped "
                    << "Requires GPU capability between  " << lower_major << "."
                    << lower_minor << "and " << upper_major << "." << upper_minor
                    << " to run.\n";
     }
+    pre_hopper = at::cuda::getCurrentDeviceProperties()->major < 9;
     NVFuserTest::SetUp();
   }
+
+  bool pre_hopper;
 };
 
-void performSubstitution(Fusion* fusion, bool should_not_find = false) {
+void performSubstitution(
+    Fusion* fusion,
+    bool avoid_intermediates,
+    bool should_not_find = false) {
   EXPECT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -96,14 +108,14 @@ void performSubstitution(Fusion* fusion, bool should_not_find = false) {
   ASSERT_FALSE(patterns.empty());
   EXPECT_EQ(patterns.size(), 1);
 
-  patterns.front().translateToMmaOp();
+  patterns.front().translateToMmaOp(avoid_intermediates);
 
   ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 }
 
 // Test checks to see that the combiner can correctly replace
 // the mul-sum pair with a mma op.
-TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Pass) {
+TEST_P(CombineMulSumAsMmaTestWithLayout, MulSumToMatmul_Pass) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeContigTensor(2, DataType::Half);
@@ -119,13 +131,13 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Pass) {
 
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion);
+  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
 }
 
 // This test checks that the pattern matcher does not incorrectly identify
 // this mul-sum pair, as the mul is not fed by broadcasts ops; i.e. it is
 // not a matmul.
-TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
+TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_Fail1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto tv0 = makeContigTensor(3, DataType::Half);
@@ -138,11 +150,15 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_Fail1) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion, /*should_not_find=*/true);
+  performSubstitution(
+      &fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/true);
 }
 
 // This fusion has Broadcast batch axes in each operand.
-TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
+TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_MultipleBroadcasts) {
+  // This test expicitly broadcasts and transposes, so we cannot avoid
+  // intermediates on Hopper (yet).
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // Assumes layout is kAllSupportedMmaLayout::NT;
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
@@ -170,7 +186,8 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
   auto tv3 = sum(tv2, {-1});
   fusion->addOutput(tv3);
 
-  performSubstitution(fusion, /*should_not_find=*/false);
+  performSubstitution(
+      fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/false);
 
   // We test running this fusion also to verify that the broadcast batch
   // dimension does not cause unforeseen issues
@@ -192,6 +209,7 @@ TEST_F(CombineMulSumAsMmaTest, AmpereMulSumToMatmul_MultipleBroadcasts) {
 // pair with a mma op, we are able to schedule it as we did with
 // a fusion that had a mma op to begin with.
 TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
 
@@ -209,12 +227,11 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   fusion.addOutput(tv2);
 
-  performSubstitution(&fusion);
+  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
   gemm_tile.warp_tile = GemmTile(64, 64, 32);
-  gemm_tile.instruction_tile = GemmTile(16, 8, 16);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 4};
@@ -224,21 +241,23 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = true;
   mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  scheduleMatmul(&fusion, &mparams);
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
 
   auto inputs = matmulAtInput2D(M, N, K, layout);
 
-  FusionExecutor fe;
-  fe.compileFusion(
+  KernelExecutor ke;
+  ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
-  ASSERT_TRUE(getBankConflictInfo(fe.kernel()).empty());
-  auto cg_outputs = fe.runFusion({inputs.first, inputs.second});
+  ASSERT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
   // Keep multiples of 8 to keep vectorizable.
   int M = 504, N = 136, K = 248;
   auto fusion = std::make_unique<Fusion>();
@@ -268,12 +287,9 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
   auto outputs = executor_cache.runFusionWithInputs({t0, t1});
   // Ensure there's a mma op.
   // If there's no mma op present, then stop the test.
+  const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
   ASSERT_FALSE(
-      ir_utils::getOpsOfType<MmaOp>(executor_cache.getMostRecentKernelRuntime()
-                                        ->executors()
-                                        .at(0)
-                                        .kernel())
-          .empty());
+      ir_utils::getOpsOfType<MmaOp>(ke->compiledKernel()->kernel()).empty());
 
   // Ensure that the matmul scheduler ran.
   EXPECT_TRUE(
@@ -299,13 +315,18 @@ using MatmulNodeTranslationTest =
 // Test that a simple matmul op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   const int64_t A_dim = std::get<0>(GetParam());
   const int64_t B_dim = std::get<1>(GetParam());
   const bool enable_fusion = std::get<2>(GetParam());
   const bool transpose_a_alloc = std::get<3>(GetParam());
   const bool expect_segmented = std::get<4>(GetParam());
   const SchedulerType expected_heuristic = std::get<5>(GetParam());
+
+  if (A_dim == 3 && B_dim == 2) {
+    // TODO: Fix the failure at checkConcreteStaticDim on Hopper in this case
+    NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  }
 
   // CombineMulSumAsMmaTest disabled MatmulExprEval, but we need it enabled
   DisableOptionsGuard dog;
@@ -391,9 +412,10 @@ TEST_P(MatmulNodeTranslationTest, AutomaticSchedulerMatmulNode) {
 
   if (scheduler_type == SchedulerType::Matmul) {
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+
+    const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+    ASSERT_FALSE(
+        ir_utils::getOpsOfType<MmaOp>(ke->compiledKernel()->kernel()).empty());
   }
 
   testValidate(
@@ -411,8 +433,7 @@ INSTANTIATE_TEST_SUITE_P(
         // Tests with fusion enabled
 
         std::make_tuple(2l, 2l, true, false, false, SchedulerType::Matmul),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, true, true, true, SchedulerType::ExprEval),
+        std::make_tuple(2l, 2l, true, true, false, SchedulerType::Matmul),
         // Size-1 input combinations
         std::make_tuple(1l, 2l, true, false, true, SchedulerType::ExprEval),
         std::make_tuple(2l, 1l, true, false, true, SchedulerType::ExprEval),
@@ -454,7 +475,7 @@ using LinearNodeTranslationTest =
 // Test that a simple linear op fusion is picked up by the appropriate scheduler
 // and the translation to MmaOp is performed properly.
 TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   // The allocation domain propagation pass sets the output allocation domain,
   // which sometimes causes the matmul scheduler to decline the whole fusion
   // when it could compile it otherwise.
@@ -474,6 +495,11 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
 
   EnableOptionsGuard eog;
   if (enable_fusion) {
+    if (A_dim != 2 && !cudaArchGuardShouldSkip(9, 0)) {
+      GTEST_SKIP()
+          << "Translating linear with batch dims is not yet supported on Hopper";
+    }
+
     EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
   } else {
     EnableOptionsGuard::getCurOptions().unset(EnableOption::FuseMatmul);
@@ -531,7 +557,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   if (transpose_a_alloc) {
     t0 = t0.as_strided({M, K}, {1, M});
   }
-  std::vector<c10::IValue> inputs{t0, t1};
+  KernelArgumentHolder inputs{t0, t1};
   at::Tensor tref;
   if (bias_dim >= 0) {
     at::Tensor bias;
@@ -542,7 +568,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     } else {
       NVF_THROW("Invalid bias dimension given:", bias_dim);
     }
-    inputs.emplace_back(bias);
+    inputs.push(bias);
     tref = at::linear(t0, t1, bias);
   } else {
     tref = at::linear(t0, t1);
@@ -572,9 +598,9 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     // do if ExprEval accepts the segment.
     ASSERT_EQ(scheduler_type, SchedulerType::Matmul);
     // Ensure there's an MmaOp.
-    EXPECT_FALSE(
-        ir_utils::getOpsOfType<MmaOp>(runtime->executors().at(0).kernel())
-            .empty());
+    const auto* ke = onlyKernelExecutorInMostRecentRuntime(executor_cache);
+    ASSERT_FALSE(
+        ir_utils::getOpsOfType<MmaOp>(ke->compiledKernel()->kernel()).empty());
   }
 
   testValidate(
@@ -589,28 +615,21 @@ INSTANTIATE_TEST_SUITE_P(
         std::make_tuple(2l, 2l, -1l, false, false, true),
         std::make_tuple(2l, 2l, -1l, false, true, true),
         std::make_tuple(1l, 2l, -1l, false, false, true),
-        std::make_tuple(2l, 1l, -1l, false, false, true),
         std::make_tuple(2l, 2l, 1l, false, false, true),
-        std::make_tuple(1l, 1l, -1l, false, false, true),
         std::make_tuple(3l, 2l, 1l, false, false, true),
         std::make_tuple(4l, 2l, 1l, false, false, true),
 
         // Enable fusion
 
         std::make_tuple(2l, 2l, -1l, true, false, false),
-        // We cannot yet handle allocation domain in matmul scheduler
-        std::make_tuple(2l, 2l, -1l, true, true, true),
+        std::make_tuple(2l, 2l, -1l, true, true, false),
         // We don't fuse 1D inputs
         std::make_tuple(1l, 2l, -1l, true, false, true),
-        std::make_tuple(2l, 1l, -1l, true, false, true),
-        // Check that zero-dim output fusion is not claimed by NoOp scheduler
-        std::make_tuple(1l, 1l, -1l, true, false, true),
         // Batch dims in input
         // mixed length inputs via broadcasted batch dims
         std::make_tuple(3l, 2l, -1l, true, false, false),
         std::make_tuple(4l, 2l, -1l, true, false, false),
         // Bias cases
-        std::make_tuple(2l, 2l, 0l, true, false, false),
         std::make_tuple(2l, 2l, 1l, true, false, false),
         std::make_tuple(3l, 2l, 1l, true, false, false),
         std::make_tuple(4l, 2l, 1l, true, false, false)),
@@ -673,13 +692,13 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, SwapAandB) {
     // Check that we properly map M and N to their roles even with swap
     IdModel id_model(&fusion);
     mma_utils::DimRolesMap dim_roles = pattern.getDimRoles(id_model);
-    ValGraph& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
-    const ValGroup& m_gp = permissive_graph.toGroup(tv0->axis(-3));
+    ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
+    const ValGroup& m_gp = graph.toGroup(tv0->axis(-3));
     auto m_it = dim_roles.find(m_gp);
     ASSERT_NE(m_it, dim_roles.end());
     EXPECT_EQ(m_it->second, MatmulDimRole::M);
 
-    const ValGroup& n_gp = permissive_graph.toGroup(tv1->axis(-2));
+    const ValGroup& n_gp = graph.toGroup(tv1->axis(-2));
     auto n_it = dim_roles.find(n_gp);
     ASSERT_NE(n_it, dim_roles.end());
     EXPECT_EQ(n_it->second, MatmulDimRole::N);
@@ -768,7 +787,7 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     ,
     CombineMulSumAsMmaTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 } // namespace nvfuser

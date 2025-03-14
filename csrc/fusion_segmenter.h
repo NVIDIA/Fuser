@@ -11,7 +11,6 @@
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/base_nodes.h>
-#include <kernel_cache.h>
 #include <options.h>
 #include <scheduler/all_schedulers.h>
 #include <scheduler/registry.h>
@@ -41,6 +40,14 @@ struct SegmentedEdge {
   Val* val;
 
   void print() const;
+
+  bool operator==(const SegmentedEdge& other) const {
+    return from == other.from && to == other.to && val == other.val;
+  }
+
+  bool operator!=(const SegmentedEdge& other) const {
+    return !(*this == other);
+  }
 };
 
 std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
@@ -121,7 +128,7 @@ class SegmentedGroup {
   }
 
   //! Returns the exprs that make up this group
-  const auto& exprs() const {
+  const std::vector<Expr*>& exprs() const {
     return exprs_;
   }
 
@@ -370,12 +377,6 @@ class SegmentedFusion {
   //! Grab edges with val
   std::vector<SegmentedEdge*> getEdgesByVal(Val* val) const;
 
-  //! Make sure it's a DAG and optionally disjoint
-  void validate(bool require_disjoint = true) const;
-
-  //! Same as validate but only enabled when NDEBUG is undefined
-  void validateIfDebug(bool require_disjoint = true) const;
-
   //! Serialize SegmentedFusion using flatbuffers
   flatbuffers::Offset<serde::SegmentedFusion> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
@@ -383,10 +384,9 @@ class SegmentedFusion {
   //! Deserialize SegmentedFusion using flatbuffers
   void deserialize(const serde::SegmentedFusion* buffer);
 
- private:
-  void validateDAG() const;
   void validateDisjoint() const;
 
+ private:
   //! Serialize SegmentedEdge using flatbuffers
   flatbuffers::Offset<serde::SegmentedEdge> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -489,6 +489,7 @@ class GroupDependencyAnalysis;
 
 // Manual node merging passes
 class CombineReductions;
+class MergeUpAndDownCast;
 
 //! Options to configure/debug candidate finder
 struct SegmentCandidateFinderOptions {
@@ -527,29 +528,19 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    auto fusion_copy = std::make_unique<Fusion>(*fusion);
-    return segment(std::move(fusion_copy), inputs, options);
-  }
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions()) {
-    if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-      debug() << "Segment the fusion (Original Fusion Un-modified): "
-              << std::endl;
-      fusion->printMath();
-    }
-    SegmentCandidateFinder scf(std::move(fusion), inputs, options);
-    return std::move(scf.segmented_fusion_);
-  }
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      bool multi_device = false);
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
@@ -558,14 +549,17 @@ class SegmentCandidateFinder {
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
 
+  //! Validate the graph is a DAG, and if require_disjoint that exprs are
+  //! disjoint
+  void validateIfDebug(bool require_disjoint = false);
+
  private:
   // Perform segmentation on and take ownership of the given fusion
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options);
-
-  void resetTraversal();
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options,
+      bool multi_device = false);
 
   void resetLevels();
 
@@ -575,7 +569,17 @@ class SegmentCandidateFinder {
 
   void buildInitialSegments();
 
+  // Replicate upcast ops when consumed by multiple expressions. This
+  // promotes segmented fusions to share pre-upcast tensors rather
+  // than post-upcast tensors. Replicated upcast ops will be reverted
+  // when they are grouped into the same segment. See
+  // https://github.com/NVIDIA/Fuser/pull/3776/ for more details.
+  void privatizeUpcast();
+
   void findSegments();
+
+  // Revert privatized upcast ops when not necessary
+  void revertPrivatizedUpcast(SegmentedGroup* group);
 
   //! Find a group found in candidates that can be merged with the
   //! given group and set them to be merged if found. When no
@@ -605,10 +609,7 @@ class SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
-  SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_.value();
-  }
+  SchedulerRuntimeInfo& runtimeInfo();
 
   ExpressionEvaluator& expressionEvaluator() {
     return runtimeInfo().expressionEvaluator();
@@ -703,12 +704,10 @@ class SegmentCandidateFinder {
   //!  eventually should have a dedicated interface
   //!  instead of keeping adding friends
   friend class CombineReductions;
+  friend class MergeUpAndDownCast;
 
   //! options to configure and debug the segment process
   SegmentCandidateFinderOptions options_;
-
-  std::deque<SegmentedGroup*> to_visit_;
-  std::vector<SegmentedGroup*> next_to_visit_;
 
   std::unordered_set<SegmentedGroup*> clean_up_groups_;
   std::unordered_set<SegmentedEdge*> clean_up_edges_;
@@ -733,6 +732,9 @@ class SegmentCandidateFinder {
   // used for breaking the fusion into compute and communication segments
   std::optional<SchedulerRuntimeInfo> runtime_info_;
 
+  std::unordered_map<UnaryOp*, std::unordered_set<UnaryOp*>>
+      privatized_upcast_ops_;
+
   //! Note:
   //!  Segmenter should eventually rely only on runtime_info_ for
   //!  safe caching. runtime_inputs_ is only used in translateWelford
@@ -749,7 +751,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder* runtime_inputs_;
+  const KernelArgumentHolder runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

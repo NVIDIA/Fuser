@@ -24,12 +24,14 @@ class SchedulerRuntimeInfo;
 //!   and a bool canSchedule(Fusion*) interface
 class SchedulerEntry {
  public:
-  virtual ~SchedulerEntry() = default;
+  NVF_API virtual ~SchedulerEntry() = default;
 
   //! Fusion runtime facing API,
   //!   schedule the given fusion with heuristics owned
   //!   by this entry, for actual heuristics to override
-  virtual void schedule(Fusion* fusion, const HeuristicParams* params) = 0;
+  NVF_API virtual void schedule(
+      Fusion* fusion,
+      const HeuristicParams* params) = 0;
 
   virtual std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
@@ -49,13 +51,24 @@ class SchedulerEntry {
   // Dispatch heuristic type to the right derived class of scheduler entry.
   // Scheduler entries are stateless so it's a lightweight class to dispatch to
   // the virtual functions in this abstract class.
-  static std::unique_ptr<SchedulerEntry> makeSchedulerInstance(
+  NVF_API static std::unique_ptr<SchedulerEntry> makeSchedulerInstance(
       SchedulerType scheduler_type);
 
-  //! Heuristic comparison
-  bool sameAs(const SchedulerEntry* other);
+  // Checks the provided scheduler type can schedule the fusion with the
+  // provided inputs. Schedules the fusion according to the heuristics provided
+  // by the scheduler. Returns the heuristics. This is simply a convenience
+  // function for a common testing pattern. If validate_scheduler is set to
+  // false canSchedule will not be checked.
+  NVF_API static std::unique_ptr<HeuristicParams> scheduleWith(
+      Fusion* fusion,
+      SchedulerType scheduler_type,
+      const KernelArgumentHolder& runtime_inputs,
+      bool validate_scheduler = true);
 
-  const HeuristicParams* params() const {
+  //! Heuristic comparison
+  NVF_API bool sameAs(const SchedulerEntry* other);
+
+  NVF_API const HeuristicParams* params() const {
     return params_.get();
   }
 
@@ -70,7 +83,8 @@ bool canSchedule(
     SchedulerType sh,
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache = nullptr);
+    HeuristicDataCache* data_cache = nullptr,
+    bool skip_compile_time_checks = false);
 
 //! Fusion segmenter facing API,
 //!   returns a schedule that applies in the given fusion, returns

@@ -50,6 +50,10 @@ class ReductionParams : public HeuristicParams {
   bool cross_grid_inner_reduction = false;
   // Unrolling/Vectorization factor for inner reduction dimension
   int64_t unroll_factor_inner_reduction = 1;
+
+  // Extra unroll on top of vectorization
+  int64_t unroll_factor_top_of_vectorization = 1;
+
   // vectorize instead of unroll
   bool vectorize_inner_reduction = false;
   // Split grid dim for iteration axis in case it's too large for cuda
@@ -129,6 +133,9 @@ class ReductionParams : public HeuristicParams {
   bool tidx_for_outer_reduction = false;
   // pad outer reduction to warp
   bool pad_outer_reduction_to_warp = false;
+  // in outer reduction part of inner-outer persistent scheduler, may further
+  // split inner dim by grid
+  bool combined_split_grid_inner_dim = false;
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write
@@ -191,6 +198,9 @@ class ReductionParams : public HeuristicParams {
         other->tidx_for_outer_reduction == tidx_for_outer_reduction &&
         other->pad_outer_reduction_to_warp == pad_outer_reduction_to_warp &&
         other->vectorization_factor_outer == vectorization_factor_outer &&
+        other->combined_split_grid_inner_dim == combined_split_grid_inner_dim &&
+        other->unroll_factor_top_of_vectorization ==
+            unroll_factor_top_of_vectorization &&
         other->vectorization_factor_tmp_gmem_write ==
             vectorization_factor_tmp_gmem_write;
 
@@ -316,7 +326,8 @@ class ReductionParams : public HeuristicParams {
         static_cast<size_t>(batches_per_block_outer_reduction) << (bits - 21) ^
         static_cast<size_t>(unroll_factor_outer_reduction) << (bits - 22) ^
         static_cast<size_t>(compute_persistent_buffer_with_first_consumer)
-            << (bits - 23);
+            << (bits - 23) ^
+        static_cast<size_t>(unroll_factor_top_of_vectorization) << (bits - 24);
     return attr_hash;
   }
 

@@ -9,10 +9,11 @@
 
 #include <device_lower/utils.h>
 #include <fusion.h>
+#include <host_ir/lower.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 
@@ -31,21 +32,18 @@ bool shouldReshardAfter(Expr* expr) {
 void insertReshardingsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
-  for (auto expr : fusion->exprs()) {
-    if (isLowerableToCommunication(expr) || shouldReshardAfter(expr)) {
+  for (Expr* expr : fusion->exprs()) {
+    if (HostIrLower::canLower(expr, /*ignore_inner_resharding=*/true) ||
+        shouldReshardAfter(expr)) {
       continue;
     }
 
     // Verify that multi-output expression requires no resharding.
     if (expr->outputs().size() > 1) {
-      for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-          NVF_CHECK(
-              !haveDifferentShardings(input, output),
-              "Cannot handle resharding a multi-output expression ",
-              expr->toString());
-        }
-      }
+      NVF_CHECK(
+          !isResharding(expr),
+          "Cannot handle resharding a multi-output expression: ",
+          expr);
       continue;
     }
 
@@ -55,8 +53,11 @@ void insertReshardingsBefore(Fusion* fusion) {
     auto output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
+    IdModel id_model({expr}, {}, false, false);
+    id_model.buildAlmostExactGraph();
+    id_model.buildBroadcastGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);
       }
     }
@@ -85,7 +86,8 @@ void insertReshardingsAfter(Fusion* fusion) {
   auto exprs = fusion->exprs();
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (isLowerableToCommunication(expr) || !shouldReshardAfter(expr)) {
+    if (HostIrLower::canLower(expr, /*ignore_inner_resharding=*/true) ||
+        !shouldReshardAfter(expr)) {
       continue;
     }
 
@@ -95,8 +97,11 @@ void insertReshardingsAfter(Fusion* fusion) {
     auto output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
+    IdModel id_model({expr}, {}, false, false);
+    id_model.buildAlmostExactGraph();
+    id_model.buildBroadcastGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output)) {
+      if (haveDifferentShardings(input, output, id_model)) {
         inputs.insert(input);
       }
     }

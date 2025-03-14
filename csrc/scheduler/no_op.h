@@ -33,36 +33,16 @@ class NoOpScheduler : public SchedulerEntry {
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache = nullptr) override;
 
-  constexpr static SchedulerType schedulerType() {
-    return SchedulerType::NoOp;
-  }
-
-  void schedule(Fusion* fusion, const HeuristicParams* params) override;
-
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache) override;
-};
 
-//! Provides a dummy heuristic type to ensure
-//!  unified interface on NoOp scheduler.
-class NoOpHeuristic : public HeuristicParams {
- public:
-  using HeuristicParams::HeuristicParams;
-  NoOpHeuristic() : HeuristicParams(SchedulerType::NoOp) {};
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
 
-  size_t hash() const override {
-    return 0;
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::NoOp;
   }
-  std::unique_ptr<HeuristicParams> clone() const override {
-    return std::make_unique<NoOpHeuristic>(*this);
-  }
-
-  bool sameAs(const HeuristicParams* other) const override {
-    auto other_casted = dynamic_cast<const NoOpHeuristic*>(other);
-    return other_casted != nullptr && other_casted->cparams == cparams;
-  };
 };
 
 } // namespace nvfuser

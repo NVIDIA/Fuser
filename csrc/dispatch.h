@@ -96,6 +96,7 @@ class Val;
   f(BroadcastOp);                 \
   f(SqueezeOp);                   \
   f(ExpandOp);                    \
+  f(RepeatOp);                    \
   f(ViewAsScalar);                \
   f(ViewOp);                      \
   f(CatOp);                       \
@@ -110,18 +111,26 @@ class Val;
   f(LinearOp);                    \
   f(SdpaFwdOp);                   \
   f(SdpaBwdOp);                   \
+  f(EmbeddingFwdOp);              \
   f(Communication);               \
-  f(ForLoop);
+  f(ForLoop);                     \
+  f(P2PCommunication);
 #define DISPATCH_FOR_ALL_KIR_EXPRS(f) \
   f(Allocate);                        \
+  f(AllocTMem);                       \
   f(Asm);                             \
   f(BlockSync);                       \
   f(GridSync);                        \
+  f(FenceAsyncProxy);                 \
+  f(WgMmaFence);                      \
+  f(SetMaxNReg);                      \
+  f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
   f(MBarrierArrive);                  \
   f(MBarrierArriveExpectTx);          \
   f(MBarrierWait);                    \
+  f(MBarrierWaitParity);              \
   f(BlockSerializeWait);              \
   f(BlockSerializeRelease);           \
   f(AsyncWait);                       \
@@ -137,12 +146,18 @@ class Val;
   f(InitMagicZero);                   \
   f(UpdateMagicZero);                 \
   f(GetRNGSeedAndOffsetFromHost);     \
-  f(EncodeTensorMapTiled);
+  f(EncodeTensorMapTiled);            \
+  f(RNGOp);
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
   f(PostOnStream);                    \
+  f(LaunchKernel);                    \
   f(SetCurrentStream);                \
-  f(Wait);
+  f(GetCurrentStream);                \
+  f(Wait);                            \
+  f(Synchronize);                     \
+  f(StartCoalescing);                 \
+  f(EndCoalescing);
 
 // Forward declarations for all Val and Expr types
 

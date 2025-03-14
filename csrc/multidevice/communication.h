@@ -59,7 +59,8 @@ class Communication : public Expr {
                  // sharding.
       DeviceIdxType root = -1,
       RedOpType red_op = RedOpType::UNUSED,
-      int64_t scattered_axis = -1);
+      int64_t scattered_axis = -1,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   Communication(const Communication& other) = delete;
   Communication& operator=(const Communication& other) = delete;
@@ -90,6 +91,11 @@ class Communication : public Expr {
     return attribute<Team>(1);
   }
 
+  // A convenience helper so the user doesn't need to convert size_t to int64_t.
+  int64_t team_size() const {
+    return static_cast<int64_t>(team().size());
+  }
+
   DeviceIdxType root() const {
     return attribute<DeviceIdxType>(2);
   }
@@ -102,6 +108,10 @@ class Communication : public Expr {
     return attribute<int64_t>(4);
   }
 
+  CommunicatorBackend backend() const {
+    return attribute<CommunicatorBackend>(5);
+  }
+
   // PyTorch's process group expects the root to be specified
   // as an integer between 0 and world_size-1. We choose it to be
   // the device's relative index within the team
@@ -109,6 +119,51 @@ class Communication : public Expr {
 
  private:
   void validate();
+};
+
+enum class P2PCommunicationType { SEND, RECV };
+
+std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type);
+
+class P2PCommunication : public Expr {
+ public:
+  using Expr::Expr;
+
+  P2PCommunication(
+      IrBuilderPasskey passkey,
+      P2PCommunicationType type,
+      TensorView* buffer,
+      Val* peer,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
+
+  P2PCommunication(const P2PCommunication& other) = delete;
+  P2PCommunication& operator=(const P2PCommunication& other) = delete;
+  P2PCommunication(P2PCommunication&& other) = delete;
+  P2PCommunication& operator=(P2PCommunication&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "P2PCommunication";
+  }
+
+  P2PCommunicationType type() const {
+    return attribute<P2PCommunicationType>(0);
+  }
+
+  TensorView* buffer() const {
+    return input(0)->as<TensorView>();
+  }
+
+  Val* peer() const {
+    return attributeVal(1);
+  }
+
+  auto backend() const {
+    return attribute<CommunicatorBackend>(2);
+  }
 };
 
 // The method "post" triggers the execution of the communication. This call is
@@ -176,5 +231,12 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor);
+
+c10::intrusive_ptr<c10d::Work> postSingleCommunication(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer);
 
 } // namespace nvfuser

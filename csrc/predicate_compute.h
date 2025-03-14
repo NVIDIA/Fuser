@@ -27,6 +27,10 @@ class PredicateCompute {
       const std::unordered_set<ForLoop*>& rotated_loops,
       Val* thread_pred,
       PredicateType pred_type);
+
+  static Val* getElectSyncPredicate(
+      kir::Predicate* pred,
+      const std::vector<ForLoop*>& loops);
 };
 
 //! Parallelized domains may need to be predicated with threading
@@ -45,7 +49,7 @@ class ParallelizedDomainPredicate {
    public:
     explicit PredicateInfo(ParallelType pt) : pt_(pt) {}
 
-    //! Adds a domain that is parallized by the same paralell type
+    //! Adds a domain that is parallized by the same parallel type
     bool addDomain(IterDomain* id);
 
     const std::vector<IterDomain*>& ids() const {

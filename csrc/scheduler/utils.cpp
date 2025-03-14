@@ -10,10 +10,13 @@
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
+#include <bfs.h>
 #include <contiguity.h>
 #include <expr_evaluator.h>
 #include <id_model/id_model.h>
+#include <id_model/schedule.h>
 #include <instrumentation.h>
+#include <ir/builder.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <multidevice/utils.h>
@@ -22,6 +25,7 @@
 #include <scheduler/runtime_info.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
+#include <val_graph_visitor.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -1194,12 +1198,36 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
-        ir_utils::isTvUsedByOpsOfType<SliceOp, SelectOp, PadOp>(tv)) {
-      // Right now, tensors that are input to the slice, select, and pad ops
-      // can't be cached as they must be in global memory.
+        ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
+      // Right now, tensors that are input to the select, gather and
+      // index_select ops can't be cached as they must be in global memory.
       continue;
     }
-    auto cached_tv = tv->cacheAfter();
+
+    // TODO: might need to reverse this when scheduler handles pad directly
+    // Do not insert a cache for pad as vectorization needs to be
+    // done directly.
+    //
+    // Note that this means that if an input is padded and also is
+    // used without padding, it will be read twice, once for pad and
+    // once more for caching load. It would make sense to use the PTX
+    // caching load instructions.
+    std::vector<Expr*> cached_uses;
+    for (auto use : tv->uses()) {
+      if (!use->isOneOf<PadOp, SliceOp>()) {
+        cached_uses.push_back(use);
+      }
+    }
+
+    if (cached_uses.empty()) {
+      continue;
+    }
+
+    auto cached_tv = tv->cacheAfter(
+        /*op_type=*/LoadStoreOpType::Set,
+        /*cache_op=*/CacheOp::Unspecified,
+        /*propagate_allocation_domain=*/true,
+        /*cached_uses=*/cached_uses);
     cached_inputs.emplace_back(cached_tv);
   }
   return cached_inputs;
@@ -1286,12 +1314,7 @@ IterDomain* projectIdToRoot(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->out() == projected_id) {
-        // We do not allow vectorization with resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->in();
-        }
+        projected_id = resize->in();
       }
     } else {
       NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
@@ -1346,12 +1369,7 @@ IterDomain* projectIdToRFactor(
     } else if (expr->isA<Resize>()) {
       auto resize = expr->as<Resize>();
       if (resize->in() == projected_id) {
-        // We do not allow vectorization wit resize at this moment
-        if (vectorize_pass) {
-          projected_id = nullptr;
-        } else {
-          projected_id = resize->out();
-        }
+        projected_id = resize->out();
       }
     } else {
       NVF_THROW("Didn't recognize the iterdomain expression: ", expr);
@@ -1545,12 +1563,6 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   // scheduler prefer to use output instead of input as reference tensor.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->outputs())) {
-    // At this moment, vectorization through resize is not
-    // supported. This is not required currently as we always insert
-    // cacheBefore, but just in case.
-    if (ir_utils::hasResizedRfactor(output_tv)) {
-      continue;
-    }
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(output_tv);
     }
@@ -1558,26 +1570,10 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
   for (auto input_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
-    // for index_select(lookup_tv, dim, index_tv) op
+    // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
     if (ir_utils::isTorchGatherLookupTv(input_tv) ||
         ir_utils::isIndexSelectLookupTv(input_tv)) {
-      continue;
-    }
-
-    auto expr_resizes = [](Expr* e) -> bool {
-      return std::any_of(
-          e->outputs().begin(), e->outputs().end(), [](Val* out) -> bool {
-            if (auto* out_tv = dynamic_cast<TensorView*>(out)) {
-              return ir_utils::hasResizedRfactor(out_tv);
-            }
-            return false;
-          });
-    };
-
-    // At this moment, vectorization through resize is not supported
-    if (std::any_of(
-            input_tv->uses().begin(), input_tv->uses().end(), expr_resizes)) {
       continue;
     }
 
@@ -2154,26 +2150,26 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   return old2new;
 }
 
-std::unordered_map<int64_t, int64_t> maybeLogicalReorderAsAllocationMap(
+std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
     TensorView* tv) {
   std::unordered_map<int64_t, int64_t> ret;
   if (!tv->hasAllocation()) {
     return ret;
   }
   const auto& alloc_dom = tv->getAllocationDomain();
-  const auto& logical_dom = tv->getLogicalDomain();
-  if (alloc_dom == logical_dom) {
+  const auto& loop_dom = tv->getLoopDomain();
+  if (alloc_dom == loop_dom) {
     return ret;
   }
   if (!std::is_permutation(
-          alloc_dom.begin(), alloc_dom.end(), logical_dom.begin())) {
+          alloc_dom.begin(), alloc_dom.end(), loop_dom.begin())) {
     return ret;
   }
   std::unordered_map<IterDomain*, int64_t> alloc_index;
   std::unordered_map<IterDomain*, int64_t> rfactor_index;
   for (auto i : c10::irange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
-    rfactor_index[logical_dom[i]] = i;
+    rfactor_index[loop_dom[i]] = i;
   }
   for (auto iter_dom : alloc_dom) {
     ret[rfactor_index[iter_dom]] = alloc_index[iter_dom];
@@ -2231,25 +2227,53 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
     std::unordered_map<int64_t, int64_t> old2new;
     // Make sure rfactor dims we need are in domain, and reorder them in domain
-    // so they're consecutive starting from the left of domain. TODO: We could
-    // improve this so that if there's transformations replayed after the
-    // rfactor dims we could try and pull those through the fusion instead of
-    // enforcing rfactor dims are in domain.
+    // so they're consecutive starting from the left of domain.
+    // The reordering is to limit the propagation to only the view
+    // transformations.
     for (auto logical_id : tv->getLogicalDomain()) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
-        auto find_it = std::find(
-            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), logical_id);
+        // The rfactor dims are not in the loop domain directly if they are
+        // sharded. For example, Consider the split reshape: `[h]->[a, h/a]` `h`
+        // and `a` are both sharded by `d`. The loop domain of the consumer is
+        // `[DIDx(d), a/d, h/a]`. Hence, we cannot directly find logical ID `a`
+        // in the loop domain. Similarly, for merge reshape: `[a, h/a]->[h]`, we
+        // cannot directly find `h` in the loop domain when `h` is sharded by
+        // `d`.
+
+        // Find all reachable ids between the logical id and the loop domain.
+        // If the ids are in the loop domain, reorder them to the front.
+        auto transforms = DependencyCheck::getAllExprsBetween(
+            {logical_id},
+            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+        std::unordered_set<IterDomain*> reachable_ids;
+        // Add the logical id for the case where it is directly in the loop
+        // domain.
+        reachable_ids.insert(logical_id);
+
+        for (auto expr : transforms) {
+          auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
+          reachable_ids.insert(outputs.begin(), outputs.end());
+        }
+
+        bool has_reachable_loop_id = false;
+        for (auto loop_idx :
+             c10::irange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
+          if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
+            continue;
+          }
+          has_reachable_loop_id = true;
+          // Reorder the reshape dimensions to the front of the domain
+          old2new[loop_idx] = (int64_t)old2new.size();
+        }
+
         NVF_ERROR(
-            find_it != tv->getLoopDomain().end(),
+            has_reachable_loop_id,
             "Require ",
             logical_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
-
-        old2new[old_pos] = (int64_t)old2new.size();
       }
     }
 
@@ -2381,7 +2405,7 @@ bool revertUseOfInputCache(
 void prepareForMemoryTypePromotion(Fusion* fusion) {
   auto non_pwise_pairs = getNonPointwiseProducerConsumerPairs(fusion);
 
-  // Inserting a copy of each proucer. If a tensor shows up as a
+  // Inserting a copy of each producer. If a tensor shows up as a
   // producer for multiple consumers, only insert one
   // copy and share it with all the consumers.
 
@@ -2561,7 +2585,7 @@ int64_t getSharedMemoryOverheadPerBlock(
     dtype_size = std::max(dtype_size, dataTypeSize(tv->getDataType().value()));
   }
   // for welford, three arrays of type nvfuser_index_t are used to store var,
-  // avg, and n. see FusionExecutor::computeLaunchParams. Here index type is
+  // avg, and n. see KernelExecutor::computeLaunchParams. Here index type is
   // assumed as int64_t
   int64_t welford_factor = ir_utils::hasOpsOfType<WelfordOp>(fusion) ? 3l : 1l;
   if (welford_factor == 3l) {
@@ -2572,6 +2596,7 @@ int64_t getSharedMemoryOverheadPerBlock(
 
   // (2) part-2, space reserved by the CUDA driver
   int64_t smem_overhead_driver = (int64_t)dev_prop->reservedSharedMemPerBlock;
+
   return reduction_broadcast_workspace + smem_overhead_driver;
 }
 
@@ -2584,9 +2609,10 @@ bool isResharding(Fusion* fusion) {
 void moveNonConcretizedBroadcastInnermost(
     Fusion* fusion,
     const std::unordered_set<TensorView*>& ignored_tvs) {
-  IdModel id_model(fusion);
-  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
-  const auto& permissive_graph = id_model.idGraph(IdMappingMode::PERMISSIVE);
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.maybeBuildGraph(IdMappingMode::EXACT);
+  const auto& permissive_graph =
+      id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
   // This function is meant to be used as a preprocessing step of each
   // segment scheduling. The goal is to find unmapped non-concretized
@@ -2656,6 +2682,235 @@ void moveNonConcretizedBroadcastInnermost(
   }
 }
 
-} // namespace scheduler_utils
+int64_t reorderDevicesToOuter(TensorView* tv) {
+  int64_t reorder_pos = 0;
+  std::unordered_map<int64_t, int64_t> old2new;
+  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    if (tv->axis((int64_t)i)->isDeviceDim()) {
+      old2new.emplace((int64_t)i, reorder_pos);
+      ++reorder_pos;
+    }
+  }
+  tv->reorder(old2new);
+  return (int64_t)old2new.size();
+}
 
+void reorderTensorLike(
+    TensorView* target_tv,
+    const std::vector<IterDomain*>& ref) {
+  const auto& tv_loop_domain = target_tv->getLoopDomain();
+
+  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
+  const auto& graph = id_model.buildBroadcastGraph();
+
+  ValGroups target_groups = graph.toGroups(tv_loop_domain);
+
+  ValGroups ref_groups = graph.toGroups(ref);
+
+  // Traverse from the reference to the target tv. The reference is
+  // not guaranteed to cover all loop IDs of target, so
+  // require_all_to_visited needs to be false
+  auto path = ValGraphBFS::getExprGroupsBetween(
+                  graph,
+                  ref_groups,
+                  target_groups,
+                  /*require_all_to_visited=*/false)
+                  .first;
+
+  // Traverse the expr path to create an ordered ID groups
+  std::deque<ValGroup> ordered_domain{
+      ref_groups.vector().begin(), ref_groups.vector().end()};
+
+  for (const auto& [expr_g, dir] : path) {
+    auto inputs = getInputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+    auto outputs = getOutputsOfExpr(
+        expr_g, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+
+    // Inserts the outputs at the innermost position
+    auto innermost_it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), inputs.back());
+    NVF_ERROR(innermost_it != ordered_domain.end());
+    ordered_domain.insert(innermost_it, outputs.begin(), outputs.end());
+
+    // Removes the inputs
+    for (const auto& inp : inputs) {
+      ordered_domain.erase(
+          std::remove(ordered_domain.begin(), ordered_domain.end(), inp),
+          ordered_domain.end());
+    }
+  }
+
+  std::unordered_map<int64_t, int64_t> old2new;
+
+  // Place IDs that do not appear in ref at the outer position
+  int64_t new_id_pos = 0;
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it == ordered_domain.end()) {
+      old2new.emplace((int64_t)i, new_id_pos);
+      ++new_id_pos;
+    }
+  }
+  for (const auto i : c10::irange(tv_loop_domain.size())) {
+    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+    auto it =
+        std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
+    if (it != ordered_domain.end()) {
+      int64_t new_pos =
+          (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
+      old2new.emplace((int64_t)i, new_pos);
+    }
+  }
+
+  target_tv->reorder(old2new);
+}
+
+namespace {
+// Class to handle expensive operations information and calculation of unroll
+// factors
+class ExpensiveOpInfo {
+ public:
+  ExpensiveOpInfo() : n_tanh_(0), n_exp_(0), n_reciprocal_(0) {}
+  void analyzeFusion(Fusion* fusion) {
+    for (auto expr : fusion->exprs()) {
+      if (auto unary = dynamic_cast<UnaryOp*>(expr)) {
+        switch (unary->getUnaryOpType()) {
+          case UnaryOpType::Tanh:
+            n_tanh_++;
+            break;
+          case UnaryOpType::Exp:
+            n_exp_++;
+            break;
+          case UnaryOpType::Reciprocal:
+            n_reciprocal_++;
+            break;
+          default:
+            break;
+        }
+      }
+    }
+  }
+
+  std::string toString() const {
+    std::stringstream ss;
+    ss << "ExpensiveOpInfo: {";
+    ss << "n_tanh: " << n_tanh_ << ", ";
+    ss << "n_exp: " << n_exp_ << ", ";
+    ss << "n_reciprocal: " << n_reciprocal_ << "}";
+    return ss.str();
+  }
+
+  int64_t getComputationCostFactor() const {
+    auto factor =
+        n_tanh_ * f_tanh_ + n_exp_ * f_exp_ + n_reciprocal_ * f_reciprocal_;
+    factor = std::max(factor, 1);
+
+    // capped at 4 to avoid excessive unrolling which may lead to high register
+    // usage and low occupancy.
+    factor = std::min(factor, 4);
+    return factor;
+  }
+
+ private:
+  // Number of each expensive operation in the fusion
+  int n_tanh_;
+  int n_exp_;
+  int n_reciprocal_;
+
+  // Empirical factors to consider the cost of each operation
+  static constexpr int f_tanh_ = 4;
+  static constexpr int f_exp_ = 1;
+  static constexpr int f_reciprocal_ = 1;
+};
+} // namespace
+
+int64_t getComputationCostFactor(Fusion* fusion) {
+  ExpensiveOpInfo info;
+  info.analyzeFusion(fusion);
+  return info.getComputationCostFactor();
+}
+
+// Calculate hardware bandwidth and required bytes in flight based on
+// little's law. bytes_in_flight = bandwidth * latency
+int64_t getRequiredBytesInFlight() {
+  // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
+  constexpr float empirical_gmem_latency = 9.5e-9;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+      (float)dev_prop->memoryClockRate * 1000.f;
+  return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
+}
+
+namespace {
+// Function to get the number of CUDA cores per SM.
+// convert {major, minor} to hex number and check the map.
+int getCoresPerSM(int major, int minor) {
+  int sm_version = (major << 4) + minor;
+  std::unordered_map<int, int> cores_per_sm_map = {
+      {0x30, 192}, {0x32, 192}, {0x35, 192}, {0x37, 192}, {0x50, 128},
+      {0x52, 128}, {0x53, 128}, {0x60, 64},  {0x61, 128}, {0x62, 128},
+      {0x70, 64},  {0x72, 64},  {0x75, 64},  {0x80, 64},  {0x86, 128},
+      {0x87, 128}, {0x89, 128}, {0x90, 128}, {0xa0, 128}, {0xc0, 128}};
+  auto it = cores_per_sm_map.find(sm_version);
+  if (it != cores_per_sm_map.end()) {
+    return it->second;
+  }
+  // Use the default value of 128 for any architecture not listed,
+  // applicable to all current Blackwell GPUs.
+  return 128;
+}
+} // namespace
+// Compute bandwidth flops ratio, return true if it's higher than
+// the reference value of 0.07. It returns true for B100/200 and A100.
+// Returns false for H100. The reference value is based on test of softmax,
+// layer norm, and rms norm. Treating A100 as high bandwidth to flops ratio
+// leads to better performance for softmax and dropout fused with layer norm
+// or rms norm, but caused minor regressions for layer norm or rms norm alone.
+bool isHighBandwidthFlopsRatio() {
+  // A100-PCIe-80GB, 1.935e12 B/s, 1.95e13 flops, ratio = 0.0993
+  // A100-SXM4-40GB, 1.555e12 B/s, 1.95e13 flops, ratio = 0.0798
+  // H100-HBM3-80GB, 3.352e12 B/s, 6.69e13 flops, ratio = 0.0501
+  constexpr float reference_ratio = 0.07f;
+  const auto dev_prop = at::cuda::getCurrentDeviceProperties();
+  // bandwidth
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+      (float)dev_prop->memoryClockRate * 1000.f;
+  // fp32 cuda core flops
+  const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
+  const int flops_per_cycle = 2;
+  float flops = (float)dev_prop->clockRate * 1000.f *
+      (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
+      (float)flops_per_cycle;
+
+  float bandwidth_flops_ratio = hardware_bandwidth / flops;
+  return bandwidth_flops_ratio > reference_ratio;
+}
+
+bool hasExpensiveMUFUops(Fusion* fusion) {
+  const std::unordered_set<UnaryOpType> expensive_unary_ops{
+      UnaryOpType::Exp,
+      UnaryOpType::Tanh,
+      UnaryOpType::Reciprocal,
+      UnaryOpType::Rsqrt,
+      UnaryOpType::Log,
+      UnaryOpType::Log10,
+      UnaryOpType::Log2,
+      UnaryOpType::Sin,
+      UnaryOpType::Cos};
+
+  for (auto expr : fusion->exprs()) {
+    if (expr->isA<UnaryOp>()) {
+      if (auto unary = expr->as<UnaryOp>()) {
+        if (expensive_unary_ops.count(unary->getUnaryOpType())) {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
+}
+} // namespace scheduler_utils
 } // namespace nvfuser

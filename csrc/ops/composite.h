@@ -35,6 +35,8 @@ NVF_API TensorView* dropout_backward(
     TensorView* mask,
     Val* scale);
 
+NVF_API TensorView* triu(TensorView* tv, Val* offset);
+
 struct LstmResult {
   TensorView* cell = nullptr;
   TensorView* hidden = nullptr;
@@ -115,5 +117,14 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* philox_seed,
     TensorView* philox_offset,
     Val* scale);
+
+TensorView* embedding_fwd(
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse);
 
 } // namespace nvfuser

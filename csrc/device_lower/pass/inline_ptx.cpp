@@ -6,6 +6,7 @@
  */
 // clang-format on
 
+#include <device_lower/lower2device.h>
 #include <device_lower/pass/inline_ptx.h>
 #include <device_lower/utils.h>
 #include <ir/builder.h>
@@ -19,10 +20,18 @@
 namespace nvfuser {
 
 class LowerToInlinePtx : public kir::ExprMutator {
+ private:
+  // create a new predicate with the inverted value, used for cpAsync
+  kir::Predicate* invertedPredicate(const kir::Predicate* predicate) {
+    auto pred = predicate->value();
+    Val* invert = SimplifyingIrBuilder::logicalNotExpr(pred);
+    return IrBuilder::create<kir::Predicate>(invert);
+  }
+
  protected:
   using ExprMutator::handle;
 
-  void handle(kir::AsyncCommit* commit) override {
+  void handle(kir::AsyncCommit* commit) final {
     registerReplace(
         commit,
         IrBuilder::create<kir::Asm>(
@@ -32,7 +41,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             kir::Asm::Options{/*volatile=*/true}));
   }
 
-  void handle(kir::AsyncWait* wait) override {
+  void handle(kir::AsyncWait* wait) final {
     if (wait->asyncOpType() == AsyncOpType::CpAsync &&
         wait->keepStages() == 0) {
       // cp.async uses wait_all for zero keep stages, other instructions uses a
@@ -51,11 +60,15 @@ class LowerToInlinePtx : public kir::ExprMutator {
               wait->ptx(),
               std::vector<Val*>{},
               std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-              kir::Asm::Options{/*volatile=*/true, /*memory=*/wait->memory()}));
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/wait->memory(),
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{0}}));
     }
   }
 
-  void handle(LoadStoreOp* ldst) override {
+  void handle(LoadStoreOp* ldst) final {
     if (ir_utils::isLdMatrixOp(ldst)) {
       std::stringstream ss;
       ss << "ldmatrix.sync.aligned.x"
@@ -109,7 +122,54 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->out(),
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
-                  ldst->predicate()},
+                  invertedPredicate(ldst->predicate())},
+              kir::Asm::Options{
+                  /*volatile=*/true,
+                  /*memory=*/false,
+                  /*readable_outputs=*/{},
+                  /*immediate_inputs=*/{2}}));
+    } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
+      const auto& tmem_info = GpuLower::current()->tmemInfo();
+      std::stringstream ptx_ss;
+      ptx_ss << "tcgen05.ld.sync.aligned."
+             << tmem_info.load_data_path.at(ir_utils::getTvInput(ldst)) << ".x"
+             << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ".b32";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ptx_ss.str(),
+              std::vector<Val*>{ldst->out()},
+              std::vector<Val*>{ldst->in()}));
+      auto wait_ptx = "tcgen05.wait::ld.sync.aligned";
+      registerInsertAfter(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              wait_ptx,
+              std::vector<Val*>{},
+              std::vector<Val*>{},
+              kir::Asm::Options{/*volatile=*/true}));
+    } else if (ldst->opType() == LoadStoreOpType::StTMem) {
+      const auto& tmem_info = GpuLower::current()->tmemInfo();
+      std::stringstream ptx_ss;
+      ptx_ss << "tcgen05.st.sync.aligned."
+             << tmem_info.store_data_path.at(ir_utils::getTvOutput(ldst))
+             << ".x" << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ".b32";
+      registerReplace(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              ptx_ss.str(),
+              std::vector<Val*>{},
+              std::vector<Val*>{ldst->out(), ldst->in()},
+              kir::Asm::Options{/*volatile=*/true}));
+      auto wait_ptx = "tcgen05.wait::st.sync.aligned";
+      registerInsertAfter(
+          ldst,
+          IrBuilder::create<kir::Asm>(
+              wait_ptx,
+              std::vector<Val*>{},
+              std::vector<Val*>{},
               kir::Asm::Options{/*volatile=*/true}));
     }
   }
@@ -188,35 +248,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
     // Reference:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-multiply-accumulate-instructions
 
-    // Sync between the generic proxy and the async proxy
-
-    // Reference:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-async-proxy
-
-    // TODO: we should not insert sync here. We should keep the lowerToInlinePtx
-    // pass only do simple translations, instead of inserting syncs. This will
-    // be fixed in a future PR.
-    registerInsertBefore(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "wgmma.fence.sync.aligned",
-            std::vector<Val*>{},
-            std::vector<Val*>{},
-            kir::Asm::Options{/*volatile=*/true}));
-    // TODO: is this fence.proxy.async necessary? The above links say we need
-    // it, but seems that CUTLASS is not using it? Wouldn't wgmma.fence itself
-    // make sure registers are available to the async proxy? And would
-    // __syncthreads() make sure smem is available to the async proxy?
-    // Reference:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#parallel-synchronization-and-communication-instructions-membar-fence
-    registerInsertBefore(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "fence.proxy.async",
-            std::vector<Val*>{},
-            std::vector<Val*>{},
-            kir::Asm::Options{/*volatile=*/true}));
-
     // Do MMA
     std::stringstream inst_ss;
     inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
@@ -260,11 +291,12 @@ class LowerToInlinePtx : public kir::ExprMutator {
             kir::Asm::Options{
                 /*volatile=*/true,
                 /*memory=*/false,
-                /*readable_outputs=*/{0}}));
+                /*readable_outputs=*/{0},
+                /*immediate_inputs=*/{3, 4, 5, 6}}));
     registerRemove(mma);
   }
 
-  void handle(MmaOp* mma) override {
+  void handle(MmaOp* mma) final {
     if (mma->isTuring() || mma->isAmpere()) {
       handleTuringOrAmpereMma(mma);
     } else if (mma->isHopper()) {
@@ -272,6 +304,53 @@ class LowerToInlinePtx : public kir::ExprMutator {
     } else {
       NVF_THROW("Unsupported MMA architecture");
     }
+  }
+
+  void handle(kir::FenceAsyncProxy* fence) final {
+    registerReplace(
+        fence,
+        IrBuilder::create<kir::Asm>(
+            "fence.proxy.async",
+            std::vector<Val*>{},
+            std::vector<Val*>{},
+            kir::Asm::Options{/*volatile=*/true}));
+  }
+
+  void handle(kir::WgMmaFence* fence) final {
+    registerReplace(
+        fence,
+        IrBuilder::create<kir::Asm>(
+            "wgmma.fence.sync.aligned",
+            std::vector<Val*>{},
+            std::vector<Val*>{},
+            kir::Asm::Options{/*volatile=*/true}));
+  }
+
+  void handle(kir::SetMaxNReg* maxnreg) final {
+    std::string ptx = (maxnreg->increaseRegisters())
+        ? "setmaxnreg.inc.sync.aligned.u32"
+        : "setmaxnreg.dec.sync.aligned.u32";
+    registerReplace(
+        maxnreg,
+        IrBuilder::create<kir::Asm>(
+            ptx,
+            std::vector<Val*>{},
+            std::vector<Val*>{maxnreg->numberOfRegisters()},
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{},
+                /*immediate_inputs=*/{0}}));
+  }
+
+  void handle(kir::AllocTMem* alloc) final {
+    registerReplace(
+        alloc,
+        IrBuilder::create<kir::Asm>(
+            "tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+            std::vector<Val*>{},
+            std::vector<Val*>{alloc->address(), alloc->numColumns()},
+            kir::Asm::Options{/*volatile=*/true}));
   }
 };
 

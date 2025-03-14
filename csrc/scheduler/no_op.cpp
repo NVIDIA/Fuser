@@ -6,9 +6,8 @@
  */
 // clang-format on
 
-#include <alias_analysis.h>
+#include <host_ir/lower.h>
 #include <ir/utils.h>
-#include <multidevice/lower_communication.h>
 #include <multidevice/utils.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/mark_aliases.h>
@@ -23,37 +22,16 @@ void vlog(const Args&... args) {
   scheduler_debug_utils::log("[no_op] ", args...);
 }
 
-namespace {
-bool allOutputsArePointerArithmetics(Fusion* fusion) {
-  const AliasAnalysisResult analysis =
-      findAliases(fusion, /*can_override_empty_allocation_domain=*/false);
-  auto out_tvs = ir_utils::filterByType<TensorView>(fusion->outputs());
-  return std::all_of(out_tvs.begin(), out_tvs.end(), [&](TensorView* out) {
-    // Check out has an alias and out is not an inplace update target.
-    if (fusion->getOutputAlias(out).type == AllocationType::ReuseBuffer) {
-      return false;
-    }
-
-    TensorView* root = analysis.getRoot(out);
-    return root != nullptr && root->isFusionInput();
-  });
-}
-} // namespace
-
 //! Check if the no-op heuristics apply in given fusion
 bool NoOpScheduler::canScheduleCompileTime(Fusion* fusion) {
   if (fusion->isNoOp()) {
     return true;
   }
 
-  const std::vector<Expr*>& exprs = fusion->exprs();
-  if (exprs.size() == 1 && isResharding(exprs[0]) &&
-      isLowerableToCommunication(exprs[0])) {
-    return true;
-  }
-
-  if (allOutputsArePointerArithmetics(fusion)) {
-    return true;
+  if (scheduler_utils::isResharding(fusion)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(), "Fusion is resharding.");
+    return false;
   }
 
   // Check there're no non-trivial reduction ops.
@@ -107,6 +85,15 @@ bool NoOpScheduler::canScheduleRunTime(
   return true;
 }
 
+std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
+    Fusion* fusion,
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  auto params = std::make_unique<HeuristicParams>(SchedulerType::NoOp);
+  params->cparams.index_type = runtime_info.getIndexType();
+  return params;
+}
+
 void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   NVF_ERROR(
       params->scheduler_type == schedulerType(),
@@ -123,15 +110,6 @@ void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   scheduler_utils::clearMemorySpace(fusion);
 
   markAliases(fusion);
-}
-
-std::unique_ptr<HeuristicParams> NoOpScheduler::computeHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  auto params = std::make_unique<HeuristicParams>(SchedulerType::NoOp);
-  params->cparams.index_type = runtime_info.getIndexType();
-  return params;
 }
 
 } // namespace nvfuser

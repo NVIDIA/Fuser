@@ -7,6 +7,7 @@
 // clang-format on
 #include <ATen/cuda/CUDAContext.h>
 #include <ir/builder.h>
+#include <ir/iostream.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <transform_view.h>
@@ -55,9 +56,62 @@ TensorView* dropout_backward(TensorView* dy, TensorView* mask, Val* scale) {
   return dx;
 }
 
+TensorView* triu(TensorView* tv, Val* offset) {
+  NVF_CHECK(
+      isIntegralType(offset->getDataType().value()),
+      "offset must have integral type");
+
+  // Let's say we want a triu of a 2D tensor of shape [2, 4]
+  // We broadcast the iota of the outer dim
+  // [0    [0, 0, 0, 0]
+  // 1] -> [1, 1, 1, 1]
+  // We broadcast the iota of the inner dim
+  // [0, 1, 2, 3] -> [0, 1, 2, 3]
+  //                 [0, 1, 2, 3]
+  // Using LE on the bcast tensors we get the mask
+  //[0, 0, 0, 0]  LE [0, 1, 2, 3]
+  //[1, 1, 1, 1]     [0, 1, 2, 3]
+  // Gives:
+  //[1, 1, 1, 1]
+  //[0, 1, 1, 1]
+  auto tv_logical_no_reductions =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+  auto dims = tv_logical_no_reductions.size();
+
+  NVF_CHECK(
+      dims >= 2,
+      "input tensor for triu must have 2 or more dims, but got ",
+      dims,
+      " dims");
+
+  auto fusion = tv->fusion();
+
+  auto tv_rows = iota(
+      tv_logical_no_reductions[dims - 2]->extent(),
+      fusion->zeroVal(DataType::Index),
+      fusion->oneVal(DataType::Index),
+      DataType::Index);
+
+  // If triu has an offset of k, we shift/subtract the iota of the columns by k
+  // before broadcasting and comparing with the iota of the rows.
+  // So when building an iota op, instead of starting from 0 with a step of 1
+  // we start from -offset (== -k) with a step of 1.
+  auto start_shifted_by_offset = SimplifyingIrBuilder::negExpr(offset);
+  auto tv_columns = iota(
+      tv_logical_no_reductions[dims - 1]->extent(),
+      start_shifted_by_offset,
+      fusion->oneVal(DataType::Index),
+      DataType::Index);
+
+  auto tv_rows_b = broadcast(tv_rows, {false, true});
+  auto tv_cols_b = broadcast(tv_columns, {true, false});
+  auto mask = le(tv_rows_b, tv_cols_b);
+  return where(mask, tv, fusion->zeroVal(DataType::Index));
+}
+
 namespace {
 
-static TensorView* newForLinear(
+TensorView* newForLinear(
     TensorView* input,
     TensorView* weight,
     TensorView* bias) {
@@ -71,8 +125,10 @@ static TensorView* newForLinear(
   bool k_bcast = input_domain.back()->isBroadcast();
   size_t red_dims = k_bcast ? 0 : 1;
 
-  // Linear: a = {*, in_features}, b = {out_features, in_features} /
-  // {in_features}.The linear output is {*, (out_features), rK?}.
+  // input: {*_i, in_features},
+  // weight: {*_wb, out_features, in_features}
+  // output: {*_wb, *_i, out_features, rK?}.
+  //
   // Reduction K is present only when K is not bcast.
   auto ndims_out =
       (input_domain.size() - 1) + (weight_domain.size() - 1) + red_dims;
@@ -113,20 +169,26 @@ static TensorView* newForLinear(
 TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
   auto input_ndims =
       TensorDomain::noReductions(input->getLogicalDomain()).size();
-  NVF_CHECK(input_ndims > 0, "Input A must be atleast 1D.");
+  NVF_CHECK(input_ndims > 0, "Input A must be at least 1D.");
 
+  // `linear` previously supported 1D weight and 0D bias. The support was
+  // however removed by #3073 to support sharded linear layers, yet-another
+  // workaround of #2563. Otherwise, it would be unclear whether a 2D weight is
+  // one device dimension plus a non-device or two non-devices.
+  //
+  // If needed, we can still support 1D weight and 0D bias in Thunder by
+  // changing the thunder-to-nvFuser bridge to convert a 1D/0D linear to
+  // unsqueeze followed by a 2D/1D linear followed by a squeeze. It'll likely
+  // be the same speed because nvFuser treats squeezes and unsqueezes as meta
+  // ops and run them on the host.
   auto weight_ndims =
       TensorDomain::noReductions(weight->getLogicalDomain()).size();
   NVF_CHECK(
-      weight_ndims == 1 || weight_ndims == 2,
-      "Input B must be a 1D / 2D tensor.");
-
-  // Note: This constraint is not documented but F.linear errors out if bias is
-  // given with 1D weights.
-  NVF_CHECK(
-      weight_ndims == 2 || bias == nullptr,
-      "Expected B to be a 2D matrix if bias is given, got 1D.")
-
+      weight_ndims >= 2,
+      "Input B must be at least 2D. The last two dimensions represent out "
+      "features and in features. The extra, preceding dimensions are expected "
+      "to be parallelized on DIDs during scheduling: ",
+      weight);
   NVF_CHECK(
       input->dtype() == weight->dtype(),
       "Expected input and weight dtypes to have the same dtype, got: ",
@@ -134,13 +196,21 @@ TensorView* linear(TensorView* input, TensorView* weight, TensorView* bias) {
       " and ",
       weight->dtype());
 
-  NVF_CHECK(
-      bias == nullptr || bias->dtype() == input->dtype(),
-      "Expected bias to have the same dtype as A and B, got: ",
-      bias->dtype(),
-      " and ",
-      input->dtype());
-  // For all other cases, create a new LinearOp
+  if (bias != nullptr) {
+    NVF_CHECK(
+        !TensorDomain::noReductions(bias->getLogicalDomain()).empty(),
+        "Input bias must be at least 1D. The last dimension represents out "
+        "features. The extra, preceding dimensions are expected to be "
+        "parallelized on DIDs during scheduling: ",
+        bias);
+    NVF_CHECK(
+        bias->dtype() == input->dtype(),
+        "Expected bias to have the same dtype as A and B, got: ",
+        bias->dtype(),
+        " and ",
+        input->dtype());
+  }
+
   TensorView* out = newForLinear(input, weight, bias);
   IrBuilder::create<LinearOp>(out, input, weight, bias);
   return out;
@@ -330,7 +400,7 @@ TensorView* view_as_real(TensorView* x) {
 namespace {
 
 //! Create new output for matmul
-static TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
+TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
   auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
 
@@ -415,56 +485,28 @@ SdpfaFwdResult sdpfa_fwd(
     Val* dropout_p,
     Val* is_causal,
     Val* scale) {
-  NVF_CHECK(
-      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
-      "Expected query, key, and value to have the same dtype but got: ",
-      query->dtype(),
-      " ",
-      key->dtype(),
-      " ,and ",
-      value->dtype());
+  checkAllEqual({query->dtype(), key->dtype(), value->dtype()});
 
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
-
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool has_device_dim = (query_domain.size() == 5);
-  if (has_device_dim) {
-    NVF_CHECK(
-        query_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        key_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-    NVF_CHECK(
-        value_domain[0]->isDeviceDim(),
-        "Only suport DID parallelization on outermost axis");
-  }
-
-  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
-  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
-  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+  checkAllEqual({query_domain.size(), key_domain.size(), value_domain.size()});
+  NVF_CHECK(
+      query_domain.size() == 4 || query_domain.size() == 5,
+      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
+      "expected to be device parallel during expression evaluation: ",
+      query_domain);
 
   NVF_CHECK(
-      concrete_query_size == 4 && concrete_key_size == 4 &&
-          concrete_value_size == 4,
-      "Expected query, key, and value to be 4D but got: ",
-      concrete_query_size,
-      " ",
-      concrete_key_size,
-      " ,and ",
-      concrete_value_size);
-
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
+      "Expected dropout to be a real-valued scalar.");
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
-      "Expected dropout to be a scalar double.");
-  NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
-      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+      !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
+      "Expected scale to be a real-valued scalar.");
 
   // Query: [DIDx(D)?,N,H,L,E], Key: [DIDx(D)?,N,H,S,E], Value:
   // [DIDx(D)?,N,H,S,Ev] Output: [DIDx(D)?,N,H,L,Ev] N, H are mapped for all
@@ -525,9 +567,11 @@ SdpfaFwdResult sdpfa_fwd(
       query,
       key,
       value,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
-      scale);
+      scale == nullptr
+          ? scale
+          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
   return {output, log_sumexp, philox_seed, philox_offset};
 }
 
@@ -543,57 +587,50 @@ SdpfaBwdResult sdpfa_bwd(
     TensorView* philox_seed,
     TensorView* philox_offset,
     Val* scale) {
-  NVF_CHECK(
-      query->dtype() == key->dtype() && query->dtype() == value->dtype(),
-      "Expected query, key, and value to have the same dtype but got: ",
-      query->dtype(),
-      " ",
-      key->dtype(),
-      " ,and ",
-      value->dtype());
+  checkAllEqual(
+      {grad_output->dtype(),
+       query->dtype(),
+       key->dtype(),
+       value->dtype(),
+       output->dtype()});
 
+  auto grad_output_domain =
+      TensorDomain::noReductions(grad_output->getLogicalDomain());
   auto query_domain = TensorDomain::noReductions(query->getLogicalDomain());
   auto key_domain = TensorDomain::noReductions(key->getLogicalDomain());
   auto value_domain = TensorDomain::noReductions(value->getLogicalDomain());
+  auto output_domain = TensorDomain::noReductions(output->getLogicalDomain());
+  checkAllEqual(
+      {grad_output_domain.size(),
+       query_domain.size(),
+       key_domain.size(),
+       value_domain.size(),
+       output_domain.size()});
+  NVF_CHECK(
+      query_domain.size() == 4 || query_domain.size() == 5,
+      "Expect Q/K/V to be either 4D or 5D. If 5D, the first dimension is "
+      "expected to be device parallel during expression evaluation: ",
+      query_domain);
 
-  // Temporary handling of DID parallelization see
-  // https://github.com/NVIDIA/Fuser/issues/2563
-  bool has_device_dim = (query_domain.size() == 5);
-  if (has_device_dim) {
-    auto check_first_is_did = [](const std::vector<IterDomain*>& ids) -> void {
-      NVF_CHECK(
-          ids[0]->isDeviceDim(),
-          "Only support DID parallelization on outermost axis");
-    };
-    check_first_is_did(query_domain);
-    check_first_is_did(key_domain);
-    check_first_is_did(value_domain);
-    check_first_is_did(grad_output->getLogicalDomain());
-    check_first_is_did(output->getLogicalDomain());
-  }
-
-  auto concrete_query_size = TensorDomain::noDevices(query_domain).size();
-  auto concrete_key_size = TensorDomain::noDevices(key_domain).size();
-  auto concrete_value_size = TensorDomain::noDevices(value_domain).size();
+  auto log_sumexp_domain =
+      TensorDomain::noReductions(log_sumexp->getLogicalDomain());
+  NVF_CHECK(
+      log_sumexp_domain.size() == query_domain.size() - 1,
+      "Expected log_sumexp to have one less dimension than Q/K/V: ",
+      log_sumexp_domain.size(),
+      " vs ",
+      query_domain.size());
 
   NVF_CHECK(
-      concrete_query_size == 4 && concrete_key_size == 4 &&
-          concrete_value_size == 4,
-      "Expected query, key, and value to be 4D but got: ",
-      concrete_query_size,
-      " ",
-      concrete_key_size,
-      " ,and ",
-      concrete_value_size);
-
+      !dropout_p || dropout_p->isFloatingPointScalar() ||
+          dropout_p->isIntegralScalar(),
+      "Expected dropout to be a real-valued scalar.");
   NVF_CHECK(
-      !dropout_p || dropout_p->isScalar(),
-      "Expected dropout to be a scalar double.");
-  NVF_CHECK(
-      !is_causal || is_causal->isScalar(),
+      !is_causal || is_causal->isABool(),
       "Expected is_causal to be a scalar boolean.");
   NVF_CHECK(
-      !scale || scale->isScalar(), "Expected scale to be a scalar double.");
+      !scale || scale->isFloatingPointScalar() || scale->isIntegralScalar(),
+      "Expected scale to be a real-valued scalar.");
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -623,12 +660,82 @@ SdpfaBwdResult sdpfa_bwd(
       value,
       output,
       log_sumexp,
-      dropout_p,
+      SimplifyingIrBuilder::maybeCastExpr(DataType::Double, dropout_p),
       is_causal,
       philox_seed,
       philox_offset,
-      scale);
+      scale == nullptr
+          ? scale
+          : SimplifyingIrBuilder::maybeCastExpr(DataType::Double, scale));
   return {grad_query, grad_key, grad_value};
+}
+
+TensorView* embedding_fwd(
+    TensorView* input,
+    TensorView* weight,
+    Val* padding_idx,
+    Val* max_norm,
+    Val* norm_type,
+    Val* scale_grad_by_freq,
+    Val* sparse) {
+  auto input_domain = TensorDomain::noReductions(input->getLogicalDomain());
+  auto weight_domain = TensorDomain::noReductions(weight->getLogicalDomain());
+  NVF_CHECK(
+      !input_domain.empty(),
+      "Expected input to be atleast 1D, got: ",
+      input_domain.size());
+  NVF_CHECK(
+      weight_domain.size() == 2,
+      "Expected weight to be 2D, got: ",
+      weight_domain.size());
+
+  NVF_CHECK(
+      !padding_idx || padding_idx->isScalar(),
+      "Expected padding_idx to be a scalar int.");
+  NVF_CHECK(
+      !max_norm || max_norm->isScalar(),
+      "Expected max_norm to be a scalar double.");
+  NVF_CHECK(
+      !norm_type || norm_type->isScalar(),
+      "Expected scale to be a scalar double.");
+  NVF_CHECK(
+      !scale_grad_by_freq || scale_grad_by_freq->isScalar(),
+      "Expected scale to be a scalar bool.");
+  NVF_CHECK(
+      !sparse || sparse->isScalar(), "Expected scale to be a scalar bool.");
+
+  auto ndims_out = input_domain.size() + 1;
+  std::vector<IterDomain*> out_domain(ndims_out, nullptr);
+
+  for (auto idx : c10::irange(ndims_out - 1)) {
+    out_domain[idx] = ops::newOutputIterDomain({input_domain[idx]});
+  }
+  out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.back()});
+  TensorDomain* out_td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+  TensorView* output = IrBuilder::create<TensorView>(out_td, weight->dtype());
+
+  if (norm_type == nullptr) {
+    norm_type = IrBuilder::create<Val>(2.0, DataType::Double);
+  }
+
+  if (scale_grad_by_freq == nullptr) {
+    scale_grad_by_freq = input->fusion()->falseVal();
+  }
+  if (sparse == nullptr) {
+    sparse = input->fusion()->falseVal();
+  }
+  IrBuilder::create<EmbeddingFwdOp>(
+      output,
+      input,
+      weight,
+      padding_idx,
+      max_norm,
+      norm_type,
+      scale_grad_by_freq,
+      sparse);
+
+  return output;
 }
 
 } // namespace nvfuser

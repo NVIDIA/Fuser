@@ -11,7 +11,7 @@
 
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
+#include <runtime/executor_kernel_arg.h>
 #include <utils.h>
 #include <visibility.h>
 
@@ -51,10 +51,6 @@ class SchedulerRuntimeInfo : public NonCopyable {
       PrecomputedValues* precomputed_values = nullptr,
       const std::vector<TensorView*>& all_tvs = {},
       std::optional<PrimDataType> forced_index_type = std::nullopt);
-
-  NVF_API SchedulerRuntimeInfo(
-      Fusion* complete_fusion,
-      const at::ArrayRef<c10::IValue>& aten_inputs);
 
   //! Lookup for the alignment sizes of the given tv. Currently only returns
   //!  actual alignment info for input tensors to the complete fusion,

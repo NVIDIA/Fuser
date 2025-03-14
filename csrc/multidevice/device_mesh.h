@@ -79,6 +79,10 @@ class DeviceMesh final {
     return vector_ == other.vector();
   }
 
+  bool operator!=(const DeviceMesh& other) const {
+    return vector_ != other.vector();
+  }
+
  private:
   void setDevices(std::vector<DeviceIdxType> devices);
 

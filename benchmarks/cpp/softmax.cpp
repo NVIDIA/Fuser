@@ -8,11 +8,11 @@
 #include <csrc/exceptions.h>
 #include <device_lower/lower2device.h>
 #include <fusion.h>
-#include <fusion_executor/executor.h>
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
 #include <ops/all_ops.h>
 #include <ops/arith.h>
+#include <runtime/executor.h>
 #include <scheduler/all_schedulers.h>
 
 #include <benchmark/benchmark.h>
@@ -52,7 +52,7 @@ static void setupSoftmax(
 
 static void NvFuserScheduler_Softmax(
     benchmark::State& benchmark_state,
-    FusionExecutorCache* fusion_executor_cache,
+    FusionExecutorCache* executor_cache,
     DataType dtype,
     const int reduction_axis) {
   NVF_ERROR(dtype == DataType::Float || dtype == DataType::Half);
@@ -68,9 +68,9 @@ static void NvFuserScheduler_Softmax(
       (reduction_axis ? at::randn({iter_size, reduction_size}, options)
                       : at::randn({reduction_size, iter_size}, options));
 
-  std::vector<c10::IValue> aten_inputs({aten_input});
+  KernelArgumentHolder args({aten_input});
 
-  runBenchmarkIterations(benchmark_state, fusion_executor_cache, aten_inputs);
+  runBenchmarkIterations(benchmark_state, executor_cache, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
@@ -93,11 +93,10 @@ static void NvFuserScheduler_Softmax_WarpReduceReference(
   at::manual_seed(0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs({aten_input});
+  KernelArgumentHolder args({at::randn(input_shape, options)});
 
   // Schedule through magic scheduler:
-  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(fusion, args);
   NVF_ERROR(Schedule::canSchedule(
       SchedulerType::InnerPersistent, fusion, runtime_info));
   auto scheduler =
@@ -105,14 +104,14 @@ static void NvFuserScheduler_Softmax_WarpReduceReference(
   auto heuristic_params = scheduler->computeHeuristics(fusion, runtime_info);
   scheduler->schedule(fusion, heuristic_params.get());
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compile(fusion, args);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * aten_input.numel() * int64_t(dataTypeSize(dtype))));
+      (2 * args[0].as<at::Tensor>().numel() * int64_t(dataTypeSize(dtype))));
 }
 
 static void NvFuserScheduler_Softmax_WarpReduce(
@@ -130,11 +129,10 @@ static void NvFuserScheduler_Softmax_WarpReduce(
   at::manual_seed(0);
   auto options =
       at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
-  at::Tensor aten_input = at::randn(input_shape, options);
-  std::vector<c10::IValue> aten_inputs({aten_input});
+  KernelArgumentHolder args({at::randn(input_shape, options)});
 
   // Schedule through magic scheduler:
-  SchedulerRuntimeInfo runtime_info(fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(fusion, args);
   NVF_ERROR(Schedule::canSchedule(
       SchedulerType::InnerPersistent, fusion, runtime_info));
   auto scheduler =
@@ -152,14 +150,14 @@ static void NvFuserScheduler_Softmax_WarpReduce(
     }
   }
 
-  FusionExecutor fe;
-  fe.compileFusion(fusion, aten_inputs);
+  KernelExecutor ke;
+  ke.compile(fusion, args);
 
-  runBenchmarkIterations(benchmark_state, &fe, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, args);
 
   benchmark_state.SetBytesProcessed(
       int64_t(benchmark_state.iterations()) *
-      (2 * aten_input.numel() * int64_t(dataTypeSize(dtype))));
+      (2 * args[0].as<at::Tensor>().numel() * int64_t(dataTypeSize(dtype))));
 }
 
 BENCHMARK(NvFuserScheduler_Softmax_WarpReduce)

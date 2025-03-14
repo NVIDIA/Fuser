@@ -166,7 +166,11 @@ void IrTransformPrinter::printTransforms(const TensorView* tv) {
 }
 
 std::ostream& operator<<(std::ostream& os, const Statement* stmt) {
-  return os << stmt->toString();
+  if (stmt == nullptr) {
+    return os << "<null>";
+  } else {
+    return os << stmt->toString();
+  }
 }
 
 std::ostream& operator<<(std::ostream& os, Fusion* f) {

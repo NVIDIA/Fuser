@@ -37,38 +37,20 @@ namespace nvfuser {
 using RankType = DeviceIdxType;
 
 // Supported backends. TODO: gloo untested
-enum class CommunicatorBackend { nccl, ucc, gloo };
+enum class CommunicatorBackend { kNccl, kUcc, kGloo };
 
 std::ostream& operator<<(std::ostream& out, const CommunicatorBackend& cb);
 
 #ifdef USE_C10D_NCCL
-constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::nccl;
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kNccl;
 #else
-constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::ucc;
+constexpr CommunicatorBackend comm_backend_default = CommunicatorBackend::kUcc;
 #endif
 constexpr int comm_server_local_rank_default = 0;
 
 class Communicator {
  public:
-  static Communicator& getInstance() {
-    // This isn't the best practice to use singleton. Ideally, we'd like to
-    // ```
-    // static Communicator communicator;
-    // ```
-    // and let the destructor clean it up at program exit after `main` returns.
-    // This however would cause a "driver shutting down" error, likely because
-    // another static variable destructor shuts down the CUDA driver before
-    // ~Communicator. Note that the order of static variable destruction
-    // across translation units is undefined.
-    //
-    // Therefore, we `new Communicator()` as a raw pointer and let the user
-    // call Communicator::getInstance().cleanup() to clean up the Communicator
-    // explicitly before the end of `main`. For example, the cleanup method is
-    // called via MultiDeviceTestEnvironment::TearDown in C++ unit tests and
-    // nvfuser._cleanup() in Python.
-    static auto* communicator = new Communicator();
-    return *communicator;
-  }
+  static Communicator& getInstance();
 
   Communicator(const Communicator&) = delete;
   Communicator& operator=(const Communicator&) = delete;
@@ -133,9 +115,9 @@ class Communicator {
 
   // returns if a backend is available for creation
   bool isBackendAvailable(CommunicatorBackend backend) const {
-    if (backend == CommunicatorBackend::ucc) {
+    if (backend == CommunicatorBackend::kUcc) {
       return ucc_available_;
-    } else if (backend == CommunicatorBackend::nccl) {
+    } else if (backend == CommunicatorBackend::kNccl) {
       return nccl_available_;
     }
     return false;

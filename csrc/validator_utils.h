@@ -15,9 +15,9 @@
 
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor_params.h>
 #include <ir/interface_nodes.h>
 #include <iter_visitor.h>
+#include <runtime/executor_params.h>
 #include <type.h>
 
 namespace nvfuser {
@@ -80,12 +80,12 @@ class ReductionSizeMapper : private IterVisitor {
 
 ExpressionEvaluator bindInputsAndLaunchParams(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     const LaunchParams& launch_constraints);
 
 std::vector<std::pair<double, double>> get_val_constants(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     const LaunchParams& lparams = LaunchParams(),
     const ValidationConstants& tolerances = ValidationConstants());
 

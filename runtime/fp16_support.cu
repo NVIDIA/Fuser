@@ -220,3 +220,11 @@ __device__ __inline__ bool __heq(const __half a, const __half b) {
       : "h"(__NVFUSER_HALF_TO_CUS(a)), "h"(__NVFUSER_HALF_TO_CUS(b)));
   return (val != 0U) ? true : false;
 }
+
+__device__ __inline__ __half operator|(const __half x, const __half y) {
+  __half val;
+  asm("{  or.b16 %0, %1, %2;}\n"
+      : "=h"(__NVFUSER_HALF_TO_US(val))
+      : "h"(__NVFUSER_HALF_TO_CUS(x)), "h"(__NVFUSER_HALF_TO_CUS(y)));
+  return val;
+}

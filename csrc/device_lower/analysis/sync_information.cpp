@@ -8,7 +8,7 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
 #include <id_model/indexing.h>
-#include <id_model/indexing_utils.h>
+#include <id_model/utils.h>
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <transform_iter.h>
@@ -709,10 +709,8 @@ SyncMap::SyncMap(Fusion* fusion) {
 
               // Case 1
               const auto& id_model = GpuLower::current()->idModel();
-              auto producer_loop_id =
-                  indexing_utils::getLoopPromotion(p_id, id_model);
-              auto consumer_loop_id =
-                  indexing_utils::getLoopPromotion(c_id, id_model);
+              auto producer_loop_id = getLoopPromotion(p_id, id_model);
+              auto consumer_loop_id = getLoopPromotion(c_id, id_model);
               const auto& indexing_traveral_graph =
                   id_model.idGraph(TensorIndexer::traversalGraphType());
               if (indexing_traveral_graph.disjointValSets().strictAreMapped(
@@ -815,7 +813,8 @@ SyncMap::SyncMap(Fusion* fusion) {
               ir_utils::isLdMatrixOp(producer->definition()) ||
                   ir_utils::isStMatrixOp(consumer->definition()) ||
                   producer->getMemoryType() == MemoryType::Global ||
-                  producer->getMemoryType() == MemoryType::Shared,
+                  producer->getMemoryType() == MemoryType::Shared ||
+                  producer->getMemoryType() == MemoryType::Tensor,
               "Inconsistent parallelization found between TV",
               producer->name(),
               " (",
@@ -824,7 +823,7 @@ SyncMap::SyncMap(Fusion* fusion) {
               consumer->name(),
               "(",
               consumer->toString(),
-              "). Producer is required to be in Global or Shared Memory based on parallelization strategy.",
+              "). Producer is required to be in Global, Shared or Tensor Memory based on parallelization strategy.",
               " RAW flags: ",
               raw_dims.toString());
         }
@@ -834,7 +833,6 @@ SyncMap::SyncMap(Fusion* fusion) {
       if (raw_dims.any()) {
         needs_raw_sync_[producer] |= raw_dims;
       }
-
     } // end producer
   }
 }

@@ -14,9 +14,11 @@
 #include <device_lower/analysis/fused_reduction.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
+#include <device_lower/analysis/tensor_memory.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/id_model_options.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
 #include <device_lower/pass/predicate.h>
@@ -24,7 +26,6 @@
 #include <device_lower/pass/warp_reduce.h>
 #include <exceptions.h>
 #include <expr_simplifier.h>
-#include <fusion_executor/executor_params.h>
 #include <id_model/id_model.h>
 #include <id_model/indexing.h>
 #include <ir/all_nodes.h>
@@ -34,6 +35,7 @@
 #include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
+#include <runtime/executor_params.h>
 #include <vectorization_info.h>
 #include <visibility.h>
 
@@ -45,10 +47,6 @@
 
 namespace nvfuser {
 
-// TODO: we frequently use pairwise root mapping from consumers to producers.
-// This information is implicitly in the computeAtMaps, but there's no isolated
-// container for this information that we can reuse. Would be nice to generate
-// such a structure and propagate it through lowering.
 // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
 class GpuLower : public NonCopyable {
   class KernelIrMapper;
@@ -182,8 +180,8 @@ class GpuLower : public NonCopyable {
     return circular_buffer_info_;
   }
 
-  const CircularBufferInfo& circularBufferInfo() const {
-    return circular_buffer_info_;
+  TmaCircularBufferInfo& tmaCircularBufferInfo() {
+    return tma_circular_buffer_info_;
   }
 
   CommonScalarMap& commonScalarMap() {
@@ -206,14 +204,6 @@ class GpuLower : public NonCopyable {
     return vectorized_set_info_;
   }
 
-  bool requiresIdModel() const {
-    return requires_id_model_;
-  }
-
-  bool& requiresIdModel() {
-    return requires_id_model_;
-  }
-
   FusedReductionInfo& fusedReductionInfo() {
     return fused_reduction_info_;
   }
@@ -232,32 +222,6 @@ class GpuLower : public NonCopyable {
 
   const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
     return ldst_mbarrier_map_;
-  }
-
-  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap() {
-    return ldst_mbarrier_token_map_;
-  }
-
-  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierTokenMap()
-      const {
-    return ldst_mbarrier_token_map_;
-  }
-
-  std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() {
-    return mbarrier_token_smem_alloc_set_;
-  }
-
-  const std::unordered_set<const Expr*>& mBarrierTokenSmemAllocSet() const {
-    return mbarrier_token_smem_alloc_set_;
-  }
-
-  std::unordered_map<const Expr*, kir::TensorIndex*>& ldstMBarrierIndexMap() {
-    return ldst_mbarrier_index_map_;
-  }
-
-  const std::unordered_map<const Expr*, kir::TensorIndex*>&
-  ldstMBarrierIndexMap() const {
-    return ldst_mbarrier_index_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -305,6 +269,22 @@ class GpuLower : public NonCopyable {
     return consumer_to_tma_info_;
   }
 
+  const TensorMemoryInfo& tmemInfo() const {
+    return tmem_info_;
+  }
+
+  TensorMemoryInfo& tmemInfo() {
+    return tmem_info_;
+  }
+
+  const std::pair<int64_t, int64_t>& decIncRegisterUsage() const {
+    return dec_inc_register_usage;
+  }
+
+  std::pair<int64_t, int64_t>& decIncRegisterUsage() {
+    return dec_inc_register_usage;
+  }
+
   // Register a boolean Val as a predicate to validate at the run time. Optional
   // validation error messages can be given as args.
   template <typename... Args>
@@ -328,6 +308,59 @@ class GpuLower : public NonCopyable {
 
   std::vector<std::pair<const Val*, std::string>>& validations() {
     return validations_;
+  }
+
+  // Get the index variable assigned for a given loop ID. Currently
+  //  it's a wrapper around ComputeAtMap::getIndexVariable or
+  // IdModel::getLoopIndexVariable if IdModelEnableOption::Loop is
+  //  enabled.
+  Val* getLoopIndexVariable(
+      IterDomain* id,
+      CircularBufferLoopStage stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
+  const IdModelOptions idModelOptions() const {
+    return id_model_options_;
+  }
+
+  //! Define an alias for consumer as producer.
+  //!
+  //! If producer is already aliased, we chase the alias. If there are tensors
+  //! aliased to consumer, their aliases are updated to point to the new
+  //! producer. This guarantees that any aliases are to producers that get
+  //! codegened.
+  //!
+  //! If there is a chain of trivial ops that should be skipped, then all of the
+  //! intermediate tensors should be aliased to the common producer:
+  //!
+  //!   b = broadcast(a)
+  //!   c = permute(b)
+  //!   d = squeeze(c)
+  //!
+  //! In this example, if all four of a, b, c, and d share the same memory type
+  //! and would use the same index, then we don't need any of these three
+  //! expressions and can simply replace the TensorIndex for d with that for a
+  //! in codegen'd expressions. So we should set up the following aliases:
+  //!
+  //!   d -> a
+  //!   c -> a
+  //!   b -> a
+  //!
+  //! Omitting one of these aliases might cause errors since that tensor's
+  //! definition might get codegen'd without an allocation.
+  void aliasTensorProducer(TensorView* consumer, TensorView* producer);
+
+  //! Return producer that this tensor should be aliased to. Returns nullptr if
+  //! no alias exists, i.e. that we should codegen tv's definition.
+  TensorView* getTensorProducerAlias(TensorView* tv) const {
+    auto it = tensor_producer_alias_map_.find(tv);
+    return it != tensor_producer_alias_map_.end() ? it->second : nullptr;
+  }
+
+  //! Return producer alias for tv or tv itself if it is unaliased
+  TensorView* getMaybeTensorProducerAlias(TensorView* tv) const {
+    TensorView* alias_tv = getTensorProducerAlias(tv);
+    return alias_tv == nullptr ? tv : alias_tv;
   }
 
  private:
@@ -364,6 +397,7 @@ class GpuLower : public NonCopyable {
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
   CircularBufferInfo circular_buffer_info_;
+  TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;
   FusedReductionInfo fused_reduction_info_;
   std::shared_ptr<const SyncMap> sync_map_;
@@ -373,6 +407,7 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
+  std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
@@ -388,29 +423,24 @@ class GpuLower : public NonCopyable {
   // Keep track of the mbarrier used for each load/store operation
   std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
 
+  // Information about tensor memory usage
+  TensorMemoryInfo tmem_info_;
+
+  // Track TensorViews that will be aliased to their producers because of
+  // trivial ops and scheduling such that the same index is used. Note that the
+  // alias does not need to be a direct producer in case there is a chain of
+  // trivial ops like permute->bcast->set.
+  std::unordered_map<TensorView*, TensorView*> tensor_producer_alias_map_;
+
   // Keep track of validations needed at runtime. For example, a pair of
   //! "extent mod split_factor == 0" and an error message for divisibility check
   //! for vectorization.
   std::vector<std::pair<const Val*, std::string>> validations_;
 
-  // Keep track of placeholders for tokens returned by arrive/expected tx
-  // mbarrier operations for each load/store operation that requires such
-  // synchronization
-  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_token_map_;
-
-  // Collection of kir::Allocate for smem buffers used for mbarrier and token
-  // objects from cpAsyncBulk synchronization
-  std::unordered_set<const Expr*> mbarrier_token_smem_alloc_set_;
-
-  // Keep track what mbarrier object is used in load/store operation that
-  // requires such synchronization, required by indexing pass
-  std::unordered_map<const Expr*, kir::TensorIndex*> ldst_mbarrier_index_map_;
-
   Fusion* fusion_ = nullptr;
 
-  // A temporary flag which is true if the fusion uses any feature that requires
-  // the new experimental id model
-  bool requires_id_model_ = false;
+  // A temporary option set to selectively enable IdModel usage
+  IdModelOptions id_model_options_;
 };
 
 } // namespace nvfuser

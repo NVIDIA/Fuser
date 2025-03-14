@@ -13,10 +13,29 @@
 
 namespace nvfuser {
 
-void ValGraphVisitor::traverse() {
-  const ValGroups terminating_inputs = graph().getTerminatingInputs();
+bool ValGraphVisitor::traverse() {
+  if (graph().disjointValSets().size() == 0) {
+    return true;
+  }
+
+  // Traverse from terminating inputs. When a graph is cyclic, there
+  // may be no terminating inputs. Additional starting groups can be
+  // specified as an option.
+  ValGroups starting_groups = graph().getTerminatingInputs();
+  starting_groups.pushBack(additional_starting_groups_);
+
+  // If no terminating input is found, that should mean there's a
+  // cycle.
+  if (starting_groups.empty()) {
+    std::stringstream ss;
+    ss << "Unsupported graph: No terminating input found, likely a cyclic graph: ";
+    ss << graph().toString();
+    error_message_ = ss.str();
+    return false;
+  }
+
   std::deque<ValGroup> to_visit_vals(
-      terminating_inputs.begin(), terminating_inputs.end());
+      starting_groups.begin(), starting_groups.end());
   ValGroups visited_vals;
 
   std::deque<ExprGroup> to_visit_exprs;
@@ -30,7 +49,8 @@ void ValGraphVisitor::traverse() {
         });
   };
 
-  // If any input of the def expr is mapped with the val
+  // When allow_cycle_ is true, cyclic dependency is ignored. For
+  // example, if any input of the def expr is mapped with the val
   // group itself, i.e., a trivial expr, allow visiting the
   // val group first. The trivial expr group will be visited
   // after the val group.
@@ -48,9 +68,25 @@ void ValGraphVisitor::traverse() {
   // of the merge but since it's already in the visited set, it would
   // not be visited again.
   //
-  // See also IdModelTest.ValGraphStmtSort3 for a concrete example.
+  // Similarly, when there are five groups as shown below:
+  //
+  //   i0 -> i1  ->  i2 -> i3
+  //          ^       |
+  //          |- i4 <-+
+  //
+  //  (Edges: i0->i1, i1->i2, i2->i3, i2->i4, i4->i1)
+  //
+  // is_val_ready of i1 would become true while ignoring the incoming
+  // edge from i4. The traversal order would look like:
+  //
+  // i0->i1, i1->i2, i2->i3, i2->i4
+  //
+  // See also IdModelTest.ValGraphStmtSort3 for a concrete
+  // example. See IdModelTest.LoopPromotionWithCyclicGraph for some
+  // use cases of this traversal for the loop promotion analysis with
+  // cyclic graphs.
   auto is_val_ready = [&](const ValGroup& val_group) -> bool {
-    if (terminating_inputs.has(val_group)) {
+    if (starting_groups.has(val_group)) {
       return true;
     }
     const ExprGroups& unique_defs = graph().getDefinitions(val_group);
@@ -59,18 +95,19 @@ void ValGraphVisitor::traverse() {
           if (expr_group->empty() || visited_exprs.has(expr_group)) {
             return true;
           }
-          // Handle ExprGroups that return one or some of its input ValGroups as
-          // output. This expr_group is not visited yet, which means there're
-          // input ValGroups that are not yet visited. If those not-visited
-          // inputs are actually the same as val_group, visit val_group at this
-          // point to resolve the circular dependency.
-          for (const ValGroup& input_group : graph().inputGroups(expr_group)) {
-            if (input_group != val_group && !visited_vals.has(input_group) &&
-                input_group->empty()) {
-              return false;
-            }
+
+          if (!allow_cycle_) {
+            return false;
           }
-          return true;
+
+          auto reachable_nodes = getReachableNodesFrom<ValGraphPermissiveBFS>(
+              {expr_group}, {val_group}, Direction::Backward, graph());
+          if (!reachable_nodes.empty()) {
+            // Cycle detected.
+            return true;
+          }
+
+          return false;
         });
   };
 
@@ -138,7 +175,18 @@ void ValGraphVisitor::traverse() {
     for (const ValGroup& vg : to_visit_vals) {
       ss << " " << nvfuser::toString(vg);
     }
-    NVF_THROW(ss.str());
+    ss << ". Already visited vals: ";
+    for (const auto& eg : visited_vals) {
+      ss << " " << nvfuser::toString(eg);
+    }
+    ss << ". Already visited exprs: ";
+    for (const ExprGroup& eg : visited_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
+
+    error_message_ = ss.str();
+    graph().dumpGraphvizDotGraph("val_graph_stmt_sort.dot");
+    return false;
   }
 
   if (!to_visit_exprs.empty()) {
@@ -147,31 +195,54 @@ void ValGraphVisitor::traverse() {
     for (const ExprGroup& eg : to_visit_exprs) {
       ss << " " << nvfuser::toString(eg);
     }
-    NVF_THROW(ss.str());
+    ss << ". Already visited exprs: ";
+    for (const ExprGroup& eg : visited_exprs) {
+      ss << " " << nvfuser::toString(eg);
+    }
+    error_message_ = ss.str();
+
+    graph().dumpGraphvizDotGraph("val_graph_stmt_sort.dot");
+    return false;
   }
+
+  // If not all exprs are visited, that should mean there must be a
+  // cyclic subgraph. The subgraph should have no terminating input,
+  // so it should not be visited at all. Note that some Val groups may
+  // not be visited, which should be fine.
+  if (visited_exprs.size() != graph().disjointExprSets().size()) {
+    std::stringstream ss;
+    ss << "The graph has an infinite loop. The following Exprs should be visited but are never ready:";
+    for (const ExprGroup& eg : graph().disjointExprSets().disjointSets()) {
+      if (!visited_exprs.has(eg)) {
+        ss << " " << nvfuser::toString(eg);
+      }
+    }
+    error_message_ = ss.str();
+    graph().dumpGraphvizDotGraph("stmt_sort_cycle.dot");
+    return false;
+  }
+
+  return true;
 }
 
-ValGroups ValGraphBFS::getReachableValsFrom(
-    const ValGraph& graph,
-    const ValGroups& from,
-    const ValGroups& vals) {
-  ValGraphBFS bfs(
-      graph,
-      {from.begin(), from.end()},
-      {vals.begin(), vals.end()},
-      /*require_all_to_visited=*/false);
+namespace {
 
-  bfs.traverse();
+class ValGraphCycleDetector : public ValGraphVisitor {
+ public:
+  ValGraphCycleDetector(const ValGraph& graph)
+      : ValGraphVisitor(graph, /*allow_cycle=*/false),
+        cycle_detected_(!traverse()) {}
 
-  ValGroups reachable_vals;
-  for (const ValGroup& val : vals) {
-    if (bfs.isVisited(val) ||
-        std::find(from.begin(), from.end(), val) != from.end()) {
-      reachable_vals.pushBack(val);
-    }
-  }
+  void handle(const ValGroup& val_group) override {}
+  void handle(const ExprGroup& expr_group) override {}
 
-  return reachable_vals;
+  bool cycle_detected_ = false;
+};
+
+} // namespace
+
+bool isCyclic(const ValGraph& graph) {
+  return ValGraphCycleDetector(graph).cycle_detected_;
 }
 
 } // namespace nvfuser

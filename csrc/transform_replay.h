@@ -9,7 +9,7 @@
 
 #include <exceptions.h>
 #include <ir/internal_nodes.h>
-#include <maxinfo_propagator.h>
+#include <scheduler/tools/maxinfo_propagator.h>
 #include <visibility.h>
 
 #include <algorithm>
@@ -226,6 +226,12 @@ class NVF_API TransformReplay {
   static TensorDomain* fullSelfReplay(
       const TensorDomain* new_self_root,
       const TensorDomain* self);
+
+  // Self replay the transformation on `self` from logical to allocation onto
+  // `new_self`.
+  static void selfAllocationReplay(
+      const TensorDomain* self,
+      TensorDomain* new_self);
 
   // Returns the loop position in producer that matches with `consumer_pos` in
   // consumer. Returns -1 if matching is impossible. This function can be used

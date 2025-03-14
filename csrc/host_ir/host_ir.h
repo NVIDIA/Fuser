@@ -11,6 +11,7 @@
 #include <ir/base_nodes.h>
 #include <ir/builder.h>
 #include <multidevice/communication.h>
+#include <scheduler/heuristic.h>
 #include <atomic>
 
 namespace nvfuser {
@@ -115,6 +116,45 @@ class PostOnStream : public Expr {
   }
 };
 
+class LaunchKernel : public Expr {
+ public:
+  using Expr::Expr;
+  LaunchKernel(
+      IrBuilderPasskey passkey,
+      int64_t hic_executor_index, // Index into the HostIrContainer's vector of
+                                  // KernelExecutors--i.e., the kernel this IR
+                                  // should launch
+      const LaunchParams& launch_constraints,
+      const CompileParams& compile_params,
+      const std::vector<Val*>& inputs,
+      const std::vector<Val*>& outputs);
+
+  LaunchKernel(const LaunchKernel& other) = delete;
+  LaunchKernel& operator=(const LaunchKernel& other) = delete;
+  LaunchKernel(LaunchKernel&& other) = delete;
+  LaunchKernel& operator=(LaunchKernel&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::LaunchKernel";
+  }
+
+  int64_t getIndex() const {
+    return attribute<int64_t>(0);
+  }
+
+  const auto& launch_params() const {
+    return attribute<LaunchParams>(1);
+  }
+
+  const auto& compile_params() const {
+    return attribute<CompileParams>(2);
+  }
+};
+
 class Stream : public Val {
  public:
   // if index is provided, the IR represents the streams whose index is the
@@ -161,10 +201,32 @@ class SetCurrentStream : public Expr {
   }
 };
 
+class GetCurrentStream : public Expr {
+ public:
+  using Expr::Expr;
+  GetCurrentStream(IrBuilderPasskey passkey);
+
+  GetCurrentStream(const GetCurrentStream& other) = delete;
+  GetCurrentStream& operator=(const GetCurrentStream& other) = delete;
+  GetCurrentStream(GetCurrentStream&& other) = delete;
+  GetCurrentStream& operator=(GetCurrentStream&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::GetCurrentStream";
+  }
+
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
+  }
+};
+
 class Wait : public Expr {
  public:
   using Expr::Expr;
-  Wait(IrBuilderPasskey passkey, Communication* communication);
+  Wait(IrBuilderPasskey passkey, Expr* expr);
 
   Wait(const Wait& other) = delete;
   Wait& operator=(const Wait& other) = delete;
@@ -181,8 +243,86 @@ class Wait : public Expr {
 
   bool sameAs(const Statement* other) const override;
 
-  Communication* communication() const {
-    return attributes_.at(0)->as<Communication>();
+  Expr* communication() const {
+    return attributes_.at(0)->as<Expr>();
+  }
+};
+
+// Makes the current stream wait on the given stream. Non-blocking from the host
+// point of view.
+class Synchronize : public Expr {
+ public:
+  using Expr::Expr;
+  Synchronize(IrBuilderPasskey passkey, Stream* stream);
+
+  Synchronize(const Synchronize& other) = delete;
+  Synchronize& operator=(const Synchronize& other) = delete;
+  Synchronize(Synchronize&& other) = delete;
+  Synchronize& operator=(Synchronize&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Synchronize";
+  }
+
+  bool sameAs(const Statement* other) const override;
+
+  Stream* stream() const {
+    return attributes_.at(0)->as<Stream>();
+  }
+};
+
+// For ProcessGroupNCCL, startCoalescing and endCoalescing correspond to
+// ncclGroupStart and ncclGroupEnd respectively. Those calls group p2p calls
+// that need to be progressed together -- one global work handle returned by
+// endCoalescing needs to be progressed. This has the following main advantages:
+// 1) calls are progressed concurrently
+// 2) since NICs are two-sided, a send and a recv calls need to be coalesced to
+//    achieve full BW.
+// 3) If not coalesced, we can easily reach a deadlock if the
+//    send/recv pairs are not ordered correctly.
+// It is in general preferable to coalesce send/recv calls. The only drawback is
+// that we don't have a fine-grain control on synchronicity, in other words, we
+// can only synchronize with the grouped communication at once.
+// Remark: ProcessGroupUCC does not implement coalesced groups for now
+class StartCoalescing : public Expr {
+ public:
+  using Expr::Expr;
+  StartCoalescing(IrBuilderPasskey passkey);
+
+  StartCoalescing(const StartCoalescing& other) = delete;
+  StartCoalescing& operator=(const StartCoalescing& other) = delete;
+  StartCoalescing(StartCoalescing&& other) = delete;
+  StartCoalescing& operator=(StartCoalescing&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::StartCoalescing";
+  }
+};
+
+class EndCoalescing : public Expr {
+ public:
+  using Expr::Expr;
+  EndCoalescing(IrBuilderPasskey passkey);
+
+  EndCoalescing(const EndCoalescing& other) = delete;
+  EndCoalescing& operator=(const EndCoalescing& other) = delete;
+  EndCoalescing(EndCoalescing&& other) = delete;
+  EndCoalescing& operator=(EndCoalescing&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::EndCoalescing";
   }
 };
 

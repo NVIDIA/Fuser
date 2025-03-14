@@ -107,7 +107,8 @@ TEST_F(MultiDeviceTutorial, CommunicatorAndC10d) {
       0); // all_devices = [0,1,..., communicator->size()-1]
   const Team& team = all_devices;
   // - (optionally) the backend type, between UCC and NCCL
-  auto backend_type = CommunicatorBackend::nccl; // or CommunicatorBackend::ucc
+  auto backend_type =
+      CommunicatorBackend::kNccl; // or CommunicatorBackend::kUcc
   // the backend_type is an optional argument. By default it will choose nccl if
   // available, ucc otherwise. We can check that the requested backend is indeed
   // available
@@ -242,7 +243,8 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
     }
 
     // The same computation is replicated on all the devices
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Each device produces the full output
@@ -261,7 +263,8 @@ TEST_F(MultiDeviceTutorial, DeviceMeshesNoResharding) {
     // the input's data. However, the shape of the input is used to infer the
     // concrete shape of tv0 and subsequent tensors' shape. Therefore, we still
     // need to give each device inputs with valid shapes.
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Only device 0 receives a non-void output
@@ -361,7 +364,8 @@ TEST_F(MultiDeviceTutorial, SimplePipelining) {
       at::TensorOptions().device(communicator_->device()).dtype(at::kFloat);
   // each rank allocates a tensor on a different device
   at::Tensor input = at::ones({kTensorSize}, tensor_options);
-  at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+  at::Tensor output =
+      multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
   // VALIDATION
   if (communicator_->deviceId() == 1) {
@@ -466,7 +470,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
     }
 
     // Each device is responsible for a fraction of the total compute
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Each device produces a slice of the global output, which is also sharded
@@ -508,7 +513,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
       // clang-format on
     }
 
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     EXPECT_TRUE(
@@ -549,7 +555,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
       // clang-format on
     }
 
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     if (communicator_->deviceId() == 0) {
@@ -599,7 +606,8 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
     // must not be "1" but must equal the number of devices.
     input = at::randn({communicator_->size(), kTensorSize}, tensor_options);
 
-    at::Tensor output = multidevice_executor.runWithInput({input}).at(0);
+    at::Tensor output =
+        multidevice_executor.runWithInput({input})[0].as<at::Tensor>();
 
     // VALIDATION
     // Each device receives a slice of the global input.
@@ -644,7 +652,7 @@ TEST_F(MultiDeviceTutorial, TensorShardingAndResharding) {
 // The HostIr component is comprised of three parts:
 // - Host IRs: each IR represents an elementary host operation
 // - HostIrContainer: represents the host program
-// - HostIrExecutor: executes a HostIrContainer
+// - HostIrEvaluator: evaluates a HostIrContainer
 
 // The host program is typically generated automatically during lowering. This
 // is what is done at the instantiation of MultiDeviceExecutor, and what gets
@@ -727,11 +735,11 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingFusion) {
       at::randn({16, 32}, at::TensorOptions().device(communicator_->device()));
 
   // Let us now execute the Host program.
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
   auto outputs = hie.runWithInput({{input, aten_input}});
 
   // validate the result
-  EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs.at(0)));
+  EXPECT_TRUE(torch::allclose(2 * aten_input + 1, outputs[0].as<at::Tensor>()));
 }
 
 // Let us now present a case where the host program consists of launching three
@@ -854,11 +862,11 @@ TEST_F(MultiDeviceTutorial, HostIrLaunchingThreeFusions) {
       at::randn({16, 32}, at::TensorOptions().device(communicator_->device()));
 
   // Let us now execute the Host program.
-  HostIrExecutor hie(std::move(hic));
+  HostIrEvaluator hie(std::move(hic));
   auto outputs = hie.runWithInput({{tv0, aten_tv0}});
 
   // validate the result
-  EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs.at(0)));
+  EXPECT_TRUE(torch::allclose(4 * aten_tv0 + 5, outputs[0].as<at::Tensor>()));
 }
 
 // Let us now present a real world scenario, used in transformer, where we need
@@ -957,12 +965,13 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
 
   // Let us now execute the Host program. When multidevice is requested, we
   // need to pass a pointer to a Communicator
-  HostIrExecutor hie(std::move(hic), communicator_);
+  HostIrEvaluator hie(std::move(hic), communicator_);
   auto outputs =
       hie.runWithInput({{tva, aten_tva}, {tvb, aten_tvb}, {tvd, aten_tvd}});
 
   // "validate" the result
-  EXPECT_EQ(outputs.at(0).numel(), (M * N) / communicator_->size());
+  EXPECT_EQ(
+      outputs[0].as<at::Tensor>().numel(), (M * N) / communicator_->size());
 }
 
 // Let us now show how to implement Kernel Pipelining with Host IR. Let us
@@ -1035,7 +1044,8 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
       /*vectorize=*/false,
       /*vectorize_shift=*/nullptr,
       /*unroll_required=*/false,
-      CircularBufferLoopStage::NotApplicable);
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   // We select a new stream in a round-robin fashion
   auto* stream_index = mod(index, IrBuilder::create<Val>(kNumberOfStreams));
@@ -1110,14 +1120,14 @@ TEST_F(MultiDeviceTutorial, HostIrKernekPipelining) {
   // Let us now execute the Host program. We indicate to use FusionExecutorCache
   // to execute the fusions -- this way, we don't need to recompile at each
   // iteration.
-  HostIrExecutor hie(
+  HostIrEvaluator hie(
       std::move(hic),
       /*communicator=*/nullptr,
       {.use_fusion_executor_cache = true});
   auto outputs = hie.runWithInput({{tv0, aten_tv0}, {tv2, aten_tv2}});
 
   // validate the result
-  EXPECT_TRUE(torch::allclose(outputs.at(0), aten_tv0 + 3));
+  EXPECT_TRUE(torch::allclose(outputs[0].as<at::Tensor>(), aten_tv0 + 3));
 }
 
 } // namespace hir

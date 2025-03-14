@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <expr_evaluator.h>
 #include <expr_simplifier.h>
 #include <ir/builder.h>
 #include <ir/utils.h>
@@ -230,7 +231,10 @@ TensorView* flatten(TensorView* x, int64_t start_dim, int64_t end_dim) {
   return out;
 }
 
-TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
+TensorView* squeeze(
+    TensorView* x,
+    const std::vector<int64_t>& dims,
+    bool squeeze_expanded) {
   NVF_ERROR(x != nullptr, "Input is invalid.");
   auto x_dom = x->domain()->noReductions();
   const auto ndims = static_cast<int64_t>(x_dom.size());
@@ -258,7 +262,7 @@ TensorView* squeeze(TensorView* x, const std::vector<int64_t>& dims) {
     to_squeeze[dim] = true;
   }
 
-  return squeeze(x, to_squeeze);
+  return squeeze(x, to_squeeze, squeeze_expanded);
 }
 
 TensorView* squeeze(TensorView* x, std::initializer_list<int64_t> dims) {
@@ -307,6 +311,9 @@ TensorView* squeeze(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       *x->getDataType());
+  if (x->hasDeviceMesh()) {
+    out->setDeviceMesh(x->getDeviceMesh());
+  }
 
   if (std::none_of(
           to_squeeze.begin(), to_squeeze.end(), [](bool b) { return b; })) {
@@ -387,6 +394,9 @@ TensorView* permute(TensorView* x, const std::vector<int64_t>& new2old) {
           out_logical,
           TensorDomain::getContiguityFilledWith(out_logical, true)),
       x->getDataType().value());
+  if (x->hasDeviceMesh()) {
+    out_tensor->setDeviceMesh(x->getDeviceMesh());
+  }
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, x);
   return out_tensor;
 }
@@ -579,7 +589,8 @@ TensorView* pad(
 TensorView* cat(
     const std::vector<TensorView*>& inputs,
     int64_t cat_dim,
-    std::optional<IterType> iter_type_opt) {
+    std::optional<IterType> iter_type_opt,
+    bool manual_padding) {
   NVF_CHECK(!inputs.empty(), "No input tensor given");
 
   const auto dtype = inputs.at(0)->getDataType().value();
@@ -618,6 +629,24 @@ TensorView* cat(
   // Special handling for the case where there's only one input
   if (inputs.size() == 1) {
     return set(inputs.at(0));
+  }
+
+  // short-circuit: If manual_padding is true, check that all inputs are already
+  // padded. Assume the padding is correct and create the catOp immediately.
+  // Primarily used for FusionTranslation, which adds the padOp for each tensor
+  // separately.
+  if (manual_padding) {
+    bool all_padded =
+        std::all_of(inputs.begin(), inputs.end(), [](TensorView* tv) {
+          return tv->definition()->isA<PadOp>();
+        });
+    NVF_ERROR(
+        all_padded,
+        "Expected all inputs to be padded when manual_padding is True.");
+    std::vector<Val*> input_vals(inputs.begin(), inputs.end());
+    auto out = ops::newOutputTV(input_vals, dtype);
+    IrBuilder::create<CatOp>(out, input_vals, cat_dim);
+    return out;
   }
 
   Val* concat_ext = nullptr;
@@ -705,7 +734,10 @@ TensorView* cat(
   return out;
 }
 
-TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
+TensorView* slice(
+    TensorView* inp,
+    const std::vector<Slice>& ranges,
+    bool manual_normalization) {
   const auto inp_dom = TensorDomain::noReductions(inp->getLogicalDomain());
   const int64_t ndims = static_cast<int64_t>(inp_dom.size());
 
@@ -716,24 +748,75 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
       ", Expected: ",
       ndims);
 
-  const auto normalize_slice_range = [](Slice range, Val* extent) -> Slice {
+  ExpressionEvaluator expr_eval;
+
+  const auto get_int = [&expr_eval](Val* x) -> std::optional<int64_t> {
+    if (x == nullptr) {
+      return std::nullopt;
+    }
+    auto inferred_val = expr_eval.evaluate(x);
+    if (inferred_val.hasValue()) {
+      return inferred_val.as<int64_t>();
+    } else {
+      return std::nullopt;
+    }
+  };
+
+  // Specialized min for extents. Do some more simplification beyond
+  // SimplifyingIrBuilder that are only valid for extents.
+  const auto min_extents = [&](Val* x, Val* y) -> Val* {
+    auto x_int = get_int(x);
+    auto y_int = get_int(y);
+    // Since extents are never negative, if one is 0, that must be the mininum.
+    if (x_int == 0) {
+      return x;
+    } else if (y_int == 0) {
+      return y;
+    }
+    // Simplify patterns like min(min(x, 32), 32) to min(x, 32) as it
+    // isn't uncommon.
+    auto bop = dynamic_cast<BinaryOp*>(x->definition());
+    if (y_int != std::nullopt && bop != nullptr &&
+        bop->getBinaryOpType() == BinaryOpType::Min) {
+      if (auto lhs_int = get_int(bop->lhs()); lhs_int != std::nullopt) {
+        return SimplifyingIrBuilder::minExpr(
+            bop->rhs(), IrBuilder::create<Val>(std::min(*lhs_int, *y_int)));
+      } else if (auto rhs_int = get_int(bop->rhs()); rhs_int != std::nullopt) {
+        return SimplifyingIrBuilder::minExpr(
+            bop->lhs(), IrBuilder::create<Val>(std::min(*rhs_int, *y_int)));
+      }
+    }
+
+    return SimplifyingIrBuilder::minExpr(x, y);
+  };
+
+  const auto normalize_slice_range =
+      [&manual_normalization, &min_extents, &get_int](
+          Slice range, Val* extent) -> Slice {
     auto cast_extent =
         SimplifyingIrBuilder::maybeCastExpr(DataType::Index, extent);
 
     auto zero = FusionGuard::getCurFusion()->zeroVal(DataType::Index);
 
+    auto start_int = get_int(range.start);
+    auto stop_int = get_int(range.stop);
+
     // norm_start = max(0, start < 0 ? start + extent : start)
     if (range.start == nullptr) {
       range.start = zero;
-    } else if (!range.start->isZeroInt()) {
+      start_int = 0;
+    } else if (start_int != 0) {
       range.start =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.start);
-      range.start = SimplifyingIrBuilder::maxExpr(
-          zero,
-          SimplifyingIrBuilder::whereExpr(
-              SimplifyingIrBuilder::ltExpr(range.start, zero),
-              SimplifyingIrBuilder::addExpr(range.start, cast_extent),
-              range.start));
+      if (!manual_normalization) {
+        range.start = SimplifyingIrBuilder::maxExpr(
+            zero,
+            SimplifyingIrBuilder::whereExpr(
+                SimplifyingIrBuilder::ltExpr(range.start, zero),
+                SimplifyingIrBuilder::addExpr(range.start, cast_extent),
+                range.start));
+      }
+      start_int = get_int(range.start);
     }
 
     // norm_stop = max(norm_start, min(extent, stop < 0 ? stop + extent : stop)
@@ -742,14 +825,21 @@ TensorView* slice(TensorView* inp, const std::vector<Slice>& ranges) {
     } else if (!range.stop->sameAs(extent)) {
       range.stop =
           SimplifyingIrBuilder::maybeCastExpr(DataType::Index, range.stop);
-      range.stop = SimplifyingIrBuilder::maxExpr(
-          range.start,
-          SimplifyingIrBuilder::minExpr(
-              cast_extent,
-              SimplifyingIrBuilder::whereExpr(
-                  SimplifyingIrBuilder::ltExpr(range.stop, zero),
-                  SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
-                  range.stop)));
+      // Commonly, range.start is zero and stop is non negative
+      if (start_int == 0 && stop_int >= 0) {
+        range.stop = min_extents(cast_extent, range.stop);
+      } else {
+        if (!manual_normalization) {
+          range.stop = SimplifyingIrBuilder::maxExpr(
+              range.start,
+              min_extents(
+                  cast_extent,
+                  SimplifyingIrBuilder::whereExpr(
+                      SimplifyingIrBuilder::ltExpr(range.stop, zero),
+                      SimplifyingIrBuilder::addExpr(range.stop, cast_extent),
+                      range.stop)));
+        }
+      }
     }
 
     // Ensure step is of type Index
@@ -869,6 +959,313 @@ std::vector<TensorView*> chunk(
     slices.push_back(slice(in, ranges));
   }
   return slices;
+}
+
+TensorView* broadcast(
+    TensorView* inp,
+    const std::vector<bool>& is_broadcast_dim) {
+  auto nBCastDims = is_broadcast_dim.size();
+  // Validate is_broadcast_dim
+  unsigned int n_broadcasts = 0;
+  for (auto ent : is_broadcast_dim) {
+    if (ent) {
+      n_broadcasts++;
+    }
+  }
+
+  NVF_CHECK(
+      nBCastDims - n_broadcasts ==
+          TensorDomain::noReductions(inp->getLogicalDomain()).size(),
+      "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
+      TensorDomain::noReductions(inp->getLogicalDomain()).size(),
+      " but received ",
+      nBCastDims - n_broadcasts);
+
+  if (n_broadcasts == 0) {
+    auto identity = set(inp);
+    NVF_ERROR(
+        identity->getValType().value() == ValType::TensorView,
+        "Expected identity op, but didn't get a TensorView back.");
+    return identity->as<TensorView>();
+  }
+
+  std::vector<IterDomain*> out_domain;
+  // Don't propagate reduction IDs through arith ops.
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+  size_t iinp = 0, ibdim = 0;
+  while (ibdim < is_broadcast_dim.size()) {
+    if (is_broadcast_dim[ibdim]) {
+      out_domain.push_back(IterDomainBuilder(
+                               FusionGuard::getCurFusion()->zeroVal(),
+                               FusionGuard::getCurFusion()->oneVal())
+                               .iter_type(IterType::Broadcast)
+                               .build());
+    } else {
+      out_domain.push_back(
+          IterDomainBuilder(inp_domain[iinp]).resetSchedulingParams().build());
+      iinp++;
+    }
+    ibdim++;
+  }
+
+  TensorView* out = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+  if (inp->hasDeviceMesh()) {
+    out->setDeviceMesh(inp->getDeviceMesh());
+  }
+  IrBuilder::create<BroadcastOp>(out, inp, is_broadcast_dim);
+  return out;
+}
+
+TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  NVF_CHECK(
+      expanded_sizes.size() >= inp_domain.size(),
+      "Invalid expand, number of sizes provided is expected to be at least ",
+      inp_domain.size(),
+      " but received ",
+      expanded_sizes.size());
+
+  inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
+  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  std::vector<Val*> maybe_expanded_sizes;
+  maybe_expanded_sizes.resize(inp_domain.size(), nullptr);
+
+  // Might a dimension actually get expanded? This will be true if any input
+  // IterDomains are Symbolic, since these may or may not be Broadcast.
+  bool expanded = false;
+
+  std::vector<IterDomain*> out_domain;
+  for (auto i : c10::irange(inp_domain.size())) {
+    auto inp_id = inp_domain[i];
+    auto out_id_builder = IterDomainBuilder(inp_id);
+    maybe_expanded_sizes[i] = inp_domain[i]->extent();
+
+    auto expanded_size_int = expanded_sizes[i]->value();
+
+    // If the expanded size is -1, let the input extent be propagated
+    // as is
+    if (expanded_size_int.hasValue() && expanded_size_int.as<int64_t>() == -1) {
+      // This is just done for clarity. It isn't necessary as it's
+      // already done when constructing out_id_builder.
+      out_id_builder.extent(inp_id->extent());
+    } else if (
+        // special patch for Symbolic IterDomain with a static size-1 extent
+        // since we know it will become broadcast at concretization
+        // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
+        (inp_id->extent()->isConstInt() &&
+         inp_id->extent()->evaluate().as<int64_t>() == 1) &&
+        (!expanded_size_int.hasValue() ||
+         expanded_size_int.as<int64_t>() != 1)) {
+      // When input id is a broadcast, expand the extent to the given
+      // size, which can be concrete or symbolic.
+      expanded = true;
+      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
+      out_id_builder.expanded_extent(expanded_extent);
+      // need to mark iter type as Broadcast for Symbolic input domains
+      out_id_builder.iter_type(IterType::Broadcast);
+      maybe_expanded_sizes[i] = expanded_extent;
+    } else if (
+        inp_id->isSymbolic() &&
+        (!inp_id->extent()->isConstInt() &&
+         !inp_id->extent()->sameAs(expanded_sizes[i]))) {
+      // need to mark iter type as Symbolic since this might not be an expand
+      // after concretization
+      expanded = true;
+      out_id_builder.iter_type(IterType::Symbolic);
+      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
+      // We set the extent instead of the expanded extent on a Symbolic
+      // IterDomain. At concretization, if the IterType is determined to be
+      // Broadcast, we will replace this with 1 and use the old extent as
+      // expandedExtent.
+      out_id_builder.extent(expanded_extent);
+      maybe_expanded_sizes[i] = expanded_extent;
+    } else if (!inp_id->extent()->isConstInt()) {
+      // Input id is non-broadcast and its extent is symbolic. Promote
+      // the extent to the given expanded size.
+      // Note that expansion to 1 just means its extent becomes 1 and
+      // does not mean the ID becomes a broadcast.
+      out_id_builder.extent(maybeCastOp(DataType::Index, expanded_sizes[i]));
+    } else {
+      // Input id is non-expand and its extent is concrete. Nothing
+      // to expand, but the input and expanded sizes should match if
+      // the expanded size is also concrete.
+      auto inp_id_size_int = inp_id->extent()->evaluate();
+      if (expanded_size_int.is<int64_t>()) {
+        NVF_CHECK(
+            inp_id_size_int == expanded_size_int,
+            "Invalid expand size, ",
+            expanded_sizes[i]->toString(),
+            ", for ",
+            inp_id->toString());
+      }
+    }
+    out_domain.push_back(out_id_builder.build());
+  }
+
+  TensorView* out_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+  if (!expanded) {
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
+  } else {
+    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
+  }
+  return out_tensor;
+}
+
+TensorView* expand_as(TensorView* inp, TensorView* other) {
+  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+  auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
+
+  NVF_CHECK(
+      inp_domain.size() <= other_domain.size(),
+      "Invalid expand_as, dimensions of inp is higher than dimensions of other, expected other to be at least ",
+      inp_domain.size(),
+      " but received ",
+      other_domain.size());
+
+  inp = ops::maybe_broadcast_inner_to_rank(inp, other_domain.size());
+  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
+
+  std::vector<IterDomain*> out_domain;
+  std::vector<Val*> maybe_expanded_sizes;
+  bool expanded = false;
+  for (auto i : c10::irange(inp_domain.size())) {
+    auto inp_id = inp_domain[i];
+    auto other_id = other_domain[i];
+
+    auto out_id_builder = IterDomainBuilder(inp_id);
+    Val* maybe_expanded_size = inp_id->extent();
+
+    if (!inp_id->isBroadcast()) {
+      NVF_ERROR(
+          !other_id->isBroadcast(),
+          "Cannot expand as a tensor if other has broadcast dimensions that don't map to broadcast dimensions in the input.");
+      if (!inp_id->isConstInt() && other_id->isConstInt()) {
+        out_id_builder.extent(
+            ops::promoteSize(inp_id->extent(), other_id->extent()));
+      }
+    } else {
+      if (!other_id->isBroadcast()) {
+        expanded = true;
+        out_id_builder.expanded_extent(other_id->extent());
+        maybe_expanded_size = other_id->extent();
+      } else if (other_id->isBroadcast() && other_id->hasExpandedExtent()) {
+        expanded = true;
+        out_id_builder.expanded_extent(other_id->expandedExtent());
+        maybe_expanded_size = other_id->expandedExtent();
+      }
+    }
+    out_domain.push_back(out_id_builder.build());
+    maybe_expanded_sizes.push_back(maybe_expanded_size);
+  }
+
+  TensorView* out_tensor = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      inp->getDataType().value());
+  if (!expanded) {
+    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
+  } else {
+    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
+  }
+  return out_tensor;
+}
+
+TensorView* repeat(
+    TensorView* inp_tv,
+    const std::vector<int64_t>& repeat_times) {
+  const auto ndims =
+      TensorDomain::noReductions(inp_tv->getLogicalDomain()).size();
+
+  // Handle repetitions of non-broadcast IDs first. Each ID is
+  // individully repeated by:
+  //
+  // Step 1. Insert a broadcast ID immediately outside of the
+  // repeated ID
+  // Step 2. Expand the broadcast ID by the repetition factor
+  // Step 3. Flatten the expanded ID and the repeated ID
+  //
+  // Note that it's also possible to repeat multiple non-broadcast IDs
+  // once by inserting and expanding broadcast IDs by one BroadcastOp
+  // and one ExpandOp.
+
+  bool has_repetition_of_broadcast = false;
+  auto intermediate_tv = inp_tv;
+  for (const auto i : c10::irange(ndims)) {
+    if (repeat_times.at(i) == 1) {
+      continue;
+    }
+
+    auto inp_id = intermediate_tv->getLogicalDomain().at(i);
+
+    // Broadcast is handled after this
+    if (inp_id->isBroadcast()) {
+      has_repetition_of_broadcast = true;
+      continue;
+    }
+
+    // Step 1: Insert a broadcast ID
+    std::vector<bool> bcast_flags(ndims + 1, false);
+    bcast_flags.at(i) = true;
+    auto broadcast_tv = broadcast(intermediate_tv, bcast_flags);
+
+    // Step 2: Expand the broadcast ID for the repetition factor
+    std::vector<Val*> expanded_sizes(
+        bcast_flags.size(), IrBuilder::create<Val>(-1L));
+    expanded_sizes.at(i) = IrBuilder::create<Val>(repeat_times.at(i));
+    auto expanded_tv = expand(broadcast_tv, expanded_sizes);
+
+    // Step 3: Reshape to merge the broadcast ID and the repeated ID
+    intermediate_tv = flatten(expanded_tv, (int64_t)i, (int64_t)i + 1);
+  }
+
+  if (!has_repetition_of_broadcast) {
+    return intermediate_tv;
+  }
+
+  // Repeat broadcast IDs. The expand approach doesn't work as reshape
+  // would just squeeze repeated IDs and thus there would be no
+  // merge. Expanded IDs would remain to be expanded broadcast IDs. To
+  // concretize them, use RepeatOp
+  std::vector<IterDomain*> new_domain;
+  new_domain.reserve(ndims);
+  std::vector<std::optional<bool>> new_contiguity;
+  new_contiguity.reserve(ndims);
+
+  for (const auto i : c10::irange(ndims)) {
+    auto inp_id = intermediate_tv->getLogicalDomain().at(i);
+    IterDomain* new_id = nullptr;
+
+    if (repeat_times.at(i) > 1 && inp_id->isBroadcast()) {
+      new_id = IterDomainBuilder(inp_id)
+                   .extent(IrBuilder::create<Val>(
+                       repeat_times.at(i), DataType::Index))
+                   .iter_type(IterType::Iteration)
+                   .build();
+    } else {
+      new_id = inp_id->cloneWithoutRFactor();
+    }
+
+    new_domain.push_back(new_id);
+    new_contiguity.push_back(
+        new_id->isBroadcast() ? std::optional<bool>(std::nullopt)
+                              : std::optional<bool>(true));
+  }
+
+  auto out_tv = IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(new_domain, new_contiguity),
+      inp_tv->dtype());
+
+  IrBuilder::create<RepeatOp>(out_tv, intermediate_tv);
+
+  return out_tv;
 }
 
 } // namespace nvfuser

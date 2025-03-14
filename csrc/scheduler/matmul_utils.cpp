@@ -15,30 +15,34 @@
 // NOTE: included to avoid compilation error caused by missing destructor in
 // 'SchedulerRuntimeInfo'
 #include <debug.h>
-#include <fusion_executor/executor_utils.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
+#include <mma_type.h>
 #include <options.h>
+#include <runtime/executor_utils.h>
+#include <scheduler/mma_utils.h>
+#include <type.h>
+#include <utils.h>
 #include <val_graph.h>
+
 #include <algorithm>
 #include <deque>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <type_traits>
 #include <utility>
 #include <variant>
-#include "ATen/cuda/CUDAContext.h"
-#include "mma_type.h"
-#include "mma_utils.h"
-#include "type.h"
-#include "utils.h"
+
+#include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
+namespace matmul_utils {
 namespace {
 
 //! Access to the structure should be done with labels defined in MatmulDimRole.
@@ -48,25 +52,63 @@ using ProblemShape = std::array<int64_t, 4>;
 inline std::optional<MmaMacro> getMmaOp(
     const int dev_version,
     const ProblemShape& problem) {
-  using MacroType = MmaMacro;
+  const int64_t n_extent = problem[(size_t)MatmulDimRole::N];
 
-  // NOTE: A temp condition
-  const ProblemShape::value_type n_extend = problem[(size_t)MatmulDimRole::N];
-  const bool use_small_n = ((n_extend % 8) == 0) && ((n_extend % 16) != 0);
+  MmaMacroEncode macro_encode{MmaMacroEncode::Arch::NoMma, 16, 8, 16};
 
   switch (dev_version) {
     case 75:
-      return (use_small_n) ? MacroType::Turing_16_8_16
-                           : MacroType::Turing_16_16_16;
+      macro_encode.arch = MmaMacroEncode::Arch::Turing;
+      if ((n_extent % 16) == 0) {
+        macro_encode.n = 16;
+      }
+      break;
     case 80:
     case 86:
     case 89:
-    case 90: // NOTE: temp use ampere matmul for hopper
-      return (use_small_n) ? MacroType::Ampere_16_8_16
-                           : MacroType::Ampere_16_16_16;
+      macro_encode.arch = MmaMacroEncode::Arch::Ampere;
+      if ((n_extent % 16) == 0) {
+        macro_encode.n = 16;
+      }
+      break;
+    case 90: {
+      macro_encode.arch = MmaMacroEncode::Arch::Hopper;
+      macro_encode.m = 64;
+      // TODO: guess here whether it is advantageous to double M or double N in
+      // order to form the CTA tile. Currently we assume M is doubled (coopA)
+      const auto score_macro = [&n_extent](int64_t macro_n) {
+        // We prefer a macro_n that divides n_extent most evenly, since a small
+        // remainder means we will have a row of tiles with a lot of wasted
+        // work. The best case though is when there is no remainder as in that
+        // case no extra tile row is needed.
+        //
+        // However, it is not worth creating new rows of tiles in the output
+        // just to avoid a remainder, so the largest contribution to the score
+        // is 256 times the number of tile rows needed.
+        int64_t score = ceilDiv(n_extent, macro_n) * 256L;
+        int64_t remainder = n_extent % macro_n;
+        if (remainder != 0) {
+          score += macro_n - remainder;
+        }
+        return score;
+      };
+      // Scan through all possible macros to find the one with the lowest score
+      uint16_t best_macro_n = 8;
+      int64_t best_macro_score = score_macro(8);
+      for (uint16_t macro_n = 16; macro_n <= 256; macro_n += 8) {
+        int64_t score = score_macro((int64_t)macro_n);
+        if (score < best_macro_score) {
+          best_macro_n = macro_n;
+          best_macro_score = score;
+        }
+      }
+      macro_encode.n = best_macro_n;
+      break;
+    }
     default:
       return std::nullopt;
   }
+  return macro_encode;
 }
 
 //! Find the number of circular buffer stages for shared memory operands, so
@@ -92,12 +134,13 @@ void limitCircularBufferingSmemOperands(
   mparams->circular_buffer_options.smem_circular_buffer_stage = (int)stages;
 }
 
-//! A wrapper for core heuristics initialization.
-//! We should have already set mparams->mma_macro before calling this function.
-inline bool initCoreHeuristics(
+namespace {
+
+bool fillDefaultAmpereHeuristic(
     MatmulParams* mparams,
     const ProblemShape& problem_shape,
-    const mma_utils::TensorRolesMap& tensor_roles) {
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
   const GemmTile instruction_tile = getMmaOpShape(mparams->mma_macro);
   GemmTile warp_tile = {-1, -1, -1};
   GemmTile cta_tile = {-1, -1, -1};
@@ -112,7 +155,7 @@ inline bool initCoreHeuristics(
     // - start with [4, 4, 2] shape, later it should depend on problem
     //   shape and have bigger impact on CTA tile shape
 
-    const DimType m_ratio = 4;
+    const DimType m_ratio = 4 / (DimType)num_problems;
     const DimType n_ratio = 4;
     const DimType k_ratio = 2;
 
@@ -144,7 +187,7 @@ inline bool initCoreHeuristics(
     cta_tile = {warp_tile.m * m_ratio, warp_tile.n * n_ratio, warp_tile.k};
   }
 
-  mparams->tile_sizes = {cta_tile, warp_tile, instruction_tile};
+  mparams->tile_sizes = {cta_tile, warp_tile};
 
   // stages and async mem copy
   {
@@ -168,6 +211,7 @@ inline bool initCoreHeuristics(
     }
     return min_size_bytes;
   };
+  // Use cp.async on Ampere if possible
   mparams->async_gmem_load_operands = isCpAsyncOperandLoadSupported(
       mparams,
       std::min(
@@ -182,6 +226,213 @@ inline bool initCoreHeuristics(
         2, mparams->circular_buffer_options.smem_circular_buffer_stage);
   }
   return true;
+}
+
+// This function sets cta_tile, warp_tile, and the mma instruction for Hopper
+// problems. Our strategy is as follows:
+// 1) We use warp_tile.k=cta_tile.k=64 usually, but we also check 16, 32,
+// and 48. 2) We always use 1 or 2 math groups. For 2 math groups, the warp tile
+// is
+//    doubled in either the M or N dimension, called coopA and coopB.
+// 3) We check the three scenarios separately for 1 math group, coopA, and
+//    coopB.
+// 4) For each scenario we check all possible macros. For each possible
+//    configuration, we score it for the given problem size. The score indicates
+//    the amount of data loaded in total, including OOB accesses as if they were
+//    really loaded. This considers that data is loaded multiple times for
+//    different tiles.
+void fillOptimalHopperTileSizes(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape) {
+  const int64_t m = problem_shape[(size_t)MatmulDimRole::M];
+  const int64_t n = problem_shape[(size_t)MatmulDimRole::N];
+  const int64_t k = problem_shape[(size_t)MatmulDimRole::K];
+
+  struct TileConfig {
+    GemmTile cta;
+    GemmTile warp;
+    GemmTile instr;
+  };
+
+  // Compute how many total bytes need to be computed, summed over all tiles in
+  // the output
+  const auto bytes_transferred = [m, n, k](const GemmTile& cta) {
+    const int64_t tiles_m = ceilDiv(m, cta.m);
+    const int64_t tiles_n = ceilDiv(n, cta.n);
+    const int64_t tiles_k = ceilDiv(k, cta.k);
+
+    // This is the number of bytes that get loaded per circular buffering stage
+    // in a single tile.
+    const int64_t bytes_per_output_tile = tiles_k * (cta.m + cta.n) * cta.k;
+
+    // Now we model wave quantization of the MN tile grid. For example if there
+    // are 132 SMs, then we round up the number of tiles to a multiple of 132
+    // and then multiply the bytes per output tile by that number. The last wave
+    // might run faster than we model it here because it is not really loading
+    // that full amount of data, but it is still wasted computation and so this
+    // is how we model it. Note that we also do not model L2 locality here at
+    // all, so this number is meant as a very rough estimate of compute time for
+    // memory-bound problems.
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    const int64_t num_waves = ceilDiv(tiles_m * tiles_n, num_sms);
+    return num_waves * num_sms * bytes_per_output_tile;
+  };
+
+  TileConfig best_config{
+      /*cta=*/{64, 64, 64}, /*warp=*/{64, 64, 64}, /*instr=*/{64, 64, 16}};
+  int64_t best_bytes_tx = std::numeric_limits<int64_t>::max();
+
+  // If two sizes result in the same number of total byte, prefer the larger CTA
+  // K. To do this we iterate backwards here.
+  for (int64_t cta_k = 256; cta_k > 0; cta_k -= 64) {
+    for (const auto& [m_ratio, n_ratio] :
+         std::vector<std::pair<int64_t, int64_t>>{
+             {2L, 1L}, // coopA
+             {1L, 2L}, // coopB
+             {1L, 1L}, // single math group
+         }) {
+      for (int64_t instr_n = 256; instr_n > 8; instr_n -= 64) {
+        // for (int64_t instr_n = 64; instr_n <= 64; instr_n += 64) {
+        const int64_t cta_m = m_ratio * 64;
+        const int64_t cta_n = n_ratio * instr_n;
+
+        const int64_t bytes_per_stage = (cta_m + cta_n) * cta_k * 2;
+        // Don't consider cases where we would need fewer than 3 load stages due
+        // to smem constraint (add 1K bytes overhead as fudge factor)
+        const int64_t smem_bytes =
+            at::cuda::getCurrentDeviceProperties()->sharedMemPerMultiprocessor;
+        if (bytes_per_stage * 3L > smem_bytes - 1024L) {
+          continue;
+        }
+
+        if (cta_m > 256 || cta_n > 256 || cta_k > 256) {
+          // CTA tile is limited to 256 is each dim
+          continue;
+        }
+        const TileConfig cfg{
+            .cta = {cta_m, cta_n, cta_k},
+            .warp = {64L, instr_n, cta_k},
+            .instr = {64L, instr_n, 16L},
+        };
+        const int64_t bytes_tx = bytes_transferred(cfg.cta);
+        if (bytes_tx < best_bytes_tx) {
+          best_bytes_tx = bytes_tx;
+          best_config = cfg;
+        }
+      }
+    }
+  }
+
+  mparams->tile_sizes.cta_tile = best_config.cta;
+  mparams->tile_sizes.warp_tile = best_config.warp;
+  mparams->mma_macro = MmaMacroEncode{
+      MmaMacroEncode::Arch::Hopper,
+      (uint16_t)64,
+      (uint16_t)best_config.instr.n,
+      (uint16_t)16};
+}
+
+bool fillDefaultHopperHeuristic(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape,
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+
+  // Use non-persistent kernel
+  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
+  fillOptimalHopperTileSizes(mparams, problem_shape);
+
+  const GemmTile& cta_tile = mparams->tile_sizes.cta_tile;
+
+  //  Use a non-persistent kernel by default for now
+  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
+  // Use warp specialization on hopper by default
+  mparams->circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::WarpSpecialized;
+
+  // TODO: We should take the main loop structure into account here to get a
+  // more accurate estimate in case of horizontal fusion
+  int64_t operand_smem_per_stage =
+      (int64_t)num_problems * 2 * (cta_tile.m + cta_tile.n) * cta_tile.k;
+  // We leave a bit of space for semaphores.
+  int64_t max_operand_smem =
+      (int64_t)device_prop->sharedMemPerMultiprocessor - (1L << 7);
+  if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA) {
+    // We cannot reuse memory for smem epilogue in persistent kernels.
+    for (TensorView* out : tensor_roles.at(MatmulTensorRole::OUTPUT)) {
+      max_operand_smem -= dataTypeSize(out->dtype()) * cta_tile.m * cta_tile.n;
+    }
+  }
+
+  // Maximize stages such that stages*operand_smem_per_stage fits into
+  // max_operand_smem
+  mparams->circular_buffer_options.smem_circular_buffer_stage =
+      max_operand_smem / operand_smem_per_stage;
+
+  mparams->circular_buffer_options.circular_buffer_smem_write =
+      mparams->circular_buffer_options.smem_circular_buffer_stage > 1;
+
+  // Always use TMA on Hopper
+  mparams->async_gmem_load_operands = true;
+
+  // See here for more information:
+  // https://research.colfax-intl.com/cutlass-tutorial-wgmma-hopper/
+
+  // We count the number of tiles in each dimension to determine the
+  // rasterization order. The fast rasterization axis is the shortest axis, to
+  // encourage L2 hits by looping over the same rows or cols more frequently.
+  int64_t Mtiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::M], cta_tile.m);
+  int64_t Ntiles = ceilDiv(problem_shape[(size_t)MatmulDimRole::N], cta_tile.n);
+
+  // When we choose the rasterization direction, that becomes the fast
+  // dimension. However, when we swizzle, we pull groups of a fixed size from
+  // the _other_ dimension to create a new inner dimension. We find the swizzle
+  // factor that is largest and has the least quantization when we divide that
+  // other dimension by the swizzle factor.
+  int64_t swizzled_tiles = Mtiles <= Ntiles ? Ntiles : Mtiles;
+  mparams->cta_order = Mtiles <= Ntiles
+      ? MatmulParams::TileRasterizationOrder::ColumnMajor
+      : MatmulParams::TileRasterizationOrder::RowMajor;
+
+  // We also swizzle the tiles as much as possible up to 16 tiles. Like choosing
+  // the rasterization order, this is used to increase L2 locality
+  mparams->grid_swizzle_factor = std::min(swizzled_tiles, 16L);
+  while (swizzled_tiles % mparams->grid_swizzle_factor != 0) {
+    // Decrease the swizzle factor if it would result in nondivisible splits,
+    // since this would unnecessarily increase the grid size.
+    mparams->grid_swizzle_factor--;
+  }
+  // TODO: grid swizzling is currently disabled on Hopper since we cannot
+  // properly inline when we swizzle unmapped loop broadcasts
+  mparams->grid_swizzle_factor = 1L;
+
+  // TODO: Finally, we set the CGA size
+
+  return true;
+}
+
+} // namespace
+
+//! A wrapper for core heuristics initialization.
+//! We should have already set mparams->mma_macro before calling this function.
+inline bool initCoreHeuristics(
+    MatmulParams* mparams,
+    const ProblemShape& problem_shape,
+    const mma_utils::TensorRolesMap& tensor_roles,
+    const size_t num_problems) {
+  if (isHopper(mparams->mma_macro)) {
+    return fillDefaultHopperHeuristic(
+        mparams, problem_shape, tensor_roles, num_problems);
+  } else if (isAmpere(mparams->mma_macro) || isTuring(mparams->mma_macro)) {
+    return fillDefaultAmpereHeuristic(
+        mparams, problem_shape, tensor_roles, num_problems);
+  }
+  // Unsupported arch
+  return false;
 }
 
 //! A helper for getting problem shape from fusion and runtime info.
@@ -219,7 +470,7 @@ std::string isMatmulFusionDefinitionSupported(
     const mma_utils::MatmulPattern& pattern,
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& id_roles,
-    const ValGraph& permissive_graph) {
+    const ValGraph& broadcast_graph) {
   const auto& fusion_inputs = fusion->inputs();
   const auto& fusion_outputs = fusion->outputs();
   std::vector<TensorView*> mma_inputs = {pattern.A, pattern.B};
@@ -263,10 +514,11 @@ std::string isMatmulFusionDefinitionSupported(
            {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
         auto entry = tensor_roles.find(role);
         if (entry != tensor_roles.end()) {
-          if (1 == entry->second.size()) {
+          if (isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+              1 == entry->second.size()) {
             tvs_with_roles.insert(entry->second.begin(), entry->second.end());
           } else {
-            return "There is other than one fusion input that can be MMA operand";
+            return "There is more than one fusion input that can be MMA operand (enable fuse_multiple_matmuls)";
           }
         } else {
           return "No candidate in fusion inputs for MMA operand";
@@ -299,7 +551,7 @@ std::string isMatmulFusionDefinitionSupported(
   // properly handled
   {
     std::vector<ValGroup> dim_ordering = mma_utils::canonicalDimOrdering(
-        tensor_roles, id_roles, permissive_graph);
+        tensor_roles, id_roles, broadcast_graph);
     VectorOfUniqueEntries<MatmulDimRole> role_order;
     for (const ValGroup& g : dim_ordering) {
       const auto it = id_roles.find(g);
@@ -339,22 +591,14 @@ std::string isMatmulFusionDefinitionSupported(
     }
   }
 
-  // Check that no non-trivial allocation domains are set on inputs or
-  // outputs.
-  // TODO: Lift this requirement once we have proper allocation domain support
-  for (Val* inp : fusion->inputs()) {
-    if (auto tv = dynamic_cast<TensorView*>(inp);
-        tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
-      return "detected input TV with non-trivial allocation domain";
-    }
-  }
+  // TODO: Lift this requirement once we properly handle output allocation
+  // domain
   for (Val* outp : fusion->outputs()) {
     if (auto tv = dynamic_cast<TensorView*>(outp);
         tv && !ir_utils::hasTrivialAllocationDomain(tv)) {
       return "detected output TV with non-trivial allocation domain";
     }
   }
-
   return "";
 }
 
@@ -363,24 +607,30 @@ class VectorizationCalculator {
   VectorizationCalculator(
       const mma_utils::TensorRolesMap& tensor_roles,
       const mma_utils::DimRolesMap& dim_roles,
-      const ValGraph& permissive_graph,
+      const ValGraph& broadcast_graph,
       SchedulerRuntimeInfo& runtime_info)
       : runtime_info_(runtime_info),
         tensor_roles_(tensor_roles),
         dim_roles_(dim_roles),
-        permissive_graph_(permissive_graph),
+        broadcast_graph_(broadcast_graph),
         dim_ordering_(mma_utils::canonicalDimOrdering(
             tensor_roles,
             dim_roles_,
-            permissive_graph_)) {}
+            broadcast_graph_)) {}
 
   MatmulParams::SupportedVectorization compute() {
     const std::vector<int64_t> a_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_A);
-    NVF_ERROR(a_vecs.size() == 1, "Expected exactly one A operand");
+    NVF_ERROR(
+        isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+            a_vecs.size() == 1,
+        "Expected exactly one A operand");
     const std::vector<int64_t> b_vecs =
         operandVectorizations(MatmulTensorRole::OPERAND_B);
-    NVF_ERROR(b_vecs.size() == 1, "Expected exactly one B operand");
+    NVF_ERROR(
+        isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+            b_vecs.size() == 1,
+        "Expected exactly one B operand");
     return {a_vecs[0], b_vecs[0], epilogueVectorization()};
   }
 
@@ -418,7 +668,7 @@ class VectorizationCalculator {
 
   //! To analyze vectorization, we need to know pointer alignment, sizes, and
   //! strides. SchedulerRuntimeInfo contains all this info about fusion
-  //! inputs, but fusion outputs are allocated by FusionExecutor so they are
+  //! inputs, but fusion outputs are allocated by KernelExecutor so they are
   //! absent from SchedulerRuntimeInfo.
   //!
   //! This function just extracts sizes and strides from runtime_info_ when
@@ -446,10 +696,10 @@ class VectorizationCalculator {
     // is least favorable to vectorization, by padding to an odd value.
     std::vector<int64_t> sizes, strides;
     std::vector<bool> concrete_contig;
-    for (size_t i : c10::irange(tv->getMaybeAllocationDomain().size())) {
-      IterDomain* id = tv->getMaybeAllocationDomain().at(i);
+    for (auto&& [i, id] : enumerate(tv->getMaybeAllocationDomain())) {
       if (id->isBroadcast()) {
         sizes.push_back(1);
+        concrete_contig.push_back(false);
         continue;
       }
       if (id->isReduction()) {
@@ -467,11 +717,12 @@ class VectorizationCalculator {
     }
 
     strides.resize(sizes.size(), 0l);
-    int64_t stride = 1l;
-    for (int64_t i = (int64_t)(sizes.size()) - 1l; i >= 0; --i) {
-      strides[(size_t)i] = sizes[(size_t)i] == 1 ? 0 : stride;
-      stride *= sizes[(size_t)i];
-      if (!concrete_contig[(size_t)i]) {
+    int64_t stride = 1;
+    for (int64_t i :
+         std::views::iota(0, std::ssize(sizes)) | std::views::reverse) {
+      strides[i] = sizes[i] == 1 ? 0 : stride;
+      stride *= sizes[i];
+      if (!concrete_contig.at(i)) {
         // pad non-concrete dims to next odd value
         stride |= 1l;
       }
@@ -505,7 +756,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = permissive_graph_.toGroup(id);
+      ValGroup g = broadcast_graph_.toGroup(id);
       // Exit when this does not match the given ordered inner dimension
       if (remaining_inner_dims.empty() || g != remaining_inner_dims.back()) {
         break;
@@ -584,7 +835,7 @@ class VectorizationCalculator {
         continue;
       }
 
-      ValGroup g = permissive_graph_.toGroup(id);
+      ValGroup g = broadcast_graph_.toGroup(id);
       MatmulDimRole dim_role = dimRole(g);
       if (dim_role == MatmulDimRole::Batch) {
         // We cannot vectorize in batch dimensions
@@ -677,28 +928,146 @@ class VectorizationCalculator {
   SchedulerRuntimeInfo& runtime_info_;
   const mma_utils::TensorRolesMap& tensor_roles_;
   const mma_utils::DimRolesMap& dim_roles_;
-  const ValGraph& permissive_graph_;
+  const ValGraph& broadcast_graph_;
   std::vector<ValGroup> dim_ordering_;
 };
 
 MatmulParams::SupportedVectorization getSupportedVectorization(
     const mma_utils::TensorRolesMap& tensor_roles,
     const mma_utils::DimRolesMap& dim_roles,
-    const ValGraph& permissive_graph,
+    const ValGraph& broadcast_graph,
     SchedulerRuntimeInfo& runtime_info) {
   VectorizationCalculator calc(
-      tensor_roles, dim_roles, permissive_graph, runtime_info);
+      tensor_roles, dim_roles, broadcast_graph, runtime_info);
   return calc.compute();
 }
 
 } // anonymous namespace
 
-std::string getMatmulRunTimeRejectReason(
+std::unique_ptr<MatmulParams> getMatmulHeuristics(
     Fusion* fusion,
-    HeuristicDataCache* data_cache,
-    SchedulerRuntimeInfo& runtime_info) {
-  // TODO: add proper set of checks
-  return "";
+    SchedulerRuntimeInfo& runtime_info,
+    HeuristicDataCache* data_cache) {
+  FusionGuard fg(fusion);
+  (void)data_cache;
+  auto mparams = std::make_unique<MatmulParams>();
+
+  // Set kernel index mode
+  mparams->cparams.index_type = runtime_info.getIndexType();
+
+  // Check initial conditions
+  std::vector<mma_utils::MatmulPattern> patterns =
+      mma_utils::findMatmulPatterns(fusion);
+  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
+  NVF_ERROR(
+      isOptionEnabled(EnableOption::FuseMultipleMatmuls) ||
+          patterns.size() == 1,
+      "Only a single matmul pattern can currently be fused ",
+      "unless the fuse_multiple_matmuls option is enabled");
+  mma_utils::MatmulPattern& pattern = patterns.front();
+
+  // IdModel is used to analyze problem shape & layout
+  IdModel id_model(fusion, /*build_graphs=*/false);
+  id_model.maybeBuildGraph(IdMappingMode::BROADCAST);
+
+  const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
+
+  const auto problem_shape = getProblemShape(id_roles, runtime_info);
+
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  const auto mma_op =
+      getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
+  NVF_ERROR(
+      mma_op.has_value(), "Failed to determine a MMA op for given problem.");
+  mparams->mma_macro = mma_op.value();
+
+  const auto& tensor_roles_opt =
+      mma_utils::getTensorRoles(fusion, id_model, id_roles);
+  NVF_ERROR(
+      tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
+  const auto tensor_roles = tensor_roles_opt.getData();
+
+  mparams->supported_vec_size = getSupportedVectorization(
+      tensor_roles,
+      id_roles,
+      id_model.idGraph(IdMappingMode::BROADCAST),
+      runtime_info);
+
+  if (matmul_heuristic_plugin::hasPlugin()) {
+    const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
+        mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
+    NVF_ERROR(inner_dims_opt.isValid(), inner_dims_opt.getErrorMsg());
+    const mma_utils::MatmulOperandInnerDims inner_dims =
+        inner_dims_opt.getData();
+
+    // Fill in proper values using plugin
+    matmul_heuristic_plugin::updateMatmulParams(
+        mparams.get(),
+        problem_shape[(size_t)MatmulDimRole::M],
+        problem_shape[(size_t)MatmulDimRole::N],
+        problem_shape[(size_t)MatmulDimRole::K],
+        problem_shape[(size_t)MatmulDimRole::Batch],
+        inner_dims,
+        tensor_roles);
+    // TODO: more sophisticated handling of multiple matmuls when using plugin
+    mparams->tile_sizes.cta_tile.m /= (int64_t)patterns.size();
+  } else {
+    TORCH_WARN_ONCE(
+        "Scheduling a matmul without heuristic plugin. "
+        "Specify plugin location like this: "
+        "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
+    // Populate heuristic details
+    auto status = initCoreHeuristics(
+        mparams.get(),
+        problem_shape,
+        tensor_roles,
+        // TODO: this assumes all patterns will lie in the same main loop, which
+        // might be false
+        /*num_problems=*/patterns.size());
+    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  }
+
+  // Ensure that entire pipeline is filled for shared memory operands given
+  // problem and heuristics.
+  limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
+
+  // Disable magic zero for matmul kernels
+  mparams->cparams.enable_magic_zero = false;
+
+  // Set whether to use shared memory for epilogue
+  std::tie(mparams->use_smem_epilogue, mparams->promote_prologue_smem_reuse) =
+      mma_utils::generateSharedMemoryEpilogueHeuristics(
+          mparams->tile_sizes,
+          mparams->circular_buffer_options.smem_circular_buffer_stage,
+          tensor_roles,
+          /*ignore_occupancy_drop=*/true);
+  if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
+    // Always promote smem reuse for Hopper. This is needed because we use TMA
+    // which has higher alignment requirements, so it's important that we place
+    // our TMA buffers at an offset that's a multiple of 64 (like 0) if
+    // possible.
+    mparams->promote_prologue_smem_reuse = true;
+
+    // TMA allows us to nearly always avoid linear indexing.
+    // verify here that we will be able to use Int32 indexing. If not,
+    // then disable use_smem_epilogue.
+    NVF_CHECK(
+        problem_shape[(size_t)MatmulDimRole::M] <=
+                std::numeric_limits<int32_t>::max() &&
+            problem_shape[(size_t)MatmulDimRole::N] <=
+                std::numeric_limits<int32_t>::max() &&
+            problem_shape[(size_t)MatmulDimRole::K] <=
+                std::numeric_limits<int32_t>::max(),
+        "Cannot safely use TMA because one of the M, N, or K dimensions overflows Int32");
+    // TODO: Setting index type like this causes launch failure
+    // mparams->cparams.index_type = PrimDataType::Int32;
+  }
+
+  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
+    debug() << mparams->toString() << std::endl;
+  }
+
+  return mparams;
 }
 
 // The analysis is based on mul-sum pair pattern, detected in the provided
@@ -719,9 +1088,10 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   // scheduler.
   // 6. Check if the fusion is resharding.
 
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+
   // #0
   {
-    const auto device_prop = at::cuda::getCurrentDeviceProperties();
     // Use a dummy problem shape to determine whether this is a supported
     // device.
     const auto mma_op = getMmaOp(
@@ -743,6 +1113,28 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
   {
     for (const mma_utils::MatmulPattern& pattern : patterns) {
       Expr* op = pattern.output->definition();
+      if (device_prop->major >= 9) {
+        for (TensorView* operand : {pattern.A, pattern.B}) {
+          if (!operand->isFusionInput() &&
+              (operand->definition() == nullptr ||
+               !operand->definition()->isA<LoadStoreOp>() ||
+               !operand->definition()->input(0)->isFusionInput() ||
+               operand->hasRoot())) {
+            return "Operand " + operand->toString() +
+                " must be a fusion input or non-permuting LoadStoreOp of an input on Hopper";
+          }
+        }
+        if (op->isA<ReductionOp>()) {
+          bool found_reduction = false;
+          for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+            if (found_reduction &&
+                !pattern.output->axis((int64_t)dim)->isReduction()) {
+              return "Mul+Sum patterns can only be translated to MmaOp "
+                     "on Hopper if the reduction dim is innermost";
+            }
+          }
+        }
+      }
       if (op->isA<MatmulOp>() || op->isA<LinearOp>()) {
         if (!isOptionEnabled(EnableOption::FuseMatmul)) {
           // Check for MatmulOp or LinearOp. If found, then only fuse if option
@@ -765,13 +1157,14 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     }
   }
 
-  if (patterns.size() > 1) {
+  if (!isOptionEnabled(EnableOption::FuseMultipleMatmuls) &&
+      patterns.size() > 1) {
     return "Only a single matmul pattern can currently be fused";
   }
 
   // #3
   // Prepare an IdModel which will be reused to check remaining conditions
-  IdModel id_model(fusion);
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto id_roles = patterns.front().getDimRoles(id_model);
   const mma_utils::TensorRolesMapOpt tensor_roles_opt =
       mma_utils::getTensorRoles(fusion, id_model, id_roles);
@@ -787,7 +1180,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
         patterns.front(),
         tensor_roles,
         id_roles,
-        id_model.idGraph(IdMappingMode::PERMISSIVE));
+        id_model.idGraph(IdMappingMode::BROADCAST));
     if (!support_status.empty()) {
       return support_status;
     }
@@ -805,6 +1198,31 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
     return "Fusion is resharding.";
   }
 
+  return "";
+}
+
+std::string getMatmulRunTimeRejectReason(
+    Fusion* fusion,
+    HeuristicDataCache* data_cache,
+    SchedulerRuntimeInfo& runtime_info) {
+  // On Hopper, we use TMA to load operands. Since TMA requires each coordinate
+  // of the input to be represented with a 32-bit signed int, we will encounter
+  // overflow if any dimension of an operand is larger than that.
+  const auto device_prop = at::cuda::getCurrentDeviceProperties();
+  if (device_prop->major == 9) {
+    for (Val* inp : fusion->inputs()) {
+      if (auto* tv = dynamic_cast<TensorView*>(inp)) {
+        for (int64_t extent : runtime_info.getInputAllocationSizes(tv)) {
+          if (extent >= (1L << 31)) {
+            std::stringstream ss;
+            ss << "Cannot schedule Hopper matmul with dims larger than 2^31-1, but found "
+               << extent;
+            return ss.str();
+          }
+        }
+      }
+    }
+  }
   return "";
 }
 
@@ -829,99 +1247,32 @@ bool isCpAsyncOperandLoadSupported(
                  mparams->supported_vec_size.a, mparams->supported_vec_size.b));
 }
 
-std::unique_ptr<MatmulParams> getMatmulHeuristics(
-    Fusion* fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    HeuristicDataCache* data_cache) {
-  FusionGuard fg(fusion);
-  (void)data_cache;
-  auto mparams = std::make_unique<MatmulParams>();
+void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
+  NVF_ERROR(tv->nDims() >= number_of_inner_pos);
+  std::vector<int64_t> broadcast_pos;
+  std::vector<int64_t> nonbroadcast_pos;
 
-  // Set kernel index mode
-  mparams->cparams.index_type = runtime_info.getIndexType();
-
-  // Check initial conditions
-  std::vector<mma_utils::MatmulPattern> patterns =
-      mma_utils::findMatmulPatterns(fusion);
-  NVF_ERROR(!patterns.empty(), "No matmul patterns were found");
-  NVF_ERROR(
-      patterns.size() == 1,
-      "Only a single matmul pattern can currently be fused");
-  mma_utils::MatmulPattern& pattern = patterns.front();
-
-  // IdModel is used to analyze problem shape & layout
-  IdModel id_model(fusion);
-  id_model.maybeBuildGraph(IdMappingMode::PERMISSIVE);
-
-  const mma_utils::DimRolesMap id_roles = pattern.getDimRoles(id_model);
-
-  const auto problem_shape = getProblemShape(id_roles, runtime_info);
-
-  const auto device_prop = at::cuda::getCurrentDeviceProperties();
-  const auto mma_op =
-      getMmaOp(device_prop->major * 10 + device_prop->minor, problem_shape);
-  NVF_ERROR(
-      mma_op.has_value(), "Failed to determine a MMA op for given problem.");
-  mparams->mma_macro = mma_op.value();
-
-  const auto& tensor_roles_opt =
-      mma_utils::getTensorRoles(fusion, id_model, id_roles);
-  NVF_ERROR(
-      tensor_roles_opt.isValid(), "Tensor roles map in mma is not valid.");
-  const auto tensor_roles = tensor_roles_opt.getData();
-
-  mparams->supported_vec_size = getSupportedVectorization(
-      tensor_roles,
-      id_roles,
-      id_model.idGraph(IdMappingMode::PERMISSIVE),
-      runtime_info);
-
-  if (matmul_heuristic_plugin::hasPlugin()) {
-    const mma_utils::MatmulOperandInnerDimsOpt inner_dims_opt =
-        mma_utils::getOperandInnerDims(id_model, id_roles, tensor_roles);
-    NVF_ERROR(inner_dims_opt.isValid(), inner_dims_opt.getErrorMsg());
-    const mma_utils::MatmulOperandInnerDims inner_dims =
-        inner_dims_opt.getData();
-
-    // Fill in proper values using plugin
-    matmul_heuristic_plugin::updateMatmulParams(
-        mparams.get(),
-        problem_shape[(size_t)MatmulDimRole::M],
-        problem_shape[(size_t)MatmulDimRole::N],
-        problem_shape[(size_t)MatmulDimRole::K],
-        problem_shape[(size_t)MatmulDimRole::Batch],
-        inner_dims,
-        tensor_roles);
-  } else {
-    TORCH_WARN_ONCE(
-        "Scheduling a matmul without heuristic plugin. "
-        "Specify plugin location like this: "
-        "NVFUSER_MATMUL_HEURISTIC_PLUGIN=/path/to/libmatmulheuristic.so");
-    // Populate heuristic details
-    auto status =
-        initCoreHeuristics(mparams.get(), problem_shape, tensor_roles);
-    NVF_ERROR(status, "Initialization of core part of heuristics failed.");
+  for (auto i : c10::irange(number_of_inner_pos)) {
+    auto axis_idx = i - number_of_inner_pos;
+    auto id = tv->axis(axis_idx);
+    if (id->isBroadcast()) {
+      broadcast_pos.push_back(axis_idx);
+    } else {
+      nonbroadcast_pos.push_back(axis_idx);
+    }
   }
 
-  // Ensure that entire pipeline is filled for shared memory operands given
-  // problem and heuristics.
-  limitCircularBufferingSmemOperands(mparams.get(), problem_shape);
+  auto combined_pos_vec = broadcast_pos;
+  combined_pos_vec.insert(
+      combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
 
-  // Disable magic zero for matmul kernels
-  mparams->cparams.enable_magic_zero = false;
-
-  // Set whether to use shared memory for epilogue
-  std::tie(mparams->use_smem_epilogue, mparams->promote_prologue_smem_reuse) =
-      mma_utils::generateSharedMemoryEpilogueHeuristics(
-          mparams->tile_sizes,
-          mparams->circular_buffer_options.smem_circular_buffer_stage,
-          tensor_roles);
-
-  if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
-    debug() << mparams->toString() << std::endl;
+  std::unordered_map<int64_t, int64_t> order_map;
+  for (auto i : c10::irange(number_of_inner_pos)) {
+    order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
   }
 
-  return mparams;
+  // Apply ordering.
+  tv->reorder(order_map);
 }
-
+} // namespace matmul_utils
 } // namespace nvfuser

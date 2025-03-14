@@ -39,11 +39,16 @@ class Allocate;
 class Asm;
 class BlockSync;
 class GridSync;
+class FenceAsyncProxy;
+class WgMmaFence;
+class SetMaxNReg;
+class Return;
 class MBarrierInit;
 class MBarrierInvalidate;
 class MBarrierArrive;
 class MBarrierArriveExpectTx;
 class MBarrierWait;
+class MBarrierWaitParity;
 class BlockSerializeWait;
 class BlockSerializeRelease;
 class AsyncWait;
@@ -57,6 +62,7 @@ class GridBroadcast;
 class GridWelford;
 class GroupedGridWelford;
 class AllocateFusedReduction;
+class RNGOp;
 
 // Expr container
 
@@ -74,7 +80,7 @@ class Predicate final : public Val {
 
   std::string toString(int indent_size = 0) const override;
 
-  NVF_API std::string toInlineString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 
   PredicateType predicate_type() const {
     return ptype_;
@@ -83,8 +89,7 @@ class Predicate final : public Val {
   const Expr* expr() const {
     NVF_ERROR(
         ptype_ != PredicateType::Unswitch &&
-        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual &&
-        ptype_ != PredicateType::ElectSync);
+        ptype_ != PredicateType::Vectorize && ptype_ != PredicateType::Manual);
     return expr_;
   }
 
@@ -145,7 +150,7 @@ class Predicate final : public Val {
   Val* value_ = nullptr;
 };
 
-class NVF_API TensorIndex final : public Val {
+class TensorIndex final : public Val {
  public:
   TensorIndex(
       IrBuilderPasskey,
@@ -178,6 +183,7 @@ struct AsmOptions {
   bool volatile_ = false;
   bool memory = false;
   std::unordered_set<int64_t> readable_outputs = {};
+  std::unordered_set<int64_t> immediate_inputs = {};
 };
 
 class Asm final : public Expr {
@@ -205,6 +211,11 @@ class Asm final : public Expr {
   const std::string& code() const {
     return attribute<std::string>(0);
   }
+
+  // The name of the utility function that we want to wrap the inline PTX code
+  // in. If this is empty, then the inline PTX code will be emitted directly
+  // into the kernel.
+  const std::string utility() const;
 
   const Options& options() const {
     return attribute<Options>(1);
@@ -249,7 +260,7 @@ class Asm final : public Expr {
 //! is required as an intermediate within a kernel. The extent is the expression
 //! of the size of the buffer that is generated from the TensorView that
 //! describes the output of an operation.
-class NVF_API Allocate final : public Expr {
+class Allocate final : public Expr {
  public:
   using Expr::Expr;
 
@@ -305,8 +316,8 @@ class NVF_API Allocate final : public Expr {
   //! Size of each dimension
   std::vector<Val*> shape() const {
     std::vector<Val*> result;
-    result.reserve(attributes().size() - 6);
-    for (auto i = attributes().begin() + 6; i != attributes().end(); ++i) {
+    result.reserve(attributes().size() - 8);
+    for (auto i = attributes().begin() + 8; i != attributes().end(); ++i) {
       result.emplace_back((*i)->as<Val>());
     }
     return result;
@@ -329,12 +340,12 @@ class NVF_API Allocate final : public Expr {
   //! hold counters starting at zero. Typically, each participating thread would
   //! increment the counter and the last thread would leave the counter in a
   //! non-zeroed state. The next time that kernel is run, it can no longer
-  //! re-use the non-zero semaphore buffer, so FusionExecutor will launch
+  //! re-use the non-zero semaphore buffer, so KernelExecutor will launch
   //! at::zeroes to allocate a new buffer, resulting in a memset kernel launch.
   //!
   //! Instead, if the last thread resets the counter to zero, then the buffer
   //! can be re-used, and at::zeroes need only be run at the first kernel
-  //! launch. If resetsToZero() is true, then FusionExecutor will use
+  //! launch. If resetsToZero() is true, then KernelExecutor will use
   //! contigZeroedTensor() and releaseZeroedMemory() from global_allocator.h to
   //! reuse zeroed memory avoiding the additional kernel launch.
   //!
@@ -355,13 +366,25 @@ class NVF_API Allocate final : public Expr {
     return dynamic_cast<const Allocate*>(attribute(4));
   }
 
-  // Set the address of a shared memory allocation within the dynamic shared
-  // memory array. The addr argument should be a scalar expression describing an
-  // aligned address in bytes.
+  // This function can only be used for shared memory or tensor memory.
+  //
+  // For shared memory, this function sets the address of a shared memory
+  // allocation within the dynamic shared memory array. The addr argument should
+  // be a scalar expression describing an aligned address in bytes.
+  //
+  // For tensor memory, this function sets the address of a tensor memory
+  // "region" in the tensor memory. Each tensor memory "region" is a piece of
+  // tensor memory allocated by a single tcgen05.alloc, see note [Tensor Memory
+  // Allocation] for detailed description. Note that this address may not be the
+  // address of a TensorView, because each region may contain multiple
+  // TensorViews. This address must be a uint32 scalar, as described in the PTX
+  // documentation:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-addressing
   void setAddress(Val* addr) {
     NVF_CHECK(
-        memoryType() == MemoryType::Shared,
-        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
+        "Allocation address may only be set for shared/tensor memory allocations. Memory type is ",
         memoryType());
     NVF_CHECK(
         address() == nullptr,
@@ -370,11 +393,84 @@ class NVF_API Allocate final : public Expr {
     attributes_[5] = addr;
   }
 
+  // Set the lane offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
+  void setLaneOffset(Val* lane_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        laneOffset() == nullptr,
+        "Attempted to set lane offset twice for allocation ",
+        toString());
+    attributes_[6] = lane_offset;
+  }
+
+  // Set the column offset of a TensorView in a tensor memory "region". See note
+  // [Tensor Memory Allocation] for more detail.
+  void setColOffset(Val* col_offset) {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    NVF_CHECK(
+        colOffset() == nullptr,
+        "Attempted to set column offset twice for allocation ",
+        toString());
+    attributes_[7] = col_offset;
+  }
+
   // This is an integer scalar describing the byte address within the dynamic
   // shared memory array for a shared memory allocation. For memory types other
   // than Shared, or before allocation, this function might return nullptr.
   Val* address() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Shared ||
+            memoryType() == MemoryType::Tensor,
+        "Allocation address may only be set for shared memory allocations. Memory type is ",
+        memoryType());
     return attributeVal(5);
+  }
+
+  Val* laneOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Lane offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(6);
+  }
+
+  Val* colOffset() const {
+    NVF_CHECK(
+        memoryType() == MemoryType::Tensor,
+        "Column offset may only be set for tensor memory allocations. Memory type is ",
+        memoryType());
+    return attributeVal(7);
+  }
+};
+
+// Allocate tensor memory tcgen05.alloc
+class AllocTMem final : public Expr {
+ public:
+  using Expr::Expr;
+  AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns);
+
+  const char* getOpString() const override {
+    return "AllocTMem";
+  }
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* address() const {
+    return output(0);
+  }
+
+  Val* numColumns() const {
+    return input(0);
   }
 };
 
@@ -382,7 +478,7 @@ class NVF_API Allocate final : public Expr {
 //
 // TODO(kir): change name to SyncThreads as we could have other barriers.
 //
-class NVF_API BlockSync final : public Expr {
+class BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -405,7 +501,7 @@ class NVF_API BlockSync final : public Expr {
 
 // Synchronize all blocks in device, implies cooperative group launch is
 // required.
-class NVF_API GridSync final : public Expr {
+class GridSync final : public Expr {
  public:
   using Expr::Expr;
 
@@ -432,7 +528,85 @@ class NVF_API GridSync final : public Expr {
   }
 };
 
-class NVF_API MBarrierInit final : public Expr {
+// PTX: fence.proxy.async
+class FenceAsyncProxy final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit FenceAsyncProxy(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "FenceAsyncProxy";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+// PTX: wgmma.fence.sync.aligned
+class WgMmaFence final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit WgMmaFence(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "WgMmaFence";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+// PTX: setmaxnreg.inc.sync.aligned.u32 and setmaxnreg.dec.sync.aligned.u32
+class SetMaxNReg final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit SetMaxNReg(
+      IrBuilderPasskey passkey,
+      Val* number_of_registers,
+      bool increase_registers);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return (increaseRegisters()) ? "IncSetMaxNReg" : "DecSetMaxNReg";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  bool increaseRegisters() const {
+    return attribute<bool>(0);
+  }
+
+  Val* numberOfRegisters() const {
+    return input(0);
+  }
+};
+
+class Return final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Return(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Return";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+};
+
+class MBarrierInit final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierInit(
@@ -458,7 +632,7 @@ class NVF_API MBarrierInit final : public Expr {
   }
 };
 
-class NVF_API MBarrierInvalidate final : public Expr {
+class MBarrierInvalidate final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierInvalidate(IrBuilderPasskey passkey, Val* mbarrier);
@@ -477,7 +651,7 @@ class NVF_API MBarrierInvalidate final : public Expr {
   }
 };
 
-class NVF_API MBarrierArrive final : public Expr {
+class MBarrierArrive final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierArrive(IrBuilderPasskey passkey, Val* state, Val* mbarrier);
@@ -492,7 +666,10 @@ class NVF_API MBarrierArrive final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    return output(0);
+    if (!outputs().empty()) {
+      return output(0);
+    }
+    return nullptr;
   }
 
   Val* mbarrier() const {
@@ -504,7 +681,7 @@ class NVF_API MBarrierArrive final : public Expr {
 // This is usually used to specify the number of bytes that will be
 // transferred for cp.async and cp.async.bulk, so that future mbarrier.wait
 // can wait for the completion of the transfer.
-class NVF_API MBarrierArriveExpectTx final : public Expr {
+class MBarrierArriveExpectTx final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierArriveExpectTx(
@@ -523,7 +700,10 @@ class NVF_API MBarrierArriveExpectTx final : public Expr {
   std::string toInlineString(int indent_size = 0) const override;
 
   Val* state() const {
-    return output(0);
+    if (!outputs().empty()) {
+      return output(0);
+    }
+    return nullptr;
   }
 
   Val* mbarrier() const {
@@ -535,7 +715,7 @@ class NVF_API MBarrierArriveExpectTx final : public Expr {
   }
 };
 
-class NVF_API MBarrierWait final : public Expr {
+class MBarrierWait final : public Expr {
  public:
   using Expr::Expr;
   explicit MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state);
@@ -554,6 +734,32 @@ class NVF_API MBarrierWait final : public Expr {
   }
 
   Val* state() const {
+    return input(1);
+  }
+};
+
+class MBarrierWaitParity final : public Expr {
+ public:
+  using Expr::Expr;
+  explicit MBarrierWaitParity(
+      IrBuilderPasskey passkey,
+      Val* mbarrier,
+      Val* parity);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "MBarrierWaitParity";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* mbarrier() const {
+    return input(0);
+  }
+
+  Val* parity() const {
     return input(1);
   }
 };
@@ -727,7 +933,7 @@ class UpdateMagicZero final : public Expr {
 //!
 //! TODO(kir): this is not a real expression
 //!
-class NVF_API IfThenElse final : public Expr {
+class IfThenElse final : public Expr {
  public:
   using Expr::Expr;
 
@@ -771,7 +977,7 @@ class NVF_API IfThenElse final : public Expr {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! reduction and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 class GridReduction final : public ReductionOp {
   static constexpr int num_reduction_op_attr = 4;
@@ -846,7 +1052,7 @@ class GridReduction final : public ReductionOp {
   }
 };
 
-class NVF_API GroupedGridReduction final : public GroupedReductionOp {
+class GroupedGridReduction final : public GroupedReductionOp {
  public:
   using GroupedReductionOp::GroupedReductionOp;
 
@@ -935,9 +1141,9 @@ class NVF_API GroupedGridReduction final : public GroupedReductionOp {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! broadcast and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! broadcast and sync buffers.
-class NVF_API GridBroadcast final : public Expr {
+class GridBroadcast final : public Expr {
  public:
   using Expr::Expr;
 
@@ -974,7 +1180,7 @@ class NVF_API GridBroadcast final : public Expr {
 //! This node is used only after lowering a fusion to explicitly mark a grid
 //! reduction and the buffer allocation needed to do it.
 //!
-//! This node provides FusionExecutor the information it needs to allocate the
+//! This node provides KernelExecutor the information it needs to allocate the
 //! reduction and sync buffers.
 //!
 //! TODO: Make this a subclass of WelfordOp
@@ -1048,7 +1254,7 @@ class GridWelford final : public Expr {
   }
 };
 
-class NVF_API GroupedGridWelford final : public GroupedWelfordOp {
+class GroupedGridWelford final : public GroupedWelfordOp {
  public:
   using GroupedWelfordOp::GroupedWelfordOp;
 
@@ -1142,7 +1348,7 @@ class NVF_API GroupedGridWelford final : public GroupedWelfordOp {
 
 //! Represents a WelfordOp with the division by count is hoisted out
 //! of an innermost loop
-class NVF_API VectorizedWelfordOp final : public WelfordOp {
+class VectorizedWelfordOp final : public WelfordOp {
  public:
   using WelfordOp::WelfordOp;
 
@@ -1336,6 +1542,38 @@ class EncodeTensorMapTiled : public Expr {
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class RNGOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  RNGOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* rng_result,
+      Val* rng_component,
+      DataType dtype,
+      RNGOpType rng_type,
+      // range high and low, or avg and std dev
+      std::vector<Val*> parameters = {});
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  const char* getOpString() const override {
+    return "RNGOp";
+  }
+
+  RNGOpType getRNGOpType() const {
+    return attribute<RNGOpType>(0);
+  }
+
+  DataType dtype() const {
+    return attribute<DataType>(1);
+  }
 };
 
 } // namespace kir

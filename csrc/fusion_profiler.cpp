@@ -326,8 +326,7 @@ SegmentProfiler::SegmentProfiler(uint32_t id, bool cupti_disabled)
       output_bytes_(0),
       kernel_profile_state_(ProfilerState::Ready) {}
 
-void SegmentProfiler::startCompile(int device) {
-  device_ = device;
+void SegmentProfiler::startCompile() {
   compile_timer_.start();
 }
 
@@ -335,8 +334,7 @@ void SegmentProfiler::stopCompile() {
   compile_timer_.stop();
 }
 
-void SegmentProfiler::startKernel(int device) {
-  device_ = device;
+void SegmentProfiler::startKernel() {
   NVF_CHECK(
       kernel_profile_state_ == ProfilerState::Ready,
       "ProfilerState is not Ready!",
@@ -841,6 +839,13 @@ const FusionProfile& FusionProfiler::profile() {
       "The FusionProfile struct data is not valid because it has not been processed! ",
       state());
   return get()->profile_;
+}
+
+double FusionProfiler::lastKernelTime() {
+  const auto& fprof = profile();
+  NVF_CHECK(
+      !fprof.kernel_profiles.empty(), "There are no kernel profiles to query!");
+  return fprof.kernel_profiles.back().time_ms;
 }
 
 void FusionProfiler::recordAsyncCorrIdActivity(

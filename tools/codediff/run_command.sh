@@ -29,7 +29,7 @@ directory.
 The diff_report.py tool will parse the STDOUT of these commands to collect
 information about CUDA kernels and group them appropriately. It must know what
 type of command this is in order to do so properly. By default, we look for
-nvfuser_tests, nvfuser_bench, pytest, and python_tests as substrings in the
+test_nvfuser, nvfuser_bench, pytest, and python_tests as substrings in the
 given command. If this fails, you may provide the -t option to record a
 different command type. See diff_report.py (CommandType) for possible types.
 EOF
@@ -112,8 +112,8 @@ fi
 mkdir -p "$testdir"
 movecudafiles() {
     mkdir -p "$1/cuda" "$1/ptx"
-    find . -maxdepth 1 -name '__tmp_kernel*.cu' -print0 | xargs -0 --no-run-if-empty mv -t "$1/cuda"
-    find . -maxdepth 1 -name '__tmp_kernel*.ptx' -print0 | xargs -0 --no-run-if-empty mv -t "$1/ptx"
+    find . -maxdepth 1 -name '__tmp_*.cu' -print0 | xargs -0 --no-run-if-empty mv -t "$1/cuda"
+    find . -maxdepth 1 -name '__tmp_*.ptx' -print0 | xargs -0 --no-run-if-empty mv -t "$1/ptx"
 }
 removecudafiles() {
     tmpdir="./.nvfuser_run_command_tmp"
@@ -124,9 +124,24 @@ removecudafiles() {
 date > "$testdir/date"
 stdoutfile="$testdir/incomplete-stdout"
 stderrfile="$testdir/incomplete-stderr"
+
+# By default, nvfuser's python frontend will write a serialized FusionCache to
+# /tmp/nvfuser_kernel_db and it will load this FusionCache automatically when it
+# exists. This can interfere with counting and comparing kernels since
+# FusionDefinitions that are cache misses in the first invocation of a program
+# might become cache hits in subsequent invocations. Here we try to avoid this
+# by simply moving this directory out of the way then moving it back after we're
+# done.
+fusioncachedir=/tmp/nvfuser_kernel_db
+fusioncachedirbackup=${fusioncachedir}-backup
+if [[ -f "$fusioncachedir" ]]
+then
+    mv "$fusioncachedir" "$fusioncachedirbackup"
+fi
+
 cleanup() {
-    numcu=$(find . -maxdepth 1 -name '__tmp_kernel*.cu' | wc -l)
-    numptx=$(find . -maxdepth 1 -name '__tmp_kernel*.ptx' | wc -l)
+    numcu=$(find . -maxdepth 1 -name '__tmp_*.cu' | wc -l)
+    numptx=$(find . -maxdepth 1 -name '__tmp_*.ptx' | wc -l)
     if (( numcu + numptx > 0 ))
     then
         echo "Interrupted. Removing $numcu temporary .cu files and $numptx temporary .ptx files"
@@ -140,6 +155,12 @@ cleanup() {
     if [[ -f "$stderrfile" ]]
     then
         mv "$stderrfile" "$testdir/stderr" 2> /dev/null
+    fi
+    # remove the serialized fusion cache and reinstate the original one
+    rm -rf "$fusioncachedir"
+    if [[ -f "$fusioncachedirbackup" ]]
+    then
+        mv "$fusioncachedirbackup" "$fusioncachedir"
     fi
 }
 trap "cleanup" EXIT
@@ -188,7 +209,7 @@ echo "$testcmd" > "$testdir/command"
 if [[ -z $commandtype ]]
 then
     case "$testcmd" in
-        *nvfuser_tests*)
+        *test_nvfuser*)
             commandtype="GOOGLETEST"
             ;;
         *nvfuser_bench*)

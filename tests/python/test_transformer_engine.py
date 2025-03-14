@@ -6,16 +6,44 @@ import os
 import pytest
 import torch
 import torch.distributed as dist
+import transformer_engine.pytorch as te
 from enum import auto, Enum
 from functools import partial
+from mpi4py import MPI
 
 
-import transformer_engine.pytorch as te
+class MpiTest:
+    def __init__(self):
+        self._communicator = MPI.COMM_WORLD
+        self._local_size = int(os.environ["OMPI_COMM_WORLD_LOCAL_SIZE"])
+        self._local_rank = int(os.environ["OMPI_COMM_WORLD_LOCAL_RANK"])
 
-import multidevice
+    @property
+    def size(self):
+        return self._communicator.size
+
+    @property
+    def rank(self):
+        return self._communicator.rank
+
+    @property
+    def local_size(self):
+        return self._local_size
+
+    @property
+    def local_rank(self):
+        return self._local_rank
+
+    def barrier(self):
+        self._communicator.barrier()
 
 
-multidevice_test = multidevice.multidevice_test
+@pytest.fixture(scope="session")
+def mpi_test():
+    fixture = MpiTest()
+    yield fixture
+    # Sync all ranks after each test for isolation.
+    fixture.barrier()
 
 
 class ComputeType(Enum):
@@ -23,19 +51,59 @@ class ComputeType(Enum):
     BACKWARD = auto()
 
 
+class Parallelism(Enum):
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#tensor-parallelism
+    TENSOR_PARALLEL = auto()
+    # https://docs.nvidia.com/nemo-framework/user-guide/latest/nemotoolkit/features/parallelisms.html#sequence-parallelism
+    SEQUENCE_PARALLEL = auto()
+
+
+@pytest.fixture(scope="module")
+def setup_process_group(mpi_test) -> None:
+    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
+    dist.init_process_group(
+        backend="nccl",
+        init_method="tcp://localhost:29500",
+        world_size=mpi_test.size,
+        rank=mpi_test.rank,
+    )
+    yield
+    dist.destroy_process_group()
+
+
 # This benchmark is instrumented with cudaProfilerStart/Stop. Therefore, one
 # can collect stats of the first few non-warmup benchmark iterations using
-#
 # ```bash
 # mpirun -np <processes> nsys profile --capture-range=cudaProfilerApi --capture-range-end=repeat:<iterations> pytest tests/python/test_transformer_engine.py -k <filter> --only-mpi
 # ```
+# and then display the status using e.g. `nsys stats --report=cuda_gpu_kern_sum report1.nsys-rep`.
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "compute_type",
     [ComputeType.FORWARD, ComputeType.BACKWARD],
     ids=["forward", "backward"],
 )
-def test_transformer_layer(multidevice_test, benchmark, compute_type):
+@pytest.mark.parametrize(
+    "parallelism",
+    [Parallelism.TENSOR_PARALLEL, Parallelism.SEQUENCE_PARALLEL],
+    ids=["tp", "sp"],
+)
+@pytest.mark.parametrize(
+    "overlap",
+    [False, True],
+    ids=["nonoverlap", "overlap"],
+)
+def test_transformer_layer(
+    setup_process_group,
+    monkeypatch,
+    benchmark,
+    compute_type: ComputeType,
+    parallelism: Parallelism,
+    overlap: bool,
+):
+    if overlap and parallelism == Parallelism.TENSOR_PARALLEL:
+        pytest.skip("Tensor parallelism doesn't support overlapping.")
+
     # Hyperparameters for GPT-3
     hidden_size = 12288
     num_heads = 96
@@ -44,34 +112,50 @@ def test_transformer_layer(multidevice_test, benchmark, compute_type):
     sequence_length = 2048
     dtype = torch.bfloat16
 
-    size = multidevice_test.size
-    rank = multidevice_test.rank
+    size = dist.get_world_size()
+    rank = dist.get_rank()
 
     torch.cuda.set_device(rank)
-    os.environ["MASTER_ADDR"] = "localhost"
-    # nvFuser's Communicator singleton is hardcoded to use port 29500. Use a
-    # different port here to avoid conflict.
-    os.environ["MASTER_PORT"] = "29400"
-    dist.init_process_group(
-        backend="nccl",
-        init_method="env://",
-        world_size=size,
-        rank=rank,
-    )
-    tp_group = dist.new_group()
 
     transformer_layer = te.TransformerLayer(
         hidden_size,
         ffn_hidden_size,
         num_heads,
+        # According to https://github.com/NVIDIA/TransformerEngine/issues/1350,
+        # `attn_input_format` has to match the format of `transformer_layer`'s
+        # input.
+        attn_input_format="bshd",
         set_parallel_mode=True,
-        tp_group=tp_group,
+        sequence_parallel=(parallelism == Parallelism.SEQUENCE_PARALLEL),
+        ub_tp_comm_overlap=overlap,
+        tp_group=dist.group.WORLD,
     )
     transformer_layer.to(dtype).to("cuda")
 
+    match parallelism:
+        case Parallelism.TENSOR_PARALLEL:
+            local_sequence_length = sequence_length
+        case Parallelism.SEQUENCE_PARALLEL:
+            assert sequence_length % size == 0
+            local_sequence_length = sequence_length // size
+
     x = torch.randn(
-        batch_size, sequence_length, hidden_size, dtype=dtype, device="cuda"
+        batch_size, local_sequence_length, hidden_size, dtype=dtype, device="cuda"
     )
+
+    if overlap:
+        # Similar to https://github.com/NVIDIA/TransformerEngine/blob/e7bfc0c547d63332e4f8d65e606dc69f4c22ffbe/examples/pytorch/comm_gemm_overlap/te_layer_with_overlap.py#L27-L29
+        monkeypatch.setenv("CUDA_DEVICE_MAX_CONNECTIONS", "1")
+        if not te.cpp_extensions.device_supports_multicast():
+            monkeypatch.setenv("UB_SKIPMC", "1")
+
+        te.module.base.initialize_ub(
+            # Instructed by https://github.com/NVIDIA/TransformerEngine/blob/e7bfc0c547d63332e4f8d65e606dc69f4c22ffbe/transformer_engine/pytorch/module/base.py#L96-L99
+            [batch_size * sequence_length, hidden_size],
+            size,
+            dtype=dtype,
+            bootstrap_backend="nccl",
+        )
 
     match compute_type:
         case ComputeType.FORWARD:
@@ -89,7 +173,9 @@ def test_transformer_layer(multidevice_test, benchmark, compute_type):
 
             # Warmup.
             y = benchmark_fn(False)
-            assert y.size() == torch.Size([batch_size, sequence_length, hidden_size])
+            assert y.size() == torch.Size(
+                [batch_size, local_sequence_length, hidden_size]
+            )
 
             benchmark.pedantic(benchmark_fn, args=(True,), rounds=5)
         case ComputeType.BACKWARD:
@@ -130,4 +216,5 @@ def test_transformer_layer(multidevice_test, benchmark, compute_type):
                 rounds=5,
             )
 
-    dist.destroy_process_group()
+    if overlap:
+        te.module.base.destroy_ub()

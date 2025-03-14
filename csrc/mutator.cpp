@@ -77,6 +77,18 @@ void OptOutMutator::registerMutation(Val* val, Val* mutation) {
       ", ",
       mutation->dtype(),
       ")");
+
+  NVF_ERROR(
+      !DependencyCheck::isDependencyOf(val, mutation),
+      "Attempted to replace a val, ",
+      val->toString(),
+      ", with a dependent val, ",
+      mutation->toString(),
+      " (",
+      mutation->toInlineString(),
+      "), which is not allowed as it would result in a recursive definition of ",
+      mutation->toString());
+
   mutations_[val] = mutation;
 }
 
@@ -144,6 +156,7 @@ void OptOutMutator::mutate(TensorDomain* td) {
       ? updateIdVec(td->allocation())
       : std::vector<IterDomain*>();
   std::vector<IterDomain*> domain = updateIdVec(td->loop());
+  std::vector<IterDomain*> additional_ids = updateIdVec(td->additionalIDs());
 
   if (!mutated) {
     return;
@@ -155,7 +168,8 @@ void OptOutMutator::mutate(TensorDomain* td) {
       logical_dom,
       allocation_dom,
       domain,
-      td->contiguity());
+      td->contiguity(),
+      additional_ids);
   registerMutation(td, mutated_val);
 }
 

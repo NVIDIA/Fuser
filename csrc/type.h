@@ -72,10 +72,14 @@ enum class PrimDataType {
   Float8_e4m3fn,
   Float8_e5m2,
   // Integral types
-  Int,
+  Char,
+  Short,
   Int32,
-  UInt,
+  Int,
+  Byte, // Following ATen convention
+  UInt16, // Following ATen convention
   UInt32,
+  UInt64,
   Index,
   // Boolean types
   Bool,
@@ -84,6 +88,7 @@ enum class PrimDataType {
   ComplexFloat,
   // Pointers
   SMemAddress,
+  TMemAddress,
   // Null
   Null
 };
@@ -178,16 +183,21 @@ struct DataType {
   static constexpr PrimDataType Half = PrimDataType::Half;
   static constexpr PrimDataType Float8_e4m3fn = PrimDataType::Float8_e4m3fn;
   static constexpr PrimDataType Float8_e5m2 = PrimDataType::Float8_e5m2;
-  static constexpr PrimDataType Int = PrimDataType::Int;
   static constexpr PrimDataType Index = PrimDataType::Index;
+  static constexpr PrimDataType Char = PrimDataType::Char;
+  static constexpr PrimDataType Short = PrimDataType::Short;
   static constexpr PrimDataType Int32 = PrimDataType::Int32;
-  static constexpr PrimDataType UInt = PrimDataType::UInt;
+  static constexpr PrimDataType Int = PrimDataType::Int;
+  static constexpr PrimDataType Byte = PrimDataType::Byte;
+  static constexpr PrimDataType UInt16 = PrimDataType::UInt16;
   static constexpr PrimDataType UInt32 = PrimDataType::UInt32;
+  static constexpr PrimDataType UInt64 = PrimDataType::UInt64;
   static constexpr PrimDataType Bool = PrimDataType::Bool;
   static constexpr PrimDataType BFloat16 = PrimDataType::BFloat16;
   static constexpr PrimDataType ComplexFloat = PrimDataType::ComplexFloat;
   static constexpr PrimDataType ComplexDouble = PrimDataType::ComplexDouble;
   static constexpr PrimDataType SMemAddress = PrimDataType::SMemAddress;
+  static constexpr PrimDataType TMemAddress = PrimDataType::TMemAddress;
   static constexpr PrimDataType Null = PrimDataType::Null;
 };
 
@@ -262,10 +272,14 @@ inline bool isIntegralType(DataType dtype) {
         if constexpr (std::is_same_v<T, PrimDataType>) {
           switch (dtype) {
             case DataType::Index:
+            case DataType::Char:
+            case DataType::Short:
             case DataType::Int:
             case DataType::Int32:
-            case DataType::UInt:
+            case DataType::Byte:
+            case DataType::UInt16:
             case DataType::UInt32:
+            case DataType::UInt64:
               return true;
             default:
               return false;
@@ -278,13 +292,14 @@ inline bool isIntegralType(DataType dtype) {
 
 // Returns if the datatype is an unsigned integer type
 inline bool isUnsignedIntegralType(DataType dtype) {
-  return dtype == DataType::UInt || dtype == DataType::UInt32;
+  return dtype == DataType::Byte || dtype == DataType::UInt16 ||
+      dtype == DataType::UInt32 || dtype == DataType::UInt64;
 }
 
 // Returns if the datatype is a pointer type
 inline bool isPointerType(DataType dtype) {
   return std::holds_alternative<PointerType>(dtype.type) ||
-      dtype == DataType::SMemAddress;
+      dtype == DataType::SMemAddress || dtype == DataType::TMemAddress;
 }
 
 // Returns if the datatype is an integer or pointer type
@@ -386,15 +401,37 @@ DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     at::ScalarType::Float8_e5m2,
     at::Float8_e5m2);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
-    DataType::Int,
-    at::ScalarType::Long,
-    int64_t);
+    DataType::Char,
+    at::ScalarType::Char,
+    int8_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Short,
+    at::ScalarType::Short,
+    int16_t);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Int32,
     at::ScalarType::Int,
     int);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt, uint64_t);
-DEFINE_DATATYPE_TO_NATIVE_TYPE(DataType::UInt32, uint32_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Int,
+    at::ScalarType::Long,
+    int64_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::Byte,
+    at::ScalarType::Byte,
+    uint8_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::UInt16,
+    at::ScalarType::UInt16,
+    uint16_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::UInt32,
+    at::ScalarType::UInt32,
+    uint32_t);
+DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
+    DataType::UInt64,
+    at::ScalarType::UInt64,
+    uint64_t);
 DEFINE_DATATYPE_TO_ATEN_AND_NATIVE_TYPE(
     DataType::Bool,
     at::ScalarType::Bool,
@@ -662,7 +699,7 @@ bool isIntegerOp(const BinaryOpType bopt);
 // Return if output of operator should be a boolean
 bool isLogicalOp(const BinaryOpType bopt);
 
-enum class TernaryOpType { Clamp, Lerp, Threshold, Where };
+enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
   DIDx,
@@ -672,6 +709,7 @@ enum class ParallelType {
   TIDz,
   TIDy,
   TIDx,
+  Stream,
   Vectorize,
   MisalignedVectorize,
   Unroll,
@@ -703,7 +741,10 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDy,
     ParallelType::TIDz};
 
-enum class MemoryType { Local, Shared, Global };
+static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
+    ParallelType::DIDx};
+
+enum class MemoryType { Local, Shared, Global, Tensor };
 
 // Symbolic: Undetermined between Iteration or Broadcast
 enum class IterType {
@@ -760,13 +801,54 @@ enum class LoadStoreOpType {
   SegmenterSet,
   LdMatrix,
   CpAsync,
+  CpAsyncBulk,
   CpAsyncBulkTensorTile,
-  StMatrix
+  StMatrix,
+  LdTMem,
+  StTMem
 };
 
 // Used to label what part of the circular buffered iterdomain
 //  a for loop is materializing.
-enum class CircularBufferLoopStage { NotApplicable, Prolog, Main, Epilog };
+enum class CircularBufferLoopStage {
+  Prolog = 0,
+  Main,
+  Epilog,
+  LoadWarp,
+  ComputeWarp,
+  EndOfStages, // A special placeholder used to iterate over all stages
+  NotApplicable
+};
+
+// The circular buffer load expressions are cloned for these circular buffer
+// loop types.
+// e.g., No additional loads are required for the Epilogue stage.
+inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Prolog ||
+      stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::LoadWarp;
+}
+
+// The consuming expressions of circular buffer are cloned for these circular
+// buffer loop types.
+// e.g., No actual computation occurs in the Prologue stage.
+inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::Epilog ||
+      stage == CircularBufferLoopStage::ComputeWarp;
+}
+
+// A loop type may have WAR hazard if any of the following is true:
+// - The load *in this loop type* may overwrite a buffer being read by a
+//   compute somewhere (*may or may not be in this loop*)
+// - The compute *in this loop type* reads circular buffer TVs that, if not
+//   properly handled, could be overwriten by a circular buffer loading
+//   somewhere (*may or may not be in this loop*)
+inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
+  return stage == CircularBufferLoopStage::Main ||
+      stage == CircularBufferLoopStage::LoadWarp ||
+      stage == CircularBufferLoopStage::ComputeWarp;
+}
 
 //! Supported swizzle types,
 //!  corresponds to swizzles functions on the runtime cuda
@@ -964,16 +1046,24 @@ constexpr inline size_t primDataTypeSize(PrimDataType type) {
       return sizeof(at::Float8_e5m2);
     case DataType::Index:
       NVF_THROW("The actual type of Index is only known at compile time.");
-    case DataType::Int:
-      return sizeof(int64_t);
+    case DataType::Char:
+      return sizeof(int8_t);
+    case DataType::Short:
+      return sizeof(int16_t);
     case DataType::Int32:
       return sizeof(int32_t);
-    case DataType::UInt:
-      return sizeof(uint64_t);
+    case DataType::Int:
+      return sizeof(int64_t);
+    case DataType::Byte:
+      return sizeof(uint8_t);
+    case DataType::UInt16:
+      return sizeof(uint16_t);
     case DataType::UInt32:
-      return sizeof(uint32_t);
     case DataType::SMemAddress:
-      return sizeof(unsigned);
+    case DataType::TMemAddress:
+      return sizeof(uint32_t);
+    case DataType::UInt64:
+      return sizeof(uint64_t);
     default:
       NVF_THROW("Size undefined for data type.");
   }
@@ -1030,6 +1120,22 @@ constexpr auto toUnderlying(E e) noexcept {
   return static_cast<std::underlying_type_t<E>>(e);
 }
 
-enum class AsyncOpType { CpAsync, CpAsyncBulk, WgMma };
+enum class AsyncOpType { NotAsync, CpAsync, CpAsyncBulk, WgMma };
+
+// Data path between TMem and register file. Tensor memory is not a general
+// byte-addressable memory like other memory types. The register <-> TMem
+// data transfer must follow one of the following specific patterns which has
+// well-defined specification about which thread's which register access to
+// which part of TMem. See:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-memory-layout
+enum class TMemRegisterDataPath {
+  Path32x32b,
+  Path16x64b,
+  Path16x128b,
+  Path16x256b,
+  Path16x32bx2,
+};
+
+std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 } // namespace nvfuser

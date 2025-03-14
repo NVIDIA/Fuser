@@ -12,12 +12,14 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <expr_evaluator.h>
-#include <fusion_executor/allocations.h>
-#include <fusion_executor/executor.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
-#include <kernel_cache.h>
 #include <kernel_ir_dispatch.h>
+#include <runtime/allocations.h>
+#include <runtime/executor.h>
+#include <runtime/fusion_executor_cache.h>
+#include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/registry.h>
 #include <transform_replay.h>
 
 #include <ATen/Context.h>
@@ -34,6 +36,28 @@
 #include <vector>
 
 namespace nvfuser {
+
+struct CGResultsPackage {
+  KernelArgumentHolder outputs;
+  std::unique_ptr<HeuristicParams> heuristic_params;
+  std::unique_ptr<KernelExecutor> kernel_executor;
+};
+
+// Returns the only executor in the most recent runtime.
+const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
+    const FusionExecutorCache& executor_cache);
+
+// Grabs heuristics and schedules with the provided scheduler type, compiles and
+// runs with Fuion executor, returns a struct containing the outputs,
+// heuristic_params, and KernelExecutor. These structures are for convenience in
+// testing. If validate_scheduler is set to false the scheduler check will still
+// be run but it will be ignored. Otherwise canScheduler returning false will
+// throw.
+CGResultsPackage scheduleAndRun(
+    Fusion* fusion,
+    SchedulerType scheduler_type,
+    const KernelArgumentHolder& runtime_inputs,
+    bool validate_scheduler = true);
 
 // Make s Stack used for TorchScript execution
 inline torch::jit::Stack createStack(std::vector<at::Tensor>&& list) {
@@ -147,6 +171,33 @@ class PredicatedChecker : public kir::IrVisitor {
 
   static bool isPredicated(TensorView* tv, kir::Kernel* kernel) {
     return isPredicated(tv->name(), kernel);
+  }
+
+  static bool isPredicatedByIfThenElse(
+      StmtNameType tv_name,
+      kir::Kernel* kernel) {
+    PredicatedChecker checker(tv_name, kernel->topLevelExprs());
+    return checker.predicated_ite_;
+  }
+
+  // If CpAsync from gmem to smem, then loaded from smem to registers using
+  // ldmatrix, then it is used in mma and should not use if-then-else predicate.
+  // If just CpAsync from gmem to smem, without further copy to register, then
+  // it is not used in mma and can use if-then-else predicate.
+  static bool isCpAsyncMmaPredicatedByIfThenElse(kir::Kernel* kernel) {
+    for (auto tv : kernel->allTvs()) {
+      if (tv->definition() != nullptr &&
+          ir_utils::isCpAsyncOp(tv->definition())) {
+        const auto& consumers = ir_utils::consumerTvsOf(tv);
+        if (std::any_of(
+                consumers.begin(), consumers.end(), [&](TensorView* tv) {
+                  return ir_utils::isLdMatrixOp(tv->definition());
+                })) {
+          return isPredicatedByIfThenElse(tv->name(), kernel);
+        }
+      }
+    }
+    return false;
   }
 
  private:
@@ -504,6 +555,9 @@ class NVFuserTest : public ::testing::Test {
     // random seed. Otherwise, use zero. If a test fails, this seed will be
     // printed.
     std::srand(getCRandomSeed());
+
+    EnableOptionsGuard::getCurOptions().set(
+        EnableOption::IdModelExtraValidation);
   }
 
   void TearDown() override {
@@ -511,7 +565,7 @@ class NVFuserTest : public ::testing::Test {
       auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
       std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
                 << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
-                << " nvfuser_tests --gtest_filter='"
+                << " test_nvfuser --gtest_filter='"
                 << test_info->test_suite_name() << "." << test_info->name()
                 << "'" << std::endl;
     }
@@ -548,12 +602,37 @@ class NVFuserTest : public ::testing::Test {
     return str;
   }
 
+ protected:
+  EnableOptionsGuard enable_options_guard_;
+  DisableOptionsGuard disable_options_guard_;
+
  private:
   bool capturing_ = false;
   EnableOptionsGuard enable_options_guard;
 };
 
 class HopperBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(9, 0, 10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Hopper GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+class BlackwellBase : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    if (cudaArchGuardShouldSkip(10, 0)) {
+      GTEST_SKIP() << "skipping tests on non-Blackwell GPUs";
+    }
+    NVFuserTest::SetUp();
+  }
+};
+
+// TMA is supported on Hopper and newer GPUs
+class TmaBase : public NVFuserTest {
  protected:
   void SetUp() override {
     if (cudaArchGuardShouldSkip(9, 0)) {
@@ -605,53 +684,42 @@ Container parse(const std::string& nvdisasm_output);
 
 } // namespace sass
 
-static auto kAllSupportedMmaLayout =
-    testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
+static auto kAllSupportedMmaLayout = std::vector<MmaLayout>{
+    MmaLayout::TT,
+    MmaLayout::TN,
+    MmaLayout::NT,
+    MmaLayout::NN};
 
 inline std::string mmaLayoutName(
     const testing::TestParamInfo<MmaLayout>& info) {
   return toString(info.param);
 }
 
-static auto kAllSmemSwizzleModes = testing::Values(
+static auto kAllSmemSwizzleModes = std::vector<MmaInputSmemSwizzle>{
     MmaInputSmemSwizzle::None,
     MmaInputSmemSwizzle::B128,
     MmaInputSmemSwizzle::B64,
-    MmaInputSmemSwizzle::B32);
+    MmaInputSmemSwizzle::B32};
 
-static auto kAllHopperMacros = testing::Values(
-    MmaMacro::Hopper_64_8_16,
-    MmaMacro::Hopper_64_16_16,
-    MmaMacro::Hopper_64_24_16,
-    MmaMacro::Hopper_64_32_16,
-    MmaMacro::Hopper_64_40_16,
-    MmaMacro::Hopper_64_48_16,
-    MmaMacro::Hopper_64_56_16,
-    MmaMacro::Hopper_64_64_16,
-    MmaMacro::Hopper_64_72_16,
-    MmaMacro::Hopper_64_80_16,
-    MmaMacro::Hopper_64_88_16,
-    MmaMacro::Hopper_64_96_16,
-    MmaMacro::Hopper_64_104_16,
-    MmaMacro::Hopper_64_112_16,
-    MmaMacro::Hopper_64_120_16,
-    MmaMacro::Hopper_64_128_16,
-    MmaMacro::Hopper_64_136_16,
-    MmaMacro::Hopper_64_144_16,
-    MmaMacro::Hopper_64_152_16,
-    MmaMacro::Hopper_64_160_16,
-    MmaMacro::Hopper_64_168_16,
-    MmaMacro::Hopper_64_176_16,
-    MmaMacro::Hopper_64_184_16,
-    MmaMacro::Hopper_64_192_16,
-    MmaMacro::Hopper_64_200_16,
-    MmaMacro::Hopper_64_208_16,
-    MmaMacro::Hopper_64_216_16,
-    MmaMacro::Hopper_64_224_16,
-    MmaMacro::Hopper_64_232_16,
-    MmaMacro::Hopper_64_240_16,
-    MmaMacro::Hopper_64_248_16,
-    MmaMacro::Hopper_64_256_16);
+static auto kAllHopperMacros = std::vector<MmaMacro>{
+    MmaMacro::Hopper_64_8_16,   MmaMacro::Hopper_64_16_16,
+    MmaMacro::Hopper_64_24_16,  MmaMacro::Hopper_64_32_16,
+    MmaMacro::Hopper_64_40_16,  MmaMacro::Hopper_64_48_16,
+    MmaMacro::Hopper_64_56_16,  MmaMacro::Hopper_64_64_16,
+    MmaMacro::Hopper_64_72_16,  MmaMacro::Hopper_64_80_16,
+    MmaMacro::Hopper_64_88_16,  MmaMacro::Hopper_64_96_16,
+    MmaMacro::Hopper_64_104_16, MmaMacro::Hopper_64_112_16,
+    MmaMacro::Hopper_64_120_16, MmaMacro::Hopper_64_128_16,
+    MmaMacro::Hopper_64_136_16, MmaMacro::Hopper_64_144_16,
+    MmaMacro::Hopper_64_152_16, MmaMacro::Hopper_64_160_16,
+    MmaMacro::Hopper_64_168_16, MmaMacro::Hopper_64_176_16,
+    MmaMacro::Hopper_64_184_16, MmaMacro::Hopper_64_192_16,
+    MmaMacro::Hopper_64_200_16, MmaMacro::Hopper_64_208_16,
+    MmaMacro::Hopper_64_216_16, MmaMacro::Hopper_64_224_16,
+    MmaMacro::Hopper_64_232_16, MmaMacro::Hopper_64_240_16,
+    MmaMacro::Hopper_64_248_16, MmaMacro::Hopper_64_256_16};
+
+std::string macroToString(const MmaMacro macro);
 
 // Utility to generate matmul input tensors based on given layout
 at::Tensor atMatmul(at::Tensor a, at::Tensor b, MmaLayout layout);
@@ -701,6 +769,58 @@ at::Tensor matmulAtInput2D(
     const int64_t B = 0,
     const int64_t device = 0);
 
+inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
+matmulAtInputShape3DHopperRS(int M, int N, int K, MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DHopperRS(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
+inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
+matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
+  switch (layout) {
+    case MmaLayout::TT:
+      return {{M, K, 1}, {1, K, N}};
+    case MmaLayout::TN:
+      return {{M, 1, K}, {1, N, K}};
+    case MmaLayout::NT:
+      return {{K, M, 1}, {K, 1, N}};
+    case MmaLayout::NN:
+      return {{1, K, M}, {N, K, 1}};
+    default:
+      NVF_CHECK(false, "unsupported data layout.");
+  }
+}
+
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
+    int M,
+    int N,
+    int K,
+    MmaLayout layout,
+    c10::ScalarType dtype) {
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
+  return std::make_pair(
+      at::randn(shapes.first, options), at::randn(shapes.second, options));
+}
+
 // Given a tensor view created by matmulAtInput2D or matmulAtInput3DTuring,
 // insert permute/BroadcastOp as needed to make it [B, M, N, K]. The returned
 // tensor view can be directly used as input to fusedMultiplySum.
@@ -722,7 +842,7 @@ bool isSchedulerInUse(
     const SchedulerType& scheduler_type);
 
 // Disable magic zero
-constexpr CompileParams matmul_cparams{DataType::Int32, 255, false};
+const CompileParams matmul_cparams{DataType::Int32, 255, false};
 
 // Utility to generate tensor with bias applied on the input tensor
 TensorView* biasEpilogue(TensorView* tensor, TensorView* bias);
@@ -753,4 +873,6 @@ std::string sanitizeTestName(const std::string& name);
 constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
     1,    2,    4,    8,     16,    32,    64,     128,    256,    512,    1024,
     2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
+
+bool isVectorized(TensorView* tv);
 } // namespace nvfuser

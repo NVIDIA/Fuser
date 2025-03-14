@@ -95,7 +95,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
 //   Map all iteration domains
 //   Always contain root mappings (otherwise they could have been forwarded in
 //   broadcast)
-// IdMappingMode::AlmostExact
+// IdMappingMode::ALMOSTEXACT
 //   Forward through broadcast axes, but not through to a non-broadcast axis
 //     i.e. id{b1*i0}, id{i0} are mapped
 //          id{i1*i0}, id{i0} are not mapped (this part is the difference from
@@ -115,8 +115,8 @@ class IdModel : public PolymorphicBase {
   IdModel(
       const std::vector<Expr*>& exprs,
       const std::vector<TensorView*>& additional_tvs = {},
-      bool build_graphs = true,
-      bool allow_self_mapping = false,
+      bool build_graphs = false,
+      bool allow_self_mapping = true,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
 
@@ -128,11 +128,15 @@ class IdModel : public PolymorphicBase {
   // transition from the current ComputeAtMap.
   IdModel(
       Fusion* fusion,
-      bool build_graphs = true,
-      bool allow_self_mapping = false,
+      bool build_graphs = false,
+      bool allow_self_mapping = true,
       bool validate = false,
       LoopPromotionMapBuilderCallback* loop_promotion_map_builder_callback =
           nullptr);
+
+  bool hasIdGraph(IdMappingMode mode) const {
+    return id_graphs_.find(mode) != id_graphs_.end();
+  }
 
   // Returns iter domain graph of provided mode. The graph must have
   // been already built.
@@ -158,6 +162,14 @@ class IdModel : public PolymorphicBase {
 
   bool empty() const {
     return tvs_.empty();
+  }
+
+  const std::vector<TensorView*>& tvs() const {
+    return tvs_;
+  }
+
+  const std::vector<Expr*>& tvExprs() const {
+    return tv_exprs_;
   }
 
   Fusion* fusion() const {
@@ -190,13 +202,17 @@ class IdModel : public PolymorphicBase {
   // Fills disjoint_ids_[IdMappingMode::LOOP]. Map only inlined
   // domains that are mapped in the permissive graph. Build the Exact
   // and Permissive graphs as well if not yet done.
-  ValGraph& buildLoopGraph();
+  //
+  // (For debugging only) When force_full_loop_promotion_analysis is
+  // true, it always performs the full loop promotion analysis even
+  // when it's possible to take a quicker shortcut.
+  ValGraph& buildLoopGraph(bool force_full_loop_promotion_analysis = false);
 
   // Build a graph. Dependent graphs are also built if not yet done.
-  void buildGraph(IdMappingMode mode);
+  ValGraph& buildGraph(IdMappingMode mode);
 
   // Build a graph if not already built
-  void maybeBuildGraph(IdMappingMode mode);
+  ValGraph& maybeBuildGraph(IdMappingMode mode);
 
   // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
   // a new ValGraph and returns it.
@@ -223,6 +239,38 @@ class IdModel : public PolymorphicBase {
   //! all IterDomains in the disjoint set to that PType.
   void validateAndPropagatePType();
 
+  //! (Copied from ComputeAtMap::allocateIndexVariables)
+  //!  Run through disjoint sets in the LOOP map and allocate the index
+  //!  variable for the associated for loop that will be generated
+  //!  for each disjoint sets in the loop map. This pre-allocation makes
+  //!  2 key assumptions about computeAt map that would very likely be
+  //!  long term invariant:
+  //!    1. All kir::forloop created in the lowering pass should belong
+  //!  to one of the disjoint sets in loop map.
+  //!    2. The lowering pass will *never* create a loop nest with 2
+  //!  different nesting levels mapped together, i.e. the case below
+  //!  never occurs:
+  //!   for i in IterDomain1
+  //!    for j in IterDomain2
+  //!     ...
+  //!   With loop_map.areMapped(IterDomain1, IterDomain2) == true.
+  //! Under this condition, we can pre-allocate all required index
+  //!  variable integers before creating any kir::forloop, and this
+  //!  would help optimizing the generated integer math for indexing.
+  void allocateLoopIndexVariables();
+
+  // Get the index variable assigned for a given loop ID
+  Val* getLoopIndexVariable(
+      IterDomain* id,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
+  // Get the index variable assigned for a given loop group
+  Val* getLoopIndexVariable(
+      const ValGroup& loop_group,
+      CircularBufferLoopStage circular_buffer_loop_stage =
+          CircularBufferLoopStage::NotApplicable) const;
+
  protected:
   // Fills id_uses_ and id_definitions_ for all IterDomains active in the
   // fusion.
@@ -242,7 +290,7 @@ class IdModel : public PolymorphicBase {
   void updateComputeWith(TensorView* compute_with_tv);
 
   // Errors if self mapping occurs
-  void assertNoSelfMapping();
+  void assertNoSelfMapping(const ValGraph& graph) const;
 
   // Loop graph represents the loop structure of the given fusion, so
   // there must not be any mapping between the loop domains of each
@@ -298,6 +346,15 @@ class IdModel : public PolymorphicBase {
 
   // Promotion domain for each loop group
   std::unordered_map<ValGroup, IterDomain*> loop_promotion_map_;
+
+  // Allocated Loop index variable through the LOOP graph
+  std::unordered_map<ValGroup, Val*> loop_index_variable_map_;
+
+  // Allocated loop indices for circular buffer loops
+  std::unordered_map<
+      ValGroup,
+      std::unique_ptr<std::unordered_map<CircularBufferLoopStage, Val*>>>
+      circular_buffered_loop_index_variable_map_;
 };
 
 // A utility function to update a map of ValGroups to ID from an old

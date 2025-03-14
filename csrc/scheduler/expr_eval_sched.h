@@ -30,16 +30,16 @@ class ExprEvalScheduler : public SchedulerEntry {
     return true;
   }
 
-  constexpr static SchedulerType schedulerType() {
-    return SchedulerType::ExprEval;
-  }
-
-  void schedule(Fusion* fusion, const HeuristicParams* params) override;
-
   std::unique_ptr<HeuristicParams> computeHeuristics(
       Fusion* fusion,
       SchedulerRuntimeInfo& runtime_info,
       HeuristicDataCache* data_cache) override;
+
+  void schedule(Fusion* fusion, const HeuristicParams* params) override;
+
+  constexpr static SchedulerType schedulerType() {
+    return SchedulerType::ExprEval;
+  }
 };
 
 } // namespace nvfuser

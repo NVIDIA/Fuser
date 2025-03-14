@@ -201,7 +201,7 @@ class StructHandle {
 
   template <typename Ret, typename Class>
   inline std::enable_if_t<std::is_base_of_v<Struct, Class>, Ret&> operator->*(
-      Ret Class::*member) const {
+      Ret Class::* member) const {
     return as<Class>().*member;
   }
 
@@ -424,6 +424,12 @@ inline c10::Scalar toScalar(const PolymorphicValue& x) {
     return (c10::Scalar)x;
   }
 }
+
+PolymorphicValue IValueToPolymorphicValue(const c10::IValue& val);
+
+inline bool isScalar(const PolymorphicValue& x);
+
+c10::IValue toIValue(const PolymorphicValue& x);
 
 } // namespace PolymorphicValue_functions
 

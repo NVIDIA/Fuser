@@ -15,8 +15,8 @@
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor_utils.h>
 #include <ir/iostream.h>
+#include <runtime/executor_utils.h>
 
 namespace nvfuser {
 
@@ -141,8 +141,14 @@ std::pair<double, double> getTolerance(
         return {abs_tol * 10.0, abs_tol * 0.01 * 10.0};
       }
     }
-    case DataType::Int:
+    case DataType::Char:
+    case DataType::Short:
     case DataType::Int32:
+    case DataType::Int:
+    case DataType::Byte:
+    case DataType::UInt16:
+    case DataType::UInt32:
+    case DataType::UInt64:
     case DataType::Index:
     case DataType::Bool:
       return {0.0, 0.0};
@@ -228,12 +234,9 @@ void ReductionSizeMapper::dispatch(Expr* expr) {
 
 ExpressionEvaluator bindInputsAndLaunchParams(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     const LaunchParams& launch_constraints) {
-  KernelArgumentHolder argument_holder;
-  argument_holder.push(aten_inputs);
-
-  auto expr_eval = executor_utils::bindInputs(argument_holder, fusion);
+  auto expr_eval = executor_utils::bindInputs(aten_inputs, fusion);
   for (auto val : fusion->vals()) {
     if (!val->isA<TensorView>()) {
       continue;
@@ -278,7 +281,7 @@ ExpressionEvaluator bindInputsAndLaunchParams(
 
 std::vector<std::pair<double, double>> get_val_constants(
     Fusion* fusion,
-    const at::ArrayRef<c10::IValue>& aten_inputs,
+    const KernelArgumentHolder& aten_inputs,
     const LaunchParams& lparams,
     const ValidationConstants& tolerances) {
   FusionGuard fg(fusion);

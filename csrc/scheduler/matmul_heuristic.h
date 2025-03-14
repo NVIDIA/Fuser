@@ -41,10 +41,18 @@ class MatmulParams : public HeuristicParams {
     // greater than one. Otherwise it is ignored.
     int smem_circular_buffer_stage = 2;
 
+    // The circular buffering prefetch distance will be set to
+    //   smem_circular_buffer_stage - smem_circular_buffer_prefetch_gap
+    // This value must be positive since the prefetch distance must be strictly
+    // less than the number of stages.
+    int smem_circular_buffer_prefetch_gap = 1;
+
     bool operator==(const CircularBufferOptions& other) const {
       return other.circular_buffer_smem_write == circular_buffer_smem_write &&
           other.circular_buffer_smem_read == circular_buffer_smem_read &&
-          other.smem_circular_buffer_stage == smem_circular_buffer_stage;
+          other.smem_circular_buffer_stage == smem_circular_buffer_stage &&
+          other.smem_circular_buffer_prefetch_gap ==
+          smem_circular_buffer_prefetch_gap;
     }
 
     std::string toString() const {
@@ -54,12 +62,16 @@ class MatmulParams : public HeuristicParams {
          << (circular_buffer_smem_write ? "true" : "false") << "\n"
          << "  circular_buffer_smem_read: "
          << (circular_buffer_smem_read ? "true" : "false") << "\n"
-         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage;
+         << "  smem_circular_buffer_stage: " << smem_circular_buffer_stage
+         << "\n"
+         << "  smem_circular_buffer_prefetch_gap: "
+         << smem_circular_buffer_prefetch_gap;
       return ss.str();
     }
 
     size_t hash() const {
       return std::hash<size_t>{}(
+                 (static_cast<size_t>(smem_circular_buffer_prefetch_gap) << 3) |
                  (static_cast<size_t>(smem_circular_buffer_stage) << 2) |
                  (static_cast<size_t>(circular_buffer_smem_write)) << 1) |
           (static_cast<size_t>(circular_buffer_smem_read));
@@ -138,18 +150,137 @@ class MatmulParams : public HeuristicParams {
     }
   } supported_vec_size;
 
-  //! Whether to rotate the ldmatrix out of the main loop
-  bool rotate_ldmatrix_out_of_main_loop = true;
-
   //! (Ampere+) Use cp.async to load operands.
   bool async_gmem_load_operands = false;
 
-  //! Specifies the tiling hierarchy on block,
-  //!  warp, and instruction levels.
+  //! Specifies the tiling hierarchy on block and warp levels.
   MatMulTileOptions tile_sizes = {};
 
   //! Specify the type of MMA op to be used in generated kernel.
   MmaMacro mma_macro = MmaMacro::NoMMA;
+
+  // [Basic Matmul Configuration]
+  // We compute matrix products by decomposing the output into tiles. The size
+  // of these tiles is specified by the M and N dimensions of the CTA tile. The
+  // K dimension of the CTA tile must equal that of the warp tile, and will be
+  // discussed later.
+  //
+  // Normally, each output tile is processed by a single CTA (for exceptions,
+  // see notes about split-K and stream-K below). That CTA contains threads
+  // organized into warps of 32 threads and (on Hopper+) warpgroups consisting
+  // of 4 warps. The warp tile's M and N dimensions indicate the subtile of the
+  // CTA tile that each warp or warpgroup is responsible for computing.
+  //
+  // The K dimension of the warp tile, which must match that of the CTA tile,
+  // indicates the K dimension of the operand tiles that are processed in the
+  // "K loop", a serial loop in the generated kernel used to accumulate
+  // contributions to the mma result via summation in a register buffer in each
+  // thread.
+  //
+  // The MmaMacro determines the actual PTX instruction used to compute a small
+  // matrix-matrix product on the device's tensor cores. These macros determine
+  // an "instruction tile" which can be computed in a single instruction. The
+  // number of instruction tiles that make up a single warp tile translate to
+  // loops in the generated kernel inside of the K loop, allowing each thread
+  // to compute a warp tile result that is larger than the specific
+  // instruction. Importantly, the warp tile determines the amount of data that
+  // must be loaded before performing the loop to issue mma instructions, so the
+  // warp tile provides a lower bound on the size of each loading or circular
+  // buffering stage.
+  //
+  // [Detailed Matmul Configuration]
+  // One simple way to compute the output tiles is to assign each CTA tile to
+  // an individual CTA, launching a 2D grid that matches the tiling of the
+  // output matrix. Each of those CTAs can then compute a single K loop,
+  // loading one CTA tile at each iteration, in order to accumulate the result
+  // for a single output tile. This might require multiple waves of CTAs to be
+  // launched, and each one will need to compute a prologue consisting of some
+  // indexing expressions. Furthermore, the epilogue computation must complete
+  // before each SM can launch the next CTA to which it is assigned.
+  //
+  // Alternatively, we could launch exactly one CTA per SM on the device. This
+  // allows us to compute some of the prologue once, then loop over a set of
+  // output tiles. For each output tile we then compute a K loop and epilogue.
+  // However, along with warp specialization and other approaches, we can
+  // sometimes begin loading data for the next tile before the epilogue is
+  // complete (see below). We call such an approach a "persistent kernel".
+  //
+  // Within each iteration of the K loop, two distinct things need to happen.
+  // First, we need to load data from the operands to the SM in either shared
+  // memory or registers. Then we need to perform a set of mma instructions to
+  // compute the contribution of a warp tile to the final result. Waiting for
+  // the data to load before computing the mma instructions would mean leaving
+  // the tensor cores idle, hurting performance. Instead, we commonly employ
+  // circular buffering, wherein at each iteration of the K loop we launch an
+  // asynchronous load of data for a future iteration. This way each thread
+  // only needs to launch an asynchronous load, then wait for a previous load
+  // to complete before computing mma instructions. This is called the
+  // "pipelined" strategy wherein we leave a number of asynchronous transfers
+  // in flight at all points of the K loop.
+  //
+  // The load instructions inside each K loop iteration can also be avoided by
+  // moving them to a separate thread. This is done via "warp specialization":
+  // we launch one additional warp group called the "dma warp group" whose only
+  // responsibility is to monitor the circular buffer and issue asynchronous
+  // load instructions. The mma instructions are left to the other warp groups,
+  // which we call "math warp groups".
+  //
+  // [Split-K and Stream-K]
+  // When the M, N are much smaller than the K dimension, distributing separate
+  // output tiles across the grid will not fully-occupy all compute resources on
+  // the GPU. An alternative is to parallelize work along the K dimension and
+  // then have a single CTA aggregate results for an output tile.
+  //
+  // Split-K divides the K dimension by constant factor. For example, when the
+  // split-k factor is 4, the k dimension is split across 4 CTAs. Each CTA
+  // accumulates a (CTA-M, CTA-N, K/4) output tile. A grid reductions is then
+  // performed on the K dimension to get the complete (CTA-M, CTA-N) tile. When
+  // the split-k factor is 1, it is equivalent to the data-parallel approach.
+  //
+  // The Steam-K approach combines the persistent grid strategy, which launches
+  // a single wave of CTAs, and k dimension parallelization. The core idea is to
+  // have each SM complete a fixed unit of work per stage, utilizing M, N, and K
+  // dimension parallelization. Each CTA computes a fixed (CTA-M, CTA-N, CTA-K)
+  // tile per stage. CTA-K dimension may split across multiple (CTA-M, CTA-N)
+  // output tiles. Once all partial tiles are completed, a grid sum accumulates
+  // all partial tiles. The advantage of stream-k over split-k is finding the
+  // optimal split-k factor to avoid wave quantization is non-trivial.
+  //
+  // When (CTA-K == K), then stream-k is equivalent to the persistent
+  // data-parallel strategy. When K dimension is evenly divided among CTAs (K %
+  // CTA-K == 0), then stream-k is equivalent to persistent split-k strategy.
+
+  //! Specify whether to use a 1-1 mapping from output tile to CTA or to launch
+  //! one CTA per SM then loop over a subset of output tiles within the kernel
+  //! (persistent).
+  enum class TilingStrategy {
+    OneTilePerCTA, // Map each output tile to a single CTA and launch as many as
+                   // are needed to cover the tile grid. This is also commonly
+                   // referred to as the (data-parallel) strategy.
+    DistributeTilesAcrossSMs, // Use persistent kernels to compute entire output
+                              // tiles
+    DistributeStagesAcrossSMs // Use persistent kernels to compute whole and
+                              // partial output tiles (stream-K)
+  } tiling_strategy = TilingStrategy::OneTilePerCTA;
+
+  //! Configure circular buffering loops
+  enum class BufferingLoopLevel {
+    CTATiles, // Warp groups cooperatively compute whole CTA tiles in each
+              // K iteration. If splitk_factor > 1, all math warp groups
+              // cooperate, but only for a portion of the whole K loop.
+              // splitk_factor > 1 requires a grid reduction to combine the
+              // contributions from each portion. Also called split-K.
+    WarpTiles // All warp tiles in a K loop for each math warp group are
+              // iterated over then the next math warp group's warp tile is
+              // processed. Also called ping-pong or alternating stratgy.
+  } buffering_loop_level = BufferingLoopLevel::CTATiles;
+
+  //! Whether to do regular circular buffering (pipelined) or warp
+  //! specialization using an additional dma warp group
+  enum class CircularBufferingStrategy {
+    Pipelined,
+    WarpSpecialized
+  } circular_buffering_strategy = CircularBufferingStrategy::Pipelined;
 
   //! Specify CTA rastrization order.
   TileRasterizationOrder cta_order = TileRasterizationOrder::RowMajor;
@@ -183,6 +314,35 @@ class MatmulParams : public HeuristicParams {
   //! axis and perform a grid reduction before the epilogue.
   int splitk_factor = 1;
 
+  //! This is the CGA size on Hopper+ devices. This parameter is ignored on
+  //! Ampere and Turing.
+  struct ClusterDims {
+    int64_t x = 1;
+    int64_t y = 1;
+    int64_t z = 1;
+
+    bool operator==(const ClusterDims& other) const {
+      return x == other.x && y == other.y && z == other.z;
+    }
+
+    bool operator!=(const ClusterDims& other) const {
+      return !(*this == other);
+    }
+
+    std::string toString() const {
+      std::stringstream ss;
+      ss << "__cluster_dims__(" << x << ", " << y << ", " << z << ")";
+      return ss.str();
+    }
+
+    size_t hash() const {
+      return std::hash<size_t>{}(
+                 (static_cast<size_t>(x) << 32) |
+                 (static_cast<size_t>(y)) << 16) |
+          (static_cast<size_t>(z));
+    }
+  } cluster_dims;
+
   std::string toString() const override {
     std::stringstream ss;
     ss << "\n===== Matmul Parameters ========\n"
@@ -191,8 +351,6 @@ class MatmulParams : public HeuristicParams {
        << circular_buffer_options.toString() << "\n"
        << supported_vec_size.toString() << "\n"
        << nvfuser::toString(tile_sizes) << "\n"
-       << "Rotate ldmatrix out of main loop: "
-       << (rotate_ldmatrix_out_of_main_loop ? "true" : "false") << "\n"
        << "Async global mem load: "
        << (async_gmem_load_operands ? "true" : "false") << "\n"
        << "Indexing mode: "
@@ -201,11 +359,45 @@ class MatmulParams : public HeuristicParams {
                                                                   : "int32_t")
                : "unavailable")
        << "\n"
-       << "Tile rastrization order: "
+       << "Tile rasterization order: "
        << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
                                                            : "column-major")
        << "\n"
-       << "Grid swizzle factor: " << grid_swizzle_factor << "\n"
+       << "Grid swizzle factor: " << grid_swizzle_factor << "\n";
+    ss << "Tiling strategy: ";
+    switch (tiling_strategy) {
+      case TilingStrategy::OneTilePerCTA:
+        ss << "OneTilePerCTA";
+        break;
+      case TilingStrategy::DistributeTilesAcrossSMs:
+        ss << "DistributeTilesAcrossSMs";
+        break;
+      case TilingStrategy::DistributeStagesAcrossSMs:
+        ss << "DistributeStagesAcrossSMs";
+        break;
+    }
+    ss << "\n";
+    ss << "Buffering loop level: ";
+    switch (buffering_loop_level) {
+      case BufferingLoopLevel::CTATiles:
+        ss << "CTATiles";
+        break;
+      case BufferingLoopLevel::WarpTiles:
+        ss << "WarpTiles";
+        break;
+    }
+    ss << "\n";
+    ss << "Circular buffering strategy: ";
+    switch (circular_buffering_strategy) {
+      case CircularBufferingStrategy::Pipelined:
+        ss << "Pipelined";
+        break;
+      case CircularBufferingStrategy::WarpSpecialized:
+        ss << "WarpSpecialized";
+        break;
+    }
+    ss << "\n";
+    ss << cluster_dims.toString() << "\n"
        << "Use shared memory epilogue: " << use_smem_epilogue << "\n"
        << "Promote re-use of prologue shared memory: "
        << promote_prologue_smem_reuse << "\n"
@@ -216,9 +408,8 @@ class MatmulParams : public HeuristicParams {
 
   size_t hash() const override {
     // combine boolean flags for hashing
-    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 3) |
-        (static_cast<size_t>(use_smem_epilogue) << 2) |
-        (static_cast<size_t>(rotate_ldmatrix_out_of_main_loop) << 1) |
+    size_t attr_hash = (static_cast<size_t>(promote_prologue_smem_reuse) << 2) |
+        (static_cast<size_t>(use_smem_epilogue) << 1) |
         (static_cast<size_t>(async_gmem_load_operands));
 
     // combined hash
@@ -238,10 +429,8 @@ class MatmulParams : public HeuristicParams {
       return false;
     }
 
-    return other->mma_macro == mma_macro &&
+    return other->cparams == cparams && other->mma_macro == mma_macro &&
         other->async_gmem_load_operands == async_gmem_load_operands &&
-        other->rotate_ldmatrix_out_of_main_loop ==
-        rotate_ldmatrix_out_of_main_loop &&
         other->tile_sizes == tile_sizes &&
         other->circular_buffer_options == circular_buffer_options &&
         other->supported_vec_size == supported_vec_size &&

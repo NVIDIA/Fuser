@@ -43,9 +43,6 @@ jobs:
           tools/pip-install-things.sh &
           source tools/setup-env.sh
 
-          # clang-tidy does not work well with gcc-13 headers, remove them
-          sudo rm -rf /usr/lib/gcc/x86_64-linux-gnu/13
-
           # Install lintrunner
           pip install lintrunner
 
@@ -90,7 +87,7 @@ jobs:
           lintrunner init 2> /dev/null
 
           # Install dependencies
-          sudo apt install -y libtinfo5
+          sudo apt install -y libtinfo6
 
           # Run lintrunner except clang-tidy
           lintrunner --force-color --take FLAKE8,MYPY,CLANGFORMAT,NOQA,TYPEIGNORE,NEWLINE,MYPYSTRICT,TABS,SPACES,EXEC,BLACK,TORCH_INTERNAL_ASSERT,TORCH_CHECK,C10_ERROR,TORCH_CUDA_CU_API --all-files

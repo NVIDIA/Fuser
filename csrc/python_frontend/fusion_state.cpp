@@ -68,6 +68,27 @@ std::ostream& operator<<(std::ostream& os, const State& state) {
   return os;
 }
 
+std::vector<Val*> getExtents(Fusion* fusion) {
+  NVF_CHECK(fusion != nullptr, "Fusion is undefined.");
+
+  std::vector<Val*> extents;
+  for (Val* v : fusion->inputs()) {
+    // short-circuit: skip if not TensorView
+    if (!v->isA<TensorView>()) {
+      continue;
+    }
+    TensorView* tv = v->as<TensorView>();
+    std::vector<IterDomain*> logical_dom =
+        TensorDomain::noReductions(tv->getLogicalDomain());
+    std::transform(
+        logical_dom.begin(),
+        logical_dom.end(),
+        std::back_inserter(extents),
+        [](IterDomain* id) { return id->getMaybeExpandedExtent(); });
+  }
+  return extents;
+}
+
 FusionState::FusionState()
     : end_record_(new EndRecord()),
       recording_(),
@@ -85,6 +106,22 @@ std::unique_ptr<FusionState> FusionState::clone() {
   state->fusion_state_.insert(
       state->fusion_state_.end(), fusion_state_.begin(), fusion_state_.end());
   state->num_recording_states_ = num_recording_states_;
+  std::copy(
+      inputs_fid_.begin(),
+      inputs_fid_.end(),
+      std::back_inserter(state->inputs_fid_));
+  std::copy(
+      outputs_fid_.begin(),
+      outputs_fid_.end(),
+      std::back_inserter(state->outputs_fid_));
+  std::copy(
+      extents_fid_.begin(),
+      extents_fid_.end(),
+      std::back_inserter(state->extents_fid_));
+  std::copy(
+      map_value_to_fid_.begin(),
+      map_value_to_fid_.end(),
+      std::inserter(state->map_value_to_fid_, state->map_value_to_fid_.end()));
   return state;
 }
 
@@ -95,8 +132,20 @@ void FusionState::buildFusionIr(Fusion* fusion) {
   auto fusion_guard = FusionGuard(fusion);
   for (auto& record : recording_) {
     auto functor = record.get();
-    (*functor)(*this);
+    try {
+      (*functor)(*this);
+    } catch (const std::exception& e) {
+      std::stringstream ss;
+      record->print(ss);
+
+      NVF_THROW(
+          "\nDetected exception while building Fusion Ir. The failing RecordFunctor is: ",
+          ss.str(),
+          "\nNvFuser error message is: ",
+          e.what());
+    }
   }
+  addExtents();
 }
 
 void FusionState::addRecord(RecordFunctor* record) {
@@ -136,6 +185,10 @@ void FusionState::resetFusionState(Fusion* fusion, size_t size) {
   fusion_ = fusion;
   fusion_state_.clear();
   fusion_state_.resize(size, {});
+  inputs_fid_.clear();
+  outputs_fid_.clear();
+  extents_fid_.clear();
+  map_value_to_fid_.clear();
 }
 
 void FusionState::addFusionState(Val* val) {
@@ -167,6 +220,7 @@ size_t FusionState::numFusionStates() const {
 
 void FusionState::setFusionState(size_t index, Val* val) {
   fusion_state_.at(index) = {val};
+  map_value_to_fid_.emplace(val, (int64_t)index);
 }
 
 void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {
@@ -178,14 +232,18 @@ void FusionState::setFusionStateVector(size_t index, std::vector<Val*> val) {
   fusion_state_.at(index) = {val};
 }
 
-void FusionState::addInput(Val* input) {
+void FusionState::addInput(Val* input, size_t index) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addInput(input);
+  map_value_to_fid_.emplace(input, (int64_t)index);
+  inputs_fid_.push_back((int64_t)index);
 }
 
-void FusionState::addOutput(Val* output) {
+void FusionState::addOutput(Val* output, size_t index) {
   NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
   fusion_->addOutput(output);
+  map_value_to_fid_.emplace(output, (int64_t)index);
+  outputs_fid_.push_back((int64_t)index);
 }
 
 void FusionState::aliasOutputToInput(Val* output, Val* input) {
@@ -193,6 +251,44 @@ void FusionState::aliasOutputToInput(Val* output, Val* input) {
   // We haven't exposed AllocationType to Python API. For now, use
   // ReuseBuffer to preserve the old behavior.
   fusion_->aliasOutputToInput(output, input, AllocationType::ReuseBuffer);
+}
+
+const std::unordered_map<const Val*, int64_t>& FusionState::getValueMap()
+    const {
+  return map_value_to_fid_;
+}
+
+const std::vector<int64_t>& FusionState::inputs() const {
+  return inputs_fid_;
+}
+
+const std::vector<int64_t>& FusionState::outputs() const {
+  return outputs_fid_;
+}
+
+const std::vector<int64_t>& FusionState::extents() const {
+  return extents_fid_;
+}
+
+void FusionState::addExtents() {
+  NVF_CHECK(fusion_ != nullptr, "Fusion is undefined.");
+
+  // The size of the tensor dimensions can be used as an input of the
+  // segments. NvFuser does not support returning scalar values. Segmentation
+  // must pass those sizes as segment arguments manually.
+  std::vector<Val*> extents = getExtents(fusion_);
+  for (Val* extent : extents) {
+    int64_t num_extents = (int64_t)extents_fid_.size();
+    // Use negative numbers to represent extent of iterDomains to avoid conflict
+    // with non-negative numbers used for scalars, vectors, and tensors.
+    // The extents are ordered based on the order of the fusion's inputs.
+    int64_t extent_fid = -num_extents - 1;
+    extents_fid_.push_back(extent_fid);
+    // The extent can already exist in the fusion. However, since scalars cannot
+    // be passed between segments, always overwrited existing fids. The original
+    // fusion definition will provide scalar extents.
+    map_value_to_fid_[extent] = extent_fid;
+  }
 }
 
 } // namespace nvfuser::python_frontend

@@ -12,6 +12,7 @@
 #include <instrumentation.h>
 #include <options.h>
 #include <python_frontend/fusion_cache.h>
+#include <runtime/fusion_kernel_runtime.h>
 #include <serde/fusion_record.h>
 #include <utils.h>
 
@@ -185,9 +186,14 @@ void serialize() {
 std::mutex FusionCache::singleton_lock_;
 FusionCache* FusionCache::singleton_ = nullptr;
 
-UserSchedule::UserSchedule() : scheduled_fusion(nullptr), executor(nullptr) {
+UserSchedule::UserSchedule(int64_t fusion_id, int64_t device_id)
+    : scheduled_fusion(nullptr),
+      executor(nullptr),
+      fusion_id_(fusion_id),
+      device_id_(device_id) {
   scheduled_fusion = std::make_unique<Fusion>();
-  executor = std::make_unique<FusionExecutor>();
+  executor =
+      std::make_unique<KernelExecutor>(fusion_id, /*concrete_id=*/device_id);
 }
 
 bool UserSchedule::canSchedule(const SchedulerType& scheduler_type) {
@@ -209,11 +215,11 @@ std::tuple<bool, std::string> UserSchedule::canScheduleDebug(
   return std::make_tuple(can_schedule, ss.str());
 }
 
-void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
+HeuristicParams* UserSchedule::computeHeuristics(SchedulerType scheduler_type) {
   NVF_CHECK(
-      heuristic_params == nullptr,
-      "Heuristic Scheduler is already defined for this UserSchedule");
-  auto scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
+      scheduler == nullptr,
+      "Scheduler is already defined for this UserSchedule");
+  scheduler = SchedulerEntry::makeSchedulerInstance(scheduler_type);
   SchedulerRuntimeInfo& runtime_info_ref = *runtimeInfo();
 
   NVF_ERROR(
@@ -223,8 +229,27 @@ void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
       scheduler_type,
       " scheduler.");
 
-  heuristic_params = scheduler->computeHeuristics(fusion(), runtime_info_ref);
+  NVF_CHECK(
+      heuristic_params == nullptr,
+      "Heuristic Scheduler is already defined for this UserSchedule");
+  heuristic_params = scheduler->computeHeuristics(
+      fusion(), runtime_info_ref, data_cache.get());
+  return heuristic_params.get();
+}
+
+void UserSchedule::schedule() {
+  NVF_CHECK(
+      scheduler != nullptr, "Scheduler is not defined for this UserSchedule");
+  NVF_CHECK(
+      heuristic_params != nullptr,
+      "Heuristic Scheduler is not defined for this UserSchedule");
   scheduler->schedule(fusion(), heuristic_params.get());
+}
+
+void UserSchedule::scheduleWithType(SchedulerType scheduler_type) {
+  // Get default heuristics for scheduler and then schedule fusion.
+  computeHeuristics(scheduler_type);
+  schedule();
 }
 
 FusionSchedules::FusionSchedules(int64_t fusion_id)
@@ -233,15 +258,34 @@ FusionSchedules::FusionSchedules(int64_t fusion_id)
       last_user_def_scheduled_ir(nullptr),
       last_user_def_executor(nullptr),
       scheds_lock(),
-      fusion_id_{fusion_id} {
-  auto_gen_schedules = std::make_unique<FusionExecutorCache>(
-      std::make_unique<Fusion>(), fusion_id);
+      fusion_id_(fusion_id) {
+  presched_fusion_ = std::make_unique<Fusion>();
 }
 
 Fusion* FusionSchedules::preschedFusion() {
-  auto fusion = auto_gen_schedules->fusion();
-  NVF_CHECK(fusion != nullptr, "Prescheduled Fusion is unexpectedly null!");
-  return fusion;
+  if (presched_fusion_ != nullptr) {
+    return presched_fusion_.get();
+  }
+
+  // Ideally, we shouldn't have to access FusionExecutorCache::fusion() so
+  // FusionExecutorCache has the flexibility to modify it in place or even
+  // delete it. Currently, this is only needed for cloning an
+  // nvfuser.FusionDefinition. See exec_nvfuser's is_clonable parameter. After
+  // FusionDefinition.__exit__, FusionSchedules.presched_fusion_ is moved to
+  // FusionExecutorCache and therefore becomes null.
+  if (auto_gen_schedules != nullptr) {
+    return auto_gen_schedules->fusion();
+  }
+
+  NVF_THROW("Prescheduled Fusion is unexpectedly null!");
+}
+
+void FusionSchedules::createExecutorIfNotExists() {
+  if (auto_gen_schedules == nullptr) {
+    auto_gen_schedules = std::make_unique<FusionExecutorCache>(
+        std::move(presched_fusion_), fusion_id_);
+    presched_fusion_ = nullptr;
+  }
 }
 
 TrieNode::TrieNode(RecordFunctor* rec, TrieNode* _parent, size_t _fusion_id)
@@ -453,7 +497,7 @@ std::optional<TrieNode*> FusionCache::queryChildren(
 FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
   NVF_CHECK(
       fusion_id < fusions_.size(),
-      "Invalid scheduler query for id:",
+      "Invalid scheduler query for id: ",
       fusion_id);
   FusionSchedules* ptr = fusions_.at(fusion_id).get();
   NVF_CHECK(ptr != nullptr, "Unexpected null FusionSchedules object.");
@@ -462,12 +506,12 @@ FusionSchedules* FusionCache::queryFusionSchedules(size_t fusion_id) const {
 
 std::optional<size_t> FusionCache::queryUserScheduleId(
     const FusionSchedules* scheds,
-    const at::ArrayRef<c10::IValue>& inputs) {
+    const KernelArgumentHolder& args) {
   std::optional<size_t> result = std::nullopt;
 
   auto& user_scheds = scheds->user_def_schedules;
   if (!user_scheds.empty()) {
-    auto input_id = user_def_input_encodings_.lookupId(inputs);
+    auto input_id = user_def_input_encodings_.lookupId(args);
     auto user_sched = user_scheds.find(input_id.id);
     if (user_sched != user_scheds.end()) {
       return std::optional<size_t>(user_sched->first);
@@ -492,16 +536,16 @@ const UserSchedule& FusionCache::queryUserSchedule(
 
 bool FusionCache::existUserSchedule(
     const FusionSchedules* scheds,
-    const at::ArrayRef<c10::IValue>& inputs,
+    KernelArgumentHolder args,
     int device) {
   // Short-Circuit: No user schedules
   if (scheds->user_def_schedules.empty()) {
     return false;
   }
-
-  // Short-Circuit: User schedule does not exist for fusion and inputs.
+  args.setDeviceIndex(device);
+  // Short-Circuit: User schedule does not exist for fusion and args.
   InputsIdLookup::IdLookupReturn input_id =
-      user_def_input_encodings_.lookupId(inputs);
+      user_def_input_encodings_.lookupId(args);
   auto user_sched_iter = scheds->user_def_schedules.find(input_id.id);
   if (user_sched_iter == scheds->user_def_schedules.end()) {
     return false;
@@ -564,26 +608,28 @@ TrieNode* FusionCache::createChild(TrieNode* node, RecordFunctor* rec) {
 
 UserSchedule* FusionCache::createUserSchedule(
     FusionSchedules* scheds,
-    const at::ArrayRef<c10::IValue>& inputs,
-    int device) {
+    KernelArgumentHolder args,
+    int device,
+    bool overwrite_existing_schedule) {
   FUSER_PERF_SCOPE("FusionCache::createUserSchedule");
   std::lock_guard<std::mutex> guard(scheds->scheds_lock);
+  args.setDeviceIndex(device);
   auto& user_scheds = scheds->user_def_schedules;
-  auto input_id = user_def_input_encodings_.lookupId(inputs);
-  auto user_sched = user_scheds.find(input_id.id);
-  if (user_sched == user_scheds.end()) {
-    user_scheds[input_id.id] = std::vector<UserSchedule>(device + 1);
+  auto input_id = user_def_input_encodings_.lookupId(args);
+
+  // Create UserSchedule for device
+  if (user_scheds[input_id.id].count(device) == 0) {
+    user_scheds[input_id.id].emplace(
+        device, UserSchedule(scheds->fusion_id_, device));
   } else {
-    if (static_cast<size_t>(device) >= user_scheds[input_id.id].size()) {
-      user_scheds[input_id.id].resize(device + 1);
-    } else {
+    if (!overwrite_existing_schedule) {
       TORCH_WARN(
           "You are overwriting the current user schedule for a definition!");
-      user_scheds[input_id.id].at(device) = UserSchedule();
     }
+    user_scheds[input_id.id].at(device) =
+        UserSchedule(scheds->fusion_id_, device);
   }
-  user_scheds[input_id.id].at(device).fusion_id_ = scheds->fusion_id_;
-  user_scheds[input_id.id].at(device).device_id_ = device;
+
   return &user_scheds[input_id.id].at(device);
 }
 
@@ -643,12 +689,25 @@ void FusionCache::serialize(std::string filename) const {
   std::vector<fb_fusion_executor_cache> fb_auto_gen_schedules;
   fb_auto_gen_schedules.reserve(terminal_nodes_.size());
 
-  for (auto node : terminal_nodes_) {
+  for (TrieNode* node : terminal_nodes_) {
+    if (node->getException().has_value()) {
+      // Skip error nodes, which don't map to any FusionSchedules in the cache.
+      // Without this, queryFusionSchedules creates an empty FusionSchedules
+      // that's not executable.
+      continue;
+    }
+
+    FusionSchedules* schedule = queryFusionSchedules(node->fusion_id);
+    if (schedule->auto_gen_schedules == nullptr) {
+      // This fusion has been created but never executed. It doesn't save us
+      // anything to serialize that.
+      continue;
+    }
+
     terminal_node_idx.push_back(
         map_record_functor_to_trie_node_id.at(node->record.get()));
 
-    auto schedule = queryFusionSchedules(node->fusion_id);
-    fb_auto_gen_schedules.emplace_back(
+    fb_auto_gen_schedules.push_back(
         schedule->auto_gen_schedules->serialize(builder));
   }
 
@@ -665,7 +724,7 @@ void FusionCache::serialize(std::string filename) const {
       &fb_nodes,
       &terminal_node_idx,
       &fb_auto_gen_schedules,
-      FusionExecutor::getGlobalFusionCount(),
+      KernelExecutor::getGlobalFusionCount(),
       device_prop->major,
       device_prop->minor,
       cuda_major,
@@ -699,17 +758,23 @@ void FusionCache::deserialize(std::string filename) {
   NVF_CHECK(fusion_cache_buffer != nullptr, "Fusion Cache buffer is invalid.");
 
   // 0. Set static fusion count in Fusion Executor
-  FusionExecutor::setGlobalFusionCount(
+  KernelExecutor::setGlobalFusionCount(
       fusion_cache_buffer->global_fusion_count());
 
   // 1. Deserialize max_fusions field
   max_fusions_ = fusion_cache_buffer->max_fusions();
 
   // 2. Deserialize fusions: (Fusion) and structure: (TrieNode) fields
-  std::generate_n(
-      std::back_inserter(fusions_),
-      fusion_cache_buffer->terminal_nodes()->size(),
-      [] { return std::make_unique<FusionSchedules>(); });
+  int64_t num_fusions = 0;
+  for (const auto i :
+       c10::irange(fusion_cache_buffer->auto_gen_schedules()->size())) {
+    num_fusions = std::max(
+        num_fusions,
+        fusion_cache_buffer->auto_gen_schedules()->Get(i)->fusion_id() + 1);
+  }
+  std::generate_n(std::back_inserter(fusions_), num_fusions, [] {
+    return std::make_unique<FusionSchedules>();
+  });
 
   serde::RecordFunctorFactory record_functor_factory;
 
@@ -758,8 +823,8 @@ void FusionCache::deserialize(std::string filename) {
       NVF_CHECK(
           trie_ptr->fusion_id == fb_trie_node->fusion_id(),
           "The fusion id for this TrieNode should already be set.")
-      Fusion* fusion =
-          queryFusionSchedules(fb_trie_node->fusion_id())->preschedFusion();
+      FusionSchedules* fs = queryFusionSchedules(fb_trie_node->fusion_id());
+      Fusion* fusion = fs->preschedFusion();
       try {
         // There could be bad fusion in the serialization.
         state->buildFusionIr(fusion);
@@ -767,6 +832,14 @@ void FusionCache::deserialize(std::string filename) {
         // catch exception and setException for the terminal node
         trie_ptr->setException(e.what());
       }
+      // The FusionState creates a mapping from CPP Fusion to its State objects.
+      // Since the CPP Fusion is cached in FusionCache and the FusionState is
+      // temporary, the information linking CPP Fusion and Python
+      // FusionDefinition is stored in FusionCache.
+      fs->inputs_fid_ = state->inputs();
+      fs->outputs_fid_ = state->outputs();
+      fs->extents_fid_ = state->extents();
+      fs->map_value_to_fid_ = state->getValueMap();
     }
 
     // Table TrieNode => Field: children: [ulong]
@@ -802,13 +875,16 @@ void FusionCache::deserialize(std::string filename) {
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : c10::irange(fusions_.size())) {
+  for (auto idx : c10::irange(fusion_cache_buffer->terminal_nodes()->size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
     auto trie_node = bfs_order.at(node_idx);
     terminal_nodes_.push_back(trie_node);
 
     auto fb_fec_node = fusion_cache_buffer->auto_gen_schedules()->Get(idx);
-    auto fusion_schedule = queryFusionSchedules(trie_node->fusion_id);
+    FusionSchedules* fusion_schedule =
+        queryFusionSchedules(trie_node->fusion_id);
+    // Create an executor so the following code can deserialize it.
+    fusion_schedule->createExecutorIfNotExists();
 
     if (!isOptionDisabled(DisableOption::ParallelSerde)) {
       // Parallelize the deserialization of each FusionExecutorCache.

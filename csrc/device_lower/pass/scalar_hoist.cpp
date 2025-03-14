@@ -8,6 +8,7 @@
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/magic_zero.h>
 #include <expr_simplifier.h>
+#include <ir/utils.h>
 #include <iter_visitor.h>
 #include <kernel_ir_dispatch.h>
 #include <options.h>
@@ -119,6 +120,9 @@ ForLoop* getLoopAtPos(const std::vector<ForLoop*>& loops, int64_t position) {
 // Check if in the definition of from, there is a subexpression equivalent to
 // reference. If found, then return this subexpression.
 Val* findRefAsSubexprOf(Val* from, Val* reference, bool exact) {
+  if (!ir_utils::isFunctional(reference)) {
+    return nullptr;
+  }
   if (exact) {
     if (from == reference) {
       return from;
@@ -267,7 +271,9 @@ std::pair<Val*, bool> CommonScalarMap::hoistScalarImpl(
   // `common_scalar_map_` only if it can be hoisted to outer loops.
   if (!has_tensor_index_dependency && (is_given || my_pos < parent_pos)) {
     common_scalar_map_[my_loop].emplace_back(value);
-    if (my_pos < parent_pos) {
+    // We never hoist non-functional values because each call returns a
+    // different value, therefore non-hoistable.
+    if (my_pos < parent_pos && ir_utils::isFunctional(value)) {
       hoisted_or_reused_.emplace(value);
     }
   }
@@ -386,10 +392,10 @@ Val* CommonScalarMap::reuseScalarIfAlreadyComputed(Val* value, ForLoop* loop) {
   if (it != common_scalar_map_.end()) {
     auto& scalars = it->second;
     for (auto it = scalars.begin(); it != scalars.end(); it++) {
-      auto idx = *it;
-      auto common_subexpr = findRefAsSubexprOf(idx, value, false);
+      auto scalar = *it;
+      auto common_subexpr = findRefAsSubexprOf(scalar, value, false);
       if (common_subexpr != nullptr) {
-        if (common_subexpr != idx) {
+        if (common_subexpr != scalar) {
           // If the reuse is a subexpression instead of the complete
           // expression, we split this subexpression out and allocate it
           // separately.

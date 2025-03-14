@@ -193,7 +193,22 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
     kir::IrVisitor::dispatch(expr);
   }
 
-  bool openLoopNestLevel(IterDomain* id) {
+  bool openLoopNestLevel(ForLoop* fl) {
+    // circular buffering duplicates for-loops. Depending on the number of
+    // iterations in for-loop and size of circular buffering pipeline, either
+    // the main loop or epilogue loops can be trivial. In this case, we do not
+    // open another loop nest level. Allocations are added directly to the
+    // previous level.
+    bool is_main_loop =
+        fl->circularBufferLoopStage() == CircularBufferLoopStage::Main;
+    bool is_epilogue_loop =
+        fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog;
+
+    if ((is_main_loop || is_epilogue_loop) && fl->isTrivial()) {
+      return false;
+    }
+
+    IterDomain* id = fl->iter_domain();
     if (id->isThread() || id->getParallelType() == ParallelType::Unswitch) {
       return false;
     }
@@ -206,7 +221,7 @@ class FuseBroadcastWithWarpReduce : private kir::IrVisitor {
 
   void handle(ForLoop* for_loop) final {
     // Keep track of visible reduction outputs
-    bool open_nest_level = openLoopNestLevel(for_loop->iter_domain());
+    bool open_nest_level = openLoopNestLevel(for_loop);
     if (open_nest_level) {
       running_tv_to_allocate_map_.emplace_back(
           std::make_unique<std::unordered_map<TensorView*, kir::Allocate*>>());

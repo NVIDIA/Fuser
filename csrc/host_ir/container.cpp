@@ -14,10 +14,16 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <ops/all_ops.h>
+#include <runtime/executor.h>
 
 namespace nvfuser {
 
 namespace hir {
+
+HostIrContainer::HostIrContainer(int64_t num_kernel_executors)
+    : kernel_executors_(num_kernel_executors) {}
+
+HostIrContainer::~HostIrContainer() = default;
 
 Stream* HostIrContainer::getDefaultStream() {
   if (!default_stream_) {
@@ -30,6 +36,26 @@ std::ostream& HostIrContainer::print(std::ostream& os) const {
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
   return os;
+}
+
+const std::vector<Expr*>& HostIrContainer::topLevelExprs() const {
+  return top_level_exprs_;
+}
+
+void HostIrContainer::pushBackTopLevelExprs(Expr* expr) {
+  assertInContainer(expr, "Cannot add expr, ");
+  top_level_exprs_.push_back(expr);
+}
+
+void HostIrContainer::setKernelExecutor(
+    int64_t index,
+    std::unique_ptr<KernelExecutor> ke) {
+  NVF_ERROR(kernel_executors_.at(index) == nullptr);
+  kernel_executors_.at(index) = std::move(ke);
+}
+
+KernelExecutor* HostIrContainer::getKernelExecutor(int64_t index) const {
+  return kernel_executors_.at(index).get();
 }
 
 } // namespace hir

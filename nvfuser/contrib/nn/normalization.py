@@ -401,12 +401,6 @@ class NormNVFuserFunction(torch.autograd.Function):
                 tv_running_mean = partially_contig_tensor(fd, running_mean)
                 tv_running_var = partially_contig_tensor(fd, running_var)
                 inputs.extend([running_mean, running_var])
-                if running_mean.dtype in [torch.half, torch.bfloat16]:
-                    tv_running_mean = fd.ops.cast(
-                        tv_running_mean, nvfuser.DataType.Float
-                    )
-                if running_var.dtype in [torch.half, torch.bfloat16]:
-                    tv_running_var = fd.ops.cast(tv_running_var, nvfuser.DataType.Float)
 
             s_momentum = fd.define_scalar(nvfuser.DataType.Double)
             s_eps = fd.define_scalar(nvfuser.DataType.Double)

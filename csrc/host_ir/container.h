@@ -12,6 +12,8 @@
 
 namespace nvfuser {
 
+class KernelExecutor;
+
 namespace hir {
 
 /*
@@ -25,26 +27,37 @@ programs. Later, we it should support non-linear program having a DAG structure.
 
 class HostIrContainer final : public Fusion {
  public:
-  HostIrContainer() = default;
+  // num_kernel_executors is only needed when the container has LaunchKernel
+  // instructions.
+  explicit HostIrContainer(int64_t num_kernel_executors = 0);
   HostIrContainer(const HostIrContainer&) = delete;
   HostIrContainer& operator=(const HostIrContainer&) = delete;
+
+  // Do not have a definition here as it requires the definition of
+  // KernelExecutor due to kernel_executors_.
+  // NOLINTNEXTLINE (modernize-use-equals-default)
+  ~HostIrContainer() override;
 
   //! Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
-  const auto& topLevelExprs() const {
-    return top_level_exprs_;
+  const std::vector<Expr*>& topLevelExprs() const;
+
+  void pushBackTopLevelExprs(Expr* expr);
+
+  void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke);
+
+  bool hasKernelExecutor(int64_t index) const {
+    return kernel_executors_.at(index) != nullptr;
   }
 
-  void pushBackTopLevelExprs(Expr* expr) {
-    assertInContainer(expr, "Cannot add expr, ");
-    return top_level_exprs_.push_back(expr);
-  }
+  KernelExecutor* getKernelExecutor(int64_t index) const;
 
   Stream* getDefaultStream();
 
  private:
   std::vector<Expr*> top_level_exprs_;
+  std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
 };
 

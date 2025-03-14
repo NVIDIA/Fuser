@@ -8,6 +8,7 @@
 #include <dispatch.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
+#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/cloner.h>
@@ -189,16 +190,8 @@ std::string Val::toInlineString(int indent_size) const {
 }
 
 bool Val::isConstScalar() const {
-  if (!isScalar()) {
+  if (!isScalar() || !ir_utils::isFunctional(this)) {
     return false;
-  }
-  // elect.sync ptx picks a leader thread from membermask.
-  // It cannot be evaluated at compile-time.
-  if (Expr* def = definition()) {
-    if (def->isA<UnaryOp>() &&
-        def->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::ElectSync) {
-      return false;
-    }
   }
   return ir_utils::dependenciesSatisfied(this);
 }
@@ -348,12 +341,16 @@ bool Expr::sameAs(const Statement* other) const {
 }
 
 kir::Predicate* Expr::predicate() const {
-  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "Function invalid for fusion.");
   return predicate_;
 }
 
 void Expr::setPredicate(kir::Predicate* predicate) {
-  NVF_ERROR(container()->isA<kir::Kernel>(), "Function invalid for fusion.");
+  NVF_ERROR(
+      (container()->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "Function invalid for fusion.");
   predicate_ = predicate;
 }
 

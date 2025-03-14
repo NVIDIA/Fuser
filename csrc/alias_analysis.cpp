@@ -246,7 +246,7 @@ void AliasFinder::handle(const LoadStoreOp* set) {
   if (in == nullptr) {
     return;
   }
-  TensorView* out = set->out()->as<TensorView>();
+  auto* out = set->out()->as<TensorView>();
 
   // Compute `out`'s preferred allocation domain for aliasing.
   //
@@ -439,6 +439,13 @@ void AliasAnalysisResult::finalize(
     if (!okToRelayout(
             alias, preferred_layout, can_override_empty_allocation_domain)) {
       continue;
+    }
+
+    // if alias has reuse buffer, it's an inplace update and shouldn't be marked
+    // as an alias op, since we will have a set operation on it.
+    if (alias->fusion()->getOutputAlias(alias).type ==
+        AllocationType::ReuseBuffer) {
+      return;
     }
 
     // Walks up the `alias_to_source_` chain.

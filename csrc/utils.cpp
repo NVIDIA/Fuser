@@ -8,8 +8,10 @@
 #include <ATen/cuda/CUDAContext.h>
 #include <c10/util/string_view.h>
 #include <cuda_occupancy.h>
+
 #include <debug.h>
 #include <options.h>
+#include <runtime/executor_kernel_arg.h>
 #include <utils.h>
 
 #include <cstdlib>
@@ -37,22 +39,13 @@ c10::ThreadPool* getThreadPool() {
   return &pool;
 }
 
-std::string debug_str(const c10::IValue& val) {
-  if (val.isTensor()) {
-    return debug_str(val.toTensor());
-  }
-
-  std::stringstream out_s;
-  out_s << val.toScalar();
-  return out_s.str();
-}
-
 std::string debug_str(const at::Tensor& tensor) {
   std::stringstream ss;
   ss << "Tensor:";
-  ss << " device: " << tensor.device();
+  ss << " shape: " << tensor.sizes();
   ss << ", dtype: " << tensor.dtype();
-  ss << ", shape: " << tensor.sizes();
+  ss << ", device: " << tensor.device();
+  ss << ", pointer: " << reinterpret_cast<size_t>(tensor.data_ptr());
 
   if (!tensor.is_contiguous()) {
     ss << ", strides: " << tensor.strides();
@@ -69,7 +62,7 @@ bool is_meta_scalar(const at::Tensor& tensor) {
 }
 
 int8_t getCommonDeviceCUDA(
-    const at::ArrayRef<c10::IValue>& inputs,
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device) {
   int8_t index = 0;
   // have we found or selected at least one device yet?
@@ -79,15 +72,18 @@ int8_t getCommonDeviceCUDA(
     found_device = true;
   }
   for (const auto& input : inputs) {
-    if (!input.isTensor() || !input.toTensor().defined()) {
+    if (!input.is<at::Tensor>() || !input.as<at::Tensor>().defined()) {
       continue;
     }
-    const auto& device = input.toTensor().device();
+    const auto& device = input.as<at::Tensor>().device();
     // skip cpu scalar tensor as they'll be promoted to scalar later
-    if (device.is_cpu() && is_cpu_scalar(input.toTensor())) {
+    if (device.is_cpu() && is_cpu_scalar(input.as<at::Tensor>())) {
       continue;
     }
-    NVF_CHECK(device.is_cuda(), "nvfuser only supports cuda device");
+    NVF_CHECK(
+        device.is_cuda() || device.is_meta(),
+        "nvfuser only supports cuda or meta device, found: ",
+        device);
     auto cur_index = device.index();
     if (found_device && index != cur_index) {
       return -1;
@@ -136,7 +132,8 @@ int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm) {
   // clamp down to register allocation granularity at warp level
   int64_t effective_max_reg_per_warp = max_reg_per_warp /
       reg_allocation_granularity * reg_allocation_granularity;
-  return effective_max_reg_per_warp / warp_size;
+  constexpr int64_t max_reg_count = 255;
+  return std::min(max_reg_count, effective_max_reg_per_warp / warp_size);
 }
 
 int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
@@ -157,7 +154,7 @@ int64_t getThreadsPerSMGivenRegPerThread(int64_t reg_per_thread) {
   return num_warps * warp_size;
 }
 
-char* getNvFuserEnv(const char* env_name) {
+const char* getNvFuserEnv(const char* env_name, const char* default_value) {
   // Prepend the default prefix and try if the variable is defined.
   const std::string prefix = "NVFUSER_";
   auto prefixed_name = prefix + env_name;
@@ -181,7 +178,7 @@ char* getNvFuserEnv(const char* env_name) {
     return pyt_env;
   }
 
-  return nullptr;
+  return default_value;
 }
 
 size_t deviceAvailableSharedMemoryBytes() {

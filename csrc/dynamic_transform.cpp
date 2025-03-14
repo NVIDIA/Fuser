@@ -9,14 +9,14 @@
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <fusion_executor/executor_kernel_arg.h>
-#include <fusion_executor/executor_utils.h>
 #include <ir/cloner.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <runtime/executor_kernel_arg.h>
+#include <runtime/executor_utils.h>
 #include <transform_iter.h>
 #include <transform_view.h>
 #include <utils.h>
@@ -1048,12 +1048,6 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
   // check the root to logical transforms to be sure we have concretized any
   // intermediate IterDomains.
 
-  // At this point, there should be no expr beyond rfactor root
-  NVF_ERROR(
-      tv->getLoopDomain() == tv->getLogicalDomain(),
-      "Invalid tensor: ",
-      tv->toString());
-
   // If it has an root domain, the IterTypes of the logical
   // IDs may need to be updated as well. Traverse the rfactor exprs
   // and mutate the IterTypes of output IDs if symbolic.
@@ -1457,13 +1451,6 @@ std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     const DynamicTransformConcretizationInfo* info) {
   DynamicTransformConcretizer concretizer(fusion, info);
   return concretizer.getSymbolicToConcretizedMap();
-}
-
-std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
-    Fusion* fusion,
-    const std::vector<c10::IValue>& aten_inputs) {
-  return concretizeFusion(
-      fusion, KernelArgumentHolder::createKernelArgumentHolder(aten_inputs));
 }
 
 std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(

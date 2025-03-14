@@ -14,6 +14,7 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <scheduler/mma_utils.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -1524,231 +1525,6 @@ TensorView* min(
   return reductionOp(BinaryOpType::Min, axes, init, v1, keep_dim);
 }
 
-TensorView* broadcast(
-    TensorView* inp,
-    const std::vector<bool>& is_broadcast_dim) {
-  auto nBCastDims = is_broadcast_dim.size();
-  // Validate is_broadcast_dim
-  unsigned int n_broadcasts = 0;
-  for (auto ent : is_broadcast_dim) {
-    if (ent) {
-      n_broadcasts++;
-    }
-  }
-
-  NVF_CHECK(
-      nBCastDims - n_broadcasts ==
-          TensorDomain::noReductions(inp->getLogicalDomain()).size(),
-      "Invalid broadcast, number of false entries in is_broadcast_dim expected to be ",
-      TensorDomain::noReductions(inp->getLogicalDomain()).size(),
-      " but received ",
-      nBCastDims - n_broadcasts);
-
-  if (n_broadcasts == 0) {
-    auto identity = set(inp);
-    NVF_ERROR(
-        identity->getValType().value() == ValType::TensorView,
-        "Expected identity op, but didn't get a TensorView back.");
-    return identity->as<TensorView>();
-  }
-
-  std::vector<IterDomain*> out_domain;
-  // Don't propagate reduction IDs through arith ops.
-  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-  size_t iinp = 0, ibdim = 0;
-  while (ibdim < is_broadcast_dim.size()) {
-    if (is_broadcast_dim[ibdim]) {
-      out_domain.push_back(IterDomainBuilder(
-                               FusionGuard::getCurFusion()->zeroVal(),
-                               FusionGuard::getCurFusion()->oneVal())
-                               .iter_type(IterType::Broadcast)
-                               .build());
-    } else {
-      out_domain.push_back(
-          IterDomainBuilder(inp_domain[iinp]).resetSchedulingParams().build());
-      iinp++;
-    }
-    ibdim++;
-  }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  IrBuilder::create<BroadcastOp>(out_tensor, inp, is_broadcast_dim);
-  return out_tensor;
-}
-
-TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
-  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-
-  NVF_CHECK(
-      expanded_sizes.size() >= inp_domain.size(),
-      "Invalid expand, number of sizes provided is expected to be at least ",
-      inp_domain.size(),
-      " but received ",
-      expanded_sizes.size());
-
-  inp = ops::maybe_broadcast_inner_to_rank(inp, expanded_sizes.size());
-  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-
-  std::vector<Val*> maybe_expanded_sizes;
-  maybe_expanded_sizes.resize(inp_domain.size(), nullptr);
-
-  // Might a dimension actually get expanded? This will be true if any input
-  // IterDomains are Symbolic, since these may or may not be Broadcast.
-  bool expanded = false;
-
-  std::vector<IterDomain*> out_domain;
-  for (auto i : c10::irange(inp_domain.size())) {
-    auto inp_id = inp_domain[i];
-    auto out_id_builder = IterDomainBuilder(inp_id);
-    maybe_expanded_sizes[i] = inp_domain[i]->extent();
-
-    auto expanded_size_int = expanded_sizes[i]->value();
-
-    // If the expanded size is -1, let the input extent be propagated
-    // as is
-    if (expanded_size_int.hasValue() && expanded_size_int.as<int64_t>() == -1) {
-      // This is just done for clarity. It isn't necessary as it's
-      // already done when constructing out_id_builder.
-      out_id_builder.extent(inp_id->extent());
-    } else if (
-        // special patch for Symbolic IterDomain with a static size-1 extent
-        // since we know it will become broadcast at concretization
-        // See Issue: https://github.com/NVIDIA/Fuser/pull/1393
-        (inp_id->extent()->isConstInt() &&
-         inp_id->extent()->evaluate().as<int64_t>() == 1) &&
-        (!expanded_size_int.hasValue() ||
-         expanded_size_int.as<int64_t>() != 1)) {
-      // When input id is a broadcast, expand the extent to the given
-      // size, which can be concrete or symbolic.
-      expanded = true;
-      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
-      out_id_builder.expanded_extent(expanded_extent);
-      // need to mark iter type as Broadcast for Symbolic input domains
-      out_id_builder.iter_type(IterType::Broadcast);
-      maybe_expanded_sizes[i] = expanded_extent;
-    } else if (
-        inp_id->isSymbolic() &&
-        (!inp_id->extent()->isConstInt() &&
-         !inp_id->extent()->sameAs(expanded_sizes[i]))) {
-      // need to mark iter type as Symbolic since this might not be an expand
-      // after concretization
-      expanded = true;
-      out_id_builder.iter_type(IterType::Symbolic);
-      auto expanded_extent = maybeCastOp(DataType::Index, expanded_sizes[i]);
-      // We set the extent instead of the expanded extent on a Symbolic
-      // IterDomain. At concretization, if the IterType is determined to be
-      // Broadcast, we will replace this with 1 and use the old extent as
-      // expandedExtent.
-      out_id_builder.extent(expanded_extent);
-      maybe_expanded_sizes[i] = expanded_extent;
-    } else if (!inp_id->extent()->isConstInt()) {
-      // Input id is non-broadcast and its extent is symbolic. Promote
-      // the extent to the given expanded size.
-      // Note that expansion to 1 just means its extent becomes 1 and
-      // does not mean the ID becomes a broadcast.
-      out_id_builder.extent(maybeCastOp(DataType::Index, expanded_sizes[i]));
-    } else {
-      // Input id is non-expand and its extent is concrete. Nothing
-      // to expand, but the input and expanded sizes should match if
-      // the expanded size is also concrete.
-      auto inp_id_size_int = inp_id->extent()->evaluate();
-      if (expanded_size_int.is<int64_t>()) {
-        NVF_CHECK(
-            inp_id_size_int == expanded_size_int,
-            "Invalid expand size, ",
-            expanded_sizes[i]->toString(),
-            ", for ",
-            inp_id->toString());
-      }
-    }
-    out_domain.push_back(out_id_builder.build());
-  }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
-  } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
-  }
-  return out_tensor;
-}
-
-TensorView* expand_as(TensorView* inp, TensorView* other) {
-  auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-  auto other_domain = TensorDomain::noReductions(other->getLogicalDomain());
-
-  NVF_CHECK(
-      inp_domain.size() <= other_domain.size(),
-      "Invalid expand_as, dimensions of inp is higher than dimensions of other, expected other to be at least ",
-      inp_domain.size(),
-      " but received ",
-      other_domain.size());
-
-  inp = ops::maybe_broadcast_inner_to_rank(inp, other_domain.size());
-  inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
-
-  std::vector<IterDomain*> out_domain;
-  std::vector<Val*> maybe_expanded_sizes;
-  bool expanded = false;
-  for (auto i : c10::irange(inp_domain.size())) {
-    auto inp_id = inp_domain[i];
-    auto other_id = other_domain[i];
-
-    auto out_id_builder = IterDomainBuilder(inp_id);
-    Val* maybe_expanded_size = inp_id->extent();
-
-    if (!inp_id->isBroadcast()) {
-      NVF_ERROR(
-          !other_id->isBroadcast(),
-          "Cannot expand as a tensor if other has broadcast dimensions that don't map to broadcast dimensions in the input.");
-      if (!inp_id->isConstInt() && other_id->isConstInt()) {
-        out_id_builder.extent(
-            ops::promoteSize(inp_id->extent(), other_id->extent()));
-      }
-    } else {
-      if (!other_id->isBroadcast()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->extent());
-        maybe_expanded_size = other_id->extent();
-      } else if (other_id->isBroadcast() && other_id->hasExpandedExtent()) {
-        expanded = true;
-        out_id_builder.expanded_extent(other_id->expandedExtent());
-        maybe_expanded_size = other_id->expandedExtent();
-      }
-    }
-    out_domain.push_back(out_id_builder.build());
-    maybe_expanded_sizes.push_back(maybe_expanded_size);
-  }
-
-  TensorView* out_tensor = IrBuilder::create<TensorView>(
-      IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
-      inp->getDataType().value());
-  if (!expanded) {
-    IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out_tensor, inp);
-  } else {
-    IrBuilder::create<ExpandOp>(out_tensor, inp, maybe_expanded_sizes);
-  }
-  return out_tensor;
-}
-
-std::vector<Val*> tensor_sizes(TensorView* inp) {
-  auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
-  std::vector<Val*> sizes(iter_domains.size(), nullptr);
-
-  for (auto idx : c10::irange(iter_domains.size())) {
-    sizes[idx] = iter_domains[idx]->getMaybeExpandedExtent();
-  }
-
-  return sizes;
-}
-
 std::vector<Val*> shape(TensorView* inp) {
   auto iter_domains = TensorDomain::noReductions(inp->getLogicalDomain());
   std::vector<Val*> shape;
@@ -2312,101 +2088,111 @@ TensorView* viewAsScalar(TensorView* inp) {
   return out;
 }
 
-namespace {
-
-//! Create new output for mma
-static TensorView* newForMma(
-    TensorView* tv_a,
-    TensorView* tv_b,
-    const std::vector<unsigned int>& axes,
-    DataType data_type = DataType::Float) {
-  auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
-  auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
-
-  NVF_ERROR(
-      orig_domain_a.size() == orig_domain_b.size(),
-      "MMA op: need matching dim input");
-
-  std::set<unsigned int> axes_set(axes.begin(), axes.end());
-  std::vector<IterDomain*> new_domain;
-
-  NVF_ERROR(
-      !axes_set.empty(),
-      "Asked for output of reduction, but no reduction axis provided.");
-
-  NVF_ERROR(
-      (*(axes_set.rbegin())) < orig_domain_a.size(),
-      "Error setting up reduction, reduction axis (",
-      *(axes_set.rbegin()),
-      ") is outside nDims (",
-      orig_domain_a.size(),
-      "). Keep in mind reductions are relative to root domains, not modified views.");
-
-  auto axis_iter = axes_set.begin();
-  for (const auto dim : c10::irange(orig_domain_a.size())) {
-    bool is_reduction = false;
-    if (axis_iter != axes_set.end() && *axis_iter == dim) {
-      is_reduction = true;
-      axis_iter++;
-    }
-
-    const IterDomain* id = orig_domain_a[dim]->isBroadcast()
-        ? orig_domain_b[dim]
-        : orig_domain_a[dim];
-
-    NVF_CHECK(
-        !(is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
-        "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
-        id,
-        " of tensor ",
-        tv_a,
-        "and",
-        tv_b);
-
-    new_domain.push_back(
-        IterDomainBuilder(id->start(), id->extent())
-            .stop_offset(id->stopOffset())
-            .iter_type(is_reduction ? IterType::Reduction : id->getIterType())
-            .build());
-  }
-
-  TensorDomain* td = IrBuilder::create<TensorDomain>(
-      new_domain, TensorDomain::getContiguityFilledWith(new_domain, true));
-
-  return IrBuilder::create<TensorView>(td, data_type);
-}
-
-} // namespace
-
 TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
     const std::vector<int64_t>& axes,
-    Val* init) {
-  // TODO:
-  //  Validate axis relationships between a and b
-  NVF_CHECK(tv_a->nDims() > 0, "Tried to reduce a 0-dim tensor");
+    Val* init,
+    const std::optional<MmaOp::AxisMapping>& axis_mapping_opt) {
+  const std::vector<IterDomain*>& a_logical =
+      TensorDomain::noReductions(tv_a->getLogicalDomain());
+  const std::vector<IterDomain*>& b_logical =
+      TensorDomain::noReductions(tv_b->getLogicalDomain());
+
+  NVF_CHECK(
+      !a_logical.empty() && !b_logical.empty(),
+      "Tried to reduce a 0-dim tensor");
+
+  std::unique_ptr<MmaOp::AxisMapping> axis_mapping_ptr;
+  if (!axis_mapping_opt.has_value()) {
+    NVF_CHECK(
+        a_logical.size() == b_logical.size(),
+        "If tv_a and tv_b have different dimensions, axis_mapping_opt must be provided");
+    axis_mapping_ptr = std::make_unique<MmaOp::AxisMapping>(
+        MmaOp::AxisMapping::trivialMapping(a_logical.size()));
+  }
+  const MmaOp::AxisMapping& axis_mapping =
+      axis_mapping_opt.has_value() ? *axis_mapping_opt : *axis_mapping_ptr;
+
+  NVF_CHECK(
+      axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
+      "Axis mapping should contain same number of output axes for each operand");
+  const size_t out_dims = axis_mapping.a_axes.size();
+
+  std::unordered_set<size_t> axes_set;
+  for (int64_t axis : axes) {
+    if (axis < 0) {
+      axis += (int64_t)out_dims;
+    }
+    NVF_ERROR(axis >= 0 && axis < (int64_t)out_dims);
+    axes_set.insert((size_t)axis);
+  }
 
   // TODO:
   //  Add tf32 and other mma data types
   //  Add fallback path for non-mma data types.
   NVF_CHECK(
-      tv_a->getDataType().value() == DataType::Half ||
-      tv_a->getDataType().value() == DataType::BFloat16);
-  NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
+      tv_a->dtype() == DataType::Half || tv_a->dtype() == DataType::BFloat16);
+  NVF_CHECK(tv_a->dtype() == tv_b->dtype());
+  DataType out_dtype = DataType::Float;
 
-  NVF_CHECK(!axes.empty(), "No reduction axis specified");
+  // Prepare output domain based on domain mapping and IterTypes of inputs
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(axis_mapping.a_axes.size());
+  for (size_t i : c10::irange(out_dims)) {
+    int64_t a_pos = axis_mapping.a_axes[i];
+    int64_t b_pos = axis_mapping.b_axes[i];
+    NVF_CHECK(
+        a_pos != -1 || b_pos != -1,
+        "Output axis ",
+        i,
+        " cannot be missing in both operands");
+    NVF_CHECK(
+        a_pos == -1 || (a_pos >= 0 && a_pos < (int64_t)a_logical.size()),
+        "Position ",
+        i,
+        " in output of axis mapping for operand A is ",
+        a_pos,
+        " which is out of bounds for A which has dimension ",
+        a_logical.size());
+    NVF_CHECK(
+        b_pos == -1 || (b_pos >= 0 && b_pos < (int64_t)b_logical.size()),
+        "Position ",
+        i,
+        " in output of axis mapping for operand B is ",
+        b_pos,
+        " which is out of bounds for B which has dimension ",
+        b_logical.size());
+    IterDomain* a_id = a_pos == -1 ? nullptr : a_logical[(size_t)a_pos];
+    IterDomain* b_id = b_pos == -1 ? nullptr : b_logical[(size_t)b_pos];
 
-  // TODO:
-  //  will lift this in a follow up when we have a
-  //  more generic axes matching.
-  NVF_CHECK(
-      axes.size() == 1, "Single axis reduction only for mma op instantiation.")
+    bool a_concrete = a_id == nullptr ? false : !a_id->isBroadcast();
+    bool b_concrete = b_id == nullptr ? false : !b_id->isBroadcast();
+    // NOTE: we can have !a_concrete && !b_concrete if there are broadcast batch
+    // dims
 
-  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(
-      axes, (int64_t)tv_a->domain()->noReductions().size());
+    // Check for K dimensions
+    bool is_reduction = false;
+    if (axes_set.count(i)) {
+      NVF_CHECK(
+          a_concrete && b_concrete,
+          "Reduction dimensions must be concrete in both operands");
+      is_reduction = true;
+    }
 
-  TensorView* out = newForMma(tv_a, tv_b, uint_axes);
+    IterDomain* orig_id = a_concrete ? a_id : b_id;
+    out_domain.push_back(
+        IterDomainBuilder(orig_id->start(), orig_id->extent())
+            .stop_offset(orig_id->stopOffset())
+            .iter_type(
+                is_reduction ? IterType::Reduction : orig_id->getIterType())
+            .build());
+  }
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
+
+  TensorView* out = IrBuilder::create<TensorView>(td, out_dtype);
 
   if (init == nullptr) {
     init = IrBuilder::create<Val>(0.0, out->dtype());
@@ -2418,11 +2204,8 @@ TensorView* fusedMultiplySum(
   NVF_CHECK(
       init->isConstScalar(),
       "Cannot create a reduction operation where the initial value is not a const scalar.");
-  NVF_CHECK(
-      init->dtype() == out->dtype(),
-      "Init value dtype for fusedMultiplySum must match output.");
 
-  IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
+  IrBuilder::create<MmaOp>(out, tv_a, tv_b, init, axis_mapping);
 
   return out;
 }

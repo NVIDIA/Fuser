@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <ir/builder.h>
+#include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/normalization.h>
 #include <ops/utils.h>

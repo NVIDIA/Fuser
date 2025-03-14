@@ -17,6 +17,7 @@
 #include <device_lower/utils.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
+#include <iter_visitor.h>
 #include <logical_domain_map.h>
 #include <transform_iter.h>
 #include <val_graph_visitor.h>
@@ -54,20 +55,22 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 
 } // namespace
 
-void IdModel::assertNoSelfMapping() {
-  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
   for (TensorView* tv : tvs_) {
-    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, exact_graph);
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, graph);
+    if (self_mapping.has_value()) {
+      tv->fusion()->print();
+    }
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
-        tv,
+        tv->toString(),
         ". ",
         self_mapping->where,
         " domains, ",
-        self_mapping->id1,
+        self_mapping->id1->toString(),
         " and ",
-        self_mapping->id2,
+        self_mapping->id2->toString(),
         ", are mapped with each other.");
   }
 }
@@ -203,6 +206,20 @@ void IdModel::buildIterDomainDefinitionsAndUses() {
         continue;
       }
 
+      // If any of the inputs is not included in the all ID set, do
+      // not include the definition in the model. Note that it is
+      // possible that some are included but not all since a single ID
+      // may be used by multiple exprs.
+      if (std::any_of(
+              def->inputs().begin(), def->inputs().end(), [&](Val* inp) {
+                return std::find(
+                           all_ids.begin(),
+                           all_ids.end(),
+                           inp->as<IterDomain>()) == all_ids.end();
+              })) {
+        continue;
+      }
+
       id_definitions_[id].pushBack(def);
 
       auto inp_ids = ir_utils::filterByType<IterDomain>(def->inputs());
@@ -267,6 +284,37 @@ ValGraph IdModel::initializeIdGraph(bool propagate_through_exprs) const {
   return id_graph;
 }
 
+namespace {
+// In Exact and AlmostExact graphs, for all IDs of a group that have
+// static extents, they should be equal.
+void checkStaticExtentGroups(const ValGraph& graph) {
+  std::stringstream err_msg;
+  for (const ValGroup& group : graph.disjointValSets().disjointSets()) {
+    std::optional<int64_t> known_static_extent;
+    for (const auto val : *group) {
+      auto id = val->as<IterDomain>();
+      if (!id->extent()->isConstScalar()) {
+        continue;
+      }
+
+      auto extent_int = id->extent()->evaluate().as<int64_t>();
+      if (known_static_extent.has_value()) {
+        if (known_static_extent.value() != extent_int) {
+          err_msg << "Different static extents found in an ID group: "
+                  << known_static_extent.value() << " and " << extent_int
+                  << " in {" << toDelimitedString(group->vector()) << "}\n";
+          break;
+        }
+      } else {
+        known_static_extent = extent_int;
+      }
+    }
+  }
+
+  NVF_ERROR(err_msg.str().empty(), err_msg.str());
+}
+} // namespace
+
 ValGraph& IdModel::buildExactGraph() {
   // Initialize the maps with all the IterDomains used in the provded
   // expressions.
@@ -277,6 +325,11 @@ ValGraph& IdModel::buildExactGraph() {
 
   for (auto expr : tv_exprs_) {
     TensorView* c_tv = ir_utils::getTvOutput(expr);
+
+    NVF_ERROR(
+        c_tv != nullptr,
+        "Expected to have a TensorView output: ",
+        expr->toString());
 
     auto all_tv_outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 
@@ -362,6 +415,16 @@ ValGraph& IdModel::buildExactGraph() {
 
   graph.validateConsistency();
 
+  // Make sure there's no self mapping in the Exact graph as that
+  // would invalidate lowering assumptions.
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(graph);
+  }
+
+  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+    checkStaticExtentGroups(graph);
+  }
+
   return graph;
 }
 
@@ -372,13 +435,15 @@ namespace {
 std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
   std::vector<std::vector<Val*>> mapped_ids;
   if (auto merge = dynamic_cast<Merge*>(expr)) {
-    // Size-one domains should be broadcast, so just checking
-    // isBroadcast should be sufficient, but just in case if there's
-    // any missing conversion to broadcast
-    if (merge->inner()->isBroadcast() || merge->inner()->extent()->isOneInt()) {
+    // Note that broacast IDs may have extents larger than 1, thus
+    // merge->inner()->isBroadcast() is not a sufficient condition to
+    // check. Merging a non-broadcast ID with such a broadcast ID
+    // result in a non-broadcast ID with extent multiplied by the
+    // broadcast extent.
+    if (merge->inner()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->outer(), merge->out()});
     }
-    if (merge->outer()->isBroadcast() || merge->outer()->extent()->isOneInt()) {
+    if (merge->outer()->extent()->isOneInt()) {
       mapped_ids.push_back({merge->inner(), merge->out()});
     }
   } else if (auto split = dynamic_cast<Split*>(expr)) {
@@ -387,6 +452,31 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         mapped_ids.push_back({split->in(), split->outer()});
       } else {
         mapped_ids.push_back({split->in(), split->inner()});
+      }
+    } else {
+      // Rare, but don't want to deal with zero-dim IDs
+      if (!split->in()->extent()->isZeroInt()) {
+        // Even when the factor is not known to be 1, as long as the
+        // input and output have the same extent, they should be
+        // mapped. This happens, for example, split 32 by 32 -> 1, 32.
+        if (split->outer()->extent()->sameAs(split->in()->extent())) {
+          // In and outer have the same extent. They must be non-one and
+          // the inner must be one, or they must be one.
+          NVF_ERROR(
+              split->inner()->extent()->isOneInt() ||
+                  split->outer()->extent()->isOneInt(),
+              "Unexpected split: ",
+              split->toString());
+          mapped_ids.push_back({split->in(), split->outer()});
+        }
+        if (split->inner()->extent()->sameAs(split->in()->extent())) {
+          NVF_ERROR(
+              split->inner()->extent()->isOneInt() ||
+                  split->outer()->extent()->isOneInt(),
+              "Unexpected split: ",
+              split->toString());
+          mapped_ids.push_back({split->in(), split->inner()});
+        }
       }
     }
   } else if (auto swizzle = dynamic_cast<Swizzle2D*>(expr)) {
@@ -413,6 +503,22 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
+  // Even when EXACT has no self mapping, there was a case ALMOSTEXACT
+  // had self mapping (see issue #3919). ALMOSTEXACT is used in
+  // indexing, which assumes the graph has no self mapping. To avoid
+  // self mapping, mark each of the root, logical and loop domains of
+  // all tensors unmappable
+  for (TensorView* tv : tvs_) {
+    if (tv->hasRoot()) {
+      almost_exact_graph.setUnmappable(
+          {tv->getRootDomain().begin(), tv->getRootDomain().end()});
+    }
+    almost_exact_graph.setUnmappable(
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+    almost_exact_graph.setUnmappable(
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  }
+
   // Maps iter domain pairs returned by calling that return mappings from
   // isTrivialExpr on every expression in the graph.
 
@@ -432,7 +538,6 @@ ValGraph& IdModel::buildAlmostExactGraph() {
       // Map through trivial expressions
       for (auto mapped_id_group : mapped_ids) {
         for (auto id : mapped_id_group) {
-          // almost_exact_graph.mapVals(mapped_id_group.front(), id);
           ids_to_map.emplace_back(mapped_id_group.front(), id);
         }
       }
@@ -444,6 +549,14 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(almost_exact_graph);
+  }
+
+  if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
+    checkStaticExtentGroups(almost_exact_graph);
+  }
 
   return almost_exact_graph;
 }
@@ -504,7 +617,17 @@ ValGraph& IdModel::buildPermissiveGraph() {
          ir_utils::filterByType<TensorView>(expr->outputs())) {
       auto tv_inputs = ir_utils::filterByType<TensorView>(expr->inputs());
 
+      // If the loop domain is not generated from the logial domain
+      // with not extra IDs, broadcast forwarding is not
+      // supported. As such, permissive mappings are not generated.
+      if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(c_tv)) {
+        continue;
+      }
+
       for (auto p_tv : tv_inputs) {
+        if (!ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(p_tv)) {
+          continue;
+        }
         ForwardingInfo permissive_forwarding(p_tv, c_tv);
         for (auto entry : permissive_forwarding.producer_forwarding_map) {
           graph.mapVals(entry.first, entry.second);
@@ -591,6 +714,35 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->loop();
 
+      // Grab all iteration domains in producer that its compute at iter domains
+      // depend on.
+      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
+
+      // Broadcast forwarding is not applied when the loop domain is
+      // not fully derived from the logical domain. In that case, the
+      // loop promotion analysis effectively does nothing, however, we
+      // still need to make loop groups, for which ordered_p_ca_ids as
+      // well as p2c_ca_permissive_maps are required. Since no
+      // promotion analysis is done, only loop IDs need to be
+      // considered.
+
+      if (ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv)) {
+        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+            {producer_logical.begin(), producer_logical.end()},
+            {producer_domain.begin(),
+             producer_domain.begin() + producer_tv->getComputeAtPosition()});
+        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+            ca_deps_filter.begin(), ca_deps_filter.end());
+      } else {
+        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+            producer_tv->getLoopDomain().begin(),
+            producer_tv->getLoopDomain().begin() +
+                producer_tv->getComputeAtPosition());
+      }
+
+      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
@@ -632,7 +784,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
     }
 
     if (ir_utils::hasUniformSiblings(expr)) {
-      // Siblings should always be mapped
       auto consumer_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
       if (consumer_tvs.size() > 1) {
         auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
@@ -689,7 +840,7 @@ void IdModel::initializeLoopGraph(const StatefulInliningInfo& info) {
   }
 }
 
-ValGraph& IdModel::buildLoopGraph() {
+ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
   // Make sure the depedent graphs are already built
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
@@ -714,7 +865,10 @@ ValGraph& IdModel::buildLoopGraph() {
   }
 
   loop_promotion_map_ = LoopPromotionMapBuilder::get(
-      *this, inlining_info, loop_promotion_map_builder_callback_);
+      *this,
+      inlining_info,
+      loop_promotion_map_builder_callback_,
+      force_full_loop_promotion_analysis);
 
   // New domains are added. Make sure there's still no self mapping in
   // the loop domains
@@ -751,15 +905,7 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  // Make sure there's no self mapping in the Exact graph as that
-  // would invalidate lowering assumptions.
-  if (!allow_self_mapping_) {
-    assertNoSelfMapping();
-  }
-
   buildAlmostExactGraph();
-  // Skip validating the almost exact graph as the IdModel graph also
-  // maps non-size-one broadcast domains
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled
@@ -771,33 +917,29 @@ void IdModel::buildAllGraphs() {
   buildLoopGraph();
 }
 
-void IdModel::buildGraph(IdMappingMode mode) {
+ValGraph& IdModel::buildGraph(IdMappingMode mode) {
   switch (mode) {
     case IdMappingMode::EXACT:
-      buildExactGraph();
-      break;
+      return buildExactGraph();
     case IdMappingMode::ALMOSTEXACT:
-      buildAlmostExactGraph();
-      break;
+      return buildAlmostExactGraph();
     case IdMappingMode::BROADCAST:
-      buildBroadcastGraph();
-      break;
+      return buildBroadcastGraph();
     case IdMappingMode::PERMISSIVE:
-      buildPermissiveGraph();
-      break;
+      return buildPermissiveGraph();
     case IdMappingMode::LOOP:
-      buildLoopGraph();
-      break;
+      return buildLoopGraph();
     default:
       NVF_THROW("Unsupported mode: ", mode);
   }
 }
 
-void IdModel::maybeBuildGraph(IdMappingMode mode) {
-  if (id_graphs_.find(mode) != id_graphs_.end()) {
-    return;
+ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
+  auto it = id_graphs_.find(mode);
+  if (it != id_graphs_.end()) {
+    return it->second;
   } else {
-    buildGraph(mode);
+    return buildGraph(mode);
   }
 }
 
@@ -1021,6 +1163,125 @@ void IdModel::validateAndPropagatePType() {
       id->as<IterDomain>()->parallelize(common_ptype);
     }
   }
+}
+
+void IdModel::allocateLoopIndexVariables() {
+  FusionGuard fg(fusion_);
+
+  NVF_ERROR(GpuLower::hasCurrent());
+
+  NVF_ERROR(
+      hasIdGraph(IdMappingMode::LOOP),
+      "getLoopIndexVariable requires Loop graph");
+
+  // Follow the same logic as ComputeAtMap::allocateIndexVariables
+  for (const ValGroup& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    auto loop_promotion_map_it = loop_promotion_map_.find(loop_group);
+
+    // Not all loop groups actually correspond to a for-loop. Ideally,
+    // non for-loop loop groups should be removed. Such loop groups do
+    // not need indices and don't have loop promotion.
+    if (loop_promotion_map_it == loop_promotion_map_.end()) {
+      continue;
+    }
+
+    ParallelType ptype = getParallelType(loop_group);
+
+    Val* loop_index = nullptr;
+
+    // TODO: Cleanup needed. ir_utils::isMemoryPartitionedAcross
+    // should be used, but that means we would need to consider
+    // multiple outputs with different memory types, though it
+    // should be uncommon in practice.
+    if (shouldUseZeroIndex(loop_group, *this) ||
+        isParallelTypeDeviceDim(ptype)) {
+      loop_index = fusion_->zeroVal();
+    } else if (isParallelTypeThread(ptype)) {
+      loop_index = NamedScalar::getParallelIndex(ptype);
+    }
+
+    if (loop_index != nullptr) {
+      loop_index_variable_map_[loop_group] = loop_index;
+      continue;
+    }
+
+    if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
+            loop_group->front()->as<IterDomain>())) {
+      // Allocate index variable for each stage of the circular buffered loop.
+      circular_buffered_loop_index_variable_map_[loop_group] =
+          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
+              {{CircularBufferLoopStage::Prolog,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::Main,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::Epilog,
+                IrBuilder::create<Val>(DataType::Index)}}));
+      continue;
+    }
+
+    // If enabled, allocate own indices. Otherwise, use the one
+    // generated for ComputeAtMap for compatibility with the legacy
+    // indexing
+    if (GpuLower::current()->idModelOptions().loop()) {
+      loop_index = IrBuilder::create<Val>(DataType::Index);
+    } else {
+      const auto& ca_map = GpuLower::current()->caMap();
+      for (const auto& id :
+           ir_utils::filterByType<IterDomain>(loop_group->vector())) {
+        if (!ca_map->getIdSets(IdMappingMode::LOOP).mappingExists(id)) {
+          continue;
+        }
+        loop_index = ca_map->getIndexVariable(id);
+        break;
+      }
+      NVF_ERROR(
+          loop_index != nullptr,
+          "No existing index found for ",
+          nvfuser::toString(loop_group));
+    }
+
+    NVF_ERROR(loop_index != nullptr);
+    loop_index_variable_map_[loop_group] = loop_index;
+  }
+
+  return;
+}
+
+Val* IdModel::getLoopIndexVariable(
+    const ValGroup& loop_group,
+    CircularBufferLoopStage circular_buffer_loop_stage) const {
+  NVF_ERROR(
+      !loop_index_variable_map_.empty(),
+      "Loop index variables not generated. IdModel::allocateIndexVariables may have not been callled.");
+
+  // Check if this loop was modified by circular buffer pass.
+  bool is_circular_buffer_iterdomain =
+      GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
+          loop_group->front()->as<IterDomain>());
+
+  if (is_circular_buffer_iterdomain) {
+    // Use dedicated circular buffer index variable if the loop is circular
+    // buffer loop
+    if (circular_buffer_loop_stage == CircularBufferLoopStage::NotApplicable) {
+      // The circular buffered loop stages are created after the loop nest
+      //  lowering phase so this function will be querried before the double
+      //  buffer pass. At that point, no forloop has any circular buffer
+      //  stage defined, and we just default to using the main stage index.
+      circular_buffer_loop_stage = CircularBufferLoopStage::Main;
+    }
+    return circular_buffered_loop_index_variable_map_.at(loop_group)
+        ->at(circular_buffer_loop_stage);
+  } else {
+    return loop_index_variable_map_.at(loop_group);
+  }
+}
+
+Val* IdModel::getLoopIndexVariable(
+    IterDomain* id,
+    CircularBufferLoopStage circular_buffer_loop_stage) const {
+  const auto& loop_group = idGraph(IdMappingMode::LOOP).toGroup(id);
+  return getLoopIndexVariable(loop_group, circular_buffer_loop_stage);
 }
 
 } // namespace nvfuser

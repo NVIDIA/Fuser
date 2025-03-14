@@ -10,8 +10,8 @@
 #include <limits>
 
 #include <fusion.h>
-#include <kernel_cache.h>
 #include <ops/arith.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
@@ -57,13 +57,18 @@ TEST_P(UnaryTest, Neg) {
       in_tensor = at::randn(shape, options);
   }
 
-  FusionExecutorCache fec(std::move(fusion));
-  auto out_tensors = fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   // Calculate the reference output explicitly. Type promotion happens when
   // building the fusion, e.g., inside `neg`. Relying ExpresionEvaluator to
   // verify the result would hide type promotion errors.
   testValidate(
-      fec.fusion(), out_tensors, {in_tensor}, {-in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      {-in_tensor},
+      __LINE__,
+      __FILE__);
 }
 
 namespace {

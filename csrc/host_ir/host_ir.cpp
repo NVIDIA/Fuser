@@ -9,10 +9,12 @@
 #include <host_ir/container.h>
 #include <host_ir/host_ir.h>
 #include <ir/builder.h>
+#include <ir/builder_passkey.h>
 #include <ir/cloner.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
 #include <ops/all_ops.h>
 
 namespace nvfuser {
@@ -21,7 +23,8 @@ namespace hir {
 
 HostUnit::HostUnit(IrBuilderPasskey passkey, std::unique_ptr<Fusion> fusion)
     : Expr(passkey), fusion_(std::make_unique<Fusion>(*fusion)) {
-  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
 
 HostUnit::HostUnit(const HostUnit* src, IrCloner* ir_cloner)
@@ -65,8 +68,9 @@ PostOnStream::PostOnStream(
     std::vector<Val*> inputs,
     std::vector<Val*> outputs)
     : Expr(passkey, std::move(inputs), std::move(outputs), {host_op}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
   NVF_ERROR(
@@ -115,6 +119,40 @@ bool PostOnStream::sameAs(const Statement* other) const {
   return false;
 }
 
+LaunchKernel::LaunchKernel(
+    IrBuilderPasskey passkey,
+    int64_t hic_executor_index,
+    const LaunchParams& launch_constraints,
+    const CompileParams& compile_params,
+    const std::vector<Val*>& inputs,
+    const std::vector<Val*>& outputs)
+    : Expr(passkey, inputs, outputs, {}) {
+  addDataAttribute(hic_executor_index);
+  addDataAttribute(launch_constraints);
+  addDataAttribute(compile_params);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
+
+std::string LaunchKernel::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "LaunchKernel("
+                          << "Inputs: {";
+  std::for_each(inputs().begin(), inputs().end(), [&ss](auto input) {
+    ss << input->toString(0) << ", ";
+  });
+  ss << "}, Outputs: {";
+  std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
+    ss << output->toString(0) << ", ";
+  });
+  ss << "})" << std::endl;
+  return ss.str();
+}
+
+std::string LaunchKernel::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Can not be printed inline");
+}
+
 Stream::Stream(IrBuilderPasskey passkey, Val* index)
     : Val(passkey, ValType::Stream), index_(index) {}
 
@@ -152,7 +190,8 @@ bool Stream::sameAs(const Statement* other) const {
 
 SetCurrentStream::SetCurrentStream(IrBuilderPasskey passkey, Stream* stream)
     : Expr(passkey, {stream}, {}, {stream}) {
-  NVF_ERROR(passkey.ir_container_->isA<hir::HostIrContainer>()); // NOLINT
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetCurrentStream)
@@ -174,12 +213,33 @@ bool SetCurrentStream::sameAs(const Statement* other) const {
   return false;
 }
 
-Wait::Wait(IrBuilderPasskey passkey, Communication* communication)
-    : Expr(passkey, {}, {}, {communication}) {
+GetCurrentStream::GetCurrentStream(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(passkey.ir_container_->isA<HostIrContainer>());
+  auto stream = IrBuilder::createInContainer<Stream>(passkey.ir_container_);
+  addAttribute(stream);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(GetCurrentStream)
+
+std::string GetCurrentStream::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "GetCurrentStream into " << stream()->toString()
+                          << std::endl;
+  return ss.str();
+}
+
+Wait::Wait(IrBuilderPasskey passkey, Expr* expr)
+    : Expr(passkey, {}, {}, {expr}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<hir::HostIrContainer>(), // NOLINT
+      passkey.ir_container_->isA<HostIrContainer>(),
       this,
       "must be registered in a HostIrContainer");
+  NVF_ERROR(
+      (expr->isOneOf<Communication, P2PCommunication, EndCoalescing>()),
+      expr,
+      "must be a Communication, a P2PCommunication, or a EndCoalescing");
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Wait)
@@ -199,6 +259,72 @@ std::string Wait::toInlineString(int indent_size) const {
 // TODO: implement
 bool Wait::sameAs(const Statement* other) const {
   return false;
+}
+
+Synchronize::Synchronize(IrBuilderPasskey passkey, Stream* stream)
+    : Expr(passkey, {}, {}, {stream}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Synchronize)
+
+std::string Synchronize::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "Synchronize " << stream() << std::endl;
+  return ss.str();
+}
+
+std::string Synchronize::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+// TODO: implement
+bool Synchronize::sameAs(const Statement* other) const {
+  return false;
+}
+
+StartCoalescing::StartCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(StartCoalescing)
+
+std::string StartCoalescing::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "StartCoalescing" << std::endl;
+  return ss.str();
+}
+
+std::string StartCoalescing::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
+}
+
+EndCoalescing::EndCoalescing(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(EndCoalescing)
+
+std::string EndCoalescing::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "EndCoalescing" << std::endl;
+  return ss.str();
+}
+
+std::string EndCoalescing::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Cannot be printed inline");
 }
 
 } // namespace hir

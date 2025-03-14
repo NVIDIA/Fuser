@@ -15,7 +15,7 @@
 #     Skips python API target `libnvfuser.so`, i.e. `_C.cpython-xxx.so`
 #
 #   --no-test
-#     Skips cpp tests `nvfuser_tests`
+#     Skips cpp tests `test_nvfuser`
 #
 #   --no-benchmark
 #     Skips benchmark target `nvfuser_bench`
@@ -38,6 +38,9 @@
 #   --build-dir=<ABSOLUTE PATH>
 #     Specify in which directory to build nvfuser. If not specified, the default build directory is "./build".
 #
+#   --install-dir=<ABSOLUTE PATH>
+#     Specify in which directory to install nvfuser. If not specified, the default install directory is "./nvfuser".
+#
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
 #     package nightly where we might want to add a date tag
@@ -52,7 +55,7 @@
 #     to identify the cuda toolkit version
 #
 #   --cpp=STANDARD
-#     Specify the C++ standard to use for building nvfuser. The default is C++17.
+#     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
 
 import multiprocessing
@@ -75,14 +78,17 @@ NO_NINJA = False
 BUILD_WITH_UCC = False
 BUILD_WITH_ASAN = False
 BUILD_WITHOUT_DISTRIBUTED = False
+BUILD_WITH_SYSTEM_NVTX = True
 OVERWRITE_VERSION = False
+EXPLICIT_ERROR_CHECK = False
 VERSION_TAG = None
 BUILD_TYPE = "Release"
 WHEEL_NAME = "nvfuser"
 BUILD_DIR = ""
+INSTALL_DIR = ""
 INSTALL_REQUIRES = []
 EXTRAS_REQUIRE = {}
-CPP_STANDARD = 17
+CPP_STANDARD = 20
 forward_args = []
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
@@ -103,11 +109,17 @@ for i, arg in enumerate(sys.argv):
     if arg == "--build-with-ucc":
         BUILD_WITH_UCC = True
         continue
+    if arg == "--explicit-error-check":
+        EXPLICIT_ERROR_CHECK = True
+        continue
     if arg == "--build-with-asan":
         BUILD_WITH_ASAN = True
         continue
     if arg == "--build-without-distributed":
         BUILD_WITHOUT_DISTRIBUTED = True
+        continue
+    if arg == "--no-system-nvtx":
+        BUILD_WITH_SYSTEM_NVTX = False
         continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
@@ -117,6 +129,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("--build-dir"):
         BUILD_DIR = arg.split("=")[1]
+        continue
+    if arg.startswith("--install-dir"):
+        INSTALL_DIR = arg.split("=")[1]
         continue
     if arg.startswith("-install_requires="):
         INSTALL_REQUIRES = arg.split("=")[1].split(",")
@@ -133,6 +148,8 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("--cpp="):
         CPP_STANDARD = int(arg.split("=")[1])
+        if CPP_STANDARD < 20:
+            raise ValueError("nvfuser requires C++20 standard or higher")
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -282,12 +299,14 @@ def version_tag():
 from tools.memory import get_available_memory_gb
 
 
-def cmake(install_prefix: str = "./nvfuser"):
+def cmake():
     # make build directories
     cwd = os.path.dirname(os.path.abspath(__file__))
     cmake_build_dir = os.path.join(cwd, "build") if not BUILD_DIR else BUILD_DIR
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
+
+    install_prefix = os.path.join(cwd, "nvfuser") if not INSTALL_DIR else INSTALL_DIR
 
     from tools.gen_nvfuser_version import (
         get_pytorch_cmake_prefix,
@@ -321,6 +340,8 @@ def cmake(install_prefix: str = "./nvfuser"):
     ]
     if BUILD_WITH_UCC:
         cmd_str.append("-DNVFUSER_STANDALONE_BUILD_WITH_UCC=ON")
+    if EXPLICIT_ERROR_CHECK:
+        cmd_str.append("-DNVFUSER_EXPLICIT_ERROR_CHECK=ON")
     if not NO_NINJA:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
@@ -335,6 +356,8 @@ def cmake(install_prefix: str = "./nvfuser"):
         cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
     if BUILD_WITHOUT_DISTRIBUTED:
         cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
+    if BUILD_WITH_SYSTEM_NVTX:
+        cmd_str.append("-DUSE_SYSTEM_NVTX=ON")
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
@@ -399,7 +422,7 @@ def main():
             "contrib/nn/*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
-            # "bin/nvfuser_tests",
+            # "bin/test_nvfuser",
             # "bin/nvfuser_bench"
         ]
 

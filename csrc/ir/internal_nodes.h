@@ -320,6 +320,8 @@ class NVF_API UnaryOp : public Expr {
     return "UnaryOp";
   }
 
+  std::string getGraphvizLabel() const override;
+
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
@@ -357,6 +359,8 @@ class NVF_API BinaryOp : public Expr {
   const char* getOpString() const override {
     return "BinaryOp";
   }
+
+  std::string getGraphvizLabel() const override;
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
@@ -404,6 +408,8 @@ class TernaryOp : public Expr {
   const char* getOpString() const override {
     return "TernaryOp";
   }
+
+  std::string getGraphvizLabel() const override;
 
   std::vector<PolymorphicValue> evaluate(
       const ExpressionEvaluator& ee,
@@ -1359,9 +1365,45 @@ class GroupedWelfordOp : public Expr {
 class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  using Expr::Expr;
+  // AxisMapping denotes the pairing of two input dimensions to produce an
+  // output dimension. It holds two vectors of integers indicating the
+  // corresponding position of each output axis in either the A or B input.
+  // Positions refer to the noReductions logical domain of each input.
+  // NOTE: Axis positions are absolute, meaning you cannot specify them
+  // relative to the last dimension since -1 has special meaning.
+  // NOTE: -1 indicates that the axis does not exist, so Broadcast input
+  // domains should be listed with their actual position and not -1.
+  //
+  // Example 1:
+  //    a [ K, 1, M ]
+  //    b [ 1, N, K ]
+  //    out [ M, N, rK ]
+  //    axisMapping:
+  //      a_axes = [ 2, 1, 0 ]
+  //      b_axes = [ 0, 1, 2 ]
+  //    This results in the following groups of mapped axes:
+  //      { tv_a->axis(2), tv_b->axis(0), out->axis(0) }
+  //      { tv_a->axis(1), tv_b->axis(1), out->axis(1) }
+  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
+  //
+  // Example 1:
+  //    a [ K, M ]
+  //    b [ 1, N, K ]
+  //    out [ M, N, rK ]
+  //    axisMapping:
+  //      a_axes = [ 1, -1, 0 ]
+  //      b_axes = [ 0, 1, 2 ]
+  //    This results in the following groups of mapped axes:
+  //      { tv_a->axis(1), tv_b->axis(0), out->axis(0) }
+  //      { tv_b->axis(1), out->axis(1) }
+  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
+  struct AxisMapping {
+    AxesData a_axes;
+    AxesData b_axes;
 
-  MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
+    static AxisMapping trivialMapping(size_t dimension);
+  };
+  using Expr::Expr;
 
   MmaOp(
       IrBuilderPasskey,
@@ -1369,6 +1411,15 @@ class NVF_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
+      const AxisMapping& axis_mapping);
+
+  MmaOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* in_a,
+      Val* in_b,
+      Val* init,
+      const AxisMapping& axis_mapping,
       const MmaMacro& options);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1400,15 +1451,15 @@ class NVF_API MmaOp : public Expr {
     return attribute<MmaMacro>(ATTR_POS_MACRO);
   }
 
-  int m() const {
+  int64_t m() const {
     return getM(macro());
   }
 
-  int n() const {
+  int64_t n() const {
     return getN(macro());
   }
 
-  int k() const {
+  int64_t k() const {
     return getK(macro());
   }
 
@@ -1426,32 +1477,17 @@ class NVF_API MmaOp : public Expr {
 
   void setMacro(MmaMacro options);
 
-  const auto& mAxes() const {
-    return attribute<AxesData>(ATTR_POS_M_AXES);
-  }
-
-  const auto& nAxes() const {
-    return attribute<AxesData>(ATTR_POS_N_AXES);
-  }
-
-  const auto& kAxes() const {
-    return attribute<AxesData>(ATTR_POS_K_AXES);
-  }
-
-  const auto& batchAxes() const {
-    return attribute<AxesData>(ATTR_POS_BATCH_AXES);
+  const AxisMapping& axisMapping() const {
+    return attribute<AxisMapping>(ATTR_POS_AXIS_MAPPING);
   }
 
  private:
-  // Predefined idexes of attributes stored for this IR node, to avoid
+  // Predefined indices of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
   static constexpr size_t ATTR_POS_MACRO = 1;
-  static constexpr size_t ATTR_POS_M_AXES = 2;
-  static constexpr size_t ATTR_POS_N_AXES = 3;
-  static constexpr size_t ATTR_POS_K_AXES = 4;
-  static constexpr size_t ATTR_POS_BATCH_AXES = 5;
+  static constexpr size_t ATTR_POS_AXIS_MAPPING = 2;
 };
 
 //! The semantics are identical to torch.broadcast_to.
@@ -1484,6 +1520,42 @@ class ExpandOp : public Expr {
 
   std::vector<Val*> expanded_extents() const {
     return {inputs().begin() + 1, inputs().end()};
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+// Represents a repetition of broadcast IDs. Repetitions of
+// non-broadcast IDs are represented using the broadcast, expand and
+// reshape pattern. See the repeat op implementation in ops/alias.cpp
+// as well as the TranslateRepeatToExpand preseg pass.
+class RepeatOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // in: Input tensor that have broadcast logical IDs.
+  // out: Output tensor where some of the input broadcast logical IDs
+  // are converted to concrete IDs. Their extents represent the
+  // repetition factor of each ID.
+  RepeatOp(IrBuilderPasskey, TensorView* out, TensorView* in);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "RepeatOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
   }
 
   std::vector<PolymorphicValue> evaluate(
@@ -2055,6 +2127,7 @@ class SliceOp : public Expr {
     return input(0)->as<TensorView>();
   }
 
+  //! Get normalized ranges for SliceOp.
   std::vector<Slice> getRanges() const;
 
  private:
@@ -2138,16 +2211,16 @@ class MatmulOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* inA() const {
-    return input(0);
+  TensorView* inA() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* inB() const {
-    return input(1);
+  TensorView* inB() const {
+    return input(1)->as<TensorView>();
   }
 
   std::vector<PolymorphicValue> evaluate(
@@ -2172,21 +2245,21 @@ class LinearOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* out() const {
-    return output(0);
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* inA() const {
-    return input(0);
+  TensorView* inA() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* inB() const {
-    return input(1);
+  TensorView* inB() const {
+    return input(1)->as<TensorView>();
   }
 
-  Val* bias() const {
+  TensorView* bias() const {
     if (has_bias()) {
-      return input(2);
+      return input(2)->as<TensorView>();
     } else {
       return nullptr;
     }
@@ -2196,7 +2269,6 @@ class LinearOp : public Expr {
       const ExpressionEvaluator& ee,
       const std::vector<PolymorphicValue>& inputs) const override;
 
- private:
   bool has_bias() const {
     return inputs().size() == 3;
   }
@@ -2256,20 +2328,32 @@ class SdpaFwdOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* attn_out() const {
-    return output(0);
+  TensorView* attn_out() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* query() const {
-    return input(0);
+  TensorView* logsumexp() const {
+    return output(1)->as<TensorView>();
   }
 
-  Val* key() const {
-    return input(1);
+  TensorView* philox_seed() const {
+    return output(2)->as<TensorView>();
   }
 
-  Val* value() const {
-    return input(2);
+  TensorView* philox_offset() const {
+    return output(3)->as<TensorView>();
+  }
+
+  TensorView* query() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* key() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* value() const {
+    return input(2)->as<TensorView>();
   }
 
   Val* dropout_p() const {
@@ -2401,13 +2485,15 @@ class ForLoop final : public Expr {
       bool vectorize,
       Val* vectorize_shift,
       bool unroll_required,
-      CircularBufferLoopStage circular_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage,
+      int64_t circular_buffer_loop_stage_depth);
 
   ForLoop(
       IrBuilderPasskey passkey,
       IterDomain* iter_domain,
       Val* index,
-      CircularBufferLoopStage circular_buffer_loop_stage);
+      CircularBufferLoopStage circular_buffer_loop_stage,
+      int64_t circular_buffer_loop_stage_depth);
 
   ForLoop(IrBuilderPasskey passkey, IterDomain* iter_domain);
 
@@ -2450,11 +2536,11 @@ class ForLoop final : public Expr {
 
   // TODO: Return pointer instead of reference to be more consistent
   Scope& body() {
-    return attribute<Scope>(7);
+    return attribute<Scope>(8);
   }
 
   const Scope& body() const {
-    return attribute<Scope>(7);
+    return attribute<Scope>(8);
   }
 
   bool empty() const {
@@ -2486,10 +2572,16 @@ class ForLoop final : public Expr {
   //! True if loop is grouped reduction/welford
   bool isGroup() const;
 
+  //! True if loop needs to call a runtime reduction function
+  bool hasRuntimeReductionFunctions() const;
+
   //! Returns the stage of a circular buffered iterdomain
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
     return attribute<CircularBufferLoopStage>(6);
+  }
+  auto circularBufferLoopStageDepth() const {
+    return attribute<int64_t>(7);
   }
 
  private:
@@ -2561,40 +2653,40 @@ class SdpaBwdOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
-  Val* grad_query() const {
-    return output(0);
+  TensorView* grad_query() const {
+    return output(0)->as<TensorView>();
   }
 
-  Val* grad_key() const {
-    return output(1);
+  TensorView* grad_key() const {
+    return output(1)->as<TensorView>();
   }
 
-  Val* grad_value() const {
-    return output(2);
+  TensorView* grad_value() const {
+    return output(2)->as<TensorView>();
   }
 
-  Val* grad_attn() const {
-    return input(0);
+  TensorView* grad_attn() const {
+    return input(0)->as<TensorView>();
   }
 
-  Val* query() const {
-    return input(1);
+  TensorView* query() const {
+    return input(1)->as<TensorView>();
   }
 
-  Val* key() const {
-    return input(2);
+  TensorView* key() const {
+    return input(2)->as<TensorView>();
   }
 
-  Val* value() const {
-    return input(3);
+  TensorView* value() const {
+    return input(3)->as<TensorView>();
   }
 
-  Val* attn_out() const {
-    return input(4);
+  TensorView* attn_out() const {
+    return input(4)->as<TensorView>();
   }
 
-  Val* logsumexp() const {
-    return input(5);
+  TensorView* logsumexp() const {
+    return input(5)->as<TensorView>();
   }
 
   Val* dropout_p() const {
@@ -2618,6 +2710,81 @@ class SdpaBwdOp : public Expr {
       return input(10);
     }
     return nullptr;
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
+class EmbeddingFwdOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  EmbeddingFwdOp(
+      IrBuilderPasskey,
+      TensorView* output,
+      TensorView* input,
+      TensorView* weight,
+      Val* padding_idx,
+      Val* max_norm,
+      Val* norm_type,
+      Val* scale_grad_by_freq,
+      Val* sparse);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "EmbeddingFwdOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* weight() const {
+    return input(1)->as<TensorView>();
+  }
+
+  Val* norm_type() const {
+    return input(2);
+  }
+
+  Val* scale_grad_by_freq() const {
+    return input(3);
+  }
+
+  Val* sparse() const {
+    return input(4);
+  }
+
+  Val* padding_idx() const {
+    if (has_padding_idx()) {
+      return input(5);
+    }
+    return nullptr;
+  }
+
+  Val* max_norm() const {
+    if (has_max_norm()) {
+      return input(5 + has_padding_idx());
+    }
+    return nullptr;
+  }
+
+  bool has_padding_idx() const {
+    return attribute<bool>(0);
+  }
+
+  bool has_max_norm() const {
+    return attribute<bool>(1);
   }
 
   std::vector<PolymorphicValue> evaluate(

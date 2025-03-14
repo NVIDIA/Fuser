@@ -13,11 +13,14 @@
 #include <ir/builder.h>
 #include <ir/cloner.h>
 #include <ir/iostream.h>
+#include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <type.h>
 
+#include <cctype>
 #include <iostream>
+#include <regex>
 
 namespace nvfuser {
 namespace kir {
@@ -63,8 +66,8 @@ Predicate::Predicate(IrBuilderPasskey passkey, Val* value)
       value_(value) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
+      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "IR type only valid for Kernel or HostIr container.");
   NVF_ERROR(value != nullptr);
 }
 
@@ -95,11 +98,13 @@ TensorIndex::TensorIndex(
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
+  auto uint16x2 = ArrayType{std::make_shared<DataType>(DataType::UInt16), 2};
   NVF_ERROR(
       isPointerType(index->dtype()) || index->dtype() == DataType::Index ||
           isStructType(index->dtype()) ||
           index->dtype() ==
-              DataType::UInt /*For matrix descriptor for hopper MMA*/,
+              DataType::UInt64 /*For matrix descriptor for hopper MMA*/
+          || index->dtype() == uint16x2 /*For tensor memory tensor*/,
       "Cannot index with a value other than an int/pointer/struct.");
 }
 
@@ -115,6 +120,9 @@ std::string TensorIndex::toString(int indent_size) const {
       break;
     case MemoryType::Local:
       ss << "_l";
+      break;
+    case MemoryType::Tensor:
+      ss << "_t";
       break;
     default:
       NVF_THROW("Unknown tensor memory type.");
@@ -141,8 +149,8 @@ Allocate::Allocate(
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
-      passkey.ir_container_->isA<kir::Kernel>(),
-      "IR type only valid for Kernel container.");
+      (passkey.ir_container_->isOneOf<kir::Kernel, hir::HostIrContainer>()),
+      "IR type only valid for Kernel or HostIr container.");
   if (!shape.empty()) {
     NVF_ERROR(
         (shape.size() == 1 && shape[0]->isOneInt()) ||
@@ -182,7 +190,9 @@ Allocate::Allocate(
   addDataAttribute(zero_init);
   addDataAttribute(resets_to_zero);
   addAttribute(alias);
-  // Always initialize shared memory address to nullptr
+  // Always initialize smem/tmem addresses to nullptr
+  addAttribute(nullptr);
+  addAttribute(nullptr);
   addAttribute(nullptr);
 
   for (auto s : shape) {
@@ -316,9 +326,10 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
 }
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (auto in : inputs()) {
+  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+    auto in = input(i);
     const char* constraint = nullptr;
-    if (in->isConst()) {
+    if (options().immediate_inputs.count(i) > 0) {
       constraint = "n";
     } else {
       constraint = getPTXConstraints(in);
@@ -404,7 +415,89 @@ std::string Asm::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Asm op can not be printed inline");
 }
 
+const std::string Asm::utility() const {
+  static const std::unordered_map<std::string, std::string> ptx_to_utility{
+      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
+      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "tmem::load"},
+      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "tmem::store"},
+      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+       "tmem::alloc"},
+      {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
+       "tmem::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
+      {"wgmma.fence.sync.aligned", "wgmma::fence"},
+      {"fence.proxy.async", "fenceAsyncProxy"},
+      {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
+      {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
+      {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
+      {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
+      {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
+      {"cp.async.bulk.commit_group", "cpAsyncBulkCommitGroup"},
+      {"cp.async.bulk.wait_group.read", "cpAsyncBulkWaitGroup"},
+      {"setmaxnreg.inc.sync.aligned.u32", "increaseRegisters"},
+      {"setmaxnreg.dec.sync.aligned.u32", "decreaseRegisters"}};
+  const std::string& code = this->code();
+  auto it = ptx_to_utility.find(code);
+  if (it != ptx_to_utility.end()) {
+    return it->second;
+  }
+  // Match wgmma. Example:
+  // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
+  // utility: wgmmaM64N256K16Half
+  {
+    // Half
+    std::regex pattern(
+        R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.f16\.f16)");
+    std::smatch match;
+    if (std::regex_match(code, match, pattern)) {
+      std::string extracted = match[1];
+      return "wgmma::" + extracted + "Half";
+    }
+  }
+  {
+    // BFloat16
+    std::regex pattern(
+        R"(wgmma\.mma_async\.sync\.aligned\.(m\d+n\d+k\d+)\.f32\.bf16\.bf16)");
+    std::smatch match;
+    if (std::regex_match(code, match, pattern)) {
+      std::string extracted = match[1];
+      return "wgmma::" + extracted + "BF16";
+    }
+  }
+  return "";
+}
+
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
+
+AllocTMem::AllocTMem(IrBuilderPasskey passkey, Val* address, Val* num_columns)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(
+      ir_utils::getTv(address)->getMemoryType() == MemoryType::Shared,
+      "AllocTMem address must be a shared memory tensor");
+  addOutput(address);
+  NVF_ERROR(
+      num_columns->dtype() == DataType::UInt32,
+      "AllocTMem num_columns must be a uint32_t");
+  addInput(num_columns);
+}
+
+std::string AllocTMem::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << " = AllocTMem("
+                          << input(0)->toString() << ")\n";
+  return ss.str();
+}
+
+std::string AllocTMem::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(AllocTMem)
 
 BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -449,6 +542,88 @@ std::string GridSync::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(GridSync)
+
+FenceAsyncProxy::FenceAsyncProxy(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string FenceAsyncProxy::toString(int indent_size) const {
+  return "fence.proxy.async\n";
+}
+
+std::string FenceAsyncProxy::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "FenceAsyncProxy can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(FenceAsyncProxy)
+
+WgMmaFence::WgMmaFence(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string WgMmaFence::toString(int indent_size) const {
+  return "fence.proxy.async\n";
+}
+
+std::string WgMmaFence::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "WgMmaFence can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(WgMmaFence)
+
+SetMaxNReg::SetMaxNReg(
+    IrBuilderPasskey passkey,
+    Val* number_of_registers,
+    bool increase_registers)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addInput(number_of_registers);
+  addDataAttribute(increase_registers);
+}
+
+std::string SetMaxNReg::toString(int indent_size) const {
+  std::stringstream ss;
+  if (increaseRegisters()) {
+    indent(ss, indent_size) << "setmaxnreg.inc.sync.aligned.u32\n";
+  } else {
+    indent(ss, indent_size) << "setmaxnreg.dec.sync.aligned.u32\n";
+  }
+  return ss.str();
+}
+
+std::string SetMaxNReg::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "SetMaxNReg can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
+
+Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Return::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "return\n";
+  return ss.str();
+}
+
+std::string Return::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Return can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Return)
 
 MBarrierInit::MBarrierInit(
     IrBuilderPasskey passkey,
@@ -499,15 +674,17 @@ MBarrierArrive::MBarrierArrive(
     Val* mbarrier)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_CHECK(state->dtype() == DataType::UInt);
   addInput(mbarrier);
-  addOutput(state);
+  if (state != nullptr) {
+    NVF_CHECK(state->dtype() == DataType::UInt64);
+    addOutput(state);
+  }
 }
 
 std::string MBarrierArrive::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString() << ", "
-                          << state()->toString() << ")\n";
+  indent(ss, indent_size) << "MBarrierArrive(" << mbarrier()->toString()
+                          << ")\n";
   return ss.str();
 }
 
@@ -527,7 +704,10 @@ MBarrierArriveExpectTx::MBarrierArriveExpectTx(
   NVF_CHECK(tx_count->dtype() == DataType::UInt32);
   addInput(mbarrier);
   addInput(tx_count);
-  addOutput(state);
+  if (state != nullptr) {
+    NVF_CHECK(state->dtype() == DataType::UInt64);
+    addOutput(state);
+  }
 }
 
 std::string MBarrierArriveExpectTx::toString(int indent_size) const {
@@ -546,7 +726,7 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierArriveExpectTx)
 MBarrierWait::MBarrierWait(IrBuilderPasskey passkey, Val* mbarrier, Val* state)
     : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
-  NVF_CHECK(state->dtype() == DataType::UInt);
+  NVF_CHECK(state->dtype() == DataType::UInt64);
   addInput(mbarrier);
   addInput(state);
 }
@@ -563,6 +743,30 @@ std::string MBarrierWait::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWait)
+
+MBarrierWaitParity::MBarrierWaitParity(
+    IrBuilderPasskey passkey,
+    Val* mbarrier,
+    Val* parity)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_CHECK(parity->dtype() == DataType::UInt32);
+  addInput(mbarrier);
+  addInput(parity);
+}
+
+std::string MBarrierWaitParity::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "MBarrierWaitParity(" << mbarrier()->toString()
+                          << ", " << parity()->toString() << ")\n";
+  return ss.str();
+}
+
+std::string MBarrierWaitParity::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "MBarrierWaitParity can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(MBarrierWaitParity)
 
 BlockSerializeWait::BlockSerializeWait(
     IrBuilderPasskey passkey,
@@ -1390,6 +1594,67 @@ std::string EncodeTensorMapTiled::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(EncodeTensorMapTiled)
+
+RNGOp::RNGOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* rng_result,
+    Val* rng_component,
+    DataType dtype,
+    RNGOpType rng_type,
+    // range high and low, or avg and std dev
+    std::vector<Val*> parameters)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  NVF_ERROR(out->isA<kir::TensorIndex>());
+  NVF_ERROR(rng_result->isA<TensorView>());
+  NVF_ERROR(rng_result->as<TensorView>()->getMemoryType() == MemoryType::Local);
+  NVF_ERROR(rng_result->as<TensorView>()->dtype() == DataType::UInt32);
+  NVF_ERROR(rng_result->as<TensorView>()->nDims() == 1);
+  NVF_ERROR(rng_result->as<TensorView>()->axis(0)->extent()->isConstInt());
+  NVF_ERROR(
+      rng_result->as<TensorView>()
+          ->axis(0)
+          ->extent()
+          ->evaluate()
+          .as<int64_t>() == 4);
+  NVF_ERROR(rng_component->dtype() == DataType::Index);
+  NVF_ERROR(rng_component->isA<NamedScalar>());
+  addInput(rng_result);
+  addInput(rng_component);
+  addOutput(out);
+  for (auto v : parameters) {
+    addInput(v);
+  }
+  addDataAttribute(rng_type);
+  addDataAttribute(dtype);
+}
+
+std::string RNGOp::toString(int indent_size) const {
+  std::stringstream ss;
+  ss << output(0)->toString() << " = " << getRNGOpType() << "("
+     << input(0)->toString();
+  for (auto inp_i : c10::irange(1, inputs().size())) {
+    ss << ", " << input(inp_i)->toString();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string RNGOp::toInlineString(int indent_size) const {
+  std::stringstream ss;
+  ss << getRNGOpType() << "(" << input(0)->toString();
+  for (auto inp_i : c10::irange(1, inputs().size())) {
+    ss << ", " << input(inp_i)->toString();
+  }
+  ss << ")";
+  return ss.str();
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(RNGOp)
 
 } // namespace kir
 } // namespace nvfuser

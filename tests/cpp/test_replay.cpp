@@ -9,8 +9,8 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <kernel_cache.h>
 #include <ops/all_ops.h>
+#include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 #include <transform_replay.h>
@@ -46,8 +46,8 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({4, 5}, options);
 
-  FusionExecutorCache fec(std::move(fusion));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
@@ -57,7 +57,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndPermute) {
        slices[1].view({2, 2, 3}).permute({1, 0, 2})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
 }
 
 TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
@@ -85,8 +85,8 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor in_tensor = at::randn({4, 5}, options);
 
-  FusionExecutorCache fec(std::move(fusion));
-  std::vector<at::Tensor> out_tensors = fec.runFusionWithInputs({in_tensor});
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
   ASSERT_EQ(out_tensors.size(), 1);
   auto out_tensor = out_tensors[0];
 
@@ -95,7 +95,7 @@ TEST_F(ReplayTest, HorizontallyMergeReshapeAndNeg) {
       {-slices[0].view({2, 2, 2}), -slices[1].view({2, 2, 3})},
       /*dim=*/-1);
 
-  EXPECT_TRUE(at::equal(out_tensor, expected_out_tensor));
+  EXPECT_TRUE(at::equal(out_tensor.as<at::Tensor>(), expected_out_tensor));
 }
 
 } // namespace nvfuser

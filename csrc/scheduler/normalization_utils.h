@@ -8,8 +8,8 @@
 #pragma once
 
 #include <exceptions.h>
-#include <fusion_executor/executor_params.h>
 #include <ir/all_nodes.h>
+#include <runtime/executor_params.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>
@@ -197,7 +197,6 @@ int64_t partialReductionBufferSize(
 using ReductionType = reduction_scheduler_utils::ReductionType;
 SchedulerType getPersistentHeuristicFor(ReductionType reduction_type);
 
-// get argument passed to innerPersistentHeuristic and outerPersistentHeuristic
 struct PersistentKernelProperties {
   int64_t inner_most_dimension_numel;
   int64_t total_reduction_numel;
@@ -209,6 +208,8 @@ struct PersistentKernelProperties {
   bool project_persistent_buffers;
   PrimDataType index_type;
   bool has_exp_op;
+  bool has_rng_op;
+  bool disable_project_to_avoid_recompute;
   std::vector<TensorView*> persistent_buffers;
   std::string toString() const {
     std::stringstream ss;
@@ -220,6 +221,8 @@ struct PersistentKernelProperties {
        << "n_tensor_inputs: " << n_tensor_inputs << "\n"
        << "max_input_dtype_size: " << max_dtype_size << "\n"
        << "max allowed vectorize_factor: " << vectorize_factor << "\n"
+       << "disable_project_to_avoid_recompute: "
+       << disable_project_to_avoid_recompute << "\n"
        << "project_persistent_buffers: " << project_persistent_buffers << "\n";
     return ss.str();
   }
@@ -262,6 +265,7 @@ void beforeSchedule(
     std::vector<TensorView*>& dummy_outputs,
     std::vector<TensorView*>& cached_inputs,
     std::vector<TensorView*>& reduction_tvs,
+    std::vector<TensorView*>& smem_consumers,
     std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // schedule a reduction tv, used by all persistent schedulers.
@@ -281,14 +285,31 @@ void schedulePersistentKernel(
 
 // Get max register or shared memory size for persistent buffer
 int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
+    Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
-    const std::vector<TensorView*>& persistent_buffers,
-    const bool can_use_smem_persistent);
+    const std::vector<TensorView*>& reduction_tvs,
+    const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
+    const bool can_use_smem_persistent,
+    const bool project_to_inputs);
 
-// Returns true if persistent buffers are projected to inputs, meaning the
-// inputs are cached instead of the persistent buffers. The decision of
-// projection is primarily based on the required sizes of the two cases --
-// projection is done if projecting to the inputs results in a smaller size.
+enum class BufferProjectionStrategy {
+  // Recompute persistent buffers from inputs, only need to cache inputs in
+  // registers or shared memories, usually used when size of required cached
+  // inputs is smaller than the size of persistent buffers.
+  ProjectToInputs,
+  // Don't project to inputs, to avoid recompute from inputs. This saves
+  // computation cost but uses more registers or shared memories. Usually used
+  // when the required buffer size  is small and hardware has high bandwidth to
+  // flops ratio.
+  NoProjectToAvoidRecompute,
+  // Project to inputs is disabled due to other reasons, e.g. can't reduce
+  // buffer size, recompute requires very expensive rng ops, not supported due
+  // to view ops.
+  NoProjectOtherReasons
+};
+
+// Returns BufferProjectionStrategy based on buffer size, hardware, and fusion
+// ops.
 
 // This function is used by inner persistent and InnerOuter persistent
 // schedulers.
@@ -310,9 +331,10 @@ int64_t getMaxRegOrSharedMemorySizeForPersistentBuffer(
 // - exp in inner normalization: only allowed to get projected if the buffer is
 // smaller than a certain size Otherwise, as long as the projected inputs are
 // smaller than the original persistent buffers, this function returns true.
-bool isProjectBufferToInputs(
+BufferProjectionStrategy isProjectBufferToInputs(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
+    const std::vector<TensorView*>& reduction_tvs,
     const scheduler_utils::PersistentBufferInfo& persistent_buffer_info,
     const scheduler_utils::PersistentBufferSizeReturn&
         persistent_buffer_size_info,
@@ -320,9 +342,12 @@ bool isProjectBufferToInputs(
     const bool can_use_smem_persistent,
     const bool check_projected_buffer_size = true);
 
-// move persistent buffer marked in rparams->smem_persistent_buffers from
-// register to smem
-void movePersistentBufferToSmem(
+// Set memory type of persistent buffer marked in
+// rparams->smem_persistent_buffers as shared memory. Return a vector of the
+// consumers of the shared memory tensors, they are cached after the smem
+// tensors and will be vectorized by the scheduler if possible to avoid shared
+// memory bank conflicts.
+std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs);
@@ -354,5 +379,7 @@ void movePersistentBufferToSmem(
 // PersistentBufferTest.GetResolutionIssue1123 for a concrete example
 std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
 
+// Return empirical maximum persistent batch size for inner persistent scheduler
+int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

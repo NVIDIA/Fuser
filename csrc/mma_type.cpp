@@ -78,7 +78,6 @@ std::string toString(const GemmTile& tile) {
 std::string toString(const MatMulTileOptions& opts) {
   std::stringstream ss;
   ss << "MatMulTileOptions: "
-     << "instruction tile " << toString(opts.instruction_tile) << ", "
      << "warp tile " << toString(opts.warp_tile) << ", "
      << "CTA tile " << toString(opts.cta_tile);
   return ss.str();
@@ -138,8 +137,9 @@ size_t hash(const GemmTile& tile) {
 }
 
 size_t hash(const MatMulTileOptions& opts) {
-  return (hash(opts.instruction_tile) << 0) ^ (hash(opts.warp_tile) << 1) ^
-      (hash(opts.cta_tile) << 2);
+  size_t h = hash(opts.warp_tile);
+  hashCombine(h, hash(opts.cta_tile));
+  return h;
 }
 
 std::string toString(const MatmulDimRole role) {

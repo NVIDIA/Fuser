@@ -10,7 +10,7 @@
 
 #include <tests/cpp/utils.h>
 
-#include <abstract_tensor.h>
+#include <scheduler/tools/abstract_tensor.h>
 
 namespace nvfuser {
 
