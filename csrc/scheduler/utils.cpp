@@ -560,8 +560,9 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
 TensorView* getUpCastInputOf(const TensorView* tv) {
   // skip if definition is not a unary op
   if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
-    // skip if the input is a fusion input
-    if (uop->input(0)->isFusionInput()) {
+    // skip if the input is a fusion input or the op is not a cast
+    if (uop->input(0)->isFusionInput() ||
+        uop->getUnaryOpType() != UnaryOpType::Cast) {
       return nullptr;
     }
     // skip if the cast is not upcast
