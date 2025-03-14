@@ -230,6 +230,11 @@ void bindInternalBaseNodes(py::module& nvfuser) {
           "is_device_dim",
           &nvfuser::IterDomain::isDeviceDim,
           "Return if this iter domain is device dimension")
+      .def(
+        "parallelize",
+        &nvfuser::IterDomain::parallelize,
+        py::arg("t"),
+        "")
       .def("get_parallel_type", &nvfuser::IterDomain::getParallelType, "")
       .def("get_iter_type", &nvfuser::IterDomain::getIterType, "")
       .def("start", &nvfuser::IterDomain::start, "")
