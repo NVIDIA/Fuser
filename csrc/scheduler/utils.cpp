@@ -658,10 +658,23 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       continue;
     }
 
-    // can project to input if the persistent_buffer can be recalculated without
-    // doing reduction.
-    if (canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
-            .first) {
+    // can't project to input if the recomputation needs reduction
+    if (!canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
+             .first) {
+      continue;
+    }
+
+    //  All inputs of the persistent buffer should be cacheable.
+    auto all_inputs = ir_utils::inputTvsOf(persistent_buffer);
+    if (std::all_of(
+            all_inputs.begin(),
+            all_inputs.end(),
+            [&reduction_tvs, &id_model](TensorView* input) {
+              return normalization_scheduler_utils::isCacheableUnmappableTv(
+                  input,
+                  reduction_tvs,
+                  id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT));
+            })) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
