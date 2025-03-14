@@ -424,7 +424,7 @@ UPDATED_SDPA = LooseVersion(torch.__version__) >= LooseVersion("2.7.0")
 def get_sdpa_rng_nvf_tensors(fd: FusionDefinition):
     dtype = DataType.UInt64 if UPDATED_SDPA else DataType.Int
     is_cpu = False if UPDATED_SDPA else True
-    philox_shape = [-1] if UPDATED_SDPA else []
+    philox_shape = [2] if UPDATED_SDPA else []
     philox_seed = fd.define_tensor(
         shape=philox_shape,
         dtype=dtype,
