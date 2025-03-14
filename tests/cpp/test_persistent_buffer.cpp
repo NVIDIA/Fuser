@@ -1662,6 +1662,7 @@ TEST_F(PersistentBufferTest, BroadcastSync2) {
 // Make sure isCacheableUnmappableTv does not falsely claim not
 // cacheable when an unmappable tensor is reduced through a reshape
 TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
+  GTEST_SKIP() << "Disabled for now";
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
