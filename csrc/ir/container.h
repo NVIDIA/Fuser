@@ -125,6 +125,15 @@ class IrContainer : public PolymorphicBase {
     return vals_;
   }
 
+  int64_t numExprs() const noexcept {
+    return std::ssize(exprs_);
+  }
+
+  // When include_shortcuts is true, it will count the shortcuts like true_val_.
+  int64_t numVals(bool include_shortcuts) const noexcept {
+    return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
+  }
+
   // Shortcuts for frequently used vals
   NVF_API Val* zeroVal();
   NVF_API Val* oneVal();
@@ -143,6 +152,14 @@ class IrContainer : public PolymorphicBase {
 
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
+
+  // A simple garbage collection mechanism to remove all Exprs and Vals that
+  // were created after a certain point. This is useful for analysis that
+  // creates new Exprs and Vals in the container and wants to clean up after
+  // itself.
+  void removeStatementsCreatedAfter(
+      int64_t prev_num_exprs,
+      int64_t prev_num_vals);
 
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);

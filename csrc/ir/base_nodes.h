@@ -401,6 +401,7 @@ class NVF_API Val : public Statement {
 
  protected:
   friend Fusion;
+  friend IrContainer;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   const ValType vtype_;
