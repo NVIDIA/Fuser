@@ -8,6 +8,7 @@
 #include <preseg_passes/propagate_shardings.h>
 
 #include <vector>
+#include "type.h"
 
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
@@ -64,8 +65,7 @@ std::pair<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>> getR
       }
     }
   }
-  // Get the logical iterdomains in the producer that are reshaped.
-  std::unordered_set<IterDomain*> p_reshape_ids;
+
   for (auto id : c_reshaped_ids) {
     if (auto p_id = c2p.find(id); p_id != c2p.end()) {
       p_reshaped_ids.insert(p_id->second);
@@ -141,60 +141,86 @@ class PropagateShardingsSelector: public SetSelector {
   }
 };
 
-int64_t handleViewOp(ViewOp* view_op, int64_t did_pos) {
+void splitLike(TensorView* tv, int64_t axis, Split* ref_split, bool allow_inner_split = false) {
+  auto split_factor = ref_split->factor();
+  auto inner_split = ref_split->innerSplit();
+  NVF_ERROR (!inner_split || allow_inner_split, "Inner split is not supported.");
+  tv->split(axis, split_factor, /*inner_split=*/inner_split);
+}
+
+// Returns the number of DID axis on reshaped ids that were propagated to the consumer.
+int64_t handleViewOp(ViewOp* view_op, int64_t num_device_dims) {
   // This implementation asserts that only one sharding is applied on the reshaped ids.
   // Inner split is not supported.
   // The cases are:
   // 1. Split reshape: [h] -> [a, h/a]. Sharding on h is applied to a in consumer.
   // 2. Merge reshape: [a, h/a] -> [h]. Sharding on a is applied to h in consumer.
+  // 3. Multiple splits or merge reshapes: [x, y, z] -> [xyz]. Sharding on x and xyz. Similarly for the corresponding split reshape.
+  // 4. Independent splits or merge reshapes: [w, x, y, z] -> [wx, yz]. Sharding is on w and y. In the consumer, it is applied to wx and yz.
   // An improvement is to support mult-levels of sharding (not a real case in practice) if they are all outer splits.
-  // For example: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
+  // For example: For the reshape [h] -> [a, h/a] where the h is sharded twice: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
 
   TensorView* producer = view_op->in();
   TensorView* consumer = view_op->out();
 
   const std::unordered_map<IterDomain*, IterDomain*>& c2p = PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
-  auto [p_reshaped_ids, c_reshaped_ids] = getReshapedIds(view_op, c2p);
+  const std::unordered_map<IterDomain*, IterDomain*>& p2c = PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
+  auto [p_logical_reshaped_ids, c_root_reshaped_ids] = getReshapedIds(view_op, c2p);
   
   auto p_loop_domain = producer->getLoopDomain();
   auto c_loop_domain = consumer->getLoopDomain();
+  auto c_logical_domain = consumer->getLogicalDomain();
   
+  // Track number of DID axis on reshaped ids that were propagated to the consumer.
+  // These will not be included in TransformPropagator.
   int64_t num_reshape_shardings = 0;
-  for (auto idx: c10::irange(did_pos)) {
+
+  for (auto idx: c10::irange(num_device_dims)) {
+    IterDomain* p_did = p_loop_domain.at(idx);
+    NVF_ERROR(p_did->isDeviceDim());
+    
     auto p_transforms = DependencyCheck::getAllExprsBetween(
-        {p_reshaped_ids.begin(), p_reshaped_ids.end()}, {p_loop_domain.at(idx)});
+        {p_logical_reshaped_ids.begin(), p_logical_reshaped_ids.end()}, {p_loop_domain.at(idx)});
     if (p_transforms.empty()) {
-      // Sharding is not on reshaped ids. We will use the TransformPropagator.
+      // This did axis is not on reshaped ids. We will use the TransformPropagator.
       continue;
     }
+
+    NVF_ERROR(TensorDomain::sameAs(c_logical_domain, c_loop_domain), "Sharding on a previously transformed reshape is not supported.");
+
     num_reshape_shardings++;
-    NVF_ERROR(p_transforms.size() == 1 && p_transforms.back()->isA<Split>(), "Expected only a single DID split on reshaped ids.");
-    auto* p_did_split = p_transforms.front()->as<Split>();
 
-    auto reshape_transforms = DependencyCheck::getAllExprsBetween(
-        {c_reshaped_ids.begin(), c_reshaped_ids.end()}, {consumer->getLogicalDomain().begin(), consumer->getLogicalDomain().end()});
-
-    // Check if the producer is sharded on the outermost reshaped id.
-    IterDomain* reshaped_outer_id = nullptr;
-    for (auto transform_it = reshape_transforms.rbegin(); transform_it != reshape_transforms.rend(); transform_it++) {
-      auto* transform = *transform_it;
-      if (transform->isA<Merge>()) {
-        reshaped_outer_id = transform->as<Merge>()->outer();
-      }
+    // Find the producer logical id that is sharded.
+    // We expect the outermost reshaped id to be sharded and follow the outermost path traversing the transforms
+    IterDomain* p_logical_did = p_loop_domain.at(idx);
+    for (auto transform_it = p_transforms.rbegin(); transform_it != p_transforms.rend(); transform_it++) {
+      auto transform = *transform_it;
       if (transform->isA<Split>()) {
-        reshaped_outer_id = transform->as<Split>()->in();
+        NVF_ERROR(p_logical_did == transform->as<Split>()->outer(), "Expected the sharding to be on the outer reshaped id.");
+        p_logical_did = transform->as<Split>()->in();
+      }
+      if (transform->isA<Merge>()) {
+        p_logical_did = transform->as<Merge>()->outer();
       }
     }
-    NVF_ERROR(c2p.find(reshaped_outer_id)!=c2p.end() && c2p.find(reshaped_outer_id)->second == p_did_split->in(), "Expected the sharding to be on the outer reshaped id.");
 
-    // Get the sharded id in the consumer.
-    IterDomain* c_sharded_id = nullptr;
+    // Find the mapping of the corresponding producer logical id in consumer root.
+    IterDomain* c_root_did = p2c.at(p_logical_did);
+    
+    // Get the reshape transforms corresponding to this root id. 
+    // We use the c_root_did to only find the reshape IDs related to this did.
+    auto reshape_transforms = DependencyCheck::getAllExprsBetween(
+        {c_root_did}, {consumer->getLogicalDomain().begin(), consumer->getLogicalDomain().end()});
+
+    // Obtain the logical axis sharded in the consumer.
+    IterDomain* c_logical_did = c_root_did;
     for (auto transform: reshape_transforms) {
       if (transform->isA<Split>()) {
-        c_sharded_id = transform->as<Split>()->outer();
+        c_logical_did = transform->as<Split>()->outer();
       }
       if (transform->isA<Merge>()) {
-        c_sharded_id = transform->as<Merge>()->out();
+        NVF_ERROR(c_logical_did == transform->as<Merge>()->outer(), "Expected the sharding to be on the outer reshaped id.");
+        c_logical_did = transform->as<Merge>()->out();
       }
     }
 
@@ -202,11 +228,11 @@ int64_t handleViewOp(ViewOp* view_op, int64_t did_pos) {
       c_loop_domain.begin(),
       std::find(c_loop_domain.begin(),
                 c_loop_domain.end(),
-                c_sharded_id));
+                c_logical_did));
     
-    Val* split_factor = p_did_split->factor();
-    consumer->split(sharded_axis, split_factor, /*inner_split=*/false);
-    consumer->axis(sharded_axis)->parallelize(p_loop_domain.at(idx)->getParallelType());
+    auto* p_did_split = p_did->definition()->as<Split>();
+    splitLike(consumer, sharded_axis, p_did_split);
+    consumer->axis(sharded_axis)->parallelize(p_did->getParallelType());
 
     // Move this did_pos to the end in producer to avoid using TransformPropagator on it.
     producer->reorder({{idx, -1}});
@@ -237,15 +263,15 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       }
     
       // This restricts the transform propagation to the DID axis.
-      int64_t did_pos = reorderDIDToFront(ref_input);
+      int64_t num_device_dims = reorderDIDToFront(ref_input);
 
       if (ViewOp* view_op = dynamic_cast<ViewOp*>(expr)) {
-        int64_t num_reshape_shardings = handleViewOp(view_op, did_pos);
-        did_pos = did_pos - num_reshape_shardings;
+        int64_t num_reshape_shardings = handleViewOp(view_op, num_device_dims);
+        num_device_dims = num_device_dims - num_reshape_shardings;
       }
       
       // Propagate the DID loop split to the outputs without mesh.
-      TransformPropagator propagator(ref_input, did_pos);
+      TransformPropagator propagator(ref_input, num_device_dims);
       PropagateShardingsSelector selector(
           {outputs_without_mesh.begin(), outputs_without_mesh.end()},
           /*allow_c2p=*/false,

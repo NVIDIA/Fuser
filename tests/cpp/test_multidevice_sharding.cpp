@@ -781,17 +781,20 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   tv0->axis(-3)->parallelize(ParallelType::DIDx);
   // in: loop domain: {b, s, DIDx{d}, h, e}
 
-  // Propagate DID loop split to output
-  TransformPropagator propagator_p2c(tv0);
-  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
-  // out: loop domain: {b, s, d, h, e} after transform propagation
+  // // Propagate DID loop split to output
+  // TransformPropagator propagator_p2c(tv0);
+  // MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
+  // // out: loop domain: {b, s, d, h, e} after transform propagation
 
-  // Parallelize output
-  scheduler_utils::parallelizeAllLike(
-      tv0,
-      /*pos=*/-1,
-      /*selected_tv=*/{tv1});
-  // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
+  // // Parallelize output
+  // tv1->setDeviceMesh(mesh);
+  // scheduler_utils::parallelizeAllLike(
+  //     tv0,
+  //     /*pos=*/-1,
+  //     /*selected_tv=*/{tv1});
+  // // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
+
+  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
 
   tv0->setAllocationDomain(tv0->getLoopDomain(), true);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
@@ -1248,15 +1251,15 @@ TEST_F(MultiDeviceTest, MultipleMergeReshape) {
   NVF_CHECK(getShardedLoopAxis(tv1, ParallelType::DIDx) != -1);
 }
 
-TEST_F(MultiDeviceTest, MultipleSplitReshape) {
+TEST_F(MultiDeviceTest, MultipleTransformReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
-  const int64_t b = 2, s = 3, h = 8;
+  const int64_t b = 2, s = 3, h = 8, e = 4;
 
-  TensorView* tv0 = makeContigConcreteTensor({d*b*s*h});
-  TensorView* tv1 = reshape(tv0, {d*b*s*h}, {d*b, s, h});
+  TensorView* tv0 = makeContigConcreteTensor({d*b, s, h*e});
+  TensorView* tv1 = reshape(tv0, {d*b, s, h*e}, {d*b*s*h, e});
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
@@ -1266,7 +1269,7 @@ TEST_F(MultiDeviceTest, MultipleSplitReshape) {
   tv0->axis(0)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  
+
   NVF_CHECK(getShardedLoopAxis(tv1, ParallelType::DIDx) != -1);
 }
 
