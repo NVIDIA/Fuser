@@ -2280,10 +2280,15 @@ output = [N, H, L, Ev]
 logsumexp = [N, H, L]
 query_seq_len = scalar(int)
 key_seq_len = scalar(int)
-philox_seed = scalar tensor
-philox_offset = scalar tensor
+philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
 debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
 setting `return_debug_mask=False` when invoking flash attention)
+
+Note: For older versions, torch returns CPU scalar tensors for philox_seed and
+philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
+(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
+contains both seed and offset.
 
 query = [N, H, L, E]
 key = [N, H, S, E]
@@ -2609,9 +2614,14 @@ output = [N, H, L, Ev]
 logsumexp = [N, H, L]
 dropout_p = scalar(double)
 is_causal = scalar(bool)
-philox_seed = scalar CPU tensor
-philox_offset = scalar CPU tensor
-scale = scalar(double)
+philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale =
+scalar(double)
+
+Note: For older versions, torch returns CPU scalar tensors for philox_seed and
+philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
+(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
+contains both seed and offset.
 
 N = number of sequences / batch size
 H = num of heads

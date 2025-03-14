@@ -500,8 +500,7 @@ std::unique_ptr<FusionExecutorCache> DistributedTransformer::backward(
   TensorView* mha_sdpa_out = makeConcreteTensor({D, B, H / D, S, E / H}, dtype);
   TensorView* mha_sdpa_log_sumexp =
       makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
-  TensorView* mha_sdpa_seed = makeSymbolicTensor({}, DataType::Int);
-  TensorView* mha_sdpa_offset = makeSymbolicTensor({}, DataType::Int);
+  auto [mha_sdpa_seed, mha_sdpa_offset] = getSdpaRngTvs(/*symbolic=*/true);
   TensorView* ln1_w = makeContigTensor(1);
   TensorView* ln1_b = makeContigTensor(1);
   TensorView* ln1_mean = makeConcreteTensor({B * S, 1});

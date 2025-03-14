@@ -417,6 +417,35 @@ def nvfusertest_serde_check(test_fn: Callable):
     return inner_fn
 
 
+UPDATED_SDPA = torch.__version__ > "2.6.0"
+
+
+def get_sdpa_rng_nvf_tensors(fd: FusionDefinition):
+    dtype = DataType.UInt64 if UPDATED_SDPA else DataType.Int
+    is_cpu = False if UPDATED_SDPA else True
+    philox_shape = [-1] if UPDATED_SDPA else []
+    philox_seed = fd.define_tensor(
+        shape=philox_shape,
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    philox_offset = fd.define_tensor(
+        shape=[],
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    return philox_seed, philox_offset
+
+
+def get_sdpa_rng_tensors():
+    dtype = torch.uint64 if UPDATED_SDPA else torch.int64
+    device = "cuda" if UPDATED_SDPA else "cpu"
+    philox_shape = (2,) if UPDATED_SDPA else ()
+    philox_seed = torch.testing.make_tensor(philox_shape, device=device, dtype=dtype)
+    philox_offset = torch.testing.make_tensor((), device=device, dtype=dtype)
+    return philox_seed, philox_offset
+
+
 """
 Base class for any test class that needs to verify serialization
 and run captured string representations of FusionDefinition.

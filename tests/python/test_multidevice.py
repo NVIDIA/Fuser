@@ -11,7 +11,7 @@ import multidevice_fixtures
 import nvfuser
 import utils
 from nvfuser import DataType, FusionDefinition
-
+from utils import get_sdpa_rng_tensors, get_sdpa_rng_nvf_tensors
 
 multidevice_test = multidevice_fixtures.multidevice_test
 
@@ -1096,8 +1096,9 @@ def test_transformer_forward(multidevice_test, benchmark):
     _assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
     _assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
-    _assert_shape_dtype(sdpa_seed, [], torch.int64)
-    _assert_shape_dtype(sdpa_offset, [], torch.int64)
+    ref_philox_seed, ref_philox_offset = get_sdpa_rng_tensors()
+    _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
+    _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
     _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
     _assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
     _assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
@@ -1199,8 +1200,7 @@ class TransformerBackwardFusion(FusionDefinition):
             contiguity=True,
             dtype=DataType.Float,
         )
-        mha_sdpa_seed = self.define_tensor(shape=[], dtype=DataType.Int, is_cpu=True)
-        mha_sdpa_offset = self.define_tensor(shape=[], dtype=DataType.Int, is_cpu=True)
+        mha_sdpa_seed, mha_sdpa_offset = get_sdpa_rng_nvf_tensors(self)
         self.mha_linear0_weight = self.define_tensor(
             shape=[d, e * 3 // d, e],
             contiguity=True,
@@ -1623,6 +1623,7 @@ def test_transformer_backward(multidevice_test, benchmark):
     mha_linear0_weight = torch.testing.make_tensor(
         d, e * 3 // d, e, dtype=torch.bfloat16, device="cpu"
     )
+    philox_seed, philox_offset = get_sdpa_rng_tensors()
     ins = [
         30,
         2722423872872113,
@@ -1641,8 +1642,8 @@ def test_transformer_backward(multidevice_test, benchmark):
         mha_linear0_out[rank : rank + 1].cuda(),
         sdpa_out[rank : rank + 1].cuda(),
         sdpa_log_sumexp[rank : rank + 1].cuda(),
-        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
-        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
+        philox_seed,
+        philox_offset,
         mha_linear0_weight[rank : rank + 1].cuda(),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),

@@ -874,4 +874,10 @@ constexpr std::array<int64_t, 21> Pow2Vals1to1Million = {
     2048, 4096, 8192, 16384, 32768, 65536, 131072, 262144, 524288, 1048576};
 
 bool isVectorized(TensorView* tv);
+
+// Get philox seed and offset tensorviews or random tensors for SDPA based on
+// torch version.
+std::pair<TensorView*, TensorView*> getSdpaRngTvs(bool symbolic = false);
+std::pair<at::Tensor, at::Tensor> getSdpaRngTensors();
+
 } // namespace nvfuser
