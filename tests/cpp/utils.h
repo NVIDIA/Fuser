@@ -683,53 +683,40 @@ Container parse(const std::string& nvdisasm_output);
 
 } // namespace sass
 
-static auto kAllSupportedMmaLayout =
-    testing::Values(MmaLayout::TT, MmaLayout::TN, MmaLayout::NT, MmaLayout::NN);
+static auto kAllSupportedMmaLayout = std::vector<MmaLayout>{
+    MmaLayout::TT,
+    MmaLayout::TN,
+    MmaLayout::NT,
+    MmaLayout::NN};
 
 inline std::string mmaLayoutName(
     const testing::TestParamInfo<MmaLayout>& info) {
   return toString(info.param);
 }
 
-static auto kAllSmemSwizzleModes = testing::Values(
+static auto kAllSmemSwizzleModes = std::vector<MmaInputSmemSwizzle>{
     MmaInputSmemSwizzle::None,
     MmaInputSmemSwizzle::B128,
     MmaInputSmemSwizzle::B64,
-    MmaInputSmemSwizzle::B32);
+    MmaInputSmemSwizzle::B32};
 
-static auto kAllHopperMacros = testing::Values(
-    MmaMacro::Hopper_64_8_16,
-    MmaMacro::Hopper_64_16_16,
-    MmaMacro::Hopper_64_24_16,
-    MmaMacro::Hopper_64_32_16,
-    MmaMacro::Hopper_64_40_16,
-    MmaMacro::Hopper_64_48_16,
-    MmaMacro::Hopper_64_56_16,
-    MmaMacro::Hopper_64_64_16,
-    MmaMacro::Hopper_64_72_16,
-    MmaMacro::Hopper_64_80_16,
-    MmaMacro::Hopper_64_88_16,
-    MmaMacro::Hopper_64_96_16,
-    MmaMacro::Hopper_64_104_16,
-    MmaMacro::Hopper_64_112_16,
-    MmaMacro::Hopper_64_120_16,
-    MmaMacro::Hopper_64_128_16,
-    MmaMacro::Hopper_64_136_16,
-    MmaMacro::Hopper_64_144_16,
-    MmaMacro::Hopper_64_152_16,
-    MmaMacro::Hopper_64_160_16,
-    MmaMacro::Hopper_64_168_16,
-    MmaMacro::Hopper_64_176_16,
-    MmaMacro::Hopper_64_184_16,
-    MmaMacro::Hopper_64_192_16,
-    MmaMacro::Hopper_64_200_16,
-    MmaMacro::Hopper_64_208_16,
-    MmaMacro::Hopper_64_216_16,
-    MmaMacro::Hopper_64_224_16,
-    MmaMacro::Hopper_64_232_16,
-    MmaMacro::Hopper_64_240_16,
-    MmaMacro::Hopper_64_248_16,
-    MmaMacro::Hopper_64_256_16);
+static auto kAllHopperMacros = std::vector<MmaMacro>{
+    MmaMacro::Hopper_64_8_16,   MmaMacro::Hopper_64_16_16,
+    MmaMacro::Hopper_64_24_16,  MmaMacro::Hopper_64_32_16,
+    MmaMacro::Hopper_64_40_16,  MmaMacro::Hopper_64_48_16,
+    MmaMacro::Hopper_64_56_16,  MmaMacro::Hopper_64_64_16,
+    MmaMacro::Hopper_64_72_16,  MmaMacro::Hopper_64_80_16,
+    MmaMacro::Hopper_64_88_16,  MmaMacro::Hopper_64_96_16,
+    MmaMacro::Hopper_64_104_16, MmaMacro::Hopper_64_112_16,
+    MmaMacro::Hopper_64_120_16, MmaMacro::Hopper_64_128_16,
+    MmaMacro::Hopper_64_136_16, MmaMacro::Hopper_64_144_16,
+    MmaMacro::Hopper_64_152_16, MmaMacro::Hopper_64_160_16,
+    MmaMacro::Hopper_64_168_16, MmaMacro::Hopper_64_176_16,
+    MmaMacro::Hopper_64_184_16, MmaMacro::Hopper_64_192_16,
+    MmaMacro::Hopper_64_200_16, MmaMacro::Hopper_64_208_16,
+    MmaMacro::Hopper_64_216_16, MmaMacro::Hopper_64_224_16,
+    MmaMacro::Hopper_64_232_16, MmaMacro::Hopper_64_240_16,
+    MmaMacro::Hopper_64_248_16, MmaMacro::Hopper_64_256_16};
 
 std::string macroToString(const MmaMacro macro);
 

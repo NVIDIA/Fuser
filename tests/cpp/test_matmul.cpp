@@ -3642,7 +3642,7 @@ TEST_F(MatmulTest, MultipleMDimsBatch) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 using HopperMatmulTest = HopperBase;
