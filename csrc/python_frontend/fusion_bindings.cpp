@@ -293,7 +293,7 @@ void bindInternalBaseNodes(py::module& nvfuser) {
           &nvfuser::IterDomain::isBulk,
           "Marks that this id represents an instruction loop, cp.async.bulk use only.");
 
-  py::class_<TensorDomain>(nvfuser, "TensorDomain")
+  py::class_<nvfuser::TensorDomain, nvfuser::Val>(nvfuser, "TensorDomain")
       .def("__eq__", &TensorDomain::operator==, "Equality operator")
       .def("__ne__", &TensorDomain::operator!=, "Inequality operator")
       .def("n_dims", &TensorDomain::nDims, "Number of dimensions")
@@ -432,7 +432,7 @@ void bindInternalBaseNodes(py::module& nvfuser) {
 }
 
 void bindInterfaceNodes(py::module& nvfuser) {
-  py::class_<nvfuser::TensorView>(nvfuser, "TensorView")
+  py::class_<nvfuser::TensorView, nvfuser::Val>(nvfuser, "TensorView")
       .def(
           py::init<
               nvfuser::IrBuilderPasskey,
@@ -959,7 +959,7 @@ void bindIrContainer(py::module& nvfuser) {
 
   // NOTE: manage, get_managed, get_managed_safe, stop_managing, has_managed are
   // template functions. Pybind requires explicit template specialization.
-  py::class_<nvfuser::Fusion>(nvfuser, "Fusion")
+  py::class_<nvfuser::Fusion, nvfuser::IrContainer>(nvfuser, "Fusion")
       .def(py::init<>(), "Constructor for Fusion")
       .def("clear", &nvfuser::Fusion::clear, "Clear the fusion")
       .def("remove_expr", &nvfuser::Fusion::removeExpr, "Remove an expression")
