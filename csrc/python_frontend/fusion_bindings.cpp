@@ -1113,10 +1113,26 @@ void bindIrContainer(py::module& nvfuser) {
 void bindOperations(py::module& nvfuser) {
   py::module ops = nvfuser.def_submodule("ops", "CPP Fusion Operations");
   // Add functions to the submodule
-  ops.def("add", static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>(nvfuser::add), "Add two Vals");
-  ops.def("add", static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*, nvfuser::Val*)>(nvfuser::add), "Add TensorView and Val");
-  ops.def("add", static_cast<nvfuser::TensorView* (*)(nvfuser::Val*, nvfuser::TensorView*)>(nvfuser::add), "Add Val and TensorView");
-  ops.def("add", static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*, nvfuser::TensorView*)>(nvfuser::add), "Add two TensorViews");
+  ops.def(
+      "add",
+      static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>(
+          nvfuser::add),
+      "Add two Vals");
+  ops.def(
+      "add",
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,
+                                           nvfuser::Val*)>(nvfuser::add),
+      "Add TensorView and Val");
+  ops.def(
+      "add",
+      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,
+                                           nvfuser::TensorView*)>(nvfuser::add),
+      "Add Val and TensorView");
+  ops.def(
+      "add",
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,
+                                           nvfuser::TensorView*)>(nvfuser::add),
+      "Add two TensorViews");
 }
 
 } // namespace
