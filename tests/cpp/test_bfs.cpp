@@ -747,9 +747,11 @@ TEST_F(FindAllExprsTest, Test2) {
 
 // Testing with a graph structure of
 //
-//  A ----> B ----> D
-//      ^       |
-//      +-- C <-+
+// tv0 -> tv1,tv5,tv6 -> tv2 -> tv3 -> tv4
+//             ^                 |
+//             +-----------------+
+//
+// Each edge corresponds to an expr.
 TEST_F(FindAllExprsTest, Test3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -776,7 +778,7 @@ TEST_F(FindAllExprsTest, Test3) {
   ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
   ValGroups tv4_logical_groups = graph.toGroups(tv4->getLogicalDomain());
 
-  // Forward traversal from A. A -> B -> C -> D
+  // Forward traversal from tv0.
   {
     auto result = getAllExprGroupsBetween(
                       graph,
@@ -800,7 +802,7 @@ TEST_F(FindAllExprsTest, Test3) {
     VALIDATE_EXPR_PATH(result, reference_path);
   }
 
-  // Backward traversal from D. D -> B -> C -> A
+  // Backward traversal from tv4.
   {
     auto result = getAllExprGroupsBetween(
                       graph,
