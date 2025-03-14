@@ -291,7 +291,6 @@ inline bool isBlackwell2CTA(MmaMacro macro) {
 }
 
 //! Get the m size from macro type
-//! Get the m size from macro type
 inline int64_t getM(MmaMacro macro) {
   return MmaMacroEncode(macro).m;
 }
