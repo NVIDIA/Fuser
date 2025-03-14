@@ -47,4 +47,27 @@ TEST_F(EmbeddingTest, EmbeddingFwdNode) {
   auto nvf_out = executor_cache.runFusionWithInputs({input, weight});
   EXPECT_TRUE(at::allclose(nvf_out[0].as<at::Tensor>(), aten_out));
 }
+
+// Repro of issue 4013 (https://github.com/NVIDIA/Fuser/issues/4013)
+TEST_F(EmbeddingTest, EmbeddingFwdNodeWithEpilogue) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  std::vector<int64_t> inp_shape({1, 5});
+  std::vector<int64_t> weight_shape({32, 1024});
+
+  auto tv_inp = makeConcreteTensor(inp_shape, DataType::Int);
+  auto tv_weight = makeConcreteTensor(weight_shape, DataType::Half);
+
+  fusion->addInput(tv_inp);
+  fusion->addInput(tv_weight);
+
+  auto tv_output = embedding_fwd(
+      tv_inp, tv_weight, nullptr, nullptr, nullptr, nullptr, nullptr);
+  auto tv_sum = sum(tv_output, {1});
+  fusion->addOutput(tv_sum);
+
+  ComputeAtLogicalDomainMap ca_logical_map;
+  ca_logical_map.build();
+}
+
 } // namespace nvfuser

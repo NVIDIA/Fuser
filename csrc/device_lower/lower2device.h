@@ -277,6 +277,14 @@ class GpuLower : public NonCopyable {
     return tmem_info_;
   }
 
+  const std::pair<int64_t, int64_t>& decIncRegisterUsage() const {
+    return dec_inc_register_usage;
+  }
+
+  std::pair<int64_t, int64_t>& decIncRegisterUsage() {
+    return dec_inc_register_usage;
+  }
+
   // Register a boolean Val as a predicate to validate at the run time. Optional
   // validation error messages can be given as args.
   template <typename... Args>
@@ -313,6 +321,46 @@ class GpuLower : public NonCopyable {
 
   const IdModelOptions idModelOptions() const {
     return id_model_options_;
+  }
+
+  //! Define an alias for consumer as producer.
+  //!
+  //! If producer is already aliased, we chase the alias. If there are tensors
+  //! aliased to consumer, their aliases are updated to point to the new
+  //! producer. This guarantees that any aliases are to producers that get
+  //! codegened.
+  //!
+  //! If there is a chain of trivial ops that should be skipped, then all of the
+  //! intermediate tensors should be aliased to the common producer:
+  //!
+  //!   b = broadcast(a)
+  //!   c = permute(b)
+  //!   d = squeeze(c)
+  //!
+  //! In this example, if all four of a, b, c, and d share the same memory type
+  //! and would use the same index, then we don't need any of these three
+  //! expressions and can simply replace the TensorIndex for d with that for a
+  //! in codegen'd expressions. So we should set up the following aliases:
+  //!
+  //!   d -> a
+  //!   c -> a
+  //!   b -> a
+  //!
+  //! Omitting one of these aliases might cause errors since that tensor's
+  //! definition might get codegen'd without an allocation.
+  void aliasTensorProducer(TensorView* consumer, TensorView* producer);
+
+  //! Return producer that this tensor should be aliased to. Returns nullptr if
+  //! no alias exists, i.e. that we should codegen tv's definition.
+  TensorView* getTensorProducerAlias(TensorView* tv) const {
+    auto it = tensor_producer_alias_map_.find(tv);
+    return it != tensor_producer_alias_map_.end() ? it->second : nullptr;
+  }
+
+  //! Return producer alias for tv or tv itself if it is unaliased
+  TensorView* getMaybeTensorProducerAlias(TensorView* tv) const {
+    TensorView* alias_tv = getTensorProducerAlias(tv);
+    return alias_tv == nullptr ? tv : alias_tv;
   }
 
  private:
@@ -359,6 +407,7 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
+  std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size
@@ -376,6 +425,12 @@ class GpuLower : public NonCopyable {
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;
+
+  // Track TensorViews that will be aliased to their producers because of
+  // trivial ops and scheduling such that the same index is used. Note that the
+  // alias does not need to be a direct producer in case there is a chain of
+  // trivial ops like permute->bcast->set.
+  std::unordered_map<TensorView*, TensorView*> tensor_producer_alias_map_;
 
   // Keep track of validations needed at runtime. For example, a pair of
   //! "extent mod split_factor == 0" and an error message for divisibility check
