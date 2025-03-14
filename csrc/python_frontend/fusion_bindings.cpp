@@ -7,12 +7,13 @@
 // clang-format on
 #include <ir/base_nodes.h>
 #include <ir/container.h>
+#include <ir/internal_base_nodes.h>
 #include <python_frontend/python_bindings.h>
 
 namespace nvfuser::python_frontend {
 
 namespace {
-void bindIrContainer(py::module& nvfuser) {
+void bindBaseNodes(py::module& nvfuser) {
   // Statement
   py::class_<nvfuser::Statement>(nvfuser, "Statement")
       .def(
@@ -146,7 +147,150 @@ void bindIrContainer(py::module& nvfuser) {
           "get_op_string",
           &nvfuser::Expr::getOpString,
           "Get the name of an expression");
+}
 
+void bindInternalBaseNodes(py::module& nvfuser) {
+  // IterType
+  py::enum_<nvfuser::IterType>(nvfuser, "IterType")
+      .value("Iteration", nvfuser::IterType::Iteration)
+      .value("Reduction", nvfuser::IterType::Reduction)
+      .value("Broadcast", nvfuser::IterType::Broadcast)
+      .value("Stride", nvfuser::IterType::Stride)
+      .value("GatherScatter", nvfuser::IterType::GatherScatter)
+      .value("VectorComponent", nvfuser::IterType::VectorComponent)
+      .value("Symbolic", nvfuser::IterType::Symbolic);
+
+  // SwizzleType
+  py::enum_<nvfuser::SwizzleType>(nvfuser, "SwizzleType")
+      .value("NoSwizzle", nvfuser::SwizzleType::NoSwizzle)
+      .value("XOR", nvfuser::SwizzleType::XOR)
+      .value("CyclicShift", nvfuser::SwizzleType::CyclicShift);
+
+  // IterDomain
+  py::class_<nvfuser::IterDomain, nvfuser::Val>(nvfuser, "IterDomain")
+      .def(
+          "same_as",
+          &nvfuser::IterDomain::sameAs,
+          "Return if this statement is the same as another statement")
+      .def(
+          "to_string",
+          (std::string(nvfuser::IterDomain::*)(
+              int))&nvfuser::IterDomain::toString,
+          py::arg("indent_size") = 0,
+          "Return the string representation of the statement")
+      .def(
+          "is_reduction",
+          &nvfuser::IterDomain::isReduction,
+          "Return if this iter domain is reduction")
+      .def(
+          "is_iteration",
+          &nvfuser::IterDomain::isIteration,
+          "Return if this iter domain is iteration")
+      .def(
+          "is_r_factor_product",
+          &nvfuser::IterDomain::isRFactorProduct,
+          "Return if this iter domain is rfactor product")
+      .def(
+          "is_broadcast",
+          &nvfuser::IterDomain::isBroadcast,
+          "Return if this iter domain is broadcast")
+      .def(
+          "is_symbolic",
+          &nvfuser::IterDomain::isSymbolic,
+          "Return if this iter domain is symbolic")
+      .def(
+          "is_gather_scatter",
+          &nvfuser::IterDomain::isGatherScatter,
+          "Return if this iter domain is gather scatter")
+      .def(
+          "is_stride",
+          &nvfuser::IterDomain::isStride,
+          "Return if this iter domain is stride")
+      .def(
+          "is_vector_component",
+          &nvfuser::IterDomain::isVectorComponent,
+          "Return if this iter domain is vector component")
+      .def(
+          "is_parallelized",
+          &nvfuser::IterDomain::isParallelized,
+          "Return if this iter domain is parallelized")
+      .def(
+          "is_block_dim",
+          &nvfuser::IterDomain::isBlockDim,
+          "Return if this iter domain is mapped to a grid dimension")
+      .def(
+          "is_thread_dim",
+          &nvfuser::IterDomain::isThreadDim,
+          "Return if this iter domain is mapped to a block dimension")
+      .def(
+          "is_thread",
+          &nvfuser::IterDomain::isThread,
+          "Return if this iter domain is either mapped to a block or grid dimension")
+      .def(
+          "is_device_dim",
+          &nvfuser::IterDomain::isDeviceDim,
+          "Return if this iter domain is device dimension")
+      .def("get_parallel_type", &nvfuser::IterDomain::getParallelType, "")
+      .def("get_iter_type", &nvfuser::IterDomain::getIterType, "")
+      .def("start", &nvfuser::IterDomain::start, "")
+      .def("stop", &nvfuser::IterDomain::stop, "")
+      .def("stop_offset", &nvfuser::IterDomain::stopOffset, "")
+      .def("extent", &nvfuser::IterDomain::extent, "")
+      .def("has_expanded_extent", &nvfuser::IterDomain::hasExpandedExtent, "")
+      .def(
+          "expanded_extent",
+          &nvfuser::IterDomain::expandedExtent,
+          "Returns the expanded extent of a strided broadcast entry.")
+      .def(
+          "get_maybe_expanded_extent",
+          &nvfuser::IterDomain::getMaybeExpandedExtent,
+          "")
+      .def(
+          "has_padding_to_multiple_of_warp",
+          &nvfuser::IterDomain::hasPaddingToMultipleOfWarp,
+          "Indicates if this iterdomain had padding dynamical or statical")
+      .def(
+          "get_maybe_size_after_padding",
+          &nvfuser::IterDomain::getMaybeSizeAfterPadding,
+          "Returns a concrete value if this iterdomain has been padded to a statical size.")
+      .def(
+          "maybe_partial",
+          &nvfuser::IterDomain::maybePartial,
+          "True if range of iteration domain isn't across the full extent")
+      .def(
+          "is_implicit_broadcast",
+          &nvfuser::IterDomain::isImplicitBroadcast,
+          "Check if IterDomain is a broadcast axis with compile-time known extent. "
+          "This is the case with all size-1 IterDomains on a TensorView's root domain "
+          "when the TensorView is created.")
+      .def(
+          "strided_split",
+          &nvfuser::IterDomain::stridedSplit,
+          py::arg("factor"),
+          "Split for stride by a given factor. "
+          "It effectively does an inner split by the factor and sets the inner domain as a Stride domain.")
+      .def(
+          "is_mma",
+          &nvfuser::IterDomain::isMma,
+          "Marks that this id represents a instruction loop, mma use only. "
+          "An instruction loop can be considered a generalization of vectorization. "
+          "It also represents a loop that's implemented by an instruction and "
+          "should not be realized by codegen and cannot be inlined with. "
+          "As an example, if a mma macro, call it mma_eg implements: "
+          "for m in M for n in N for k in K C[m,n] += A[m,k]*B[k,n], "
+          "But the generated code should simply be: mma_eg(C,A,B) "
+          "without the 3 level loopnest, i.e. they're instruction loops. "
+          "In the actual mma macros, the loopnests it implements is a "
+          "transformed version of above to match the mma swizzle. "
+          "So it's different implicit loopnest for different macros. "
+          "MmaSwizzler will label the instruction loops case-by-case.")
+      .def(
+          "is_bulk",
+          &nvfuser::IterDomain::isBulk,
+          "Marks that this id represents an instruction loop, cp.async.bulk use only.");
+}
+
+void bindIrContainer(py::module& nvfuser) {
   py::class_<nvfuser::IrContainer>(nvfuser, "IrContainer")
       .def(py::init<>(), "Constructor for IrContainer")
       .def(
@@ -222,6 +366,8 @@ void bindIrContainer(py::module& nvfuser) {
 
 void bindFusion(py::module& nvfuser) {
   bindIrContainer(nvfuser);
+  bindBaseNodes(nvfuser);
+  bindInternalBaseNodes(nvfuser);
 }
 
 } // namespace nvfuser::python_frontend
