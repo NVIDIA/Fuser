@@ -11,4 +11,25 @@ f.add_input(tv1)
 tv2 = fusion.ops.add(tv0, tv1)
 f.add_output(tv2)
 
+print("Fusion IR")
 f.print_math()
+
+print("TensorView:")
+print(tv0.to_string(0))
+print(tv1.to_string(0))
+print(tv2.to_string(0))
+print("=========\n")
+
+print("IterDomain:")
+print(tv0.axis(0).to_string())
+print(tv1.axis(0).to_string())
+print(tv2.axis(0).to_string())
+print("=========\n")
+
+print("IterDomain Extent:")
+print(tv0.axis(0).extent().to_string(0))
+print(tv1.axis(0).extent().to_string(0))
+print(tv2.axis(0).extent().to_string(0))
+print("=========\n")
+
+# TODO Fix Segmentation Fault atexit of python script
