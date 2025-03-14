@@ -1623,7 +1623,7 @@ def test_transformer_backward(multidevice_test, benchmark):
     mha_linear0_weight = torch.testing.make_tensor(
         d, e * 3 // d, e, dtype=torch.bfloat16, device="cpu"
     )
-    philox_seed, philox_offset = get_sdpa_rng_tensors()
+    sdpa_philox_seed, sdpa_philox_offset = get_sdpa_rng_tensors()
     ins = [
         30,
         2722423872872113,
