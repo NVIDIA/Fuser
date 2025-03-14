@@ -615,6 +615,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
             id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
       persistent_buffer_info.persistent_buffers.emplace_back(producer);
     } else {
+      // Just to detect any existing cases that trigger this condition
+      NVF_ERROR(false);
       persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
     }
   }
