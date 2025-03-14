@@ -51,8 +51,8 @@ def disable_automatic_serialization():
 
 
 class FusionDefinition(_C._FusionDefinition):
-    def __init__(self, id=None, max_length=1024):
-        super(FusionDefinition, self).__init__(id, max_length)
+    def __init__(self, id=None, max_length=1024, use_multidevice_executor=False):
+        super(FusionDefinition, self).__init__(id, max_length, use_multidevice_executor)
         self.profiled = False
 
     def segment(self, inputs):

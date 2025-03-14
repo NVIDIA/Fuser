@@ -79,7 +79,7 @@ class MultiDeviceExecutor {
  public:
   MultiDeviceExecutor(
       std::unique_ptr<Fusion> fusion,
-      Communicator& comm,
+      Communicator& comm = Communicator::getInstance(),
       MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
