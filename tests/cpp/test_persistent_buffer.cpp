@@ -1659,4 +1659,49 @@ TEST_F(PersistentBufferTest, BroadcastSync2) {
       SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
 }
 
+TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({2, 32});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {IrBuilder::create<Val>(-1)});
+  auto tv3 = sum(tv2, {0});
+  auto tv4 = broadcast(tv3, {true});
+
+  auto tv5 = reshape(tv1, {IrBuilder::create<Val>(-1)});
+  auto tv6 = add(tv4, tv5);
+  fusion.addOutput(tv6);
+
+  fusion.printMath();
+
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 32}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  // Lowering should succeed. Prior to the fix of the issue, the sync
+  // analysis raises an exception as there's mismatched
+  // parallelization between the cache of tv0 and its consumer
+  GpuLower gpulw(&fusion);
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs =
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
