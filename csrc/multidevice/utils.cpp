@@ -9,7 +9,6 @@
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <host_ir/lower.h>
-#include <id_model/id_model.h>
 #include <instrumentation.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
@@ -358,8 +357,7 @@ class StatementGuard {
 
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer,
-    const IdModel& id_model) {
+    const TensorView* consumer) {
   // cpu scalars are not required to have a mesh
   if (producer->isCpuScalar() || consumer->isCpuScalar()) {
     return false;
@@ -453,8 +451,8 @@ bool haveDifferentShardings(
   // consumer's root domain. If that input IterDomain is not
   // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
   // parallelized but just not a concern for this producer-consumer pair.
-  // 3. Check if the two loop IterDomains are almost-exactly mapped in the
-  // IdModel.
+  // 3. Check if the two loop IterDomains map to two indices that are
+  // mathematically equivalent.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapDeviceParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
@@ -509,16 +507,11 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
-  id_model.buildAlmostExactGraph();
-  id_model.buildBroadcastGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      // exit early in the unsharded case for performance
-      if (haveDifferentShardings(input, output, id_model)) {
+      if (haveDifferentShardings(input, output)) {
         return true;
       }
     }
