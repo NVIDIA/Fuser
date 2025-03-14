@@ -58,8 +58,6 @@ class FindAllExprs {
   using ValType = ValT;
   using NodeType = std::variant<ExprT, ValT>;
   using ExprPath = std::vector<std::pair<ExprT, Direction>>;
-  using InputsType = InputsT;
-  using OutputsType = OutputsT;
 
   // Edge represents an edge in the graph. By definition, it must be
   // between an expr and a val.
