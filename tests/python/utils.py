@@ -13,6 +13,7 @@ from torch.testing import make_tensor
 from functools import wraps
 from enum import Enum, auto
 from torch.testing._internal.common_utils import TestCase
+from looseversion import LooseVersion
 
 # flake8 complains about DataType being unused in this file but it is necessary
 # to run captured fusion definition.
@@ -417,7 +418,7 @@ def nvfusertest_serde_check(test_fn: Callable):
     return inner_fn
 
 
-UPDATED_SDPA = torch.__version__ > "2.6.0"
+UPDATED_SDPA = LooseVersion(torch.__version__) >= LooseVersion("2.7.0")
 
 
 def get_sdpa_rng_nvf_tensors(fd: FusionDefinition):
