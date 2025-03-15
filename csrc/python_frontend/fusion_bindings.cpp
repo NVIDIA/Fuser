@@ -1211,154 +1211,254 @@ void bindIrContainer(py::module& nvfuser) {
       nvfuser::Fusion,
       nvfuser::IrContainer,
       std::unique_ptr<nvfuser::Fusion, py::nodelete>>(nvfuser, "Fusion")
-      .def(py::init<>(), "Constructor for Fusion")
-      .def("clear", &nvfuser::Fusion::clear, "Clear the fusion")
-      .def("remove_expr", &nvfuser::Fusion::removeExpr, "Remove an expression")
-      .def("remove_val", &nvfuser::Fusion::removeVal, "Remove a value")
-      .def("add_input", &nvfuser::Fusion::addInput, "Register an input")
-      .def(
-          "add_output_internal",
-          &nvfuser::Fusion::addOutputInternal,
-          "Add output to outputs_ without modifying hide_output")
-      .def("add_output", &nvfuser::Fusion::addOutput, "Register an output")
-      .def("remove_input", &nvfuser::Fusion::removeInput, "Deregister an input")
+      .def(py::init<>(), R"(
+Create a new Fusion.
+
+A Fusion represents a computation graph that can be compiled and executed on CUDA devices.
+It manages the IR nodes, inputs/outputs, and transformations needed to generate efficient CUDA kernels.
+
+Examples
+--------
+>>> fusion = Fusion()
+>>> # Add inputs
+>>> t0 = fusion.add_input(...)
+>>> # Define computations
+>>> t1 = ops.add(t0, t0)
+>>> # Register outputs
+>>> fusion.add_output(t1)
+)")
+      .def("clear", &nvfuser::Fusion::clear, R"(
+Clear all nodes and reset the fusion to its initial state.
+
+This removes all expressions, values, inputs, and outputs from the fusion.
+)")
+      .def("remove_expr", &nvfuser::Fusion::removeExpr, py::arg("expr"), R"(
+Remove an expression from the fusion.
+
+Parameters
+----------
+expr : Expr
+    The expression to remove.
+)")
+      .def("remove_val", &nvfuser::Fusion::removeVal, py::arg("val"), R"(
+Remove a value from the fusion.
+
+Parameters
+----------
+val : Val
+    The value to remove.
+)")
+      .def("add_input", &nvfuser::Fusion::addInput, py::arg("input"), R"(
+Register a value as an input to the fusion.
+
+Parameters
+----------
+input : Val
+    The value to register as an input.
+
+Returns
+-------
+Val
+    The registered input value.
+
+Notes
+-----
+- The input must not already be registered as an input.
+- The input must not have a definition within the fusion.
+)")
+      .def("add_output", &nvfuser::Fusion::addOutput, py::arg("output"), R"(
+Register a value as an output of the fusion.
+
+Parameters
+----------
+output : Val
+    The value to register as an output.
+
+Returns
+-------
+Val
+    The registered output value.
+
+Notes
+-----
+- The output must be defined within the fusion or be an input.
+- The same value can be registered as an output multiple times.
+)")
+      .def("remove_input", &nvfuser::Fusion::removeInput, py::arg("input"), R"(
+Deregister a value as an input to the fusion.
+
+Parameters
+----------
+input : Val
+    The input value to deregister.
+)")
       .def(
           "remove_output",
           &nvfuser::Fusion::removeOutput,
-          "Deregister an output")
-      .def(
-          "replace_output",
-          &nvfuser::Fusion::replaceOutput,
-          "Replace an output with another value")
-      .def(
-          "validate_inputs",
-          &nvfuser::Fusion::validateInputs,
-          "Assert that all leaves found from outputs are registered as an input")
-      .def(
-          "print",
-          static_cast<std::ostream& (nvfuser::Fusion::*)(std::ostream&, bool)
-                          const>(&nvfuser::Fusion::print),
-          py::arg("os"),
-          py::arg("include_tensor_transforms") = true,
-          "Print this fusion to an output stream")
+          py::arg("output"),
+          R"(
+Deregister a value as an output of the fusion.
+
+Parameters
+----------
+output : Val
+    The output value to deregister.
+)")
       .def(
           "print_math",
           &nvfuser::Fusion::printMath,
           py::arg("from_outputs_only") = true,
-          "Print Arith exprs")
-      .def(
-          "print_transforms",
-          &nvfuser::Fusion::printTransforms,
-          "Print transformations used in fusion")
+          R"(
+Print arithmetic expressions in the fusion.
+
+Parameters
+----------
+from_outputs_only : bool, optional
+    If True, only print expressions reachable from outputs.
+    If False, print all expressions.
+    Default is True.
+)")
+      .def("print_transforms", &nvfuser::Fusion::printTransforms, R"(
+Print all transformations used in the fusion.
+
+This shows how tensor views have been transformed through operations like
+split, merge, and reorder.
+)")
       .def(
           "print_kernel",
           &nvfuser::Fusion::printKernel,
           py::arg("compile_params") = nvfuser::CompileParams(),
-          "Lower the fusion and print a kernel")
-      .def(
-          "is_no_op",
-          &nvfuser::Fusion::isNoOp,
-          "Returns if this fusion is noop")
-      .def(
-          "bank_conflict_info",
-          &nvfuser::Fusion::bankConflictInfo,
-          py::arg("compile_params") = nvfuser::CompileParams(),
-          "Lower the fusion and evaluate bank conflict info")
-      .def(
-          "exprs",
-          &nvfuser::Fusion::exprs,
-          "Return a list of topologically sorted expressions")
-      .def(
-          "inputs_of",
-          &nvfuser::Fusion::inputsOf,
-          "Return a vector of fusion inputs that feed this Val")
-      .def(
-          "used_math_vals",
-          &nvfuser::Fusion::usedMathVals,
-          "Return all Vals in math expressions that cannot be eliminated")
+          R"(
+Lower the fusion and print the generated CUDA kernel.
+
+Parameters
+----------
+compile_params : CompileParams, optional
+    Parameters to control the compilation process.
+    Default is default-constructed CompileParams.
+)")
+      .def("exprs", &nvfuser::Fusion::exprs, R"(
+Get all expressions in the fusion in topological order.
+
+Returns
+-------
+list of Expr
+    The expressions in topological order.
+)")
+      .def("used_math_vals", &nvfuser::Fusion::usedMathVals, R"(
+Get all values in math expressions that cannot be eliminated.
+
+Returns
+-------
+list of Val
+    The values that must be computed.
+)")
       .def(
           "terminating_math_vals",
           &nvfuser::Fusion::terminatingMathVals,
-          "Returns all Vals that are produced by used math expressions and also do not have further consumers")
-      .def(
-          "unordered_uses",
-          &nvfuser::Fusion::unordered_uses,
-          "Return all Exprs that use val")
-      .def(
-          "definition",
-          &nvfuser::Fusion::definition,
-          "Return the Expr that produces val")
-      .def(
-          "segment",
-          &nvfuser::Fusion::segment,
-          "Run fusion segmentation algorithm to create a segmented fusion")
+          R"(
+Get all values that are produced by used math expressions and have no further consumers.
+
+Returns
+-------
+list of Val
+    The terminating values in math expressions.
+)")
       .def(
           "inputs",
           &nvfuser::Fusion::inputs,
           py::return_value_policy::reference,
-          "Return the inputs of the fusion")
-      .def(
-          "inputs_and_created",
-          &nvfuser::Fusion::inputsAndCreated,
-          "Return all inputs and created Vals")
+          R"(
+Get all inputs to the fusion.
+
+Returns
+-------
+list of Val
+    The fusion inputs in registration order.
+)")
+      .def("inputs_and_created", &nvfuser::Fusion::inputsAndCreated, R"(
+Get all inputs and values created within the fusion.
+
+Returns
+-------
+list of Val
+    All inputs and created values.
+)")
       .def(
           "outputs",
           &nvfuser::Fusion::outputs,
           py::return_value_policy::reference,
-          "Return the outputs of the fusion")
+          R"(
+Get all outputs of the fusion.
+
+Returns
+-------
+list of Val
+    The fusion outputs in registration order.
+)")
       .def(
           "get_terminating_outputs",
           &nvfuser::Fusion::getTerminatingOutputs,
-          "Get terminating outputs")
+          R"(
+Get outputs that are not used by any other expression.
+
+Returns
+-------
+list of Val
+    The terminating outputs.
+)")
       .def(
           "alias_output_to_input",
           &nvfuser::Fusion::aliasOutputToInput,
-          "Aliasing output to input value")
-      .def(
-          "get_output_alias",
-          &nvfuser::Fusion::getOutputAlias,
-          "Returns the aliased input of a given output along with an AliasInfo describing how they alias")
-      .def(
-          "is_tv_use_info_valid",
-          &nvfuser::Fusion::isTVUseInfoValid,
-          "Check if TV use info is valid")
-      .def(
-          "is_updating_tv_use_info",
-          &nvfuser::Fusion::isUpdatingTVUseInfo,
-          "Check if TV use info is being updated")
+          py::arg("output"),
+          py::arg("input"),
+          py::arg("alias_info"),
+          R"(
+Alias an output to an input value.
+
+Parameters
+----------
+output : Val
+    The output value to alias.
+input : Val
+    The input value to alias to.
+alias_info : AliasInfo
+    Information about how the values alias.
+)")
       .def(
           "has_dynamic_transform",
           &nvfuser::Fusion::hasDynamicTransform,
-          "True if any of tensors has a symblic axis")
-      .def("copy", &nvfuser::Fusion::copy, "Copy a fusion")
-      .def(
-          "expected_dynamic_smem_bytes",
-          &nvfuser::Fusion::expectedDynamicSmemBytes,
-          "Get expected dynamic shared memory bytes")
-      .def(
-          "set_expected_dynamic_smem_bytes",
-          &nvfuser::Fusion::setExpectedDynamicSmemBytes,
-          "Set expected dynamic shared memory bytes")
+          R"(
+Check if any tensor has a symbolic axis.
+
+Returns
+-------
+bool
+    True if any tensor has a symbolic axis, False otherwise.
+)")
+      .def("copy", &nvfuser::Fusion::copy, R"(
+Create a deep copy of this fusion.
+
+Returns
+-------
+Fusion
+    A new fusion containing copies of all nodes and relationships.
+)")
       .def(
           "all_tvs",
           &nvfuser::Fusion::allTvs,
-          "Cached version of ir_utils::allTvs that is invalidated")
-      .def(
-          "register_exact_mapping",
-          &nvfuser::Fusion::registerExactMapping,
-          "Specify id0 and id1 are mapped in the Exact graph")
-      .def(
-          "has_registered_exact_mappings",
-          &nvfuser::Fusion::hasRegisteredExactMappings,
-          "Check if has registered exact mappings")
-      .def(
-          "registered_exact_mappings",
-          &nvfuser::Fusion::registeredExactMappings,
-          "Get registered exact mappings")
-      .def(
-          "reset_exact_mappings",
-          &nvfuser::Fusion::resetExactMappings,
-          "Reset exact mappings");
+          R"(
+Get all TensorViews in the fusion.
+
+Returns
+-------
+list of TensorView
+    All TensorViews in cached order.
+
+Notes
+-----
+- This is a cached version that is invalidated when the fusion changes.
+)");
 }
 
 void bindOperations(py::module& nvfuser) {
