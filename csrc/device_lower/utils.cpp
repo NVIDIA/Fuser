@@ -244,6 +244,14 @@ bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
 }
 
+bool isLdStTMem(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::LdTMem ||
+        ldst->opType() == LoadStoreOpType::StTMem;
+  }
+  return false;
+}
+
 bool isTensorScalarFillOp(const Expr* expr) {
   // Check that the input is a single scalar.
   if (expr->inputs().size() == 1 && expr->input(0)->isScalar()) {

@@ -706,7 +706,10 @@ Val* PredicateCompute::getInlinePredicate(
 
   // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
   // itself is sufficient to predicate the accesses.
-  if (ir_utils::isCpAsyncBulk(expr)) {
+  // TMem ld/st accesses TMem in a very specific pattern and can not be
+  // predicated like accesses to general memory types, we do not have a good
+  // way to predicate the accesses yet, so we just skip the predicate for now.
+  if (ir_utils::isCpAsyncBulk(expr) || ir_utils::isLdStTMem(expr)) {
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 

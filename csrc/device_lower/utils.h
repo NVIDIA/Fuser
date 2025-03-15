@@ -136,6 +136,10 @@ bool isCpAsyncBulk(const Expr* expr);
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
 
+//! Returns true if the expression will be lowered to
+//!  a ld/st tmem intrinsic.
+bool isLdStTMem(const Expr* expr);
+
 //! Short-cut for matching a singleton expr in a if statement,
 //!  which likely becomes a predicated instruction in ptx, eg.:
 //!  if(...) {expr;}
