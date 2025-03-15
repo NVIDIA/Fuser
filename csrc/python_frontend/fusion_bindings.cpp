@@ -1424,8 +1424,29 @@ void bindRuntime(py::module& nvfuser) {
           py::arg("fusion"),
           py::arg("fusion_id") = 0,
           py::arg("auto_schedule") = true,
-          "Create a new fusion executor cache")
-      // Main execution method
+          R"(
+Create a new FusionExecutorCache.
+
+A cache that manages compiled versions of a fusion for different input sizes/types.
+The cache automatically handles compilation and execution of the fusion for different input configurations.
+
+Parameters
+----------
+fusion : Fusion
+    The fusion to be executed. The FusionExecutorCache takes ownership of this pointer.
+fusion_id : int, optional
+    A unique identifier for this fusion. Default is 0.
+auto_schedule : bool, optional
+    Whether to automatically schedule the fusion. If False, the fusion must be manually scheduled.
+    Default is True.
+
+Examples
+--------
+>>> fusion = Fusion()
+>>> # ... define fusion operations ...
+>>> executor_cache = FusionExecutorCache(fusion)
+>>> outputs = executor_cache.execute([input1, input2])
+)")
       .def(
           "execute",
           [](FusionExecutorCache& self,
@@ -1453,32 +1474,29 @@ void bindRuntime(py::module& nvfuser) {
           py::arg("inputs"),
           py::kw_only(),
           py::arg("device") = py::none(),
-          py::return_value_policy::reference,
-          R"(Execute the fusion with the given inputs.
+          R"(
+Execute the fusion with the given inputs.
 
-            Parameters
-            ----------
-            inputs : iterable
-                An iterable of input tensors or values. Can include lists/tuples for size vectors.
-            device : int, optional
-                The device index to execute the fusion on. Must be < 256.
-                If None, uses the device of the input tensors.
+Parameters
+----------
+inputs : iterable
+    An iterable of input tensors or values. Can include lists/tuples for size vectors.
+    All tensor inputs must be on the same device.
+device : int, optional
+    The device index to execute the fusion on. Must be < 256.
+    If None, uses the device of the input tensors.
+    Default is None.
 
-            Returns
-            -------
-            list of torch.Tensor
-                The output tensors produced by the fusion.
+Returns
+-------
+list of torch.Tensor
+    The output tensors produced by the fusion.
 
-            Notes
-            -----
-            The function performs the following steps:
-            1. Converts Python inputs to KernelArgumentHolder
-            2. Executes the fusion using runFusionWithInputs
-            3. Converts output KernelArgumentHolder back to PyTorch tensors
-
-            The device parameter is converted from int64 to int8 internally.
-            If a device is specified, all inputs must be on that device.)")
-      // Query methods
+Notes
+-----
+- The function automatically handles compilation for new input configurations.
+- For best performance, reuse the same input configuration when possible to avoid recompilation.
+)")
       .def(
           "is_compiled",
           [](FusionExecutorCache& self,
@@ -1488,19 +1506,42 @@ void bindRuntime(py::module& nvfuser) {
           },
           py::arg("inputs"),
           py::arg("device") = 0,
-          "Check if there's a kernel ready for given inputs")
-      // Accessor methods
+          R"(
+Check if a compiled kernel exists for the given input configuration.
+
+Parameters
+----------
+inputs : iterable
+    An iterable of input tensors or values to check.
+device : int, optional
+    The target device index. Default is 0.
+
+Returns
+-------
+bool
+    True if a compiled kernel exists for the input configuration, False otherwise.
+)")
       .def(
           "fusion",
           static_cast<Fusion* (FusionExecutorCache::*)()>(
               &FusionExecutorCache::fusion),
           py::return_value_policy::reference,
-          "Get the underlying fusion")
-      // Debug/Profiling methods
+          R"(
+Get the underlying fusion object.
+
+Returns
+-------
+Fusion
+    The fusion object being executed by this cache.
+)")
       .def(
           "print_fusion",
           &FusionExecutorCache::printFusion,
-          "Print the fusion IR")
+          R"(
+Print the fusion IR to stdout.
+
+This is useful for debugging and understanding the structure of the fusion.
+)")
       .def(
           "get_cuda_kernel",
           [](FusionExecutorCache& self,
@@ -1508,9 +1549,28 @@ void bindRuntime(py::module& nvfuser) {
              std::optional<int64_t> device) {
             return self.getCodeFor(from_pyiterable(iter, device), false);
           },
-          py::arg("args"),
+          py::arg("inputs"),
           py::arg("device") = 0,
-          "Get the kernel code for the given inputs")
+          R"(
+Get the CUDA kernel code for the given input configuration.
+
+Parameters
+----------
+inputs : iterable
+    An iterable of input tensors or values.
+device : int, optional
+    The target device index. Default is 0.
+
+Returns
+-------
+str
+    The generated CUDA kernel code as a string.
+
+Notes
+-----
+- This method compiles the kernel if it hasn't been compiled for this input configuration.
+- The returned code is the actual CUDA C++ kernel that would be executed.
+)")
       .def(
           "get_scheduled_ir",
           [](FusionExecutorCache& self,
@@ -1520,15 +1580,54 @@ void bindRuntime(py::module& nvfuser) {
             return self.getScheduledIrFor(
                 from_pyiterable(iter, device), tensor_transforms);
           },
-          py::arg("args"),
+          py::arg("inputs"),
           py::arg("tensor_transforms") = false,
           py::arg("device") = 0,
-          "Get the scheduled IR for the given inputs")
+          R"(
+Get the scheduled IR for the given input configuration.
+
+Parameters
+----------
+inputs : iterable
+    An iterable of input tensors or values.
+tensor_transforms : bool, optional
+    Whether to include tensor transformations in the output. Default is False.
+device : int, optional
+    The target device index. Default is 0.
+
+Returns
+-------
+str
+    The scheduled intermediate representation (IR) as a string.
+
+Notes
+-----
+- This method shows the fusion after scheduling transformations have been applied.
+- Useful for understanding how the fusion is actually being executed.
+)")
       .def(
           "get_most_recent_scheduled_ir",
           &FusionExecutorCache::getMostRecentScheduledIr,
           py::arg("tensor_transforms") = false,
-          "Get the most recently executed scheduled IR");
+          R"(
+Get the scheduled IR from the most recent execution.
+
+Parameters
+----------
+tensor_transforms : bool, optional
+    Whether to include tensor transformations in the output. Default is False.
+
+Returns
+-------
+str
+    The scheduled intermediate representation (IR) as a string.
+
+Notes
+-----
+- Returns None if no execution has occurred yet.
+- This is a faster alternative to get_scheduled_ir() if you want to inspect
+  the IR from the last execution.
+)");
 }
 
 } // namespace
