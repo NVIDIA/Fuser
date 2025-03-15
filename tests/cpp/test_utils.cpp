@@ -21,6 +21,7 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <forward_list>
 #include <fstream>
 #include <list>
 #include <random>
@@ -1760,12 +1761,7 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
     }
   };
   static_assert(std::input_iterator<SetTheoreticNaturalNumber>);
-#if !defined(__clang__) || (__clang_major__ > 14)
   struct ZeroToInf : std::ranges::view_interface<ZeroToInf> {
-#else
-  // Workaround for Clang 14
-  struct ZeroToInf {
-#endif
     SetTheoreticNaturalNumber begin() {
       return SetTheoreticNaturalNumber();
     }
@@ -1773,10 +1769,8 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
       return std::unreachable_sentinel;
     }
   } set_theoretic_zero_to_inf;
-#if !defined(__clang__) || (__clang_major__ > 14)
   static_assert(std::ranges::input_range<ZeroToInf>);
   static_assert(std::ranges::view<ZeroToInf>);
-#endif
 
   int64_t counter = 0;
   auto english_it = english.begin();
@@ -1784,7 +1778,7 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
        zip(integer,
            english,
            set_theoretic_zero_to_inf,
-           views::iota((int64_t)0))) {
+           std::views::iota((int64_t)0))) {
     static_assert(std::is_same_v<decltype(i), int64_t&>);
     static_assert(std::is_same_v<decltype(e), std::string&>);
     static_assert(std::is_same_v<decltype(s), SetTheoreticNaturalNumber>);
@@ -2017,8 +2011,41 @@ TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
   EXPECT_EQ(counter, 10);
 }
 
-TEST_F(NVFuserTest, Enumerate) {
+TEST_F(TestCpp23BackPort, ZipWithReverse) {
   std::vector<int> v{1, 2, 3, 4, 5};
+  std::vector<int> v2{5, 4, 3, 2, 1};
+
+  int64_t count = 0;
+  for (auto&& [x, y] : zip(v, v2)) {
+    EXPECT_EQ(x, 6 - y);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  for (auto&& [x, y] : zip(v, v2) | std::views::reverse) {
+    EXPECT_EQ(x, 6 - y);
+    EXPECT_EQ(x, 5 - count);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  std::forward_list<int> fl{1, 2, 3, 4, 5};
+  for (auto&& [x, y] : zip(v, fl)) {
+    EXPECT_EQ(x, y);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  // Can not do zip(v, fl) | std::views::reverse because fl is not bidirectional
+}
+
+TEST_F(TestCpp23BackPort, Enumerate) {
+  std::vector<int> v{1, 2, 3, 4, 5};
+
   int64_t count = 0;
   for (auto&& [i, x] : enumerate(v)) {
     EXPECT_EQ(i, count);
@@ -2026,6 +2053,23 @@ TEST_F(NVFuserTest, Enumerate) {
     count++;
   }
   EXPECT_EQ(count, 5);
+
+  count = 0;
+  for (auto&& [i, x] : enumerate(v) | std::views::reverse) {
+    EXPECT_EQ(i + 1, x);
+    EXPECT_EQ(i, 4 - count);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  std::forward_list<int> fl{1, 2, 3, 4, 5};
+  for (auto&& [i, x] : enumerate(fl)) {
+    EXPECT_EQ(i + 1, x);
+  }
+  EXPECT_EQ(count, 5);
+
+  // Can not do enumerate(fl) | std::views::reverse because fl is not
+  // bidirectional
 }
 
 } // namespace nvfuser
