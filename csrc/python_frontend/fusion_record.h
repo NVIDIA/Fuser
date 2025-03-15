@@ -1,4 +1,4 @@
-// clang-format off
+ // clang-format off
 /*
  * SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
  * All rights reserved.
@@ -1843,8 +1843,8 @@ struct SelectOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
-struct TorchGatherOpRecord : RecordFunctor {
-  TorchGatherOpRecord(
+struct GatherOpRecord : RecordFunctor {
+  GatherOpRecord(
       std::vector<State> _args,
       std::vector<State> _outputs,
       int64_t dim)
@@ -1852,24 +1852,24 @@ struct TorchGatherOpRecord : RecordFunctor {
             std::move(_args),
             std::move(_outputs),
             "ops.gather",
-            serde::RecordType::TorchGatherOp),
+            serde::RecordType::GatherOp),
         dim_(dim) {}
-  ~TorchGatherOpRecord() override = default;
+  ~GatherOpRecord() override = default;
   RecordFunctor* clone() final {
-    return new TorchGatherOpRecord(*this);
+    return new GatherOpRecord(*this);
   }
 
   void operator()(FusionState& fd) final {
     auto arg1 = fd.getFusionState(args_.at(0).index)->template as<TensorView>();
     auto arg3 = fd.getFusionState(args_.at(1).index)->template as<TensorView>();
 
-    Val* output = torchGather(arg1, dim_, arg3);
+    Val* output = gather(arg1, dim_, arg3);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 
   bool operator==(const RecordFunctor& other) const final {
     auto result = false;
-    if (auto child_ptr = dynamic_cast<const TorchGatherOpRecord*>(&other)) {
+    if (auto child_ptr = dynamic_cast<const GatherOpRecord*>(&other)) {
       result = RecordFunctor::operator==(other) && dim_ == child_ptr->dim_;
     }
     return result;
@@ -1895,7 +1895,7 @@ struct TorchGatherOpRecord : RecordFunctor {
   int64_t dim_;
 };
 
-//! Similar to TorchGatherOpRecord but enforces that non-index dimension
+//! Similar to GatherOpRecord but enforces that non-index dimension
 //! extents match between index tensor and value tensor.
 struct TakeAlongAxisOpRecord : RecordFunctor {
   TakeAlongAxisOpRecord(

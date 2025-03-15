@@ -129,7 +129,7 @@ class IndexSelectOp : public Expr {
   }
 };
 
-class NVF_API TorchGatherOp : public Expr {
+class NVF_API GatherOp : public Expr {
  public:
   using Expr::Expr;
 
@@ -138,7 +138,7 @@ class NVF_API TorchGatherOp : public Expr {
   //! tensor. It's true in the case of torch.take_along_dim and
   //! numpy_take_along_axis. torch.take_along_axis does not guarantee
   //! they are the same.
-  TorchGatherOp(
+  GatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
@@ -149,7 +149,7 @@ class NVF_API TorchGatherOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "TorchGatherOp";
+    return "GatherOp";
   }
 
   std::string toString(int indent_size = 0) const override;
