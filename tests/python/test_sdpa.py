@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from functools import partial
 from nvfuser import FusionDefinition, DataType, FusionCache
-from utils import NVFuserTest, is_pre_ampere, get_sdpa_rng_nvf_tensors
+from utils import NVFuserTest, is_pre_ampere, define_sdpa_rng_state
 
 
 @pytest.mark.skipif(
@@ -190,7 +190,7 @@ class TestSdpa(NVFuserTest):
                 dtype=DataType.Float,
                 is_cpu=False,
             )
-            philox_seed, philox_offset = get_sdpa_rng_nvf_tensors(fd)
+            philox_seed, philox_offset = define_sdpa_rng_state(fd)
 
             dropout_p, is_causal, scale = None, None, None
             if has_dropout:

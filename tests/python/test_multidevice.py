@@ -11,7 +11,7 @@ import multidevice_fixtures
 import nvfuser
 import utils
 from nvfuser import DataType, FusionDefinition
-from utils import get_sdpa_rng_tensors, get_sdpa_rng_nvf_tensors
+from utils import create_sdpa_rng_tensors, define_sdpa_rng_state
 
 multidevice_test = multidevice_fixtures.multidevice_test
 
@@ -1096,7 +1096,7 @@ def test_transformer_forward(multidevice_test, benchmark):
     _assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
     _assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
-    ref_philox_seed, ref_philox_offset = get_sdpa_rng_tensors()
+    ref_philox_seed, ref_philox_offset = create_sdpa_rng_tensors()
     _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
     _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
     _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
@@ -1200,7 +1200,7 @@ class TransformerBackwardFusion(FusionDefinition):
             contiguity=True,
             dtype=DataType.Float,
         )
-        mha_sdpa_seed, mha_sdpa_offset = get_sdpa_rng_nvf_tensors(self)
+        mha_sdpa_seed, mha_sdpa_offset = define_sdpa_rng_state(self)
         self.mha_linear0_weight = self.define_tensor(
             shape=[d, e * 3 // d, e],
             contiguity=True,
@@ -1623,7 +1623,7 @@ def test_transformer_backward(multidevice_test, benchmark):
     mha_linear0_weight = torch.testing.make_tensor(
         d, e * 3 // d, e, dtype=torch.bfloat16, device="cpu"
     )
-    sdpa_philox_seed, sdpa_philox_offset = get_sdpa_rng_tensors()
+    sdpa_philox_seed, sdpa_philox_offset = create_sdpa_rng_tensors()
     ins = [
         30,
         2722423872872113,

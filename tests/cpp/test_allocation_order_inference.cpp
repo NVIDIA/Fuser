@@ -376,7 +376,7 @@ TEST_F(AllocationOrderInferenceTest, SdpaBackward) {
   auto* o = makeConcreteTensor({b, h, s, e}, DataType::Half);
   auto* lse = makeConcreteTensor({b, h, s}, DataType::Float);
 
-  auto [seed, offset] = getSdpaRngTvs();
+  auto [seed, offset] = createSdpaRngTvs();
 
   fusion.addInput(o_grad);
   fusion.addInput(q);

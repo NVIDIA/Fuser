@@ -824,24 +824,17 @@ std::string macroToString(const MmaMacro macro) {
   return ss.str();
 }
 
-std::pair<TensorView*, TensorView*> getSdpaRngTvs(bool symbolic) {
+std::pair<TensorView*, TensorView*> createSdpaRngTvs() {
   TensorView* philox_seed = nullptr;
   TensorView* philox_offset = nullptr;
   DataType dtype = DataType::Int;
-  int64_t philox_ndims = 0;
   std::vector<int64_t> philox_shape = {};
 
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
   dtype = DataType::UInt64;
-  philox_ndims = 1;
   philox_shape = {2};
 #endif
-
-  if (symbolic) {
-    philox_seed = TensorViewBuilder().ndims(philox_ndims).dtype(dtype).build();
-  } else {
-    philox_seed = TensorViewBuilder().shape(philox_shape).dtype(dtype).build();
-  }
+  philox_seed = TensorViewBuilder().shape(philox_shape).dtype(dtype).build();
   philox_offset = TensorViewBuilder().dtype(dtype).build();
 #if !(NVF_TORCH_VERSION_NO_LESS(2, 7, 0))
   philox_seed->setCpuScalar(true);
@@ -850,19 +843,19 @@ std::pair<TensorView*, TensorView*> getSdpaRngTvs(bool symbolic) {
   return std::make_pair(philox_seed, philox_offset);
 }
 
-std::pair<at::Tensor, at::Tensor> getSdpaRngTensors() {
+std::pair<at::Tensor, at::Tensor> createSdpaRngTensors() {
   at::Tensor philox_seed, philox_offset;
+  int64_t max_int64 = std::numeric_limits<int64_t>::max();
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
   philox_seed = at::randint(
-      0,
-      std::numeric_limits<int64_t>::max(), // Using int64_t range to avoid
-                                           // overflow in randint
+      max_int64, // Using int64_t range to avoid
+                 // overflow in randint
       {2}, // shape
       at::dtype(c10::kUInt64).device(at::kCUDA));
   philox_offset = at::empty({}, at::dtype(c10::kUInt64).device(at::kCUDA));
 #else
-  philox_seed = at::scalar_tensor(1, at::kLong);
-  philox_offset = at::scalar_tensor(1, at::kLong);
+  philox_seed = at::randint(max_int64, {}, at::kLong);
+  philox_offset = at::randint(max_int64, {}, at::kLong);
 #endif
   return std::make_pair(philox_seed, philox_offset);
 }

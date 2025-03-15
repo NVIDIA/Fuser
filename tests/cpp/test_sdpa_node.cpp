@@ -463,7 +463,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
-  auto [tv_seed, tv_offset] = getSdpaRngTvs();
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -571,7 +571,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
-  auto [tv_seed, tv_offset] = getSdpaRngTvs();
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -877,7 +877,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({d, n, h / d, l}, DataType::Float);
-  auto [tv_seed, tv_offset] = getSdpaRngTvs();
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);

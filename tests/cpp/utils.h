@@ -877,7 +877,7 @@ bool isVectorized(TensorView* tv);
 
 // Get philox seed and offset tensorviews or random tensors for SDPA based on
 // torch version.
-std::pair<TensorView*, TensorView*> getSdpaRngTvs(bool symbolic = false);
-std::pair<at::Tensor, at::Tensor> getSdpaRngTensors();
+std::pair<TensorView*, TensorView*> createSdpaRngTvs();
+std::pair<at::Tensor, at::Tensor> createSdpaRngTensors();
 
 } // namespace nvfuser
