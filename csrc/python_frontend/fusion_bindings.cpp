@@ -724,13 +724,13 @@ void bindInterfaceNodes(py::module& nvfuser) {
           py::return_value_policy::reference,
           "Resize")
       .def(
-          "r_factor",
+          "rfactor",
           static_cast<nvfuser::TensorView* (
               nvfuser::TensorView::*)(const std::vector<int64_t>&)>(
               &nvfuser::TensorView::rFactor),
           "R factor (single output)") // Overloaded function
       .def(
-          "r_factor",
+          "rfactor",
           static_cast<std::vector<nvfuser::TensorView*> (
               nvfuser::TensorView::*)(
               const std::vector<int64_t>&,
@@ -1162,6 +1162,34 @@ void bindOperations(py::module& nvfuser) {
       "Add two TensorViews");
 }
 
+namespace {
+//! Convert a py::iterable to a KernelArgumentHolder
+KernelArgumentHolder from_pyiterable(
+    const py::iterable& iter,
+    std::optional<int8_t> device) {
+  KernelArgumentHolder args;
+  for (py::handle obj : iter) {
+    // Allows for a Vector of Sizes to be inputed as a list/tuple
+    if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
+      for (py::handle item : obj) {
+        args.push(torch::jit::toIValue(item, c10::AnyType::get()));
+      }
+    } else {
+      args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+    }
+  }
+
+  // Transform int64_t device to int8_t
+  std::optional<int8_t> selected_device = std::nullopt;
+  if (device.has_value()) {
+    NVF_CHECK(device.value() < 256, "Maximum device index is 255");
+    selected_device = (int8_t)device.value();
+  }
+  args.setDeviceIndex(selected_device);
+  return args;
+}
+} // namespace
+
 void bindRuntime(py::module& nvfuser) {
   py::class_<nvfuser::FusionExecutorCache>(nvfuser, "FusionExecutorCache")
       .def(
@@ -1175,16 +1203,65 @@ void bindRuntime(py::module& nvfuser) {
           "Create a new fusion executor cache")
       // Main execution method
       .def(
-          "run_fusion_with_inputs",
-          &FusionExecutorCache::runFusionWithInputs,
-          py::arg("args"),
-          py::arg("forced_index_type") = py::none(),
-          py::arg("selected_device") = py::none(),
-          "Execute fusion graph with given inputs")
+          "execute",
+          [](FusionExecutorCache& self,
+             const py::iterable& iter,
+             std::optional<int64_t> device) {
+            // Transform py::iterable to KernelArgumentHolder
+            KernelArgumentHolder args = from_pyiterable(iter, device);
+
+            // Run fusion with inputs
+            KernelArgumentHolder outputs = self.runFusionWithInputs(
+                args, std::nullopt, args.getDeviceIndex());
+
+            // Convert outputs KernelArgumentHolder to std::vector<at::Tensor>
+            std::vector<at::Tensor> out_tensors;
+            out_tensors.reserve(outputs.size());
+            std::transform(
+                outputs.begin(),
+                outputs.end(),
+                std::back_inserter(out_tensors),
+                [](const PolymorphicValue& out) {
+                  return out.as<at::Tensor>();
+                });
+            return out_tensors;
+          },
+          py::arg("inputs"),
+          py::kw_only(),
+          py::arg("device") = py::none(),
+          py::return_value_policy::reference,
+          R"(Execute the fusion with the given inputs.
+
+            Parameters
+            ----------
+            inputs : iterable
+                An iterable of input tensors or values. Can include lists/tuples for size vectors.
+            device : int, optional
+                The device index to execute the fusion on. Must be < 256.
+                If None, uses the device of the input tensors.
+
+            Returns
+            -------
+            list of torch.Tensor
+                The output tensors produced by the fusion.
+
+            Notes
+            -----
+            The function performs the following steps:
+            1. Converts Python inputs to KernelArgumentHolder
+            2. Executes the fusion using runFusionWithInputs
+            3. Converts output KernelArgumentHolder back to PyTorch tensors
+
+            The device parameter is converted from int64 to int8 internally.
+            If a device is specified, all inputs must be on that device.)")
       // Query methods
       .def(
           "is_compiled",
-          &FusionExecutorCache::isCompiled,
+          [](FusionExecutorCache& self,
+             const py::iterable& iter,
+             std::optional<int64_t> device) {
+            return self.isCompiled(from_pyiterable(iter, device));
+          },
           py::arg("inputs"),
           py::arg("device") = 0,
           "Check if there's a kernel ready for given inputs")
@@ -1201,16 +1278,27 @@ void bindRuntime(py::module& nvfuser) {
           &FusionExecutorCache::printFusion,
           "Print the fusion IR")
       .def(
-          "get_code",
-          &FusionExecutorCache::getCodeFor,
+          "get_cuda_kernel",
+          [](FusionExecutorCache& self,
+             const py::iterable& iter,
+             std::optional<int64_t> device) {
+            return self.getCodeFor(from_pyiterable(iter, device), false);
+          },
           py::arg("args"),
-          py::arg("intrinsic_code") = false,
+          py::arg("device") = 0,
           "Get the kernel code for the given inputs")
       .def(
           "get_scheduled_ir",
-          &FusionExecutorCache::getScheduledIrFor,
+          [](FusionExecutorCache& self,
+             const py::iterable& iter,
+             bool tensor_transforms,
+             std::optional<int64_t> device) {
+            return self.getScheduledIrFor(
+                from_pyiterable(iter, device), tensor_transforms);
+          },
           py::arg("args"),
           py::arg("tensor_transforms") = false,
+          py::arg("device") = 0,
           "Get the scheduled IR for the given inputs")
       .def(
           "get_most_recent_scheduled_ir",
