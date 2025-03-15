@@ -3137,7 +3137,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
-        fd->defineRecord(new TorchGatherOpRecord(
+        fd->defineRecord(new GatherOpRecord(
             {
                 fd->recordingState(arg1()),
                 fd->recordingState(index()),
