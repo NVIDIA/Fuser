@@ -11,6 +11,7 @@
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <scheduler/reduction_heuristic.h>
+#include <scheduler/utils.h>
 #include <visibility.h>
 
 namespace nvfuser {
@@ -109,6 +110,7 @@ NVF_API TensorView* sortAndRFactor(TensorView* reference_tv);
 // the scheduling.
 NVF_API std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
+    const scheduler_utils::PersistentBufferInfo& persistent_info,
     const bool project_to_inputs);
 
 //! Get reduction types based on the given fusion or reduction tvs.

@@ -229,6 +229,10 @@ struct PersistentBufferInfo {
   std::vector<TensorView*> persistent_buffers;
   std::unordered_set<IterDomain*> unmappable_dims;
 
+  // Tensors with unmappable dims that cannot be persistent due to
+  // broadcast inling
+  std::vector<TensorView*> non_persistent_buffers;
+
   // Persistent buffers are needed until the path through the reduction -
   // broadcast chain is resolved by any other chain using the persistent buffer
   // that is not going through a reduction. This assumes all reduction paths
