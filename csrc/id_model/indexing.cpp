@@ -260,13 +260,18 @@ class AllocationDomainSetup : private kir::IrVisitor {
       // - Global: logical domains
       // - Local/Shared: loop domains to the right of the CA position
       if (tv->getMemoryType() == MemoryType::Global) {
+        indexing_utils::verbose()
+            << "Tv does not have allocation of " << tv->toString() << ", "
+            << toDelimitedString(tv->getMaybeAllocationDomain()) << std::endl;
         allocation_domains = tv->getLogicalDomain();
         contiguity = tv->domain()->contiguity();
+        NVF_ERROR(!tv->isCircularBuffered());
       } else {
         // Allocation position is not always the same as the CA
         // position. See also lower_utils::getAllocInformation.
         int64_t allocation_pos =
             lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
+
         for (const auto i : c10::irange(tv->nDims())) {
           auto loop_id = tv->getLoopDomain().at(i);
           auto pt = loop_id->getParallelType();
@@ -294,6 +299,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
       if (auto reordered_domains =
               reorderAllocationDomains(tv, allocation_domains);
           reordered_domains.has_value()) {
+        indexing_utils::verbose()
+            << "Allocation domain reorderred: " << tv->toString()
+            << ". Oriignal: " << toDelimitedString(allocation_domains)
+            << ", reordered: " << toDelimitedString(reordered_domains.value())
+            << std::endl;
         allocation_domains = reordered_domains.value();
         NVF_ERROR(
             std::all_of(
@@ -310,6 +320,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
                   allocation_domains,
                   GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
           transposed_smem_alloc_dom.has_value()) {
+        indexing_utils::verbose()
+            << "Using consumer domain as the allocation domain of the shared memory producer: "
+            << tv->toString() << std::endl;
         allocation_domains = transposed_smem_alloc_dom.value();
         // Make sure the original allocation domains are fully contiguous
         NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
@@ -346,7 +359,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
                          tv->getLoopDomain().end(),
                          allocation_domain) != tv->getLoopDomain().end();
       IterDomain* promotion_domain = nullptr;
-      if (is_loop) {
+      // If the allocation domain is still a broadcast domain, i.e., not
+      // merged with a non-broadcast domain, it should
+      // not be necessary to use the promotion domain.
+
+      if (is_loop && !allocation_domain->isBroadcast()) {
         promotion_domain = getLoopPromotion(allocation_domain, id_model);
       } else {
         promotion_domain = allocation_domain;
@@ -761,6 +778,8 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 
   Fusion* fusion = id_model_.fusion();
+  // ADD
+  FusionGuard fg(fusion);
 
   for (auto expr : fusion->exprs()) {
     if (!ir_utils::isTvOp(expr)) {
@@ -787,6 +806,9 @@ void TensorIndexer::buildLoopIndexMap() {
       }
 
       loop_index_map_[loop_group] = loop_index;
+      indexing_utils::verbose()
+          << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
+          << loop_index->toInlineString() << std::endl;
     }
   }
 }
@@ -876,7 +898,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<ForLoop*>& for_loops,
+    const std::unordered_map<IterDomain*, Val*>& override_index) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -893,10 +916,18 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
+  indexing_utils::verbose() << "getLinearIndex of " << tv->toString() << " as "
+                            << (as_consumer ? "consumer" : "producer") << " in "
+                            << expr->toString() << std::endl;
+
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
-  const auto [contig_indices, contig_strides] =
-      getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
+  indexing_utils::verbose()
+      << "Allocation domains: " << toDelimitedString(alloc_info.domains)
+      << std::endl;
+
+  const auto [contig_indices, contig_strides] = getContigIndexFor(
+      expr, as_consumer, alloc_info, for_loops, override_index);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -916,6 +947,8 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
+  indexing_utils::verbose()
+      << "Final index: " << linear_index->toInlineString() << std::endl;
   return linear_index;
 }
 
@@ -925,6 +958,18 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
+
+  // ADD
+  // If this is an expr initializing a buffer for a reduction, there
+  // should be no loops for reduction domains
+  if (lower_utils::isReductionInitExpr(expr)) {
+    loop_domains.erase(
+        std::remove_if(
+            loop_domains.begin(),
+            loop_domains.end(),
+            [](IterDomain* id) -> bool { return id->isReduction(); }),
+        loop_domains.end());
+  }
 
   for (auto& loop_id : loop_domains) {
     loop_id = getLoopPromotion(loop_id, id_model_);
@@ -1066,6 +1111,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
 
+  if (predicate_domains.empty()) {
+    return {};
+  }
+
   const IndexingInfo& index_info =
       computeIndex(expr, predicate_domains, for_loops);
 
@@ -1142,6 +1191,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       const ValGroup& contig_domain_group = contig_domains_it->second;
       if (already_indexed_domains.find(contig_domain_group) !=
           already_indexed_domains.end()) {
+        indexing_utils::verbose()
+            << "Already indexed: " << predicate_domain->toString() << std::endl;
         continue;
       }
       already_indexed_domains.emplace(contig_domain_group);
@@ -1317,8 +1368,19 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         const Expr* expr,
         bool as_consumer,
         const IndexingAllocationInfo& alloc_info,
-        const std::vector<ForLoop*>& for_loops) const {
-  auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
+        const std::vector<ForLoop*>& for_loops,
+        const std::unordered_map<IterDomain*, Val*>& override_index) const {
+  std::vector<IterDomain*> indexed_ids;
+  indexed_ids.reserve(alloc_info.domains.size());
+  for (const auto& id : alloc_info.domains) {
+    if (!override_index.count(id)) {
+      indexed_ids.push_back(id);
+    }
+  }
+  auto index_info = computeIndex(expr, indexed_ids, for_loops);
+  for (const auto& [indexed_id, index] : override_index) {
+    index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
+  }
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_domains, for_loops, index_map);
@@ -1358,6 +1420,52 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   }
 
   return {result, contig_strides};
+}
+
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = fusion->allTvs();
+
+  auto printReason = [](const std::string& reason) -> void {
+    VERBOSE() << "TensorIndexer disabled due to: " << reason << std::endl;
+  };
+
+  if (fusion->hasManaged("loop_rotation")) {
+    printReason("loop rotation is not supported");
+    return false;
+  }
+
+  for (const auto& tv : all_tvs) {
+    std::stringstream reason;
+
+    if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
+        loadstore != nullptr &&
+        (loadstore->opType() == LoadStoreOpType::LdMatrix)) {
+      reason << "LoadStoreOp not supported: " << loadstore->toString();
+    } else {
+      for (const auto& id : tv->domain()->allIDs()) {
+        if (id->getParallelType() == ParallelType::MisalignedVectorize) {
+          reason << "MialignedVectorize is used: " << id->toString();
+          break;
+        } else if (
+            auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+          reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
+          reason << "Indirect indexing of consumer ID not supported: "
+                 << tv->toString() << ", " << id->toString() << ", "
+                 << tv->definition()->toString();
+          break;
+        }
+      }
+    }
+
+    if (!reason.str().empty()) {
+      printReason(reason.str());
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace nvfuser

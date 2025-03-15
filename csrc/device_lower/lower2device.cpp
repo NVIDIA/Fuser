@@ -429,6 +429,14 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     }
   }
 
+  // If not supported, disable everything
+  if (!TensorIndexer::isSupported(fusion)) {
+    options.setBuildTensorIndexer(false);
+    options.setIndex(false);
+    options.setPredicate(false);
+    options.setLoop(false);
+  }
+
   return options;
 }
 
@@ -503,6 +511,7 @@ void GpuLower::analysis(Fusion* fusion) {
     id_model_->validateAndPropagatePType();
   }
 
+  // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
@@ -657,6 +666,17 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
         compute_at_map_->updateComputeWith(tv);
       }
     }
+  }
+
+  if (updated && hasIdModel()) {
+    // TODO: Don't rebuild from complete scratch. Only the loop graph
+    // needs to be updated.
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+    id_model_->validateAndPropagatePType();
   }
 
   return updated;

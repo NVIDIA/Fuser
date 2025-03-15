@@ -32,7 +32,7 @@ class IdGraphIndexCompute : public OptOutDispatch {
     current_direction_ = Direction::Undefined;
   }
 
-  const std::unordered_map<ValGroup, Val*> indexMap() const {
+  const std::unordered_map<ValGroup, Val*>& indexMap() const {
     return index_map_;
   }
 
@@ -52,10 +52,18 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   bool hasIndex(IterDomain* id) const {
+    // If it's a broadcast, its index is always zero.
+    if (id->isBroadcast()) {
+      return true;
+    }
     return indexMap().find(toGroup(id)) != indexMap().end();
   }
 
   Val* getIndex(IterDomain* id) const {
+    // If it's a broadcast, its index is always zero.
+    if (id->isBroadcast()) {
+      return id->fusion()->zeroVal();
+    }
     auto it = index_map_.find(toGroup(id));
     NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
     return it->second;

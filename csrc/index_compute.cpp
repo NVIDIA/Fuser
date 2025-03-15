@@ -2160,7 +2160,7 @@ kir::TensorIndex* Index::getProducerIndex(
       GpuLower::current()->idModelOptions().producerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
-        producer, consumer->definition(), loops);
+        producer, consumer->definition(), loops, override_index);
     if (generate_pointer) {
       auto address_offset = index;
       if (producer->getMemoryType() == MemoryType::Shared) {
