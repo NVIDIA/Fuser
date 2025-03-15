@@ -135,9 +135,7 @@ class NVF_API GatherOp : public Expr {
 
   //! Parameter exact_sizes indicates whether the non-indexed domains
   //! of the index tensor have the same extents of those of the input
-  //! tensor. It's true in the case of torch.take_along_dim and
-  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
-  //! they are the same.
+  //! tensor. It's true in the case of take_along_axis.
   GatherOp(
       IrBuilderPasskey,
       Val* out,
