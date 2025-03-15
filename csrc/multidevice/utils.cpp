@@ -275,7 +275,7 @@ int64_t numDeviceDims(const TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
-namespace {
+
 
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
@@ -293,6 +293,7 @@ std::vector<IterDomain*> getInputsInTargetDomain(
   return inputs_as_iter_domains;
 }
 
+namespace {
 bool overlaps(
     const std::vector<IterDomain*>& a,
     const std::unordered_set<IterDomain*>& b) {
@@ -399,27 +400,90 @@ bool haveDifferentShardings(
     }
 
     auto is_mapped_in_id_model =
-        [](IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
-      if (a == nullptr && b == nullptr) {
+        [producer, consumer, mapped_p_logical_ids, mapped_c_root_ids](
+            IterDomain* p_loop_id,
+            IterDomain* c_loop_id,
+            const IdModel& id_model) -> bool {
+      if (p_loop_id == nullptr && c_loop_id == nullptr) {
         return true;
       }
 
-      if (a == nullptr || b == nullptr) {
+      if (p_loop_id == nullptr || c_loop_id == nullptr) {
         return false;
+      }
+
+      if (consumer->definition()->isA<ViewOp>()) {
+        // Consider the reshape: [h]-> [a, h/a] where `h` and `a` are sharded,
+        // IdModel currently does not map the two DID axes. Similarly for the
+        // corresponding merge reshape. This is a temporary workaround to check
+        // if the reshape is resharding when sharding is on reshaped ids.
+
+        // Get the root iterdomains in the consumer that produce reshape logical
+        // Ids.
+        std::unordered_set<IterDomain*> c_reshape_ids;
+        for (auto id : consumer->getLogicalDomain()) {
+          if (id->isRFactorProduct() && id->definition() &&
+              !id->definition()->isA<Resize>()) {
+            auto root_ids = getInputsInTargetDomain(
+                id, {mapped_c_root_ids.begin(), mapped_c_root_ids.end()});
+            for (auto root_id : root_ids) {
+              c_reshape_ids.insert(root_id);
+            }
+          }
+        }
+
+        // Get the logical iterdomains in the producer that are reshaped.
+        const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+            PairwiseLogicalDomainMap(producer, consumer)
+                .mapConsumerToProducer();
+        std::unordered_set<IterDomain*> p_reshape_ids;
+        for (auto id : c_reshape_ids) {
+          auto p_id = c2p.find(id);
+          if (p_id != c2p.end()) {
+            p_reshape_ids.insert(p_id->second);
+          }
+        }
+
+        auto p_transforms = DependencyCheck::getAllExprsBetween(
+            {p_reshape_ids.begin(), p_reshape_ids.end()}, {p_loop_id});
+        auto c_transforms = DependencyCheck::getAllExprsBetween(
+            {c_reshape_ids.begin(), c_reshape_ids.end()}, {c_loop_id});
+
+        if (p_transforms.size() > 0 && c_transforms.size() > 0) {
+          // Both a and b come from reshaped ids.
+          NVF_ERROR(
+              p_loop_id->definition()->isA<Split>(),
+              p_loop_id,
+              " is not a Split: ",
+              p_loop_id->definition());
+          NVF_ERROR(
+              c_loop_id->definition()->isA<Split>(),
+              c_loop_id,
+              " is not a Split: ",
+              c_loop_id->definition());
+          // Get the split producing the sharded axis
+          auto* p_split = p_transforms.back()->as<Split>();
+          auto* c_split = c_transforms.back()->as<Split>();
+
+          // Reshape is not resharding if both the DID splits are either inner
+          // or outer splits. Note that we currently do not exercise inner
+          // splits in the multidevice tests.
+          return p_split->innerSplit() == c_split->innerSplit();
+        }
       }
 
       // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
       // would be flagged by ALMOSTEXACT as a false positive.
       if (id_model.idGraph(IdMappingMode::BROADCAST)
               .disjointValSets()
-              .strictAreMapped(a, b)) {
+              .strictAreMapped(p_loop_id, c_loop_id)) {
         return true;
       }
 
       // Check ALMOSTEXACT so iDIDx{N}*b{1} and iDIDx{N} are mapped.
       return id_model.idGraph(IdMappingMode::ALMOSTEXACT)
           .disjointValSets()
-          .strictAreMapped(a, b);
+          .strictAreMapped(p_loop_id, c_loop_id);
     };
 
     if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
@@ -479,13 +543,19 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, bool parallelize_inputs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
+  // TODO: If the tv already has a particular device parallel type, skip that.
   if (!tvs.empty()) {
     scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
+        ref,
+        /*pos=*/-1,
+        /*selected_tvs=*/tvs,
+        /*selected_parallel_types=*/{ParallelType::DIDx, ParallelType::Serial},
+        /*propagate_padding=*/false,
+        /*parallelize_inputs=*/parallelize_inputs);
   }
 
   // parallelAllLke, tries to DID-parallelize
@@ -622,7 +692,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   return ret;
 }
 
-void reorderDIDToFront(TensorView* tv) {
+int64_t reorderDIDToFront(TensorView* tv) {
   // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
@@ -635,6 +705,7 @@ void reorderDIDToFront(TensorView* tv) {
   }
 
   tv->reorder(order_map);
+  return current_pos;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(

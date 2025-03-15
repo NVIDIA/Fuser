@@ -40,6 +40,10 @@ bool isSharded(const TensorView*);
 // Returns number of device dimensions in a TensorView's loop domain.
 int64_t numDeviceDims(const TensorView*);
 
+std::vector<IterDomain*> getInputsInTargetDomain(
+    IterDomain* loop_id,
+    const std::vector<IterDomain*>& target_domain);
+
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
@@ -60,7 +64,7 @@ bool haveDifferentShardings(
 bool isInnerResharding(Expr* expr);
 
 // Shards all tensors in tvs like reference
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, bool parallelize_inputs=false);
 
 // Shards all TVs between from and to AND between TVs created inside a fusion
 // and to. This is required for (1) expressions like rng_uniform that create a
@@ -116,7 +120,7 @@ at::Tensor shardTensor(
     DeviceIdxType device_id);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
-void reorderDIDToFront(TensorView*);
+int64_t reorderDIDToFront(TensorView*);
 
 // Given a TensorView and the shape of a sharded tensor of which certain
 // dimensions are partially allocated, returns the global shape that'll be used
