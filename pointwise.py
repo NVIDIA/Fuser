@@ -31,3 +31,10 @@ for tensor in all_tensors:
     tensor.split(axis=0, factor=128)
     tensor.axis(0).parallelize(ParallelType.grid_x)
     tensor.axis(1).parallelize(ParallelType.block_x)
+
+inputs = [
+    torch.ones(4, 8, device="cuda"),
+    torch.ones(4, 8, device="cuda"),
+]
+fec = fusion.FusionExecutorCache(f, auto_schedule=False)
+print(fec.execute(inputs))
