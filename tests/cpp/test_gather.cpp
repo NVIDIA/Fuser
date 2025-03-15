@@ -752,9 +752,7 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
 //
 // NOTE: Temporarily disabled as it results in non-deterministic
 // validaiton errors (https://github.com/NVIDIA/Fuser/issues/4003).
-TEST_F(
-    GatherTest,
-    DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
+TEST_F(GatherTest, DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -839,9 +837,7 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
 
 // Normalization, then takeAlongAxis, then reduction. Similar
 // pattern as cross entropy.
-TEST_F(
-    GatherTest,
-    TakeAlongAxisIntermediateTensorNormalizationAndReduction1) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -885,9 +881,7 @@ TEST_F(
 // TakeAlongAxisIntermediateTensorNormalizationAndReduction1, but the
 // final reduction pattern is compatible with the first reduction, so
 // no segmentation should be done
-TEST_F(
-    GatherTest,
-    TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
