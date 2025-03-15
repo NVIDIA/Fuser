@@ -14,6 +14,7 @@
 #include <python_frontend/python_bindings.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <scheduler/tools/inlining.h>
 
 namespace nvfuser::python_frontend {
 
@@ -453,6 +454,26 @@ void bindInternalBaseNodes(py::module& nvfuser) {
 }
 
 void bindInterfaceNodes(py::module& nvfuser) {
+  py::class_<nvfuser::MaxPosCalculator>(nvfuser, "MaxPosCalculator")
+      .def(
+          py::init<std::unordered_set<IterDomain*>, bool>(),
+          py::arg("uninlinable_ids") = std::unordered_set<IterDomain*>(),
+          py::arg("compute_at_only") = false,
+          R"(
+MaxPosCalculator(uninlinable_ids=set(), compute_at_only=False)
+
+A utility class for calculating maximum valid inlining positions for tensors.
+
+Parameters
+----------
+uninlinable_ids : set of IterDomain, optional
+    Set of iteration domains that should not be inlined. Default is empty set.
+compute_at_only : bool, optional
+    If True, only consider compute-at operations when determining positions.
+    If False, consider both compute-at and compute-with operations.
+    Default is False.
+)");
+
   py::class_<
       nvfuser::TensorView,
       nvfuser::Val,
@@ -644,28 +665,58 @@ void bindInterfaceNodes(py::module& nvfuser) {
           static_cast<nvfuser::TensorView* (
               nvfuser::TensorView::*)(int64_t, int64_t, bool)>(
               &nvfuser::TensorView::split),
+          py::arg("axis"),
+          py::arg("factor"),
+          py::arg("inner_split") = true,
           py::return_value_policy::reference,
-          "Split (int64_t version)") // Overloaded function
-      .def(
-          "split",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(int64_t, nvfuser::Val*, bool)>(
-              &nvfuser::TensorView::split),
-          py::return_value_policy::reference,
-          "Split (Val* version)") // Overloaded function
-      .def(
-          "merge",
-          static_cast<nvfuser::TensorView* (nvfuser::TensorView::*)(int64_t,
-                                                                    int64_t)>(
-              &nvfuser::TensorView::merge),
-          py::return_value_policy::reference,
-          "Merge (two axes)") // Overloaded function
+          R"(
+Split an axis into two axes by a constant factor.
+
+Parameters
+----------
+axis : int
+    The axis to split. Negative indexing is supported.
+factor : int
+    The size of the split. Must be greater than 0.
+inner_split : bool, optional
+    If True, the factor section of the split will be inside the remainder.
+    If False, the factor section will be outside the remainder.
+    Default is True.
+
+Returns
+-------
+TensorView
+    The tensor view with the split axis.
+)")
       .def(
           "merge",
           static_cast<nvfuser::TensorView* (nvfuser::TensorView::*)(int64_t)>(
               &nvfuser::TensorView::merge),
+          py::arg("axis"),
           py::return_value_policy::reference,
-          "Merge (one axis)") // Overloaded function
+          R"(
+Merge an axis with the following axis into a single dimension.
+
+Parameters
+----------
+axis : int
+    The outer axis to merge. The axis at position (axis + 1) will be merged with this axis.
+    Negative indexing is supported.
+
+Returns
+-------
+TensorView
+    The tensor view with the merged axes.
+
+Notes
+-----
+- Cannot merge axes within compute-at position or max producer position.
+- At least one of the axes being merged must have Serial parallel type.
+- Merging is done by multiplying the extents of the axes being merged.
+- The resulting merged axis will be at the position of the outer axis.
+- This is equivalent to calling merge(axis, axis + 1).
+- The tensor must have at least 2 dimensions to perform a merge.
+)")
       .def(
           "flatten",
           &nvfuser::TensorView::flatten,
@@ -740,13 +791,70 @@ void bindInterfaceNodes(py::module& nvfuser) {
       .def(
           "cache_before",
           &nvfuser::TensorView::cacheBefore,
+          py::arg("op_type") = LoadStoreOpType::Set,
           py::return_value_policy::reference,
-          "Cache before")
+          R"(
+Create a TensorView before the original tensor. A common use case is to write results into shared memory or registers before moving to global memory.
+Analogous to TVM Cache_Write.
+
+Parameters
+----------
+op_type : LoadStoreOpType, optional
+    Memory operator to use for the inserted op between the data tensor and the cache tensor.
+    Default is LoadStoreOpType::Set.
+
+Returns
+-------
+TensorView
+    The newly created cache tensor (producer).
+
+Notes
+-----
+- Cannot be used on fusion inputs (tensor must have a definition).
+- Caching computed-at tensors is not allowed. Apply caching before computeAt.
+- If any producer tensor has computeAt, you must apply caching before computeAt.
+- The operation creates a new tensor that becomes the producer, while the original tensor becomes the consumer.
+- Transformation sequence:
+  Before: Prev TV -> [Definition Op] -> This TV
+  After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
+)")
       .def(
           "cache_after",
           &nvfuser::TensorView::cacheAfter,
+          py::arg("op_type") = LoadStoreOpType::Set,
+          py::arg("cache_op") = CacheOp::Unspecified,
+          py::arg("propagate_allocation_domain") = true,
+          py::arg("cached_uses") = std::vector<Expr*>{},
           py::return_value_policy::reference,
-          "Cache after")
+          R"(
+Create a TensorView after the original tensor. A common use case is to read tensor into shared memory or registers.
+Analogous to TVM Cache_Read.
+
+Parameters
+----------
+op_type : LoadStoreOpType, optional
+    Memory operator to use for the inserted op between the data tensor and the cache tensor.
+    Default is LoadStoreOpType::Set.
+cache_op : CacheOp, optional
+    Cache operator type. Default is CacheOp::Unspecified.
+propagate_allocation_domain : bool, optional
+    Whether to replay allocation domain on cached load. Default is True.
+cached_uses : list of Expr, optional
+    If empty, cache all uses. Otherwise, only try to cache uses in cached_uses.
+    Default is empty list.
+
+Returns
+-------
+TensorView
+    The newly created cache tensor.
+
+Notes
+-----
+- Caching computed-at tensors is not allowed. Apply caching before computeAt.
+- Cannot cache tensors that are input to select/slice/pad ops as they must be in global memory.
+- If this tensor is a fusion input and outputs of its consumers have computeAt,
+  you must apply caching before computeAt.
+)")
       .def(
           "cache_fork",
           &nvfuser::TensorView::cacheFork,
@@ -800,6 +908,28 @@ void bindInterfaceNodes(py::module& nvfuser) {
           "set_has_swizzle_op",
           &nvfuser::TensorView::setHasSwizzleOp,
           "Set has swizzle op")
+      .def(
+          "inline_at",
+          &nvfuser::TensorView::inlineAt,
+          py::arg("pos"),
+          py::arg("best_effort") = false,
+          py::arg("calc") = py::none(),
+          R"(
+Inline the computation of this tensor into its consumer at the given position.
+
+Parameters
+----------
+pos : int
+    The position at which to inline. Must be >= 0.
+best_effort : bool, optional
+    If True, will inline at the highest allowed position that is <= pos.
+    If False, will attempt to inline exactly at pos.
+    Default is False.
+calc : MaxPosCalculator, optional
+    Calculator to determine valid inlining positions.
+    If None, a new calculator will be created.
+    Default is None.
+)")
       .def("compute_with", &nvfuser::TensorView::computeWith, "Compute with")
       .def(
           "resolve_compute_with",
@@ -834,6 +964,19 @@ void bindInterfaceNodes(py::module& nvfuser) {
           "get_compute_position",
           &nvfuser::TensorView::getComputePosition,
           "Get compute position")
+      .def(
+          "update_max_producer_position",
+          &nvfuser::TensorView::updateMaxProducerPosition,
+          py::arg("calc") = py::none(),
+          R"(
+Update the maximum producer position of the current tensor.
+
+Parameters
+----------
+calc : MaxPosCalculator, optional
+    Calculator to determine valid positions. If None, a new calculator will be created.
+    Default is None.
+)")
       .def(
           "commit_leaf_to_logical",
           &nvfuser::TensorView::commitLeafToLogical,
