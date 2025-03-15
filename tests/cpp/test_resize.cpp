@@ -5814,7 +5814,7 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
       if (scheduler_tools::isResizeBasedOp(expr)) {
         has_resize = true;
       } else if (
-          expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+          expr->isOneOf<GatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
         has_index_op = true;
       }
     }

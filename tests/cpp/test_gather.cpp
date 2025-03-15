@@ -61,11 +61,11 @@ auto randomIndexVector(
 
 } // namespace
 
-// all torch.gather test follow the FusionTorchGather* pattern
+// all torch.gather test follow the FusionGather* pattern
 
 // Test the correctness of gather operator in different dimensions and selcted
 // dim.
-TEST_F(GatherTest, TorchGatherAllRankAllSelectedDim) {
+TEST_F(GatherTest, GatherAllRankAllSelectedDim) {
   const int max_dim_size = 64;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -84,7 +84,7 @@ TEST_F(GatherTest, TorchGatherAllRankAllSelectedDim) {
         fusion.addInput(tv1);
         fusion.addInput(tv_idx);
         TensorView* tv_out = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                           : torchGather(tv1, dim, tv_idx);
+                                           : gather(tv1, dim, tv_idx);
         fusion.addOutput(tv_out);
 
         auto input_dims = randomVector(2, max_dim_size, rank);
@@ -102,7 +102,7 @@ TEST_F(GatherTest, TorchGatherAllRankAllSelectedDim) {
   }
 }
 // Test the fusion support of gather operator(producer) and elemetwise(consumer)
-TEST_F(GatherTest, TorchGatherAddMul) {
+TEST_F(GatherTest, GatherAddMul) {
   const int max_dim_size = 64;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -118,7 +118,7 @@ TEST_F(GatherTest, TorchGatherAddMul) {
         fusion.addInput(tv1);
         fusion.addInput(tv_idx);
         auto tv_gather = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                       : torchGather(tv1, dim, tv_idx);
+                                       : gather(tv1, dim, tv_idx);
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
@@ -159,7 +159,7 @@ TEST_F(GatherTest, AddGatherSumAdd) {
 
         auto tv_index = add(tv_idx_1, tv_idx_2);
         auto tv_out = is_take_along ? takeAlongAxis(tv_lookup, tv_index, dim)
-                                    : torchGather(tv_lookup, dim, tv_index);
+                                    : gather(tv_lookup, dim, tv_index);
 
         fusion.addOutput(tv_out);
 
@@ -187,7 +187,7 @@ TEST_F(GatherTest, AddGatherSumAdd) {
   }
 }
 // Test the fusion support of gather operator and reduce
-TEST_F(GatherTest, TorchGatherSumAdd) {
+TEST_F(GatherTest, GatherSumAdd) {
   const int max_dim_size = 32;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -207,7 +207,7 @@ TEST_F(GatherTest, TorchGatherSumAdd) {
         fusion.addInput(tv2);
 
         auto tv_gather = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                       : torchGather(tv1, dim, tv_idx);
+                                       : gather(tv1, dim, tv_idx);
         auto tv_sum = sum(tv_gather, {0}, true);
         auto tv_out = add(tv_sum, tv2);
 
@@ -233,7 +233,7 @@ TEST_F(GatherTest, TorchGatherSumAdd) {
   }
 }
 // Test the correctness when input/index tensor is very large
-TEST_F(GatherTest, TorchGatherAddMulHugeSize) {
+TEST_F(GatherTest, GatherAddMulHugeSize) {
   const int max_dim_size = 16384;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -250,7 +250,7 @@ TEST_F(GatherTest, TorchGatherAddMulHugeSize) {
         fusion.addInput(tv1);
         fusion.addInput(tv_idx);
         auto tv_gather = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                       : torchGather(tv1, dim, tv_idx);
+                                       : gather(tv1, dim, tv_idx);
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
@@ -270,7 +270,7 @@ TEST_F(GatherTest, TorchGatherAddMulHugeSize) {
   }
 }
 // Test the fusion support of input tensor as fusion input
-TEST_F(GatherTest, TorchGatherInput) {
+TEST_F(GatherTest, GatherInput) {
   const int rank = 2;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -283,7 +283,7 @@ TEST_F(GatherTest, TorchGatherInput) {
   fusion.addInput(tv_idx);
 
   auto tv_inp = add(tv1, tv1);
-  auto tv_gather = torchGather(tv_inp, 0, tv_idx);
+  auto tv_gather = gather(tv_inp, 0, tv_idx);
   fusion.addOutput(tv_gather);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -297,7 +297,7 @@ TEST_F(GatherTest, TorchGatherInput) {
 
 // Test when then extent of iteration domain is euqal to one, and the iteration
 // type is broadcast (IndexTv), used in RGCN model.
-TEST_F(GatherTest, TorchGatherIndexTvExtentIsOne) {
+TEST_F(GatherTest, GatherIndexTvExtentIsOne) {
   std::vector<int64_t> input_dims{16384, 60};
   std::vector<int64_t> index_dims{16384, 1};
   const int max_selected_index = 60;
@@ -316,7 +316,7 @@ TEST_F(GatherTest, TorchGatherIndexTvExtentIsOne) {
   fusion.addInput(tv_idx);
   fusion.addInput(tv_in2);
 
-  auto tv_gather = torchGather(tv_in1, 1, tv_idx);
+  auto tv_gather = gather(tv_in1, 1, tv_idx);
   auto tv_add =
       clamp(tv_gather, IrBuilder::create<Val>(-1L), IrBuilder::create<Val>(1L));
   auto tv_out = mul(tv_add, tv_in2);
@@ -377,11 +377,11 @@ TEST_F(GatherTest, TakeAlongBroadcastIndex) {
 
 TEST_F(GatherTest, GatherBroadcastInput) {
   for (const auto is_take_along : {false, true}) {
-    // torchGather not supported yet. The issue is one of the index
+    // gather not supported yet. The issue is one of the index
     // tensor has a broadcast domain, but its corresponding input
     // domain is a normal domain. The output domain is also a
-    // broadcast in torchGather, whereas it's a normal domain in
-    // takeAlongAxis. In the case of torchGather, indexing the
+    // broadcast in gather, whereas it's a normal domain in
+    // takeAlongAxis. In the case of gather, indexing the
     // input domain needs to be able to index the normal producer
     // domain with a broadcast reference domain. getProduerIndex needs
     // some fix.
@@ -393,7 +393,7 @@ TEST_F(GatherTest, GatherBroadcastInput) {
         // [B, B, I] when inp_indexed_dim == 1, otherwise [B, I, I]
         std::vector<int64_t> input_dims{1, inp_indexed_dim, 12};
         // [I, B] when idx_index_dim == 1, otherwise [I, I]
-        // In torchGather, an index dimension must be smaller or
+        // In gather, an index dimension must be smaller or
         // equal to the corresponding input dimension
         std::vector<int64_t> index_dims{
             is_take_along ? 5 : input_dims.at(0), idx_index_dim};
@@ -474,8 +474,7 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   // producer tensor of the takeAlongAxis expr is not tv2 as a copy
   // is inserted
   inlineMost();
-  auto take_along_axis_input =
-      tv4->definition()->as<TorchGatherOp>()->lookupTv();
+  auto take_along_axis_input = tv4->definition()->as<GatherOp>()->lookupTv();
   NVF_CHECK(
       take_along_axis_input->getComputeAtPosition() == 1,
       "Unexpected computeAt position: ",
@@ -1115,12 +1114,12 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
     if (group->schedulerType() == SchedulerType::InnerPersistent) {
       NVF_CHECK(std::any_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
-            return expr->isA<TorchGatherOp>();
+            return expr->isA<GatherOp>();
           }));
     } else {
       NVF_CHECK(std::none_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
-            return expr->isA<TorchGatherOp>();
+            return expr->isA<GatherOp>();
           }));
     }
   }
@@ -1150,7 +1149,7 @@ TEST_F(GatherTest, GatherIterGoupedReduction) {
   TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
   fusion.addInput(tv1);
   fusion.addInput(tv_idx);
-  auto tv_gather = torchGather(tv1, dim, tv_idx);
+  auto tv_gather = gather(tv1, dim, tv_idx);
   auto tv_sum = sum(tv_gather, {0}, false);
   fusion.addOutput(tv_sum);
 
