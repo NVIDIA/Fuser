@@ -589,8 +589,10 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   };
 
   // Use the maximum vectorization factor
-  const int64_t vect_factor = (int64_t)vectorize_factor;
-
+  int64_t vect_factor = (int64_t)vectorize_factor;
+  if (std::getenv("VECT_FACTOR") && std::atoi(std::getenv("VECT_FACTOR")) != 0) {
+    vect_factor = (int64_t)std::atoi(std::getenv("VECT_FACTOR"));
+  }
   // Set a reasonable range for threads per block based on the number of
   // elements in the inner dimension after vectorization.
   // Start from 128 or a smaller number if inner dim is small.
@@ -1438,7 +1440,7 @@ void scheduleInnerOuterPersistentKernel(
     }
 
     // move inner bcast input to top expr
-    if (std::getenv("CACHE_INNBER_BCAST") && std::atoi(std::getenv("CACHE_INNBER_BCAST")) != 0) {
+    if (std::getenv("CACHE_INNER_BCAST") && std::atoi(std::getenv("CACHE_INNER_BCAST")) != 0) {
       for(auto val : fusion->inputs()){
         if(auto tv = dynamic_cast<TensorView*>(val)){
           if(tv->hasBroadcast()){
