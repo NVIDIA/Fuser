@@ -8,6 +8,7 @@ import transformers
 import torch
 import torch.distributed as dist
 from contextlib import contextmanager
+from enum import auto, Enum
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -49,8 +50,67 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
+@contextmanager
+def cuda_profiler():
+    torch.cuda.cudart().cudaProfilerStart()
+    try:
+        yield
+    finally:
+        torch.cuda.cudart().cudaProfilerStop()
+
+
+class ComputeType(Enum):
+    FORWARD = auto()
+    BACKWARD = auto()
+    INFERENCE = auto()
+
+
 @pytest.mark.mpi
-def test_transformer_layer(setup_process_group):
+@pytest.mark.parametrize(
+    "compute_type",
+    [ComputeType.FORWARD, ComputeType.BACKWARD, ComputeType.INFERENCE],
+    ids=["forward", "backward", "inference"],
+)
+def test_transformer_layer(setup_process_group, compute_type: ComputeType):
+    if compute_type != ComputeType.INFERENCE:
+        pytest.xfail(
+            """
+Training is unavailable as is (cf.
+https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L439).
+However, you can apply the following patch in your local cache (typically)
+~/.cache/huggingface/modules/transformers_modules/deepseek-ai/deepseek-v3/ to
+work around that limitation.
+
+```diff
+--- a/modeling_deepseek.py 2025-03-12 13:23:40.817961783 -0700
++++ b/modeling_deepseek.py  2025-03-12 13:22:38.499791931 -0700
+@@ -436,7 +436,6 @@
+
+         ### select top-k experts
+         if self.topk_method == "noaux_tc":
+-            assert not self.training
+             scores_for_choice = scores.view(bsz * seq_len, -1) + self.e_score_correction_bias.unsqueeze(0)
+             group_scores = (
+                 scores_for_choice.view(bsz * seq_len, self.n_group, -1).topk(2, dim=-1)[0].sum(dim = -1)
+@@ -526,13 +525,11 @@
+         topk_idx, topk_weight = self.gate(hidden_states)
+         hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
+         flat_topk_idx = topk_idx.view(-1)
+-        if not self.training:
+-            y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(*orig_shape)
++        y = self.moe_infer(hidden_states, topk_idx, topk_weight).view(*orig_shape)
+         if self.config.n_shared_experts is not None:
+             y = y + self.shared_experts(identity)
+         return y
+
+-    @torch.no_grad()
+     def moe_infer(self, x, topk_ids, topk_weight):
+         cnts = topk_ids.new_zeros((topk_ids.shape[0], len(self.experts)))
+         cnts.scatter_(1, topk_ids, 1)
+```
+"""
+        )
+
     config = transformers.AutoConfig.from_pretrained(
         "deepseek-ai/deepseek-v3", trust_remote_code=True
     )
@@ -69,8 +129,10 @@ def test_transformer_layer(setup_process_group):
 
     with default_tensor_type(dtype=config.torch_dtype, device="cuda"):
         model = transformers.AutoModel.from_config(config, trust_remote_code=True)
-        # Training is unavailable (cf. https://huggingface.co/deepseek-ai/DeepSeek-V3/blob/main/modeling_deepseek.py#L439)
-        model.eval()
+        if compute_type == ComputeType.INFERENCE:
+            model.eval()
+        else:
+            model.train()
 
         transformer_layer = model.layers[0]
 
@@ -119,6 +181,8 @@ def test_transformer_layer(setup_process_group):
         batch_size = 1
         seq_len = 2048
         inp = torch.randn(batch_size, seq_len, config.hidden_size)
+        if compute_type == ComputeType.BACKWARD:
+            inp.requires_grad_()
         mask = transformers.modeling_attn_mask_utils._prepare_4d_causal_attention_mask(
             None, [batch_size, seq_len], inp, past_key_values_length=0
         )
@@ -127,3 +191,10 @@ def test_transformer_layer(setup_process_group):
         assert out.size() == (batch_size, seq_len, config.hidden_size)
         assert out.dtype == config.torch_dtype
         assert out.is_cuda
+
+        if compute_type == ComputeType.BACKWARD:
+            out.sum().backward()
+
+            assert inp.grad.size() == (batch_size, seq_len, config.hidden_size)
+            assert inp.grad.dtype == config.torch_dtype
+            assert inp.grad.is_cuda
