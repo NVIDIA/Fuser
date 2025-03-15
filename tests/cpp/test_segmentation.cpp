@@ -12,6 +12,7 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
+#include <runtime/expr_eval_exec.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
