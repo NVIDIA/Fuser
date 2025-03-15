@@ -129,4 +129,28 @@ TEST_F(ScatterTest, Scatter1DIndexZerosSelfTvSameShape) {
   }
 }
 
+TEST_F(NVFuserTest, ComputeAtLogicalDomainMap) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({320});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {320}, {10, 32});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // auto tv4 = sum(tv2, {1});
+  // auto tv5 = broadcast(tv4, {false, true});
+  // fusion.addOutput(tv5);
+
+  fusion.printMath();
+
+  ComputeAtLogicalDomainMap ca_map;
+  ca_map.build();
+  std::cerr << ca_map.toString() << "\n";
+}
+
 } // namespace nvfuser

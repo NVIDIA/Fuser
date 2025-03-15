@@ -340,10 +340,7 @@ class DisjointSets {
   // Return the entire disjoint set of provided entry
   const VectorOfUniqueEntries<T, Hash>& getDisjointSetOf(T entry) const {
     auto set_it = disjoint_set_maps_.find(entry);
-    NVF_ERROR(
-        set_it != disjoint_set_maps_.end(),
-        "Could not find entry for ",
-        entry->toString());
+    NVF_ERROR(set_it != disjoint_set_maps_.end(), "Could not find entry for ");
     return *(set_it->second);
   }
 
