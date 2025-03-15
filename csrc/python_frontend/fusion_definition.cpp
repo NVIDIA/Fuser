@@ -53,6 +53,8 @@ const char* dtypeToPyString(PrimDataType t) {
       return "DataType.ComplexDouble";
     case DataType::Null:
       return "DataType.Null";
+    case DataType::UInt64:
+      return "DataType.UInt64";
     default:
       break;
   }
