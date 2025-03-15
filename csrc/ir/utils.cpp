@@ -1551,8 +1551,9 @@ std::vector<IterDomain*> strideOrderToAllocation(
 
 std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
     UnaryOp* uop) {
+  NVF_CHECK(uop != nullptr);
   NVF_CHECK(
-      uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast,
+      uop->getUnaryOpType() == UnaryOpType::Cast,
       "Invalid expr: ",
       uop->toString());
 
