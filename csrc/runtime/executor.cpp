@@ -456,11 +456,27 @@ LaunchParams KernelExecutor::computeLaunchParams(
         !(kernel_summary.has_iter_grouped_reductions && welford_factor == 3),
         "can't have welford and iter grouped reductions at the same time! Should be handled by grouped welford!");
 
+    int64_t compute_threads =
+        launch_params.bdimx() * launch_params.bdimy() * launch_params.bdimz();
+
+    if (std::getenv("WARPTIDX")) {
+      compute_threads -= 128;
+    }
+
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        grouped_iter_factor * welford_factor * launch_params.bdimx() *
-        launch_params.bdimy() * launch_params.bdimz();
+        grouped_iter_factor * welford_factor * compute_threads;
+
+    if (std::getenv("CMP_WGROUPS_MANUAL")) {
+      int warp_groups = std::stoi(std::getenv("CMP_WGROUPS_MANUAL"));
+      reduction_broadcast_workspace *= warp_groups;
+      std::cout << "compute_threads per group " << compute_threads << std::endl;
+      std::cout << "warp_groups " << warp_groups << std::endl;
+      std::cout << "grouped_iter_factor " << grouped_iter_factor << std::endl;
+      std::cout << "Setting reduction_broadcast_workspace to "
+                << reduction_broadcast_workspace << std::endl;
+    }
 
     if (kernel_summary.has_outer_grouped_grid_welford) {
       reduction_broadcast_workspace = std::max(
@@ -484,6 +500,15 @@ LaunchParams KernelExecutor::computeLaunchParams(
   }
 
   launch_params.setSmem(dynamic_smem_size);
+
+  if (std::getenv("CMP_WGROUPS_MANUAL")) {
+    int warp_groups = std::stoi(std::getenv("CMP_WGROUPS_MANUAL"));
+    int tma_bimdx = 128;
+    int cmp_bimdx = launch_params.bdimx() - tma_bimdx;
+    launch_params.bindUnsafe(
+        cmp_bimdx * warp_groups + tma_bimdx, ParallelType::TIDx);
+    std::cout << "Setting TIDx to " << launch_params.bdimx() << std::endl;
+  }
 
   return launch_params;
 }
@@ -680,7 +705,8 @@ void KernelExecutor::initializeExecutorEntry(
   constexpr int64_t warp_size = 32;
   NVF_ERROR(
       !compiled_kernel_->kernel()->summary().has_elect_sync_predicate ||
-          launch_params.bdimx() >= warp_size,
+          (launch_params.bdimx() >= warp_size ||
+           warp_size % launch_params.bdimx() == 0),
       "This cuda kernel contains electSync predicate. "
       "Expected blockDim.x >= 32 but found ",
       launch_params.bdimx());
@@ -1240,8 +1266,10 @@ KernelArgumentHolder KernelExecutor::run(
               << ", warps_per_sm=" << warps_per_sm
               << ", occupancy=" << oss.str() << std::endl;
     }
-
+    launch_params_.print();
     if (!compiled_kernel_->kernel()->summary().has_cooperative_grid_reduction) {
+      std::cout << "============ ExecutorRunFusion::cuLaunchKernel ========= "
+                << std::endl;
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchKernel(
           compiled_kernel_->cudaExecutable()->function,
@@ -1256,6 +1284,8 @@ KernelArgumentHolder KernelExecutor::run(
           executor_entry->arg_ptrs.data(),
           nullptr));
     } else {
+      std::cout << "============ cuLaunchCooperativeKernel ========= "
+                << std::endl;
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
           compiled_kernel_->cudaExecutable()->function,

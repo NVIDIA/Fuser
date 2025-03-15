@@ -1084,6 +1084,12 @@ bool ExprSegmentationSorter::interIterUpdate() {
     if (successfully_finished) {
       return false;
     }
+    // // try to war
+    // if (fallback_mode_enabled_) {
+    //   std::cout << "E=====================xprSegmentationSorter: Fallback mode enabled, trying to merge "
+    //                "groups again.\n";
+    //   return false;
+    // }    
     // If we didn't finish and we tried the fallback, throw.
     NVF_ERROR(
         !fallback_mode_enabled_,

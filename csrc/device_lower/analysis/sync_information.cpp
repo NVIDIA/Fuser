@@ -42,10 +42,10 @@ void validateParallelizationOfTensor(TensorView* tv) {
         !pt_map.get(ptype),
         "Multiple use of ",
         ptype,
-        " in tensor t",
+        " in tensor T",
         tv->name(),
         ": ",
-        tv);
+        tv->toString());
     pt_map.set(ptype);
   }
 

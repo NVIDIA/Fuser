@@ -41,10 +41,10 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 
+#include <ATen/cuda/CUDAContext.h>
 #include <list>
 #include <unordered_map>
 #include <unordered_set>
-
 namespace nvfuser {
 
 thread_local GpuLower* active_gpu_lower = nullptr; // NOLINT
@@ -252,7 +252,7 @@ void dumpExprsIfEnabled(
         std::find(args.begin(), args.end(), pass_name) != args.end());
   };
   if (force_enable || enabled_by_env()) {
-    debug() << "After " << pass_name << ":" << std::endl;
+    debug() << "\nAfter " << pass_name << ":" << std::endl;
     for (auto exp : exprs) {
       // `Expr::toString()` already ends with a new line.
       debug() << exp->toString();
@@ -291,6 +291,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"instrumentKernel", instrumentKernel},
            {"lowerToInlinePtx", lowerToInlinePtx}}),
       cparams_(cparams) {
+  device_prop_ = at::cuda::getCurrentDeviceProperties();
   analysis(fusion);
 }
 
@@ -495,12 +496,14 @@ void GpuLower::analysis(Fusion* fusion) {
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
+    std::cout << "Building IdModel validateAndPropagatePType" << std::endl;
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
     id_model_->validateAndPropagatePType();
+    dumpExprsIfEnabled(fusion_->exprs(), "IdModel validateAndPropagatePType");
   }
 
   resolveComputeWith(fusion_);
@@ -543,12 +546,6 @@ void GpuLower::analysis(Fusion* fusion) {
   thread_pred_map_.build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build thread_pred_map_");
 
-  // Fuse cetain patterns of reductions, such as a grid reduction
-  // followed by a grid broadcast. Only depends on parallelization and
-  // thread predicate map.
-  fuseReductionsAndBroadcasts(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
-
   // Depends on ComputeAtMap
   validateAndConvertIterDomainGrouping(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateAndConvertIterDomainGrouping");
@@ -558,6 +555,12 @@ void GpuLower::analysis(Fusion* fusion) {
   // validateAndConvertIterDomainGrouping
   validateGroupedReductions(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateGroupedReductions");
+
+  // Fuse cetain patterns of reductions, such as a grid reduction
+  // followed by a grid broadcast. Only depends on parallelization and
+  // thread predicate map.
+  fuseReductionsAndBroadcasts(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "fuseReductionsAndBroadcasts");
 
   // Want to run this after parallel map is created.
   // Needs info about grouped reductions.
@@ -649,6 +652,7 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
       continue;
     }
     if (tv->hasComputeWith()) {
+      std::cout << "Resolving compute with for " << tv->toString() << std::endl;
       if (exprs_sorted.empty()) {
         exprs_sorted = reorderExprsForComputeAt();
       }
