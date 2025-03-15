@@ -1132,85 +1132,41 @@ Notes
 }
 
 void bindIrContainer(py::module& nvfuser) {
-  py::class_<nvfuser::IrContainer>(nvfuser, "IrContainer")
-      .def(py::init<>(), "Constructor for IrContainer")
-      .def(
-          "in_container",
-          &nvfuser::IrContainer::inContainer,
-          "Check if the statement is in the container.")
-      .def(
-          "deterministic_vals",
-          &nvfuser::IrContainer::deterministic_vals,
-          "Return values in insertion order.")
-      .def(
-          "deterministic_exprs",
-          &nvfuser::IrContainer::deterministic_exprs,
-          "Return expressions in insertion order.")
-      .def(
-          "deterministic_vals_map",
-          &nvfuser::IrContainer::deterministic_vals_map,
-          "Return mapping from value to integer ID.")
-      .def(
-          "deterministic_exprs_map",
-          &nvfuser::IrContainer::deterministic_exprs_map,
-          "Return mapping from expression to integer ID.")
-      .def(
-          "zero_val",
-          (nvfuser::Val * (nvfuser::IrContainer::*)()) &
-              nvfuser::IrContainer::zeroVal,
-          "Return the zero value.")
-      .def(
-          "zero_val",
-          (nvfuser::Val * (nvfuser::IrContainer::*)(nvfuser::DataType)) &
-              nvfuser::IrContainer::zeroVal,
-          "Return the zero value with the specified data type.")
-      .def(
-          "one_val",
-          (nvfuser::Val * (nvfuser::IrContainer::*)()) &
-              nvfuser::IrContainer::oneVal,
-          "Return the one value.")
-      .def(
-          "one_val",
-          (nvfuser::Val * (nvfuser::IrContainer::*)(nvfuser::DataType)) &
-              nvfuser::IrContainer::oneVal,
-          "Return the one value with the specified data type.")
-      .def(
-          "false_val",
-          &nvfuser::IrContainer::falseVal,
-          "Return the false value.")
-      .def("true_val", &nvfuser::IrContainer::trueVal, "Return the true value.")
-      .def(
-          "magic_zero_val",
-          &nvfuser::IrContainer::magicZeroVal,
-          "Return the magic zero value.")
-      .def(
-          "metadata_of",
-          &nvfuser::IrContainer::metadataOf,
-          "Return the metadata of the value.")
-      .def("axioms", &nvfuser::IrContainer::axioms, "Return the axioms.")
-      .def(
-          "assume_positive",
-          &nvfuser::IrContainer::assumePositive,
-          "Assume the value is positive.")
-      .def(
-          "assume_non_negative",
-          &nvfuser::IrContainer::assumeNonNegative,
-          "Assume the value is non-negative.")
-      .def(
-          "unordered_exprs",
-          &nvfuser::IrContainer::unordered_exprs,
-          "Return the set of unordered expressions.")
-      .def("vals", &nvfuser::IrContainer::vals, "Return the set of values.");
-
   py::class_<nvfuser::FusionGuard>(nvfuser, "FusionGuard")
-      .def(py::init<nvfuser::Fusion*>(), "Constructor for FusionGuard");
+      .def(
+          py::init<nvfuser::Fusion*>(),
+          py::arg("fusion"),
+          R"(
+Create a new FusionGuard to manage the active fusion context.
+
+A FusionGuard is a RAII-style guard that sets the active fusion context for the current scope.
+When the guard is created, it sets the provided fusion as the active fusion.
+When the guard is destroyed, it restores the previous fusion context.
+
+Parameters
+----------
+fusion : Fusion
+    The fusion to set as the active fusion context.
+
+Examples
+--------
+>>> fusion = Fusion()
+>>> with FusionGuard(fusion):
+...     # Define fusion operations here
+...     t0 = ops.add(x, y)
+...     # The fusion context is automatically restored when exiting the with block
+
+Notes
+-----
+- Only one fusion can be active at a time
+- The guard automatically handles saving and restoring the previous fusion context
+- It's recommended to use the guard in a with statement for automatic cleanup
+)");
 
   // NOTE: manage, get_managed, get_managed_safe, stop_managing, has_managed are
   // template functions. Pybind requires explicit template specialization.
-  py::class_<
-      nvfuser::Fusion,
-      nvfuser::IrContainer,
-      std::unique_ptr<nvfuser::Fusion, py::nodelete>>(nvfuser, "Fusion")
+  py::class_<nvfuser::Fusion, std::unique_ptr<nvfuser::Fusion, py::nodelete>>(
+      nvfuser, "Fusion")
       .def(py::init<>(), R"(
 Create a new Fusion.
 
