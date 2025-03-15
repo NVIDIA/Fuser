@@ -969,7 +969,7 @@ void scheduleReductionCombinedOuter(
     // merge tensorview to [reduction, iteraiton] domains
     mergeReductionOrIterDomains(outer_reduction_tv, true);
     mergeReductionOrIterDomains(outer_reduction_tv, false);
-    std::vector<int64_t> rfactor_axes{0};
+    std::vector<int64_t> rfactor_axes;
     // [R, I]
     if (rparams->unroll_factor_iter_dom > 1 &&
         !rparams->multiple_reds_per_blk) {
@@ -986,15 +986,34 @@ void scheduleReductionCombinedOuter(
           0, NamedScalar::getParallelDim(rparams->block_dim_iter_dom));
       outer_reduction_tv->split(
           0, NamedScalar::getParallelDim(rparams->grid_dim_iter_dom), false);
+      rfactor_axes.push_back(0);
       rfactor_axes.push_back(1);
     } else {
-      // [R/Unroll/gdimy, gdimy, Unroll]
-      outer_reduction_tv->split(0, rparams->lparams.gdimy());
-      if (rparams->unroll_factor_iter_dom > 1) {
-        rfactor_axes.push_back(2);
+      if(std::getenv("NOT_ALL_SM") && std::atoi(std::getenv("NOT_ALL_SM")) >=1){
+        int64_t n_rows = 16384;
+        int64_t sm_count = 148;
+        int64_t iter_per_cta = ceilDiv(n_rows, rparams->unroll_factor_iter_dom * sm_count);
+        int64_t gdimy = ceilDiv(n_rows, rparams->unroll_factor_iter_dom * iter_per_cta);
+        NVF_ERROR(
+            rparams->lparams.gdimy() >= gdimy,
+            "not enough gdimy, ",
+            gdimy);
+        // [gdimy, R/Unroll/gdimy, Unroll]
+        outer_reduction_tv->split(0, iter_per_cta);
+        if (rparams->unroll_factor_iter_dom > 1) {
+          rfactor_axes.push_back(1);
+          rfactor_axes.push_back(2);
+        }        
+      }else{
+        // [R/Unroll/gdimy, gdimy, Unroll]
+        outer_reduction_tv->split(0, rparams->lparams.gdimy());
+        rfactor_axes.push_back(0);
+        if (rparams->unroll_factor_iter_dom > 1) {
+          rfactor_axes.push_back(2);
+        }
       }
     }
-    std::cout << "outer_reduction_tv_partial: "
+    std::cout << "outer_reduction_tv stage 1: "
               << outer_reduction_tv->toString() << "\n";
 
     TensorView* partialResult = outer_reduction_tv->rFactor(rfactor_axes);
@@ -1006,6 +1025,8 @@ void scheduleReductionCombinedOuter(
     cached_gmem.emplace_back(partialResult);
     cached_gmem_reload.emplace_back(partialResultReload);
 
+    std::cout << "outer_reduction_tv after rFactor: "
+              << outer_reduction_tv->toString() << "\n";
     std::cout << "cached_gmem_reload: " << partialResultReload->toString()
               << "\n";
 

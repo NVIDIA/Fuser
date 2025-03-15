@@ -323,22 +323,39 @@ TensorView* scheduleReductionTV(
       // inner_unswitch(iter_axis);
     }
 
-    if (isParallelTypeThread(rparams->grid_dim_iter_dom)) {
-      if (rparams->split_grid_dim_iter_dom_outer) {
-        if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
+    if(std::getenv("NOT_ALL_SM") && std::atoi(std::getenv("NOT_ALL_SM")) >=1){
+      int64_t n_rows = 16384;
+      int64_t sm_count = 148;
+      int64_t iter_per_cta = ceilDiv(n_rows, rparams->unroll_factor_iter_dom * sm_count);
+      int64_t gdimy = ceilDiv(n_rows, rparams->unroll_factor_iter_dom * iter_per_cta);
+      NVF_ERROR(
+          rparams->lparams.gdimy() >= gdimy,
+          "not enough gdimy, ",
+          gdimy);
+      reduction_tv->split(iter_axis, iter_per_cta);
+      reduction_tv->axis(iter_axis)->parallelize(ParallelType::BIDy);
+    }else{
+      if (isParallelTypeThread(rparams->grid_dim_iter_dom)) {
+        if (rparams->split_grid_dim_iter_dom_outer) {
+          if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
+            inner_parallel_static(
+                iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+          } else {
+            outer_parallel(iter_axis, rparams->grid_dim_iter_dom);
+          }
+        } else if (rparams->split_grid_dim_iter_dom_inner) {
+          // inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
           inner_parallel_static(
-              iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+              iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimx());
         } else {
-          outer_parallel(iter_axis, rparams->grid_dim_iter_dom);
+          reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
         }
-      } else if (rparams->split_grid_dim_iter_dom_inner) {
-        // inner_parallel(iter_axis, rparams->grid_dim_iter_dom);
-        inner_parallel_static(
-            iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimx());
-      } else {
-        reduction_tv->axis(iter_axis)->parallelize(rparams->grid_dim_iter_dom);
       }
     }
+
+
+
+
   }
 
   std::cout << "reduction_tv: " << reduction_tv->toString() << std::endl;
