@@ -1467,6 +1467,7 @@ void scheduleInnerOuterPersistentKernel(
           if(tv->hasBroadcast()){
             // tv->cacheAfter();
             auto cached_tv = tv->cacheAfter();
+            cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
             tv_inline_pos_map.emplace(cached_tv, 2);
             std::cout << "tv: " << tv->toString() << std::endl;
             std::cout << "cached_tv: " << cached_tv->toString() << std::endl;

@@ -3205,4 +3205,89 @@ TEST_F(TMATest, CpAsyncBulk1D) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
+namespace {
+
+inline TensorView* makeBroadcastTensor(
+    const std::vector<bool>& is_broadcast_dim,
+    DataType input_dtype = DataType::Float) {
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(is_broadcast_dim.size());
+  for (auto is_broadcast : is_broadcast_dim) {
+    out_domain.push_back(
+        IterDomainBuilder(
+            FusionGuard::getCurFusion()->zeroVal(),
+            is_broadcast ? FusionGuard::getCurFusion()->oneVal()
+                         : IrBuilder::create<Val>(DataType::Index))
+            .iter_type(is_broadcast ? IterType::Broadcast : IterType::Iteration)
+            .build());
+  }
+  return IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      input_dtype);
+}
+
+} // namespace
+
+TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeBroadcastTensor({false,true}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = set(tv0);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv2->setMemoryType(MemoryType::Shared);
+  auto tv3 = set(tv1);
+  auto tv4 = set(tv2);
+  // influence results of reorderExprsForComputeAt
+  // If add(tv3, tv4), T2 is loaded before T3
+  // If add(tv4, tv3), T2 is loaded after T3
+  auto tv5 = add(tv3, tv4);
+  // auto tv5 = add(tv4, tv3);
+  auto tv6 = set(tv5);
+  fusion->addOutput(tv6);
+
+  //[BIDx, I/Unroll/BIDx, Unroll]
+  tv2->split(0, 4);
+  tv2->split(0, 148, false);
+  TransformPropagator propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  /// TIDx for computation, Bulk for load
+  tv2->axis(-1)->parallelize(ParallelType::Bulk);
+  // Only Unroll cached inputs
+  tv2->axis(2)->parallelize(ParallelType::Unroll);
+  tv3->axis(2)->parallelize(ParallelType::Unroll);
+  tv6->axis(2)->parallelize(ParallelType::Unroll);
+  for(auto tv : {tv3,tv4,tv5,tv6}){
+    tv->axis(-1)->parallelize(ParallelType::TIDx);
+  }
+  inlineMost();
+  //[BIDx, Unroll, Bulk]
+  // inlineAllAt(tv2, /*pos=*/1);
+
+
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+  tv2->circularBuffer(2, 1, circular_buffer_type);
+
+
+  constexpr int dim0 = 1024, dim1 = 256;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, 1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
+  testValidate(fusion.get(), outputs, {at_tv0, at_tv1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser
