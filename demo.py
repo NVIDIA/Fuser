@@ -9,8 +9,8 @@ from nvfuser import fusion
 f = fusion.Fusion()
 fg = fusion.FusionGuard(f)
 
-tv0 = fusion.TensorViewBuilder().n_dims(3).shape([2, 4, 8]).contiguity(True).build()
-tv1 = fusion.TensorViewBuilder().n_dims(3).shape([2, 4, 8]).contiguity(True).build()
+tv0 = fusion.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
+tv1 = fusion.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
 f.add_input(tv0)
 f.add_input(tv1)
 

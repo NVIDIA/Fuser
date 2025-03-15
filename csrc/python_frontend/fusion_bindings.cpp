@@ -318,7 +318,7 @@ void bindInternalBaseNodes(py::module& nvfuser) {
       nvfuser, "TensorDomain")
       .def("__eq__", &TensorDomain::operator==, "Equality operator")
       .def("__ne__", &TensorDomain::operator!=, "Inequality operator")
-      .def("n_dims", &TensorDomain::nDims, "Number of dimensions")
+      .def("num_dims", &TensorDomain::nDims, "Number of dimensions")
       .def(
           "same_as",
           (bool(TensorDomain::*)(const Statement*) const) &
@@ -478,17 +478,6 @@ compute_at_only : bool, optional
       nvfuser::TensorView,
       nvfuser::Val,
       std::unique_ptr<nvfuser::TensorView, py::nodelete>>(nvfuser, "TensorView")
-      .def(
-          py::init<
-              nvfuser::IrBuilderPasskey,
-              nvfuser::TensorDomain*,
-              nvfuser::DataType,
-              nvfuser::MemoryType>(),
-          py::arg("passkey"),
-          py::arg("domain"),
-          py::arg("dtype"),
-          py::arg("mtype") = nvfuser::MemoryType::Local,
-          "Constructor for TensorView")
       .def("to_string", &nvfuser::TensorView::toString, "Convert to string")
       .def(
           "to_inline_string",
@@ -616,7 +605,7 @@ compute_at_only : bool, optional
           "has_max_producer_position",
           &nvfuser::TensorView::hasMaxProducerPosition,
           "Check if has max producer position")
-      .def("n_dims", &nvfuser::TensorView::nDims, "Get number of dimensions")
+      .def("num_dims", &nvfuser::TensorView::nDims, "Get number of dimensions")
       .def(
           "set_cpu_scalar",
           &nvfuser::TensorView::setCpuScalar,
@@ -760,16 +749,6 @@ Notes
           py::return_value_policy::reference,
           "Swizzle (SwizzleType version)") // Overloaded function
       .def(
-          "swizzle",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(nvfuser::Swizzle2DType,
-                                      int64_t,
-                                      int64_t,
-                                      nvfuser::SwizzleMode)>(
-              &nvfuser::TensorView::swizzle),
-          py::return_value_policy::reference,
-          "Swizzle (Swizzle2DType version)") // Overloaded function
-      .def(
           "resize",
           &nvfuser::TensorView::resize,
           py::return_value_policy::reference,
@@ -780,14 +759,6 @@ Notes
               nvfuser::TensorView::*)(const std::vector<int64_t>&)>(
               &nvfuser::TensorView::rFactor),
           "R factor (single output)") // Overloaded function
-      .def(
-          "rfactor",
-          static_cast<std::vector<nvfuser::TensorView*> (
-              nvfuser::TensorView::*)(
-              const std::vector<int64_t>&,
-              const std::vector<nvfuser::TensorView*>&)>(
-              &nvfuser::TensorView::rFactor),
-          "R factor (multi-output)") // Overloaded function
       .def(
           "cache_before",
           &nvfuser::TensorView::cacheBefore,
@@ -880,34 +851,6 @@ Notes
           "circular_buffer_options",
           &nvfuser::TensorView::circularBufferOptions,
           "Get circular buffer options")
-      .def(
-          "apply_mma_swizzle",
-          static_cast<void (nvfuser::TensorView::*)(nvfuser::MmaOperand)>(
-              &nvfuser::TensorView::applyMmaSwizzle),
-          "Apply MMA swizzle (MmaOperand version)") // Overloaded function
-      .def(
-          "apply_mma_swizzle",
-          static_cast<void (nvfuser::TensorView::*)(
-              nvfuser::MmaInputSmemSwizzle)>(
-              &nvfuser::TensorView::applyMmaSwizzle),
-          "Apply MMA swizzle (MmaInputSmemSwizzle version)") // Overloaded
-                                                             // function
-      .def(
-          "swizzle_tma_box",
-          &nvfuser::TensorView::swizzleTMABox,
-          "Swizzle TMA box")
-      .def(
-          "apply_mma_swizzle_for_tma_load",
-          &nvfuser::TensorView::applyMmaSwizzleForTMALoad,
-          "Apply MMA swizzle for TMA load")
-      .def(
-          "has_swizzle_op",
-          &nvfuser::TensorView::hasSwizzleOp,
-          "Check if has swizzle op")
-      .def(
-          "set_has_swizzle_op",
-          &nvfuser::TensorView::setHasSwizzleOp,
-          "Set has swizzle op")
       .def(
           "inline_at",
           &nvfuser::TensorView::inlineAt,
@@ -1008,46 +951,184 @@ calc : MaxPosCalculator, optional
           "Set TMEM dimension separator position");
 
   py::class_<nvfuser::TensorViewBuilder>(nvfuser, "TensorViewBuilder")
-      .def(py::init<>(), "Constructor for TensorViewBuilder")
+      .def(py::init<>(), R"(
+Create a new TensorViewBuilder.
+
+A builder class for creating TensorViews with specified properties like dimensions,
+data type, contiguity, shape, and stride order.
+
+Examples
+--------
+>>> builder = TensorViewBuilder()
+>>> tv = (builder
+...       .num_dims(2)
+...       .dtype(DataType.Float)
+...       .shape([3, 4])
+...       .contiguity(True)
+...       .build())
+)")
       .def(
-          "n_dims",
+          "num_dims",
           &nvfuser::TensorViewBuilder::ndims,
-          "Set number of dimensions")
-      .def("dtype", &nvfuser::TensorViewBuilder::dtype, "Set data type")
+          py::arg("num_dimensions"),
+          R"(
+Set the number of dimensions for the TensorView.
+
+Parameters
+----------
+num_dimensions : int
+    Number of dimensions for the tensor.
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
+      .def(
+          "dtype",
+          &nvfuser::TensorViewBuilder::dtype,
+          py::arg("dtype"),
+          R"(
+Set the data type for the TensorView.
+
+Parameters
+----------
+dtype : DataType
+    The data type for the tensor (e.g., DataType.Float, DataType.Half).
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
       .def(
           "contiguity",
           static_cast<nvfuser::TensorViewBuilder& (
               nvfuser::TensorViewBuilder::*)(std::vector<std::optional<bool>>)>(
               &nvfuser::TensorViewBuilder::contiguity),
-          "Set contiguity (vector version)") // Overloaded function
+          py::arg("contiguity"),
+          R"(
+Set the contiguity for each dimension of the TensorView.
+
+Parameters
+----------
+contiguity : list of Optional[bool]
+    List of contiguity flags for each dimension. Use None for unspecified contiguity.
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
       .def(
           "contiguity",
           static_cast<nvfuser::TensorViewBuilder& (
               nvfuser::TensorViewBuilder::*)(bool)>(
               &nvfuser::TensorViewBuilder::contiguity),
-          "Set contiguity (bool version)") // Overloaded function
+          py::arg("contiguous"),
+          R"(
+Set uniform contiguity for all dimensions of the TensorView.
+
+Parameters
+----------
+contiguous : bool
+    If True, make all dimensions contiguous. If False, make all dimensions non-contiguous.
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
       .def(
           "shape",
           static_cast<nvfuser::TensorViewBuilder& (
               nvfuser::TensorViewBuilder::*)(std::vector<nvfuser::Val*>)>(
               &nvfuser::TensorViewBuilder::shape),
-          "Set shape (Val* version)") // Overloaded function
+          py::arg("shape"),
+          R"(
+Set the shape of the TensorView using Val pointers.
+
+Parameters
+----------
+shape : list of Val
+    List of Val pointers defining the size of each dimension.
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
       .def(
           "shape",
           static_cast<nvfuser::TensorViewBuilder& (
               nvfuser::TensorViewBuilder::*)(const std::vector<int64_t>&)>(
               &nvfuser::TensorViewBuilder::shape),
-          "Set shape (int64_t version)") // Overloaded function
-      .def("expanded", &nvfuser::TensorViewBuilder::expanded, "Set expanded")
+          py::arg("shape"),
+          R"(
+Set the shape of the TensorView using integer values.
+
+Parameters
+----------
+shape : list of int
+    List of integers defining the size of each dimension.
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
+      .def(
+          "expanded",
+          &nvfuser::TensorViewBuilder::expanded,
+          py::arg("expanded"),
+          R"(
+Set whether dimensions are expanded.
+
+Parameters
+----------
+expanded : list of bool
+    List of flags indicating whether each dimension is expanded.
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
       .def(
           "stride_order",
           &nvfuser::TensorViewBuilder::strideOrder,
-          "Set stride order")
+          py::arg("stride_order"),
+          R"(
+Set the stride order of the dimensions.
+
+Parameters
+----------
+stride_order : list of int
+    List of indices defining the stride ordering of dimensions.
+    The ordering is from fastest varying (innermost) to slowest varying (outermost).
+
+Returns
+-------
+TensorViewBuilder
+    The builder instance for method chaining.
+)")
       .def(
           "build",
           &nvfuser::TensorViewBuilder::build,
           py::return_value_policy::reference,
-          "Build TensorView");
+          R"(
+Build and return the configured TensorView.
+
+Returns
+-------
+TensorView
+    A new TensorView instance with the configured properties.
+
+Notes
+-----
+- All required properties (dimensions, dtype, shape) must be set before building.
+- The build method validates the configuration before creating the TensorView.
+)");
 }
 
 void bindIrContainer(py::module& nvfuser) {
