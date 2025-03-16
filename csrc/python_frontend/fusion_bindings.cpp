@@ -454,340 +454,149 @@ void bindInternalBaseNodes(py::module& nvfuser) {
 }
 
 void bindInterfaceNodes(py::module& nvfuser) {
-  py::class_<nvfuser::MaxPosCalculator>(nvfuser, "MaxPosCalculator")
-      .def(
-          py::init<std::unordered_set<IterDomain*>, bool>(),
-          py::arg("uninlinable_ids") = std::unordered_set<IterDomain*>(),
-          py::arg("compute_at_only") = false,
-          R"(
-MaxPosCalculator(uninlinable_ids=set(), compute_at_only=False)
-
-A utility class for calculating maximum valid inlining positions for tensors.
-
-Parameters
-----------
-uninlinable_ids : set of IterDomain, optional
-    Set of iteration domains that should not be inlined. Default is empty set.
-compute_at_only : bool, optional
-    If True, only consider compute-at operations when determining positions.
-    If False, consider both compute-at and compute-with operations.
-    Default is False.
-)");
-
   py::class_<
       nvfuser::TensorView,
       nvfuser::Val,
       std::unique_ptr<nvfuser::TensorView, py::nodelete>>(nvfuser, "TensorView")
-      .def("to_string", &nvfuser::TensorView::toString, "Convert to string")
       .def(
-          "to_inline_string",
-          &nvfuser::TensorView::toInlineString,
-          "Convert to inline string")
+          "__str__",
+          [](TensorView* self) { return self->toString(/*indent_size=*/0); },
+          "Convert the TensorView to a string representation.")
       .def(
-          "print_transforms",
-          &nvfuser::TensorView::printTransforms,
-          "Print transformations")
-      .def(
-          "domain",
-          &nvfuser::TensorView::domain,
-          py::return_value_policy::reference,
-          "Get the TensorDomain") // Assuming you want to return a reference
-      .def(
-          "set_contiguity",
-          static_cast<void (nvfuser::TensorView::*)(
-              const std::vector<std::optional<bool>>&)>(
-              &nvfuser::TensorView::setContiguity),
-          "Set contiguity (vector version)") // Overloaded function
-      .def(
-          "set_contiguity",
-          static_cast<void (nvfuser::TensorView::*)(bool)>(
-              &nvfuser::TensorView::setContiguity),
-          "Set contiguity (bool version)") // Overloaded function
-      .def(
-          "get_contiguity",
-          &nvfuser::TensorView::getContiguity,
-          "Get contiguity")
-      .def(
-          "has_reduction",
-          &nvfuser::TensorView::hasReduction,
-          "Check if has reduction")
-      .def(
-          "has_block_reduction",
-          &nvfuser::TensorView::hasBlockReduction,
-          "Check if has block reduction")
-      .def(
-          "has_grid_reduction",
-          &nvfuser::TensorView::hasGridReduction,
-          "Check if has grid reduction")
-      .def(
-          "has_broadcast",
-          &nvfuser::TensorView::hasBroadcast,
-          "Check if has broadcast")
-      .def("has_root", &nvfuser::TensorView::hasRoot, "Check if has root")
-      .def(
-          "has_allocation",
-          &nvfuser::TensorView::hasAllocation,
-          "Check if has allocation")
-      .def(
-          "is_zero_dim",
-          &nvfuser::TensorView::isZeroDim,
-          "Check if zero dimensional")
-      .def(
-          "is_empty_tensor",
-          &nvfuser::TensorView::isEmptyTensor,
-          "Check if empty tensor")
-      .def(
-          "get_reduction_axis",
-          &nvfuser::TensorView::getReductionAxis,
-          "Get reduction axis")
-      .def(
-          "get_root_domain",
-          &nvfuser::TensorView::getRootDomain,
-          py::return_value_policy::reference,
-          "Get root domain")
-      .def(
-          "get_maybe_root_domain",
-          &nvfuser::TensorView::getMaybeRootDomain,
-          py::return_value_policy::reference,
-          "Get maybe root domain")
+          "num_dims",
+          &nvfuser::TensorView::nDims,
+          R"(
+Get the number of dimensions in this tensor.
+
+Returns
+-------
+int
+    The number of dimensions.
+)")
       .def(
           "get_logical_domain",
           &nvfuser::TensorView::getLogicalDomain,
-          py::return_value_policy::reference,
-          "Get logical domain")
+          R"(
+Get the logical domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The logical iteration domains.
+)")
       .def(
-          "get_allocation_domain",
-          &nvfuser::TensorView::getAllocationDomain,
-          py::return_value_policy::reference,
-          "Get allocation domain")
-      .def(
-          "get_loop_domain",
-          &nvfuser::TensorView::getLoopDomain,
-          py::return_value_policy::reference,
-          "Get loop domain")
-      .def(
-          "get_initial_loop_domain",
-          &nvfuser::TensorView::getInitialLoopDomain,
-          py::return_value_policy::reference,
-          "Get initial loop domain")
+          "get_maybe_root_domain",
+          &nvfuser::TensorView::getMaybeRootDomain,
+          R"(
+Get the root domain of this tensor if it exists.
+
+Returns
+-------
+list of IterDomain
+    The root iteration domains.
+)")
       .def(
           "get_maybe_allocation_domain",
           &nvfuser::TensorView::getMaybeAllocationDomain,
-          py::return_value_policy::reference,
-          "Get maybe allocation domain")
+          R"(
+Get the allocation domain of this tensor if it exists.
+
+Returns
+-------
+list of IterDomain
+    The allocation iteration domains.
+)")
       .def(
-          "set_loop_domain",
-          &nvfuser::TensorView::setLoopDomain,
-          "Set loop domain")
-      .def(
-          "set_allocation_domain",
-          static_cast<void (nvfuser::TensorView::*)(
-              std::vector<nvfuser::IterDomain*>,
-              std::vector<std::optional<bool>>)>(
-              &nvfuser::TensorView::setAllocationDomain),
-          "Set allocation domain (vector version)") // Overloaded function
-      .def(
-          "set_allocation_domain",
-          static_cast<void (nvfuser::TensorView::*)(
-              std::vector<nvfuser::IterDomain*>, bool)>(
-              &nvfuser::TensorView::setAllocationDomain),
-          "Set allocation domain (bool version)") // Overloaded function
+          "get_loop_domain",
+          &nvfuser::TensorView::getLoopDomain,
+          R"(
+Get the loop domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The loop iteration domains.
+)")
       .def(
           "axis",
           &nvfuser::TensorView::axis,
-          py::return_value_policy::reference,
-          "Get axis")
-      .def(
-          "has_compute_at",
-          &nvfuser::TensorView::hasComputeAt,
-          "Check if has computeAt")
-      .def(
-          "has_max_producer_position",
-          &nvfuser::TensorView::hasMaxProducerPosition,
-          "Check if has max producer position")
-      .def("num_dims", &nvfuser::TensorView::nDims, "Get number of dimensions")
-      .def(
-          "set_cpu_scalar",
-          &nvfuser::TensorView::setCpuScalar,
-          "Set CPU scalar")
-      .def(
-          "is_cpu_scalar",
-          &nvfuser::TensorView::isCpuScalar,
-          "Check if is CPU scalar")
-      .def(
-          "get_compute_at_position",
-          &nvfuser::TensorView::getComputeAtPosition,
-          "Get computeAt position")
-      .def(
-          "get_max_producer_position",
-          &nvfuser::TensorView::getMaxProducerPosition,
-          "Get max producer position")
-      .def(
-          "get_maybe_max_producer_position",
-          &nvfuser::TensorView::getMaybeMaxProducerPosition,
-          "Get maybe max producer position")
-      .def(
-          "clear_reduction_iter_domains",
-          &nvfuser::TensorView::clearReductionIterDomains,
-          "Clear reduction iter domains")
-      .def(
-          "compute_at",
-          &nvfuser::TensorView::computeAt,
-          py::return_value_policy::reference,
-          "Compute at")
-      .def(
-          "broadcast",
-          static_cast<nvfuser::TensorView* (nvfuser::TensorView::*)(int64_t,
-                                                                    int64_t)>(
-              &nvfuser::TensorView::broadcast),
-          py::return_value_policy::reference,
-          "Broadcast (int64_t version)") // Overloaded function
-      .def(
-          "broadcast",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(int64_t, nvfuser::Val*)>(
-              &nvfuser::TensorView::broadcast),
-          py::return_value_policy::reference,
-          "Broadcast (Val* version)") // Overloaded function
-      .def(
-          "split",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(int64_t, int64_t, bool)>(
-              &nvfuser::TensorView::split),
-          py::arg("axis"),
-          py::arg("factor"),
-          py::arg("inner_split") = true,
+          py::arg("index"),
           py::return_value_policy::reference,
           R"(
-Split an axis into two axes by a constant factor.
+Get the iteration domain at the specified axis.
 
 Parameters
 ----------
-axis : int
-    The axis to split. Negative indexing is supported.
-factor : int
-    The size of the split. Must be greater than 0.
-inner_split : bool, optional
-    If True, the factor section of the split will be inside the remainder.
-    If False, the factor section will be outside the remainder.
-    Default is True.
+index : int
+    The axis index.
 
 Returns
 -------
-TensorView
-    The tensor view with the split axis.
+IterDomain
+    The iteration domain at the specified axis.
 )")
       .def(
-          "merge",
-          static_cast<nvfuser::TensorView* (nvfuser::TensorView::*)(int64_t)>(
-              &nvfuser::TensorView::merge),
-          py::arg("axis"),
+          "has_reduction",
+          &nvfuser::TensorView::hasReduction,
+          R"(
+Check if this tensor has any reduction axes.
+
+Returns
+-------
+bool
+    True if the tensor has reduction axes, False otherwise.
+)")
+      .def(
+          "has_broadcast",
+          &nvfuser::TensorView::hasBroadcast,
+          R"(
+Check if this tensor has any broadcast axes.
+
+Returns
+-------
+bool
+    True if the tensor has broadcast axes, False otherwise.
+)")
+      .def(
+          "is_fusion_input",
+          &nvfuser::TensorView::isFusionInput,
+          R"(
+Check if this tensor is a fusion input.
+
+Returns
+-------
+bool
+    True if the tensor is a fusion input, False otherwise.
+)")
+      .def(
+          "definition",
+          &nvfuser::TensorView::definition,
           py::return_value_policy::reference,
           R"(
-Merge an axis with the following axis into a single dimension.
-
-Parameters
-----------
-axis : int
-    The outer axis to merge. The axis at position (axis + 1) will be merged with this axis.
-    Negative indexing is supported.
+Get the expression that defines this tensor.
 
 Returns
 -------
-TensorView
-    The tensor view with the merged axes.
-
-Notes
------
-- Cannot merge axes within compute-at position or max producer position.
-- At least one of the axes being merged must have Serial parallel type.
-- Merging is done by multiplying the extents of the axes being merged.
-- The resulting merged axis will be at the position of the outer axis.
-- This is equivalent to calling merge(axis, axis + 1).
-- The tensor must have at least 2 dimensions to perform a merge.
+Expr
+    The defining expression, or None if this is an input.
 )")
-      .def(
-          "flatten",
-          &nvfuser::TensorView::flatten,
-          py::return_value_policy::reference,
-          "Flatten")
-      .def(
-          "reorder",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::
-                  TensorView::*)(const std::unordered_map<int64_t, int64_t>&)>(
-              &nvfuser::TensorView::reorder),
-          py::return_value_policy::reference,
-          "Reorder (unordered_map version)") // Overloaded function
-      .def(
-          "reorder",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(const std::initializer_list<
-                                      std::pair<const int64_t, int64_t>>&)>(
-              &nvfuser::TensorView::reorder),
-          py::return_value_policy::reference,
-          "Reorder (initializer_list of pairs version)") // Overloaded function
-      .def(
-          "reorder",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(const std::vector<int64_t>&)>(
-              &nvfuser::TensorView::reorder),
-          py::return_value_policy::reference,
-          "Reorder (vector version)") // Overloaded function
-      .def(
-          "reorder",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(const std::initializer_list<int64_t>&)>(
-              &nvfuser::TensorView::reorder),
-          py::return_value_policy::reference,
-          "Reorder (initializer_list version)") // Overloaded function
-      .def(
-          "swizzle",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(nvfuser::SwizzleType, int64_t, int64_t)>(
-              &nvfuser::TensorView::swizzle),
-          py::return_value_policy::reference,
-          "Swizzle (SwizzleType version)") // Overloaded function
-      .def(
-          "resize",
-          &nvfuser::TensorView::resize,
-          py::return_value_policy::reference,
-          "Resize")
-      .def(
-          "rfactor",
-          static_cast<nvfuser::TensorView* (
-              nvfuser::TensorView::*)(const std::vector<int64_t>&)>(
-              &nvfuser::TensorView::rFactor),
-          "R factor (single output)") // Overloaded function
       .def(
           "cache_before",
           &nvfuser::TensorView::cacheBefore,
           py::arg("op_type") = LoadStoreOpType::Set,
           py::return_value_policy::reference,
           R"(
-Create a TensorView before the original tensor. A common use case is to write results into shared memory or registers before moving to global memory.
-Analogous to TVM Cache_Write.
+Create a cache of this tensor before its computation.
 
 Parameters
 ----------
 op_type : LoadStoreOpType, optional
-    Memory operator to use for the inserted op between the data tensor and the cache tensor.
-    Default is LoadStoreOpType::Set.
+    The type of load/store operation. Default is Set.
 
 Returns
 -------
 TensorView
-    The newly created cache tensor (producer).
-
-Notes
------
-- Cannot be used on fusion inputs (tensor must have a definition).
-- Caching computed-at tensors is not allowed. Apply caching before computeAt.
-- If any producer tensor has computeAt, you must apply caching before computeAt.
-- The operation creates a new tensor that becomes the producer, while the original tensor becomes the consumer.
-- Transformation sequence:
-  Before: Prev TV -> [Definition Op] -> This TV
-  After:  Prev TV -> [Definition Op] -> New CB TV -> [Set Op] -> This TV
+    The newly created cache tensor.
 )")
       .def(
           "cache_after",
@@ -798,157 +607,121 @@ Notes
           py::arg("cached_uses") = std::vector<Expr*>{},
           py::return_value_policy::reference,
           R"(
-Create a TensorView after the original tensor. A common use case is to read tensor into shared memory or registers.
-Analogous to TVM Cache_Read.
+Create a cache of this tensor after its computation.
 
 Parameters
 ----------
 op_type : LoadStoreOpType, optional
-    Memory operator to use for the inserted op between the data tensor and the cache tensor.
-    Default is LoadStoreOpType::Set.
+    The type of load/store operation. Default is Set.
 cache_op : CacheOp, optional
-    Cache operator type. Default is CacheOp::Unspecified.
+    The type of cache operation. Default is Unspecified.
 propagate_allocation_domain : bool, optional
-    Whether to replay allocation domain on cached load. Default is True.
-cached_uses : list of Expr, optional
-    If empty, cache all uses. Otherwise, only try to cache uses in cached_uses.
-    Default is empty list.
+    Whether to propagate the allocation domain. Default is True.
 
 Returns
 -------
 TensorView
     The newly created cache tensor.
-
-Notes
------
-- Caching computed-at tensors is not allowed. Apply caching before computeAt.
-- Cannot cache tensors that are input to select/slice/pad ops as they must be in global memory.
-- If this tensor is a fusion input and outputs of its consumers have computeAt,
-  you must apply caching before computeAt.
 )")
-      .def(
-          "cache_fork",
-          &nvfuser::TensorView::cacheFork,
-          py::return_value_policy::reference,
-          "Cache fork")
-      .def(
-          "get_memory_type",
-          &nvfuser::TensorView::getMemoryType,
-          "Get memory type")
       .def(
           "set_memory_type",
           &nvfuser::TensorView::setMemoryType,
-          "Set memory type")
-      .def(
-          "circular_buffer",
-          &nvfuser::TensorView::circularBuffer,
-          "Apply circular buffer")
-      .def(
-          "is_circular_buffered",
-          &nvfuser::TensorView::isCircularBuffered,
-          "Check if circular buffered")
-      .def(
-          "circular_buffer_options",
-          &nvfuser::TensorView::circularBufferOptions,
-          "Get circular buffer options")
-      .def(
-          "inline_at",
-          &nvfuser::TensorView::inlineAt,
-          py::arg("pos"),
-          py::arg("best_effort") = false,
-          py::arg("calc") = py::none(),
+          py::arg("memory_type"),
           R"(
-Inline the computation of this tensor into its consumer at the given position.
+Set the memory type of this tensor.
 
 Parameters
 ----------
-pos : int
-    The position at which to inline. Must be >= 0.
-best_effort : bool, optional
-    If True, will inline at the highest allowed position that is <= pos.
-    If False, will attempt to inline exactly at pos.
-    Default is False.
-calc : MaxPosCalculator, optional
-    Calculator to determine valid inlining positions.
-    If None, a new calculator will be created.
-    Default is None.
+memory_type : MemoryType
+    The memory type to set (e.g., Global, Shared, Local).
 )")
-      .def("compute_with", &nvfuser::TensorView::computeWith, "Compute with")
       .def(
-          "resolve_compute_with",
-          &nvfuser::TensorView::resolveComputeWith,
-          "Resolve compute with")
-      .def(
-          "has_compute_with",
-          &nvfuser::TensorView::hasComputeWith,
-          "Check if has compute with")
-      .def(
-          "has_resolved_compute_with",
-          &nvfuser::TensorView::hasResolvedComputeWith,
-          "Check if has resolved compute with")
-      .def(
-          "is_computed_with",
-          &nvfuser::TensorView::isComputedWith,
-          "Check if is computed with")
-      .def(
-          "get_compute_with_consumers",
-          &nvfuser::TensorView::getComputeWithConsumers,
+          "split",
+          static_cast<TensorView* (
+              nvfuser::TensorView::*)(int64_t, int64_t, bool)>(
+              &nvfuser::TensorView::split),
+          py::arg("axis"),
+          py::arg("factor"),
+          py::arg("inner_split") = true,
           py::return_value_policy::reference,
-          "Get compute with consumers")
-      .def(
-          "get_compute_with_position",
-          &nvfuser::TensorView::getComputeWithPosition,
-          "Get compute with position")
-      .def(
-          "get_max_compute_position",
-          &nvfuser::TensorView::getMaxComputePosition,
-          "Get max compute position")
-      .def(
-          "get_compute_position",
-          &nvfuser::TensorView::getComputePosition,
-          "Get compute position")
-      .def(
-          "update_max_producer_position",
-          &nvfuser::TensorView::updateMaxProducerPosition,
-          py::arg("calc") = py::none(),
           R"(
-Update the maximum producer position of the current tensor.
+Split an axis into two axes.
 
 Parameters
 ----------
-calc : MaxPosCalculator, optional
-    Calculator to determine valid positions. If None, a new calculator will be created.
-    Default is None.
+axis : int
+    The axis to split.
+factor : int
+    The factor to split by.
+inner_split : bool, optional
+    If True, the factor determines the size of the inner domain.
+    If False, the factor determines the size of the outer domain.
+    Default is True.
+
+Returns
+-------
+TensorView
+    A TensorView with the split axes in its loop domain.
 )")
       .def(
-          "commit_leaf_to_logical",
-          &nvfuser::TensorView::commitLeafToLogical,
-          "Commit leaf to logical")
-      .def("promote_reuse", &nvfuser::TensorView::promoteReuse, "Promote reuse")
+          "merge",
+          static_cast<TensorView* (nvfuser::TensorView::*)(int64_t)>(
+              &nvfuser::TensorView::merge),
+          py::arg("axis"),
+          py::return_value_policy::reference,
+          R"(
+Merge an axis with the following axis into one.
+
+Parameters
+----------
+axis : int
+    The axis to merge.
+
+Returns
+-------
+TensorView
+    A TensorView with the merged axis in its loop domain.
+)")
       .def(
-          "should_promote_reuse",
-          &nvfuser::TensorView::shouldPromoteReuse,
-          "Check if should promote reuse")
+          "reorder",
+          static_cast<TensorView* (
+              nvfuser::
+                  TensorView::*)(const std::unordered_map<int64_t, int64_t>&)>(
+              &nvfuser::TensorView::reorder),
+          py::arg("old2new"),
+          R"(
+Reorder the axes according to the given mapping.
+
+Parameters
+----------
+old2new : dict of int to int
+    Mapping from old positions to new positions.
+
+Returns
+-------
+TensorView
+    A TensorView with its loop domain reordered.
+)")
       .def(
-          "set_device_mesh",
-          &nvfuser::TensorView::setDeviceMesh,
-          "Set device mesh")
-      .def(
-          "get_device_mesh",
-          &nvfuser::TensorView::getDeviceMesh,
-          "Get device mesh")
-      .def(
-          "has_device_mesh",
-          &nvfuser::TensorView::hasDeviceMesh,
-          "Check if has device mesh")
-      .def(
-          "get_tmem_dim_sep_pos",
-          &nvfuser::TensorView::getTMemDimSepPos,
-          "Get TMEM dimension separator position")
-      .def(
-          "set_tmem_dim_sep_pos",
-          &nvfuser::TensorView::setTMemDimSepPos,
-          "Set TMEM dimension separator position");
+          "rfactor",
+          static_cast<TensorView* (
+              nvfuser::TensorView::*)(const std::vector<int64_t>&)>(
+              &nvfuser::TensorView::rFactor),
+          py::arg("axes"),
+          py::return_value_policy::reference,
+          R"(
+Perform an rfactor transformation on the specified axes.
+
+Parameters
+----------
+axes : list of int
+    The axes to apply rfactor to.
+
+Returns
+-------
+TensorView
+    The newly created rfactor tensor.
+)");
 
   py::class_<nvfuser::TensorViewBuilder>(nvfuser, "TensorViewBuilder")
       .def(py::init<>(), R"(
@@ -1127,7 +900,7 @@ TensorView
 Notes
 -----
 - All required properties (dimensions, dtype, shape) must be set before building.
-- The build method validates the configuration before creating the TensorView.
+- The build method validates the configuNVFUSER::DIMENSION SEPARATOR POSITION.
 )");
 }
 
