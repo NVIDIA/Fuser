@@ -192,124 +192,173 @@ void bindInternalBaseNodes(py::module& nvfuser) {
       .def(
           "same_as",
           &nvfuser::IterDomain::sameAs,
-          "Return if this statement is the same as another statement")
+          py::arg("other"),
+          R"(
+Check if this IterDomain is the same as another statement.
+
+Parameters
+----------
+other : Statement
+    The statement to compare with.
+
+Returns
+-------
+bool
+    True if the statements are the same, False otherwise.
+)")
       .def(
-          "to_string",
-          (std::string(nvfuser::IterDomain::*)(
-              int))&nvfuser::IterDomain::toString,
-          py::arg("indent_size") = 0,
-          "Return the string representation of the statement")
+          "__str__",
+          [](IterDomain* self) { return self->toString(/*indent_size=*/0); },
+          "Convert the IterDomain to a string representation.")
       .def(
           "is_reduction",
           &nvfuser::IterDomain::isReduction,
-          "Return if this iter domain is reduction")
+          R"(
+Check if this is a reduction domain.
+
+Returns
+-------
+bool
+    True if this is a reduction domain, False otherwise.
+)")
       .def(
           "is_iteration",
           &nvfuser::IterDomain::isIteration,
-          "Return if this iter domain is iteration")
-      .def(
-          "is_r_factor_product",
-          &nvfuser::IterDomain::isRFactorProduct,
-          "Return if this iter domain is rfactor product")
+          R"(
+Check if this is an iteration domain.
+
+Returns
+-------
+bool
+    True if this is an iteration domain, False otherwise.
+)")
       .def(
           "is_broadcast",
           &nvfuser::IterDomain::isBroadcast,
-          "Return if this iter domain is broadcast")
+          R"(
+Check if this is a broadcast domain.
+
+Returns
+-------
+bool
+    True if this is a broadcast domain, False otherwise.
+)")
       .def(
           "is_symbolic",
           &nvfuser::IterDomain::isSymbolic,
-          "Return if this iter domain is symbolic")
+          R"(
+Check if this is a symbolic domain.
+
+Returns
+-------
+bool
+    True if this is a symbolic domain, False otherwise.
+)")
       .def(
-          "is_gather_scatter",
-          &nvfuser::IterDomain::isGatherScatter,
-          "Return if this iter domain is gather scatter")
-      .def(
-          "is_stride",
-          &nvfuser::IterDomain::isStride,
-          "Return if this iter domain is stride")
-      .def(
-          "is_vector_component",
-          &nvfuser::IterDomain::isVectorComponent,
-          "Return if this iter domain is vector component")
+          "is_rfactor_product",
+          &nvfuser::IterDomain::isRFactorProduct,
+          R"(
+Check if this domain is an rfactor product.
+
+Returns
+-------
+bool
+    True if this is an rfactor product, False otherwise.
+)")
       .def(
           "is_parallelized",
           &nvfuser::IterDomain::isParallelized,
-          "Return if this iter domain is parallelized")
+          R"(
+Check if this domain is parallelized.
+
+Returns
+-------
+bool
+    True if this domain is parallelized, False otherwise.
+)")
       .def(
-          "is_block_dim",
-          &nvfuser::IterDomain::isBlockDim,
-          "Return if this iter domain is mapped to a grid dimension")
+          "get_parallel_type",
+          &nvfuser::IterDomain::getParallelType,
+          R"(
+Get the parallel type of this domain.
+
+Returns
+-------
+ParallelType
+    The parallel type of this domain.
+)")
       .def(
-          "is_thread_dim",
-          &nvfuser::IterDomain::isThreadDim,
-          "Return if this iter domain is mapped to a block dimension")
+          "get_iter_type",
+          &nvfuser::IterDomain::getIterType,
+          R"(
+Get the iteration type of this domain.
+
+Returns
+-------
+IterType
+    The iteration type of this domain.
+)")
       .def(
-          "is_thread",
-          &nvfuser::IterDomain::isThread,
-          "Return if this iter domain is either mapped to a block or grid dimension")
+          "extent",
+          &nvfuser::IterDomain::extent,
+          R"(
+Get the extent of this domain.
+
+Returns
+-------
+Val
+    The extent of this domain.
+)")
       .def(
-          "is_device_dim",
-          &nvfuser::IterDomain::isDeviceDim,
-          "Return if this iter domain is device dimension")
-      .def("parallelize", &nvfuser::IterDomain::parallelize, py::arg("t"), "")
-      .def("get_parallel_type", &nvfuser::IterDomain::getParallelType, "")
-      .def("get_iter_type", &nvfuser::IterDomain::getIterType, "")
-      .def("start", &nvfuser::IterDomain::start, "")
-      .def("stop", &nvfuser::IterDomain::stop, "")
-      .def("stop_offset", &nvfuser::IterDomain::stopOffset, "")
-      .def("extent", &nvfuser::IterDomain::extent, "")
-      .def("has_expanded_extent", &nvfuser::IterDomain::hasExpandedExtent, "")
+          "has_expanded_extent",
+          &nvfuser::IterDomain::hasExpandedExtent,
+          R"(
+Check if this domain has an expanded extent.
+
+Returns
+-------
+bool
+    True if this domain has an expanded extent, False otherwise.
+)")
       .def(
           "expanded_extent",
           &nvfuser::IterDomain::expandedExtent,
-          "Returns the expanded extent of a strided broadcast entry.")
-      .def(
-          "get_maybe_expanded_extent",
-          &nvfuser::IterDomain::getMaybeExpandedExtent,
-          "")
-      .def(
-          "has_padding_to_multiple_of_warp",
-          &nvfuser::IterDomain::hasPaddingToMultipleOfWarp,
-          "Indicates if this iterdomain had padding dynamical or statical")
-      .def(
-          "get_maybe_size_after_padding",
-          &nvfuser::IterDomain::getMaybeSizeAfterPadding,
-          "Returns a concrete value if this iterdomain has been padded to a statical size.")
+          R"(
+Get the expanded extent of this domain.
+
+Returns
+-------
+Val
+    The expanded extent of this domain.
+)")
       .def(
           "maybe_partial",
           &nvfuser::IterDomain::maybePartial,
-          "True if range of iteration domain isn't across the full extent")
+          R"(
+Check if this domain may be partial.
+
+Returns
+-------
+bool
+    True if this domain may be partial, False otherwise.
+)")
       .def(
-          "is_implicit_broadcast",
-          &nvfuser::IterDomain::isImplicitBroadcast,
-          "Check if IterDomain is a broadcast axis with compile-time known extent. "
-          "This is the case with all size-1 IterDomains on a TensorView's root domain "
-          "when the TensorView is created.")
-      .def(
-          "strided_split",
-          &nvfuser::IterDomain::stridedSplit,
-          py::arg("factor"),
-          "Split for stride by a given factor. "
-          "It effectively does an inner split by the factor and sets the inner domain as a Stride domain.")
-      .def(
-          "is_mma",
-          &nvfuser::IterDomain::isMma,
-          "Marks that this id represents a instruction loop, mma use only. "
-          "An instruction loop can be considered a generalization of vectorization. "
-          "It also represents a loop that's implemented by an instruction and "
-          "should not be realized by codegen and cannot be inlined with. "
-          "As an example, if a mma macro, call it mma_eg implements: "
-          "for m in M for n in N for k in K C[m,n] += A[m,k]*B[k,n], "
-          "But the generated code should simply be: mma_eg(C,A,B) "
-          "without the 3 level loopnest, i.e. they're instruction loops. "
-          "In the actual mma macros, the loopnests it implements is a "
-          "transformed version of above to match the mma swizzle. "
-          "So it's different implicit loopnest for different macros. "
-          "MmaSwizzler will label the instruction loops case-by-case.")
-      .def(
-          "is_bulk",
-          &nvfuser::IterDomain::isBulk,
-          "Marks that this id represents an instruction loop, cp.async.bulk use only.");
+          "parallelize",
+          &nvfuser::IterDomain::parallelize,
+          py::arg("parallel_type"),
+          R"(
+Set the parallel type of this domain.
+
+Parameters
+----------
+parallel_type : ParallelType
+    The type of parallelization to apply (e.g., BIDx, TIDx, etc.).
+
+Notes
+-----
+This is a key function used in scheduling to specify how the domain should be parallelized
+across CUDA threads and blocks.
+)");
 
   py::class_<
       nvfuser::TensorDomain,
