@@ -866,7 +866,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       } else if (op_type == UnaryOpType::RefCast) {
         code_ << "(*reinterpret_cast<" << uop->out()->dtype() << "*>(&";
       } else {
-        code_ << op_type;
+        if(std::getenv("USE_FAST_RCP") && std::atoi(std::getenv("USE_FAST_RCP")) && op_type == UnaryOpType::Reciprocal){ 
+          code_ << "fast_reciprocal";
+        }else{
+          code_ << op_type;
+        }
         if (needFloatSuffix(op_type) &&
             uop->out()->dtype() == DataType::Float) {
           code_ << "f";
