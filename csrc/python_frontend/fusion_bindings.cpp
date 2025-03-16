@@ -168,22 +168,6 @@ void bindBaseNodes(py::module& nvfuser) {
 }
 
 void bindInternalBaseNodes(py::module& nvfuser) {
-  // IterType
-  py::enum_<nvfuser::IterType>(nvfuser, "IterType")
-      .value("Iteration", nvfuser::IterType::Iteration)
-      .value("Reduction", nvfuser::IterType::Reduction)
-      .value("Broadcast", nvfuser::IterType::Broadcast)
-      .value("Stride", nvfuser::IterType::Stride)
-      .value("GatherScatter", nvfuser::IterType::GatherScatter)
-      .value("VectorComponent", nvfuser::IterType::VectorComponent)
-      .value("Symbolic", nvfuser::IterType::Symbolic);
-
-  // SwizzleType
-  py::enum_<nvfuser::SwizzleType>(nvfuser, "SwizzleType")
-      .value("NoSwizzle", nvfuser::SwizzleType::NoSwizzle)
-      .value("XOR", nvfuser::SwizzleType::XOR)
-      .value("CyclicShift", nvfuser::SwizzleType::CyclicShift);
-
   // IterDomain
   py::class_<
       nvfuser::IterDomain,
@@ -365,141 +349,93 @@ across CUDA threads and blocks.
       nvfuser::Val,
       std::unique_ptr<nvfuser::TensorDomain, py::nodelete>>(
       nvfuser, "TensorDomain")
-      .def("__eq__", &TensorDomain::operator==, "Equality operator")
-      .def("__ne__", &TensorDomain::operator!=, "Inequality operator")
-      .def("num_dims", &TensorDomain::nDims, "Number of dimensions")
       .def(
-          "same_as",
-          (bool(TensorDomain::*)(const Statement*) const) &
-              TensorDomain::sameAs,
-          "Check if same as Statement")
+          "__str__",
+          [](TensorDomain* self) { return self->toString(/*indent_size=*/0); },
+          "Convert the TensorDomain to a string representation.")
       .def(
-          "same_as",
-          (bool (*)(
-              const std::vector<IterDomain*>&,
-              const std::vector<IterDomain*>&))&TensorDomain::sameAs,
-          "Check if same as IterDomains")
+          "get_root_domain",
+          &nvfuser::TensorDomain::root,
+          R"(
+Get the root domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The root iteration domains.
+)")
       .def(
-          "to_string",
-          (std::string(TensorDomain::*)(int, bool)
-               const)&TensorDomain::toString,
-          py::arg("indent_size") = 0,
-          py::arg("loop_only") = false,
-          "String representation")
+          "get_allocation_domain",
+          &nvfuser::TensorDomain::allocation,
+          R"(
+Get the allocation domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The allocation iteration domains.
+)")
       .def(
-          "to_string",
-          (std::string(TensorDomain::*)(int) const)&TensorDomain::toString,
-          py::arg("indent_size") = 0,
-          "String representation")
+          "get_loop_domain",
+          &nvfuser::TensorDomain::loop,
+          R"(
+Get the loop domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The loop iteration domains.
+)")
       .def(
-          "to_inline_string",
-          &TensorDomain::toInlineString,
-          py::arg("indent_size") = 0,
-          "Inline string representation")
-      .def("contiguity", &TensorDomain::contiguity, "Contiguity vector")
-      .def("stride_order", &TensorDomain::strideOrder, "Stride order")
-      .def("set_contiguity", &TensorDomain::setContiguity, "Set contiguity")
+          "get_logical_domain",
+          &nvfuser::TensorDomain::logical,
+          R"(
+Get the logical domain of this tensor.
+
+Returns
+-------
+list of IterDomain
+    The logical iteration domains.
+)")
       .def(
-          "get_contiguity_string",
-          &TensorDomain::getContiguityString,
-          "Contiguity string")
+          "get_maybe_root_domain",
+          &nvfuser::TensorDomain::maybeRoot,
+          R"(
+Get the root domain if it exists.
+
+Returns
+-------
+list of IterDomain
+    The root iteration domains, or empty list if not available.
+)")
       .def(
-          "has_block_reduction",
-          &TensorDomain::hasBlockReduction,
-          "Has block reduction")
+          "get_maybe_allocation_domain",
+          &nvfuser::TensorDomain::maybeAllocation,
+          R"(
+Get the allocation domain if it exists.
+
+Returns
+-------
+list of IterDomain
+    The allocation iteration domains, or empty list if not available.
+)")
       .def(
-          "has_grid_reduction",
-          &TensorDomain::hasGridReduction,
-          "Has grid reduction")
-      .def(
-          "has_block_broadcast",
-          &TensorDomain::hasBlockBroadcast,
-          "Has block broadcast")
-      .def(
-          "has_grid_broadcast",
-          &TensorDomain::hasGridBroadcast,
-          "Has grid broadcast")
-      .def("has_root", &TensorDomain::hasRoot, "Has root")
-      .def("has_allocation", &TensorDomain::hasAllocation, "Has allocation")
-      .def(
-          "has_view_like_r_factor",
-          &TensorDomain::hasViewLikeRFactor,
-          "Has view-like rfactor")
-      .def("has_vectorize", &TensorDomain::hasVectorize, "Has vectorize")
-      .def(
-          "has_symbolic_axis",
-          &TensorDomain::hasSymbolicAxis,
-          "Has symbolic axis")
-      .def(
-          "get_reduction_axis",
-          &TensorDomain::getReductionAxis,
-          "Reduction axis")
-      .def("root", &TensorDomain::root, "Root domain")
-      .def("maybe_root", &TensorDomain::maybeRoot, "Maybe root domain")
-      .def("is_root", &TensorDomain::isRoot, "Is root ID")
-      .def("is_maybe_root", &TensorDomain::isMaybeRoot, "Is maybe root ID")
-      .def("logical", &TensorDomain::logical, "Logical domain")
-      .def("is_logical", &TensorDomain::isLogical, "Is logical ID")
-      .def("allocation", &TensorDomain::allocation, "Allocation domain")
-      .def("is_allocation", &TensorDomain::isAllocation, "Is allocation ID")
-      .def("loop", &TensorDomain::loop, "Loop domain")
-      .def("initial_loop", &TensorDomain::initialLoop, "Initial loop domain")
-      .def("is_loop", &TensorDomain::isLoop, "Is loop ID")
-      .def(
-          "is_initial_loop", &TensorDomain::isInitialLoop, "Is initial loop ID")
-      .def("all_ids", &TensorDomain::allIDs, "All IDs")
-      .def("all_exprs", &TensorDomain::allExprs, "All ID expressions")
-      .def("all_statements", &TensorDomain::allStatements, "All ID statements")
-      .def(
-          "maybe_allocation",
-          &TensorDomain::maybeAllocation,
-          "Maybe allocation domain")
-      .def("additional_ids", &TensorDomain::additionalIDs, "Additional IDs")
-      .def("set_loop_domain", &TensorDomain::setLoopDomain, "Set loop domain")
-      .def(
-          "set_allocation_domain",
-          (void(TensorDomain::*)(
-              std::vector<IterDomain*>, std::vector<std::optional<bool>>)) &
-              TensorDomain::setAllocationDomain,
-          "Set allocation domain")
-      .def(
-          "set_allocation_domain",
-          (void(TensorDomain::*)(std::vector<IterDomain*>, bool)) &
-              TensorDomain::setAllocationDomain,
-          "Set allocation domain")
-      .def("reset_domains", &TensorDomain::resetDomains, "Reset domains")
-      .def("axis", &TensorDomain::axis, "Get axis")
-      .def("pos_of", &TensorDomain::posOf, "Position of IterDomain")
-      .def(
-          "root_pos_of",
-          &TensorDomain::rootPosOf,
-          "Position of root IterDomain")
-      .def("broadcast", &TensorDomain::broadcast, "Broadcast IterDomain")
-      .def("split", &TensorDomain::split, "Split axis")
-      .def("merge", &TensorDomain::merge, "Merge axes")
-      .def("reorder", &TensorDomain::reorder, "Reorder axes")
-      .def(
-          "swizzle",
-          (void(TensorDomain::*)(SwizzleType, int64_t, int64_t)) &
-              TensorDomain::swizzle,
-          "Apply 2D swizzle")
-      .def(
-          "swizzle",
-          (void(TensorDomain::*)(
-              Swizzle2DType, int64_t, int64_t, SwizzleMode)) &
-              TensorDomain::swizzle,
-          "Apply 2D swizzle")
-      .def("resize", &TensorDomain::resize, "Resize axis")
-      .def("view", &TensorDomain::view, "Transform TensorView")
-      .def("flatten", &TensorDomain::flatten, "Flatten dimensions")
-      .def("ordered_as", &TensorDomain::orderedAs, "Reorder IterDomains")
-      .def(
-          "no_devices", &TensorDomain::noDevices, "IterDomains with no devices")
-      .def(
-          "get_contiguity_filled_with",
-          &TensorDomain::getContiguityFilledWith,
-          "Contiguity filled with value")
-      .def("r_factor", &TensorDomain::rFactor, "Apply rFactor");
+          "is_maybe_root",
+          &nvfuser::TensorDomain::isMaybeRoot,
+          py::arg("id"),
+          R"(
+Check if the given IterDomain is potentially a root domain.
+
+Parameters
+----------
+id : IterDomain
+    The IterDomain to check.
+
+Returns
+-------
+bool
+    True if the domain is potentially a root domain, False otherwise.
+)");
 }
 
 void bindInterfaceNodes(py::module& nvfuser) {
@@ -521,6 +457,27 @@ Returns
 -------
 int
     The number of dimensions.
+)")
+      .def(
+          "domain",
+          &nvfuser::TensorView::domain,
+          R"(
+Get the domain of this tensor.
+
+Returns
+-------
+TensorDomain
+    The tensor domain object that describes the dimensionality and properties
+    of this tensor. The tensor domain contains information about:
+    - Root domain (original dimensions)
+    - Allocation domain (how memory is allocated)
+    - Loop domain (how iterations are structured)
+    - Logical domain (current transformed state)
+
+Notes
+-----
+The TensorDomain is a fundamental part of the tensor that manages all aspects
+of its dimensional properties and transformations.
 )")
       .def(
           "get_logical_domain",
