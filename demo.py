@@ -40,9 +40,9 @@ print(tv2.axis(0))
 print("=========\n")
 
 print("IterDomain Extent:")
-print(tv0.axis(0).extent().to_string(0))
-print(tv1.axis(0).extent().to_string(0))
-print(tv2.axis(0).extent().to_string(0))
+print(tv0.axis(0).extent())
+print(tv1.axis(0).extent())
+print(tv2.axis(0).extent())
 print("=========\n")
 
 print("Fusion Executor Cache:")

@@ -23,6 +23,9 @@ void bindMultidevice(py::module& nvfuser);
 // Add bindings for CPP Fusion
 void bindFusion(py::module& nvfuser);
 
+// Add bindings for CPP Fusion Operations
+void bindOperations(py::module& nvfuser);
+
 void bindSchedule(py::class_<FusionDefinition>& fusion_def);
 
 NVF_API void cleanup();

@@ -457,6 +457,7 @@ if(BUILD_PYTHON)
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
     ${NVFUSER_SRCS_DIR}/python_frontend/fusion_bindings.cpp
+    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_ops_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/multidevice_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
