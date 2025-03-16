@@ -1438,7 +1438,7 @@ namespace {
 //! Convert a py::iterable to a KernelArgumentHolder
 KernelArgumentHolder from_pyiterable(
     const py::iterable& iter,
-    std::optional<int8_t> device) {
+    std::optional<int64_t> device) {
   KernelArgumentHolder args;
   for (py::handle obj : iter) {
     // Allows for a Vector of Sizes to be inputed as a list/tuple
