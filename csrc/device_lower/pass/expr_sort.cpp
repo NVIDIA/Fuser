@@ -1746,7 +1746,40 @@ std::vector<Expr*> reorderExprsForComputeAt() {
 
   ExprSegmentationSorter sorter(fusion);
   sorter.sort();
-  return sorter.getExprs();
+  std::vector<Expr*> sorted_exprs = sorter.getExprs();
+
+  if(std::getenv("SORT_EXPRS_GMEM") != nullptr && std::atoi(std::getenv("SORT_EXPRS_GMEM")) != 0) {
+    std::cout << "\n before SORT_EXPRS_GMEM:" << std::endl;
+    auto is_loading_input = [](Expr* expr){
+      if(auto ls = dynamic_cast<LoadStoreOp*>(expr)){
+        if(auto tv = ls->in()->as<TensorView>()){
+          return tv->isFusionInput();
+        }
+      }
+      return false;
+    };
+    int64_t n_scalar_exprs = 0;
+    for(auto expr : sorted_exprs){
+      bool is_scalar = ir_utils::isScalarOp(expr);
+      if(is_scalar){
+        n_scalar_exprs++;
+      }
+      std::cout  << "is_scalar: " << is_scalar << ", " << "is_loading_input: " << is_loading_input(expr) << ", " << expr->toString() << std::endl;
+    }
+    // sort based on ca & put gmem load first
+    std::stable_sort(sorted_exprs.begin() + n_scalar_exprs, sorted_exprs.end(), [](Expr* expr1, Expr* expr2) {
+      auto is_loading_input = [](Expr* expr){
+        if(auto ls = dynamic_cast<LoadStoreOp*>(expr)){
+          if(auto tv = ls->in()->as<TensorView>()){
+            return tv->isFusionInput();
+          }
+        }
+        return false;
+      };
+      return is_loading_input(expr1) && !is_loading_input(expr2);
+    });
+  }
+  return sorted_exprs;
 }
 
 } // namespace nvfuser
