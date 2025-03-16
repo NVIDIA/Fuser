@@ -22,9 +22,9 @@ print("Fusion IR")
 f.print_math()
 
 print("TensorView:")
-print(tv0.to_string(0))
-print(tv1.to_string(0))
-print(tv2.to_string(0))
+print(tv0)
+print(tv1)
+print(tv2)
 print("=========\n")
 
 print("IterDomain:")
