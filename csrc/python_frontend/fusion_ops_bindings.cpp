@@ -34,6 +34,71 @@ namespace nvfuser::python_frontend {
           nvfuser::OP_NAME),                                                  \
       DOCSTRING)
 
+#define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME)                     \
+  ops.def(                                                                    \
+      NAME,                                                                   \
+      static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(nvfuser::OP_NAME));      \
+  ops.def(                                                                    \
+      NAME,                                                                   \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>(           \
+          nvfuser::OP_NAME))
+
+void bindUnaryOps(py::module& ops) {
+  NVFUSER_DIRECT_BINDING_UNARY_OP("abs", abs);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("acos", acos);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("acosh", acosh);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("asin", asin);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("asinh", asinh);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("atan", atan);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("atanh", atanh);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("ceil", ceil);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("cos", cos);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("cosh", cosh);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("exp", exp);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("exp2", exp2);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("expm1", expm1);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("erf", erf);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("erfc", erfc);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("erfinv", erfinv);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("erfcinv", erfcinv);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("floor", floor);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("frac", frac);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("lgamma", lgamma);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("log", log);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("log10", log10);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("log1p", log1p);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("log2", log2);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("neg", neg);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("logical_not", logical_not);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("bitwise_not", bitwise_not);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("relu", relu);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("rand_like", rand_like);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("randn_like", randn_like);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("reciprocal", reciprocal);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("round", round);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("rsqrt", rsqrt);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("set", set);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("segment_set", segment_set);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("sign", sign);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("sigmoid", sigmoid);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("signbit", signbit);
+  NVFUSER_PYTHON_BINDING_UNARY_OP("silu", silu)
+  NVFUSER_DIRECT_BINDING_UNARY_OP("sin", sin);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("sinh", sinh);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("sqrt", sqrt);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("tan", tan);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("tanh", tanh);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("trunc", trunc);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("isfinite", isfinite);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("isinf", isinf);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("isnan", isnan);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("isneginf", isneginf);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("isposinf", isposinf);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("isreal", isreal);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("real", real);
+  NVFUSER_DIRECT_BINDING_UNARY_OP("imag", imag);
+}
+
 void bindBinaryOps(py::module& ops) {
   // Use the macro for add operation
   NVFUSER_DIRECT_BINDING_BINARY_OP(
@@ -555,6 +620,7 @@ Val or TensorView
 
 void bindOperations(py::module& fusion) {
     py::module ops = fusion.def_submodule("ops", "CPP Fusion Operations");
+    bindUnaryOps(ops);
     bindBinaryOps(ops);
 }
 
