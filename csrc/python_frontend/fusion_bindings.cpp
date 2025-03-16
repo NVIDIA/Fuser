@@ -23,11 +23,11 @@ namespace nvfuser::python_frontend {
 // disable memory management because it is handled automatically by IrContainer.
 
 namespace {
-void bindBaseNodes(py::module& nvfuser) {
+void bindBaseNodes(py::module& fusion) {
   // Statement
   py::class_<
       nvfuser::Statement,
-      std::unique_ptr<nvfuser::Statement, py::nodelete>>(nvfuser, "Statement")
+      std::unique_ptr<nvfuser::Statement, py::nodelete>>(fusion, "Statement")
       .def(
           "name",
           &nvfuser::Statement::name,
@@ -114,7 +114,7 @@ bool
   py::class_<
       nvfuser::Val,
       nvfuser::Statement,
-      std::unique_ptr<nvfuser::Val, py::nodelete>>(nvfuser, "Val")
+      std::unique_ptr<nvfuser::Val, py::nodelete>>(fusion, "Val")
       .def(
           "vtype",
           &nvfuser::Val::vtype,
@@ -340,7 +340,7 @@ bool
   py::class_<
       nvfuser::Expr,
       nvfuser::Statement,
-      std::unique_ptr<nvfuser::Expr, py::nodelete>>(nvfuser, "Expr")
+      std::unique_ptr<nvfuser::Expr, py::nodelete>>(fusion, "Expr")
       .def(
           "input",
           &nvfuser::Expr::input,
@@ -405,12 +405,12 @@ str
 )");
 }
 
-void bindInternalBaseNodes(py::module& nvfuser) {
+void bindInternalBaseNodes(py::module& fusion) {
   // IterDomain
   py::class_<
       nvfuser::IterDomain,
       nvfuser::Val,
-      std::unique_ptr<nvfuser::IterDomain, py::nodelete>>(nvfuser, "IterDomain")
+      std::unique_ptr<nvfuser::IterDomain, py::nodelete>>(fusion, "IterDomain")
       .def(
           "__eq__",
           &nvfuser::IterDomain::sameAs,
@@ -586,7 +586,7 @@ across CUDA threads and blocks.
       nvfuser::TensorDomain,
       nvfuser::Val,
       std::unique_ptr<nvfuser::TensorDomain, py::nodelete>>(
-      nvfuser, "TensorDomain")
+      fusion, "TensorDomain")
       .def(
           "__str__",
           [](TensorDomain* self) { return self->toString(/*indent_size=*/0); },
@@ -676,11 +676,11 @@ bool
 )");
 }
 
-void bindInterfaceNodes(py::module& nvfuser) {
+void bindInterfaceNodes(py::module& fusion) {
   py::class_<
       nvfuser::TensorView,
       nvfuser::Val,
-      std::unique_ptr<nvfuser::TensorView, py::nodelete>>(nvfuser, "TensorView")
+      std::unique_ptr<nvfuser::TensorView, py::nodelete>>(fusion, "TensorView")
       .def(
           "__str__",
           [](TensorView* self) { return self->toString(/*indent_size=*/0); },
@@ -967,7 +967,7 @@ TensorView
     The newly created rfactor tensor.
 )");
 
-  py::class_<nvfuser::TensorViewBuilder>(nvfuser, "TensorViewBuilder")
+  py::class_<nvfuser::TensorViewBuilder>(fusion, "TensorViewBuilder")
       .def(py::init<>(), R"(
 Create a new TensorViewBuilder.
 
@@ -1148,8 +1148,8 @@ Notes
 )");
 }
 
-void bindIrContainer(py::module& nvfuser) {
-  py::class_<nvfuser::FusionGuard>(nvfuser, "FusionGuard")
+void bindIrContainer(py::module& fusion) {
+  py::class_<nvfuser::FusionGuard>(fusion, "FusionGuard")
       .def(
           py::init<nvfuser::Fusion*>(),
           py::arg("fusion"),
@@ -1183,7 +1183,7 @@ Notes
   // NOTE: manage, get_managed, get_managed_safe, stop_managing, has_managed are
   // template functions. Pybind requires explicit template specialization.
   py::class_<nvfuser::Fusion, std::unique_ptr<nvfuser::Fusion, py::nodelete>>(
-      nvfuser, "Fusion")
+      fusion, "Fusion")
       .def(py::init<>(), R"(
 Create a new Fusion.
 
@@ -1434,31 +1434,6 @@ Notes
 )");
 }
 
-void bindOperations(py::module& nvfuser) {
-  py::module ops = nvfuser.def_submodule("ops", "CPP Fusion Operations");
-  // Add functions to the submodule
-  ops.def(
-      "add",
-      static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>(
-          nvfuser::add),
-      "Add two Vals");
-  ops.def(
-      "add",
-      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,
-                                           nvfuser::Val*)>(nvfuser::add),
-      "Add TensorView and Val");
-  ops.def(
-      "add",
-      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,
-                                           nvfuser::TensorView*)>(nvfuser::add),
-      "Add Val and TensorView");
-  ops.def(
-      "add",
-      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,
-                                           nvfuser::TensorView*)>(nvfuser::add),
-      "Add two TensorViews");
-}
-
 namespace {
 //! Convert a py::iterable to a KernelArgumentHolder
 KernelArgumentHolder from_pyiterable(
@@ -1487,8 +1462,8 @@ KernelArgumentHolder from_pyiterable(
 }
 } // namespace
 
-void bindRuntime(py::module& nvfuser) {
-  py::class_<nvfuser::FusionExecutorCache>(nvfuser, "FusionExecutorCache")
+void bindRuntime(py::module& fusion) {
+  py::class_<nvfuser::FusionExecutorCache>(fusion, "FusionExecutorCache")
       .def(
           py::init([](Fusion* fusion, int64_t fusion_id, bool auto_schedule) {
             return new FusionExecutorCache(
