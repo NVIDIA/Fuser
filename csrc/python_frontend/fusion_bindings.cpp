@@ -31,104 +31,310 @@ void bindBaseNodes(py::module& nvfuser) {
       .def(
           "name",
           &nvfuser::Statement::name,
-          "Return the int that represents its name")
+          R"(
+Get the unique identifier of this statement.
+
+Returns
+-------
+int
+    The integer that represents this statement's unique identifier.
+)")
       .def(
           "is_val",
           &nvfuser::Statement::isVal,
-          "Short cut to figure out if it is a value")
+          R"(
+Check if this statement is a value.
+
+Returns
+-------
+bool
+    True if this statement is a Val, False otherwise.
+)")
       .def(
           "is_expr",
           &nvfuser::Statement::isExpr,
-          "Short cut to figure out if it is an expression")
+          R"(
+Check if this statement is an expression.
+
+Returns
+-------
+bool
+    True if this statement is an Expr, False otherwise.
+)")
       .def(
           "fusion",
           &nvfuser::Statement::fusion,
-          "Return the fusion this statement belongs to")
-      .def(
-          "container",
-          &nvfuser::Statement::container,
-          "Return the container this statement belongs to")
+          R"(
+Get the fusion this statement belongs to.
+
+Returns
+-------
+Fusion
+    The fusion container that owns this statement.
+)")
       .def(
           "same_type",
           &nvfuser::Statement::sameType,
-          "Return if this statement is the same type as another statement")
+          py::arg("other"),
+          R"(
+Check if this statement has the same type as another statement.
+
+Parameters
+----------
+other : Statement
+    The statement to compare types with.
+
+Returns
+-------
+bool
+    True if both statements are of the same type, False otherwise.
+)")
       .def(
-          "same_as",
+          "__eq__",
           &nvfuser::Statement::sameAs,
-          "Return if this statement is the same as another statement")
+          R"(
+Check if this statement is equal to another statement.
+
+Parameters
+----------
+other : Statement
+    The statement to compare with.
+
+Returns
+-------
+bool
+    True if the statements are equal, False otherwise.
+)")
       .def(
-          "to_string",
-          &nvfuser::Statement::toString,
-          "Return the string representation of the statement");
+          "__str__",
+          [](Statement* self) { return self->toString(); },
+          "Convert the IterDomain to a string representation.");
 
   // Val
   py::class_<
       nvfuser::Val,
       nvfuser::Statement,
       std::unique_ptr<nvfuser::Val, py::nodelete>>(nvfuser, "Val")
-      .def("vtype", &nvfuser::Val::vtype, "Return the ValType of the value")
-      .def("dtype", &nvfuser::Val::dtype, "Return the DataType of the value")
+      .def(
+          "vtype",
+          &nvfuser::Val::vtype,
+          R"(
+Get the value type of this Val.
+
+Returns
+-------
+ValType
+    The type of value (e.g., Scalar, IterDomain, TensorView, etc.).
+)")
+      .def(
+          "dtype",
+          &nvfuser::Val::dtype,
+          R"(
+Get the data type of this Val.
+
+Returns
+-------
+DataType
+    The data type (e.g., Float, Half, Int, etc.).
+)")
       .def(
           "is_symbolic",
           &nvfuser::Val::isSymbolic,
-          "Returns if the value is symbolic")
+          R"(
+Check if this value is symbolic (not a concrete value).
+
+Returns
+-------
+bool
+    True if the value is symbolic, False otherwise.
+)")
       .def(
           "is_scalar",
           &nvfuser::Val::isScalar,
-          "Returns if the Val is a scalar")
+          R"(
+Check if this value is a scalar.
+
+Returns
+-------
+bool
+    True if the value is a scalar, False otherwise.
+)")
       .def(
           "is_const_scalar",
           &nvfuser::Val::isConstScalar,
-          "Returns if all dependencies are constant scalars")
+          R"(
+Check if this value is a constant scalar.
+
+Returns
+-------
+bool
+    True if all dependencies are constant scalars, False otherwise.
+)")
       .def(
           "is_const_int",
           &nvfuser::Val::isConstInt,
-          "Returns if all dependencies are constant integers")
+          R"(
+Check if this value is a constant integer.
+
+Returns
+-------
+bool
+    True if all dependencies are constant integers, False otherwise.
+)")
       .def(
           "is_integral_scalar",
           &nvfuser::Val::isIntegralScalar,
-          "Returns if it is an integral scalar")
+          R"(
+Check if this value is an integral scalar.
+
+Returns
+-------
+bool
+    True if the value is an integral scalar, False otherwise.
+)")
       .def(
           "is_floating_point_scalar",
           &nvfuser::Val::isFloatingPointScalar,
-          "Returns if it is a floating point scalar")
-      .def("is_a_bool", &nvfuser::Val::isABool, "Returns if it is a boolean")
+          R"(
+Check if this value is a floating point scalar.
+
+Returns
+-------
+bool
+    True if the value is a floating point scalar, False otherwise.
+)")
       .def(
-          "evaluate",
-          &nvfuser::Val::evaluate,
-          "If this Val's history is comprised only of constant values, will return a PolymorphicValue.")
+          "is_a_bool",
+          &nvfuser::Val::isABool,
+          R"(
+Check if this value is a boolean.
+
+Returns
+-------
+bool
+    True if the value is a boolean, False otherwise.
+)")
       .def(
           "is_const",
           &nvfuser::Val::isConst,
-          "Returns if no dependencies and is a constant scalar.")
-      .def("is_zero", &nvfuser::Val::isZero, "Returns if the value is zero")
+          R"(
+Check if this value is a constant with no dependencies.
+
+Returns
+-------
+bool
+    True if the value is a constant scalar with no dependencies, False otherwise.
+)")
+      .def(
+          "is_zero",
+          &nvfuser::Val::isZero,
+          R"(
+Check if this value is zero.
+
+Returns
+-------
+bool
+    True if the value is zero, False otherwise.
+)")
       .def(
           "is_zero_int",
           &nvfuser::Val::isZeroInt,
-          "Returns if the value is zero integer")
-      .def("is_one", &nvfuser::Val::isOne, "Returns if the value is one")
+          R"(
+Check if this value is the integer zero.
+
+Returns
+-------
+bool
+    True if the value is the integer zero, False otherwise.
+)")
+      .def(
+          "is_one",
+          &nvfuser::Val::isOne,
+          R"(
+Check if this value is one.
+
+Returns
+-------
+bool
+    True if the value is one, False otherwise.
+)")
       .def(
           "is_one_int",
           &nvfuser::Val::isOneInt,
-          "Returns if the value is one integer")
-      .def("is_true", &nvfuser::Val::isTrue, "Returns if the value is true")
-      .def("is_false", &nvfuser::Val::isFalse, "Returns if the value is false")
+          R"(
+Check if this value is the integer one.
+
+Returns
+-------
+bool
+    True if the value is the integer one, False otherwise.
+)")
+      .def(
+          "is_true",
+          &nvfuser::Val::isTrue,
+          R"(
+Check if this value is true.
+
+Returns
+-------
+bool
+    True if the value is true, False otherwise.
+)")
+      .def(
+          "is_false",
+          &nvfuser::Val::isFalse,
+          R"(
+Check if this value is false.
+
+Returns
+-------
+bool
+    True if the value is false, False otherwise.
+)")
       .def(
           "definition",
           &nvfuser::Val::definition,
-          "Returns the Expr that this value is an output of, returns nullptr if none was found")
+          R"(
+Get the expression that defines this value.
+
+Returns
+-------
+Expr
+    The expression that produces this value, or None if it's an input.
+)")
       .def(
           "uses",
           &nvfuser::Val::uses,
-          "Returns the Exprs for which this is an input.")
+          R"(
+Get all expressions that use this value as an input.
+
+Returns
+-------
+list of Expr
+    The expressions that consume this value.
+)")
       .def(
           "is_fusion_input",
           &nvfuser::Val::isFusionInput,
-          "Returns if the value is a fusion input")
+          R"(
+Check if this value is a fusion input.
+
+Returns
+-------
+bool
+    True if the value is a fusion input, False otherwise.
+)")
       .def(
           "is_fusion_output",
           &nvfuser::Val::isFusionOutput,
-          "Returns if the value is a fusion output");
+          R"(
+Check if this value is a fusion output.
+
+Returns
+-------
+bool
+    True if the value is a fusion output, False otherwise.
+)");
 
   // Expr
   py::class_<
@@ -139,32 +345,64 @@ void bindBaseNodes(py::module& nvfuser) {
           "input",
           &nvfuser::Expr::input,
           py::arg("index"),
-          "Returns the input at the given index.\n"
-          "Args:\n"
-          "    index (int): The index of the input to retrieve.")
+          R"(
+Get the input value at the specified index.
+
+Parameters
+----------
+index : int
+    The index of the input to retrieve.
+
+Returns
+-------
+Val
+    The input value at the given index.
+)")
       .def(
           "output",
           &nvfuser::Expr::output,
           py::arg("index"),
-          "Returns the output at the given index.\n"
-          "Args:\n"
-          "    index (int): The index of the output to retrieve.")
+          R"(
+Get the output value at the specified index.
+
+Parameters
+----------
+index : int
+    The index of the output to retrieve.
+
+Returns
+-------
+Val
+    The output value at the given index.
+)")
       .def(
-          "attribute_val",
-          &nvfuser::Expr::attributeVal,
-          "Returns the attribute value at the given index")
-      .def(
-          "same_op",
-          &nvfuser::Expr::sameOp,
-          "Check that if this and other are the same operator.")
-      .def(
-          "same_as",
+          "__eq__",
           &nvfuser::Expr::sameAs,
-          "Return if this and other are the same")
+          py::arg("other"),
+          R"(
+Check if this expression is equal to another expression.
+
+Parameters
+----------
+other : Expr
+    The expression to compare with.
+
+Returns
+-------
+bool
+    True if the expressions are equal, False otherwise.
+)")
       .def(
           "get_op_string",
           &nvfuser::Expr::getOpString,
-          "Get the name of an expression");
+          R"(
+Get the string representation of this expression's operation.
+
+Returns
+-------
+str
+    The name/type of the operation this expression performs.
+)");
 }
 
 void bindInternalBaseNodes(py::module& nvfuser) {
@@ -174,21 +412,21 @@ void bindInternalBaseNodes(py::module& nvfuser) {
       nvfuser::Val,
       std::unique_ptr<nvfuser::IterDomain, py::nodelete>>(nvfuser, "IterDomain")
       .def(
-          "same_as",
+          "__eq__",
           &nvfuser::IterDomain::sameAs,
           py::arg("other"),
           R"(
-Check if this IterDomain is the same as another statement.
+Check if this IterDomain is equal to another IterDomain.
 
 Parameters
 ----------
-other : Statement
-    The statement to compare with.
+other : IterDomain
+    The IterDomain to compare with.
 
 Returns
 -------
 bool
-    True if the statements are the same, False otherwise.
+    True if the domains are equal, False otherwise.
 )")
       .def(
           "__str__",
