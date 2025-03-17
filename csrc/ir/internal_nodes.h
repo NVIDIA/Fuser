@@ -129,11 +129,11 @@ class IndexSelectOp : public Expr {
   }
 };
 
-class IndexAccumulateOp : public Expr {
+class IndexPutAccumulateOp : public Expr {
  public:
   using Expr::Expr;
 
-  IndexAccumulateOp(
+  IndexPutAccumulateOp(
       IrBuilderPasskey,
       Val* out,
       Val* acc,
@@ -143,7 +143,7 @@ class IndexAccumulateOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "IndexAccumulateOp";
+    return "IndexPutAccumulateOp";
   }
 
   std::string toString(int indent_size = 0) const override;

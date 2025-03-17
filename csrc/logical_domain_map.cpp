@@ -98,7 +98,8 @@ std::pair<std::unordered_set<IterDomain*>, bool> getIndexedDomainInfo(
       has_consumer_id = true;
     }
   } else if (
-      auto iaop = dynamic_cast<IndexAccumulateOp*>(consumer_tv->definition())) {
+      auto iaop =
+          dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
     // Producers:
     //     accumulate [ vocab, hidden ]
     //     index [ *seq ]
@@ -340,28 +341,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
     return dom_map;
   }
-
-  // if (IndexAccumulateOp* iaop =
-  //         dynamic_cast<IndexAccumulateOp*>(consumer_tv_->definition())) {
-  //   // Producers:
-  //   //     accumulate [ vocab, hidden ]
-  //   //     index [ * ]
-  //   //     value [ *, hidden ]
-  //   // Consumers:
-  //   //     output [ vocab, hidden ]
-  //   auto ndims_out = consumer_root.size();
-  //   if (producer_tv_->sameAs(iaop->accumulateTv())) {
-  //     for (auto idx : c10::irange(ndims_out)) {
-  //       updatePairwiseLogicalDomainMap(
-  //           producer_logical.at(idx), consumer_root.at(idx));
-  //     }
-  //   } else if (producer_tv_->sameAs(iaop->valueTv())) {
-  //     updatePairwiseLogicalDomainMap(
-  //         producer_logical.at(ndims_out - 1), consumer_root.at(ndims_out -
-  //         1));
-  //   }
-  //   return dom_map;
-  // }
 
   if (EmbeddingFwdOp* op =
           dynamic_cast<EmbeddingFwdOp*>(consumer_tv_->definition())) {

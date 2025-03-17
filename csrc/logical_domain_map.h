@@ -466,7 +466,7 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
-  void handle(IndexAccumulateOp* op) override {
+  void handle(IndexPutAccumulateOp* op) override {
     mapPointwiseLikeOp(op);
   }
 

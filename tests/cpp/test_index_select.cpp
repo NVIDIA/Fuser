@@ -544,7 +544,7 @@ TEST_F(IndexSelectTest, MultipleIndexSelectIssue) {
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, IndexAccumulate) {
+TEST_F(NVFuserTest, IndexPutAccumulate) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);

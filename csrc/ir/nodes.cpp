@@ -178,7 +178,7 @@ std::vector<PolymorphicValue> IndexSelectOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
 
-IndexAccumulateOp::IndexAccumulateOp(
+IndexPutAccumulateOp::IndexPutAccumulateOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* acc,
@@ -191,7 +191,7 @@ IndexAccumulateOp::IndexAccumulateOp(
   addOutput(out);
 }
 
-std::string IndexAccumulateOp::toString(int indent_size) const {
+std::string IndexPutAccumulateOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
@@ -201,23 +201,23 @@ std::string IndexAccumulateOp::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string IndexAccumulateOp::toInlineString(int indent_size) const {
+std::string IndexPutAccumulateOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* IndexAccumulateOp::getIndexSeqID() const {
+IterDomain* IndexPutAccumulateOp::getIndexSeqID() const {
   return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
 }
 
-IterDomain* IndexAccumulateOp::getValueSeqID() const {
+IterDomain* IndexPutAccumulateOp::getValueSeqID() const {
   return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
 }
 
-IterDomain* IndexAccumulateOp::getConsumerOfSeqID() const {
+IterDomain* IndexPutAccumulateOp::getConsumerOfSeqID() const {
   return ir_utils::getTvOutput(this)->getLogicalDomain().front();
 }
 
-std::vector<PolymorphicValue> IndexAccumulateOp::evaluate(
+std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return {at::index_put(
@@ -227,7 +227,7 @@ std::vector<PolymorphicValue> IndexAccumulateOp::evaluate(
       true)};
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(IndexAccumulateOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(IndexPutAccumulateOp)
 
 GatherOp::GatherOp(
     IrBuilderPasskey passkey,

@@ -84,7 +84,7 @@ class Val;
   f(TensorConstruct);             \
   f(SelectOp);                    \
   f(IndexSelectOp);               \
-  f(IndexAccumulateOp);           \
+  f(IndexPutAccumulateOp);        \
   f(GatherOp);                    \
   f(ScatterOp);                   \
   f(RNGOp);                       \

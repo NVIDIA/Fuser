@@ -122,7 +122,7 @@ TensorView* indexAccumulate(
   NVF_CHECK(value_domain.size() == 2);
 
   TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
-  IrBuilder::create<IndexAccumulateOp>(out, acc_tv, index_tv, value_tv);
+  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
   return out;
 }
 
