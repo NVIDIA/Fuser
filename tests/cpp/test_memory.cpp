@@ -580,11 +580,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(shapes_to_load),
         testing::Values(DataType::Half, DataType::Float, DataType::Double),
-        testing::Values(
-            MmaInputSmemSwizzle::None,
-            MmaInputSmemSwizzle::B128,
-            MmaInputSmemSwizzle::B64,
-            MmaInputSmemSwizzle::B32)));
+        testing::ValuesIn(kAllSmemSwizzleModes)));
 
 TEST_P(TMASimpleLdstTest, Store) {
   Fusion fusion;
@@ -635,7 +631,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     TMASimpleLdstTest,
     testing::Combine(
-        kAllSmemSwizzleModes,
+        testing::ValuesIn(kAllSmemSwizzleModes),
         testing::Values(DataType::Half, DataType::Float, DataType::Double),
         testing::Values(1, 2, 3, 4, 5)),
     testNameTMASimpleLdstTest);
@@ -2893,11 +2889,8 @@ void testTMemAddKernel(bool same_region) {
     auto check_pass = [same_region](const std::vector<Expr*>& exprs) {
       int64_t num_allocs =
           std::count_if(exprs.begin(), exprs.end(), [](Expr* expr) {
-            auto asm_ = dynamic_cast<kir::Asm*>(expr);
-            if (asm_ == nullptr) {
-              return false;
-            }
-            return asm_->code().find("tcgen05.alloc") != std::string::npos;
+            std::string str = expr->toString();
+            return str.find("tcgen05.alloc") != std::string::npos;
           });
       EXPECT_EQ(num_allocs, same_region ? 1 : 2);
       int64_t num_deallocs = 0;
@@ -3083,7 +3076,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     StMatrixTest,
     testing::Combine(
-        kAllHopperMacros,
+        testing::ValuesIn(kAllHopperMacros),
         testing::Values(
             // tile_m, tile_n
             std::vector<int>{16, 8},
