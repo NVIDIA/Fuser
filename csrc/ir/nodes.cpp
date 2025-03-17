@@ -221,10 +221,10 @@ std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   return {at::index_put(
-      inputs.at(0).as<at::Tensor>(),
-      {inputs.at(1).as<at::Tensor>()},
-      inputs.at(2).as<at::Tensor>(),
-      true)};
+      /*self=*/inputs.at(0).as<at::Tensor>(),
+      /*indices=*/{inputs.at(1).as<at::Tensor>()},
+      /*values=*/inputs.at(2).as<at::Tensor>(),
+      /*accumulate=*/true)};
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexPutAccumulateOp)
