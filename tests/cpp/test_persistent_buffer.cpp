@@ -1697,6 +1697,81 @@ TEST_F(PersistentBufferTest, BroadcastSync1SharedMemory) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(PersistentBufferTest, BroadcastSync1SharedMemoryMagicScheduler) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  // scheduler won't go persistent if we can't use a small fraction of the
+  // available SMs, dim0 is the iteration dimension and should be larger than
+  // sm_count / 8.
+  // required buffer size for tv1 is dim1 * dim2 * sizeof(BFloat16) and it is
+  // larger than scheduler_utils::register_file_size.
+  int64_t dim0 = 32, dim1 = 2, dim2 = 33*1024;
+  // there is a vectorization bug in shared memory persistence
+  // for non-contiguous inputs.
+  auto tv0 = makeContigTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(3, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {1, 2});
+  auto tv7 = broadcast(tv6, {false, true, true});
+
+  {
+    // Same sequence of the ops above
+    auto tv2 = broadcast(tv0, {false, false, true});
+    auto tv3 = castOp(DataType::Float, tv2);
+    auto tv4 = castOp(DataType::Float, tv1);
+    auto tv5 = add(tv3, tv4);
+
+    auto tv9 = add(tv5, tv7);
+    auto tv10 = castOp(DataType::BFloat16, tv9);
+    fusion.addOutput(tv10);
+  }
+
+  auto unscheduled_fusion_copy = fusion;
+
+  auto pb_info = scheduler_utils::persistentBuffers(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1, dim2}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  // Lowering should succeed. Prior to the fix of the issue, the sync
+  // analysis raises an exception as there's mismatched
+  // parallelization between the cache of tv0 and its consumer
+  GpuLower gpulw(&fusion);
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  
+  // Should have 2 shared memory persistent buffer tensors
+  Fusion* scheduled_fusion = ke.compiledKernel()->kernel();
+  int n_smem_tv = 0;
+  for (auto tv : scheduled_fusion->allTvs()) {
+    if (tv->getMemoryType() == MemoryType::Shared) {
+      n_smem_tv++;
+    }
+  }
+  EXPECT_EQ(n_smem_tv, 2);
+
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 
 // Similar to BroadcastSync1 but just one of the reduction IDs is
 // resolved with the input tensor

@@ -1060,7 +1060,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .has_exp_op = has_exp_op,
       .has_rng_op = has_rng_op,
       .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
-      .persistent_buffers = buffers};
+      .persistent_buffers = buffers,
+      .non_persistent_buffers = persistent_buffer_info.non_persistent_buffers};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type) {

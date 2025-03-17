@@ -213,6 +213,7 @@ struct PersistentKernelProperties {
   bool has_rng_op;
   bool disable_project_to_avoid_recompute;
   std::vector<TensorView*> persistent_buffers;
+  std::vector<TensorView*> non_persistent_buffers;
   std::string toString() const {
     std::stringstream ss;
     ss << "===== Persistent Kernel Properties ========\n"
