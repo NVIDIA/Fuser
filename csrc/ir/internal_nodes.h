@@ -169,16 +169,14 @@ class IndexAccumulateOp : public Expr {
   IterDomain* getConsumerOfIndexedID() const;
 };
 
-class NVF_API TorchGatherOp : public Expr {
+class NVF_API GatherOp : public Expr {
  public:
   using Expr::Expr;
 
   //! Parameter exact_sizes indicates whether the non-indexed domains
   //! of the index tensor have the same extents of those of the input
-  //! tensor. It's true in the case of torch.take_along_dim and
-  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
-  //! they are the same.
-  TorchGatherOp(
+  //! tensor. It's true in the case of take_along_axis.
+  GatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
@@ -189,7 +187,7 @@ class NVF_API TorchGatherOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "TorchGatherOp";
+    return "GatherOp";
   }
 
   std::string toString(int indent_size = 0) const override;

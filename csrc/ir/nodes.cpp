@@ -227,7 +227,7 @@ std::vector<PolymorphicValue> IndexAccumulateOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexAccumulateOp)
 
-TorchGatherOp::TorchGatherOp(
+GatherOp::GatherOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
@@ -242,7 +242,7 @@ TorchGatherOp::TorchGatherOp(
   addDataAttribute(exact_sizes);
 }
 
-std::string TorchGatherOp::toString(int indent_size) const {
+std::string GatherOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
@@ -257,19 +257,19 @@ std::string TorchGatherOp::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string TorchGatherOp::toInlineString(int indent_size) const {
+std::string GatherOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* TorchGatherOp::getIndexedID() const {
+IterDomain* GatherOp::getIndexedID() const {
   return TensorDomain::noReductions(lookupTv()->getLogicalDomain()).at(dim());
 }
 
-IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
+IterDomain* GatherOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
 }
 
-std::vector<PolymorphicValue> TorchGatherOp::evaluate(
+std::vector<PolymorphicValue> GatherOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& input = inputs.at(0).as<at::Tensor>();
@@ -282,7 +282,7 @@ std::vector<PolymorphicValue> TorchGatherOp::evaluate(
   }
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
 
 ScatterOp::ScatterOp(
     IrBuilderPasskey passkey,

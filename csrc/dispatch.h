@@ -85,7 +85,7 @@ class Val;
   f(SelectOp);                    \
   f(IndexSelectOp);               \
   f(IndexAccumulateOp);           \
-  f(TorchGatherOp);               \
+  f(GatherOp);                    \
   f(ScatterOp);                   \
   f(RNGOp);                       \
   f(ReductionOp);                 \

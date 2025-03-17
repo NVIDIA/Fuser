@@ -144,7 +144,7 @@ bool isTvOp(const Expr* expr) {
           SelectOp,
           IndexSelectOp,
           IndexAccumulateOp,
-          TorchGatherOp,
+          GatherOp,
           ScatterOp,
           RNGOp,
           FullOp,

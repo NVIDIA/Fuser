@@ -470,7 +470,7 @@ class ComputeAtLogicalDomainMapBuilder : private BackwardVisitor {
     mapPointwiseLikeOp(op);
   }
 
-  void handle(TorchGatherOp* op) override {
+  void handle(GatherOp* op) override {
     mapPointwiseLikeOp(op);
   }
 
