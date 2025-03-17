@@ -317,9 +317,9 @@ void inferenceAllocationOrder(
       if (non_trivial_iter_count[tv] == non_bc_high_water_mark &&
           ref != nullptr) {
         std::vector<IterDomain*> ref_alloc_non_trivial =
-            nonTrivialIterDomains(ref->getMaybeAllocationDomain());
+            nonTrivialIterDomains(ref);
         std::vector<IterDomain*> tv_alloc_non_trivial =
-            nonTrivialIterDomains(tv->getMaybeAllocationDomain());
+            nonTrivialIterDomains(tv);
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
