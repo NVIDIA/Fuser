@@ -977,10 +977,13 @@ void sharedMemoryConsumerVectorization(
         "smem consumers should be LoadStoreOp. Got: ",
         tv->definition()->toString());
 
-    // can't vectorize unmappable buffer
-    auto consumers = ir_utils::consumerTvsOf(tv);
-    if(consumers.at(0)->definition()->isA<BroadcastOp>()) {
-      std::cout << "Skipping vectorization." << tv->toString() << std::endl;
+    // can't vectorize smem -> regs if gmem --> smem is not vectorized.
+    auto smem_tv = ir_utils::getSoleProducerTv(tv);
+    const auto& loop_domain = smem_tv->getLoopDomain();
+    if (std::none_of(
+            loop_domain.begin(), loop_domain.end(), [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Vectorize;
+            })) {
       continue;
     }
 
