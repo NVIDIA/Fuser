@@ -398,11 +398,10 @@ bool haveDifferentShardings(
       }
     }
 
-    auto is_mapped_in_id_model =
-        [producer, consumer, mapped_c_root_ids](
-            IterDomain* p_loop_id,
-            IterDomain* c_loop_id,
-            const IdModel& id_model) -> bool {
+    auto is_mapped_in_id_model = [producer, consumer, mapped_c_root_ids](
+                                     IterDomain* p_loop_id,
+                                     IterDomain* c_loop_id,
+                                     const IdModel& id_model) -> bool {
       if (p_loop_id == nullptr && c_loop_id == nullptr) {
         return true;
       }
