@@ -102,14 +102,11 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
       const auto& all_inputs = ir_utils::inputTvsOf(
             persistent_buffer_info.smem_projectable_persistent_buffers);       
       for (auto input :all_inputs) {
-        std::cout << "input: " << input->toString() << std::endl;
         projected_buffer_size += getPersistentBufferSizeOfTensor(
             input, runtime_info, persistent_buffer_info);
       }
       persistent_buffer_size -= unprojected_buffer_size; 
       persistent_buffer_size += projected_buffer_size; 
-      std::cout << "unprojected_buffer_size: " << unprojected_buffer_size << std::endl;
-      std::cout << "projected_buffer_size: " << projected_buffer_size << std::endl;
   } else {
     // when buffer size is larger than register file size, uses shared memory
     // persistent and we can keep non_persistent_buffer as persistent.
@@ -1132,7 +1129,7 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
   rparams->cparams.index_type = prop.index_type;
 
   // specific heuristics for different cases
-  if (prop.use_smem_persistent) {
+  if (prop.max_persistent_buffer_size > scheduler_utils::register_file_size) {
     rparams->tag = "Shared Memory Inner Persistent Heuristic.\n";
     // all persistent buffers are moved to shared memory
     // TODO: allow only part of the buffers to be moved to shared memory

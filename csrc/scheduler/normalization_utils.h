@@ -212,7 +212,6 @@ struct PersistentKernelProperties {
   bool has_exp_op;
   bool has_rng_op;
   bool disable_project_to_avoid_recompute;
-  bool use_smem_persistent;
   std::vector<TensorView*> persistent_buffers;
   std::vector<TensorView*> non_persistent_buffers;
   std::string toString() const {

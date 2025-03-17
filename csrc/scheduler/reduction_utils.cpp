@@ -719,8 +719,6 @@ class PersistentBufferProjector {
             persistent_info_.persistent_buffer_resolution_points),
         projectable_persistent_buffers(
             persistent_info_.projectable_persistent_buffers),
-        smem_projectable_persistent_buffers(
-            persistent_info_.smem_projectable_persistent_buffers),            
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
@@ -739,7 +737,6 @@ class PersistentBufferProjector {
   const std::vector<std::vector<TensorView*>>&
       persistent_buffer_resolution_points;
   const std::vector<TensorView*>& projectable_persistent_buffers;
-  const std::vector<TensorView*>& smem_projectable_persistent_buffers;
   std::vector<TensorView*> dummy_outputs_;
   const bool project_to_inputs_;
 

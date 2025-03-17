@@ -979,28 +979,7 @@ PersistentKernelProperties getPersistentKernelProperties(
   int64_t max_persistent_buffer_size = project_persistent_buffers
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
-  bool use_smem_persistent = persistent_buffer_size_info.persistent_buffer_size > scheduler_utils::register_file_size;
-  auto buffers = project_persistent_buffers
-      ? persistent_buffer_info.projectable_buffer_inputs
-      : persistent_buffer_info.persistent_buffers;
-  if (!persistent_buffer_info.smem_projectable_persistent_buffers.empty() &&
-      use_smem_persistent &&
-      normalization_scheduler_utils::isProjectBufferToInputs(
-          fusion,
-          runtime_info,
-          reduction_tvs,
-          persistent_buffer_info,
-          persistent_buffer_size_info,
-          InnerPersistentKernelScheduler::schedulerType(),
-          can_use_smem_persistent,
-          /*check_projected_buffer_size=*/ false) == normalization_scheduler_utils::
-              BufferProjectionStrategy::ProjectToInputs) {
-      project_persistent_buffers = true;
-      buffers.insert(
-          buffers.end(),
-          persistent_buffer_info.smem_projectable_buffer_inputs.begin(),
-          persistent_buffer_info.smem_projectable_buffer_inputs.end());
-  }
+
   // Info about input and output tensors
   // Base max dtype and n_tensor_inputs on tensors that are vectorizable (i.e.
   // share inner dimension with data pattern we're looking at).
@@ -1051,7 +1030,9 @@ PersistentKernelProperties getPersistentKernelProperties(
       has_rng_op = true;
     }
   }
-
+  auto buffers = project_persistent_buffers
+      ? persistent_buffer_info.projectable_buffer_inputs
+      : persistent_buffer_info.persistent_buffers;
 
   // Add buffers that are not projectable.
   if (project_persistent_buffers) {
@@ -1079,7 +1060,6 @@ PersistentKernelProperties getPersistentKernelProperties(
       .has_exp_op = has_exp_op,
       .has_rng_op = has_rng_op,
       .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
-      .use_smem_persistent = use_smem_persistent,
       .persistent_buffers = buffers,
       .non_persistent_buffers = persistent_buffer_info.non_persistent_buffers};
 }
