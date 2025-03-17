@@ -2961,7 +2961,8 @@ class TestNvFuserFrontend(NVFuserTest):
             T37 = fd.ops.reshape(T33, new_shape=[2, 2])
             fd.add_output(T37)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=False)
+        # `supports_segmentation` is to work around #3856
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
         t7 = inputs[0].reshape((2, 1, 2))
         t8 = t7.var(dim=2, unbiased=False)
         t9 = t7.mean(dim=2)
