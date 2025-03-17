@@ -78,7 +78,7 @@ Find the group matching the problematic one shown in the error message and this 
 
 Use the `NVFUSER_DUMP` environment variable to control what intermediate results
 to dump and verbose logging. It can be prepended to any command that launches
-nvfuser, e.g., `bin/nvfuser_tests`, `bin/nvfuser_bench` and `python3
+nvfuser, e.g., `bin/test_nvfuser`, `bin/nvfuser_bench` and `python3
 a_python_script_that_imports_and_runs_nvfuser.py`.
 `csrc/options.cpp` lists all dumping options and their meanings.
 
@@ -90,7 +90,7 @@ Examples:
 
 ```shell
 $ python setup.py develop --debug
-$ gdb --args bin/nvfuser_tests --gtest_filter=<FILTER>
+$ gdb --args bin/test_nvfuser --gtest_filter=<FILTER>
 (gdb) catch throw nvfuser::nvfError
 (gdb) r
 ```
