@@ -2618,8 +2618,8 @@ philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
 philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale =
 scalar(double)
 
-Note: For older versions, torch returns CPU scalar tensors for philox_seed and
-philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
+Note: For older versions, torch accepts CPU scalar tensors for philox_seed and
+philox_offset. For torch 2.7.0 and above, torch accepts philox_seed -> rng_state
 (uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
 contains both seed and offset.
 

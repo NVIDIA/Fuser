@@ -3624,9 +3624,10 @@ void initNvFuserPythonBindings(PyObject* module) {
         size_t ndims = query.dims;
         Tensor output = fd->defineTensor(/*dims=*/ndims);
         Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
-        int64_t philox_ndims = 0;
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
-        philox_ndims = 1;
+        int64_t philox_ndims = 1;
+#else
+        int64_t philox_ndims = 0;
 #endif
         Tensor philox_seed = fd->defineTensor(philox_ndims);
         Tensor philox_offset = fd->defineTensor(/*dims=*/0);
