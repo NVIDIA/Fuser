@@ -2226,4 +2226,111 @@ INSTANTIATE_TEST_SUITE_P(
     tmaCircularBufferingParams(),
     tmaName);
 
+using RegisterSharingTestParams = std::tuple<dim3, ParallelType>;
+using TmaRegisterSharingTest =
+    NVFuserFixtureParamTest<RegisterSharingTestParams>;
+TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  int64_t gdimx = 2;
+  auto [bdim, ws_pt] = GetParam();
+  int64_t bdimx = bdim.x, bdimy = bdim.y, bdimz = bdim.z;
+  int64_t n_computation_threads = bdimx * bdimy * bdimz;
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  auto tv2 = mul(tv1, tv1);
+  fusion->addOutput(tv2);
+
+  // [I1, I2] -> [gdimx, I1/gdimx, I2/bdimx/bdimy, bdimy, bdimx]
+  tv2->split(0, gdimx, false);
+  tv2->split(2, bdimx);
+  tv2->split(2, bdimy);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-2)->parallelize(ParallelType::TIDy);
+  tv2->axis(-3)->parallelize(ParallelType::TIDz);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+
+  // [I1, I2] -> [gdimx, I1/gdimx, I2]
+  tv1->split(0, gdimx, false);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+
+  // Set inlineAt before applying circular buffer
+  inlineAllAt(tv1, /*pos=*/2);
+
+  // warp specialization with register sharing requires
+  // all threads in the same warp group execute the same
+  // register adjustment instruction. So the number of padded
+  // threads for TMA loading branch depends on CTA shape &
+  // warp specialization dimension.
+  auto get_tma_branch_threads = [&](ParallelType ws_pt) {
+    if (ws_pt == ParallelType::TIDx) {
+      return (int64_t)128 * bdimy * bdimz;
+    } else if (ws_pt == ParallelType::TIDy) {
+      EXPECT_TRUE(bdimx % 128 == 0 || 128 % bdimx == 0);
+      if (bdimx >= 128) {
+        return bdimx * bdimz;
+      } else {
+        return 128 / bdimx * bdimz;
+      }
+    } else if (ws_pt == ParallelType::TIDz) {
+      auto front_threads = bdimx * bdimy;
+      EXPECT_TRUE(front_threads % 128 == 0 || 128 % front_threads == 0);
+      if (front_threads >= 128) {
+        return front_threads;
+      } else {
+        return 128 / front_threads;
+      }
+    } else {
+      NVF_THROW("TMA register sharing only supports TIDx, TIDy, and TIDz");
+    }
+  };
+  // adjust register usage, assuming computation threads increase register
+  // usage by 8, then each tma branch threads should reduce by:
+  // 8 * n_computation / n_tma_branch_threads
+  int64_t n_tma_branch_threads = get_tma_branch_threads(ws_pt);
+  int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
+  EXPECT_LE(n_total_threads, 1024L);
+  int64_t initial_reg_count = getRegPerThreadGivenThreadsPerSM(n_total_threads);
+  EXPECT_TRUE(initial_reg_count % 8 == 0 || initial_reg_count == 255);
+  int64_t compute_reg_count = initial_reg_count + 8;
+  int64_t tma_reg_count =
+      initial_reg_count - (n_computation_threads / n_tma_branch_threads) * 8;
+  CircularBufferType circular_buffer_type =
+      WarpSpecialized(ws_pt, std::make_pair(tma_reg_count, compute_reg_count));
+  int64_t n_stages = 2;
+  tv1->circularBuffer(n_stages, 1, circular_buffer_type);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
+  at::Tensor t1 = t0 * t0;
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    Hopper,
+    TmaRegisterSharingTest,
+    ::testing::Combine(
+        ::testing::Values(dim3(32, 4, 2), dim3(128, 2, 1), dim3(256, 1, 1)),
+        ::testing::Values(
+            ParallelType::TIDx,
+            ParallelType::TIDy,
+            ParallelType::TIDz)),
+    [](const testing::TestParamInfo<RegisterSharingTestParams>& info) {
+      std::stringstream ss;
+      ss << "cta_" << std::get<0>(info.param).x;
+      ss << "_" << std::get<0>(info.param).y;
+      ss << "_" << std::get<0>(info.param).z;
+      ss << "_pt_" << std::get<1>(info.param);
+      return sanitizeTestName(ss.str());
+    });
+
 } // namespace nvfuser

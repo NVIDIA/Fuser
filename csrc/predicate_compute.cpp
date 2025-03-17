@@ -491,16 +491,22 @@ namespace {
 
 // Select first warp of threads along TIDx axis and then use ptx::elect_sync
 // TODO If TIDx is known at compile-time, generate custom mask.
-Val* createElectSyncPredicate() {
+Val* createElectSyncPredicate(bool use_first_warp = true) {
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
   Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
   Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-  return SimplifyingIrBuilder::logicalAndExpr(
-      elect_sync_val,
-      IrBuilder::ltExpr(
-          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+  // TIDx < 32 or TIDx >= blockDim.x - 32
+  auto select_warp = use_first_warp
+      ? IrBuilder::ltExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size)
+      : IrBuilder::geExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx),
+            IrBuilder::addExpr(
+                NamedScalar::getParallelDim(ParallelType::TIDx),
+                IrBuilder::create<Val>(-32L, PrimDataType::UInt64)));
+  return SimplifyingIrBuilder::logicalAndExpr(elect_sync_val, select_warp);
 }
 
 Val* createElectSyncPredicate(kir::Predicate* pred) {
@@ -621,41 +627,57 @@ Val* createMultipleExpressionElectSync(
         return fl->circularBufferLoopStage() ==
             CircularBufferLoopStage::LoadWarp;
       });
+  bool is_register_sharing = false;
   if (load_warp_loop_it != loops.end()) {
-    load_warp_on =
-        std::get<WarpSpecialized>(GpuLower::current()
-                                      ->circularBufferInfo()
-                                      .getCircularBufferOptionsFor(
-                                          (*load_warp_loop_it)->iter_domain())
-                                      .type)
-            .on;
+    auto circular_buffer_type = std::get<WarpSpecialized>(
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor((*load_warp_loop_it)->iter_domain())
+            .type);
+    load_warp_on = circular_buffer_type.on;
+    is_register_sharing = circular_buffer_type.num_registers.has_value();
   }
 
-  // If we are in a load warp, then the warp-dispatching IfThenElse
+  // Short-circuit: register sharing is not used, don't need to pad a full warp
+  // group. If we are in a load warp, then the warp-dispatching IfThenElse
   // already selects on `load_warp_on`, so we should not generate
   // predicates for it here.
-  Val* conditional = load_warp_on == ParallelType::TIDx
-      ? pred->fusion()->trueVal()
-      : createElectSyncPredicate();
-  for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-    if (!pdim_map.has(pt)) {
-      continue;
+  if (!is_register_sharing) {
+    Val* conditional = load_warp_on == ParallelType::TIDx
+        ? pred->fusion()->trueVal()
+        : createElectSyncPredicate();
+    for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+      if (pdim_map.has(pt) && load_warp_on != pt) {
+        conditional = SimplifyingIrBuilder::logicalAndExpr(
+            conditional,
+            IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+      }
     }
-    if (load_warp_on != pt) {
-      conditional = SimplifyingIrBuilder::logicalAndExpr(
-          conditional,
-          IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
-    } else {
-      Val* raw = GpuLower::current()->parallelDimensionMap().get(load_warp_on);
-      conditional = SimplifyingIrBuilder::logicalAndExpr(
-          conditional,
-          IrBuilder::eqExpr(
-              NamedScalar::getParallelIndex(pt),
-              IrBuilder::subExpr(
-                  raw, IrBuilder::create<Val>(1, DataType::Index))));
+    return conditional;
+  } else {
+    Val* conditional =
+        createElectSyncPredicate(load_warp_on != ParallelType::TIDx);
+    for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+      if (!pdim_map.has(pt)) {
+        continue;
+      }
+      if (load_warp_on != pt) {
+        conditional = SimplifyingIrBuilder::logicalAndExpr(
+            conditional,
+            IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+      } else {
+        Val* raw =
+            GpuLower::current()->parallelDimensionMap().get(load_warp_on);
+        conditional = SimplifyingIrBuilder::logicalAndExpr(
+            conditional,
+            IrBuilder::eqExpr(
+                NamedScalar::getParallelIndex(pt),
+                IrBuilder::subExpr(
+                    raw, IrBuilder::create<Val>(1, DataType::Index))));
+      }
     }
+    return conditional;
   }
-  return conditional;
 }
 
 } // namespace
@@ -667,9 +689,12 @@ Val* PredicateCompute::getElectSyncPredicate(
 
   // Short-Circuit: A single expression is associated with the predicate.
   if (pred->expr() != nullptr) {
+    std::cout << "Single expression predicate: " << pred->toString() << "\n";
     return createSingleExpressionElectSync(pred, loops);
   }
 
+  std::cout << "createMultipleExpressionElectSync: " << pred->toString()
+            << "\n";
   return createMultipleExpressionElectSync(pred, loops);
 }
 
