@@ -1260,6 +1260,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs) {
+  fusion->printMath();
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
@@ -1267,8 +1268,16 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   if (rparams->smem_persistent_buffers.empty()) {
     return {};
   }
-  const auto& persistent_buffers =
+  // all_persistent_buffers =  [persistent_buffers, non_persistent_buffers]
+  std::vector<TensorView*> all_persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+  const auto& non_persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).non_persistent_buffers;
+  all_persistent_buffers.insert(
+      all_persistent_buffers.end(),
+      non_persistent_buffers.begin(),
+      non_persistent_buffers.end());
+
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
     return std::any_of(
         rparams->smem_persistent_buffers.begin(),
@@ -1295,7 +1304,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
   };
-  for (auto tv : persistent_buffers) {
+  for (auto tv : all_persistent_buffers) {
+    std::cout << "movePersistentBufferToSmem all_persistent_buffers: "
+              << tv->toString() << std::endl;
     // Persistent buffers are categorized into two types:
     // (1) Cached input tensors.
     //     For these, [smem_persistent_buffers] holds the original input
@@ -1412,7 +1423,11 @@ void beforeSchedule(
   // persistent buffer if that persistent buffer would be the input.
   cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
-  recomputeNonPersistentUnmappbleTvs(persistent_info);
+  // Unmappable tvs should be recomputed if uses register persistence.
+  // Move to after movePersistentBufferToSmem
+  if (rparams->smem_persistent_buffers.empty()) {
+    recomputeNonPersistentUnmappbleTvs(persistent_info);
+  }
 
   // Cache and fork outputs
   cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
@@ -1425,6 +1440,8 @@ void beforeSchedule(
   // move persistent buffer marked in [smem_persistent_buffers] from register to
   // smem
   smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
+
+  fusion->printMath();
 
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
@@ -1566,6 +1583,9 @@ void schedulePersistentKernel(
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
   refineCachePolicy(fusion);
+
+  std::cout << "after schedulePersistentKernel: " << std::endl;
+  fusion->printMath();
 }
 
 namespace {

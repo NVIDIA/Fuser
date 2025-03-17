@@ -613,8 +613,10 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
             producer,
             reduction_tvs,
             id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
+      std::cout << "persistent_buffers " << producer->toString() << std::endl;
       persistent_buffer_info.persistent_buffers.emplace_back(producer);
     } else {
+      std::cout << "non_persistent_buffers " << producer->toString() << std::endl;
       persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
     }
   }
