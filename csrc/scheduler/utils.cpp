@@ -662,19 +662,22 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       continue;
     }
 
-    //  All inputs of the persistent buffer should be cacheable.
+    persistent_buffer_info.projectable_persistent_buffers.push_back(
+        persistent_buffer);
+
+    //  any inputs of the persistent buffer is not cacheable.
     auto all_inputs = ir_utils::inputTvsOf(persistent_buffer);
-    if (std::all_of(
+    if (std::any_of(
             all_inputs.begin(),
             all_inputs.end(),
             [&reduction_tvs, &id_model](TensorView* input) {
-              return normalization_scheduler_utils::isCacheableUnmappableTv(
+              return !normalization_scheduler_utils::isCacheableUnmappableTv(
                   input,
                   reduction_tvs,
                   id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT));
             })) {
-      persistent_buffer_info.projectable_persistent_buffers.push_back(
-          persistent_buffer);
+      persistent_buffer_info.uncacheable_projectable_persistent_buffers
+          .push_back(persistent_buffer);
     }
   }
 

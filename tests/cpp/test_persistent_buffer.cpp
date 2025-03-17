@@ -1901,4 +1901,47 @@ TEST_F(PersistentBufferTest, BroadcastSyncProjectToInputs) {
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
+// Similar to BroadcastSyncProjectToInputs, but has a much larger buffer size.
+// Will project to inputs since shared memory is used.
+TEST_F(PersistentBufferTest, BroadcastSyncProjectToInputsSharedMemory) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+  int64_t dim0 = 32, dim1 = 2, dim2 = 33*1024;
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(3, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, false, true});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {1, 2});
+  auto tv7 = broadcast(tv6, {false, true, true});
+  auto tv8 = add(tv5, tv7);
+  fusion.addOutput(tv8);
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({dim0, dim1}, options);
+  auto t1 = at::randn({dim0, dim1, dim2}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  EXPECT_TRUE(
+      heuristic_params->as<ReductionParams>()->project_persistent_buffers);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

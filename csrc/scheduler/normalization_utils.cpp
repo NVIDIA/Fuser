@@ -835,6 +835,15 @@ BufferProjectionStrategy isProjectBufferToInputs(
     return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
+  // Achieved a smaller buffer size at the cost of project to uncacheable inputs
+  // Don't allow if persistent_buffer_size not exceeds register size.
+  if (!persistent_buffer_info.uncacheable_projectable_persistent_buffers
+           .empty() &&
+      persistent_buffer_size_info.persistent_buffer_size <=
+          scheduler_utils::register_file_size) {
+    return BufferProjectionStrategy::NoProjectOtherReasons;
+  }
+
   // must project to inputs otherwise don't have enough register or shared
   // memory to store the buffers. Even after projecting, may still not have
   // enough register or shared memory, then canScheduleRunTime will return
