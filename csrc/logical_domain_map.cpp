@@ -108,10 +108,10 @@ std::pair<std::unordered_set<IterDomain*>, bool> getIndexedDomainInfo(
     // Note: *seq could be multiple dimensions, we are keeping it as 1D for
     // simplicity.
     if (producer_tv == iaop->indexTv()) {
-      indexed_id = iaop->indexTv()->getIndexSeqID();
+      indexed_ids.insert(iaop->indexTv()->getIndexSeqID());
       has_consumer_id = false;
     } else if (producer_tv == iaop->valueTv()) {
-      indexed_id = iaop->valueTv()->getValueSeqID();
+      indexed_ids.insert(iaop->valueTv()->getValueSeqID());
       has_consumer_id = true;
     }
   }
