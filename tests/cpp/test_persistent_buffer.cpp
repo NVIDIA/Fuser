@@ -1932,7 +1932,7 @@ TEST_F(PersistentBufferTest, BroadcastSyncProjectToInputsSharedMemory) {
       SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
   auto heuristic_params =
       scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
-  EXPECT_FALSE(
+  EXPECT_TRUE(
       heuristic_params->as<ReductionParams>()->project_persistent_buffers);
   scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
 

@@ -705,6 +705,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
           ca_map.getConcreteMappedID(input_id, IdMappingMode::EXACT);
       if (unmappable_concrete_ids.find(concrete_input_id) !=
           unmappable_concrete_ids.end()) {
+        std::cout << "projected_input_ids dim: " << input_id->toString() << std::endl;
         projected_input_ids.emplace(input_id);
         has_unmappable_dim = true;
       }
@@ -733,7 +734,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     for (auto input : all_inputs) {
       add_to_unmappable(
           input,
-          persistent_buffer_info.smem_unmappable_dims_projected_to_inputs,
+          // can use smem_unmappable_dims_projected_to_inputs but needs
+          // revision of getPersistentBufferSizeOfTensor
+          persistent_buffer_info.unmappable_dims_projected_to_inputs,
           persistent_buffer_info.smem_projectable_buffer_inputs);
     }
   }
@@ -975,11 +978,7 @@ int64_t getPersistentBufferSizeOfTensor(
     SchedulerRuntimeInfo& runtime_info,
     const PersistentBufferInfo& persistent_buffer_info) {
   int64_t buffer_bytes = -1;
-  bool is_input =
-      std::find(
-          persistent_buffer_info.projectable_buffer_inputs.begin(),
-          persistent_buffer_info.projectable_buffer_inputs.end(),
-          buffer) != persistent_buffer_info.projectable_buffer_inputs.end();
+  bool is_input = buffer->isFusionInput();
 
   for (auto id : buffer->getLogicalDomain()) {
     if (id->isReduction() || id->isBroadcast()) {
@@ -992,7 +991,7 @@ int64_t getPersistentBufferSizeOfTensor(
     }
 
     if (is_input &&
-        !persistent_buffer_info.unamppable_dims_projected_to_inputs.count(id)) {
+        !persistent_buffer_info.unmappable_dims_projected_to_inputs.count(id)) {
       continue;
     }
 
