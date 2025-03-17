@@ -314,8 +314,8 @@ void inferenceAllocationOrder(
         // allocation domain
         for (auto i : c10::irange(ref->nDims())) {
           if (!val_sets.permissiveAreMapped(
-                  ref->getMaybeAllocationDomain()[i],
-                  tv->getMaybeAllocationDomain()[i])) {
+                  ref->getMaybeAllocationDomain().at(i),
+                  tv->getMaybeAllocationDomain().at(i))) {
             // reset ref to nullptr, while keeping the iterdomain count high
             // water mark. No propagation will occur unless we found another ref
             // candidate with a higher iterdomain count.
