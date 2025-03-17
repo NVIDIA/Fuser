@@ -404,12 +404,13 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
-      scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
+      scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, false, true);
 
   auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (auto cached_input : cached_inputs) {
+    std::cout << "cached_input: " << cached_input->toString() << std::endl;
     if (vectorize) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
       if (producer_tvs.size() == 1 &&
@@ -970,11 +971,18 @@ void sharedMemoryConsumerVectorization(
     std::vector<TensorView*>& smem_consumers,
     int64_t io_vectorization_factor) {
   for (auto tv : smem_consumers) {
-    // they were creatd with cacheAfter.
+    // they were created with cacheAfter.
     NVF_ERROR(
         tv->definition()->isA<LoadStoreOp>(),
         "smem consumers should be LoadStoreOp. Got: ",
         tv->definition()->toString());
+
+    // can't vectorize unmappable buffer
+    auto consumers = ir_utils::consumerTvsOf(tv);
+    if(consumers.at(0)->definition()->isA<BroadcastOp>()) {
+      std::cout << "Skipping vectorization." << tv->toString() << std::endl;
+      continue;
+    }
 
     // non-concretized broadcast domains are moved to the innermost before
     // transform propagation, should skip these axes.

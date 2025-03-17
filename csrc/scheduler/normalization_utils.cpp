@@ -1547,6 +1547,11 @@ void schedulePersistentKernel(
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
+
+  for(auto cached_tv : unroll_vectorizable_cached_tvs) {
+    std::cout << "unroll_vectorizable_cached_tvs: " << cached_tv->toString() << std::endl;
+  }
+
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -1567,6 +1572,10 @@ void schedulePersistentKernel(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
+
+
+  std::cout << "\nbefore inlineMost: " << std::endl;
+  fusion->printMath();
 
   // Inline the schedule
   inlineMost();

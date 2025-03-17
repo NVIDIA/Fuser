@@ -1520,6 +1520,9 @@ bool hasInnerDim(
     return false;
   }
 
+  std::cout << "hasInnerDim tv: " << tv->toString()
+            << ", inner_most_dim: " << inner_most_dim->toString() << std::endl;
+
   // Make sure inner most dimension is in the inner_dims set
   if (inner_dims.count(inner_most_dim) == 0) {
     return false;
@@ -1577,6 +1580,10 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
 
   auto vectorizable_dims = all_mapped_root_dims.get();
 
+  for(auto id : vectorizable_dims) {
+    std::cout << "vectorizable_dims: " << id->toString() << std::endl;
+  }
+
   std::vector<TensorView*> vectorizable_tensors;
 
   // We put outputs in front of inputs because this would make the transpose
@@ -1596,6 +1603,9 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
         ir_utils::isIndexSelectLookupTv(input_tv)) {
       continue;
     }
+
+    std::cout << "input_tv: " << input_tv->toString()
+              << ", hasInnerDim " << hasInnerDim(input_tv, vectorizable_dims, vectorize_pass) << std::endl;
 
     if (hasInnerDim(input_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(input_tv);
