@@ -5,11 +5,9 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <val_graph_visitor.h>
-
+#include <graph_traversal.h>
 #include <id_model/to_string.h>
-
-#include <variant>
+#include <val_graph_visitor.h>
 
 namespace nvfuser {
 
@@ -243,6 +241,32 @@ class ValGraphCycleDetector : public ValGraphVisitor {
 
 bool isCyclic(const ValGraph& graph) {
   return ValGraphCycleDetector(graph).cycle_detected_;
+}
+
+std::pair<ExprGroupPath, bool> getAllExprGroupsBetween(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& to,
+    bool require_all_to_visited,
+    Direction allowed_direction) {
+  FindAllExprs<
+      ExprGroup,
+      ValGroup,
+      ValGraphDefinitions,
+      ValGraphUses,
+      ValGraphInputs,
+      ValGraphOutputs>
+      finder(
+          ValGraphDefinitions{graph},
+          ValGraphUses{graph},
+          ValGraphInputs{graph},
+          ValGraphOutputs{graph},
+          {from.vector().begin(), from.vector().end()},
+          {to.vector().begin(), to.vector().end()},
+          require_all_to_visited,
+          allowed_direction);
+  finder.traverseAllEdges();
+  return finder.getPartiallyOrderedExprs();
 }
 
 } // namespace nvfuser

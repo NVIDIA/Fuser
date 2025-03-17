@@ -448,13 +448,13 @@ void RecordFunctorFactory::registerAllParsers() {
   };
   registerParser(RecordType::IotaOp, deserializeIotaRecord);
 
-  auto deserializeTorchGatherRecord = [](const RecordFunctor* buffer) {
-    return new python_frontend::TorchGatherOpRecord(
+  auto deserializeGatherRecord = [](const RecordFunctor* buffer) {
+    return new python_frontend::GatherOpRecord(
         parseStateArgs(buffer->args()),
         parseStateArgs(buffer->outputs()),
         buffer->data_as_Dimension()->dim());
   };
-  registerParser(RecordType::TorchGatherOp, deserializeTorchGatherRecord);
+  registerParser(RecordType::GatherOp, deserializeGatherRecord);
 
   auto deserializeTakeAlongAxisRecord = [](const RecordFunctor* buffer) {
     return new python_frontend::TakeAlongAxisOpRecord(
