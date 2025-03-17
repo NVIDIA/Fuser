@@ -323,7 +323,7 @@ void inferenceAllocationOrder(
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
-        for (auto i : c10::irange(ref_alloc_non_trivial)) {
+        for (auto i : c10::irange(ref_alloc_non_trivial.size())) {
           if (!val_sets.permissiveAreMapped(
                   ref_alloc_non_trivial.at(i), tv_alloc_non_trivial.at(i))) {
             // reset ref to nullptr, while keeping the iterdomain count high
