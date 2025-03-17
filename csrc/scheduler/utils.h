@@ -250,13 +250,7 @@ struct PersistentBufferInfo {
   std::vector<TensorView*> projectable_buffer_inputs;
 
   // Map unmappable dims to projectable_buffer_inputs
-  std::unordered_set<IterDomain*> unmappable_dims_projected_to_inputs;
-
-  // Buffer that projects to unmappable inputs and must be smem persistent.
-  // corresponding inputs and unmappable dims are also tracked.
-  std::vector<TensorView*> smem_projectable_persistent_buffers;
-  std::vector<TensorView*> smem_projectable_buffer_inputs;
-  std::unordered_set<IterDomain*> smem_unmappable_dims_projected_to_inputs;
+  std::unordered_set<IterDomain*> unamppable_dims_projected_to_inputs;
 
   // Some parameters used in
   // normalization_scheduler_utils::isProjectBufferToInput

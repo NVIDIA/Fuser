@@ -675,17 +675,17 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
             })) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
-    } else {
-      persistent_buffer_info.smem_projectable_persistent_buffers.push_back(
-          persistent_buffer);
     }
   }
 
   // Projection analysis below
-  if (persistent_buffer_info.projectable_persistent_buffers.empty() &&
-      persistent_buffer_info.smem_projectable_persistent_buffers.empty()) {
+  if (persistent_buffer_info.projectable_persistent_buffers.empty()) {
     return persistent_buffer_info;
   }
+
+  // Get a list of inputs of the projectable buffers
+  auto all_inputs = ir_utils::inputTvsOf(
+      persistent_buffer_info.projectable_persistent_buffers);
 
   // Map unmappable dims to inputs, doesn't matter which compute at map used
   auto ca_map = ComputeAtMap(fusion);
@@ -696,45 +696,20 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
         ca_map.getConcreteMappedID(id, IdMappingMode::EXACT));
   }
 
-  auto add_to_unmappable = [&](TensorView* input,
-                               std::unordered_set<IterDomain*>& projected_input_ids,
-                               std::vector<TensorView*>& projected_inputs) {
+  for (auto input : all_inputs) {
     bool has_unmappable_dim = false;
     for (auto input_id : input->getLogicalDomain()) {
       auto concrete_input_id =
           ca_map.getConcreteMappedID(input_id, IdMappingMode::EXACT);
       if (unmappable_concrete_ids.find(concrete_input_id) !=
           unmappable_concrete_ids.end()) {
-        projected_input_ids.emplace(input_id);
+        persistent_buffer_info.unamppable_dims_projected_to_inputs.emplace(
+            input_id);
         has_unmappable_dim = true;
       }
     }
     if (has_unmappable_dim) {
-      projected_inputs.emplace_back(input);
-    }
-  };
-
-  // track inputs of projectable_persistent_buffers
-  const auto& all_inputs = ir_utils::inputTvsOf(
-            persistent_buffer_info.projectable_persistent_buffers);
-  if (!persistent_buffer_info.projectable_persistent_buffers.empty()){
-    for (auto input : all_inputs) {
-      add_to_unmappable(
-          input,
-          persistent_buffer_info.unmappable_dims_projected_to_inputs,
-          persistent_buffer_info.projectable_buffer_inputs);
-    }
-  }
-
-  // track inputs of smem_projectable_persistent_buffers
-  if (!persistent_buffer_info.smem_projectable_persistent_buffers.empty()){
-    const auto& all_inputs = ir_utils::inputTvsOf(
-            persistent_buffer_info.smem_projectable_persistent_buffers);    
-    for (auto input : all_inputs) {
-      add_to_unmappable(
-          input,
-          persistent_buffer_info.smem_unmappable_dims_projected_to_inputs,
-          persistent_buffer_info.smem_projectable_buffer_inputs);
+      persistent_buffer_info.projectable_buffer_inputs.emplace_back(input);
     }
   }
 

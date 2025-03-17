@@ -57,12 +57,6 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
       ? persistent_buffer_size_info.projected_persistent_buffer_size
       : persistent_buffer_size_info.persistent_buffer_size;
 
-  std::cout << "persistent_buffer_size: "
-            << persistent_buffer_size_info.persistent_buffer_size << std::endl;
-  std::cout << "projected_persistent_buffer_size: "
-            << persistent_buffer_size_info.projected_persistent_buffer_size
-            << std::endl;
-
   int64_t available_persistent_buffer_size = normalization_scheduler_utils::
       getMaxRegOrSharedMemorySizeForPersistentBuffer(
           fusion,
@@ -72,53 +66,15 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           can_use_smem_persistent,
           project_persistent_buffers);
 
-  if (project_persistent_buffers) {
-    return std::make_pair(
-        persistent_buffer_size, available_persistent_buffer_size);
-  }
-
-  // There are buffers can be projected to inputs but must use smem persistent.
-  // Do projection if the current buffer size is larger than register file size and
-  // the projection was rejected due to buffer size.
-  if (!persistent_buffer_info.smem_projectable_persistent_buffers.empty() &&
-      persistent_buffer_size > scheduler_utils::register_file_size &&
-      normalization_scheduler_utils::isProjectBufferToInputs(
-          fusion,
-          runtime_info,
-          reduction_tvs,
-          persistent_buffer_info,
-          persistent_buffer_size_info,
-          InnerPersistentKernelScheduler::schedulerType(),
-          can_use_smem_persistent,
-          /*check_projected_buffer_size=*/ false) == normalization_scheduler_utils::
-              BufferProjectionStrategy::ProjectToInputs) {
-      int64_t unprojected_buffer_size = 0;
-      for (auto smem_buffer :
-           persistent_buffer_info.smem_projectable_persistent_buffers) {
-        unprojected_buffer_size += getPersistentBufferSizeOfTensor(
-            smem_buffer, runtime_info, persistent_buffer_info);
-      }
-      int64_t projected_buffer_size = 0;
-      const auto& all_inputs = ir_utils::inputTvsOf(
-            persistent_buffer_info.smem_projectable_persistent_buffers);       
-      for (auto input :all_inputs) {
-        projected_buffer_size += getPersistentBufferSizeOfTensor(
-            input, runtime_info, persistent_buffer_info);
-      }
-      persistent_buffer_size -= unprojected_buffer_size; 
-      persistent_buffer_size += projected_buffer_size; 
-  } else {
-    // when buffer size is larger than register file size, uses shared memory
-    // persistent and we can keep non_persistent_buffer as persistent.
-    if (persistent_buffer_size > scheduler_utils::register_file_size) {
-      for (auto non_persistent_buffer :
-           persistent_buffer_info.non_persistent_buffers) {
-        auto non_persistent_buffer_size = getPersistentBufferSizeOfTensor(
-            non_persistent_buffer, runtime_info, persistent_buffer_info);
-        persistent_buffer_size += non_persistent_buffer_size;
-      }
+  // shared memory persistence
+  if(available_persistent_buffer_size > scheduler_utils::register_file_size){
+    for(auto non_persistent_buffer : persistent_buffer_info.non_persistent_buffers){
+      auto non_persistent_buffer_size = getPersistentBufferSizeOfTensor(
+          non_persistent_buffer, runtime_info, persistent_buffer_info);
+      persistent_buffer_size += non_persistent_buffer_size;
     }
   }
+    
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }
