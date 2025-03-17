@@ -206,15 +206,15 @@ std::string IndexAccumulateOp::toInlineString(int indent_size) const {
 }
 
 IterDomain* IndexAccumulateOp::getIndexSeqID() const {
-  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).back();
+  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
 }
 
 IterDomain* IndexAccumulateOp::getValueSeqID() const {
-  return TensorDomain::noReductions(valueTv()->getLogicalDomain()).back();
+  return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
 }
 
 IterDomain* IndexAccumulateOp::getConsumerOfSeqID() const {
-  return ir_utils::getTvOutput(this)->getLogicalDomain().back();
+  return ir_utils::getTvOutput(this)->getLogicalDomain().front();
 }
 
 std::vector<PolymorphicValue> IndexAccumulateOp::evaluate(
