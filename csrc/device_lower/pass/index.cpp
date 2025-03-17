@@ -347,7 +347,7 @@ void IndexLowering::handle(const IndexSelectOp* sop) {
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
-void IndexLowering::handle(const TorchGatherOp* top) {
+void IndexLowering::handle(const GatherOp* top) {
   auto lowered_index = lowerSrcIndex(top->input(1), top->output(0));
   lowered_index = IrBuilder::maybeCastExpr(DataType::Index, lowered_index);
 

@@ -1328,7 +1328,7 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
                          SelectOp,
                          SliceOp,
                          IndexSelectOp,
-                         TorchGatherOp>() &&
+                         GatherOp>() &&
                   edge_val_use_expr->input(0) == edge_tv;
             }),
         uses_to_modify.end());

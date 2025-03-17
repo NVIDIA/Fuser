@@ -92,8 +92,7 @@ std::pair<IterDomain*, bool> getIndexedDomainInfo(
       indexed_id = sop->getIndexedID();
       has_consumer_id = true;
     }
-  } else if (
-      auto gop = dynamic_cast<TorchGatherOp*>(consumer_tv->definition())) {
+  } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
     if (producer_tv == gop->lookupTv()) {
       indexed_id = gop->getIndexedID();
       has_consumer_id = true;
@@ -373,7 +372,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
 
     // Condition 2: Different extents
-    if (auto gop = dynamic_cast<TorchGatherOp*>(consumer_tv_->definition());
+    if (auto gop = dynamic_cast<GatherOp*>(consumer_tv_->definition());
         gop != nullptr && !gop->exactSizes() &&
         producer_tv_ == gop->lookupTv() && producer_id != indexed_producer_id &&
         !map_different_extents_) {
