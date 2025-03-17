@@ -563,7 +563,7 @@ TEST_F(NVFuserTest, IndexPutAccumulate) {
       s_vocab, tv_value->axis(-1)->extent()};
   auto buf = zeros(buffer_size, DataType::Float, true);
   // this should be an inplace. handle it when we have codegen support
-  auto out = indexAccumulate(buf, tv_index, tv_value);
+  auto out = indexPutAccumulate(buf, tv_index, tv_value);
   fusion.addOutput(out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);

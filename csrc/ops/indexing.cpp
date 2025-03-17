@@ -101,7 +101,7 @@ TensorView* indexSelect(
 }
 
 // This is a restricted version of torch.index_put(..., accumulate=true)
-TensorView* indexAccumulate(
+TensorView* indexPutAccumulate(
     TensorView* acc_tv,
     TensorView* index_tv,
     TensorView* value_tv) {

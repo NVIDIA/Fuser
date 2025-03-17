@@ -195,7 +195,7 @@ std::string IndexPutAccumulateOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
-  indent(ss, indent_size) << " = indexAccumulate( ";
+  indent(ss, indent_size) << " = indexPutAccumulate( ";
   ss << input(0)->toString() << ", " << input(1)->toString() << ", "
      << input(2)->toString() << " )\n";
   return ss.str();
