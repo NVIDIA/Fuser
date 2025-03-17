@@ -16,14 +16,14 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-// returning non-broadcast & non-reduction iter domains in tv's allocation
+// returns non-broadcast & non-reduction iter domains in tv's allocation
 // domain.
 std::vector<IterDomain*> nonTrivialIterDomains(const TensorView* tv) {
   return TensorDomain::noReductions(
       TensorDomain::noBroadcasts(tv->getMaybeAllocationDomain()));
 }
 
-// counting the number of non-broadcast & non-reduction iter domains in tv's
+// counts the number of non-broadcast & non-reduction iter domains in tv's
 // allocation domain.
 int64_t countNonTrivialIterDomains(const TensorView* tv) {
   return std::count_if(
@@ -320,12 +320,15 @@ void inferenceAllocationOrder(
             nonTrivialIterDomains(ref);
         std::vector<IterDomain*> tv_alloc_non_trivial =
             nonTrivialIterDomains(tv);
+        NVF_ERROR(
+            ref_alloc_non_trivial.size() == tv_alloc_non_trivial.size(),
+            "candidates of allocation order reference should have identical non-trivial ID size");
         // ensure that there's no ambiguity on permutation mapping from multiple
         // references. we need both ref candidates to have the same mapping on
         // allocation domain
-        for (auto i : c10::irange(ref_alloc_non_trivial.size())) {
-          if (!val_sets.permissiveAreMapped(
-                  ref_alloc_non_trivial.at(i), tv_alloc_non_trivial.at(i))) {
+        for (const auto& [id_ref, id] :
+             zip(ref_alloc_non_trivial, tv_alloc_non_trivial)) {
+          if (!val_sets.permissiveAreMapped(id_ref, id)) {
             // reset ref to nullptr, while keeping the iterdomain count high
             // water mark. No propagation will occur unless we found another ref
             // candidate with a higher iterdomain count.
