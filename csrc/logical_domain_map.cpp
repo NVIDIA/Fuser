@@ -78,28 +78,45 @@ namespace {
 // returned indicating there's a corresponding consumer ID. For
 // example, select doesn't have a consumer ID, whereas index_select
 // does.
-std::pair<IterDomain*, bool> getIndexedDomainInfo(
+std::pair<std::unordered_set<IterDomain*>, bool> getIndexedDomainInfo(
     const TensorView* producer_tv,
     const TensorView* consumer_tv) {
-  IterDomain* indexed_id = nullptr;
+  std::unordered_set<IterDomain*> indexed_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
-    indexed_id = sop->getIndexedID();
+    indexed_ids.insert(sop->getIndexedID());
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
     if (producer_tv == sop->lookupTv()) {
-      indexed_id = sop->getIndexedID();
+      indexed_ids.insert(sop->getIndexedID());
       has_consumer_id = true;
     }
   } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
     if (producer_tv == gop->lookupTv()) {
-      indexed_id = gop->getIndexedID();
+      indexed_ids.insert(gop->getIndexedID());
+      has_consumer_id = true;
+    }
+  } else if (
+      auto iaop = dynamic_cast<IndexAccumulateOp*>(consumer_tv->definition())) {
+    // Producers:
+    //     accumulate [ vocab, hidden ]
+    //     index [ *seq ]
+    //     value [ *seq, hidden ]
+    // Consumers:
+    //     output [ vocab, hidden ]
+    // Note: *seq could be multiple dimensions, we are keeping it as 1D for
+    // simplicity.
+    if (producer_tv == iaop->indexTv()) {
+      indexed_id = iaop->indexTv()->getIndexSeqID();
+      has_consumer_id = false;
+    } else if (producer_tv == iaop->valueTv()) {
+      indexed_id = iaop->valueTv()->getValueSeqID();
       has_consumer_id = true;
     }
   }
 
-  return std::make_pair(indexed_id, has_consumer_id);
+  return std::make_pair(indexed_ids, has_consumer_id);
 }
 
 } // namespace
@@ -340,7 +357,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   //     }
   //   } else if (producer_tv_->sameAs(iaop->valueTv())) {
   //     updatePairwiseLogicalDomainMap(
-  //         producer_logical.at(ndims_out - 1), consumer_root.at(ndims_out - 1));
+  //         producer_logical.at(ndims_out - 1), consumer_root.at(ndims_out -
+  //         1));
   //   }
   //   return dom_map;
   // }
@@ -378,7 +396,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // 3. Squeeze and unsqueeze
 
     // Condition 1: when the producer ID is the dim of a select-like op
-    if (producer_id == indexed_producer_id) {
+    if (indexed_producer_id.count(producer_id) != 0) {
       // If there's no corresponding consumer, skip the indexed producer
       if (!has_consumer_of_indexed_id) {
         itp++;
@@ -395,7 +413,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Condition 2: Different extents
     if (auto gop = dynamic_cast<GatherOp*>(consumer_tv_->definition());
         gop != nullptr && !gop->exactSizes() &&
-        producer_tv_ == gop->lookupTv() && producer_id != indexed_producer_id &&
+        producer_tv_ == gop->lookupTv() &&
+        indexed_producer_id.count(producer_id) == 0 &&
         !map_different_extents_) {
       itp++;
       itc++;

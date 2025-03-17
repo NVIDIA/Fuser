@@ -164,9 +164,11 @@ class IndexAccumulateOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
-  IterDomain* getIndexedID() const;
+  IterDomain* getIndexSeqID() const;
 
-  IterDomain* getConsumerOfIndexedID() const;
+  IterDomain* getValueSeqID() const;
+
+  IterDomain* getConsumerOfSeqID() const;
 };
 
 class NVF_API GatherOp : public Expr {
