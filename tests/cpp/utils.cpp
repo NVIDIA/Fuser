@@ -825,8 +825,6 @@ std::string macroToString(const MmaMacro macro) {
 }
 
 std::pair<TensorView*, TensorView*> createSdpaRngTvs() {
-  TensorView* philox_seed = nullptr;
-  TensorView* philox_offset = nullptr;
   DataType dtype = DataType::Int;
   std::vector<int64_t> philox_shape = {};
 
@@ -834,8 +832,9 @@ std::pair<TensorView*, TensorView*> createSdpaRngTvs() {
   dtype = DataType::UInt64;
   philox_shape = {2};
 #endif
-  philox_seed = TensorViewBuilder().shape(philox_shape).dtype(dtype).build();
-  philox_offset = TensorViewBuilder().dtype(dtype).build();
+  TensorView* philox_seed =
+      TensorViewBuilder().shape(philox_shape).dtype(dtype).build();
+  TensorView* philox_offset = TensorViewBuilder().dtype(dtype).build();
 #if !(NVF_TORCH_VERSION_NO_LESS(2, 7, 0))
   philox_seed->setCpuScalar(true);
   philox_offset->setCpuScalar(true);

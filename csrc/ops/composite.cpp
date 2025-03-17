@@ -544,21 +544,20 @@ SdpfaFwdResult sdpfa_fwd(
   TensorView* log_sumexp =
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
-  TensorView* philox_seed = nullptr;
-  TensorView* philox_offset = nullptr;
 #if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
   // API changes in torch 2.7.0
   // The torch API returns philox_seed -> rng_state (uint64_t[2])
   // and philox_offset -> _unused (empty tensor)
-  philox_seed = TensorViewBuilder()
-                    .shape(std::vector<int64_t>{2})
-                    .dtype(DataType::UInt64)
-                    .build();
-  philox_offset = TensorViewBuilder().dtype(DataType::UInt64).build();
+  TensorView* philox_seed = TensorViewBuilder()
+                                .shape(std::vector<int64_t>{2})
+                                .dtype(DataType::UInt64)
+                                .build();
+  TensorView* philox_offset =
+      TensorViewBuilder().dtype(DataType::UInt64).build();
 #else
   // Scalar tensors of int64_t dtype.
-  philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
-  philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
+  TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
   philox_seed->setCpuScalar(true);
   philox_offset->setCpuScalar(true);
 #endif
