@@ -404,7 +404,7 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
   auto reduced_tv = ir_utils::getSoleProducerTv(reference_tv);
   // Grab all tensor views that should be vectorized
   auto vectorizable_inputs_outputs =
-      scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, false, true);
+      scheduler_utils::getInputsOutputsWithInnerDim(reduced_tv, true, true);
 
   auto vectorizable_expr = [](Expr* e) { return e->isA<LoadStoreOp>(); };
 

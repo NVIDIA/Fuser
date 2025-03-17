@@ -1624,9 +1624,11 @@ TEST_F(PersistentBufferTest, BroadcastSync1SharedMemory) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  // there is a vectorization bug in shared memory persistence
+  // for non-contiguous inputs.
+  auto tv0 = makeContigTensor(1, DataType::BFloat16);
   fusion.addInput(tv0);
-  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
+  auto tv1 = makeContigTensor(2, DataType::BFloat16);
   fusion.addInput(tv1);
 
   auto tv2 = broadcast(tv0, {false, true});

@@ -1268,6 +1268,11 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   if (rparams->smem_persistent_buffers.empty()) {
     return {};
   }
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  auto vectorizable_inputs_outputs =
+      scheduler_utils::getInputsOutputsWithInnerDim(
+          reduction_tvs.at(0), true, true);
+
   // all_persistent_buffers =  [persistent_buffers, non_persistent_buffers]
   std::vector<TensorView*> all_persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
@@ -1288,14 +1293,20 @@ std::vector<TensorView*> movePersistentBufferToSmem(
           return tv->name() == lookup_tv->name();
         });
   };
-  auto supportCpAsync = [rparams](const TensorView* smem_tv) {
+  auto supportCpAsync = [rparams, &vectorizable_inputs_outputs](
+                            const TensorView* smem_tv) {
     // Only supported after device 8.0
     int hw_major = at::cuda::getCurrentDeviceProperties()->major;
     if (hw_major < 8) {
       return false;
     }
+    auto input_tv = ir_utils::getSoleProducerTv(smem_tv);
+    bool can_be_vectorized = std::find(
+                                 vectorizable_inputs_outputs.begin(),
+                                 vectorizable_inputs_outputs.end(),
+                                 input_tv) != vectorizable_inputs_outputs.end();
     // requires 4, 8, or 16 loading bytes.
-    int vect_factor = rparams->vectorize_inner_reduction
+    int vect_factor = rparams->vectorize_inner_reduction && can_be_vectorized
         ? (int)rparams->unroll_factor_inner_reduction
         : 1;
     size_t loading_size =
@@ -1441,8 +1452,6 @@ void beforeSchedule(
   // smem
   smem_consumers = movePersistentBufferToSmem(fusion, rparams, cached_inputs);
 
-  fusion->printMath();
-
   reduction_tvs = scheduler_utils::getReductionTvs(fusion);
 }
 
@@ -1548,10 +1557,6 @@ void schedulePersistentKernel(
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
 
-  for(auto cached_tv : unroll_vectorizable_cached_tvs) {
-    std::cout << "unroll_vectorizable_cached_tvs: " << cached_tv->toString() << std::endl;
-  }
-
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,
@@ -1572,7 +1577,6 @@ void schedulePersistentKernel(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-
 
   std::cout << "\nbefore inlineMost: " << std::endl;
   fusion->printMath();
