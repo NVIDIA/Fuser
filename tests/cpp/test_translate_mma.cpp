@@ -92,10 +92,7 @@ class CombineMulSumAsMmaTestWithLayout
   bool pre_hopper;
 };
 
-void performSubstitution(
-    Fusion* fusion,
-    bool avoid_intermediates,
-    bool should_not_find = false) {
+void performSubstitution(Fusion* fusion, bool should_not_find = false) {
   EXPECT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -108,7 +105,7 @@ void performSubstitution(
   ASSERT_FALSE(patterns.empty());
   EXPECT_EQ(patterns.size(), 1);
 
-  patterns.front().translateToMmaOp(avoid_intermediates);
+  patterns.front().translateToMmaOp();
 
   ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 }
@@ -131,7 +128,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, MulSumToMatmul_Pass) {
 
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 }
 
 // This test checks that the pattern matcher does not incorrectly identify
@@ -150,8 +147,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_Fail1) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  performSubstitution(
-      &fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/true);
+  performSubstitution(&fusion, /*should_not_find=*/true);
 }
 
 // This fusion has Broadcast batch axes in each operand.
@@ -186,8 +182,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_MultipleBroadcasts) {
   auto tv3 = sum(tv2, {-1});
   fusion->addOutput(tv3);
 
-  performSubstitution(
-      fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/false);
+  performSubstitution(fusion, /*should_not_find=*/false);
 
   // We test running this fusion also to verify that the broadcast batch
   // dimension does not cause unforeseen issues
@@ -227,7 +222,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   fusion.addOutput(tv2);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);

@@ -36,9 +36,8 @@ void MultipleMatmulScheduler::translatePatterns() {
       }
     }
 
-    mma_utils::MatmulPattern::TranslationResult res = pattern.translateToMmaOp(
-        /*avoid_intermediates=*/!isAmpere(params_->mma_macro) &&
-        !isTuring(params_->mma_macro));
+    mma_utils::MatmulPattern::TranslationResult res =
+        pattern.translateToMmaOp();
     mma_results_.push_back(res.mma->out()->as<TensorView>());
 
     // During MatmulPattern translation, we might replace some tensors in the
