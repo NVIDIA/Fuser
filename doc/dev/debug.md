@@ -99,8 +99,11 @@ $ gdb --args bin/test_nvfuser --gtest_filter=<FILTER>
 
 ```shell
 $ python setup.py develop --build-with-asan
+# or if you are on the PJNL docker image, NVFUSER_BUILD_EXTRA_PYTHON_ARGS='--build-with-asan' _bn
+
+$ LD_PRELOAD=$(gcc -print-file-name=libasan.so) ASAN_OPTIONS=protect_shadow_gap=0 <CMD>
+# or LD_PRELOAD=$(clang -print-file-name=libclang_rt.asan-x86_64.so) ASAN_OPTIONS=protect_shadow_gap=0 <CMD>
 # The ASAN_OPTIONS is needed to work around https://github.com/google/sanitizers/issues/629.
-$ ASAN_OPTIONS=protect_shadow_gap=0 <CMD>
 ```
 
 ## Debug memory leaks or excessive memory usage
