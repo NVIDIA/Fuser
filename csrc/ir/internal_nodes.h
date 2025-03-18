@@ -129,6 +129,8 @@ class IndexSelectOp : public Expr {
   }
 };
 
+// For details on the semantics of IndexPutAccumulateOp
+// see [ Note -- IndexPutAccumulate shape restriction ]
 class IndexPutAccumulateOp : public Expr {
  public:
   using Expr::Expr;
@@ -164,10 +166,13 @@ class IndexPutAccumulateOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
+  // return sequence ID(s) from index_tv
   IterDomain* getIndexSeqID() const;
 
+  // return sequence ID(s) from value_tv
   IterDomain* getValueSeqID() const;
 
+  // return sequence ID(s) from output_tv
   IterDomain* getConsumerOfSeqID() const;
 };
 
