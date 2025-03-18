@@ -13,6 +13,7 @@
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <kernel_ir_dispatch.h>
+#include <utils.h>
 
 #include <unordered_set>
 
@@ -380,9 +381,50 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
  private:
   using kir::ExprMutator::handle;
 
+  // A single, serial IterDomain to the left of computeAt position.
+  IterDomain* findTmaStoreIterDomain(TensorView* tv) {
+    IterDomain* serial_id = nullptr;
+    int64_t num_serial_id = 0;
+    for (auto&& [i, id] : enumerate(tv->domain()->loop())) {
+      // Stop after the computeAt position
+      if ((int64_t)i > tv->getComputeAtPosition()) {
+        // If there are nested serial for-loops, then WAR Syncs will insert
+        // synchronization. Otherwise, inserte RAW sync.
+        return (num_serial_id > 1) ? nullptr : serial_id;
+      }
+      // Track non-trivial serial iterDomains
+      if (!id->isParallelized() && id->isIteration() &&
+          !id->extent()->isOne()) {
+        ++num_serial_id;
+        serial_id = id;
+      }
+    }
+    return serial_id;
+  }
+
   void dispatch(Expr* expr) final {
     if (!ir_utils::isTvOp(expr) || expr->isA<kir::Allocate>()) {
       kir::ExprMutator::dispatch(expr);
+
+      // short-circuit: expr is not a for-loop.
+      if (!expr->isA<ForLoop>()) {
+        return;
+      }
+      ForLoop* fl = expr->as<ForLoop>();
+      // short-circuit: for-loop is not an IterDomain that needs RAW sync.
+      if (cp_async_bulk_store_sync_id_.count(fl->iter_domain()) == 0) {
+        return;
+      }
+      // Insert RAW sync for TMA STORE
+      auto scope = scope_.empty() ? nullptr : scope_.back();
+      auto sync_exprs = lower_utils::getSyncExprs(
+          AsyncOpType::CpAsyncBulk,
+          /*keep_stages=*/0,
+          /*requires_commit=*/true);
+      while (!sync_exprs.empty()) {
+        registerInsertAfter(expr, sync_exprs.back(), scope);
+        sync_exprs.pop_back();
+      }
       return;
     }
 
@@ -392,11 +434,19 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
             expr->outputs().begin(), expr->outputs().end(), [](Val* val) {
               return val->isFusionOutput() && val->uses().empty();
             })) {
-      // Typically, we insert waits before the first read of the output of an
-      // async op. However, if the output is a terminating fusion output, there
-      // will be no first read, but still, we need to wait for it to complete
-      // before exiting the kernel.
-      async_exprs_writing_fusion_output_.push_back(expr);
+      if (ir_utils::isCpAsyncBulkStore(expr)) {
+        TensorView* consumer_tv = ir_utils::getTvOutput(expr);
+        IterDomain* id = findTmaStoreIterDomain(consumer_tv);
+        if (id != nullptr) {
+          cp_async_bulk_store_sync_id_.insert(id);
+        }
+      } else {
+        // Typically, we insert waits before the first read of the output of an
+        // async op. However, if the output is a terminating fusion output,
+        // there will be no first read, but still, we need to wait for it to
+        // complete before exiting the kernel.
+        async_exprs_writing_fusion_output_.push_back(expr);
+      }
     }
 
     if (auto mma = dynamic_cast<MmaOp*>(expr)) {
@@ -496,7 +546,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     //  sync insertion since cp.async only writes smem.
     // Currently the only interaction which is realized by the
     //  ordering in this function is that in the case when we need both a
-    //  cpasync wait and a block sync before the same expr, we want
+    //  cp async wait and a block sync before the same expr, we want
     //  to place the wait before the block sync, since currently there
     //  shouldn't be any normal case where we explicitly want the wait after a
     //  block sync.
@@ -523,7 +573,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     !isSharedMemory(val->as<TensorView>()) ||
                     ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
-        // RAW of TMA is handled separately, so skip it here.
+        // RAW of TMA Load is handled separately, so skip it here.
         return;
       }
 
@@ -822,6 +872,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
 
   //! Only a single wgmma wait_group to flush async mma pipeline.
   bool flush_async_mma_pipeline_ = false;
+
+  //! Track iterDomains that require cpAsyncBulkStore sync
+  std::unordered_set<IterDomain*> cp_async_bulk_store_sync_id_;
 
   //! Keep track of expressions that must be followed by syncthreads
   std::deque<std::pair<Expr*, ParallelTypeBitmap>> sync_before_;
