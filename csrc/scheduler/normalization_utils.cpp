@@ -19,8 +19,6 @@
 #include <utils.h>
 #include <val_graph_visitor.h>
 
-#include <ir/graphviz.h>
-
 #include <ATen/cuda/CUDAContext.h>
 
 namespace nvfuser {
@@ -1542,19 +1540,6 @@ class PersistentBufferResolution : public IterVisitor {
   static std::vector<TensorView*> getResolutionPointsOf(
       TensorView* persistent_buffer) {
     PersistentBufferResolution resolution(persistent_buffer);
-#if 0
-    if (resolution.resolution_points_.empty()) {
-      IrGraphGenerator::print(
-          persistent_buffer->fusion(),
-          "fusion.dot",
-          IrGraphGenerator::DetailLevel::ComputeOnly);
-    }
-
-    NVF_ERROR(
-        !resolution.resolution_points_.empty(),
-        "Could not resolve persistent buffer: ",
-        persistent_buffer->toString());
-#endif
     return resolution.resolution_points_;
   }
 

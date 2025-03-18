@@ -627,7 +627,6 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // only when it fails to find resolution points, the new analysis is
   // used as a fallback option.
   // TODO: Completely replace the old analysis
-  // for (auto buffer : persistent_buffer_info.persistent_buffers) {
   for (auto buffer : persistent_buffer_candidates) {
     auto resolution_points =
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
