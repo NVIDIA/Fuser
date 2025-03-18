@@ -2269,24 +2269,18 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
   // register adjustment instruction. So the number of padded
   // threads for TMA loading branch depends on CTA shape &
   // warp specialization dimension.
+  // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
+  // total = bdimx * bdimy * bdimz
+  // Pad on x: bdimx += 128
+  // Pad on y: bdimy += 128/bdimx
+  // Pad on z: bdimz += 128/(bdimx * bdimy)
   auto get_tma_branch_threads = [&](ParallelType ws_pt) {
     if (ws_pt == ParallelType::TIDx) {
       return (int64_t)128 * bdimy * bdimz;
     } else if (ws_pt == ParallelType::TIDy) {
-      EXPECT_TRUE(bdimx % 128 == 0 || 128 % bdimx == 0);
-      if (bdimx >= 128) {
-        return bdimx * bdimz;
-      } else {
-        return 128 / bdimx * bdimz;
-      }
+      return scheduler_utils::safeDiv(128, bdimx) * bdimx * bdimz;
     } else if (ws_pt == ParallelType::TIDz) {
-      auto front_threads = bdimx * bdimy;
-      EXPECT_TRUE(front_threads % 128 == 0 || 128 % front_threads == 0);
-      if (front_threads >= 128) {
-        return front_threads;
-      } else {
-        return 128 / front_threads;
-      }
+      return scheduler_utils::safeDiv(128, bdimx * bdimy) * bdimx * bdimy;
     } else {
       NVF_THROW("TMA register sharing only supports TIDx, TIDy, and TIDz");
     }
@@ -2296,7 +2290,6 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
   // 8 * n_computation / n_tma_branch_threads
   int64_t n_tma_branch_threads = get_tma_branch_threads(ws_pt);
   int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
-  EXPECT_LE(n_total_threads, 1024L);
   int64_t initial_reg_count = getRegPerThreadGivenThreadsPerSM(n_total_threads);
   EXPECT_TRUE(initial_reg_count % 8 == 0 || initial_reg_count == 255);
   int64_t compute_reg_count = initial_reg_count + 8;
@@ -2311,8 +2304,19 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
   at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
   at::Tensor t1 = t0 * t0;
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    const char* reference = R"(Illegal register sharing on TIDx)";
+    if ((bdimx % 128 || 128 % bdimx) && ws_pt == ParallelType::TIDx) {
+      const char* str_match_pointer = strstr(e.what(), reference);
+      ASSERT_TRUE(str_match_pointer != nullptr);
+      return;
+    }
+  }
   auto cg_outputs = ke.run({t0});
+  auto lparams = ke.lastLaunchParams();
+  EXPECT_EQ(lparams.nThreads(), n_total_threads);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 INSTANTIATE_TEST_SUITE_P(

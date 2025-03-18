@@ -689,12 +689,9 @@ Val* PredicateCompute::getElectSyncPredicate(
 
   // Short-Circuit: A single expression is associated with the predicate.
   if (pred->expr() != nullptr) {
-    std::cout << "Single expression predicate: " << pred->toString() << "\n";
     return createSingleExpressionElectSync(pred, loops);
   }
 
-  std::cout << "createMultipleExpressionElectSync: " << pred->toString()
-            << "\n";
   return createMultipleExpressionElectSync(pred, loops);
 }
 
