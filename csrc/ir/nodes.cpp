@@ -205,16 +205,12 @@ std::string IndexPutAccumulateOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* IndexPutAccumulateOp::getIndexSeqID() const {
+IterDomain* IndexPutAccumulateOp::getIndexedID() const {
   return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
 }
 
-IterDomain* IndexPutAccumulateOp::getValueSeqID() const {
+IterDomain* IndexPutAccumulateOp::getIndexedIDOfValue() const {
   return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
-}
-
-IterDomain* IndexPutAccumulateOp::getConsumerOfSeqID() const {
-  return ir_utils::getTvOutput(this)->getLogicalDomain().front();
 }
 
 std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(

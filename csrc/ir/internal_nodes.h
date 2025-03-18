@@ -129,12 +129,21 @@ class IndexSelectOp : public Expr {
   }
 };
 
-// For details on the semantics of IndexPutAccumulateOp
-// see [ Note -- IndexPutAccumulate shape restriction ]
 class IndexPutAccumulateOp : public Expr {
  public:
   using Expr::Expr;
 
+  // logical ID groups of IndexPutAccumulateOp
+  // args:
+  //     acc   [ ID_indexed_g0, ID_g0 ]
+  //     index [ ID_indexed_g1 ]
+  //     value [ ID_indexed_g1 ]
+  // output:
+  //     out   [ ID_indexed_g0, ID_g0 ]
+  //
+  // Note that:
+  //     1. indexed ID for `out` and `acc` share the same extent.
+  //     2. indexed ID for `index` and `value` share the same extent.
   IndexPutAccumulateOp(
       IrBuilderPasskey,
       Val* out,
@@ -166,14 +175,11 @@ class IndexPutAccumulateOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
-  // return sequence ID(s) from index_tv
-  IterDomain* getIndexSeqID() const;
+  // return ID_indexed_g1 from index
+  IterDomain* getIndexedID() const;
 
-  // return sequence ID(s) from value_tv
-  IterDomain* getValueSeqID() const;
-
-  // return sequence ID(s) from output_tv
-  IterDomain* getConsumerOfSeqID() const;
+  // return ID_indexed_g1 from value
+  IterDomain* getIndexedIDOfValue() const;
 };
 
 class NVF_API GatherOp : public Expr {

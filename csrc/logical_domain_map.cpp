@@ -102,10 +102,10 @@ std::pair<std::unordered_set<IterDomain*>, bool> getIndexedDomainInfo(
           dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
     // see [ Note -- IndexPutAccumulate shape restriction ]
     if (producer_tv == iaop->indexTv()) {
-      indexed_ids.insert(iaop->getIndexSeqID());
+      indexed_ids.insert(iaop->getIndexedID());
       has_consumer_id = false;
     } else if (producer_tv == iaop->valueTv()) {
-      indexed_ids.insert(iaop->getValueSeqID());
+      indexed_ids.insert(iaop->getIndexedIDOfValue());
       has_consumer_id = true;
     }
   }
