@@ -181,28 +181,28 @@ int64_t handleViewOp(ViewOp* view_op, int64_t num_device_dims) {
     
     auto p_transforms = DependencyCheck::getAllExprsBetween(
         {p_logical_reshaped_ids.begin(), p_logical_reshaped_ids.end()}, {p_loop_domain.at(idx)});
+    
     if (p_transforms.empty()) {
       // This did axis is not on reshaped ids. We will use the TransformPropagator.
       continue;
     }
 
-    NVF_ERROR(TensorDomain::sameAs(c_logical_domain, c_loop_domain), "Sharding on a previously transformed reshape is not supported.");
+    if (p_transforms.size() > 1) {
+      // This reshape has been transformed.
+      // We will attempt to use TransformPropagator for this did axis.
+      continue;
+    }
+
+    NVF_ERROR(p_transforms.front()->isA<Split>(), "Expected a split transform producing the did axis.");
+    NVF_ERROR(TensorDomain::sameAs(c_logical_domain, c_loop_domain), 
+      "Sharding a previously transformed reshape is not supported.");
 
     num_reshape_shardings++;
 
     // Find the producer logical id that is sharded.
     // We expect the outermost reshaped id to be sharded and follow the outermost path traversing the transforms
-    IterDomain* p_logical_did = p_loop_domain.at(idx);
-    for (auto transform_it = p_transforms.rbegin(); transform_it != p_transforms.rend(); transform_it++) {
-      auto transform = *transform_it;
-      if (transform->isA<Split>()) {
-        NVF_ERROR(p_logical_did == transform->as<Split>()->outer(), "Expected the sharding to be on the outer reshaped id.");
-        p_logical_did = transform->as<Split>()->in();
-      }
-      if (transform->isA<Merge>()) {
-        p_logical_did = transform->as<Merge>()->outer();
-      }
-    }
+    auto* p_did_split = p_did->definition()->as<Split>();
+    IterDomain* p_logical_did = p_did_split->in();
 
     // Find the mapping of the corresponding producer logical id in consumer root.
     IterDomain* c_root_did = p2c.at(p_logical_did);
@@ -230,7 +230,7 @@ int64_t handleViewOp(ViewOp* view_op, int64_t num_device_dims) {
                 c_loop_domain.end(),
                 c_logical_did));
     
-    auto* p_did_split = p_did->definition()->as<Split>();
+    
     splitLike(consumer, sharded_axis, p_did_split);
     consumer->axis(sharded_axis)->parallelize(p_did->getParallelType());
 
@@ -255,6 +255,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     const auto& reference_inputs = getOrderedReferenceInputs(expr);
 
+    std::unordered_set<ParallelType> output_parallel_types;
+    
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
       // Skip if the input has no device dimensions or is nullptr.
@@ -264,6 +266,14 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     
       // This restricts the transform propagation to the DID axis.
       int64_t num_device_dims = reorderDIDToFront(ref_input);
+
+      for (auto idx: c10::irange(num_device_dims)) {
+        if (output_parallel_types.count(ref_input->axis(idx)->getParallelType())) {
+          // Do not propagate parallel types already seen on the output.
+          ref_input->reorder({{idx, -1}});
+          num_device_dims--;
+        }
+      }
 
       if (ViewOp* view_op = dynamic_cast<ViewOp*>(expr)) {
         int64_t num_reshape_shardings = handleViewOp(view_op, num_device_dims);
@@ -281,6 +291,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh);
+      for (auto idx: c10::irange(num_device_dims)) {
+        output_parallel_types.insert(ref_input->axis(idx)->getParallelType());
+      }
     }
   }
 
