@@ -10,6 +10,8 @@
 
 namespace nvfuser::python_frontend {
 
+namespace {
+
 #define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)            \
   ops.def(                                                                    \
       NAME,                                                                   \
@@ -34,13 +36,12 @@ namespace nvfuser::python_frontend {
           nvfuser::OP_NAME),                                                  \
       DOCSTRING)
 
-#define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME)                     \
+#define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME)                        \
+  ops.def(                                                                    \
+      NAME, static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(nvfuser::OP_NAME)); \
   ops.def(                                                                    \
       NAME,                                                                   \
-      static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(nvfuser::OP_NAME));      \
-  ops.def(                                                                    \
-      NAME,                                                                   \
-      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>(           \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>(            \
           nvfuser::OP_NAME))
 
 void bindUnaryOps(py::module& ops) {
@@ -82,7 +83,7 @@ void bindUnaryOps(py::module& ops) {
   NVFUSER_DIRECT_BINDING_UNARY_OP("sign", sign);
   NVFUSER_DIRECT_BINDING_UNARY_OP("sigmoid", sigmoid);
   NVFUSER_DIRECT_BINDING_UNARY_OP("signbit", signbit);
-  NVFUSER_PYTHON_BINDING_UNARY_OP("silu", silu)
+  NVFUSER_DIRECT_BINDING_UNARY_OP("silu", silu);
   NVFUSER_DIRECT_BINDING_UNARY_OP("sin", sin);
   NVFUSER_DIRECT_BINDING_UNARY_OP("sinh", sinh);
   NVFUSER_DIRECT_BINDING_UNARY_OP("sqrt", sqrt);
@@ -618,10 +619,12 @@ Val or TensorView
 )");
 }
 
-void bindOperations(py::module& fusion) {
-    py::module ops = fusion.def_submodule("ops", "CPP Fusion Operations");
-    bindUnaryOps(ops);
-    bindBinaryOps(ops);
+} // namespace
+
+void bindDirectOperations(py::module& fusion) {
+  py::module ops = fusion.def_submodule("ops", "CPP Fusion Operations");
+  bindUnaryOps(ops);
+  bindBinaryOps(ops);
 }
 
 } // namespace nvfuser::python_frontend
