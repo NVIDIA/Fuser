@@ -415,11 +415,11 @@ bool isSqueezeInput(const TensorView* tv);
 bool isSqueezedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly accessed by,
-// e.g., indexSelect, torchGather and scatter
+// e.g., indexSelect, gather and scatter
 bool isIndexedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly read by,
-// e.g., indexSelect and torchGather
+// e.g., indexSelect gather
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly written to by,
@@ -427,7 +427,7 @@ bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id);
 
 // Return a producer ID, if any, that is indirectly accessed by, e.g.,
-// indexSelect and torchGather.
+// indexSelect and gather.
 IterDomain* getIndexedProducerID(const Expr* expr);
 
 // Return the corresponding consumer if of a producer ID that is
@@ -440,7 +440,7 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
-bool isTorchGatherLookupTv(const Val* tv);
+bool isGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 

@@ -2460,7 +2460,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulSchedulerTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 class TestKernelConfig : public matmul_heuristic_plugin::KernelConfig {
