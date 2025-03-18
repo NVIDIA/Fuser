@@ -77,8 +77,6 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
  private:
   void validate() const;
 
-  void cacheInputsAndOutputs();
-
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
   //  in fact the whole body of this function will
@@ -192,13 +190,16 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // transforms have been applied and inlining
   void setUpCircularBuffering();
 
+  void setOperandSmemLoadAndCacheOps(TensorView* operand, int64_t vec_size)
+      final;
+
  private:
   std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
 
   std::vector<ValGroup> canonical_dim_ordering_;
 
-  std::vector<TensorView*> acw_smems_, bcw_smems_, acrs_, bcrs_, abs_, bbs_,
-      splitk_sums_, smem_epilogues_;
+  std::vector<TensorView*> acrs_, bcrs_, abs_, bbs_, splitk_sums_,
+      smem_epilogues_;
 };
 
 } // namespace nvfuser

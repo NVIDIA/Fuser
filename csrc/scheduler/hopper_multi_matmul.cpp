@@ -135,7 +135,7 @@ void HopperMultipleMatmulScheduler::run() {
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs.
   // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
-  cacheInputsAndOutputs();
+  cacheInputsAndOutputs(/*skip_intermediates=*/true);
 
   // We wait until we are done caching tensors to find roles, since this
   // requires building an IdModel, which would not be updated during the cache
@@ -163,78 +163,6 @@ void HopperMultipleMatmulScheduler::run() {
   // mma_result is scheduled, since everything in the main loop will need to
   // be rotated
   setUpCircularBuffering();
-}
-
-void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion_);
-
-  // Cache operands
-  for (auto role : {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
-    VectorOfUniqueEntries<TensorView*> unique_operands;
-    for (const mma_utils::MatmulPattern& pattern : patterns_) {
-      TensorView* immediate_operand =
-          role == MatmulTensorRole::OPERAND_A ? pattern.A : pattern.B;
-      for (Val* v : InputsOf::output(immediate_operand)) {
-        if (auto* tv = dynamic_cast<TensorView*>(v)) {
-          unique_operands.pushBack(tv);
-        }
-      }
-    }
-    std::vector<TensorView*>& operands =
-        role == MatmulTensorRole::OPERAND_A ? as_ : bs_;
-    std::vector<TensorView*>& cw_smems =
-        role == MatmulTensorRole::OPERAND_A ? acw_smems_ : bcw_smems_;
-
-    NVF_ERROR(operands.empty());
-
-    for (TensorView* tv : unique_operands.vector()) {
-      // When translating MatmulOp or LinearOp with avoid_intermediates, we
-      // introduce some intermediate tensors which need to be ignored during
-      // lowering. We set as_ and bs_ to point at the last of these tensors
-      // before their next consumer is in non-global memory. Then we cache it
-      // and use that as the smem tensor.
-      TensorView* remapped =
-          scheduler_utils::scheduleInputToSkipIntermediates(tv);
-      TensorView* smem_tv = remapped->cacheAfter();
-      operands.push_back(remapped);
-      cw_smems.push_back(smem_tv);
-
-      LoadStoreOpType load_op = params_->async_gmem_load_operands
-          ? LoadStoreOpType::CpAsyncBulkTensorTile
-          : LoadStoreOpType::Set;
-
-      smem_tv->definition()->as<LoadStoreOp>()->setOpType(load_op);
-      smem_tv->setMemoryType(MemoryType::Shared);
-    }
-  }
-
-  // Cache epilogue inputs
-  if (auto it = tensor_roles_.find(MatmulTensorRole::EPILOGUE_INPUT);
-      it != tensor_roles_.end()) {
-    for (TensorView* tv : it->second) {
-      tv->cacheAfter();
-    }
-  }
-
-  // Cache and fork outputs
-  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
-  // In case a member of mma_results_ is a fusion output, we need to do the
-  // caching but we also need to update the input afterward
-  for (TensorView*& mma_result : mma_results_) {
-    if (mma_result->isFusionOutput()) {
-      Expr* def = mma_result->definition();
-      NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
-      mma_result = def->input(0)->as<TensorView>();
-    }
-
-    // Now that we are finished possibly redefining the inputs to the MmaOps,
-    // we can set the macro for those ops
-    auto* mma = dynamic_cast<MmaOp*>(mma_result->definition());
-    NVF_ERROR(mma != nullptr);
-    mma->setMacro(params_->mma_macro);
-  }
 }
 
 void HopperMultipleMatmulScheduler::swizzleBlockTiles(
@@ -842,6 +770,16 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         all_smem_loads);
   }
   */
+}
+
+void HopperMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
+    TensorView* operand,
+    int64_t vec_size) {
+  auto* lsop = operand->definition()->as<LoadStoreOp>();
+  LoadStoreOpType load_op = params_->async_gmem_load_operands
+      ? LoadStoreOpType::CpAsyncBulkTensorTile
+      : LoadStoreOpType::Set;
+  lsop->setOpType(load_op);
 }
 
 } // namespace nvfuser

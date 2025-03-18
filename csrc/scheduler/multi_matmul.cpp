@@ -11,6 +11,7 @@
 #include <multidevice/utils.h>
 #include <scheduler/ampere_multi_matmul.h>
 #include <scheduler/hopper_multi_matmul.h>
+#include <scheduler/utils.h>
 
 namespace nvfuser {
 
@@ -151,6 +152,78 @@ void scheduleMultipleMatmuls(Fusion* fusion, const MatmulParams* params) {
         device_prop->major,
         ".",
         device_prop->minor);
+  }
+}
+
+void MultipleMatmulScheduler::cacheInputsAndOutputs(bool skip_intermediates) {
+  // Make sure we don't have global memory set on intermediate tensors from
+  // fusion segmentation
+  scheduler_utils::clearMemorySpace(fusion_);
+
+  // Cache operands
+  for (auto role : {MatmulTensorRole::OPERAND_A, MatmulTensorRole::OPERAND_B}) {
+    VectorOfUniqueEntries<TensorView*> unique_operands;
+    for (const mma_utils::MatmulPattern& pattern : patterns_) {
+      TensorView* immediate_operand =
+          role == MatmulTensorRole::OPERAND_A ? pattern.A : pattern.B;
+      for (Val* v : InputsOf::output(immediate_operand)) {
+        if (auto* tv = dynamic_cast<TensorView*>(v)) {
+          unique_operands.pushBack(tv);
+        }
+      }
+    }
+    std::vector<TensorView*>& operands =
+        role == MatmulTensorRole::OPERAND_A ? as_ : bs_;
+    std::vector<TensorView*>& cw_smems =
+        role == MatmulTensorRole::OPERAND_A ? acw_smems_ : bcw_smems_;
+    int64_t vec_size = role == MatmulTensorRole::OPERAND_A
+        ? params_->supported_vec_size.a
+        : params_->supported_vec_size.b;
+
+    NVF_ERROR(operands.empty());
+
+    for (TensorView* tv : unique_operands.vector()) {
+      // When translating MatmulOp or LinearOp with avoid_intermediates, we
+      // introduce some intermediate tensors which need to be ignored during
+      // lowering. We set as_ and bs_ to point at the last of these tensors
+      // before their next consumer is in non-global memory. Then we cache it
+      // and use that as the smem tensor.
+      TensorView* remapped = skip_intermediates
+          ? scheduler_utils::scheduleInputToSkipIntermediates(tv)
+          : tv;
+      TensorView* smem_tv = remapped->cacheAfter();
+      operands.push_back(remapped);
+      cw_smems.push_back(smem_tv);
+
+      setOperandSmemLoadAndCacheOps(smem_tv, vec_size);
+      smem_tv->setMemoryType(MemoryType::Shared);
+    }
+  }
+
+  // Cache epilogue inputs
+  if (auto it = tensor_roles_.find(MatmulTensorRole::EPILOGUE_INPUT);
+      it != tensor_roles_.end()) {
+    for (TensorView* tv : it->second) {
+      tv->cacheAfter();
+    }
+  }
+
+  // Cache and fork outputs
+  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
+  // In case a member of mma_results_ is a fusion output, we need to do the
+  // caching but we also need to update the input afterward
+  for (TensorView*& mma_result : mma_results_) {
+    if (mma_result->isFusionOutput()) {
+      Expr* def = mma_result->definition();
+      NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
+      mma_result = def->input(0)->as<TensorView>();
+    }
+
+    // Now that we are finished possibly redefining the inputs to the MmaOps,
+    // we can set the macro for those ops
+    auto* mma = dynamic_cast<MmaOp*>(mma_result->definition());
+    NVF_ERROR(mma != nullptr);
+    mma->setMacro(params_->mma_macro);
   }
 }
 

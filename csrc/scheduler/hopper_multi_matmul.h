@@ -9,6 +9,7 @@
 
 #include <ATen/cuda/CUDAContext.h>
 #include <scheduler/multi_matmul.h>
+#include <type.h>
 
 namespace nvfuser {
 
@@ -77,8 +78,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
  private:
   void validate() const;
 
-  void cacheInputsAndOutputs();
-
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
   //  in fact the whole body of this function will
@@ -113,8 +112,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   // Currently the support is for a, b, c and d as fusion inputs/outputs
   //  aka. no prolog fusion yet.
-  void defineOperandCaches();
-
   void cacheOperandsToSmem(
       const std::vector<TensorView*>& operands,
       std::vector<TensorView*>& smem_operands);
@@ -183,6 +180,9 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   void setUpCircularBuffering();
 
+  void setOperandSmemLoadAndCacheOps(TensorView* operand, int64_t vec_size)
+      final;
+
   // Map TensorView's iterDomain to its ValGroup.
   // Then, find the MatmulDimRole for the ValGroup.
   // Return MatmulDimRole for IterDomain
@@ -201,8 +201,8 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
  private:
   std::vector<ValGroup> canonical_dim_ordering_;
 
-  std::vector<TensorView*> acw_smems_, bcw_smems_, acrs_, bcrs_, abs_, bbs_,
-      splitk_sums_, smem_epilogues_;
+  std::vector<TensorView*> acrs_, bcrs_, abs_, bbs_, splitk_sums_,
+      smem_epilogues_;
 };
 
 } // namespace nvfuser

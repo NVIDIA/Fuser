@@ -46,6 +46,20 @@ class MultipleMatmulScheduler {
   //! that creates a new TensorView, such as caching or rFactor
   void updateIdModel();
 
+  //! Defines all cache tensors of inputs and outputs. Schedules intermediate
+  //! global TensorViews for skipping metadata operations like permute and
+  //! broadcast when loading operands. Defines as_, bs_, acw_smems_, bcw_smems_.
+  //! Sets the mma macro.
+  //!
+  //! If skip_intermediates is true, we call
+  //! scheduler_utils::scheduleInputToSkipIntermediates on each operand to avoid
+  //! computing metadata expressions.
+  void cacheInputsAndOutputs(bool skip_intermediates);
+
+  virtual void setOperandSmemLoadAndCacheOps(
+      TensorView* operand,
+      int64_t vec_size) = 0;
+
  protected:
   Fusion* fusion_;
   const MatmulParams* params_;
@@ -64,7 +78,7 @@ class MultipleMatmulScheduler {
   int64_t num_local_batch_dims_ = 0;
   int64_t num_device_and_batch_dims_ = 0;
 
-  std::vector<TensorView*> as_, bs_, mma_results_;
+  std::vector<TensorView*> as_, bs_, mma_results_, acw_smems_, bcw_smems_;
 };
 
 NVF_API void scheduleMultipleMatmuls(

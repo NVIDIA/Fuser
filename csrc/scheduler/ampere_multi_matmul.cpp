@@ -467,19 +467,19 @@ void AmpereMultipleMatmulScheduler::validate() const {
 }
 
 void AmpereMultipleMatmulScheduler::run() {
-  // Clears memory spaces on intermediate tensors, calls
-  // cache{After,Before,Fork} on inputs and outputs
-  cacheInputsAndOutputs();
-
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
   findPatterns();
   translatePatterns();
+
+  // Clears memory spaces on intermediate tensors, calls
+  // cache{After,Before,Fork} on inputs and outputs
+  // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
+  cacheInputsAndOutputs(/*skip_intermediates=*/false);
   findRoles();
 
-  // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
-  // This also collects mma_results_
-  defineOperandCaches();
+  cacheOperandsToRegisters(acw_smems_, acrs_);
+  cacheOperandsToRegisters(bcw_smems_, bcrs_);
 
   // Schedules:
   //   - global->smem (cp.async)
@@ -503,74 +503,6 @@ void AmpereMultipleMatmulScheduler::run() {
   // mma_result is scheduled, since everything in the main loop will need to
   // be rotated
   setUpCircularBuffering();
-}
-
-void AmpereMultipleMatmulScheduler::cacheInputsAndOutputs() {
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion_);
-
-  // Cache inputs
-  scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
-
-  // Cache and fork outputs
-  cached_outputs_ =
-      scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
-}
-
-void AmpereMultipleMatmulScheduler::defineOperandCaches() {
-  cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
-  cacheOperandsToRegisters(acw_smems_, acrs_);
-
-  cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
-  cacheOperandsToRegisters(bcw_smems_, bcrs_);
-
-  // Now that we are finished possibly redefining the inputs to the MmaOps,
-  // we can set the macro for those ops
-  for (TensorView* mma_result : mma_results_) {
-    MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
-    NVF_ERROR(mma != nullptr);
-    mma->setMacro(params_->mma_macro);
-  }
-}
-
-void AmpereMultipleMatmulScheduler::cacheOperandsToSmem(
-    const std::vector<TensorView*>& operands,
-    std::vector<TensorView*>& smem_operands,
-    int64_t vec_size) {
-  // Use cp.async as requested in scheduler params.
-  smem_operands.resize(operands.size(), nullptr);
-  for (size_t i : c10::irange(operands.size())) {
-    TensorView* operand = operands[i];
-    CacheOp cache_op = CacheOp::Unspecified;
-    if (params_->async_gmem_load_operands) {
-      int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
-      NVF_CHECK(
-          vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
-          "Unsupported async vectorization size ",
-          vec_size,
-          " = ",
-          vec_bytes,
-          " bytes for operand ",
-          operand->toString(),
-          " which has data type ",
-          operand->dtype(),
-          ". Size must be 4, 8, or 16 bytes. ",
-          "MatmulParams::async_gmem_load_operands should be set to false in this case.");
-      cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
-    };
-
-    NVF_ERROR(operand->uses().size() == 1);
-    smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
-
-    LoadStoreOpType load_op = params_->async_gmem_load_operands
-        ? LoadStoreOpType::CpAsync
-        : LoadStoreOpType::Set;
-
-    smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
-    smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
-    smem_operands[i]->setMemoryType(MemoryType::Shared);
-  }
 }
 
 void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
@@ -1367,6 +1299,37 @@ void AmpereMultipleMatmulScheduler::setUpCircularBuffering() {
         num_device_and_batch_dims_ + 2 + num_splitk_dims_,
         all_smem_loads);
   }
+}
+
+void AmpereMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
+    TensorView* operand,
+    int64_t vec_size) {
+  int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+  CacheOp cache_op = CacheOp::Unspecified;
+  if (params_->async_gmem_load_operands) {
+    NVF_CHECK(
+        vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
+        "Unsupported async vectorization size ",
+        vec_size,
+        " = ",
+        vec_bytes,
+        " bytes for operand ",
+        operand->toString(),
+        " which has data type ",
+        operand->dtype(),
+        ". Size must be 4, 8, or 16 bytes. ",
+        "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+    cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
+  }
+
+  auto* lsop = operand->definition()->as<LoadStoreOp>();
+
+  lsop->setCacheOp(cache_op);
+
+  LoadStoreOpType load_op = params_->async_gmem_load_operands
+      ? LoadStoreOpType::CpAsync
+      : LoadStoreOpType::Set;
+  lsop->setOpType(load_op);
 }
 
 } // namespace nvfuser
