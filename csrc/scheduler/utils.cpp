@@ -636,8 +636,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     auto resolution_points =
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
     if (resolution_points.empty()) {
-      resolution_points =
-          normalization_scheduler_utils::getResolutionPointsOf(buffer);
+      resolution_points = normalization_scheduler_utils::getResolutionPointsOf(
+          buffer, id_model);
     }
     NVF_ERROR(
         !resolution_points.empty(),

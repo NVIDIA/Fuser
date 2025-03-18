@@ -1573,8 +1573,9 @@ namespace {
 class PersistentBufferResolution : public IterVisitor {
  public:
   static std::vector<TensorView*> getResolutionPointsOf(
-      TensorView* persistent_buffer) {
-    PersistentBufferResolution resolution(persistent_buffer);
+      TensorView* persistent_buffer,
+      IdModel& id_model) {
+    PersistentBufferResolution resolution(persistent_buffer, id_model);
 
     NVF_ERROR(
         !resolution.resolution_points_.empty(),
@@ -1587,11 +1588,9 @@ class PersistentBufferResolution : public IterVisitor {
   PersistentBufferResolution() = delete;
 
  private:
-  PersistentBufferResolution(TensorView* persistent_buffer)
+  PersistentBufferResolution(TensorView* persistent_buffer, IdModel& id_model)
       : persistent_buffer_(persistent_buffer),
-        exact_graph_(
-            IdModel(persistent_buffer->fusion(), /*build_graphs=*/false)
-                .buildExactGraph()) {
+        exact_graph_(id_model.maybeBuildGraph(IdMappingMode::EXACT)) {
     traverse(persistent_buffer->fusion());
   }
 
@@ -1757,8 +1756,11 @@ class PersistentBufferResolution : public IterVisitor {
 
 } // namespace
 
-std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer) {
-  return PersistentBufferResolution::getResolutionPointsOf(persistent_buffer);
+std::vector<TensorView*> getResolutionPointsOf(
+    TensorView* persistent_buffer,
+    IdModel& id_model) {
+  return PersistentBufferResolution::getResolutionPointsOf(
+      persistent_buffer, id_model);
 }
 
 int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio) {

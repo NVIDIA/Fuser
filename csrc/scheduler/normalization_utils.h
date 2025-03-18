@@ -8,6 +8,7 @@
 #pragma once
 
 #include <exceptions.h>
+#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <runtime/executor_params.h>
 #include <scheduler/reduction_utils.h>
@@ -381,7 +382,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
 // point. getResolutionPointsOf addresses the problem by traversing
 // both forward and backward directions. See
 // PersistentBufferTest.GetResolutionIssue1123 for a concrete example
-std::vector<TensorView*> getResolutionPointsOf(TensorView* persistent_buffer);
+std::vector<TensorView*> getResolutionPointsOf(
+    TensorView* persistent_buffer,
+    IdModel& id_model);
 
 // Return empirical maximum persistent batch size for inner persistent scheduler
 int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio);
