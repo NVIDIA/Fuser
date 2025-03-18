@@ -29,6 +29,9 @@ void encodeBuffer(T value, std::string& buffer) {
   }
 }
 } // namespace
+ArgumentManager::ArgumentManager() :
+  tensor_map_(),
+  vals_last_used_at_segment_() { }
 
 ArgumentManager::ArgumentManager(
     const KernelArgumentHolder& args,
@@ -38,6 +41,16 @@ ArgumentManager::ArgumentManager(
   mapFusionInputsToArgs(
       fusion_inputs, args, runtime_workspace.group_extent_binding_order);
   setLastUsedSegmentID(runtime_workspace.group_run_order);
+}
+
+void ArgumentManager::update(
+    const KernelArgumentHolder& args,
+    const std::vector<Val*>& fusion_inputs) {
+  auto original_args_size = args.size();
+  // Bind args in the tensor_map
+  for (const auto i : c10::irange(original_args_size)) {
+    tensor_map_[fusion_inputs[i]] = args[i];
+  }
 }
 
 const PolymorphicValue& ArgumentManager::checkTensorMap(Val* v) const {
