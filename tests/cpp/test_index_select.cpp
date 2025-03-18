@@ -852,6 +852,10 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
 }
 
 TEST_F(NVFuserTest, IndexPutAccumulate) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
   int64_t vocab = 1024;
   int64_t hidden = 3584;
   int64_t seq = 3000;
