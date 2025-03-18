@@ -578,7 +578,7 @@ void shardAllLike(
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  // TODO: If the tv already has a particular device parallel type, skip that.
+
   if (!tvs.empty()) {
     scheduler_utils::parallelizeAllLike(
         ref,

@@ -8,7 +8,6 @@
 #include <preseg_passes/propagate_shardings.h>
 
 #include <vector>
-#include "type.h"
 
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
