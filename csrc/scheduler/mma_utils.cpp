@@ -1966,7 +1966,11 @@ class MatmulTranslator : public OptInDispatch {
       }
       // If there are any uses that were not round-trip casts, then we should
       // insert the castOp.
-      if (pattern_.output->uses().size() > round_trip_tvs.size()) {
+      //
+      // We also always need to insert the cast if the MatmulOp output is a
+      // Fusion output.
+      if (pattern_.output->isFusionOutput() ||
+          pattern_.output->uses().size() > round_trip_tvs.size()) {
         TensorView* old_output = pattern_.output;
         pattern_.output = castOp(pattern_.output->dtype(), fms);
         replaceTV(old_output, pattern_.output);
