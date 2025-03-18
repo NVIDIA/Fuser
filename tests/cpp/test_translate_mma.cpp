@@ -764,7 +764,27 @@ TEST_P(TranslationCastTest, CountCasts) {
     }
     return false;
   });
-  EXPECT_EQ(num_casts, 1);
+  if (sin_epilogue && output_pre_epilogue) {
+    // Fusion looks like
+    // Inputs:
+    //   A
+    //   B
+    // Outputs:
+    //   C
+    //   D
+    // C = linear(A, B)
+    // D = sin(C)
+    // We will need to cast both C and D.
+    EXPECT_EQ(num_casts, 2);
+  } else {
+    // Fusion is either
+    //   C = linear(A, B)
+    // or
+    //   C = linear(A, B)
+    //   D = sin(C)
+    // but we are not outputting both C and D so there is only one cast.
+    EXPECT_EQ(num_casts, 1);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
