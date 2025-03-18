@@ -12,11 +12,9 @@
 #include <ops/all_ops.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <preseg_passes/optimization_pass.h>
-#include <preseg_passes/propagate_shardings.h>
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include "multidevice/utils.h"
 
 namespace nvfuser {
 
@@ -781,20 +779,17 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
   tv0->axis(-3)->parallelize(ParallelType::DIDx);
   // in: loop domain: {b, s, DIDx{d}, h, e}
 
-  // // Propagate DID loop split to output
-  // TransformPropagator propagator_p2c(tv0);
-  // MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
-  // // out: loop domain: {b, s, d, h, e} after transform propagation
+  // Propagate DID loop split to output
+  TransformPropagator propagator_p2c(tv0);
+  MaxLogicalDomainInfoSpanningTree(tv0).traverse(&propagator_p2c);
+  // out: loop domain: {b, s, d, h, e} after transform propagation
 
-  // // Parallelize output
-  // tv1->setDeviceMesh(mesh);
-  // scheduler_utils::parallelizeAllLike(
-  //     tv0,
-  //     /*pos=*/-1,
-  //     /*selected_tv=*/{tv1});
-  // // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
-
-  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  // Parallelize output
+  scheduler_utils::parallelizeAllLike(
+      tv0,
+      /*pos=*/-1,
+      /*selected_tv=*/{tv1});
+  // out: loop domain: {b, s, DIDx{d}, h, e} after parallelization
 
   tv0->setAllocationDomain(tv0->getLoopDomain(), true);
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
@@ -1158,8 +1153,7 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
     tv->axis(-2)->parallelize(ParallelType::DIDx);
     reorderDIDToFront(tv);
   }
-
-  preseg_passes::OptimizationPass<preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  propagateShardings(fusion.get(), d);
 
   for (auto tv : fusion->allTvs()) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
@@ -1174,7 +1168,7 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
   at::Tensor sharded_hk = shardTensor(hk_tensor, -1, mesh);
   at::Tensor sharded_hv = shardTensor(hv_tensor, -1, mesh);
 
-  at::Tensor nvf_out =
+  auto nvf_out =
       executor_cache
           .runFusionWithInputs({sharded_hq, sharded_hk, sharded_hv})[0]
           .as<at::Tensor>();
@@ -1187,7 +1181,7 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
       /*dropout_p=*/0.0,
       /*is_causal=*/false,
       /*return_debug_mask=*/false,
-      /*scale=*/scale);
+      scale);
   at::Tensor ref_attn = shardTensor(
       std::get<0>(reference_out).transpose(1, 2).view(in_shape), -1, mesh);
 
@@ -1199,5 +1193,4 @@ TEST_F(MultiDeviceTest, TransformerFwd) {
       __LINE__,
       __FILE__);
 }
-
 } // namespace nvfuser
