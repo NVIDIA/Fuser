@@ -409,7 +409,7 @@ bool haveDifferentShardings(
 
   // The second element of the value pair indicates whether the IterDomain
   // depends on a mapped producer logical IterDomain or a mapped consumer root
-  // IterDomain. Propagating this informatino is needed to solve the matmul
+  // IterDomain. Propagating this information is needed to solve the matmul
   // example above.
   std::unordered_map<IterDomain*, std::pair<Val*, bool>> id_to_index;
   std::vector<Val*> assumptions;
