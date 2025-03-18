@@ -367,17 +367,8 @@ add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-
-  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
-    # recommends to link asan statically. This is the default with Clang. GCC
-    # needs `-static-libasan`.
-    target_link_options(codegen_internal PUBLIC -fsanitize=address -static-libasan)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -static-libasan)
-  else()
-    target_link_options(codegen_internal PUBLIC -fsanitize=address)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
-  endif()
+  target_link_options(codegen_internal PUBLIC -fsanitize=address)
+  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
