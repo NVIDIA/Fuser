@@ -835,21 +835,13 @@ BufferProjectionStrategy isProjectBufferToInputs(
     return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
-  // Achieved a smaller buffer size at the cost of project to uncacheable inputs
-  // Don't allow if persistent_buffer_size not exceeds register size.
-  if (!persistent_buffer_info.uncacheable_projectable_persistent_buffers
-           .empty() &&
-      persistent_buffer_size_info.persistent_buffer_size <=
-          scheduler_utils::register_file_size) {
-    return BufferProjectionStrategy::NoProjectOtherReasons;
-  }
-
-  // must project to inputs otherwise don't have enough register or shared
-  // memory to store the buffers. Even after projecting, may still not have
-  // enough register or shared memory, then canScheduleRunTime will return
-  // false. For InnerOuterPersistent, both register and shared memory are used
+  //  For InnerOuterPersistent, both register and shared memory are used
   // and will be handled in getPersistentBufferStorageParams.
   if (scheduler_type != SchedulerType::InnerOuterPersistent) {
+    // must project to inputs otherwise don't have enough register or shared
+    // memory to store the buffers. Even after projecting, may still not have
+    // enough register or shared memory, then canScheduleRunTime will return
+    // false.
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
             fusion,
@@ -861,6 +853,14 @@ BufferProjectionStrategy isProjectBufferToInputs(
     if (max_available_buffer <
         persistent_buffer_size_info.persistent_buffer_size) {
       return BufferProjectionStrategy::ProjectToInputs;
+    }
+    // Achieved a smaller buffer size at the cost of project to uncacheable
+    // inputs Don't allow if persistent_buffer_size not exceeds register size.
+    if (!persistent_buffer_info.uncacheable_projectable_persistent_buffers
+             .empty() &&
+        persistent_buffer_size_info.persistent_buffer_size <=
+            scheduler_utils::register_file_size) {
+      return BufferProjectionStrategy::NoProjectOtherReasons;
     }
   }
 
