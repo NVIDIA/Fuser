@@ -483,7 +483,10 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
+    kir::IrVisitor::handle(ite);
   }
 
   //! Factory function for internal loop information data
@@ -786,7 +789,10 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_THROW("lower_alias_memory: no support for IfThenElse at this phase.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
+    kir::IrVisitor::handle(ite);
   }
 
   // Generate allocation info for allocation after some pre-filtering

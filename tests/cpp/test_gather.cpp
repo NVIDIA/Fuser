@@ -23,7 +23,7 @@
 
 namespace nvfuser {
 
-class ScatterGatherTest : public NVFuserTest {
+class GatherTest : public NVFuserTest {
  protected:
   void SetUp() override {
     // To make the tests using std::rand deterministic
@@ -59,81 +59,13 @@ auto randomIndexVector(
   return index_dims;
 }
 
-at::Tensor generateScatter2DIndex(
-    int64_t min,
-    int64_t extent_1d,
-    int64_t extent_2d,
-    int select_id) {
-  auto options_i =
-      torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
-  if (select_id == 0) {
-    auto idx = at::randint(0, extent_2d, {extent_1d, extent_2d}, options_i);
-    for (int64_t i = 0; i < extent_1d; ++i) {
-      idx[i] = at::randperm(extent_2d, options_i) + min;
-    }
-    return idx.transpose(0, 1).contiguous();
-  } else {
-    auto idx = at::randint(0, extent_1d, {extent_2d, extent_1d}, options_i);
-    for (int64_t i = 0; i < extent_2d; ++i) {
-      idx[i] = at::randperm(extent_1d, options_i) + min;
-    }
-    return idx;
-  }
-}
-
 } // namespace
 
-TEST_F(ScatterGatherTest, Scatter1DIndexZerosSelfTvSameShape) {
-  const std::vector<std::vector<int64_t>> input_dims = {{2, 2}};
-
-  const std::vector<std::vector<int64_t>> src_dims = {{2, 2}};
-
-  const std::vector<std::vector<int64_t>> idx_dims = {{2, 2}};
-
-  for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
-    auto fusion_ptr = std::make_unique<Fusion>();
-    Fusion& fusion = *fusion_ptr.get();
-    FusionGuard fg(&fusion);
-
-    TensorView* tv_input = makeContigTensor(2);
-    TensorView* tv_idx_1 = makeContigTensor(2, DataType::Int);
-    TensorView* tv_idx_2 = makeContigTensor(2, DataType::Int);
-    TensorView* tv_src = makeContigTensor(2);
-
-    fusion.addInput(tv_input);
-    fusion.addInput(tv_idx_1);
-    fusion.addInput(tv_idx_2);
-    fusion.addInput(tv_src);
-
-    auto tv_idx = add(tv_idx_1, tv_idx_2);
-    auto tv_out = scatter(tv_input, 0, tv_idx, tv_src);
-    fusion.addOutput(tv_out);
-
-    auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-    auto options_i =
-        torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
-
-    at::Tensor idx = generateScatter2DIndex(
-        0, idx_dims[test_id][1], idx_dims[test_id][0], 0);
-
-    at::Tensor idx_1 = at::randint(0, 24, idx_dims[test_id], options_i);
-    at::Tensor idx_2 = idx - idx_1;
-    at::Tensor t0 = at::randn(input_dims[test_id], options);
-    at::Tensor src = at::randn(src_dims[test_id], options);
-
-    FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs =
-        executor_cache.runFusionWithInputs({t0, idx_1, idx_2, src});
-    testValidate(
-        &fusion, cg_outputs, {t0, idx_1, idx_2, src}, __LINE__, __FILE__);
-  }
-}
-
-// all torch.gather test follow the FusionTorchGather* pattern
+// all torch.gather test follow the FusionGather* pattern
 
 // Test the correctness of gather operator in different dimensions and selcted
 // dim.
-TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
+TEST_F(GatherTest, GatherAllRankAllSelectedDim) {
   const int max_dim_size = 64;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -152,7 +84,7 @@ TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
         fusion.addInput(tv1);
         fusion.addInput(tv_idx);
         TensorView* tv_out = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                           : torchGather(tv1, dim, tv_idx);
+                                           : gather(tv1, dim, tv_idx);
         fusion.addOutput(tv_out);
 
         auto input_dims = randomVector(2, max_dim_size, rank);
@@ -170,7 +102,7 @@ TEST_F(ScatterGatherTest, TorchGatherAllRankAllSelectedDim) {
   }
 }
 // Test the fusion support of gather operator(producer) and elemetwise(consumer)
-TEST_F(ScatterGatherTest, TorchGatherAddMul) {
+TEST_F(GatherTest, GatherAddMul) {
   const int max_dim_size = 64;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -186,7 +118,7 @@ TEST_F(ScatterGatherTest, TorchGatherAddMul) {
         fusion.addInput(tv1);
         fusion.addInput(tv_idx);
         auto tv_gather = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                       : torchGather(tv1, dim, tv_idx);
+                                       : gather(tv1, dim, tv_idx);
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
@@ -206,7 +138,7 @@ TEST_F(ScatterGatherTest, TorchGatherAddMul) {
   }
 }
 // Test the fusion support of index tensor as fusion input in gather operator
-TEST_F(ScatterGatherTest, AddGatherSumAdd) {
+TEST_F(GatherTest, AddGatherSumAdd) {
   const int max_dim_size = 8;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -227,7 +159,7 @@ TEST_F(ScatterGatherTest, AddGatherSumAdd) {
 
         auto tv_index = add(tv_idx_1, tv_idx_2);
         auto tv_out = is_take_along ? takeAlongAxis(tv_lookup, tv_index, dim)
-                                    : torchGather(tv_lookup, dim, tv_index);
+                                    : gather(tv_lookup, dim, tv_index);
 
         fusion.addOutput(tv_out);
 
@@ -255,7 +187,7 @@ TEST_F(ScatterGatherTest, AddGatherSumAdd) {
   }
 }
 // Test the fusion support of gather operator and reduce
-TEST_F(ScatterGatherTest, TorchGatherSumAdd) {
+TEST_F(GatherTest, GatherSumAdd) {
   const int max_dim_size = 32;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -275,7 +207,7 @@ TEST_F(ScatterGatherTest, TorchGatherSumAdd) {
         fusion.addInput(tv2);
 
         auto tv_gather = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                       : torchGather(tv1, dim, tv_idx);
+                                       : gather(tv1, dim, tv_idx);
         auto tv_sum = sum(tv_gather, {0}, true);
         auto tv_out = add(tv_sum, tv2);
 
@@ -301,7 +233,7 @@ TEST_F(ScatterGatherTest, TorchGatherSumAdd) {
   }
 }
 // Test the correctness when input/index tensor is very large
-TEST_F(ScatterGatherTest, TorchGatherAddMulHugeSize) {
+TEST_F(GatherTest, GatherAddMulHugeSize) {
   const int max_dim_size = 16384;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -318,7 +250,7 @@ TEST_F(ScatterGatherTest, TorchGatherAddMulHugeSize) {
         fusion.addInput(tv1);
         fusion.addInput(tv_idx);
         auto tv_gather = is_take_along ? takeAlongAxis(tv1, tv_idx, dim)
-                                       : torchGather(tv1, dim, tv_idx);
+                                       : gather(tv1, dim, tv_idx);
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
@@ -338,7 +270,7 @@ TEST_F(ScatterGatherTest, TorchGatherAddMulHugeSize) {
   }
 }
 // Test the fusion support of input tensor as fusion input
-TEST_F(ScatterGatherTest, TorchGatherInput) {
+TEST_F(GatherTest, GatherInput) {
   const int rank = 2;
 
   auto fusion_ptr = std::make_unique<Fusion>();
@@ -351,7 +283,7 @@ TEST_F(ScatterGatherTest, TorchGatherInput) {
   fusion.addInput(tv_idx);
 
   auto tv_inp = add(tv1, tv1);
-  auto tv_gather = torchGather(tv_inp, 0, tv_idx);
+  auto tv_gather = gather(tv_inp, 0, tv_idx);
   fusion.addOutput(tv_gather);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -365,7 +297,7 @@ TEST_F(ScatterGatherTest, TorchGatherInput) {
 
 // Test when then extent of iteration domain is euqal to one, and the iteration
 // type is broadcast (IndexTv), used in RGCN model.
-TEST_F(ScatterGatherTest, TorchGatherIndexTvExtentIsOne) {
+TEST_F(GatherTest, GatherIndexTvExtentIsOne) {
   std::vector<int64_t> input_dims{16384, 60};
   std::vector<int64_t> index_dims{16384, 1};
   const int max_selected_index = 60;
@@ -384,7 +316,7 @@ TEST_F(ScatterGatherTest, TorchGatherIndexTvExtentIsOne) {
   fusion.addInput(tv_idx);
   fusion.addInput(tv_in2);
 
-  auto tv_gather = torchGather(tv_in1, 1, tv_idx);
+  auto tv_gather = gather(tv_in1, 1, tv_idx);
   auto tv_add =
       clamp(tv_gather, IrBuilder::create<Val>(-1L), IrBuilder::create<Val>(1L));
   auto tv_out = mul(tv_add, tv_in2);
@@ -406,7 +338,7 @@ TEST_F(ScatterGatherTest, TorchGatherIndexTvExtentIsOne) {
 }
 
 // Test takeAlongAxis with a broadcast index tensor
-TEST_F(ScatterGatherTest, TakeAlongBroadcastIndex) {
+TEST_F(GatherTest, TakeAlongBroadcastIndex) {
   for (const auto index_dim : {1, 3}) {
     auto fusion_ptr = std::make_unique<Fusion>();
     Fusion& fusion = *fusion_ptr.get();
@@ -443,13 +375,13 @@ TEST_F(ScatterGatherTest, TakeAlongBroadcastIndex) {
   }
 }
 
-TEST_F(ScatterGatherTest, GatherBroadcastInput) {
+TEST_F(GatherTest, GatherBroadcastInput) {
   for (const auto is_take_along : {false, true}) {
-    // torchGather not supported yet. The issue is one of the index
+    // gather not supported yet. The issue is one of the index
     // tensor has a broadcast domain, but its corresponding input
     // domain is a normal domain. The output domain is also a
-    // broadcast in torchGather, whereas it's a normal domain in
-    // takeAlongAxis. In the case of torchGather, indexing the
+    // broadcast in gather, whereas it's a normal domain in
+    // takeAlongAxis. In the case of gather, indexing the
     // input domain needs to be able to index the normal producer
     // domain with a broadcast reference domain. getProduerIndex needs
     // some fix.
@@ -461,7 +393,7 @@ TEST_F(ScatterGatherTest, GatherBroadcastInput) {
         // [B, B, I] when inp_indexed_dim == 1, otherwise [B, I, I]
         std::vector<int64_t> input_dims{1, inp_indexed_dim, 12};
         // [I, B] when idx_index_dim == 1, otherwise [I, I]
-        // In torchGather, an index dimension must be smaller or
+        // In gather, an index dimension must be smaller or
         // equal to the corresponding input dimension
         std::vector<int64_t> index_dims{
             is_take_along ? 5 : input_dims.at(0), idx_index_dim};
@@ -502,7 +434,7 @@ TEST_F(ScatterGatherTest, GatherBroadcastInput) {
 }
 
 // Test takeAlongAxis with non fusion inputs
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -542,8 +474,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   // producer tensor of the takeAlongAxis expr is not tv2 as a copy
   // is inserted
   inlineMost();
-  auto take_along_axis_input =
-      tv4->definition()->as<TorchGatherOp>()->lookupTv();
+  auto take_along_axis_input = tv4->definition()->as<GatherOp>()->lookupTv();
   NVF_CHECK(
       take_along_axis_input->getComputeAtPosition() == 1,
       "Unexpected computeAt position: ",
@@ -587,7 +518,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
 }
 
 // Same as the above but with the pointwise scheduler
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -624,7 +555,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
 // Reduction then takeAlongAxis. This is currently segmented due to
 // the post-reduction rule as documented in
 // https://github.com/NVIDIA/Fuser/issues/260
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction1) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -657,7 +588,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction1) {
 
 // takeAlongAxis to broadcast, squeeze, then reduction. Segmented
 // before the reduction
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction2) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -695,7 +626,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction2) {
 }
 
 // takeAlongAxis then reduction. Should not be segmented.
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction3) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -735,7 +666,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorReduction3) {
 // squeeze of the consumer ID of the indexed domain. Should not be segmented.
 //
 // Disabled due to #293.
-TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorReduction4) {
+TEST_F(GatherTest, DISABLED_TakeAlongAxisIntermediateTensorReduction4) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -773,7 +704,7 @@ TEST_F(ScatterGatherTest, DISABLED_TakeAlongAxisIntermediateTensorReduction4) {
 }
 
 // Normalization then takeAlongAxis
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -820,9 +751,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
 //
 // NOTE: Temporarily disabled as it results in non-deterministic
 // validaiton errors (https://github.com/NVIDIA/Fuser/issues/4003).
-TEST_F(
-    ScatterGatherTest,
-    DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
+TEST_F(GatherTest, DISABLED_TakeAlongAxisIntermediateTensorNormalization2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -863,7 +792,7 @@ TEST_F(
 }
 
 // takeAlongAxis then normalization. Should not be segmented.
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -907,9 +836,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
 
 // Normalization, then takeAlongAxis, then reduction. Similar
 // pattern as cross entropy.
-TEST_F(
-    ScatterGatherTest,
-    TakeAlongAxisIntermediateTensorNormalizationAndReduction1) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -953,9 +880,7 @@ TEST_F(
 // TakeAlongAxisIntermediateTensorNormalizationAndReduction1, but the
 // final reduction pattern is compatible with the first reduction, so
 // no segmentation should be done
-TEST_F(
-    ScatterGatherTest,
-    TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1000,7 +925,7 @@ TEST_F(
 }
 
 // takeAlongAxis then transpose
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1047,7 +972,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
 // Transpose scheduler due to a limitation of the analysis for the
 // scheduler. See DomainMap::findReferenceFor in transpose.cpp for
 // more details.
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1087,7 +1012,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
 
 // transpose the dimension produced by takeAlongAxis. Currently not
 // supported by the transpose scheduler
-TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
+TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1131,7 +1056,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
+TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1189,12 +1114,12 @@ TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
     if (group->schedulerType() == SchedulerType::InnerPersistent) {
       NVF_CHECK(std::any_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
-            return expr->isA<TorchGatherOp>();
+            return expr->isA<GatherOp>();
           }));
     } else {
       NVF_CHECK(std::none_of(
           group->exprs().begin(), group->exprs().end(), [](Expr* expr) {
-            return expr->isA<TorchGatherOp>();
+            return expr->isA<GatherOp>();
           }));
     }
   }
@@ -1208,7 +1133,7 @@ TEST_F(ScatterGatherTest, TakeAlongAxisCrossEntropyLoss) {
 }
 
 // Test grouped reduction on IterType::GatherScatter
-TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
+TEST_F(GatherTest, GatherIterGoupedReduction) {
   const int max_dim_size = 128;
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -1224,7 +1149,7 @@ TEST_F(ScatterGatherTest, GatherIterGoupedReduction) {
   TensorView* tv_idx = makeContigTensor(rank, DataType::Int);
   fusion.addInput(tv1);
   fusion.addInput(tv_idx);
-  auto tv_gather = torchGather(tv1, dim, tv_idx);
+  auto tv_gather = gather(tv1, dim, tv_idx);
   auto tv_sum = sum(tv_gather, {0}, false);
   fusion.addOutput(tv_sum);
 

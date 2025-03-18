@@ -657,8 +657,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       makeContigConcreteTensor({D, B, H / D, S, E / H}, dtype);
   TensorView* tvsdpa_log_sumexp =
       makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
-  TensorView* tvsdpa_seed = makeSymbolicTensor({}, DataType::Int);
-  TensorView* tvsdpa_offset = makeSymbolicTensor({}, DataType::Int);
+  auto [tvsdpa_seed, tvsdpa_offset] = createSdpaRngTvs();
   TensorView* linear0 = makeSymbolicTensor(3, dtype);
 
   fusion->addInput(tvx);
