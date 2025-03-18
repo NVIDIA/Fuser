@@ -76,7 +76,8 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
     }
   }
 
-  return std::make_pair(persistent_buffer_size, available_persistent_buffer_size);
+  return std::make_pair(
+      persistent_buffer_size, available_persistent_buffer_size);
 }
 
 // Return the maximum register count each thread can use and achieved occupancy.

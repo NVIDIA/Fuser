@@ -1325,8 +1325,6 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     return is_supported_bytes;
   };
   for (auto tv : all_persistent_buffers) {
-    std::cout << "movePersistentBufferToSmem all_persistent_buffers: "
-              << tv->toString() << std::endl;
     // Persistent buffers are categorized into two types:
     // (1) Cached input tensors.
     //     For these, [smem_persistent_buffers] holds the original input
@@ -1587,9 +1585,6 @@ void schedulePersistentKernel(
     fusion->removeOutput(output);
   }
 
-  std::cout << "\nbefore inlineMost: " << std::endl;
-  fusion->printMath();
-
   // Inline the schedule
   inlineMost();
 
@@ -1605,9 +1600,6 @@ void schedulePersistentKernel(
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
 
   refineCachePolicy(fusion);
-
-  std::cout << "after schedulePersistentKernel: " << std::endl;
-  fusion->printMath();
 }
 
 namespace {
