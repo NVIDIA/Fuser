@@ -17,6 +17,9 @@ GemmTile getMmaOpShape(MmaMacro macro) {
 }
 
 int64_t getSharedMemoryByteAlignment(MmaInputSmemSwizzle swizzle) {
+  // References:
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/#swizzling-modes
+  // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#table-alignment-multi-dim-tma
   switch (swizzle) {
     case MmaInputSmemSwizzle::None:
       return 128;
