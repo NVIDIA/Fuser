@@ -53,7 +53,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const TensorConstruct*) final;
   void handle(const SelectOp*) final;
   void handle(const IndexSelectOp*) final;
-  void handle(const TorchGatherOp*) final;
+  void handle(const GatherOp*) final;
   void handle(const ScatterOp*) final;
   void handle(const RNGOp*) final;
   void handle(const ReductionOp*) final;
