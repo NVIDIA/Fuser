@@ -294,7 +294,8 @@ void parallelizeAllLike(
     int64_t pos,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
-    bool propagate_padding) {
+    bool propagate_padding,
+    bool parallelize_inputs) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -320,7 +321,7 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput()) {
+    if (tv->isFusionInput() && !parallelize_inputs) {
       continue;
     }
     for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
@@ -2284,6 +2285,16 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
+
+    // Propgating the transforms will not replay the DIDx parallelization, so we
+    // need to do it manually here.
+    parallelizeAllLike(
+        tv,
+        /*pos=*/(int64_t)old2new.size(),
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{ParallelType::DIDx},
+        /*propagate_padding=*/false,
+        /*parallelize_inputs=*/true);
   }
 }
 
