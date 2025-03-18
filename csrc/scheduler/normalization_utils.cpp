@@ -1270,7 +1270,6 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs) {
-  fusion->printMath();
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its

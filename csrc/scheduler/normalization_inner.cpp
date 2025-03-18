@@ -66,17 +66,17 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           can_use_smem_persistent,
           project_persistent_buffers);
 
-  // shared memory persistence
-  if(available_persistent_buffer_size > scheduler_utils::register_file_size){
-    for(auto non_persistent_buffer : persistent_buffer_info.non_persistent_buffers){
+  // shared memory persistence allows to cache non_persistent_buffer
+  if (available_persistent_buffer_size > scheduler_utils::register_file_size) {
+    for (auto non_persistent_buffer :
+         persistent_buffer_info.non_persistent_buffers) {
       auto non_persistent_buffer_size = getPersistentBufferSizeOfTensor(
           non_persistent_buffer, runtime_info, persistent_buffer_info);
       persistent_buffer_size += non_persistent_buffer_size;
     }
   }
-    
-  return std::make_pair(
-      persistent_buffer_size, available_persistent_buffer_size);
+
+  return std::make_pair(persistent_buffer_size, available_persistent_buffer_size);
 }
 
 // Return the maximum register count each thread can use and achieved occupancy.

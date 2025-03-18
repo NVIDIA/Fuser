@@ -410,7 +410,6 @@ std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
 
   std::unordered_set<TensorView*> unroll_vectorizable_tvs;
   for (auto cached_input : cached_inputs) {
-    std::cout << "cached_input: " << cached_input->toString() << std::endl;
     if (vectorize) {
       auto producer_tvs = ir_utils::producerTvsOf(cached_input);
       if (producer_tvs.size() == 1 &&

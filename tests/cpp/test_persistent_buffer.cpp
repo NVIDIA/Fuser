@@ -1624,11 +1624,9 @@ TEST_F(PersistentBufferTest, BroadcastSync1SharedMemory) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  // there is a vectorization bug in shared memory persistence
-  // for non-contiguous inputs.
-  auto tv0 = makeContigTensor(1, DataType::BFloat16);
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
   fusion.addInput(tv0);
-  auto tv1 = makeContigTensor(2, DataType::BFloat16);
+  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
   fusion.addInput(tv1);
 
   auto tv2 = broadcast(tv0, {false, true});
@@ -1667,22 +1665,21 @@ TEST_F(PersistentBufferTest, BroadcastSync1SharedMemory) {
   // enforce shared memory persistent, then non_persistent_buffers turns into
   // persistent buffers.
   std::vector<TensorView*> all_persistent_buffers = pb_info.persistent_buffers;
-  for(auto tv : pb_info.non_persistent_buffers){
+  for (auto tv : pb_info.non_persistent_buffers) {
     all_persistent_buffers.push_back(tv);
   }
-  heuristic_params->as<ReductionParams>()->smem_persistent_buffers = all_persistent_buffers;
+  heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
+      all_persistent_buffers;
   scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
-
 
   // Lowering should succeed. Prior to the fix of the issue, the sync
   // analysis raises an exception as there's mismatched
   // parallelization between the cache of tv0 and its consumer
   GpuLower gpulw(&fusion);
 
-
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), {t0, t1});
-  
+
   Fusion* scheduled_fusion = ke.compiledKernel()->kernel();
   int n_smem_tv = 0;
   for (auto tv : scheduled_fusion->allTvs()) {
@@ -1707,12 +1704,10 @@ TEST_F(PersistentBufferTest, BroadcastSync1SharedMemoryMagicScheduler) {
   // sm_count / 8.
   // required buffer size for tv1 is dim1 * dim2 * sizeof(BFloat16) and it is
   // larger than scheduler_utils::register_file_size.
-  int64_t dim0 = 32, dim1 = 2, dim2 = 33*1024;
-  // there is a vectorization bug in shared memory persistence
-  // for non-contiguous inputs.
-  auto tv0 = makeContigTensor(2, DataType::BFloat16);
+  int64_t dim0 = 32, dim1 = 2, dim2 = 33 * 1024;
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
   fusion.addInput(tv0);
-  auto tv1 = makeContigTensor(3, DataType::BFloat16);
+  auto tv1 = makeSymbolicTensor(3, DataType::BFloat16);
   fusion.addInput(tv1);
 
   auto tv2 = broadcast(tv0, {false, false, true});
@@ -1756,7 +1751,7 @@ TEST_F(PersistentBufferTest, BroadcastSync1SharedMemoryMagicScheduler) {
   GpuLower gpulw(&fusion);
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), {t0, t1});
-  
+
   // Should have 2 shared memory persistent buffer tensors
   Fusion* scheduled_fusion = ke.compiledKernel()->kernel();
   int n_smem_tv = 0;
@@ -1771,7 +1766,6 @@ TEST_F(PersistentBufferTest, BroadcastSync1SharedMemoryMagicScheduler) {
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
-
 
 // Similar to BroadcastSync1 but just one of the reduction IDs is
 // resolved with the input tensor
@@ -1908,7 +1902,7 @@ TEST_F(PersistentBufferTest, BroadcastSyncProjectToInputsSharedMemory) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
-  int64_t dim0 = 32, dim1 = 2, dim2 = 33*1024;
+  int64_t dim0 = 32, dim1 = 2, dim2 = 33 * 1024;
   auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor(3, DataType::BFloat16);

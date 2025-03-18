@@ -252,8 +252,8 @@ struct PersistentBufferInfo {
   // Map unmappable dims to projectable_buffer_inputs
   std::unordered_set<IterDomain*> unamppable_dims_projected_to_inputs;
 
-  // buffer can project to inputs but must use shared memory
-  // a subset of projectable_persistent_buffers
+  // Buffer can project to inputs but must use shared memory.
+  // It's a subset of projectable_persistent_buffers.
   std::vector<TensorView*> uncacheable_projectable_persistent_buffers;
 
   // Some parameters used in
