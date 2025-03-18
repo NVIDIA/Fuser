@@ -793,7 +793,7 @@ void Fusion::aliasOutputToInput(
   NVF_CHECK(
       output->isA<TensorView>() && input->isA<TensorView>(),
       "aliasing output to input is only supported for TensorView");
-  TransformReplay::selfAllocationReplay(
+  TransformReplay::selfReplay(
       input->as<TensorView>()->domain(), output->as<TensorView>()->domain());
 
   // Let integration hide any output that wasn't a fusion output when
