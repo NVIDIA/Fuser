@@ -615,6 +615,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
             id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
       persistent_buffer_info.persistent_buffers.emplace_back(producer);
     } else {
+      NVF_THROW();
       persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
     }
   }
@@ -675,6 +676,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
             })) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
+    } else {
+      NVF_THROW();
     }
   }
 
