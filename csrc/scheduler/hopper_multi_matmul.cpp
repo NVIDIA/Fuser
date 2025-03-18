@@ -625,7 +625,8 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       dc->setMemoryType(MemoryType::Local);
       d_smem->setMemoryType(MemoryType::Shared);
 
-      auto store_with_stmatrix = dataTypeSize(dc->dtype()) == 2;
+      auto store_with_stmatrix =
+          params_->use_stmatrix && dataTypeSize(dc->dtype()) == 2;
 
       if (store_with_stmatrix) {
         // Set LoadStoreOp
