@@ -176,6 +176,12 @@ __device__ float reciprocal(float x) {
   return 1 / x;
 }
 
+__device__ float fast_reciprocal(float x) {
+  float result;
+  asm("rcp.approx.ftz.f32 %0, %1;" : "=f"(result) : "f"(x));
+  return result;
+}
+
 __device__ double relu(double x) {
   return x <= 0 ? 0 : x;
 }

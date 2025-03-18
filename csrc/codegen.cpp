@@ -401,9 +401,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           smem_buf_size_ss << bdimx << " * " << bdimy << " * " << bdimz
                            << " * sizeof("
                            << kernel_summary.largest_smem_data_type << ")";
-          if (has_parallel_welford) {
-            smem_buf_size_ss << " * 3";
+
+          // extra due to grouped reduction, welford, multiple math warp groups
+          int64_t extra_factor = kernel_summary.num_grouped_iterations;
+
+          if (std::getenv("CMP_WGROUPS")) {
+            std::stringstream ss;
+            ss << bdimx << " * " << bdimy << " * " << bdimz << " * "
+               << kernel_summary.num_grouped_iterations;
+            smem_buf_wg_offset_ = ss.str();
+            extra_factor *= 2;
           }
+          if (has_parallel_welford) {
+            extra_factor *= 3;
+          }
+
+          smem_buf_size_ss << " * " << extra_factor;
+
           std::string smem_buf_size = smem_buf_size_ss.str();
           if (kernel_summary.has_outer_grouped_grid_welford) {
             std::stringstream smem_buf_size_with_outer_opt;
@@ -851,7 +865,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       } else if (op_type == UnaryOpType::RefCast) {
         code_ << "(*reinterpret_cast<" << uop->out()->dtype() << "*>(&";
       } else {
-        code_ << op_type;
+        if(std::getenv("USE_FAST_RCP") && std::atoi(std::getenv("USE_FAST_RCP")) && op_type == UnaryOpType::Reciprocal){ 
+          code_ << "fast_reciprocal";
+        }else{
+          code_ << op_type;
+        }
         if (needFloatSuffix(op_type) &&
             uop->out()->dtype() == DataType::Float) {
           code_ << "f";
@@ -1268,6 +1286,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
+  // There are 16 Named Barriers provided by Hardware starting in Hopper
+  // Their IDs are in the range 0-15
+  // Number of threads syncing using the barrier must be a multiple of warp-size
+  // ID 0 should not be used for safety, as other driver APIs (i.e.
+  // __syncthreads) may use it and conflict with other uses.
+  std::string genBarrierId() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    if (!pdim_map.hasWarpSpecialization()) {
+      ss << "0";
+    } else {
+      ss << "1" << " + " << genInline(current_buffer_id_);
+    }
+    return ss.str();
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "
@@ -1303,10 +1337,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
     func_args.arg(gen(stmt->out()));
     func_args.arg(gen(stmt->in()));
-    func_args.arg(genStaticCast(genPtrType(data_type), "shared_mem"));
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genStaticCast(genPtrType(data_type), "shared_mem") + " + " +
+          genSmemOffset());
+    } else {
+      func_args.arg(
+          genStaticCast(genPtrType(data_type), "shared_mem"));
+    }
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
     func_args.arg(genComputeBlockDim());
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+    } else {
+      func_args.arg("threadIdx.x");
+    }    
+    func_args.arg(genBarrierId());
 
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
              << ";\n";
@@ -1335,11 +1384,27 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genSmemOffset());
+    } else {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
     NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
     func_args.arg(genComputeBlockDim());
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+    } else {
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+    }    
+    func_args.arg(genBarrierId());
 
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
@@ -2956,6 +3021,93 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
+  std::string genSmemOffset() {
+    std::stringstream offset_ss;
+    offset_ss << genVariableName(
+        NamedScalar::getParallelIndex(ParallelType::WgGIDx));
+    offset_ss << " * " << smem_buf_wg_offset_;
+    return offset_ss.str();
+  }
+
+  void genGroupedWarpReduction(
+      const int num_grouped_iterations,
+      kir::TensorIndex* output,
+      kir::TensorIndex* input,
+      const Val* init,
+      BinaryOpType reduction_op_type,
+      kir::Predicate* read_pred,
+      std::pair<IterDomain*, IterDomain*> reduction_dims,
+      bool is_all_reduce) {
+    ArgumentBuilder func_args;
+    func_args.arg(genVariableNameConvertAlignedArray(output));
+    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genSmemOffset());
+    } else {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
+
+    bool use_static = (std::getenv("USE_STATIC") && std::atoi(std::getenv("USE_STATIC")) > 0);
+
+    ArgumentBuilder template_args;
+    if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+        reduction_dims.second == nullptr) {
+      if(use_static){
+        int64_t number_of_threads = std::atoi(std::getenv("THREADS"));
+        func_args.arg(genBarrierId());
+        template_args.arg(
+            kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+        template_args.arg(isAligned());
+        template_args.arg(is_all_reduce);
+        template_args.arg(num_grouped_iterations);
+        template_args.arg(number_of_threads);
+        indent() << genCall(
+                        "warp::iterGroupedStaticWarpAllReduce", template_args, func_args)
+                << ";\n";
+      }else{
+        NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
+        func_args.arg(genInline(read_pred));
+        func_args.arg(genStaticCast(output->dtype(), genInline(init)));
+        func_args.arg(genComputeBlockDim());
+        if (std::getenv("CMP_WGROUPS") != nullptr) {
+          func_args.arg(
+              genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+        } else {
+          func_args.arg(
+              genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+        }
+        func_args.arg(genBarrierId());  
+        template_args.arg(
+            kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+        template_args.arg(isAligned());
+        template_args.arg(is_all_reduce);
+        template_args.arg(num_grouped_iterations);
+        indent() << genCall(
+                        "warp::iterGroupedWarpReduce", template_args, func_args)
+                << ";\n";
+      }
+    } else if (
+        reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+        reduction_dims.second->getParallelType() == ParallelType::TIDy) {
+      auto bdimx = reduction_dims.first->extent()->evaluate();
+      auto bdimy = reduction_dims.second->extent()->evaluate();
+      template_args.arg(bdimx);
+      template_args.arg(bdimy);
+      template_args.arg(isAligned());
+      template_args.arg(is_all_reduce);
+      template_args.arg(num_grouped_iterations);      
+      indent() << genCall("warp::iterGroupedWarpReduceTIDXY", template_args, func_args)
+               << ";\n";
+    } else {
+      NVF_ERROR(false, "Invalid warp reduction dims");
+    }
+  }
+
   void handle(const GroupedReductionOp* grouped_rop) final {
     const auto num_grouped_iterations =
         getGroupedLoopIndexConcreteIntSets().size();
@@ -2971,19 +3123,33 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const auto domain = output->view()->domain();
       const bool has_block_reduce = domain->hasBlockReduction();
       const bool has_grid_reduce = domain->hasGridReduction();
+      const bool is_all_reduce = grouped_rop->isAllreduce();
       NVF_ERROR(
           !has_grid_reduce, "IterGroupedGridReduction not implemented yet");
       NVF_ERROR(
           has_block_reduce,
           "To use IterGroupedBlockReduction, must have block reduce!");
-      return genIterGroupedBlockReduction(
-          (int)num_grouped_iterations,
-          output,
-          input,
-          grouped_rop->initVal(0),
-          op_type,
-          grouped_rop->predicate(),
-          grouped_rop->writePredicate());
+      if (auto reduction_ids =
+              ir_utils::getMaybeWarpReductionDim(output, input)) {
+        return genGroupedWarpReduction(
+            (int)num_grouped_iterations,
+            output,
+            input,
+            grouped_rop->initVal(0),
+            op_type,
+            grouped_rop->predicate(),
+            reduction_ids.value(),
+            is_all_reduce);
+      } else {
+        return genIterGroupedBlockReduction(
+            (int)num_grouped_iterations,
+            output,
+            input,
+            grouped_rop->initVal(0),
+            op_type,
+            grouped_rop->predicate(),
+            grouped_rop->writePredicate());
+      }
     }
 
     for (const auto i : c10::irange(num_grouped_exprs)) {
@@ -3058,8 +3224,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       step_code << gen_index << " += " << gen_step;
     }
-    if (loop->circularBufferLoopStage() !=
-        CircularBufferLoopStage::NotApplicable) {
+    if (std::getenv("NO_FETCH_UNROLL") == nullptr &&
+        loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::NotApplicable) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler
       // should maximally unroll such loops leading to very long compiles, we
@@ -3211,6 +3378,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           NVF_THROW("Unexpected memory type");
       }
     }
+  }
+
+  void insertWarpGroupIdx() {
+    // must match ParallelType::WgGIDx in parallel_type2string
+    indent() << "const nvfuser_index_t WgGIDx = threadIdx.x / 128;\n";
+    indent() << "const nvfuser_index_t WgTIDx = threadIdx.x % 128;\n";
   }
 
   // Reference:
@@ -3515,6 +3688,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       }
       code_ << ");\n";
     }
+
+    if (std::getenv("CMP_WGROUPS") != nullptr) {
+      insertWarpGroupIdx();
+    }
   }
 
   void handle(const kir::BlockSync* sync) final {
@@ -3621,6 +3798,28 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::MBarrierWaitParity* wait) final {
+    auto getTensorIndex = [wait]() {
+      auto mbarrier = wait->mbarrier();
+      kir::TensorIndex* tensor_index = nullptr;
+      auto current_def = mbarrier->definition();
+      while (current_def && current_def->isA<UnaryOp>()) {
+        std::cout << "current def:\n" << current_def->toString() << std::endl;
+        auto input = current_def->as<UnaryOp>()->in();
+        if (input->isA<kir::TensorIndex>()) {
+          tensor_index = input->as<kir::TensorIndex>();
+          break;
+        }
+        current_def = input->definition();
+      }
+      return tensor_index;
+    };
+
+    if (auto mbarrier_tensor_index = getTensorIndex()) {
+      current_buffer_id_ = mbarrier_tensor_index->index();
+      std::cout << "current_buffer_id_: "
+                << current_buffer_id_->toInlineString() << std::endl;
+    }
+
     auto call = genCall(
         "mbarrier::waitParity",
         ArgumentBuilder()
@@ -3734,6 +3933,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   int block_reduce_name_ = 0;
   bool print_inline_ = false;
 
+  // Keep track of the current circular buffer id
+  Val* current_buffer_id_;
+
   // Mark when we are inside of a vectorized for-loop
   bool vectorize_scope_ = false;
   //! Keep track of Allocate node for Val. Used to determine if Val
@@ -3751,6 +3953,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::unordered_set<const Val*> kernel_params_;
   //! Utility names already generated
   std::unordered_set<std::string> generated_utilities_;
+
+  std::string smem_buf_wg_offset_;
 };
 
 } // namespace

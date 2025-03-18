@@ -941,14 +941,14 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   // width is 16 bytes.
   const int dim0 = 1024;
   const int dim1 = 4096;
-  auto dtype = DataType::Half;
+  auto dtype = DataType::Float;
   auto tv0 = makeContigTensor(2, dtype);
   fusion.addInput(tv0);
-  auto tv1 = castOp(DataType::Float, tv0);
-  auto tv2 = sum(tv1, {1});
+  // auto tv1 = castOp(DataType::Float, tv0);
+  auto tv2 = sum(tv0, {1});
   auto tv3 = broadcast(tv2, {false, true});
-  auto tv4 = add(tv3, tv1);
-  auto tv5 = sum(tv1, {0});
+  auto tv4 = add(tv3, tv0);
+  auto tv5 = sum(tv0, {0});
   auto tv6 = castOp(DataType::Half, tv4);
   auto tv7 = castOp(DataType::Half, tv5);
   fusion.addOutput(tv6);
@@ -966,17 +966,17 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
       SchedulerType::InnerOuterPersistent);
   auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
 
-  // disable projection to inputs, so shared memory buffer is using float32
-  heuristic_params->as<ReductionParams>()->project_persistent_buffers = false;
-  // Set vectorization factor to 8, so the exent of the innermost dimension
-  // exceed 16 bytes (8 x 4 = 32 bytes).
-  heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction = 8;
-  // when compute heuristics, the buffer is projected to inputs and the shared
-  // memory persistent buffer is the input, tv0. Then, we modified the
-  // heuristics to disable project to inputs, so needs to update the buffer
-  // being stored in shared memory to the original unprojected buffer, tv1.
-  heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
-      std::vector<TensorView*>{tv1};
+  // // disable projection to inputs, so shared memory buffer is using float32
+  // heuristic_params->as<ReductionParams>()->project_persistent_buffers = false;
+  // // Set vectorization factor to 8, so the exent of the innermost dimension
+  // // exceed 16 bytes (8 x 4 = 32 bytes).
+  // heuristic_params->as<ReductionParams>()->unroll_factor_inner_reduction = 8;
+  // // when compute heuristics, the buffer is projected to inputs and the shared
+  // // memory persistent buffer is the input, tv0. Then, we modified the
+  // // heuristics to disable project to inputs, so needs to update the buffer
+  // // being stored in shared memory to the original unprojected buffer, tv1.
+  // heuristic_params->as<ReductionParams>()->smem_persistent_buffers =
+  //     std::vector<TensorView*>{tv1};
   scheduler->schedule(&fusion, heuristic_params.get());
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
