@@ -100,14 +100,7 @@ std::pair<std::unordered_set<IterDomain*>, bool> getIndexedDomainInfo(
   } else if (
       auto iaop =
           dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
-    // Producers:
-    //     accumulate [ vocab, hidden ]
-    //     index [ *seq ]
-    //     value [ *seq, hidden ]
-    // Consumers:
-    //     output [ vocab, hidden ]
-    // Note: *seq could be multiple dimensions, we are keeping it as 1D for
-    // simplicity.
+    // see [ Note -- IndexPutAccumulate shape restriction ]
     if (producer_tv == iaop->indexTv()) {
       indexed_ids.insert(iaop->getIndexSeqID());
       has_consumer_id = false;

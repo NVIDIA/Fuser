@@ -116,7 +116,16 @@ TensorView* indexPutAccumulate(
   std::vector<IterDomain*> value_domain =
       TensorDomain::noReductions(value_tv->getLogicalDomain());
 
-  // TODO: add shape checks and handle corner cases later
+  // [ Note -- IndexPutAccumulate shape restriction ]
+  //
+  // Producers:
+  //     accumulate [ vocab, hidden ]
+  //     index [ *seq ]
+  //     value [ *seq, hidden ]
+  // Consumers:
+  //     output [ vocab, hidden ]
+  // Note: *seq could be multiple dimensions, we are keeping it as 1D for
+  // simplicity in indexing for now.
   NVF_CHECK(acc_domain.size() == 2);
   NVF_CHECK(index_domain.size() == 1);
   NVF_CHECK(value_domain.size() == 2);
