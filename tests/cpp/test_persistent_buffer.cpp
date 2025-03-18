@@ -1579,11 +1579,13 @@ TEST_F(NVFuserTest, FalsePersistentBuffer) {
 
   // In this fusion, ComputeAtLogicalDomainMap tells
   // tv0 has an unmappable consumer IDs, making
-  // tv0 be a persistent buffer, even though it doesn't need to be
-  // persistent. As a result, persistentBuffers(Fusion*) tries to find
-  // a resolution point, but it fails there's no such tensor.
+  // tv0 be a candidate of persistent buffers, even though it doesn't
+  // need to be persistent. As a result, before PR #4083,
+  // persistentBuffers(Fusion*) tries to find a resolution point, but it fails
+  // there's no such tensor.
   scheduler_utils::PersistentBufferInfo info =
       scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_TRUE(info.persistent_buffers.empty());
 }
 
 } // namespace nvfuser
