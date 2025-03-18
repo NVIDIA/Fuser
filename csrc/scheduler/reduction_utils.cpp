@@ -970,11 +970,21 @@ void sharedMemoryConsumerVectorization(
     std::vector<TensorView*>& smem_consumers,
     int64_t io_vectorization_factor) {
   for (auto tv : smem_consumers) {
-    // they were creatd with cacheAfter.
+    // they were created with cacheAfter.
     NVF_ERROR(
         tv->definition()->isA<LoadStoreOp>(),
         "smem consumers should be LoadStoreOp. Got: ",
         tv->definition()->toString());
+
+    // can't vectorize smem -> regs if gmem --> smem is not vectorized.
+    auto smem_tv = ir_utils::getSoleProducerTv(tv);
+    const auto& loop_domain = smem_tv->getLoopDomain();
+    if (std::none_of(
+            loop_domain.begin(), loop_domain.end(), [](IterDomain* id) {
+              return id->getParallelType() == ParallelType::Vectorize;
+            })) {
+      continue;
+    }
 
     // non-concretized broadcast domains are moved to the innermost before
     // transform propagation, should skip these axes.

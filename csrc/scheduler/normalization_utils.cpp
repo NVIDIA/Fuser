@@ -835,12 +835,13 @@ BufferProjectionStrategy isProjectBufferToInputs(
     return BufferProjectionStrategy::NoProjectOtherReasons;
   }
 
-  // must project to inputs otherwise don't have enough register or shared
-  // memory to store the buffers. Even after projecting, may still not have
-  // enough register or shared memory, then canScheduleRunTime will return
-  // false. For InnerOuterPersistent, both register and shared memory are used
+  //  For InnerOuterPersistent, both register and shared memory are used
   // and will be handled in getPersistentBufferStorageParams.
   if (scheduler_type != SchedulerType::InnerOuterPersistent) {
+    // must project to inputs otherwise don't have enough register or shared
+    // memory to store the buffers. Even after projecting, may still not have
+    // enough register or shared memory, then canScheduleRunTime will return
+    // false.
     int64_t max_available_buffer =
         getMaxRegOrSharedMemorySizeForPersistentBuffer(
             fusion,
@@ -852,6 +853,14 @@ BufferProjectionStrategy isProjectBufferToInputs(
     if (max_available_buffer <
         persistent_buffer_size_info.persistent_buffer_size) {
       return BufferProjectionStrategy::ProjectToInputs;
+    }
+    // Achieved a smaller buffer size at the cost of project to uncacheable
+    // inputs Don't allow if persistent_buffer_size not exceeds register size.
+    if (!persistent_buffer_info.uncacheable_projectable_persistent_buffers
+             .empty() &&
+        persistent_buffer_size_info.persistent_buffer_size <=
+            scheduler_utils::register_file_size) {
+      return BufferProjectionStrategy::NoProjectOtherReasons;
     }
   }
 
@@ -1060,7 +1069,8 @@ PersistentKernelProperties getPersistentKernelProperties(
       .has_exp_op = has_exp_op,
       .has_rng_op = has_rng_op,
       .disable_project_to_avoid_recompute = disable_project_to_avoid_recompute,
-      .persistent_buffers = buffers};
+      .persistent_buffers = buffers,
+      .non_persistent_buffers = persistent_buffer_info.non_persistent_buffers};
 }
 
 bool checkOpsAndInputs(Fusion* fusion, SchedulerType scheduler_type) {
@@ -1267,8 +1277,21 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   if (rparams->smem_persistent_buffers.empty()) {
     return {};
   }
-  const auto& persistent_buffers =
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  auto vectorizable_inputs_outputs =
+      scheduler_utils::getInputsOutputsWithInnerDim(
+          reduction_tvs.at(0), true, true);
+
+  // all_persistent_buffers =  [persistent_buffers, non_persistent_buffers]
+  std::vector<TensorView*> all_persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
+  const auto& non_persistent_buffers =
+      scheduler_utils::persistentBuffers(fusion).non_persistent_buffers;
+  all_persistent_buffers.insert(
+      all_persistent_buffers.end(),
+      non_persistent_buffers.begin(),
+      non_persistent_buffers.end());
+
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
     return std::any_of(
         rparams->smem_persistent_buffers.begin(),
@@ -1279,14 +1302,20 @@ std::vector<TensorView*> movePersistentBufferToSmem(
           return tv->name() == lookup_tv->name();
         });
   };
-  auto supportCpAsync = [rparams](const TensorView* smem_tv) {
+  auto supportCpAsync = [rparams, &vectorizable_inputs_outputs](
+                            const TensorView* smem_tv) {
     // Only supported after device 8.0
     int hw_major = at::cuda::getCurrentDeviceProperties()->major;
     if (hw_major < 8) {
       return false;
     }
+    auto input_tv = ir_utils::getSoleProducerTv(smem_tv);
+    bool can_be_vectorized = std::find(
+                                 vectorizable_inputs_outputs.begin(),
+                                 vectorizable_inputs_outputs.end(),
+                                 input_tv) != vectorizable_inputs_outputs.end();
     // requires 4, 8, or 16 loading bytes.
-    int vect_factor = rparams->vectorize_inner_reduction
+    int vect_factor = rparams->vectorize_inner_reduction && can_be_vectorized
         ? (int)rparams->unroll_factor_inner_reduction
         : 1;
     size_t loading_size =
@@ -1295,7 +1324,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
   };
-  for (auto tv : persistent_buffers) {
+  for (auto tv : all_persistent_buffers) {
     // Persistent buffers are categorized into two types:
     // (1) Cached input tensors.
     //     For these, [smem_persistent_buffers] holds the original input
@@ -1412,7 +1441,11 @@ void beforeSchedule(
   // persistent buffer if that persistent buffer would be the input.
   cached_inputs = scheduler_utils::cacheInputs(fusion, true);
 
-  recomputeNonPersistentUnmappbleTvs(persistent_info);
+  // Unmappable tvs should be recomputed if uses register persistence.
+  // Move to after movePersistentBufferToSmem
+  if (rparams->smem_persistent_buffers.empty()) {
+    recomputeNonPersistentUnmappbleTvs(persistent_info);
+  }
 
   // Cache and fork outputs
   cached_outputs = scheduler_utils::cacheAndForkOutputs(fusion, unroll);
@@ -1530,6 +1563,7 @@ void schedulePersistentKernel(
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           reference_tv, is_vectorize, cached_inputs, cached_outputs);
+
   reduction_scheduler_utils::propagateParallelization(
       reduction_tv,
       reference_tv,

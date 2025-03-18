@@ -65,6 +65,17 @@ std::pair<int64_t, int64_t> getPersistentBufferSize(
           persistent_buffer_info,
           can_use_smem_persistent,
           project_persistent_buffers);
+
+  // shared memory persistence allows to cache non_persistent_buffer
+  if (available_persistent_buffer_size > scheduler_utils::register_file_size) {
+    for (auto non_persistent_buffer :
+         persistent_buffer_info.non_persistent_buffers) {
+      auto non_persistent_buffer_size = getPersistentBufferSizeOfTensor(
+          non_persistent_buffer, runtime_info, persistent_buffer_info);
+      persistent_buffer_size += non_persistent_buffer_size;
+    }
+  }
+
   return std::make_pair(
       persistent_buffer_size, available_persistent_buffer_size);
 }
@@ -1080,6 +1091,10 @@ std::unique_ptr<ReductionParams> getInnerPersistentHeuristics(
     // all persistent buffers are moved to shared memory
     // TODO: allow only part of the buffers to be moved to shared memory
     rparams->smem_persistent_buffers = prop.persistent_buffers;
+    rparams->smem_persistent_buffers.insert(
+        rparams->smem_persistent_buffers.end(),
+        prop.non_persistent_buffers.begin(),
+        prop.non_persistent_buffers.end());
     innerPersistentHeuristicSharedMemory(prop, rparams.get());
   } else if (prop.total_reduction_numel == prop.inner_most_dimension_numel) {
     rparams->tag = "2D Register Inner Persistent Heuristic.\n";
