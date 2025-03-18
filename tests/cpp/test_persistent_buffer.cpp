@@ -1557,4 +1557,33 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+TEST_F(NVFuserTest, FalsePersistentBuffer) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({320});
+  fusion.addInput(tv0);
+
+  // Extracted from issue #4020
+  auto tv1 = reshape(tv0, {320}, {10, 32});
+  auto tv2 = reshape(tv0, {320}, {10, 32});
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  auto tv5 = sum(tv3, {1});
+  fusion.addOutput(tv5);
+  auto tv6 = sum(tv2, {1});
+  auto tv7 = set(tv6);
+  fusion.addOutput(tv7);
+
+  // In this fusion, ComputeAtLogicalDomainMap tells
+  // tv0 has an unmappable consumer IDs, making
+  // tv0 be a persistent buffer, even though it doesn't need to be
+  // persistent. As a result, persistentBuffers(Fusion*) tries to find
+  // a resolution point, but it fails there's no such tensor.
+  scheduler_utils::PersistentBufferInfo info =
+      scheduler_utils::persistentBuffers(&fusion);
+}
+
 } // namespace nvfuser
