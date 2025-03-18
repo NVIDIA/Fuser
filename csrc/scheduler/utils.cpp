@@ -2337,7 +2337,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
-    
+
     // Propgating the transforms will not replay the DIDx parallelization, so we
     // need to do it manually here.
     parallelizeAllLike(

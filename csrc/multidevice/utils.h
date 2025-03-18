@@ -62,7 +62,10 @@ bool haveDifferentShardings(
 bool isInnerResharding(Expr* expr);
 
 // Shards all tensors in tvs like reference
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, bool parallelize_inputs=false);
+void shardAllLike(
+    TensorView* ref,
+    std::vector<TensorView*> tvs,
+    bool parallelize_inputs = false);
 
 // Shards all TVs between from and to AND between TVs created inside a fusion
 // and to. This is required for (1) expressions like rng_uniform that create a
