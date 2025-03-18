@@ -34,70 +34,868 @@ namespace {
       static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,              \
                                            nvfuser::TensorView*)>(            \
           nvfuser::OP_NAME),                                                  \
-      DOCSTRING)
+      DOCSTRING);
 
-#define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME)                        \
-  ops.def(                                                                    \
-      NAME, static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(nvfuser::OP_NAME)); \
-  ops.def(                                                                    \
-      NAME,                                                                   \
-      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>(            \
-          nvfuser::OP_NAME))
+#define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME, DOCSTRING)      \
+  ops.def(                                                             \
+      NAME,                                                            \
+      static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(nvfuser::OP_NAME), \
+      DOCSTRING);                                                      \
+  ops.def(                                                             \
+      NAME,                                                            \
+      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>(     \
+          nvfuser::OP_NAME),                                           \
+      DOCSTRING);
 
 void bindUnaryOps(py::module& ops) {
-  NVFUSER_DIRECT_BINDING_UNARY_OP("abs", abs);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("acos", acos);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("acosh", acosh);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("asin", asin);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("asinh", asinh);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("atan", atan);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("atanh", atanh);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("ceil", ceil);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("cos", cos);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("cosh", cosh);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("exp", exp);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("exp2", exp2);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("expm1", expm1);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("erf", erf);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("erfc", erfc);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("erfinv", erfinv);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("erfcinv", erfcinv);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("floor", floor);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("frac", frac);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("lgamma", lgamma);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("log", log);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("log10", log10);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("log1p", log1p);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("log2", log2);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("neg", neg);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("logical_not", logical_not);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("bitwise_not", bitwise_not);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("relu", relu);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("rand_like", rand_like);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("randn_like", randn_like);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("reciprocal", reciprocal);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("round", round);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("rsqrt", rsqrt);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("set", set);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("segment_set", segment_set);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("sign", sign);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("sigmoid", sigmoid);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("signbit", signbit);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("silu", silu);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("sin", sin);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("sinh", sinh);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("sqrt", sqrt);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("tan", tan);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("tanh", tanh);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("trunc", trunc);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("isfinite", isfinite);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("isinf", isinf);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("isnan", isnan);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("isneginf", isneginf);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("isposinf", isposinf);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("isreal", isreal);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("real", real);
-  NVFUSER_DIRECT_BINDING_UNARY_OP("imag", imag);
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "abs",
+      abs,
+      R"(
+Element-wise absolute value.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The absolute value of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "acos",
+      acos,
+      R"(
+Element-wise inverse cosine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse cosine of the input in radians.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "acosh",
+      acosh,
+      R"(
+Element-wise inverse hyperbolic cosine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse hyperbolic cosine of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "asin",
+      asin,
+      R"(
+Element-wise inverse sine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse sine of the input in radians.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "asinh",
+      asinh,
+      R"(
+Element-wise inverse hyperbolic sine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse hyperbolic sine of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "atan",
+      atan,
+      R"(
+Element-wise inverse tangent.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse tangent of the input in radians.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "atanh",
+      atanh,
+      R"(
+Element-wise inverse hyperbolic tangent.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse hyperbolic tangent of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "ceil",
+      ceil,
+      R"(
+Element-wise ceiling function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The smallest integer greater than or equal to each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "cos",
+      cos,
+      R"(
+Element-wise cosine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor in radians.
+
+Returns
+-------
+Val or TensorView
+    The cosine of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "cosh",
+      cosh,
+      R"(
+Element-wise hyperbolic cosine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The hyperbolic cosine of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "exp",
+      exp,
+      R"(
+Element-wise exponential function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    e raised to the power of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "exp2",
+      exp2,
+      R"(
+Element-wise base-2 exponential function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    2 raised to the power of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "expm1",
+      expm1,
+      R"(
+Element-wise exponential minus 1.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    exp(x) - 1 for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "erf",
+      erf,
+      R"(
+Element-wise error function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The error function of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "erfc",
+      erfc,
+      R"(
+Element-wise complementary error function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    1 - erf(x) for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "erfinv",
+      erfinv,
+      R"(
+Element-wise inverse error function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse error function of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "erfcinv",
+      erfcinv,
+      R"(
+Element-wise inverse complementary error function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The inverse complementary error function of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "floor",
+      floor,
+      R"(
+Element-wise floor function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The largest integer less than or equal to each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "frac",
+      frac,
+      R"(
+Element-wise fractional part.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The fractional part of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "lgamma",
+      lgamma,
+      R"(
+Element-wise natural logarithm of the absolute value of the gamma function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The natural logarithm of the absolute value of the gamma function.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "log",
+      log,
+      R"(
+Element-wise natural logarithm.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The natural logarithm of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "log10",
+      log10,
+      R"(
+Element-wise base-10 logarithm.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The base-10 logarithm of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "log1p",
+      log1p,
+      R"(
+Element-wise natural logarithm of 1 plus x.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    log(1 + x) for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "log2",
+      log2,
+      R"(
+Element-wise base-2 logarithm.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The base-2 logarithm of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "neg",
+      neg,
+      R"(
+Element-wise negation.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The negative of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "logical_not",
+      logical_not,
+      R"(
+Element-wise logical NOT.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where input is False, False where input is True.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "bitwise_not",
+      bitwise_not,
+      R"(
+Element-wise bitwise NOT.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The bitwise NOT of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "relu",
+      relu,
+      R"(
+Element-wise rectified linear unit.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    max(0, x) for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "rand_like",
+      rand_like,
+      R"(
+Generate random values with the same shape as input.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    Random values with the same shape as input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "randn_like",
+      randn_like,
+      R"(
+Generate random values from a normal distribution with the same shape as input.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    Random values from a normal distribution with the same shape as input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "reciprocal",
+      reciprocal,
+      R"(
+Element-wise reciprocal.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    1/x for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "round",
+      round,
+      R"(
+Element-wise rounding to nearest integer.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    Each element rounded to the nearest integer.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "rsqrt",
+      rsqrt,
+      R"(
+Element-wise reciprocal square root.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    1/sqrt(x) for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "set",
+      set,
+      R"(
+Element-wise identity operation.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    A copy of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "segment_set",
+      segment_set,
+      R"(
+Set values in a segment of the tensor.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    Tensor with values set in the specified segment.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "sign",
+      sign,
+      R"(
+Element-wise sign function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    1 for positive values, -1 for negative values, 0 for zero.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "sigmoid",
+      sigmoid,
+      R"(
+Element-wise sigmoid function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    1/(1 + exp(-x)) for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "signbit",
+      signbit,
+      R"(
+Element-wise sign bit.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where the sign bit is set, False otherwise.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "silu",
+      silu,
+      R"(
+Element-wise SiLU (Swish) activation function.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    x * sigmoid(x) for each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "sin",
+      sin,
+      R"(
+Element-wise sine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor in radians.
+
+Returns
+-------
+Val or TensorView
+    The sine of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "sinh",
+      sinh,
+      R"(
+Element-wise hyperbolic sine.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The hyperbolic sine of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "sqrt",
+      sqrt,
+      R"(
+Element-wise square root.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The square root of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "tan",
+      tan,
+      R"(
+Element-wise tangent.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor in radians.
+
+Returns
+-------
+Val or TensorView
+    The tangent of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "tanh",
+      tanh,
+      R"(
+Element-wise hyperbolic tangent.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The hyperbolic tangent of the input.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "trunc",
+      trunc,
+      R"(
+Element-wise truncation.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The truncated value of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "isfinite",
+      isfinite,
+      R"(
+Element-wise finite check.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where the element is finite, False otherwise.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "isinf",
+      isinf,
+      R"(
+Element-wise infinity check.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where the element is infinite, False otherwise.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "isnan",
+      isnan,
+      R"(
+Element-wise NaN check.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where the element is NaN, False otherwise.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "isneginf",
+      isneginf,
+      R"(
+Element-wise negative infinity check.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where the element is negative infinity, False otherwise.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "isposinf",
+      isposinf,
+      R"(
+Element-wise positive infinity check.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where the element is positive infinity, False otherwise.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "isreal",
+      isreal,
+      R"(
+Element-wise real number check.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    True where the element is a real number, False otherwise.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "real",
+      real,
+      R"(
+Element-wise real part of complex number.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The real part of each element.
+)")
+  NVFUSER_DIRECT_BINDING_UNARY_OP(
+      "imag",
+      imag,
+      R"(
+Element-wise imaginary part of complex number.
+
+Parameters
+----------
+x : Val or TensorView
+    Input value or tensor.
+
+Returns
+-------
+Val or TensorView
+    The imaginary part of each element.
+)")
 }
 
 void bindBinaryOps(py::module& ops) {
@@ -130,7 +928,7 @@ Val or TensorView
 Notes
 -----
 When using tensors, broadcasting is supported following NumPy rules.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "atan2",
       atan2,
@@ -148,7 +946,7 @@ Returns
 -------
 Val or TensorView
     The angles in radians between the positive x-axis and the rays to the points (x,y).
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "div",
       div,
@@ -166,7 +964,7 @@ Returns
 -------
 Val or TensorView
     The integer quotient.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "truediv",
       truediv,
@@ -184,7 +982,7 @@ Returns
 -------
 Val or TensorView
     The floating point quotient.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "fmod",
       fmod,
@@ -202,7 +1000,7 @@ Returns
 -------
 Val or TensorView
     The floating-point remainder of the division.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "mul",
       mul,
@@ -220,7 +1018,7 @@ Returns
 -------
 Val or TensorView
     The product of the inputs.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "nextafter",
       nextafter,
@@ -238,7 +1036,7 @@ Returns
 -------
 Val or TensorView
     The next representable values after lhs in the direction of rhs.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "pow",
       pow,
@@ -256,7 +1054,7 @@ Returns
 -------
 Val or TensorView
     The bases raised to the exponents.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "remainder",
       remainder,
@@ -274,7 +1072,7 @@ Returns
 -------
 Val or TensorView
     The IEEE remainder of the division.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "sub",
       sub,
@@ -292,7 +1090,7 @@ Returns
 -------
 Val or TensorView
     The difference of the inputs.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "minimum",
       minimum,
@@ -310,7 +1108,7 @@ Returns
 -------
 Val or TensorView
     The smaller of each pair of elements.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "maximum",
       maximum,
@@ -328,7 +1126,7 @@ Returns
 -------
 Val or TensorView
     The larger of each pair of elements.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "mod",
       mod,
@@ -346,7 +1144,7 @@ Returns
 -------
 Val or TensorView
     The remainder after division.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "eq",
       eq,
@@ -364,7 +1162,7 @@ Returns
 -------
 Val or TensorView
     True where elements are equal, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "ge",
       ge,
@@ -382,7 +1180,7 @@ Returns
 -------
 Val or TensorView
     True where lhs >= rhs, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "gt",
       gt,
@@ -400,7 +1198,7 @@ Returns
 -------
 Val or TensorView
     True where lhs > rhs, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "le",
       le,
@@ -418,7 +1216,7 @@ Returns
 -------
 Val or TensorView
     True where lhs <= rhs, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "lt",
       lt,
@@ -436,7 +1234,7 @@ Returns
 -------
 Val or TensorView
     True where lhs < rhs, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "ne",
       ne,
@@ -454,7 +1252,7 @@ Returns
 -------
 Val or TensorView
     True where elements are not equal, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "logical_and",
       logical_and,
@@ -472,7 +1270,7 @@ Returns
 -------
 Val or TensorView
     True where both inputs are True, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "logical_or",
       logical_or,
@@ -490,7 +1288,7 @@ Returns
 -------
 Val or TensorView
     True where either input is True, False otherwise.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "bitwise_and",
       bitwise_and,
@@ -508,7 +1306,7 @@ Returns
 -------
 Val or TensorView
     Bitwise AND of the inputs.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "bitwise_or",
       bitwise_or,
@@ -526,7 +1324,7 @@ Returns
 -------
 Val or TensorView
     Bitwise OR of the inputs.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "bitwise_xor",
       bitwise_xor,
@@ -544,7 +1342,7 @@ Returns
 -------
 Val or TensorView
     Bitwise XOR of the inputs.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "bitwise_left_shift",
       bitwise_left_shift,
@@ -562,7 +1360,7 @@ Returns
 -------
 Val or TensorView
     Values shifted left by specified amounts.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "bitwise_right_shift",
       bitwise_right_shift,
@@ -580,7 +1378,7 @@ Returns
 -------
 Val or TensorView
     Values shifted right by specified amounts.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "logical_right_shift",
       logical_right_shift,
@@ -598,7 +1396,7 @@ Returns
 -------
 Val or TensorView
     Values logically shifted right by specified amounts.
-)");
+)")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "gcd",
       gcd,
@@ -616,7 +1414,7 @@ Returns
 -------
 Val or TensorView
     Greatest common divisor of each pair of elements.
-)");
+)")
 }
 
 } // namespace
