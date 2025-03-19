@@ -53,14 +53,20 @@ class FusionDefinition(direct._DirectFusionDefinition):
     def execute(
         self, inputs, *, device=None, auto_schedule=False
     ) -> list[torch.Tensor]:
-        self.fec = direct.FusionExecutorCache(self.fusion, auto_schedule)
+        if not hasattr(self, "fec"):
+            self.fec = direct.FusionExecutorCache(self.fusion, auto_schedule)
         return self.fec.execute(inputs)
 
-    def add_input(self, value):
-        self.fusion.add_input(value)
+    def define_tensor(self, *args, **kwargs):
+        tv = direct.define_tensor(*args, **kwargs)
+        self.add_input(tv)
+        return tv
 
-    def add_output(self, value):
-        self.fusion.add_output(value)
+    def add_input(self, *args, **kwargs):
+        self.fusion.add_input(*args, **kwargs)
+
+    def add_output(self, *args, **kwargs):
+        self.fusion.add_output(*args, **kwargs)
 
     def from_pytorch(self, tensor, static_sizes=False):
         """
