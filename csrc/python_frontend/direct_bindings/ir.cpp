@@ -1230,7 +1230,7 @@ std::vector<bool> getExpanded(
     const std::vector<int64_t>& stride_order) {
   size_t rank = shape.size();
   std::vector<bool> is_expand(rank);
-  for (const auto index : c10::irange(rank)) {
+  for (size_t index : std::views::iota(0UL, rank)) {
     // since contiguity vector is given to the corresponding order in alloc
     // domain, while is_expand is given to root domain, we need to map it
     // correctly with `contig_index` and `index`.
@@ -1339,10 +1339,10 @@ void bindDefineTensor(py::module& fusion) {
              const std::vector<int64_t>& stride_order = {}) -> TensorView* {
             verifyShape(shape);
 
-            const auto rank = static_cast<int64_t>(shape.size());
+            const int64_t rank = static_cast<int64_t>(shape.size());
             std::vector<std::optional<bool>> contiguity_vec(rank);
-            for (const auto index : c10::irange(rank)) {
-              const auto contig_index =
+            for (int64_t index : std::views::iota(0LL, rank)) {
+              const int64_t contig_index =
                   stride_order.empty() ? index : rank - 1 - stride_order[index];
               if (shape[index] == 1) {
                 contiguity_vec[contig_index] = std::nullopt;
@@ -1380,7 +1380,7 @@ void bindDefineTensor(py::module& fusion) {
             // Translate to TensorViewBuilder's view of the world.
             std::vector<int64_t> dim_sizes;
             dim_sizes.reserve(sizes.size());
-            for (const auto i : c10::irange(sizes.size())) {
+            for (size_t i : std::views::iota(0UL, sizes.size())) {
               NVF_ERROR(
                   sizes[i] >= 0,
                   "Size of ",
