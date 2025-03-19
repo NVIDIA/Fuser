@@ -132,7 +132,7 @@ struct DynamicType {
   template <typename T>
   static constexpr bool can_cast_to = any_check(
       [](auto t) {
-        return opcheck<typename decltype(t)::type>.canCastTo(opcheck<T>);
+        return requires(typename decltype(t)::type source) { static_cast<T>(source); };
       },
       type_identities_as_tuple);
 
@@ -333,7 +333,7 @@ struct DynamicType {
     return dispatch(
         [](auto x) -> decltype(auto) {
           using X = decltype(x);
-          if constexpr (opcheck<X>.canCastTo(opcheck<T>)) {
+          if constexpr (std::convertible_to<X, T>) {
             return (T)x;
           }
         },
@@ -381,7 +381,7 @@ struct DynamicType {
           using XD = std::decay_t<X>;
           if constexpr (std::is_pointer_v<XD>) {
             return (std::decay_t<X>)(x);
-          } else if constexpr (opcheck<XD>->value()) {
+          } else if constexpr (requires { x.operator->(); }) {
             return std::forward<X>(x).operator->();
           }
         },
@@ -392,7 +392,7 @@ struct DynamicType {
   static constexpr bool has_square_bracket = any_check(
       [](auto t) {
         using T = typename decltype(t)::type;
-        if constexpr (opcheck<T>[opcheck<IndexT>]) {
+        if constexpr (requires(T t, IndexT i) { t[i]; }) {
           return std::is_same_v<
               decltype(std::declval<T>()[std::declval<IndexT>()]),
               DynamicType&>;
@@ -411,7 +411,7 @@ struct DynamicType {
         std::nullopt;                                                          \
     for_all_types([this, &ret, &i](auto t) {                                   \
       using T = typename decltype(t)::type;                                    \
-      if constexpr (opcheck<T>[opcheck<IndexT>]) {                             \
+      if constexpr (requires(T t, IndexT i) { t[i]; }) {                       \
         if constexpr (std::is_same_v<                                          \
                           decltype(std::declval<T>()[std::declval<IndexT>()]), \
                           DynamicType&>) {                                     \
@@ -510,7 +510,7 @@ struct DynamicType {
   static constexpr auto all_arrow_star_ret_types##__const =                     \
       remove_void_from_tuple(for_all_types([](auto t) {                         \
         using T = typename decltype(t)::type;                                   \
-        if constexpr (opcheck<T>->*opcheck<MemberT>) {                          \
+        if constexpr (requires(T t, MemberT m) { t->*m; }) {                    \
           return std::type_identity<                                            \
               decltype(std::declval<__const T>()->*std::declval<MemberT>())>{}; \
         }                                                                       \
@@ -537,7 +537,7 @@ struct DynamicType {
     std::optional<wrap_reference_t<RetT>> ret = std::nullopt;                   \
     for_all_types([this, &member, &ret](auto t) {                               \
       using T = typename decltype(t)::type;                                     \
-      if constexpr (opcheck<T>->*opcheck<MemberT>) {                            \
+      if constexpr (requires(T t, MemberT m) { t->*m; }) {                      \
         if (is<T>()) {                                                          \
           ret = as<T>()->*member;                                               \
         }                                                                       \
