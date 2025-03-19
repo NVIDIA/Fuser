@@ -10,6 +10,7 @@
 #include <expr_simplifier.h>
 #include <host_ir/lower.h>
 #include <instrumentation.h>
+#include <ir/container.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -324,6 +325,8 @@ std::pair<Val*, bool> computeIndex(
   return id_to_index.at(id);
 }
 
+} // namespace
+
 // A simple garbage collection mechanism to snapshot Exprs and Vals upon entry
 // and restore them upon exit. This avoids creating too many garbage Exprs and
 // Vals in the complete fusion, making cloning slow.
@@ -352,8 +355,6 @@ class StatementGuard {
   const int64_t prev_num_exprs_;
   const int64_t prev_num_vals_;
 };
-
-} // namespace
 
 bool haveDifferentShardings(
     const TensorView* producer,

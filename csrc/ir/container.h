@@ -33,6 +33,8 @@ class IrContainerPasskey {
   explicit IrContainerPasskey() = default;
 };
 
+class StatementGuard;
+
 class IrContainer : public PolymorphicBase {
  public:
   NVF_API IrContainer();
@@ -153,14 +155,6 @@ class IrContainer : public PolymorphicBase {
   void assumePositive(Val* val);
   void assumeNonNegative(Val* val);
 
-  // A simple garbage collection mechanism to remove all Exprs and Vals that
-  // were created after a certain point. This is useful for analysis that
-  // creates new Exprs and Vals in the container and wants to clean up after
-  // itself.
-  void removeStatementsCreatedAfter(
-      int64_t prev_num_exprs,
-      int64_t prev_num_vals);
-
  protected:
   static IrCloner copy(const IrContainer* from, IrContainer* to);
 
@@ -195,6 +189,16 @@ class IrContainer : public PolymorphicBase {
   void clear() noexcept;
 
   void lazyInitAxioms();
+
+  friend class StatementGuard;
+
+  // A simple garbage collection mechanism to remove all Exprs and Vals that
+  // were created after a certain point. This is useful for analysis that
+  // creates new Exprs and Vals in the container and wants to clean up after
+  // itself.
+  void removeStatementsCreatedAfter(
+      int64_t prev_num_exprs,
+      int64_t prev_num_vals);
 
   // Deque of unique pointer is the memory owning data structure
   std::deque<std::unique_ptr<Val>> vals_up_;
