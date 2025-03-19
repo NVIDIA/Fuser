@@ -401,10 +401,8 @@ struct DynamicType {
 
 #define DEFINE_SQUARE_BRACKET_OPERATOR(__const)                                \
   template <typename IndexT>                                                   \
-  std::enable_if_t<                                                            \
-      !std::is_same_v<IndexT, DynamicType> && has_square_bracket<IndexT>,      \
-      __const DynamicType&>                                                    \
-  operator[](const IndexT& i) __const {                                        \
+  requires(!std::is_same_v<IndexT, DynamicType> && has_square_bracket<IndexT>) \
+  __const DynamicType& operator[](const IndexT& i) __const {                   \
     std::optional<std::reference_wrapper<__const DynamicType>> ret =           \
         std::nullopt;                                                          \
     for_all_types([this, &ret, &i](auto t) {                                   \
