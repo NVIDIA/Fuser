@@ -615,7 +615,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
             id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
       persistent_buffer_info.persistent_buffers.emplace_back(producer);
     } else {
-      NVF_THROW();
+      NVF_THROW("non_persistent_buffers ", producer->toString());
       persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
     }
   }
@@ -664,20 +664,15 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     }
 
     //  All inputs of the persistent buffer should be cacheable.
-    auto all_inputs = ir_utils::inputTvsOf(persistent_buffer);
-    if (std::all_of(
-            all_inputs.begin(),
-            all_inputs.end(),
-            [&reduction_tvs, &id_model](TensorView* input) {
-              return normalization_scheduler_utils::isCacheableUnmappableTv(
-                  input,
-                  reduction_tvs,
-                  id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT));
-            })) {
+    if (normalization_scheduler_utils::canProjectToInputsWithoutSmemCache(
+            persistent_buffer, reduction_tvs)) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     } else {
-      NVF_THROW();
+      NVF_THROW(
+          "Persistent buffer ",
+          persistent_buffer->toString(),
+          " can't be projected to input without smem cache.");
     }
   }
 

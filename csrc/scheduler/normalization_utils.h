@@ -397,5 +397,8 @@ bool isCacheableUnmappableTv(
     const std::vector<TensorView*>& reduction_tvs,
     const ValGraph& almost_exact_graph);
 
+bool canProjectToInputsWithoutSmemCache(
+    TensorView* persistent_buffer,
+    const std::vector<TensorView*>& reduction_tvs);
 } // namespace normalization_scheduler_utils
 } // namespace nvfuser

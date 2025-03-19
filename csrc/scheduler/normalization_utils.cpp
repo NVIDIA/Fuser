@@ -1767,6 +1767,48 @@ int64_t getInnerPersistentMaxBatchSize(bool is_high_bandwidth_flops_ratio) {
   return is_high_bandwidth_flops_ratio ? 12l : 10l;
 }
 
+bool canProjectToInputsWithoutSmemCache(
+    TensorView* persistent_buffer,
+    const std::vector<TensorView*>& reduction_tvs) {
+  auto all_inputs = ir_utils::inputTvsOf(persistent_buffer);
+  auto all_vals = DependencyCheck::getAllValsBetween(
+      std::unordered_set<Val*>{all_inputs.begin(), all_inputs.end()},
+      std::vector<Val*>{persistent_buffer});
+  for (auto val : all_vals) {
+    if (auto tv = dynamic_cast<TensorView*>(val)) {
+      if (!tv->hasBroadcast()) {
+        continue;
+      }
+      for (const auto& reduction_tv : reduction_tvs) {
+        if (!DependencyCheck::isDependencyOf(tv, reduction_tv)) {
+          continue;
+        }
+        bool merged_bcast = false, merged_iter = false;
+        for (auto i : c10::irange(1, reduction_tv->getLogicalDomain().size())) {
+          // These neighboring reduction axes are merged by the scheduler
+          if (reduction_tv->axis(i)->isReduction() &&
+              reduction_tv->axis(i - 1)->isReduction()) {
+            // check the corresponding axis of other dependency tensors
+            if (tv->axis(i)->isBroadcast() || tv->axis(i - 1)->isBroadcast()) {
+              merged_bcast = true;
+            }
+            if (tv->axis(i)->isIteration() || tv->axis(i - 1)->isIteration()) {
+              merged_iter = true;
+            }
+            // when a bcast domain is merged with an iter domain, the
+            // transformation and parallelization of the merged reduction domain
+            // can't propagate to the bcast domain.
+            if (merged_bcast && merged_iter) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+  }
+  return true;
+}
+
 bool isCacheableUnmappableTv(
     TensorView* unmappable_tv,
     const std::vector<TensorView*>& reduction_tvs,
