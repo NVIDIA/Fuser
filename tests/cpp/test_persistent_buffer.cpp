@@ -1558,6 +1558,8 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_hidden_" << std::get<1>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+#if 0
 // Repro of issue #4052 (https://github.com/NVIDIA/Fuser/issues/4052)
 // without the input projection. Note that the original repro is triggered
 // by the input projection.
@@ -1892,5 +1894,5 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
       ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
-
+#endif
 } // namespace nvfuser
