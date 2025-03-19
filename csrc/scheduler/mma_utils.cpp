@@ -1846,6 +1846,74 @@ class MatmulTranslator : public OptInDispatch {
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_tv, new_tv);
   }
 
+  //! In a horizontal fusion, we will translate each MatmulPattern in turn. When
+  //! we do so, if there are repeated operands, we do not want to repeat the
+  //! broadcasting and transposing. This function only replays a broadcast if
+  //! there is no pre-existing use that matches. Otherwise it returns the
+  //! existing consumer.
+  TensorView* getBroadcast(
+      TensorView* tv,
+      const std::vector<bool>& bcast_flags) {
+    for (Expr* use : tv->uses()) {
+      if (auto* bop = dynamic_cast<BroadcastOp*>(use);
+          bop != nullptr && bop->getBroadcastDimFlags() == bcast_flags) {
+        return bop->out()->as<TensorView>();
+      }
+    }
+    return broadcast(tv, bcast_flags);
+  }
+
+  TensorView* getBroadcastInnerToRank(TensorView* tv, int64_t rank) {
+    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+
+    // broadcast inner on inp to match rank with other.
+    if ((int64_t)tv_rank < rank) {
+      const int num_bcast = static_cast<int>(rank - tv_rank);
+      std::vector<bool> inner_bcast_dims(rank, false);
+      std::fill(
+          inner_bcast_dims.begin(), inner_bcast_dims.begin() + num_bcast, true);
+      return getBroadcast(tv, inner_bcast_dims);
+    }
+    return tv;
+  }
+
+  TensorView* getUnsqueeze(TensorView* tv, int64_t dim) {
+    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    std::vector<bool> bcast_dims(tv_rank + 1, false);
+    if (dim < 0) {
+      dim += (int64_t)tv_rank;
+    }
+    bcast_dims.at(dim) = true;
+    return getBroadcast(tv, bcast_dims);
+  }
+
+  TensorView* getTranspose(TensorView* tv, int64_t dim0, int64_t dim1) {
+    for (Expr* use : tv->uses()) {
+      if (!use->isA<LoadStoreOp>()) {
+        continue;
+      }
+      auto* out_tv = use->output(0)->as<TensorView>();
+      std::optional<std::vector<int64_t>> perm_opt =
+          ir_utils::computePermutation(
+              out_tv->getMaybeRootDomain(), out_tv->getLogicalDomain());
+      if (!perm_opt.has_value()) {
+        continue;
+      }
+      std::vector<int64_t> perm = perm_opt.value();
+      std::vector<int64_t> target_perm;
+      target_perm.reserve(out_tv->getLogicalDomain().size());
+      for (size_t i : c10::irange(out_tv->getLogicalDomain().size())) {
+        target_perm.push_back((int64_t)i);
+      }
+      target_perm.at((size_t)dim0) = dim1;
+      target_perm.at((size_t)dim1) = dim0;
+      if (perm == target_perm) {
+        return out_tv;
+      }
+    }
+    return transpose(tv, dim0, dim1);
+  }
+
   void handle(LinearOp* lop) final {
     // This will hold the translated output from MatmulOp or LinearOp
     TensorView* fms = nullptr;
@@ -1877,11 +1945,11 @@ class MatmulTranslator : public OptInDispatch {
         b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
     std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
     bcast_dim[bcast_dim.size() - 2] = true; // N
-    pattern_.A = broadcast(pattern_.A, bcast_dim);
+    pattern_.A = getBroadcast(pattern_.A, bcast_dim);
 
     bcast_dim[bcast_dim.size() - 2] = false; // reset N
     std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
-    pattern_.B = broadcast(pattern_.B, bcast_dim);
+    pattern_.B = getBroadcast(pattern_.B, bcast_dim);
 
     fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     mma_ = fms->definition()->as<MmaOp>();
@@ -1926,15 +1994,15 @@ class MatmulTranslator : public OptInDispatch {
         pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
     TensorView* fms = nullptr;
-    TensorView* Btrans = transpose(pattern_.B, -2, -1);
-    pattern_.A = unsqueeze(pattern_.A, -2);
-    pattern_.B = unsqueeze(Btrans, -3);
+    TensorView* Btrans = getTranspose(pattern_.B, -2, -1);
+    pattern_.A = getUnsqueeze(pattern_.A, -2);
+    pattern_.B = getUnsqueeze(Btrans, -3);
     // A and B might have different dimensions. If so, broadcast the smaller
     // one up to the size of the larger.
     int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims());
     // Add new outer broadcast dimensions if necessary
-    pattern_.A = ops::maybe_broadcast_inner_to_rank(pattern_.A, out_dims);
-    pattern_.B = ops::maybe_broadcast_inner_to_rank(pattern_.B, out_dims);
+    pattern_.A = getBroadcastInnerToRank(pattern_.A, out_dims);
+    pattern_.B = getBroadcastInnerToRank(pattern_.B, out_dims);
     fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     mma_ = fms->definition()->as<MmaOp>();
     finalizeMatmulOpOrLinearOp(fms);
