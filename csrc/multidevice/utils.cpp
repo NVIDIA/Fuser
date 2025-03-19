@@ -6,6 +6,8 @@
  */
 // clang-format on
 
+#include <c10/util/irange.h>
+
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <host_ir/lower.h>
@@ -18,8 +20,7 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
-
-#include <c10/util/irange.h>
+#include <statement_guard.h>
 
 namespace nvfuser {
 
@@ -106,6 +107,7 @@ bool isSharded(const TensorView* tv) {
 }
 
 namespace {
+
 // Collect device-parallel IterDomains in `domain` and return them as a
 // ParallelType-to-IterDomain map.
 std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
@@ -326,35 +328,6 @@ std::pair<Val*, bool> computeIndex(
 }
 
 } // namespace
-
-// A simple garbage collection mechanism to snapshot Exprs and Vals upon entry
-// and restore them upon exit. This avoids creating too many garbage Exprs and
-// Vals in the complete fusion, making cloning slow.
-//
-// Is it a good idea to move this to a separate file and make it a friend of
-// Fusion?
-class StatementGuard {
- public:
-  StatementGuard(Fusion* fusion)
-      : fusion_([fusion] {
-          // Trigger lazy initialization of axioms. Without this, we'd have to
-          // remove axioms in the destructor, which no APIs can do at this
-          // moment.
-          fusion->axioms();
-          return fusion;
-        }()),
-        prev_num_exprs_(fusion_->numExprs()),
-        prev_num_vals_(fusion_->numVals(/*include_shortcuts=*/false)) {}
-
-  ~StatementGuard() {
-    fusion_->removeStatementsCreatedAfter(prev_num_exprs_, prev_num_vals_);
-  }
-
- private:
-  Fusion* fusion_;
-  const int64_t prev_num_exprs_;
-  const int64_t prev_num_vals_;
-};
 
 bool haveDifferentShardings(
     const TensorView* producer,

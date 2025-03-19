@@ -7,15 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <visibility.h>
-
-#include <ir/base_nodes.h>
-#include <utils.h>
-
 #include <deque>
 #include <unordered_map>
 #include <unordered_set>
+
+#include <exceptions.h>
+#include <ir/base_nodes.h>
+#include <utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -32,8 +31,6 @@ class IrContainerPasskey {
  private:
   explicit IrContainerPasskey() = default;
 };
-
-class StatementGuard;
 
 class IrContainer : public PolymorphicBase {
  public:
