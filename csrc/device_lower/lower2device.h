@@ -277,14 +277,6 @@ class GpuLower : public NonCopyable {
     return tmem_info_;
   }
 
-  const std::pair<int64_t, int64_t>& decIncRegisterUsage() const {
-    return dec_inc_register_usage;
-  }
-
-  std::pair<int64_t, int64_t>& decIncRegisterUsage() {
-    return dec_inc_register_usage;
-  }
-
   // Register a boolean Val as a predicate to validate at the run time. Optional
   // validation error messages can be given as args.
   template <typename... Args>
@@ -407,7 +399,6 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
-  std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size

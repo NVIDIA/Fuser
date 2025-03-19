@@ -294,7 +294,8 @@ void parallelizeAllLike(
     int64_t pos,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
-    bool propagate_padding) {
+    bool propagate_padding,
+    bool parallelize_inputs) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -320,7 +321,7 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput()) {
+    if (tv->isFusionInput() && !parallelize_inputs) {
       continue;
     }
     for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
@@ -566,6 +567,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   auto all_tvs = fusion->allTvs();
 
+  std::vector<TensorView*> persistent_buffer_candidates;
+
   for (auto producer : all_tvs) {
     // Are all producer ids mappable to all consumers
     bool mappable = true;
@@ -608,7 +611,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (!mappable) {
       // If there's unmappable dims from producer to consumer, producer is a
       // persistent buffer.
-      persistent_buffer_info.persistent_buffers.emplace_back(producer);
+      persistent_buffer_candidates.emplace_back(producer);
     }
   }
 
@@ -625,17 +628,17 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // only when it fails to find resolution points, the new analysis is
   // used as a fallback option.
   // TODO: Completely replace the old analysis
-  for (auto buffer : persistent_buffer_info.persistent_buffers) {
+  for (auto buffer : persistent_buffer_candidates) {
     auto resolution_points =
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
     if (resolution_points.empty()) {
       resolution_points =
           normalization_scheduler_utils::getResolutionPointsOf(buffer);
     }
-    NVF_ERROR(
-        !resolution_points.empty(),
-        "Fail to find resolution points of ",
-        buffer->toString());
+    if (resolution_points.empty()) {
+      continue;
+    }
+    persistent_buffer_info.persistent_buffers.emplace_back(buffer);
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
         resolution_points);
   }
@@ -1572,8 +1575,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isGatherLookupTv(input_tv) ||
-        ir_utils::isIndexSelectLookupTv(input_tv)) {
+    if (ir_utils::isGatherLookupTv(input_tv)) {
       continue;
     }
 
@@ -2285,6 +2287,16 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
+
+    // Propgating the transforms will not replay the DIDx parallelization, so we
+    // need to do it manually here.
+    parallelizeAllLike(
+        tv,
+        /*pos=*/(int64_t)old2new.size(),
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{ParallelType::DIDx},
+        /*propagate_padding=*/false,
+        /*parallelize_inputs=*/true);
   }
 }
 
