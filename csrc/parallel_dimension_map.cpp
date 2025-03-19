@@ -170,7 +170,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
         // and SimplifyingIrBuilder::addExpr in getRawCompute will be able to
         // simplify find the x when we do addExpr(addExpr(x, 1) - 1).
         dim_map_[pt] = IrBuilder::addExpr(
-            dim_it->second, IrBuilder::create<Val>(1, DataType::Index));
+            dim_it->second, dim_it->second->fusion()->oneVal());
       }
       exact_types_.erase(pt);
     }
@@ -178,7 +178,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   }
   // For register sharing, require contiguous 128 threads calling the same
   // setreg instruction.
-  // Not used: 1, Dynamic: -1, Const: n
+  // Not used: 1, Const: n, Dynamic: -1
   auto getThreadsCountInDim = [&](ParallelType pt) {
     if (!dim_map_.contains(pt)) {
       return (int64_t)1;
@@ -186,6 +186,10 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
     if (dim_map_.at(pt)->isConstScalar()) {
       return dim_map_.at(pt)->value().as<int64_t>();
     }
+    // Return -1 for dynamic dimensions, this disables register sharing on
+    // dynamic dimensions since we can't guarantee the number of threads is
+    // divisible by 128. We may allow this in the future and delegate this
+    // check to a point where the launch parameters are known.
     return (int64_t)-1;
   };
   // Warp specialization with register sharing on parallel type pt

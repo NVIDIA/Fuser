@@ -1386,6 +1386,8 @@ class CircularBufferInserter : private kir::ExprMutator {
             circular_buffer_loop->iter_domain());
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
 
+    // Create warp_dispatch_ite, the predicate is either
+    // Tid == bdim - 1 or Tid >= bdim - padded
     int64_t warp_specialization_pad =
         GpuLower::current()
             ->parallelDimensionMap()
@@ -1413,6 +1415,7 @@ class CircularBufferInserter : private kir::ExprMutator {
         std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) &&
         std::get<WarpSpecialized>(circular_buffer_options.type)
             .num_registers.has_value();
+
     GpuLower::current()->kernel()->manage(
         "enable_register_sharing", enable_register_sharing);
 
@@ -1438,7 +1441,6 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
-
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
     if (enable_register_sharing) {

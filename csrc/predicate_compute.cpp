@@ -655,17 +655,21 @@ Val* createMultipleExpressionElectSync(
     }
     return conditional;
   } else {
-    Val* conditional =
-        createElectSyncPredicate(load_warp_on != ParallelType::TIDx);
+    // If not specialized on TIDx, load branch has full size of bdimx,
+    // we can use the first warp, otherwise should use the last warp.
+    bool use_first_warp = load_warp_on != ParallelType::TIDx;
+    Val* conditional = createElectSyncPredicate(use_first_warp);
     for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
       if (!pdim_map.has(pt)) {
         continue;
       }
       if (load_warp_on != pt) {
+        // Not specialized on pt, use the first thread.
         conditional = SimplifyingIrBuilder::logicalAndExpr(
             conditional,
             IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
       } else {
+        // Specialized on pt, use the last thread.
         Val* raw =
             GpuLower::current()->parallelDimensionMap().get(load_warp_on);
         conditional = SimplifyingIrBuilder::logicalAndExpr(
