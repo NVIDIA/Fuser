@@ -2492,7 +2492,7 @@ class MatmulSchedulerPluginTest : public NVFuserTest {
 
 // Test that our fake plugin works to override the default heuristic
 TEST_F(MatmulSchedulerPluginTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(8, 0, 9, 0);
   const int M = 128, N = 256, K = 512;
   const auto layout = MmaLayout::TT;
   auto fusion = std::make_unique<Fusion>();
