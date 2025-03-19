@@ -929,7 +929,7 @@ constexpr bool has_cross_type_equality =
         if constexpr (std::is_same_v<T, U>) {
           return;
         } else {
-          return opcheck<T> == opcheck<U>;
+          return requires(T t, U u) { t == u; };
         }
       })));
     })));
