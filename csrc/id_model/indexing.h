@@ -8,6 +8,8 @@
 #pragma once
 
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/pass/allocation.h>
+#include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
@@ -31,11 +33,13 @@ struct IndexingInfo {
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
 };
 
+#if 0
 struct IndexingAllocationInfo {
   std::vector<IterDomain*> domains;
   std::vector<Val*> strides;
   std::vector<bool> contiguity;
 };
+#endif
 
 // The basic algorithm of indexing is:
 //
@@ -129,6 +133,9 @@ class TensorIndexer {
   // on loop_index_map_.
   void buildLoopIndexMap();
 
+  const IndexingAllocationInfo& getIndexAllocationInfo(TensorView* tv) const;
+
+#if 0
   const IndexingAllocationInfo& getIndexingAllocationInfo(
       TensorView* tv) const {
     auto it = alloc_info_.find(tv);
@@ -138,6 +145,7 @@ class TensorIndexer {
         tv->toString());
     return it->second;
   }
+#endif
 
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by

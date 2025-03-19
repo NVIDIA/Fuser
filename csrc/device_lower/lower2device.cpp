@@ -696,4 +696,14 @@ void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
   }
 }
 
+const IndexingAllocationInfo& GpuLower::getAllocationInfo(
+    TensorView* tv) const {
+  auto it = allocationInfo().find(tv);
+  NVF_ERROR(
+      it != allocationInfo().end(),
+      "Allocation info not found for ",
+      tv->toString());
+  return it->second;
+}
+
 } // namespace nvfuser

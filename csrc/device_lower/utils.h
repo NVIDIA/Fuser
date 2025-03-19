@@ -190,6 +190,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
     bool zero_init,
     bool resets_to_zero = false);
 
+// TODO: Rename this to AllocationPosInfo
 struct BasicAllocInfo {
   // The for loop that the initialization of this allocation must be
   // placed in, nullptr if not within a loop

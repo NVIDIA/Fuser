@@ -301,7 +301,7 @@ class IndexValidator : public kir::IrVisitor {
     // Suppress warnings due to using dynamic register tensors
     testing::internal::CaptureStderr();
     kernel = lower.run();
-    testing::internal::GetCapturedStderr();
+    std::cerr << testing::internal::GetCapturedStderr();
 
     IndexValidator<GetReference> validator(
         lower, GetReference(lower.tensorIndexer(), lower.idModel(), args...));
@@ -1695,6 +1695,8 @@ TEST_F(IndexingTest, InlinedUnroll) {
   tv4->axis(1)->parallelize(ParallelType::Unroll);
 
   scheduler_utils::parallelizeAllLike(tv4, fusion.allTvs());
+
+  fusion.printMath();
 
   // The CA position of tv2 is 1 as shown below:
   //

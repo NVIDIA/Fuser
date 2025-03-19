@@ -34,6 +34,7 @@ namespace nvfuser {
 
 namespace {
 
+#if 0
 // True if a given domain is a loop domain of a given tensor and its
 // loop is partitioned with respect to the memory type of the tensor
 bool isPartitionedLoop(const TensorView* tv, IterDomain* id) {
@@ -744,6 +745,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
   std::unordered_map<TensorView*, IndexingAllocationInfo> tv_alloc_info_map;
   std::unordered_set<TensorView*> used_as_producer;
 };
+#endif
 
 } // namespace
 
@@ -789,6 +791,11 @@ void TensorIndexer::buildLoopIndexMap() {
       loop_index_map_[loop_group] = loop_index;
     }
   }
+}
+
+const IndexingAllocationInfo& TensorIndexer::getIndexAllocationInfo(
+    TensorView* tv) const {
+  return GpuLower::current()->getAllocationInfo(tv);
 }
 
 Val* TensorIndexer::getLoopIndex(
@@ -893,7 +900,7 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  const auto alloc_info = getIndexingAllocationInfo(tv);
+  const auto& alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] =
       getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
@@ -1051,9 +1058,11 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
 }
 
 void TensorIndexer::setupAllocationDomains(const std::vector<Expr*>& exprs) {
+#if 0
   AllocationDomainSetup alloc_setup;
   alloc_setup.setup(exprs);
   alloc_info_ = std::move(alloc_setup.tv_alloc_info_map);
+#endif
 }
 
 std::vector<PredicateInfo> TensorIndexer::getPredicates(
@@ -1275,7 +1284,7 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
         const ExprPath<ExprGroup>& traversal_path) const {
   const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
       getContigDomains(
-          alloc_info.domains,
+          alloc_info.ids,
           alloc_info.contiguity,
           reverse(traversal_path),
           traversalGraph(),
@@ -1285,11 +1294,11 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
   std::unordered_set<ValGroup> already_indexed_domains;
   std::deque<ValGroup> contig_alloc_groups;
   std::deque<Val*> contig_strides;
-  for (const auto i : c10::irange(alloc_info.domains.size())) {
+  for (const auto i : c10::irange(alloc_info.ids.size())) {
     // Traverse back from the innermost domains so that the right
     // stride val is picked up for each contiguous domain
-    auto i1 = alloc_info.domains.size() - 1 - i;
-    IterDomain* allocation_domain = alloc_info.domains.at(i1);
+    auto i1 = alloc_info.ids.size() - 1 - i;
+    IterDomain* allocation_domain = alloc_info.ids.at(i1);
     auto contig_domains_it = contig_domains.find(allocation_domain);
     NVF_ERROR(
         contig_domains_it != contig_domains.end(),
@@ -1318,7 +1327,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         bool as_consumer,
         const IndexingAllocationInfo& alloc_info,
         const std::vector<ForLoop*>& for_loops) const {
-  auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
+  auto index_info = computeIndex(expr, alloc_info.ids, for_loops);
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_domains, for_loops, index_map);
@@ -1333,8 +1342,8 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     contig_strides = contig_alloc_strides.second;
   } else {
     std::transform(
-        alloc_info.domains.begin(),
-        alloc_info.domains.end(),
+        alloc_info.ids.begin(),
+        alloc_info.ids.end(),
         std::back_inserter(contig_alloc_groups),
         [&](IterDomain* allocation_domain) {
           return traversalGraph().toGroup(allocation_domain);
