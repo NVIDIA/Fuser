@@ -890,7 +890,7 @@ DEFINE_RIGHT_PPMM(rmm, --);
 
 #define DEFINE_ASSIGNMENT_OP(op, assign_op)                      \
   template <typename DT, typename T>                             \
-  requires is_dynamic_type_v<DT>&& requires(DT d, T t) {         \
+  requires is_dynamic_type_v<DT> && requires(DT d, T t) {        \
     d op t;                                                      \
   }                                                              \
   inline constexpr DT& operator assign_op(DT & x, const T & y) { \
