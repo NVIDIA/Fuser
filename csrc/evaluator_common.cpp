@@ -211,7 +211,7 @@ void PrecomputedValues::initializeValueList(
   values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
   // Fill in constants and assign evaluator indices
-  for (const auto i : std::views::iota(0LL, inputs.size())) {
+  for (const auto i : std::views::iota(0LL, num_of_values_)) {
     // Use an expression evaluator to test if value is const
     // Structs must be bound directly
     if (!isStructType(sorted_value_list[i]->dtype()) &&
