@@ -2102,35 +2102,33 @@ static TensorView* newForMma(
       orig_domain_a.size() == orig_domain_b.size(),
       "MMA op: need matching dim input");
 
-  std::set<unsigned int> axes_set(axes.begin(), axes.end());
+  std::vector<bool> is_reduction;
+  is_reduction.resize(orig_domain_a.size(), false);
+  for (unsigned int ax : axes) {
+    NVF_CHECK(
+        ax < is_reduction.size(),
+        "Error setting up reduction, reduction axis (",
+        ax,
+        ") is outside nDims (",
+        orig_domain_a.size(),
+        "). Keep in mind reductions are relative to root domains, not modified views.");
+    is_reduction[ax] = true;
+  }
   std::vector<IterDomain*> new_domain;
 
   NVF_ERROR(
-      !axes_set.empty(),
+      !axes.empty(),
       "Asked for output of reduction, but no reduction axis provided.");
 
-  NVF_ERROR(
-      (*(axes_set.rbegin())) < orig_domain_a.size(),
-      "Error setting up reduction, reduction axis (",
-      *(axes_set.rbegin()),
-      ") is outside nDims (",
-      orig_domain_a.size(),
-      "). Keep in mind reductions are relative to root domains, not modified views.");
-
-  auto axis_iter = axes_set.begin();
-  for (const auto dim : c10::irange(orig_domain_a.size())) {
-    bool is_reduction = false;
-    if (axis_iter != axes_set.end() && *axis_iter == dim) {
-      is_reduction = true;
-      axis_iter++;
-    }
+  for (const int64_t dim : c10::irange(orig_domain_a.size())) {
+    bool dim_is_reduction = is_reduction.at((size_t)dim);
 
     const IterDomain* id = orig_domain_a[dim]->isBroadcast()
         ? orig_domain_b[dim]
         : orig_domain_a[dim];
 
     NVF_CHECK(
-        !(is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
+        !(dim_is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
         "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
         id,
         " of tensor ",
@@ -2141,7 +2139,8 @@ static TensorView* newForMma(
     new_domain.push_back(
         IterDomainBuilder(id->start(), id->extent())
             .stop_offset(id->stopOffset())
-            .iter_type(is_reduction ? IterType::Reduction : id->getIterType())
+            .iter_type(
+                dim_is_reduction ? IterType::Reduction : id->getIterType())
             .build());
   }
 
