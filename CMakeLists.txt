@@ -39,11 +39,15 @@ message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 # are footguns that should generally be avoided, because they are difficult to
 # target where and *only* where they are needed. See e.g.:
 # https://cliutils.gitlab.io/modern-cmake/chapters/intro/dodonot.html
-set(NVFUSER_C_STANDARD 17 CACHE STRING "C standard to use for C code")
+set(NVFUSER_C_STANDARD 20 CACHE STRING "C standard to use for C code")
 set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  # TODO: gcc 11.4 has been end of life according to https://gcc.gnu.org/
+  # I believe we should bump up the version below to 12.x.
+  # However, because gcc 11.4 is well tested and stable, let's defer this
+  # rejection until the day that we find a bug in gcc 11.4.
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
     message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
   endif()
@@ -342,6 +346,7 @@ set_target_properties(codegen_internal PROPERTIES
   CXX_STANDARD ${NVFUSER_CPP_STANDARD}
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
+
   # this is to find pip installed nvrtc.so
   INSTALL_RPATH
   "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
@@ -362,17 +367,8 @@ add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-
-  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
-    # recommends to link asan statically. This is the default with Clang. GCC
-    # needs `-static-libasan`.
-    target_link_options(codegen_internal PUBLIC -fsanitize=address -static-libasan)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -static-libasan)
-  else()
-    target_link_options(codegen_internal PUBLIC -fsanitize=address)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
-  endif()
+  target_link_options(codegen_internal PUBLIC -fsanitize=address)
+  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
@@ -567,17 +563,18 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
@@ -603,9 +600,10 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_rope.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_scatter_gather.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_scatter.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
@@ -717,7 +715,8 @@ if(BUILD_TEST)
   set(TUTORIAL_SRCS)
   list(APPEND TUTORIAL_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
-    ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp)
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_ldmatrix_stmatrix.cpp)
   add_test(test_tutorial "${TUTORIAL_SRCS}" "")
   list(APPEND TEST_BINARIES test_tutorial)
 

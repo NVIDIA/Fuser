@@ -27,10 +27,28 @@ namespace {
 //   predicating these ops will require extra steps to ensure that
 //   the whole warp will get the same value.
 void assertOnWarpOps(const Expr* expr) {
-  NVF_ERROR(
-      !ir_utils::isLdMatrixOp(expr),
-      "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
-      expr->toString());
+  // Prohibit predicates for LdMatrix expressions in Mma k main loop;
+  // Allow predicates for general LdMatrix usage.
+  if (ir_utils::isLdMatrixOp(expr)) {
+    const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
+    NVF_ERROR(ldst->in()->isA<TensorView>());
+    TensorView* in_tv = ldst->in()->as<TensorView>();
+    NVF_ERROR(in_tv->definition() != nullptr);
+    bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
+
+    NVF_ERROR(ldst->out()->isA<TensorView>());
+    TensorView* out_tv = ldst->out()->as<TensorView>();
+    bool any_mma_uses =
+        std::any_of(out_tv->uses().begin(), out_tv->uses().end(), [](Expr* e) {
+          return e->isA<MmaOp>();
+        });
+
+    NVF_ERROR(
+        !is_tma_ldmatrix || !any_mma_uses,
+        "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
+        expr->toString());
+  }
+
   NVF_ERROR(
       !expr->isA<MmaOp>(),
       "Mma op: cannot eliminate predicate for mma op, tiling not valid. ",

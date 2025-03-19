@@ -294,7 +294,8 @@ void parallelizeAllLike(
     int64_t pos,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
-    bool propagate_padding) {
+    bool propagate_padding,
+    bool parallelize_inputs) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -320,7 +321,7 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput()) {
+    if (tv->isFusionInput() && !parallelize_inputs) {
       continue;
     }
     for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
@@ -557,6 +558,24 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
   return std::make_pair(true, target_broadcast_tvs);
 }
 
+TensorView* getUpCastInputOf(const TensorView* tv) {
+  // skip if definition is not a unary op
+  if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+    // skip if the input is a fusion input or the op is not a cast
+    if (uop->input(0)->isFusionInput() ||
+        uop->getUnaryOpType() != UnaryOpType::Cast) {
+      return nullptr;
+    }
+    // skip if the cast is not upcast
+    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    if (!precisions.has_value() || precisions->first >= precisions->second) {
+      return nullptr;
+    }
+    return uop->input(0)->as<TensorView>();
+  }
+  return nullptr;
+}
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -565,6 +584,8 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   logical_map.build();
 
   auto all_tvs = fusion->allTvs();
+
+  std::vector<TensorView*> persistent_buffer_candidates;
 
   for (auto producer : all_tvs) {
     // Are all producer ids mappable to all consumers
@@ -580,7 +601,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     for (auto consumer : consumers) {
       if (dynamic_cast<SelectOp*>(consumer->definition()) ||
           dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
-          dynamic_cast<TorchGatherOp*>(consumer->definition())) {
+          dynamic_cast<GatherOp*>(consumer->definition())) {
         continue;
       }
       bool consumer_mappable = true;
@@ -608,7 +629,7 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
     if (!mappable) {
       // If there's unmappable dims from producer to consumer, producer is a
       // persistent buffer.
-      persistent_buffer_info.persistent_buffers.emplace_back(producer);
+      persistent_buffer_candidates.emplace_back(producer);
     }
   }
 
@@ -625,17 +646,17 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // only when it fails to find resolution points, the new analysis is
   // used as a fallback option.
   // TODO: Completely replace the old analysis
-  for (auto buffer : persistent_buffer_info.persistent_buffers) {
+  for (auto buffer : persistent_buffer_candidates) {
     auto resolution_points =
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
     if (resolution_points.empty()) {
       resolution_points =
           normalization_scheduler_utils::getResolutionPointsOf(buffer);
     }
-    NVF_ERROR(
-        !resolution_points.empty(),
-        "Fail to find resolution points of ",
-        buffer->toString());
+    if (resolution_points.empty()) {
+      continue;
+    }
+    persistent_buffer_info.persistent_buffers.emplace_back(buffer);
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
         resolution_points);
   }
@@ -961,11 +982,21 @@ int64_t getPersistentBufferSizeOfTensor(
       buffer_bytes *= id_size.as<int64_t>();
     }
   }
+  // If the persistent buffer is the output of an upcast op, scheduler will
+  // project it back to the input to save register usage. This is similar to
+  // project to inputs, not abosutely necessary but we always do it to
+  // save register usage. So, need to compute the buffer size using the data
+  // type before upcast.
+  int64_t dtype_size = 1;
+  if (auto upcast_input = getUpCastInputOf(buffer)) {
+    dtype_size = dataTypeSize(
+        upcast_input->getDataType().value(), runtime_info.getIndexType());
+  } else {
+    dtype_size = dataTypeSize(
+        buffer->getDataType().value(), runtime_info.getIndexType());
+  }
 
-  buffer_bytes = buffer_bytes == -1 ? 0
-                                    : buffer_bytes *
-          (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                runtime_info.getIndexType());
+  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
   return buffer_bytes;
 }
 
@@ -1196,7 +1227,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
+    if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
@@ -1572,8 +1603,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isTorchGatherLookupTv(input_tv) ||
-        ir_utils::isIndexSelectLookupTv(input_tv)) {
+    if (ir_utils::isGatherLookupTv(input_tv)) {
       continue;
     }
 
@@ -2227,25 +2257,53 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
     std::unordered_map<int64_t, int64_t> old2new;
     // Make sure rfactor dims we need are in domain, and reorder them in domain
-    // so they're consecutive starting from the left of domain. TODO: We could
-    // improve this so that if there's transformations replayed after the
-    // rfactor dims we could try and pull those through the fusion instead of
-    // enforcing rfactor dims are in domain.
+    // so they're consecutive starting from the left of domain.
+    // The reordering is to limit the propagation to only the view
+    // transformations.
     for (auto logical_id : tv->getLogicalDomain()) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
-        auto find_it = std::find(
-            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), logical_id);
+        // The rfactor dims are not in the loop domain directly if they are
+        // sharded. For example, Consider the split reshape: `[h]->[a, h/a]` `h`
+        // and `a` are both sharded by `d`. The loop domain of the consumer is
+        // `[DIDx(d), a/d, h/a]`. Hence, we cannot directly find logical ID `a`
+        // in the loop domain. Similarly, for merge reshape: `[a, h/a]->[h]`, we
+        // cannot directly find `h` in the loop domain when `h` is sharded by
+        // `d`.
+
+        // Find all reachable ids between the logical id and the loop domain.
+        // If the ids are in the loop domain, reorder them to the front.
+        auto transforms = DependencyCheck::getAllExprsBetween(
+            {logical_id},
+            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+        std::unordered_set<IterDomain*> reachable_ids;
+        // Add the logical id for the case where it is directly in the loop
+        // domain.
+        reachable_ids.insert(logical_id);
+
+        for (auto expr : transforms) {
+          auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
+          reachable_ids.insert(outputs.begin(), outputs.end());
+        }
+
+        bool has_reachable_loop_id = false;
+        for (auto loop_idx :
+             c10::irange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
+          if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
+            continue;
+          }
+          has_reachable_loop_id = true;
+          // Reorder the reshape dimensions to the front of the domain
+          old2new[loop_idx] = (int64_t)old2new.size();
+        }
+
         NVF_ERROR(
-            find_it != tv->getLoopDomain().end(),
+            has_reachable_loop_id,
             "Require ",
             logical_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
-
-        old2new[old_pos] = (int64_t)old2new.size();
       }
     }
 
@@ -2257,6 +2315,16 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
+
+    // Propgating the transforms will not replay the DIDx parallelization, so we
+    // need to do it manually here.
+    parallelizeAllLike(
+        tv,
+        /*pos=*/(int64_t)old2new.size(),
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{ParallelType::DIDx},
+        /*propagate_padding=*/false,
+        /*parallelize_inputs=*/true);
   }
 }
 
@@ -2290,7 +2358,7 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
     if (consumer->isFusionInput()) {
       continue;
     }
-    if (auto gather = dynamic_cast<TorchGatherOp*>(consumer->definition())) {
+    if (auto gather = dynamic_cast<GatherOp*>(consumer->definition())) {
       tvs.emplace_back(gather->lookupTv(), consumer);
     } else if (
         auto index_select =

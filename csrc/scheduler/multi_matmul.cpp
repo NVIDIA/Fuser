@@ -86,28 +86,63 @@ void MultipleMatmulScheduler::findRoles() {
   // When translating MatmulOp or LinearOp with avoid_intermediates, we
   // introduce some intermediate Global tensors which will be ignored during
   // lowering. We update as_ and bs_ to point at the last of these tensors
-  // before their next consumer is in local memory.
-  for (std::vector<TensorView*>* tensors : {&as_, &bs_}) {
-    for (TensorView*& tv : *tensors) {
-      while (true) {
-        if (tv->uses().size() != 1) {
-          break;
-        }
-        Expr* use = tv->uses().front();
-        if (use->outputs().size() != 1) {
-          break;
-        }
-        TensorView* consumer = dynamic_cast<TensorView*>(use->output(0));
-        if (consumer == nullptr) {
-          break;
-        }
-        if (consumer->getMemoryType() != MemoryType::Global) {
-          break;
-        }
-        tv = consumer;
+  // before their next consumer is in non-global memory.
+  auto find_last_global_consumer = [](TensorView* tv) -> TensorView* {
+    // Example: Suppose we start out with:
+    //
+    //   Inputs:
+    //     tv0_g
+    //     tv1_g
+    //
+    //   tv2_l = matmul(tv0_g, tv1_g)
+    //
+    // Earlier in scheduling we replace the operands to produce something like:
+    //
+    //   Inputs:
+    //     tv0_g
+    //     tv1_g
+    //
+    //   tv3_g = broadcast(tv0_g)
+    //   tv4_g = broadcast(tv1_g)
+    //   tv5_g = permute(tv4_g)
+    //   tv2 = matmul(tv3, tv5)
+    //
+    // We start out with:
+    //
+    //   tensor_roles_[A] = {tv0_g}
+    //   tensor_roles_[B] = {tv1_g}
+    //
+    // Here we update that to:
+    //
+    //   tensor_roles_[A] = {tv3_g}
+    //   tensor_roles_[B] = {tv5_g}
+    while (tv != nullptr) {
+      if (tv->uses().size() != 1) {
+        break;
       }
+      Expr* use = tv->uses().front();
+
+      // TODO: support ViewOp
+      if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
+        break;
+      }
+      TensorView* consumer = ir_utils::getTvOutput(use);
+      if (consumer == nullptr ||
+          consumer->getMemoryType() != MemoryType::Global) {
+        break;
+      }
+
+      // Traverse down consumers
+      tv = consumer;
     }
-  }
+    return tv;
+  };
+
+  // Apply in-place transformation
+  std::transform(
+      as_.cbegin(), as_.cend(), as_.begin(), find_last_global_consumer);
+  std::transform(
+      bs_.cbegin(), bs_.cend(), bs_.begin(), find_last_global_consumer);
 
   countDims();
 }

@@ -53,6 +53,8 @@ const char* dtypeToPyString(PrimDataType t) {
       return "DataType.ComplexDouble";
     case DataType::Null:
       return "DataType.Null";
+    case DataType::UInt64:
+      return "DataType.UInt64";
     default:
       break;
   }
@@ -60,7 +62,10 @@ const char* dtypeToPyString(PrimDataType t) {
   return nullptr;
 }
 
-FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
+FusionDefinition::FusionDefinition(
+    std::optional<size_t> id,
+    size_t max_length,
+    bool use_multidevice_executor)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
@@ -69,7 +74,8 @@ FusionDefinition::FusionDefinition(std::optional<size_t> id, size_t max_length)
       prev_fusion_(nullptr),
       user_sched_(nullptr),
       ops(this),
-      sched(this) {}
+      sched(this),
+      use_multidevice_executor_(use_multidevice_executor) {}
 
 FusionCache* FusionDefinition::fusionCache() const {
   NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");
@@ -344,14 +350,56 @@ void FusionDefinition::print(std::ostream& os) const {
   os << std::endl;
 }
 
-std::vector<DistributedTensor> FusionDefinition::execute(
-    KernelArgumentHolder args,
-    std::optional<int8_t> selected_device,
-    bool override_user_schedule,
-    bool capture_debug_output,
-    bool profile,
-    std::vector<std::string> _enable_options,
-    std::vector<std::string> _disable_options) const {
+namespace {
+// Returns the output shardings of the given fusion. As a short cut, if none of
+// the outputs have a device mesh, returns an empty vector indicating single-GPU
+// execution.
+std::vector<Sharding> getOutputShardings(Fusion* fusion) {
+  std::vector<Sharding> output_shardings;
+  if (std::none_of(
+          fusion->outputs().begin(), fusion->outputs().end(), [](Val* v) {
+            if (auto* tv = dynamic_cast<TensorView*>(v)) {
+              return tv->hasDeviceMesh();
+            }
+            return false;
+          })) {
+    return output_shardings;
+  }
+
+  output_shardings.reserve(fusion->outputs().size());
+  for (Val* out_val : fusion->outputs()) {
+    if (auto* out_tv = dynamic_cast<TensorView*>(out_val)) {
+      if (fusion->getOutputAlias(out_tv).hide_output) {
+        continue;
+      }
+      const DeviceMesh& mesh = out_tv->getDeviceMesh();
+      Sharding& output_sharding = output_shardings.emplace_back(mesh);
+      if (mesh.size() > 0) {
+        for (const ParallelType parallel_type : kParallelTypeDIDs) {
+          if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
+              axis != -1) {
+            output_sharding.setAxisIsShardedOn(axis, parallel_type);
+          }
+        }
+      }
+    } else {
+      output_shardings.emplace_back(DeviceMesh());
+    }
+  }
+
+  return output_shardings;
+}
+} // namespace
+
+std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
+    execute(
+        KernelArgumentHolder args,
+        std::optional<int8_t> selected_device,
+        bool override_user_schedule,
+        bool capture_debug_output,
+        bool profile,
+        std::vector<std::string> _enable_options,
+        std::vector<std::string> _disable_options) const {
   debug_output_ = std::nullopt;
   std::stringstream debug_ss;
   DebugStreamGuard dsg(capture_debug_output ? debug_ss : std::cout);
@@ -400,10 +448,22 @@ std::vector<DistributedTensor> FusionDefinition::execute(
 
   KernelArgumentHolder outputs;
   if (user_sched == nullptr) {
-    scheds->createExecutorIfNotExists();
-    outputs = scheds->auto_gen_schedules->runFusionWithInputs(
-        args, std::nullopt, args.getDeviceIndex());
+    if (use_multidevice_executor_) {
+      if (scheds->multi_device_executor == nullptr) {
+        scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
+            std::make_unique<Fusion>(*scheds->preschedFusion()));
+      }
+      outputs = scheds->multi_device_executor->runWithInput(args);
+    } else {
+      scheds->createExecutorIfNotExists();
+      outputs = scheds->auto_gen_schedules->runFusionWithInputs(
+          args, std::nullopt, args.getDeviceIndex());
+    }
   } else {
+    NVF_ERROR(
+        !use_multidevice_executor_,
+        "multidevice_executor is not supported "
+        "for user-defined schedules.");
     if (isProfilerEnabledWithCupti()) {
       FusionProfiler::start();
       FusionProfiler::createSegments(1);
@@ -453,44 +513,24 @@ std::vector<DistributedTensor> FusionDefinition::execute(
     debug_output_ = debug_ss.str();
   }
 
-  // Convert `at::Tensor`s to `DistributedTensor`s.
-  std::vector<DistributedTensor> out_dtensors;
-  out_dtensors.reserve(outputs.size());
+  std::vector<Sharding> output_shardings;
   if (user_sched == nullptr) {
-    FusionKernelRuntime* runtime =
-        scheds->auto_gen_schedules->getMostRecentKernelRuntime();
-    Fusion* fusion = runtime->fusionSegments()->completeFusion();
-
-    int64_t tensor_index = 0;
-    for (auto out_val : fusion->outputs()) {
-      NVF_ERROR(
-          out_val->isA<TensorView>(),
-          "Non tensor outputs not supported currently due to lack of support of DistributedTensor in KernelArgumentHolder");
-      auto* out_tv = out_val->as<TensorView>();
-      if (fusion->getOutputAlias(out_tv).hide_output) {
-        continue;
-      }
-      const at::Tensor& out_tensor = outputs[tensor_index++].as<at::Tensor>();
-      const DeviceMesh& mesh = out_tv->getDeviceMesh();
-      out_dtensors.emplace_back(out_tensor, mesh);
-
-      if (mesh.size() > 0) {
-        for (const ParallelType parallel_type : kParallelTypeDIDs) {
-          if (const auto axis = getShardedLogicalAxis(out_tv, parallel_type);
-              axis != -1) {
-            out_dtensors.back().setAxisIsShardedOn(axis, parallel_type);
-          }
-        }
-      }
-    }
-    NVF_ERROR(out_dtensors.size() == outputs.size());
-  } else {
-    for (const auto& out_tensor : outputs) {
-      out_dtensors.emplace_back(out_tensor.as<at::Tensor>());
-    }
+    Fusion* fusion = use_multidevice_executor_
+        ? scheds->preschedFusion()
+        : scheds->auto_gen_schedules->getMostRecentKernelRuntime()
+              ->fusionSegments()
+              ->completeFusion();
+    output_shardings = getOutputShardings(fusion);
+    NVF_ERROR(
+        output_shardings.empty() || output_shardings.size() == outputs.size(),
+        "Found ",
+        output_shardings.size(),
+        " output shardings but expected ",
+        outputs.size(),
+        " or 0.");
   }
 
-  return out_dtensors;
+  return std::make_pair(std::move(outputs), std::move(output_shardings));
 }
 
 std::string FusionDefinition::fusionIr() {

@@ -670,7 +670,12 @@ TensorShapeInfo inferTensorShapes(
     const ExpressionEvaluator& expr_eval) {
   // Alias handling:
   auto alias_info = tv->fusion()->getOutputAlias(tv);
-  if (alias_info.type == AllocationType::Evaluate) {
+  if (alias_info.type != AllocationType::New) {
+    // For reuse buffer alias, we need to get the aliased_io's size/stride
+    if (alias_info.type == AllocationType::ReuseBuffer) {
+      tv = alias_info.aliased_io->as<TensorView>();
+    }
+
     auto val = expr_eval.evaluate(tv);
     NVF_ERROR(val.is<at::Tensor>(), "Output is not a Tensor");
     auto tensor = val.as<at::Tensor>();
