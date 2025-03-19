@@ -115,7 +115,7 @@ struct OperatorChecker {
   }
 
   constexpr auto operator->() const {
-    if constexpr (requires(T t) { t->value(); }) {
+    if constexpr (requires(T t) { t.operator->(); }) {
       return static_cast<TrueType*>(nullptr);
     } else {
       return static_cast<FalseType*>(nullptr);
