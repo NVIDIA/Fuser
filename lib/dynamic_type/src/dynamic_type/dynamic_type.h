@@ -303,27 +303,26 @@ struct DynamicType {
   constexpr bool hasValue() const {
     return !isNull();
   }
-
-  template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
+  template <typename T>
+  requires is_candidate_type<T>
   constexpr const T& as() const {
     return std::get<T>(value);
   }
 
-  template <typename T, typename = std::enable_if_t<is_candidate_type<T>>>
+  template <typename T>
+  requires is_candidate_type<T>
   constexpr T& as() {
     return std::get<T>(value);
   }
 
-  template <
-      template <typename...> typename Template,
-      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  template <template <typename...> typename Template>
+  requires is_candidate_type<Template<DynamicType>>
   constexpr const Template<DynamicType>& as() const {
     return as<Template<DynamicType>>();
   }
 
-  template <
-      template <typename...> typename Template,
-      typename = std::enable_if_t<is_candidate_type<Template<DynamicType>>>>
+  template <template <typename...> typename Template>
+  requires is_candidate_type<Template<DynamicType>>
   constexpr Template<DynamicType>& as() {
     return as<Template<DynamicType>>();
   }
@@ -342,9 +341,8 @@ struct DynamicType {
 
   template <
       template <typename...> typename Template,
-      typename ItemT,
-      typename = std::enable_if_t<
-          is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>>>
+      typename ItemT>
+  requires(is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>)
   explicit constexpr operator Template<ItemT>() const {
     DYNAMIC_TYPE_CHECK(
         is<Template<DynamicType>>(),
