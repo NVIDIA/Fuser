@@ -4,6 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
+from nvfuser import direct, DataType
 from direct_fusion_definition import FusionDefinition
 
 inputs = [
@@ -19,3 +20,16 @@ with FusionDefinition() as fd:
 
 outputs = fd.execute(inputs)
 print(outputs)
+
+fd_str = direct.translate_fusion(fd.fusion)
+print(fd_str)
+exec(fd_str)
+func_name = "nvfuser_fusion"
+
+# Execute the python definition that was captured
+with FusionDefinition() as fd_cap:
+    eval(func_name)(fd_cap)
+
+print(fd_cap.fusion.print_math())
+captured_outputs = fd_cap.execute(inputs)
+print(captured_outputs)

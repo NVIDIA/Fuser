@@ -13,8 +13,20 @@ inputs = [
 ]
 
 with FusionDefinition() as fd:
-    tv0 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
-    tv1 = fd.define_tensor(shape=[-1, -1, -1], contiguity=[True, True, True], dtype=DataType.Float, is_cpu=False, stride_order=[2, 1, 0])
+    tv0 = fd.define_tensor(
+        shape=[-1, -1, -1],
+        contiguity=[True, True, True],
+        dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
+    )
+    tv1 = fd.define_tensor(
+        shape=[-1, -1, -1],
+        contiguity=[True, True, True],
+        dtype=DataType.Float,
+        is_cpu=False,
+        stride_order=[2, 1, 0],
+    )
     tv2 = fd.ops.add(tv0, tv1)
     fd.add_output(tv2)
 

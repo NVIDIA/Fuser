@@ -29,6 +29,9 @@ void bindDirectRuntime(py::module&);
 // Add direct bindings for CPP Fusion Operations
 void bindDirectOperations(py::module&);
 
+// Translate a CPP Fusion to a direct bindings python function
+std::string translateFusion(Fusion* f);
+
 void bindSchedule(py::class_<FusionDefinition>& fusion_def);
 
 // [ Note stride order and contiguity vector ]
