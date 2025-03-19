@@ -13,8 +13,8 @@
 #include <python_frontend/translation_utils.h>
 #include <utils.h>
 
-#include <vector>
 #include <ranges>
+#include <vector>
 
 namespace nvfuser::python_frontend {
 

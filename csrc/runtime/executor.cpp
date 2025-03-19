@@ -693,7 +693,8 @@ void KernelExecutor::initializeExecutorEntry(
       compiled_kernel_->kernel()->inputs().size(),
       " got: ",
       args.size());
-  for (auto inp_idx : std::views::iota(0LL, compiled_kernel_->kernel()->inputs().size())) {
+  for (auto inp_idx :
+       std::views::iota(0LL, compiled_kernel_->kernel()->inputs().size())) {
     auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
     if (auto input_tv = dynamic_cast<TensorView*>(input)) {
       auto at_tensor = args[inp_idx].as<at::Tensor>();
@@ -1074,7 +1075,8 @@ KernelArgumentHolder KernelExecutor::run(
             executor_utils::bindInputs(args, compiled_kernel_->kernel());
       }
 
-      for (auto i : std::views::iota(0LL, compiled_kernel_->kernel()->outputs().size())) {
+      for (auto i : std::views::iota(
+               0LL, compiled_kernel_->kernel()->outputs().size())) {
         auto param = compiled_kernel_->kernel()->outputs()[i];
         if (!param->isA<TensorView>()) {
           continue;
@@ -1115,7 +1117,8 @@ KernelArgumentHolder KernelExecutor::run(
       NVF_ERROR(
           buf_info.shape_info.logical_sizes.size() ==
           buf_info.shape_info.logical_strides.size())
-      for (auto j : std::views::iota(0LL, buf_info.shape_info.logical_sizes.size())) {
+      for (auto j :
+           std::views::iota(0LL, buf_info.shape_info.logical_sizes.size())) {
         if (buf_info.shape_info.logical_strides[j] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
@@ -1539,7 +1542,8 @@ void KernelExecutor::deserialize(
   compiled_kernel_->deserialize(buffer);
 
   // GlobalBufferInfo requires lowered kernel before deserialization
-  for (auto idx : std::views::iota(0LL, buffer->executor_entry_lookup_keys()->size())) {
+  for (auto idx :
+       std::views::iota(0LL, buffer->executor_entry_lookup_keys()->size())) {
     executor_entry_lookup_.emplace(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));

@@ -367,7 +367,8 @@ class AnalyzeViewTransformation {
     AnalyzeViewConstraint constraint;
     constraint.original_constraint =
         std::vector<int64_t>(original_view_.begin(), original_view_.end());
-    for (const auto i : std::views::iota(0LL, constraint.original_constraint.size())) {
+    for (const auto i :
+         std::views::iota(0LL, constraint.original_constraint.size())) {
       if (constraint.original_constraint[i] != 1) {
         constraint.original_constraint[i] = 0;
       }
@@ -375,7 +376,8 @@ class AnalyzeViewTransformation {
 
     constraint.new_constraint =
         std::vector<int64_t>(new_view_.begin(), new_view_.end());
-    for (const auto i : std::views::iota(0LL, constraint.new_constraint.size())) {
+    for (const auto i :
+         std::views::iota(0LL, constraint.new_constraint.size())) {
       if (constraint.new_constraint[i] != 1) {
         constraint.new_constraint[i] = 0;
       }

@@ -294,7 +294,8 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
       });
 
   // Step 4l) Add missing mappings from segment to original indices.
-  for (size_t idx : std::views::iota(0LL, missing_segment_python_index.size())) {
+  for (size_t idx :
+       std::views::iota(0LL, missing_segment_python_index.size())) {
     segment_to_original_python_index_map.emplace(
         missing_segment_python_index.at(idx),
         missing_cloned_python_index.at(idx));
@@ -330,7 +331,8 @@ void SegmentationState::prepareGroupOrder() {
     bool ran_any_group = false;
 
     // Find the first segment with all inputs available to run
-    for (size_t group_i : std::views::iota(0LL, segmented_fusion_->groups().size())) {
+    for (size_t group_i :
+         std::views::iota(0LL, segmented_fusion_->groups().size())) {
       SegmentedGroup* group = segmented_fusion_->groups().at(group_i);
 
       // short-circuit: Already ran this segmented group.
