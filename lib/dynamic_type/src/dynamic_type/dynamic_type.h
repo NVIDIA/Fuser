@@ -806,20 +806,18 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
 }
 
 #define DEFINE_LEFT_PPMM(opname, op)                                          \
-  template <                                                                  \
-      typename DT,                                                            \
-      typename = std::enable_if_t<                                            \
-          is_dynamic_type_v<DT> &&                                            \
-          any_check(                                                          \
-              [](auto x) constexpr {                                          \
-                using X = typename decltype(x)::type;                         \
-                if constexpr (requires(X & x) { op x; }) {                    \
-                  return std::is_same_v<decltype(op std::declval<X&>()), X&>; \
-                }                                                             \
-                return false;                                                 \
-              },                                                              \
-              DT::type_identities_as_tuple)>>                                 \
-  inline constexpr DT& operator op(DT & x) {                                  \
+  template <typename DT>                                                      \
+  inline constexpr DT& operator op(DT & x)                                    \
+      requires(is_dynamic_type_v<DT> &&                                       \
+               any_check(                                                     \
+                   [](auto x) constexpr {                                     \
+                     using X = typename decltype(x)::type;                    \
+                     if constexpr (requires(X & x) { op x; }) {               \
+                       return std::is_same_v<decltype(op std::declval<X&>()), X&>; \
+                     }                                                        \
+                     return false;                                            \
+                   },                                                         \
+                   DT::type_identities_as_tuple)) {                           \
     bool computed = false;                                                    \
     DT::for_all_types([&computed, &x](auto _) {                               \
       using Type = typename decltype(_)::type;                                \
