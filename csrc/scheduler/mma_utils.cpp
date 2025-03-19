@@ -2005,11 +2005,8 @@ class MatmulTranslator : public OptInDispatch {
   void handle(ReductionOp* rop) final {
     Val* init = IrBuilder::create<Val>(0.0, pattern_.output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
-    mma_ = IrBuilder::create<MmaOp>(
-        pattern_.output,
-        pattern_.A,
-        pattern_.B,
-        init);
+    mma_ =
+        IrBuilder::create<MmaOp>(pattern_.output, pattern_.A, pattern_.B, init);
   }
 
   //! Replace a TV, recording it in replacements_
@@ -2238,79 +2235,6 @@ class MatmulTranslator : public OptInDispatch {
 
     // cacheAfter() might replace the mma op, so we set mma_ last
     mma_ = fms->definition()->as<MmaOp>();
-  }
-
-  //! Replace a TV, recording it in replacements_
-  void replaceTV(TensorView* old_tv, TensorView* new_tv) {
-    replacements_[old_tv] = new_tv;
-    ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_tv, new_tv);
-  }
-
-  void replaceWithoutIntermediates(TensorView* bias = nullptr) {
-    bool is_cached = pattern_.A->getMemoryType() != MemoryType::Global;
-
-    // TODO: pass in graph as a parameter to avoid rebuilding
-    IdModel id_model(pattern_.A->fusion(), /*build_graphs=*/false);
-    id_model.buildBroadcastGraph();
-    const ValGraph& graph = id_model.idGraph(IdMappingMode::BROADCAST);
-
-    // Find ValGroups of each dimension in output. We will use the broadcast
-    // map to determine equivalence for each operand.
-    std::vector<ValGroup> output_groups;
-    output_groups.reserve(pattern_.output->getLogicalDomain().size());
-    for (IterDomain* id : pattern_.output->getLogicalDomain()) {
-      output_groups.push_back(graph.toGroup(id));
-    }
-
-    TensorView* new_A =
-        prepareOperandForMmaOp(pattern_.A, graph, output_groups);
-    if (new_A != pattern_.A) {
-      replacements_[pattern_.A] = new_A;
-    }
-    TensorView* new_B =
-        prepareOperandForMmaOp(pattern_.B, graph, output_groups);
-    if (new_B != pattern_.B) {
-      replacements_[pattern_.B] = new_B;
-    }
-
-    TensorView* mma_result = fusedMultiplySum(new_A, new_B, {-1});
-
-    // This is mma_result, possibly with bias added
-    TensorView* float_output = mma_result;
-    if (bias != nullptr) {
-      float_output = add(float_output, bias);
-    }
-
-    finalizeMatmulOpOrLinearOp(float_output);
-
-    if (is_cached) {
-      // Load to registers if pattern_.A was originally also a
-      // non-Fusion input already residing in registers. Note that we
-      // use cacheAfter instead of set() so that we propagate allocation
-      // domain, and that we can only use cacheAfter on tensors that have
-      // uses, so we must do it after finalizing the replacement.
-      //
-      // Note that we do not want to double-cache the operand if we did not
-      // actually perform any replacement.
-      if (new_A != pattern_.A) {
-        new_A = new_A->cacheAfter();
-      }
-      if (new_B != pattern_.B) {
-        new_B = new_B->cacheAfter();
-      }
-    }
-
-    if (new_A != pattern_.A) {
-      replacements_[pattern_.A] = new_A;
-      pattern_.A = new_A;
-    }
-    if (new_B != pattern_.B) {
-      replacements_[pattern_.B] = new_B;
-      pattern_.B = new_B;
-    }
-
-    // cacheAfter() might replace the mma op, so we set mma_ last
-    mma_ = mma_result->definition()->as<MmaOp>();
   }
 
   void handle(LinearOp* lop) final {
