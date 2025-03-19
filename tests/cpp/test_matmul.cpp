@@ -4368,7 +4368,47 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
       cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
-TEST_P(MLPBenchmarkTest, FwdEpilogueFusion) {
+TEST_P(MLPBenchmarkTest, FwdEpilogueBiasFusion) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 4096, N = 14336, K = 5120;
+  const auto dtype = DataType::BFloat16;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // M, K
+  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // N, K
+  auto tv2 = makeContigConcreteTensor({-1, -1}, dtype); // M, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+  fusion.addInput(tv2);
+
+  auto tv3 = linear(tv0, tv1, tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA);
+  auto t0 = at::randn({M, K}, options);
+  auto t1 = at::randn({N, K}, options);
+  auto t2 = at::randn({M, N}, options);
+  auto tv3_ref = at::linear(t0, t1, t2);
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelArgumentHolder inputs = {t0, t1, t2};
+
+  KernelExecutor ke;
+  ke.compile(&fusion, inputs);
+  EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
+  auto cg_outputs = ke.run(inputs);
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
+
+  // Relax tolerance for larger sum due to large K
+  EXPECT_TRUE(
+      at::allclose(cg_outputs[0].as<at::Tensor>(), tv3_ref, 5e-2, 5e-2));
+}
+
+TEST_P(MLPBenchmarkTest, FwdEpilogueSiluFusion) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
