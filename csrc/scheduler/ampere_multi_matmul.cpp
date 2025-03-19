@@ -1095,7 +1095,8 @@ void AmpereMultipleMatmulScheduler::scheduleEpilogue() {
   }
   if (params_->use_smem_epilogue) {
     blockTileTensors(output_tvs);
-    for (auto [dc, d] : cached_outputs_) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
       // Schedule output tensor differently for better global memory access
       // pattern.
       scheduleOutputTensor(d);
@@ -1115,7 +1116,8 @@ void AmpereMultipleMatmulScheduler::scheduleEpilogue() {
               .propagateParallelType()
               .propagateToBoundary());
     }
-    for (auto [dc, d] : cached_outputs_) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
       // We might propagate an inner dimension that is not compatible with the
       // output or bias-like inputs. In those cases, we will further split
       // this dimension with an outer unrolled loop to achieve the proper
