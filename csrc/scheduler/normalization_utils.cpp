@@ -1779,8 +1779,15 @@ bool canProjectToInputsWithoutSmemCache(
       if (!tv->hasBroadcast()) {
         continue;
       }
+      int64_t tv_n_dim = (int64_t)tv->nDims();
       for (const auto& reduction_tv : reduction_tvs) {
+        // Not a producer of reduction
         if (!DependencyCheck::isDependencyOf(tv, reduction_tv)) {
+          continue;
+        }
+        // Must go through a broadcast or reduction, check is delegated to
+        // the broadcasted or reduced tensor.
+        if (tv_n_dim != reduction_tv->nDims()) {
           continue;
         }
         bool merged_bcast = false, merged_iter = false;
