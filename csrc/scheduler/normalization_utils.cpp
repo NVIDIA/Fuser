@@ -1581,7 +1581,6 @@ class PersistentBufferResolution : public IterVisitor {
         !resolution.resolution_points_.empty(),
         "Could not resolve persistent buffer: ",
         persistent_buffer->toString());
-
     return resolution.resolution_points_;
   }
 
