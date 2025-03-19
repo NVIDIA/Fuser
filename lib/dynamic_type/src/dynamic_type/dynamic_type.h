@@ -848,45 +848,39 @@ DEFINE_LEFT_PPMM(lmm, --);
 
 #undef DEFINE_LEFT_PPMM
 
-#define DEFINE_RIGHT_PPMM(opname, op)                                          \
-  /*TODO: we should inline the definition of opname##_helper into enable_if,*/ \
-  /*but I can only do this in C++20 */                                         \
-  template <typename DTVariantType>                                            \
-  constexpr auto opname##_helper = [](auto x) constexpr {                      \
-    using X = typename decltype(x)::type;                                      \
-    if constexpr (opcheck<X&> op) {                                            \
-      return std::                                                             \
-          is_constructible_v<DTVariantType, decltype(std::declval<X&>() op)>;  \
-    }                                                                          \
-    return false;                                                              \
-  };                                                                           \
-  template <typename DT>                                                       \
-  inline constexpr std::enable_if_t<                                           \
-      is_dynamic_type_v<DT> &&                                                 \
-          any_check(                                                           \
-              opname##_helper<typename DT::VariantType>,                       \
-              DT::type_identities_as_tuple),                                   \
-      DT> operator op(DT & x, int) {                                           \
-    DT ret;                                                                    \
-    DT::for_all_types([&ret, &x](auto _) {                                     \
-      using Type = typename decltype(_)::type;                                 \
-      if constexpr (opcheck<Type&> op) {                                       \
-        if constexpr (std::is_constructible_v<                                 \
-                          typename DT::VariantType,                            \
-                          decltype(std::declval<Type&>() op)>) {               \
-          if (x.template is<Type>()) {                                         \
-            ret = DT(x.template as<Type>() op);                                \
-          }                                                                    \
-        }                                                                      \
-      }                                                                        \
-    });                                                                        \
-    DYNAMIC_TYPE_CHECK(                                                        \
-        !ret.template is<std::monostate>(),                                    \
-        "Cannot compute ",                                                     \
-        x.type().name(),                                                       \
-        #op,                                                                   \
-        " : incompatible type");                                               \
-    return ret;                                                                \
+#define DEFINE_RIGHT_PPMM(opname, op)                                    \
+  template <typename DT>                                                 \
+  DT operator op(DT& x, int) requires(is_dynamic_type_v<DT>&& any_check( \
+      [](auto x) constexpr {                                             \
+        using X = typename decltype(x)::type;                            \
+        if constexpr (requires(X & t) { t op; }) {                       \
+          return std::is_constructible_v<                                \
+              typename DT::VariantType,                                  \
+              decltype(std::declval<X&>() op)>;                          \
+        }                                                                \
+        return false;                                                    \
+      },                                                                 \
+      DT::type_identities_as_tuple)) {                                   \
+    DT ret;                                                              \
+    DT::for_all_types([&ret, &x](auto _) {                               \
+      using Type = typename decltype(_)::type;                           \
+      if constexpr (opcheck<Type&> op) {                                 \
+        if constexpr (std::is_constructible_v<                           \
+                          typename DT::VariantType,                      \
+                          decltype(std::declval<Type&>() op)>) {         \
+          if (x.template is<Type>()) {                                   \
+            ret = DT(x.template as<Type>() op);                          \
+          }                                                              \
+        }                                                                \
+      }                                                                  \
+    });                                                                  \
+    DYNAMIC_TYPE_CHECK(                                                  \
+        !ret.template is<std::monostate>(),                              \
+        "Cannot compute ",                                               \
+        x.type().name(),                                                 \
+        #op,                                                             \
+        " : incompatible type");                                         \
+    return ret;                                                          \
   }
 
 DEFINE_RIGHT_PPMM(rpp, ++);
@@ -929,7 +923,9 @@ constexpr bool has_cross_type_equality =
         if constexpr (std::is_same_v<T, U>) {
           return;
         } else {
-          return requires(T t, U u) { t == u; };
+          return requires(T t, U u) {
+            t == u;
+          };
         }
       })));
     })));
