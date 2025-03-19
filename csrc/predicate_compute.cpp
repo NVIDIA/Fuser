@@ -505,7 +505,7 @@ Val* createElectSyncPredicate(bool use_first_warp = true) {
             NamedScalar::getParallelIndex(ParallelType::TIDx),
             IrBuilder::addExpr(
                 NamedScalar::getParallelDim(ParallelType::TIDx),
-                IrBuilder::create<Val>(-32L, PrimDataType::UInt64)));
+                IrBuilder::create<Val>(-32L, PrimDataType::Index)));
   return SimplifyingIrBuilder::logicalAndExpr(elect_sync_val, select_warp);
 }
 
