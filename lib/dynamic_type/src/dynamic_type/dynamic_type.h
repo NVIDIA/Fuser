@@ -895,11 +895,10 @@ DEFINE_RIGHT_PPMM(rmm, --);
 #undef DEFINE_RIGHT_PPMM
 
 #define DEFINE_ASSIGNMENT_OP(op, assign_op)                      \
-  template <                                                     \
-      typename DT,                                               \
-      typename T,                                                \
-      typename = std::enable_if_t<                               \
-          is_dynamic_type_v<DT> && (opcheck<DT> op opcheck<T>)>> \
+  template <typename DT, typename T>                             \
+  requires is_dynamic_type_v<DT>&& requires(DT d, T t) {         \
+    d op t;                                                      \
+  }                                                              \
   inline constexpr DT& operator assign_op(DT & x, const T & y) { \
     return x = x op y;                                           \
   }
