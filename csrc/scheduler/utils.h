@@ -803,6 +803,12 @@ inline int64_t nLogicalDims(const TensorView* tv) {
 // reference IDs. Non-matching loop IDs are placed outermost positions.
 void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
 
+// If buffer_tv's definition is an upcast and the input to the cast is not a
+// fusion input, return input to the cast. Otherwise, return nullptr. Used to
+// recompute buffer_tv from its producer to save register/smem usage. Fusion
+// input is skipped as it is handled by project to inputs.
+TensorView* getUpCastInputOf(const TensorView* buffer_tv);
+
 //! Given an input TV, try and schedule trivial ops as global to global ops that
 //! will be skipped at lowering by modifying their allocation domains and memory
 //! types. Returns the last resulting global consumer of the given TV: its
