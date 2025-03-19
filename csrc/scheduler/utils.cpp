@@ -558,6 +558,24 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
   return std::make_pair(true, target_broadcast_tvs);
 }
 
+TensorView* getUpCastInputOf(const TensorView* tv) {
+  // skip if definition is not a unary op
+  if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+    // skip if the input is a fusion input or the op is not a cast
+    if (uop->input(0)->isFusionInput() ||
+        uop->getUnaryOpType() != UnaryOpType::Cast) {
+      return nullptr;
+    }
+    // skip if the cast is not upcast
+    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    if (!precisions.has_value() || precisions->first >= precisions->second) {
+      return nullptr;
+    }
+    return uop->input(0)->as<TensorView>();
+  }
+  return nullptr;
+}
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -567,6 +585,13 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   auto all_tvs = fusion->allTvs();
 
+  // Find projectable persistent buffers
+  auto reduction_tvs = getReductionTvs(fusion);
+
+  // TODO: Reuse this id_model in getResolutionPointsOf
+  IdModel id_model(fusion);
+  std::vector<TensorView*> persistent_buffer_candidates;
+
   for (auto producer : all_tvs) {
     // Are all producer ids mappable to all consumers
     bool mappable = true;
@@ -575,16 +600,12 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       continue;
     }
 
-    // Track which consumers have unmappable dims from producer
-    std::vector<TensorView*> unmappable_consumers;
-
     for (auto consumer : consumers) {
       if (dynamic_cast<SelectOp*>(consumer->definition()) ||
           dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
           dynamic_cast<GatherOp*>(consumer->definition())) {
         continue;
       }
-      bool consumer_mappable = true;
       auto mappable_roots =
           logical_map.getMappableDims(producer->domain(), consumer->domain());
 
@@ -596,20 +617,25 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
         }
         if (!mappable_roots.count(p_logical_id)) {
           mappable = false;
-          consumer_mappable = false;
           persistent_buffer_info.unmappable_dims.emplace(p_logical_id);
         }
       }
-
-      if (!consumer_mappable) {
-        unmappable_consumers.emplace_back(consumer);
-      }
     }
 
-    if (!mappable) {
-      // If there's unmappable dims from producer to consumer, producer is a
-      // persistent buffer.
-      persistent_buffer_info.persistent_buffers.emplace_back(producer);
+    if (mappable) {
+      continue;
+    }
+
+    // If there's unmappable dims from producer to consumer, producer is a
+    // persistent buffer. However, if it may not be possible to be
+    // persistent due to broadcast inlining
+    if (normalization_scheduler_utils::isCacheableUnmappableTv(
+            producer,
+            reduction_tvs,
+            id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
+      persistent_buffer_candidates.emplace_back(producer);
+    } else {
+      persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
     }
   }
 
@@ -626,36 +652,50 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // only when it fails to find resolution points, the new analysis is
   // used as a fallback option.
   // TODO: Completely replace the old analysis
-  for (auto buffer : persistent_buffer_info.persistent_buffers) {
+  for (auto buffer : persistent_buffer_candidates) {
     auto resolution_points =
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
     if (resolution_points.empty()) {
-      resolution_points =
-          normalization_scheduler_utils::getResolutionPointsOf(buffer);
+      resolution_points = normalization_scheduler_utils::getResolutionPointsOf(
+          buffer, id_model);
     }
-    NVF_ERROR(
-        !resolution_points.empty(),
-        "Fail to find resolution points of ",
-        buffer->toString());
+    if (resolution_points.empty()) {
+      continue;
+    }
+    persistent_buffer_info.persistent_buffers.emplace_back(buffer);
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
         resolution_points);
   }
 
   // don't project if there are view ops and no buffer can be projected
   persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
+  if (persistent_buffer_info.has_view_ops) {
+    return persistent_buffer_info;
+  }
 
-  // Find projectable persistent buffers
-  auto reduction_tvs = getReductionTvs(fusion);
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
     // Inputs marked as persistent buffers can't be projected any further back
     if (persistent_buffer->isFusionInput()) {
       continue;
     }
 
-    // can project to input if the persistent_buffer can be recalculated without
-    // doing reduction.
-    if (canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
-            .first) {
+    // can't project to input if the recomputation needs reduction
+    if (!canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
+             .first) {
+      continue;
+    }
+
+    //  All inputs of the persistent buffer should be cacheable.
+    auto all_inputs = ir_utils::inputTvsOf(persistent_buffer);
+    if (std::all_of(
+            all_inputs.begin(),
+            all_inputs.end(),
+            [&reduction_tvs, &id_model](TensorView* input) {
+              return normalization_scheduler_utils::isCacheableUnmappableTv(
+                  input,
+                  reduction_tvs,
+                  id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT));
+            })) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
@@ -962,11 +1002,21 @@ int64_t getPersistentBufferSizeOfTensor(
       buffer_bytes *= id_size.as<int64_t>();
     }
   }
+  // If the persistent buffer is the output of an upcast op, scheduler will
+  // project it back to the input to save register usage. This is similar to
+  // project to inputs, not abosutely necessary but we always do it to
+  // save register usage. So, need to compute the buffer size using the data
+  // type before upcast.
+  int64_t dtype_size = 1;
+  if (auto upcast_input = getUpCastInputOf(buffer)) {
+    dtype_size = dataTypeSize(
+        upcast_input->getDataType().value(), runtime_info.getIndexType());
+  } else {
+    dtype_size = dataTypeSize(
+        buffer->getDataType().value(), runtime_info.getIndexType());
+  }
 
-  buffer_bytes = buffer_bytes == -1 ? 0
-                                    : buffer_bytes *
-          (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                runtime_info.getIndexType());
+  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
   return buffer_bytes;
 }
 
