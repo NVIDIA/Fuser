@@ -1890,6 +1890,8 @@ bool isCacheableUnmappableTv(
   // are not inlineable, so they won't get the effect of loop
   // promotion if that happens inside the group of inlined tensors.
   for (const auto& reduction_tv : immediate_reduction_tvs) {
+    bool missing_reduction_id_found = false;
+    bool mapped_reduction_id_found = false;
     for (const auto& reduction_id : reduction_tv->getLogicalDomain()) {
       if (!reduction_id->isReduction()) {
         continue;
@@ -1910,12 +1912,15 @@ bool isCacheableUnmappableTv(
                 reduction_id, unmappable_tv_logical_id);
           });
       if (it == unmappable_tv->getLogicalDomain().end()) {
-        // Non mapped logical ID found for reduction ID
-        return false;
+        missing_reduction_id_found = true;
+      } else {
+        mapped_reduction_id_found = true;
       }
     }
+    if (missing_reduction_id_found && mapped_reduction_id_found) {
+      return false;
+    }
   }
-
   return true;
 }
 
