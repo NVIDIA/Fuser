@@ -17,6 +17,7 @@
 #include <tensor_metadata.h>
 
 #include <optional>
+#include <ranges>
 
 namespace nvfuser {
 
@@ -187,7 +188,7 @@ void PrecomputedValues::bindValues(
   NVF_ERROR(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 
-  for (const auto i : c10::irange((int64_t)inputs.size())) {
+  for (const auto i : std::views::iota(0LL, inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
     if (auto* tv = dynamic_cast<TensorView*>(input)) {
@@ -210,7 +211,7 @@ void PrecomputedValues::initializeValueList(
   values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
   // Fill in constants and assign evaluator indices
-  for (const auto i : c10::irange(num_of_values_)) {
+  for (const auto i : std::views::iota(0LL, inputs.size())) {
     // Use an expression evaluator to test if value is const
     // Structs must be bound directly
     if (!isStructType(sorted_value_list[i]->dtype()) &&

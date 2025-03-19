@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <iostream>
+#include <ranges>
 
 #include <debug.h>
 #include <evaluator_common.h>
@@ -34,7 +35,7 @@ std::string getInputPosString(const Val* val) {
   // Get position
   const std::vector<Val*>& inputs = val->fusion()->inputs();
   int64_t pos = -1;
-  for (size_t i : c10::irange(inputs.size())) {
+  for (size_t i : std::views::iota(0LL, inputs.size())) {
     if (inputs[i] == val) {
       pos = (int64_t)i;
       break;
@@ -146,7 +147,7 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-  for (auto i : c10::irange(t.dim())) {
+  for (auto i : std::views::iota(0LL, t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {
       bind_(id->extent(), 1, evaluate_validate);

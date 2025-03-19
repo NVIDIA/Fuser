@@ -14,6 +14,7 @@
 #include <utils.h>
 
 #include <vector>
+#include <ranges>
 
 namespace nvfuser::python_frontend {
 
@@ -86,7 +87,7 @@ class FusionTranslator : public OptInConstDispatch {
       return true;
     }
 
-    for (size_t idx : c10::irange(logical.size())) {
+    for (size_t idx : std::views::iota(0LL, logical.size())) {
       if (logical.at(idx) != loop.at(idx)) {
         return true;
       }
@@ -457,7 +458,7 @@ class FusionTranslator : public OptInConstDispatch {
   std::vector<int64_t> getReductionAxes(TensorView* tv) {
     std::vector<int64_t> axes;
     const std::vector<IterDomain*>& logical_domain = tv->domain()->logical();
-    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
+    for (int64_t dim : std::views::iota(0LL, logical_domain.size())) {
       if (logical_domain.at(dim)->isReduction()) {
         axes.push_back(dim);
       }
@@ -807,7 +808,7 @@ class FusionTranslator : public OptInConstDispatch {
   void handle(const SqueezeOp* sop) final {
     std::vector<int64_t> squeeze_dims;
     const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
-    for (int64_t dim : c10::irange((int64_t)is_squeeze_dims.size())) {
+    for (int64_t dim : std::views::iota(0LL, is_squeeze_dims.size())) {
       if (is_squeeze_dims.at(dim)) {
         squeeze_dims.push_back(dim);
       }
