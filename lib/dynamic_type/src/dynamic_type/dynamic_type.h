@@ -250,12 +250,11 @@ struct DynamicType {
   template <typename T, typename = decltype(VariantType(std::declval<T>()))>
   constexpr DynamicType(T&& value) : value(std::forward<T>(value)) {}
 
-  template <
-      template <typename...> typename Template,
-      typename ItemT>
-  requires(is_candidate_type<Template<DynamicType>> &&
-           !std::is_same_v<ItemT, DynamicType>)
-  constexpr DynamicType(Template<ItemT> value)
+  template <template <typename...> typename Template, typename ItemT>
+  requires(
+      is_candidate_type<Template<DynamicType>> &&
+      !std::is_same_v<ItemT, DynamicType>) constexpr DynamicType(Template<ItemT>
+                                                                     value)
       : value([](auto input) {
           Template<DynamicType> result;
           std::transform(
@@ -271,8 +270,8 @@ struct DynamicType {
       // enable this ctor only when there is only one container supporting
       // initializer_list, otherwise it is ambiguous to tell which container
       // to use.
-      num_container_types_constructible_from_initializer_list<ItemT> == 1)
-  constexpr DynamicType(std::initializer_list<DynamicType> list)
+      num_container_types_constructible_from_initializer_list<ItemT> ==
+      1) constexpr DynamicType(std::initializer_list<DynamicType> list)
       : DynamicType(typename std::tuple_element_t<
                     0,
                     AllContainerTypeIdentitiesConstructibleFromInitializerList<
@@ -304,26 +303,26 @@ struct DynamicType {
     return !isNull();
   }
   template <typename T>
-  requires is_candidate_type<T>
-  constexpr const T& as() const {
+  requires is_candidate_type<T> constexpr const T& as() const {
     return std::get<T>(value);
   }
 
   template <typename T>
-  requires is_candidate_type<T>
-  constexpr T& as() {
+  requires is_candidate_type<T> constexpr T& as() {
     return std::get<T>(value);
   }
 
   template <template <typename...> typename Template>
-  requires is_candidate_type<Template<DynamicType>>
-  constexpr const Template<DynamicType>& as() const {
+  requires is_candidate_type<Template<DynamicType>> constexpr const Template<
+      DynamicType>&
+  as() const {
     return as<Template<DynamicType>>();
   }
 
   template <template <typename...> typename Template>
-  requires is_candidate_type<Template<DynamicType>>
-  constexpr Template<DynamicType>& as() {
+  requires is_candidate_type<Template<DynamicType>> constexpr Template<
+      DynamicType>&
+  as() {
     return as<Template<DynamicType>>();
   }
 
@@ -339,11 +338,10 @@ struct DynamicType {
         *this);
   }
 
-  template <
-      template <typename...> typename Template,
-      typename ItemT>
-  requires(is_candidate_type<Template<DynamicType>> && can_cast_to<ItemT>)
-  explicit constexpr operator Template<ItemT>() const {
+  template <template <typename...> typename Template, typename ItemT>
+  requires(is_candidate_type<Template<DynamicType>>&&
+               can_cast_to<ItemT>) explicit constexpr
+  operator Template<ItemT>() const {
     DYNAMIC_TYPE_CHECK(
         is<Template<DynamicType>>(),
         "Cannot cast from ",
@@ -402,7 +400,8 @@ struct DynamicType {
 #define DEFINE_SQUARE_BRACKET_OPERATOR(__const)                                \
   template <typename IndexT>                                                   \
   requires(!std::is_same_v<IndexT, DynamicType> && has_square_bracket<IndexT>) \
-  __const DynamicType& operator[](const IndexT& i) __const {                   \
+      __const DynamicType&                                                     \
+      operator[](const IndexT& i) __const {                                    \
     std::optional<std::reference_wrapper<__const DynamicType>> ret =           \
         std::nullopt;                                                          \
     for_all_types([this, &ret, &i](auto t) {                                   \
@@ -431,17 +430,15 @@ struct DynamicType {
   DEFINE_SQUARE_BRACKET_OPERATOR(const)
 #undef DEFINE_SQUARE_BRACKET_OPERATOR
 
-  static constexpr bool has_any_square_bracket = any_check(
-      [](auto t) {
-        using IndexT = typename decltype(t)::type;
-        return has_square_bracket<IndexT>;
-      },
-      type_identities_as_tuple);
-
 #define DEFINE_SQUARE_BRACKET_OPERATOR(__const)                      \
   template <typename DT>                                             \
-  requires(std::is_same_v<DT, DynamicType> && has_any_square_bracket)\
-  __const DynamicType& operator[](const DT& i) __const {             \
+  requires(std::is_same_v<DT, DynamicType>&& any_check(              \
+      [](auto t) {                                                   \
+        using IndexT = typename decltype(t)::type;                   \
+        return has_square_bracket<IndexT>;                           \
+      },                                                             \
+      type_identities_as_tuple)) __const DynamicType&                \
+  operator[](const DT& i) __const {                                  \
     std::optional<std::reference_wrapper<__const DynamicType>> ret = \
         std::nullopt;                                                \
     for_all_types([this, &ret, &i](auto t) {                         \
@@ -797,40 +794,39 @@ std::ostream& operator<<(std::ostream& os, const DT& dt) {
   return os;
 }
 
-#define DEFINE_LEFT_PPMM(opname, op)                                          \
-  template <typename DT>                                                      \
-  inline constexpr DT& operator op(DT & x)                                    \
-      requires(is_dynamic_type_v<DT> &&                                       \
-               any_check(                                                     \
-                   [](auto x) constexpr {                                     \
-                     using X = typename decltype(x)::type;                    \
-                     if constexpr (requires(X & x) { op x; }) {               \
-                       return std::is_same_v<decltype(op std::declval<X&>()), X&>; \
-                     }                                                        \
-                     return false;                                            \
-                   },                                                         \
-                   DT::type_identities_as_tuple)) {                           \
-    bool computed = false;                                                    \
-    DT::for_all_types([&computed, &x](auto _) {                               \
-      using Type = typename decltype(_)::type;                                \
-      if constexpr (requires(Type & t) { op t; }) {                           \
-        if constexpr (std::is_same_v<                                         \
-                          decltype(op std::declval<Type&>()),                 \
-                          Type&>) {                                           \
-          if (x.template is<Type>()) {                                        \
-            op x.template as<Type>();                                         \
-            computed = true;                                                  \
-          }                                                                   \
-        }                                                                     \
-      }                                                                       \
-    });                                                                       \
-    DYNAMIC_TYPE_CHECK(                                                       \
-        computed,                                                             \
-        "Cannot compute ",                                                    \
-        #op,                                                                  \
-        x.type().name(),                                                      \
-        " : incompatible type");                                              \
-    return x;                                                                 \
+#define DEFINE_LEFT_PPMM(opname, op)                                      \
+  template <typename DT>                                                  \
+  inline constexpr DT& operator op(DT & x)                                \
+      requires(is_dynamic_type_v<DT>&& any_check(                         \
+          [](auto x) constexpr {                                          \
+            using X = typename decltype(x)::type;                         \
+            if constexpr (requires(X & x) { op x; }) {                    \
+              return std::is_same_v<decltype(op std::declval<X&>()), X&>; \
+            }                                                             \
+            return false;                                                 \
+          },                                                              \
+          DT::type_identities_as_tuple)) {                                \
+    bool computed = false;                                                \
+    DT::for_all_types([&computed, &x](auto _) {                           \
+      using Type = typename decltype(_)::type;                            \
+      if constexpr (requires(Type & t) { op t; }) {                       \
+        if constexpr (std::is_same_v<                                     \
+                          decltype(op std::declval<Type&>()),             \
+                          Type&>) {                                       \
+          if (x.template is<Type>()) {                                    \
+            op x.template as<Type>();                                     \
+            computed = true;                                              \
+          }                                                               \
+        }                                                                 \
+      }                                                                   \
+    });                                                                   \
+    DYNAMIC_TYPE_CHECK(                                                   \
+        computed,                                                         \
+        "Cannot compute ",                                                \
+        #op,                                                              \
+        x.type().name(),                                                  \
+        " : incompatible type");                                          \
+    return x;                                                             \
   }
 
 DEFINE_LEFT_PPMM(lpp, ++);
@@ -854,7 +850,7 @@ DEFINE_LEFT_PPMM(lmm, --);
     DT ret;                                                              \
     DT::for_all_types([&ret, &x](auto _) {                               \
       using Type = typename decltype(_)::type;                           \
-      if constexpr (requires(Type& t) { t op; }) {                       \
+      if constexpr (requires(Type & t) { t op; }) {                      \
         if constexpr (std::is_constructible_v<                           \
                           typename DT::VariantType,                      \
                           decltype(std::declval<Type&>() op)>) {         \
@@ -880,7 +876,7 @@ DEFINE_RIGHT_PPMM(rmm, --);
 
 #define DEFINE_ASSIGNMENT_OP(op, assign_op)                      \
   template <typename DT, typename T>                             \
-  requires is_dynamic_type_v<DT> && requires(DT d, T t) {        \
+  requires is_dynamic_type_v<DT>&& requires(DT d, T t) {         \
     d op t;                                                      \
   }                                                              \
   inline constexpr DT& operator assign_op(DT & x, const T & y) { \
