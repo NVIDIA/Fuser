@@ -472,8 +472,8 @@ struct DynamicType {
 
 #define DEFINE_ARROW_STAR_OPERATOR(__const)                                    \
   template <typename Ret, typename Class>                                      \
-  requires is_candidate_type<Class>                                            \
-  constexpr decltype(auto) operator->*(Ret Class::* member) __const {          \
+  requires is_candidate_type<Class> constexpr decltype(auto) operator->*(      \
+      Ret Class::* member) __const {                                           \
     /* Use decltype(auto) instead of auto as return type so that references */ \
     /* and qualifiers are preserved*/                                          \
     if constexpr (std::is_function_v<Ret>) {                                   \
@@ -758,21 +758,18 @@ DT& operator*(const DT& x) {
 }
 
 // Printing
-template <
-    typename DT,
-    typename = std::enable_if_t<
-        is_dynamic_type_v<DT> &&
-        any_check(
-            [](auto x) {
-              using T = typename decltype(x)::type;
-              return requires(std::ostream & os, T t) {
-                {
-                  os << t
-                } -> std::same_as<std::ostream&>;
-              };
-            },
-            DT::type_identities_as_tuple)>>
-std::ostream& operator<<(std::ostream& os, const DT& dt) {
+template <typename DT>
+std::ostream& operator<<(std::ostream& os, const DT& dt)
+    requires(is_dynamic_type_v<DT>&& any_check(
+        [](auto x) {
+          using T = typename decltype(x)::type;
+          return requires(std::ostream & os, T t) {
+            {
+              os << t
+            } -> std::same_as<std::ostream&>;
+          };
+        },
+        DT::type_identities_as_tuple)) {
   bool printed = false;
   DT::for_all_types([&printed, &os, &dt](auto _) {
     using T = typename decltype(_)::type;
