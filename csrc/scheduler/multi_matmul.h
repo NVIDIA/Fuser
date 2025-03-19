@@ -73,12 +73,15 @@ class MultipleMatmulScheduler {
   mma_utils::TensorRolesMap tensor_roles_;
   mma_utils::MatmulOperandInnerDims inner_dims_;
 
+  std::vector<ValGroup> canonical_dim_ordering_;
+
   int64_t num_splitk_dims_ = 0;
   int64_t num_device_dims_ = 0;
   int64_t num_local_batch_dims_ = 0;
   int64_t num_device_and_batch_dims_ = 0;
 
-  std::vector<TensorView*> as_, bs_, mma_results_, acw_smems_, bcw_smems_;
+  std::vector<TensorView*> as_, bs_, acw_smems_, bcw_smems_, mma_results_,
+      splitk_sums_, smem_epilogues_;
 };
 
 NVF_API void scheduleMultipleMatmuls(

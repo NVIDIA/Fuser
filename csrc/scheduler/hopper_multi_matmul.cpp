@@ -660,10 +660,6 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
 void HopperMultipleMatmulScheduler::setUpInlining() {
   // auto inline for all tensors except register tensors
   std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
-  smem_loads_and_mma_inputs.insert(acrs_.begin(), acrs_.end());
-  smem_loads_and_mma_inputs.insert(bcrs_.begin(), bcrs_.end());
-  smem_loads_and_mma_inputs.insert(abs_.begin(), abs_.end());
-  smem_loads_and_mma_inputs.insert(bbs_.begin(), bbs_.end());
   inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
 
   // if auto inline, will inline to position-7, leads to performance

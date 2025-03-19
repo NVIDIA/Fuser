@@ -194,12 +194,9 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
       final;
 
  private:
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
-
-  std::vector<ValGroup> canonical_dim_ordering_;
-
-  std::vector<TensorView*> acrs_, bcrs_, abs_, bbs_, splitk_sums_,
-      smem_epilogues_;
+  // Tensors used for loading operands from smem to registers, and the
+  // broadcasted mma op inputs (abs_, bbs_)
+  std::vector<TensorView*> acrs_, bcrs_, abs_, bbs_;
 };
 
 } // namespace nvfuser

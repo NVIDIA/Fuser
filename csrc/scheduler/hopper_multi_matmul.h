@@ -197,12 +197,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   // This is like the above method, but tv should not have any K dimension
   void transformLikeMmaOutputWithoutK(TensorView* tv);
-
- private:
-  std::vector<ValGroup> canonical_dim_ordering_;
-
-  std::vector<TensorView*> acrs_, bcrs_, abs_, bbs_, splitk_sums_,
-      smem_epilogues_;
 };
 
 } // namespace nvfuser
