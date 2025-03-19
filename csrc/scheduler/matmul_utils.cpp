@@ -1115,13 +1115,21 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       Expr* op = pattern.output->definition();
       if (device_prop->major >= 9) {
         for (TensorView* operand : {pattern.A, pattern.B}) {
-          if (!operand->isFusionInput() &&
-              (operand->definition() == nullptr ||
-               !operand->definition()->isA<LoadStoreOp>() ||
-               !operand->definition()->input(0)->isFusionInput() ||
-               operand->hasRoot())) {
-            return "Operand " + operand->toString() +
-                " must be a fusion input or non-permuting LoadStoreOp of an input on Hopper";
+          // Check that the prologue is trivial
+          TensorView* tv = operand;
+          while (!tv->isFusionInput()) {
+            Expr* def = tv->definition();
+            NVF_ERROR(
+                def != nullptr,
+                "Unexpected undefined tensor ",
+                tv->toString(),
+                " which is not a fusion input");
+            if (!def->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp>()) {
+              return "Operand " + operand->toString() +
+                  " must have only trivial prologue ops (set, broadcast, squeeze) but found " +
+                  def->toString();
+            }
+            tv = ir_utils::getTvInput(def);
           }
         }
         if (op->isA<ReductionOp>()) {
