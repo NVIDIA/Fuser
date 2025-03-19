@@ -471,10 +471,8 @@ struct DynamicType {
   // example: use (abc->*A::print)() instead of abc->*A::print().
 
 #define DEFINE_ARROW_STAR_OPERATOR(__const)                                    \
-  template <                                                                   \
-      typename Ret,                                                            \
-      typename Class,                                                          \
-      typename = std::enable_if_t<is_candidate_type<Class>>>                   \
+  template <typename Ret, typename Class>                                      \
+  requires is_candidate_type<Class>                                            \
   constexpr decltype(auto) operator->*(Ret Class::* member) __const {          \
     /* Use decltype(auto) instead of auto as return type so that references */ \
     /* and qualifiers are preserved*/                                          \
