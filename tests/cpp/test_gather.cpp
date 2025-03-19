@@ -90,6 +90,8 @@ TEST_F(GatherTest, GatherAllRankAllSelectedDim) {
         if (is_take_along) {
           EnableOptionsGuard::getCurOptions().set(
               EnableOption::IdModel, {"all"});
+        } else {
+          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
         }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
@@ -131,6 +133,8 @@ TEST_F(GatherTest, GatherAddMul) {
         if (is_take_along) {
           EnableOptionsGuard::getCurOptions().set(
               EnableOption::IdModel, {"all"});
+        } else {
+          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
         }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
@@ -176,6 +180,8 @@ TEST_F(GatherTest, AddGatherSumAdd) {
         if (is_take_along) {
           EnableOptionsGuard::getCurOptions().set(
               EnableOption::IdModel, {"all"});
+        } else {
+          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
         }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
@@ -231,6 +237,8 @@ TEST_F(GatherTest, GatherSumAdd) {
         if (is_take_along) {
           EnableOptionsGuard::getCurOptions().set(
               EnableOption::IdModel, {"all"});
+        } else {
+          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
         }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
@@ -278,6 +286,8 @@ TEST_F(GatherTest, GatherAddMulHugeSize) {
         if (is_take_along) {
           EnableOptionsGuard::getCurOptions().set(
               EnableOption::IdModel, {"all"});
+        } else {
+          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
         }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
@@ -447,6 +457,8 @@ TEST_F(GatherTest, GatherBroadcastInput) {
         if (is_take_along) {
           EnableOptionsGuard::getCurOptions().set(
               EnableOption::IdModel, {"all"});
+        } else {
+          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
         }
 
         auto options =
