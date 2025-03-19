@@ -9,6 +9,7 @@ Table of Contents:
 - Basic Notes to Developers ([dev](dev/))
   - [Symbol Visibility](dev/visibility.md)
   - [Introduction to TMA Support in NVFuser](dev/tma.md)
+  - [Debugging](dev/debug.md)
 - Deeper Reading Materials ([reading](reading/))
   - [Divisibility of Split](reading/divisibility-of-split.md)
   - [TMA Modeling In Depth](reading/tma-modeling-in-depth.md)
