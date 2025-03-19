@@ -555,6 +555,7 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({99, 101});
