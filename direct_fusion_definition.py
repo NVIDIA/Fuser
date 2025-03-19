@@ -1,5 +1,10 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+# All rights reserved.
+# SPDX-License-Identifier: BSD-3-Clause
+# Owner(s): ["module: nvfuser"]
+
 import torch
-from nvfuser import fusion, DataType
+from nvfuser import direct, DataType
 
 _torch_dtype_to_nvfuser_dtype_map = {
     torch.cdouble: DataType.ComplexDouble,
@@ -20,6 +25,7 @@ _torch_dtype_to_nvfuser_dtype_map = {
     bool: DataType.Bool,
 }
 
+
 def python_scalar_to_nvfuser_dtype(a):
     return _torch_dtype_to_nvfuser_dtype_map[type(a)]
 
@@ -30,11 +36,13 @@ def torch_dtype_to_nvfuser_dtype(dtype):
     """
     return _torch_dtype_to_nvfuser_dtype_map[dtype]
 
-class FusionDefinition:
+
+class FusionDefinition(direct._DirectFusionDefinition):
     def __init__(self):
+        super(FusionDefinition, self).__init__()
         self.profiled = False
-        self.fusion = fusion.Fusion()
-        self.fusion_guard = fusion.FusionGuard(self.fusion)
+        self.fusion = direct.Fusion()
+        self.fusion_guard = direct.FusionGuard(self.fusion)
 
     def __enter__(self):
         return self
@@ -42,9 +50,17 @@ class FusionDefinition:
     def __exit__(self, type, value, traceback):
         return self
 
-    def execute(self, inputs, *, device=None) -> list[torch.Tensor]:
-        self.fec = fusion.FusionExecutorCache(self.fusion)
+    def execute(
+        self, inputs, *, device=None, auto_schedule=False
+    ) -> list[torch.Tensor]:
+        self.fec = direct.FusionExecutorCache(self.fusion, auto_schedule)
         return self.fec.execute(inputs)
+
+    def add_input(self, value):
+        self.fusion.add_input(value)
+
+    def add_output(self, value):
+        self.fusion.add_output(value)
 
     def from_pytorch(self, tensor, static_sizes=False):
         """
@@ -63,7 +79,7 @@ class FusionDefinition:
         if not tensor.is_cuda and len(tensor.size()) != 0:
             raise ValueError("CPU non-scalar tensor is not supported!")
 
-        tv = fusion.define_tensor(
+        tv = direct.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),

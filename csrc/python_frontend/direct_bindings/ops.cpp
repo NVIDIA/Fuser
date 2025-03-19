@@ -12,42 +12,82 @@ namespace nvfuser::python_frontend {
 
 namespace {
 
-#define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)            \
-  ops.def(                                                                    \
-      NAME,                                                                   \
-      static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>(           \
-          nvfuser::OP_NAME),                                                  \
-      DOCSTRING);                                                             \
-  ops.def(                                                                    \
-      NAME,                                                                   \
-      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,              \
-                                           nvfuser::Val*)>(nvfuser::OP_NAME), \
-      DOCSTRING);                                                             \
-  ops.def(                                                                    \
-      NAME,                                                                   \
-      static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,                     \
-                                           nvfuser::TensorView*)>(            \
-          nvfuser::OP_NAME),                                                  \
-      DOCSTRING);                                                             \
-  ops.def(                                                                    \
-      NAME,                                                                   \
-      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,              \
-                                           nvfuser::TensorView*)>(            \
-          nvfuser::OP_NAME),                                                  \
+//! The DirectFusionDefinition class exposes the NvFuser operations to mimic the
+//! interface of the FusionDefinition class.
+class DirectFusionDefinition {
+ public:
+  DirectFusionDefinition() : ops(this) {}
+
+  //! The Operators define what operations are fused. They are not directly
+  //! defined here but in the python bindings through lambda functions.
+  struct Operators {
+    Operators(DirectFusionDefinition* fd) : fusion_definition(fd) {}
+    DirectFusionDefinition* fusion_definition;
+  };
+
+  Operators ops;
+};
+
+#define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)           \
+  ops.def(                                                                   \
+      NAME,                                                                  \
+      [](DirectFusionDefinition::Operators& self,                            \
+         nvfuser::Val* lhs,                                                  \
+         nvfuser::Val* rhs) -> nvfuser::Val* {                               \
+        return static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>( \
+            nvfuser::OP_NAME)(lhs, rhs);                                     \
+      },                                                                     \
+      DOCSTRING);                                                            \
+  ops.def(                                                                   \
+      NAME,                                                                  \
+      [](DirectFusionDefinition::Operators& self,                            \
+         nvfuser::TensorView* lhs,                                           \
+         nvfuser::Val* rhs) -> nvfuser::TensorView* {                        \
+        return static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,    \
+                                                    nvfuser::Val*)>(         \
+            nvfuser::OP_NAME)(lhs, rhs);                                     \
+      },                                                                     \
+      DOCSTRING);                                                            \
+  ops.def(                                                                   \
+      NAME,                                                                  \
+      [](DirectFusionDefinition::Operators& self,                            \
+         nvfuser::Val* lhs,                                                  \
+         nvfuser::TensorView* rhs) -> nvfuser::TensorView* {                 \
+        return static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,           \
+                                                    nvfuser::TensorView*)>(  \
+            nvfuser::OP_NAME)(lhs, rhs);                                     \
+      },                                                                     \
+      DOCSTRING);                                                            \
+  ops.def(                                                                   \
+      NAME,                                                                  \
+      [](DirectFusionDefinition::Operators& self,                            \
+         nvfuser::TensorView* lhs,                                           \
+         nvfuser::TensorView* rhs) -> nvfuser::TensorView* {                 \
+        return static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,    \
+                                                    nvfuser::TensorView*)>(  \
+            nvfuser::OP_NAME)(lhs, rhs);                                     \
+      },                                                                     \
       DOCSTRING);
 
-#define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME, DOCSTRING)      \
-  ops.def(                                                             \
-      NAME,                                                            \
-      static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(nvfuser::OP_NAME), \
-      DOCSTRING);                                                      \
-  ops.def(                                                             \
-      NAME,                                                            \
-      static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>(     \
-          nvfuser::OP_NAME),                                           \
+#define NVFUSER_DIRECT_BINDING_UNARY_OP(NAME, OP_NAME, DOCSTRING)           \
+  ops.def(                                                                  \
+      NAME,                                                                 \
+      [](DirectFusionDefinition::Operators& self,                           \
+         nvfuser::Val* v) -> nvfuser::Val* {                                \
+        return static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(               \
+            nvfuser::OP_NAME)(v);                                           \
+      },                                                                    \
+      DOCSTRING);                                                           \
+  ops.def(                                                                  \
+      NAME,                                                                 \
+      [](DirectFusionDefinition::Operators& self,                           \
+         nvfuser::TensorView* tv) -> nvfuser::TensorView* {                 \
+        return static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*)>( \
+            nvfuser::OP_NAME)(tv);                                          \
+      },                                                                    \
       DOCSTRING);
 
-void bindUnaryOps(py::module& ops) {
+void bindUnaryOps(py::class_<DirectFusionDefinition::Operators>& ops) {
   NVFUSER_DIRECT_BINDING_UNARY_OP(
       "abs",
       abs,
@@ -898,7 +938,7 @@ Val or TensorView
 )")
 }
 
-void bindBinaryOps(py::module& ops) {
+void bindBinaryOps(py::class_<DirectFusionDefinition::Operators>& ops) {
   // Use the macro for add operation
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "add",
@@ -1420,9 +1460,22 @@ Val or TensorView
 } // namespace
 
 void bindDirectOperations(py::module& fusion) {
-  py::module ops = fusion.def_submodule("ops", "CPP Fusion Operations");
-  bindUnaryOps(ops);
-  bindBinaryOps(ops);
+  //! The Operators class is a nested class of DirectFusionDefinition to allow
+  //! the user to query the class for the list of operators.
+  //!
+  //! Example:
+  //!   help(DirectFusionDefinition.Operators)
+  py::class_<DirectFusionDefinition> fusion_def(
+      fusion, "_DirectFusionDefinition");
+  fusion_def.def(py::init<>())
+      .def_readwrite("ops", &DirectFusionDefinition::ops);
+
+  py::class_<DirectFusionDefinition::Operators> nvf_ops(
+      fusion_def, "Operators");
+  nvf_ops.def(py::init<DirectFusionDefinition*>());
+
+  bindUnaryOps(nvf_ops);
+  bindBinaryOps(nvf_ops);
 }
 
 } // namespace nvfuser::python_frontend

@@ -4,22 +4,21 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import fusion
+from nvfuser import direct
+from direct_fusion_definition import FusionDefinition
 
-f = fusion.Fusion()
-fg = fusion.FusionGuard(f)
+fd = FusionDefinition()
+tv0 = direct.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
+tv1 = direct.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
 
-tv0 = fusion.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
-tv1 = fusion.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
-f.add_input(tv0)
-f.add_input(tv1)
-
-tv2 = fusion.ops.add(tv0, tv1)
-f.add_output(tv2)
+fd.add_input(tv0)
+fd.add_input(tv1)
+tv2 = fd.ops.add(tv0, tv1)
+fd.add_output(tv2)
 
 
 print("Fusion IR")
-f.print_math()
+fd.fusion.print_math()
 
 print("TensorView:")
 print(tv0)
@@ -46,7 +45,7 @@ print(tv2.axis(0).extent())
 print("=========\n")
 
 print("Fusion Executor Cache:")
-fec = fusion.FusionExecutorCache(f)
+fec = direct.FusionExecutorCache(fd.fusion)
 inputs = [
     torch.ones(2, 4, 8, device="cuda"),
     torch.ones(2, 4, 8, device="cuda"),
