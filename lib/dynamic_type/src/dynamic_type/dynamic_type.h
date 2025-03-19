@@ -864,7 +864,7 @@ DEFINE_LEFT_PPMM(lmm, --);
     DT ret;                                                              \
     DT::for_all_types([&ret, &x](auto _) {                               \
       using Type = typename decltype(_)::type;                           \
-      if constexpr (opcheck<Type&> op) {                                 \
+      if constexpr (requires(Type& t) { t op; }) {                       \
         if constexpr (std::is_constructible_v<                           \
                           typename DT::VariantType,                      \
                           decltype(std::declval<Type&>() op)>) {         \
