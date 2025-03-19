@@ -293,7 +293,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
       // Skip if the input has no device dimensions or is nullptr.
-      if (ref_input == nullptr || num_device_dims(ref_input) == 0) {
+      if (ref_input == nullptr) {
         continue;
       }
 
@@ -323,8 +323,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       MaxLogicalDomainInfoSpanningTree(ref_input, &selector)
           .traverse(&propagator);
 
-      // Apply parallelization on the outputs without mesh.
-      shardAllLike(ref_input, outputs_without_mesh);
       // Reorder the loop as logical domain since the transform propagator may
       // have reordered the iterdomains in loop domain. For example: Consider
       // linear op: in = [b, m, k] weight = [DIDx(d), n/d, k] After
@@ -332,9 +330,14 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       // m, r{k}] Since we later set the allocation domain to be loop domain, we
       // reorder the loop domain as logical domain.
       reorderAllAsLogicalMap(outputs_without_mesh);
+
+      // Apply parallelization on the outputs without mesh.
+      shardAllLike(ref_input, outputs_without_mesh);
+
       for (auto idx : c10::irange(num_device_dims)) {
         output_parallel_types.insert(ref_input->axis(idx)->getParallelType());
       }
+    
     }
   }
 
@@ -384,6 +387,11 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     shardAllLike(ref_output, unsharded_inputs, /*parallelize_inputs=*/true);
   }
 
+  // Reorder DID to front for all TensorViews.
+  // This will likely be subsumed/replace  by other presegmentation passes once they are fixed.
+  for (auto tv : fusion->allTvs()) {
+    reorderDIDToFront(tv);
+  }
   validateMeshes(fusion);
 }
 
