@@ -252,10 +252,9 @@ struct DynamicType {
 
   template <
       template <typename...> typename Template,
-      typename ItemT,
-      typename = std::enable_if_t<
-          is_candidate_type<Template<DynamicType>> &&
-          !std::is_same_v<ItemT, DynamicType>>>
+      typename ItemT>
+  requires(is_candidate_type<Template<DynamicType>> &&
+           !std::is_same_v<ItemT, DynamicType>)
   constexpr DynamicType(Template<ItemT> value)
       : value([](auto input) {
           Template<DynamicType> result;
@@ -267,13 +266,12 @@ struct DynamicType {
           return result;
         }(std::move(value))) {}
 
-  template <
-      typename ItemT = DynamicType,
-      typename = std::enable_if_t<
-          // enable this ctor only when there is only one container supporting
-          // initializer_list, otherwise it is ambiguous to tell which container
-          // to use.
-          num_container_types_constructible_from_initializer_list<ItemT> == 1>>
+  template <typename ItemT = DynamicType>
+  requires(
+      // enable this ctor only when there is only one container supporting
+      // initializer_list, otherwise it is ambiguous to tell which container
+      // to use.
+      num_container_types_constructible_from_initializer_list<ItemT> == 1)
   constexpr DynamicType(std::initializer_list<DynamicType> list)
       : DynamicType(typename std::tuple_element_t<
                     0,
