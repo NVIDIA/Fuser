@@ -737,25 +737,24 @@ DEFINE_UNARY_OP(lnot, !);
 // an alternative. Also, if we overloaded the operator&, how can we get the
 // address of the dynamic type itself?
 
-template <typename DT>
-auto star_defined_checker = [](auto t) {
-  using T = typename decltype(t)::type;
-  if constexpr (*opcheck<T>) {
-    return std::is_same_v<decltype(*std::declval<T>()), DT&>;
-  }
-  return false;
-};
-
 template <
     typename DT,
     typename = std::enable_if_t<
         is_dynamic_type_v<DT> &&
-        any_check(star_defined_checker<DT>, DT::type_identities_as_tuple)>>
+        any_check(
+            [](auto t) {
+              using T = typename decltype(t)::type;
+              if constexpr (requires(T x) { *x; }) {
+                return std::is_same_v<decltype(*std::declval<T>()), DT&>;
+              }
+              return false;
+            },
+            DT::type_identities_as_tuple)>>
 DT& operator*(const DT& x) {
   std::optional<std::reference_wrapper<DT>> ret = std::nullopt;
   DT::for_all_types([&ret, &x](auto t) {
     using T = typename decltype(t)::type;
-    if constexpr (*opcheck<T>) {
+    if constexpr (requires(T x) { *x; }) {
       if constexpr (std::is_same_v<decltype(*std::declval<T>()), DT&>) {
         if (x.template is<T>()) {
           ret = std::ref(*(x.template as<T>()));
