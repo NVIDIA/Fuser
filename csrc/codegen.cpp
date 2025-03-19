@@ -295,6 +295,25 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           num_threads_per_cta.has_value(),
           "__launch_bounds__ must be set for register sharing warp specialization");
+
+      int64_t initial_reg_count =
+          getRegPerThreadGivenThreadsPerSM(num_threads_per_cta.value());
+      auto [decreased_reg_count, increased_register_count] =
+          kernel_->summary().dec_inc_register_usage;
+      NVF_ERROR(
+          initial_reg_count >= decreased_reg_count,
+          "Undefined behavior to decrease register count from ",
+          initial_reg_count,
+          " to ",
+          decreased_reg_count);
+      NVF_ERROR(
+          initial_reg_count <= increased_register_count,
+          "Undefined behavior to increase register count from ",
+          initial_reg_count,
+          " to ",
+          increased_register_count);
+
+      // leave a space between launch bound and kernel name
       code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
             << num_threads_per_cta.value()
             << ", /*minBlocksPerMultiprocessor=*/1) ";
@@ -1215,7 +1234,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IndexSelectOp* sop) final {
-    // generate code
+    NVF_ERROR(sop->output(0)->isA<kir::TensorIndex>());
+
+    // Get vectorization information
+    auto out_tv = sop->output(0)->as<kir::TensorIndex>()->view();
+    int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    // generate vectorized load and return.
+    if (is_vector_op) {
+      indent();
+      generateVectorizedLdSt(
+          sop->input(0), sop->output(0), CacheOp::AllLevels, vector_word_size);
+      code_ << ";\n";
+      return;
+    }
+
+    // generate non-vectorized load
     if (!print_inline_) {
       indent() << gen(sop->output(0));
       if (!sop->output(0)->isScalar()) {

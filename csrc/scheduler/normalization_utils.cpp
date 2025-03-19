@@ -1576,12 +1576,6 @@ class PersistentBufferResolution : public IterVisitor {
       TensorView* persistent_buffer,
       IdModel& id_model) {
     PersistentBufferResolution resolution(persistent_buffer, id_model);
-
-    NVF_ERROR(
-        !resolution.resolution_points_.empty(),
-        "Could not resolve persistent buffer: ",
-        persistent_buffer->toString());
-
     return resolution.resolution_points_;
   }
 

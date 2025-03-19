@@ -3386,14 +3386,14 @@ class TestNvFuserFrontend(NVFuserTest):
         def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
                 shape=[1, -1, -1],
-                contiguity=[None, True, True],
+                contiguity=True,
                 dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[2, 1, 0],
             )
             T1 = fd.define_tensor(
                 shape=[-1, -1],
-                contiguity=[True, True],
+                contiguity=True,
                 dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[1, 0],

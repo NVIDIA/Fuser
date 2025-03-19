@@ -1815,4 +1815,91 @@ TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
   testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+// If the persistent buffer is the output of an upcast op, project
+// it back to the input to save register usage. This is similar to
+// project to inputs, not abosutely necessary but we always do it to
+// save register usage.
+TEST_F(PersistentBufferTest, ProjectToUpcastInput) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t dim0 = 128, dim1 = 1024;
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = gt(tv1, IrBuilder::create<Val>(0.5));
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = add(tv5, tv3);
+  fusion.addOutput(tv6);
+  auto fusion_copy = fusion;
+
+  // tv3 is the persistent tensor
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffers, std::vector<TensorView*>{tv3});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn({dim0, dim1}, options);
+
+  // The persistent buffer size is dim1 * sizeof(bool) not sizeof(float)
+  // becase tv3 is the output of an upcast op, the scheduler will project it
+  // back to the input which is tv2 and its data type is bool.
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_input});
+  auto persistent_buffer_size = scheduler_utils::persistentBufferSize(
+      &fusion, runtime_info, persistent_buffer_info);
+  EXPECT_EQ(
+      persistent_buffer_size.persistent_buffer_size,
+      dim1 * dataTypeSize(DataType::Bool));
+
+  // Check the compute position of the bool tensor, tv2, is at the top of the
+  // kernel.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({aten_input});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .back()
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (auto tv : scheduled_fusion->allTvs()) {
+    if (tv->getDataType() == DataType::Bool) {
+      EXPECT_EQ(tv->getComputeAtPosition(), 1);
+    }
+  }
+  testValidate(&fusion_copy, cg_outputs, {aten_input}, __LINE__, __FILE__, "");
+}
+
+TEST_F(NVFuserTest, FalsePersistentBuffer) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({320});
+  fusion.addInput(tv0);
+
+  // Extracted from issue #4020
+  auto tv1 = reshape(tv0, {320}, {10, 32});
+  auto tv2 = reshape(tv0, {320}, {10, 32});
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  auto tv5 = sum(tv3, {1});
+  fusion.addOutput(tv5);
+  auto tv6 = sum(tv2, {1});
+  auto tv7 = set(tv6);
+  fusion.addOutput(tv7);
+
+  // In this fusion, ComputeAtLogicalDomainMap tells
+  // tv0 has an unmappable consumer IDs, making
+  // tv0 be a candidate of persistent buffers, even though it doesn't
+  // need to be persistent. As a result, before PR #4083,
+  // persistentBuffers(Fusion*) tries to find a resolution point, but it fails
+  // there's no such tensor.
+  scheduler_utils::PersistentBufferInfo info =
+      scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_TRUE(info.persistent_buffers.empty());
+}
 } // namespace nvfuser

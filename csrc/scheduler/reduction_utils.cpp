@@ -801,7 +801,9 @@ class PersistentBufferProjector {
               persistent_buffers[a], persistent_buffers[b]);
         });
 
-    // try to project buffer to its producers
+    // try to project buffer to its producers when
+    // (1) all producers are persistent buffers
+    // (2) or, the buffer is the input to an upcast op
     std::unordered_set<TensorView*> persistent_buffer_set(
         persistent_buffers.begin(), persistent_buffers.end());
     for (auto buffer_i : visiting_order) {
@@ -812,6 +814,23 @@ class PersistentBufferProjector {
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i,
             std::vector<Val*>(producers.begin(), producers.end()));
+      } else if (
+          auto upcast_input = scheduler_utils::getUpCastInputOf(buffer)) {
+        // Similar to projecting to inputs and persistent producers, this logic
+        // projects the buffer to its producer when the buffer is the output of
+        // an upcast op. This optimization reduces buffer size and can be
+        // extended to project to low-precision intermediate tensors, even if
+        // the recomputation involves non-cast ops. However, this should be
+        // avoided when the recomputation cost outweighs the benefits of reduced
+        // register usage.
+        // TODO: extend to allow non-cast ops in the recomputation.
+        auto consumers = ir_utils::consumerTvsOf(buffer);
+        for (auto i : c10::irange(1, consumers.size())) {
+          ir_utils::replaceValInExprInputs(
+              consumers.at(i)->definition(),
+              buffer,
+              RecomputeTv::recompute(buffer, {upcast_input}));
+        }
       }
     }
   }
