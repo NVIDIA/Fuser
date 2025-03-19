@@ -3290,4 +3290,66 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   auto outputs = ke.run({at_tv0, at_tv1});
   testValidate(fusion.get(), outputs, {at_tv0, at_tv1}, __LINE__, __FILE__);
 }
+
+TEST_F(TMATest, CpAsyncBulk1DCircularBufferEpilogue) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = set(tv0);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv2->setMemoryType(MemoryType::Shared);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = set(tv5);
+  fusion->addOutput(tv6);
+
+  auto tv7 = add(tv3, tv4);
+  tv7->setMemoryType(MemoryType::Global);
+  // using a different parallel
+  auto tv8 = set(tv7);
+  auto tv9 = add(tv8, tv8);
+  fusion->addOutput(tv9);
+
+  // First part of the fusion [BIDx, S, TIDx or Bulk]
+  for(auto tv : {tv0, tv1, tv2, tv3,tv4,tv5,tv6, tv7}){
+    tv->split(0, 148, false);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    if(tv == tv2){
+      tv->axis(-1)->parallelize(ParallelType::Bulk);
+    }else{
+      tv->axis(-1)->parallelize(ParallelType::TIDx);
+    }
+  }
+  // Second part of the fusion [TIDx, S]
+  for(auto tv : {tv8, tv9}){
+    tv->axis(0)->parallelize(ParallelType::TIDx);
+  }
+
+  inlineMost();
+  //[BIDx, Unroll, Bulk]
+  // inlineAllAt(tv2, /*pos=*/1);
+
+
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+  tv2->circularBuffer(2, 1, circular_buffer_type);
+
+
+  constexpr int dim0 = 256, dim1 = 128;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
+  testValidate(fusion.get(), outputs, {at_tv0, at_tv1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

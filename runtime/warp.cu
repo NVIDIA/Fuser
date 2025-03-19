@@ -249,7 +249,7 @@ __device__ void warpReduceTIDX(
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
     const unsigned int thread_idx_x,
-    uint32_t barrier_id = 0) {
+    uint32_t barrier_id = 1) {
   constexpr int WARP_SIZE = 32;
 
   // Assume input padded to multiples of a warp

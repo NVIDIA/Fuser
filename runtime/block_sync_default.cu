@@ -27,7 +27,7 @@ __forceinline__ __device__ void init() {}
 // Thread-block synchronization
 // bar.sync is used for warp specialization kernels, should use different barrier id for different circular buffer
 template <bool aligned, typename BlockDimT>
-__forceinline__ __device__ void sync(BlockDimT block_dim, uint32_t barrier_id = 0) {
+__forceinline__ __device__ void sync(BlockDimT block_dim, uint32_t barrier_id = 1) {
   if constexpr (aligned) {
     __syncthreads();
   } else if constexpr (std::is_same_v<BlockDimT, DefaultBlockDim>) {

@@ -4874,7 +4874,7 @@ __forceinline__ __device__ void init() {}
 // Thread-block synchronization
 // bar.sync is used for warp specialization kernels, should use different barrier id for different circular buffer
 template <bool aligned, typename BlockDimT>
-__forceinline__ __device__ void sync(BlockDimT block_dim, uint32_t barrier_id = 0) {
+__forceinline__ __device__ void sync(BlockDimT block_dim, uint32_t barrier_id = 1) {
   if constexpr (aligned) {
     __syncthreads();
   } else if constexpr (std::is_same_v<BlockDimT, DefaultBlockDim>) {
@@ -6861,7 +6861,7 @@ __device__ void blockBroadcast(
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
-    uint32_t barrier_id = 0) {
+    uint32_t barrier_id = 1) {
   const bool has_valid_data = (!X_THREAD || threadIdx.x == 0) &&
       (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0);
 
@@ -7561,7 +7561,7 @@ __device__ void warpReduceTIDX(
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
-    uint32_t barrier_id = 0) {
+    uint32_t barrier_id = 1) {
   constexpr int WARP_SIZE = 32;
 
   // Assume input padded to multiples of a warp

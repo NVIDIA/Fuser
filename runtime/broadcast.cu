@@ -33,7 +33,7 @@ __device__ void blockBroadcast(
     // specialization, block_dim is the the dimension of the compute warps.
     BlockDimT block_dim,
     const unsigned int thread_idx_x,
-    uint32_t barrier_id = 0) {
+    uint32_t barrier_id = 1) {
   const bool has_valid_data = (!X_THREAD || thread_idx_x == 0) &&
       (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0);
 
