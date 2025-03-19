@@ -282,7 +282,7 @@ def test_matmul_allreduce_loop_split(multidevice_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self) -> None:
-            for t in [self.inp, self.weight]:
+            for t in [self.inp, self.weight, self.out]:
                 self.sched._set_device_mesh(t, mesh)
 
             # Shard K for inp (M, K)
@@ -482,7 +482,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             # positive probability.
             dropout_p = self.define_scalar(0.0, dtype=DataType.Double)
             is_causal = self.define_scalar(True, dtype=DataType.Bool)
-            self.attn, self.log_sumexp, seed, offset = self.ops.sdpfa_fwd(
+            self.attn, self.log_sumexp, self.seed, self.offset = self.ops.sdpfa_fwd(
                 self.q, self.k, self.v, dropout_p, is_causal, scale=None
             )
 
@@ -495,8 +495,8 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                 self.log_sumexp,
                 dropout_p,
                 is_causal,
-                seed,
-                offset,
+                self.seed,
+                self.offset,
                 scale=None,
             )
 
@@ -513,8 +513,9 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                 self.k_grad,
                 self.v_grad,
             ]
+            non_sharded_tvs = [self.seed, self.offset]
 
-            for t in input_tvs + output_tvs:
+            for t in input_tvs + output_tvs + non_sharded_tvs:
                 self.sched._set_device_mesh(t, mesh)
 
             # Shard input tensorviews
