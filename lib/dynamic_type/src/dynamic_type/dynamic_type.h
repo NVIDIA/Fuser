@@ -767,34 +767,28 @@ DT& operator*(const DT& x) {
 }
 
 // Printing
-// TODO: we should inline the definition of can_print into enable_if, but I can
-// only do this in C++20
-constexpr auto can_print = [](auto x) constexpr {
-  using T = typename decltype(x)::type;
-  if constexpr (opcheck<std::ostream&> << opcheck<T>) {
-    return std::is_same_v<
-        decltype(std::declval<std::ostream&>() << std::declval<T>()),
-        std::ostream&>;
-  }
-  return false;
-};
 template <
     typename DT,
     typename = std::enable_if_t<
         is_dynamic_type_v<DT> &&
-        any_check(can_print, DT::type_identities_as_tuple)>>
+        any_check(
+            [](auto x) {
+              using T = typename decltype(x)::type;
+              return requires(std::ostream& os, T t) {
+                { os << t } -> std::same_as<std::ostream&>;
+              };
+            },
+            DT::type_identities_as_tuple)>>
 std::ostream& operator<<(std::ostream& os, const DT& dt) {
   bool printed = false;
   DT::for_all_types([&printed, &os, &dt](auto _) {
     using T = typename decltype(_)::type;
-    if constexpr (opcheck<std::ostream&> << opcheck<T>) {
-      if constexpr (std::is_same_v<
-                        decltype(os << std::declval<T>()),
-                        std::ostream&>) {
-        if (dt.template is<T>()) {
-          os << dt.template as<T>();
-          printed = true;
-        }
+    if constexpr (requires(std::ostream& os, T t) {
+                   { os << t } -> std::same_as<std::ostream&>;
+                 }) {
+      if (dt.template is<T>()) {
+        os << dt.template as<T>();
+        printed = true;
       }
     }
   });
