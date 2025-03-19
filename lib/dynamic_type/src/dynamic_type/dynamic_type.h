@@ -17,7 +17,6 @@
 #include <typeinfo>
 #include <variant>
 
-#include "C++20/type_traits"
 #include "error.h"
 #include "type_traits.h"
 
