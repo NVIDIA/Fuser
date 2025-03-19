@@ -4,19 +4,18 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import fusion
+from nvfuser import direct
 from nvfuser import MemoryType, ParallelType
+from direct_fusion_definition import FusionDefinition
 
-f = fusion.Fusion()
-fg = fusion.FusionGuard(f)
+fd = FusionDefinition()
+tv0 = direct.TensorViewBuilder().num_dims(2).contiguity(True).build()
+tv1 = direct.TensorViewBuilder().num_dims(2).contiguity(True).build()
 
-tv0 = fusion.TensorViewBuilder().num_dims(2).contiguity(True).build()
-tv1 = fusion.TensorViewBuilder().num_dims(2).contiguity(True).build()
-f.add_input(tv0)
-f.add_input(tv1)
-
-tv2 = fusion.ops.add(tv0, tv1)
-f.add_output(tv2)
+fd.add_input(tv0)
+fd.add_input(tv1)
+tv2 = fd.ops.add(tv0, tv1)
+fd.add_output(tv2)
 
 tv3 = tv0.cache_after()
 tv4 = tv1.cache_after()
@@ -36,5 +35,4 @@ inputs = [
     torch.ones(4, 8, device="cuda"),
     torch.ones(4, 8, device="cuda"),
 ]
-fec = fusion.FusionExecutorCache(f, auto_schedule=False)
-print(fec.execute(inputs))
+print(fd.execute(inputs, auto_schedule=False))

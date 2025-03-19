@@ -3675,7 +3675,8 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindMultidevice(nvfuser);
 
   // Create direct bindings
-  py::module fusion = nvfuser.def_submodule("fusion", "CPP Fusion");
+  py::module fusion = nvfuser.def_submodule(
+      "direct", "Direct python bindings for CPP Direct Fusion");
   bindDirectIr(fusion);
   bindDirectOperations(fusion);
   bindDirectRuntime(fusion);
