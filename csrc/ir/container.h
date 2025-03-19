@@ -196,6 +196,8 @@ class IrContainer : public PolymorphicBase {
   // were created after a certain point. This is useful for analysis that
   // creates new Exprs and Vals in the container and wants to clean up after
   // itself.
+  //
+  // Used by StatementGuard only.
   void removeStatementsCreatedAfter(
       int64_t prev_num_exprs,
       int64_t prev_num_vals);
