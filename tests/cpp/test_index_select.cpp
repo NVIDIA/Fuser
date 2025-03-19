@@ -71,7 +71,13 @@ void checkIndexSelectVectorization(
 
 } // namespace
 
-using IndexSelectTest = NVFuserTest;
+class IndexSelectTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    NVFuserTest::SetUp();
+  }
+};
 
 TEST_F(IndexSelectTest, Simple1) {
   for (int i = 0; i < 5; ++i) {
