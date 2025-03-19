@@ -355,7 +355,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   {
     for (auto i :
-         std::views::iota(0LL, static_cast<int64_t>(original_td_root.size()))) {
+         std::views::iota(0LL, original_td_root.size())) {
       auto id = original_td_root[i];
       // If this is an rfactor root, it will be a reduction in this stage
       if (rfactor_root_axes.find(id) != rfactor_root_axes.end()) {
