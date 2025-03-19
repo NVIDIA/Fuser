@@ -670,6 +670,9 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   // don't project if there are view ops and no buffer can be projected
   persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
+  if(persistent_buffer_info.has_view_ops){
+    return persistent_buffer_info;
+  }
 
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
     // Inputs marked as persistent buffers can't be projected any further back
