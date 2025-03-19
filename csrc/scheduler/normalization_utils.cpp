@@ -1540,12 +1540,6 @@ class PersistentBufferResolution : public IterVisitor {
   static std::vector<TensorView*> getResolutionPointsOf(
       TensorView* persistent_buffer) {
     PersistentBufferResolution resolution(persistent_buffer);
-
-    NVF_ERROR(
-        !resolution.resolution_points_.empty(),
-        "Could not resolve persistent buffer: ",
-        persistent_buffer->toString());
-
     return resolution.resolution_points_;
   }
 
