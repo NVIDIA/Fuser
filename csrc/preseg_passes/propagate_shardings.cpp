@@ -292,8 +292,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
-      // Skip if the input has no device dimensions or is nullptr.
-      if (ref_input == nullptr) {
+      // Skip if the input has no device mesh or is nullptr.
+      if (ref_input == nullptr || !ref_input->hasDeviceMesh()) {
         continue;
       }
 
