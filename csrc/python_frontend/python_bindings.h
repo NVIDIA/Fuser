@@ -26,8 +26,8 @@ void bindDirectIr(py::module&);
 // Add direct bindings for Fusion and FusionExecutorCache
 void bindDirectRuntime(py::module&);
 
-// Add direct bindings for CPP Fusion Operations
-void bindDirectOperations(py::module&);
+// Add direct bindings for FusionDefinition
+void bindDirectFusionDefinition(py::module&);
 
 // Translate a CPP Fusion to a direct bindings python function
 std::string translateFusion(Fusion* f);
