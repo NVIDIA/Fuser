@@ -348,6 +348,25 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // example.
   for (auto i_expr = exprs.rbegin(); i_expr != exprs.rend(); i_expr++) {
     Expr* expr = *i_expr;
+
+    const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
+    std::vector<TensorView*> unsharded_inputs;
+    // Find all inputs that are not fusion inputs and have no device mesh or
+    // no device dimensions. Fusion inputs should already have device mesh set.
+    // We should not modify the shardings for the fusion inputs.
+    std::copy_if(
+        inputs.begin(),
+        inputs.end(),
+        std::back_inserter(unsharded_inputs),
+        [](TensorView* tv) {
+          return !tv->isFusionInput() && (!tv->hasDeviceMesh() ||
+              num_device_dims(tv) == 0);
+        });
+
+    if (unsharded_inputs.empty()) {
+      continue;
+    }
+
     const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     auto i_output = std::find_if(
         outputs.begin(),
@@ -364,16 +383,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     TensorView* ref_output = *i_output;
     int64_t did_pos = reorderDIDToFront(ref_output);
 
-    const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::vector<TensorView*> unsharded_inputs;
-    std::copy_if(
-        inputs.begin(),
-        inputs.end(),
-        std::back_inserter(unsharded_inputs),
-        [](TensorView* tv) {
-          return !tv->hasDeviceMesh() || num_device_dims(tv) == 0;
-        });
-
     // Note: We do not have to manually shard for reshape here.
     // TransformPropagator can handle reshapes when going from consumer to
     // producer.
@@ -384,14 +393,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*allow_p2c=*/false);
     MaxLogicalDomainInfoSpanningTree(ref_output, &selector)
         .traverse(&propagator);
-    shardAllLike(ref_output, unsharded_inputs, /*parallelize_inputs=*/true);
+    reorderAllAsLogicalMap(unsharded_inputs);
+    shardAllLike(ref_output, unsharded_inputs);
   }
 
-  // Reorder DID to front for all TensorViews.
-  // This will likely be subsumed/replace  by other presegmentation passes once they are fixed.
-  for (auto tv : fusion->allTvs()) {
-    reorderDIDToFront(tv);
-  }
   validateMeshes(fusion);
 }
 

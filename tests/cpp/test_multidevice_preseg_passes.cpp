@@ -24,6 +24,7 @@ constexpr int64_t b = 2, s = 3, h = 128, a = 8;
 constexpr double dropout_p = 0.0;
 constexpr bool is_causal = false;
 
+using testing::ElementsAre;
 using MultiDevicePresegPassesTest = MultiDeviceTest;
 
 TEST_F(MultiDevicePresegPassesTest, ResidualAdd) {
@@ -36,46 +37,43 @@ TEST_F(MultiDevicePresegPassesTest, ResidualAdd) {
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
-  const int64_t b = 2, s = 3, h = 8;
 
-  TensorView* tv0 = makeContigConcreteTensor({b, d * s, h});
-  TensorView* tv1 = makeContigConcreteTensor({b, d * s, h});
+  TensorView* tv0 = makeContigConcreteTensor({d, 4});
+  TensorView* tv1 = uniform(
+      shape(tv0),
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float);
   TensorView* tv2 = add(tv0, tv1);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
   tv0->setDeviceMesh(mesh);
-  tv1->setDeviceMesh(mesh);
-  tv1->split(1, d, /*inner_split=*/false);
-  tv1->axis(1)->parallelize(ParallelType::DIDx);
+  tv0->split(0, d, /*inner_split=*/false);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
 
   fusion->addInput(tv0);
-  fusion->addInput(tv1);
+  fusion->addOutput(tv1);
   fusion->addOutput(tv2);
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  NVF_CHECK(tv1->hasDeviceMesh());
+  NVF_CHECK(getShardedLogicalAxis(tv1, ParallelType::DIDx) == getShardedLogicalAxis(tv0, ParallelType::DIDx), "Expected tv1 to be sharded like tv0 due to backpropagation of shardings.");
   // Set the allocation domain explicitly until the preseg pass is fixed.
   for (auto* tv : {tv0, tv1, tv2}) {
+    reorderDIDToFront(tv);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
-  NVF_CHECK(getShardedLogicalAxis(tv0, ParallelType::DIDx) == 1);
-  at::Tensor inp0 = at::randn({b, d * s, h}, tensor_options);
-  at::Tensor inp1 = at::randn({b, d * s, h}, tensor_options);
-  at::Tensor sharded_inp0 = shardTensor(inp0, 1, mesh);
-  at::Tensor sharded_inp1 = shardTensor(inp1, 1, mesh);
+  at::Tensor inp0 = at::randn({d, 4}, tensor_options);
+  at::Tensor sharded_inp0 = shardTensor(inp0, 0, mesh);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor nvf_out =
-      executor_cache.runFusionWithInputs({sharded_inp0, sharded_inp1})[0]
-          .as<at::Tensor>();
-  testValidate(
-      executor_cache.fusion(),
-      {nvf_out},
-      {sharded_inp0, sharded_inp1},
-      {sharded_inp0 + sharded_inp1},
-      __LINE__,
-      __FILE__);
+  auto nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp0});
+  for (auto& out : nvf_out) {
+    EXPECT_THAT(out.as<at::Tensor>().sizes(), ElementsAre(1, 4));
+  }
 }
 
 TEST_F(MultiDevicePresegPassesTest, MultipleTransformReshape) {
@@ -98,6 +96,7 @@ TEST_F(MultiDevicePresegPassesTest, MultipleTransformReshape) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   for (auto* tv : {tv0, tv1}) {
+    reorderDIDToFront(tv);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
