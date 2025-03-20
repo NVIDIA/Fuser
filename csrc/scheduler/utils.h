@@ -241,6 +241,10 @@ struct PersistentBufferInfo {
   std::vector<TensorView*> persistent_buffers;
   std::unordered_set<IterDomain*> unmappable_dims;
 
+  // Tensors with unmappable dims that cannot be persistent due to
+  // broadcast inling
+  std::vector<TensorView*> non_persistent_buffers;
+
   // Persistent buffers are needed until the path through the reduction -
   // broadcast chain is resolved by any other chain using the persistent buffer
   // that is not going through a reduction. This assumes all reduction paths
@@ -803,5 +807,10 @@ inline int64_t nLogicalDims(const TensorView* tv) {
 // reference IDs. Non-matching loop IDs are placed outermost positions.
 void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
 
+// If buffer_tv's definition is an upcast and the input to the cast is not a
+// fusion input, return input to the cast. Otherwise, return nullptr. Used to
+// recompute buffer_tv from its producer to save register/smem usage. Fusion
+// input is skipped as it is handled by project to inputs.
+TensorView* getUpCastInputOf(const TensorView* buffer_tv);
 } // namespace scheduler_utils
 } // namespace nvfuser
