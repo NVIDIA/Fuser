@@ -63,6 +63,10 @@ class TMAInfo {
     return dims_;
   }
 
+  MmaInputSmemSwizzle swizzle() const {
+    return swizzle_;
+  }
+
   std::vector<ValGroup> getTMADomain() const {
     std::vector<ValGroup> result;
     std::transform(

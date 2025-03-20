@@ -46,13 +46,7 @@ struct RopeConfig {
   }
 };
 
-class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserTest::SetUp();
-  }
-};
+using RopeTest = NVFuserFixtureParamTest<RopeConfig>;
 
 using MistralRopeTest = RopeTest;
 
