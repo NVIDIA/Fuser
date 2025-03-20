@@ -379,7 +379,8 @@ def nvfusertest_serde_check(test_fn: Callable):
     if disable_serde:
 
         def inner_fn(*args, **kwargs):
-            kwargs.pop("skip_serde_check")
+            # Remove skip_serde_check if it was given
+            kwargs.pop("skip_serde_check", None)
             return test_fn(*args, **kwargs)
 
         return inner_fn

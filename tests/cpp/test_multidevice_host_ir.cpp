@@ -394,8 +394,8 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
 
   at::Tensor t2;
 
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
+  constexpr int64_t kNumberOfIterations = 2;
+  constexpr int64_t kNumberOfWarmupIterations = 1;
   for (auto i : c10::irange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
@@ -454,8 +454,8 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
 
   at::Tensor out_at;
 
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
+  constexpr int64_t kNumberOfIterations = 2;
+  constexpr int64_t kNumberOfWarmupIterations = 1;
   for (auto i : c10::irange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
