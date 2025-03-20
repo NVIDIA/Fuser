@@ -10,7 +10,8 @@
 
 #include <type.h>
 #include <fusion.h>
-#include <ops/all.h>
+#include <ops/alias.h>
+#include <ops/arith.h>
 #include <scheduler/tools/inlining.h>
 
 #include <tests/cpp/utils.h>
