@@ -333,6 +333,22 @@ std::pair<Val*, bool> computeLoopIndex(
   return id_to_index.at(id);
 }
 
+std::vector<IterDomain*> getInputsInTargetDomain(
+    IterDomain* loop_id,
+    const std::vector<IterDomain*>& target_domain) {
+  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
+      {loop_id}, {target_domain.begin(), target_domain.end()});
+
+  std::vector<IterDomain*> inputs_as_iter_domains;
+  inputs_as_iter_domains.reserve(inputs_as_vals.size());
+  std::transform(
+      inputs_as_vals.begin(),
+      inputs_as_vals.end(),
+      std::back_inserter(inputs_as_iter_domains),
+      [](Val* val) { return val->as<IterDomain>(); });
+  return inputs_as_iter_domains;
+}
+
 } // namespace
 
 bool haveDifferentShardings(
@@ -388,6 +404,16 @@ bool haveDifferentShardings(
           .mapBroadcast(false)
           .mapConsumerToProducer();
 
+  // FIXME: simplify with keys and values
+  std::unordered_set<IterDomain*> mapped_p_logical_ids;
+  mapped_p_logical_ids.reserve(c2p.size());
+  std::unordered_set<IterDomain*> mapped_c_root_ids;
+  mapped_c_root_ids.reserve(c2p.size());
+  for (auto&& [c_id, p_id] : c2p) {
+    mapped_p_logical_ids.insert(p_id);
+    mapped_c_root_ids.insert(c_id);
+  }
+
   Fusion* fusion = producer->fusion();
   NVF_ERROR(
       fusion == consumer->fusion(),
@@ -406,30 +432,13 @@ bool haveDifferentShardings(
        consumer->getMaybeRootDomain().size()) *
       2);
 
-  auto create_index = [&](IterDomain* id) {
+  auto create_index = [&](IterDomain* id, bool mapped) {
     auto* index = IrBuilder::create<Val>(DataType::Index);
-    NVF_ERROR(id_to_index.emplace(id, std::make_pair(index, false)).second);
+    NVF_ERROR(id_to_index.emplace(id, std::make_pair(index, mapped)).second);
     assumptions.push_back(
         SimplifyingIrBuilder::leExpr(fusion->zeroVal(), index));
     assumptions.push_back(SimplifyingIrBuilder::ltExpr(index, id->extent()));
   };
-
-  for (IterDomain* p_id : producer->getLogicalDomain()) {
-    create_index(p_id);
-  }
-  for (IterDomain* c_id : consumer->getMaybeRootDomain()) {
-    IterDomain* p_id = getOrDefault(c2p, c_id);
-    if (p_id == nullptr) {
-      create_index(c_id);
-      continue;
-    }
-
-    std::pair<Val*, bool>& index_and_mapped = id_to_index.at(p_id);
-    index_and_mapped.second = true;
-    NVF_ERROR(
-        id_to_index.emplace(c_id, std::make_pair(index_and_mapped.first, true))
-            .second);
-  }
 
   // In practice, only loop IterDomains can be parallelized, and no two loop
   // IterDomains in a TensorView can have the same parallel type. Therefore, we
@@ -446,6 +455,52 @@ bool haveDifferentShardings(
       mapDeviceParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       mapDeviceParallelTypeToId(consumer->getLoopDomain());
+
+  for (const auto parallel_type : kParallelTypeDIDs) {
+    if (IterDomain* p_loop_id =
+            getOrDefault(p_parallel_type_to_id, parallel_type)) {
+      std::vector<IterDomain*> p_logical_ids =
+          getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain());
+      for (IterDomain* p_logical_id : p_logical_ids) {
+        if (id_to_index.count(p_logical_id) > 0) {
+          continue;
+        }
+
+        create_index(p_logical_id, mapped_p_logical_ids.count(p_logical_id));
+      }
+    }
+  }
+
+  for (const auto parallel_type : kParallelTypeDIDs) {
+    if (IterDomain* c_loop_id =
+            getOrDefault(c_parallel_type_to_id, parallel_type)) {
+      std::vector<IterDomain*> c_root_ids =
+          getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain());
+      for (IterDomain* c_root_id : c_root_ids) {
+        if (id_to_index.count(c_root_id) > 0) {
+          continue;
+        }
+
+        IterDomain* p_logical_id = getOrDefault(c2p, c_root_id);
+        if (p_logical_id == nullptr) {
+          create_index(c_root_id, false);
+          continue;
+        }
+
+        if (id_to_index.count(p_logical_id) > 0) {
+          const std::pair<Val*, bool>& index_and_mapped =
+              id_to_index.at(p_logical_id);
+          NVF_ERROR(
+              id_to_index
+                  .emplace(
+                      c_root_id, std::make_pair(index_and_mapped.first, true))
+                  .second);
+        } else {
+          create_index(c_root_id, true);
+        }
+      }
+    }
+  }
 
   for (const auto parallel_type : kParallelTypeDIDs) {
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
