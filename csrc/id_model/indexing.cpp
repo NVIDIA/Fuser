@@ -876,7 +876,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
 Val* TensorIndexer::getLinearIndex(
     TensorView* tv,
     const Expr* expr,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<ForLoop*>& for_loops,
+    const std::unordered_map<IterDomain*, Val*>& override_index) const {
   NVF_ERROR(tv != nullptr);
   NVF_ERROR(expr != nullptr);
   NVF_ERROR(
@@ -895,8 +896,8 @@ Val* TensorIndexer::getLinearIndex(
 
   const auto alloc_info = getIndexingAllocationInfo(tv);
 
-  const auto [contig_indices, contig_strides] =
-      getContigIndexFor(expr, as_consumer, alloc_info, for_loops);
+  const auto [contig_indices, contig_strides] = getContigIndexFor(
+      expr, as_consumer, alloc_info, for_loops, override_index);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -1317,8 +1318,19 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
         const Expr* expr,
         bool as_consumer,
         const IndexingAllocationInfo& alloc_info,
-        const std::vector<ForLoop*>& for_loops) const {
-  auto index_info = computeIndex(expr, alloc_info.domains, for_loops);
+        const std::vector<ForLoop*>& for_loops,
+        const std::unordered_map<IterDomain*, Val*>& override_index) const {
+  std::vector<IterDomain*> indexed_ids;
+  indexed_ids.reserve(alloc_info.domains.size());
+  for (const auto& id : alloc_info.domains) {
+    if (!override_index.count(id)) {
+      indexed_ids.push_back(id);
+    }
+  }
+  auto index_info = computeIndex(expr, indexed_ids, for_loops);
+  for (const auto& [indexed_id, index] : override_index) {
+    index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
+  }
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_domains, for_loops, index_map);
