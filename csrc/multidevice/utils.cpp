@@ -372,7 +372,9 @@ bool haveDifferentShardings(
   // logical-domain-mapped IterDomains, and check if they are DID-parallelized
   // consistently.
   const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-      PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
+      PairwiseLogicalDomainMap(producer, consumer)
+          .mapBroadcast(false)
+          .mapConsumerToProducer();
 
   Fusion* fusion = producer->fusion();
   NVF_ERROR(
