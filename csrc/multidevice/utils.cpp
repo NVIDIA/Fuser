@@ -373,6 +373,11 @@ bool haveDifferentShardings(
   // consistently.
   const std::unordered_map<IterDomain*, IterDomain*>& c2p =
       PairwiseLogicalDomainMap(producer, consumer)
+          // We skip broadcast dimensions. They are replicated on all devices
+          // regardless of DIDx, so they don't cause communication. If we didn't
+          // skip them, we would have to change the downstream code for
+          // collecting assumptions of `index < extent`. Recall that
+          // non-expanded broadcast dimensions have a fixed extent of 1.
           .mapBroadcast(false)
           .mapConsumerToProducer();
 
