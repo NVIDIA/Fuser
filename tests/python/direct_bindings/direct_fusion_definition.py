@@ -50,12 +50,16 @@ class FusionDefinition(direct._DirectFusionDefinition):
     def __exit__(self, type, value, traceback):
         return self
 
-    def execute(
-        self, inputs, *, device=None, auto_schedule=False
-    ) -> list[torch.Tensor]:
-        if not hasattr(self, "fec"):
-            self.fec = direct.FusionExecutorCache(self.fusion, auto_schedule)
-        return self.fec.execute(inputs)
+    def execute(self, inputs, *, device=None, auto_schedule=True) -> list[torch.Tensor]:
+        if auto_schedule:
+            if not hasattr(self, "fec"):
+                self.fec = direct.FusionExecutorCache(self.fusion)
+            return self.fec.execute(inputs)
+        else:
+            if not hasattr(self, "ke"):
+                self.ke = direct.KernelExecutor()
+                self.ke.compile(self.fusion, inputs)
+            return self.ke.run(inputs)
 
     def define_tensor(self, *args, **kwargs):
         tv = direct.define_tensor(*args, **kwargs)

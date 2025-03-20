@@ -312,7 +312,7 @@ Notes
 //! Convert a py::iterable to a KernelArgumentHolder
 KernelArgumentHolder from_pyiterable(
     const py::iterable& iter,
-    std::optional<int64_t> device) {
+    std::optional<int64_t> device = std::nullopt) {
   KernelArgumentHolder args;
   for (py::handle obj : iter) {
     // Allows for a Vector of Sizes to be inputed as a list/tuple
@@ -335,7 +335,20 @@ KernelArgumentHolder from_pyiterable(
   return args;
 }
 
-void bindRuntime(py::module& fusion) {
+//! Convert a KernelArgumentHolder to a std::vector<at::Tensor>
+std::vector<at::Tensor> to_tensor_vector(const KernelArgumentHolder& outputs) {
+  // Convert outputs KernelArgumentHolder to std::vector<at::Tensor>
+  std::vector<at::Tensor> out_tensors;
+  out_tensors.reserve(outputs.size());
+  std::transform(
+      outputs.begin(),
+      outputs.end(),
+      std::back_inserter(out_tensors),
+      [](const PolymorphicValue& out) { return out.as<at::Tensor>(); });
+  return out_tensors;
+}
+
+void bindFusionExecutorCache(py::module& fusion) {
   py::class_<nvfuser::FusionExecutorCache>(fusion, "FusionExecutorCache")
       .def(
           py::init([](Fusion* fusion, int64_t fusion_id, bool auto_schedule) {
@@ -373,24 +386,10 @@ Examples
           [](FusionExecutorCache& self,
              const py::iterable& iter,
              std::optional<int64_t> device) {
-            // Transform py::iterable to KernelArgumentHolder
             KernelArgumentHolder args = from_pyiterable(iter, device);
-
-            // Run fusion with inputs
             KernelArgumentHolder outputs = self.runFusionWithInputs(
                 args, std::nullopt, args.getDeviceIndex());
-
-            // Convert outputs KernelArgumentHolder to std::vector<at::Tensor>
-            std::vector<at::Tensor> out_tensors;
-            out_tensors.reserve(outputs.size());
-            std::transform(
-                outputs.begin(),
-                outputs.end(),
-                std::back_inserter(out_tensors),
-                [](const PolymorphicValue& out) {
-                  return out.as<at::Tensor>();
-                });
-            return out_tensors;
+            return to_tensor_vector(outputs);
           },
           py::arg("inputs"),
           py::kw_only(),
@@ -551,11 +550,135 @@ Notes
 )");
 }
 
+void bindKernelExecutor(py::module& fusion) {
+  py::class_<KernelExecutor>(fusion, "KernelExecutor")
+      .def(
+          py::init<int64_t, int64_t, int64_t, int64_t>(),
+          R"(
+             Create a new KernelExecutor.
+
+             A KernelExecutor is responsible for compiling and executing CUDA kernels.
+             It manages the compilation process, kernel caching, and runtime execution.
+
+             Parameters
+             ----------
+             fusion_id : int, optional
+                 A unique identifier for the fusion. Used for caching compiled kernels.
+                 Default is 0.
+             concrete_id : int, optional
+                 A unique identifier for the concrete implementation of the fusion.
+                 Used for caching compiled kernels.
+                 Default is 0.
+             runtime_id : int, optional
+                 A unique identifier for the runtime instance.
+                 Used for caching compiled kernels.
+                 Default is 0.
+             group_id : int, optional
+                 A unique identifier for the group of operations.
+                 Used for segmented fusions.
+                 Default is 0.
+
+             Examples
+             --------
+             >>> executor = KernelExecutor()
+             >>> executor.compile(fusion)
+             >>> outputs = executor.run(inputs)
+           )",
+          py::arg("fusion_id") = 0,
+          py::arg("concrete_id") = 0,
+          py::arg("runtime_id") = 0,
+          py::arg("group_id") = 0)
+      .def(
+          "compile",
+          [](KernelExecutor& self,
+             Fusion* fusion,
+             const py::iterable& args,
+             const LaunchParams& launch_constraints,
+             const CompileParams& compile_params,
+             SchedulerType scheduler_type) {
+            self.compile(
+                fusion,
+                from_pyiterable(args),
+                launch_constraints,
+                compile_params,
+                scheduler_type);
+          },
+          R"(
+            Compile a fusion into a CUDA kernel.
+
+            Parameters
+            ----------
+            fusion : Fusion
+                The fusion to compile.
+            args : KernelArgumentHolder, optional
+                The kernel arguments. If empty, will be populated during run.
+            launch_constraints : LaunchParams, optional
+                Constraints for kernel launch parameters.
+            compile_params : CompileParams, optional
+                Parameters for kernel compilation.
+            scheduler_type : SchedulerType, optional
+                The type of scheduler to use (default: None).
+
+            Returns
+            -------
+            None
+          )",
+          py::arg("fusion"),
+          py::arg("args") = py::list(),
+          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("compile_params") = CompileParams(),
+          py::arg("scheduler_type") = SchedulerType::None)
+      .def(
+          "run",
+          [](KernelExecutor& self,
+             const py::iterable& args,
+             const LaunchParams& launch_constraints,
+             const CompileParams& compile_params) {
+            KernelArgumentHolder outputs = self.run(
+                from_pyiterable(args), {}, launch_constraints, compile_params);
+            return to_tensor_vector(outputs);
+          },
+          R"(
+            Run the compiled kernel with the given arguments.
+
+            Parameters
+            ----------
+            args : KernelArgumentHolder
+                The input arguments for the kernel.
+            outputs : KernelArgumentHolder, optional
+                Pre-allocated output tensors. If empty, will be allocated.
+            launch_constraints : LaunchParams, optional
+                Constraints for kernel launch parameters.
+            compile_params : CompileParams, optional
+                Parameters for kernel compilation.
+
+            Returns
+            -------
+            KernelArgumentHolder
+                The output arguments containing the results.
+          )",
+          py::arg("args"),
+          py::arg("launch_constraints") = LaunchParams(),
+          py::arg("compile_params") = CompileParams())
+      .def(
+          "is_compiled",
+          &KernelExecutor::isCompiled,
+          R"(
+             Check if the kernel has been compiled.
+
+             Returns
+             -------
+             bool
+                 True if the kernel has been compiled, False otherwise.
+           )");
+}
+
 } // namespace
 
 void bindDirectRuntime(py::module& fusion) {
   bindIrContainer(fusion);
-  bindRuntime(fusion);
+  bindFusionExecutorCache(fusion);
+  bindKernelExecutor(fusion);
 }
 
 } // namespace nvfuser::python_frontend
