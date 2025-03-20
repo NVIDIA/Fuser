@@ -1881,7 +1881,7 @@ class MatmulTranslator : public OptInDispatch {
     size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
     std::vector<bool> bcast_dims(tv_rank + 1, false);
     if (dim < 0) {
-      dim += (int64_t)tv_rank;
+      dim += (int64_t)tv_rank + 1;
     }
     bcast_dims.at(dim) = true;
     return getBroadcast(tv, bcast_dims);
