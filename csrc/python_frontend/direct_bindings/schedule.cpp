@@ -10,6 +10,9 @@
 #include <options.h>
 #include <python_frontend/direct_bindings/fusion_definition.h>
 #include <runtime/executor_params.h>
+#include <scheduler/matmul.h>
+#include <scheduler/pointwise.h>
+#include <scheduler/reduction.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
@@ -512,6 +515,32 @@ void bindTensorViewScheduleOps(
       py::arg("mesh"));
 }
 
+//! Debug function to check if a fusion can be scheduled with a given scheduler
+//! type. It enables collection of messages from canScheduleRejectReason and
+//! returns a tuple of (can_schedule, debug_messages).
+std::tuple<bool, std::string> canScheduleDebug(
+    Fusion* fusion,
+    const py::iterable& iter,
+    const SchedulerType& scheduler_type) {
+  // Enable collection of messages from canScheduleRejectReason
+  DebugDumpOptionsGuard debug_dump_options_guard;
+  DebugDumpOptionsGuard::getCurOptions().set(
+      DebugDumpOption::FusionSegmenterLog);
+
+  // Send debug messages to stringstream
+  std::stringstream ss;
+  DebugStreamGuard dsg(ss);
+
+  SchedulerRuntimeInfo runtime_info(
+      fusion,
+      from_pyiterable(iter),
+      /*precomputed_values=*/nullptr,
+      fusion->allTvs());
+  bool can_schedule =
+      Schedule::canSchedule(scheduler_type, fusion, runtime_info);
+  return std::make_tuple(can_schedule, ss.str());
+}
+
 void bindFusionScheduleOps(
     py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
   sched.def(
@@ -520,23 +549,7 @@ void bindFusionScheduleOps(
          Fusion* fusion,
          const py::iterable& iter,
          const SchedulerType& scheduler_type) {
-        // Enable collection of messages from canScheduleRejectReason
-        DebugDumpOptionsGuard debug_dump_options_guard;
-        DebugDumpOptionsGuard::getCurOptions().set(
-            DebugDumpOption::FusionSegmenterLog);
-
-        // Send debug messages to stringstream
-        std::stringstream ss;
-        DebugStreamGuard dsg(ss);
-
-        SchedulerRuntimeInfo runtime_info(
-            fusion,
-            from_pyiterable(iter),
-            /*precomputed_values=*/nullptr,
-            fusion->allTvs());
-        bool can_schedule =
-            Schedule::canSchedule(scheduler_type, fusion, runtime_info);
-        return std::make_tuple(can_schedule, ss.str());
+        return canScheduleDebug(fusion, iter, scheduler_type);
       },
       R"(
         Check if the fusion can be scheduled with the given scheduler type.
@@ -560,6 +573,83 @@ void bindFusionScheduleOps(
       py::arg("fusion"),
       py::arg("inputs"),
       py::arg("scheduler_type"));
+
+  sched.def(
+      "find_compatible_schedulers",
+      [](DirectFusionDefinition::ScheduleOperators& self,
+         Fusion* fusion,
+         const py::iterable& iter) {
+        SchedulerRuntimeInfo runtime_info(
+            fusion,
+            from_pyiterable(iter),
+            /*precomputed_values=*/nullptr,
+            fusion->allTvs());
+        std::vector<SchedulerType> valid_scheduler_types;
+        valid_scheduler_types.reserve(all_heuristics_in_priority_order.size());
+        std::copy_if(
+            all_heuristics_in_priority_order.begin(),
+            all_heuristics_in_priority_order.end(),
+            std::back_inserter(valid_scheduler_types),
+            [fusion, &runtime_info](SchedulerType scheduler_type) {
+              return Schedule::canSchedule(
+                  scheduler_type, fusion, runtime_info);
+            });
+        return valid_scheduler_types;
+      },
+      R"(
+        Find all compatible scheduler types for the given fusion and inputs.
+
+        Parameters
+        ----------
+        fusion : Fusion
+            The fusion to find compatible scheduler types for.
+        inputs : iterable
+            The inputs to the fusion.
+
+        Returns
+        -------
+        list
+            A list of compatible scheduler types.
+      )",
+      py::arg("fusion"),
+      py::arg("inputs"));
+
+  sched.def(
+      "schedule",
+      [](DirectFusionDefinition::ScheduleOperators& self,
+         Fusion* fusion,
+         const py::iterable& iter,
+         const SchedulerType& heuristic) {
+        SchedulerRuntimeInfo runtime_info(
+            fusion,
+            from_pyiterable(iter),
+            /*precomputed_values=*/nullptr,
+            fusion->allTvs());
+        auto&& [can_schedule, error_msg] =
+            canScheduleDebug(fusion, iter, heuristic);
+        NVF_CHECK(can_schedule, error_msg);
+
+        std::unique_ptr<SchedulerEntry> scheduler =
+            SchedulerEntry::makeSchedulerInstance(heuristic);
+        std::unique_ptr<HeuristicParams> heuristic_params =
+            scheduler->computeHeuristics(fusion, runtime_info, nullptr);
+        scheduler->schedule(fusion, heuristic_params.get());
+      },
+      R"(
+        Schedule the fusion with the given scheduler type.
+
+        Parameters
+        ----------
+        heuristic : SchedulerType
+            The scheduler type to use for scheduling.
+
+        Returns
+        -------
+        None
+      )",
+      py::arg("fusion"),
+      py::arg("inputs"),
+      py::arg("heuristic"));
 }
 
 } // namespace
