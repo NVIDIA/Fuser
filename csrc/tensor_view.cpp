@@ -1436,6 +1436,9 @@ void TensorView::commitLeafToLogical() {
 }
 
 void TensorView::setTMemDimSepPos(int64_t pos) {
+  NVF_CHECK(
+      getMemoryType() == MemoryType::Tensor,
+      "TMem dimension separator is only supported for tensor memory");
   int64_t ndims = (int64_t)getMaybeAllocationDomain().size();
   pos = nvfuser::wrapDim(pos, ndims + 1);
   NVF_CHECK(
