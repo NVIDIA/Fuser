@@ -77,7 +77,7 @@ getReshapedIds(
   return std::make_pair(p_reshaped_ids, c_reshaped_ids);
 }
 
-int64_t num_device_dims(TensorView* tv) {
+int64_t numDeviceDims(TensorView* tv) {
   return std::count_if(
       tv->getLoopDomain().begin(),
       tv->getLoopDomain().end(),
@@ -107,7 +107,7 @@ std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
       sorted_inputs.begin(),
       sorted_inputs.end(),
       [&](TensorView* a, TensorView* b) {
-        return num_device_dims(a) > num_device_dims(b);
+        return numDeviceDims(a) > numDeviceDims(b);
       });
 
   return sorted_inputs;
@@ -160,7 +160,7 @@ void splitLike(
 
 // Returns the number of DID axis on reshaped ids that were propagated to the
 // consumer.
-int64_t handleViewOp(ViewOp* view_op, int64_t num_device_dims) {
+int64_t shardViewOp(ViewOp* view_op, std::unordered_map<int64_t, int64_t>& new2old) {
   // This implementation asserts that only one sharding is applied on the
   // reshaped ids. Inner split is not supported. The cases are:
   // 1. Split reshape: [h] -> [a, h/a]. Sharding on h is applied to a in
@@ -174,6 +174,10 @@ int64_t handleViewOp(ViewOp* view_op, int64_t num_device_dims) {
   // is to support mult-levels of sharding (not a real case in practice) if they
   // are all outer splits. For example: For the reshape [h] -> [a, h/a] where
   // the h is sharded twice: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
+
+  // A more general approach maybe to "undo" the reshape (reverse transforms
+  // from root to logical domain), followed by simplification of the consumer
+  // loop domain to move DID upwards.
 
   TensorView* producer = view_op->in();
   TensorView* consumer = view_op->out();
@@ -192,6 +196,7 @@ int64_t handleViewOp(ViewOp* view_op, int64_t num_device_dims) {
   // Track number of DID axis on reshaped ids that were propagated to the
   // consumer. These will not be included in TransformPropagator.
   int64_t num_reshape_shardings = 0;
+  int64_t num_device_dims = new2old.size();
 
   for (auto idx : c10::irange(num_device_dims)) {
     IterDomain* p_did = p_loop_domain.at(idx);
@@ -257,13 +262,17 @@ int64_t handleViewOp(ViewOp* view_op, int64_t num_device_dims) {
         c_loop_domain.begin(),
         std::find(c_loop_domain.begin(), c_loop_domain.end(), c_logical_did));
 
+    // TODO: Check for divisibility of the consumer axis by the split factor.
     splitLike(consumer, sharded_axis, p_did_split);
     consumer->axis(sharded_axis)->parallelize(p_did->getParallelType());
 
-    // Move this did_pos to the end in producer to avoid using
+    // Move this did_pos behind the non-propagated DID axis to avoid using
     // TransformPropagator on it.
-    producer->reorder({{idx, -1}});
+    producer->reorder({{idx, num_device_dims - 1}});
+    new2old[idx] = num_device_dims - 1;
+    num_device_dims--;
   }
+
   return num_reshape_shardings;
 }
 
@@ -271,6 +280,26 @@ void reorderAllAsLogicalMap(std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->reorder(scheduler_utils::domainReorderAsLogicalMap(tv));
   }
+}
+
+// Reorder the DID axis to the front only if it does not have a parallel type
+// already seen on the output (existing_parallel_types).
+// Returns a map from the new position to the old position to undo the reordering later.
+std::unordered_map<int64_t, int64_t> selectiveReorderDIDToFront(TensorView* tv, std::unordered_set<ParallelType> existing_parallel_types) {
+  std::unordered_map<int64_t, int64_t> old2new;
+  std::unordered_map<int64_t, int64_t> new2old;
+  int64_t current_pos = 0;
+
+  for (auto pos : c10::irange(tv->nDims())) {
+    if (tv->axis(pos)->isDeviceDim() && !existing_parallel_types.count(tv->axis(pos)->getParallelType())) {
+      old2new[pos] = current_pos;
+      new2old[current_pos] = pos;
+      current_pos++;
+    }
+  }
+
+  tv->reorder(old2new);
+  return new2old;
 }
 
 } // namespace
@@ -297,20 +326,17 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         continue;
       }
 
-      // This restricts the transform propagation to the DID axis.
-      int64_t num_device_dims = reorderDIDToFront(ref_input);
+      // Reorder the DID axis to the front only if it does not have a parallel type
+      // already seen on the output.
+      std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_input, output_parallel_types);
 
-      for (auto idx : c10::irange(num_device_dims)) {
-        if (output_parallel_types.count(
-                ref_input->axis(idx)->getParallelType())) {
-          // Do not propagate parallel types already seen on the output.
-          ref_input->reorder({{idx, -1}});
-          num_device_dims--;
-        }
-      }
+      // This restricts the transform propagation to the DID axis.
+      int64_t num_device_dims = new2old.size();
 
       if (ViewOp* view_op = dynamic_cast<ViewOp*>(expr)) {
-        int64_t num_reshape_shardings = handleViewOp(view_op, num_device_dims);
+        // Propagation of reshape will return how many DID axis were propagated.
+        // They are reordered behind non-propagated DID axis and the new2old map is updated.
+        int64_t num_reshape_shardings = shardViewOp(view_op, new2old);
         num_device_dims = num_device_dims - num_reshape_shardings;
       }
 
@@ -337,7 +363,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       for (auto idx : c10::irange(num_device_dims)) {
         output_parallel_types.insert(ref_input->axis(idx)->getParallelType());
       }
-    
+      // Moving the DID to the end can break tests using logical domain split for linear/matmul.
+      // Undo the reordering. This is only needed temporarily while we fix the other preseg passes.
+      // TODO: Remove this once the other preseg passes are fixed and reorder to front.
+      ref_input->reorder(new2old);
     }
   }
 
@@ -360,7 +389,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         std::back_inserter(unsharded_inputs),
         [](TensorView* tv) {
           return !tv->isFusionInput() && (!tv->hasDeviceMesh() ||
-              num_device_dims(tv) == 0);
+              numDeviceDims(tv) == 0);
         });
 
     if (unsharded_inputs.empty()) {
@@ -381,7 +410,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // TODO: Do we need to worry about the case where the outputs are not
     // uniformly sharded? The relevant exprs are Welford and SDPA.
     TensorView* ref_output = *i_output;
-    int64_t did_pos = reorderDIDToFront(ref_output);
+    std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, {});
+    int64_t did_pos = new2old.size();
 
     // Note: We do not have to manually shard for reshape here.
     // TransformPropagator can handle reshapes when going from consumer to
@@ -395,6 +425,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         .traverse(&propagator);
     reorderAllAsLogicalMap(unsharded_inputs);
     shardAllLike(ref_output, unsharded_inputs);
+
+    // Temporarily undo the reordering. This is only needed temporarily while we fix the other preseg passes.
+    // TODO: Remove this once the other preseg passes are fixed and reorder to front.
+    ref_output->reorder(new2old);
   }
 
   validateMeshes(fusion);
