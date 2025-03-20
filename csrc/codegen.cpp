@@ -546,7 +546,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Check if the current scope is aligned, i.e., guaranteed to cause
   //! no thread divergence
   bool isAligned() const {
-    return std::all_of(
+    return !aligned_scope_exprs_.empty() && std::all_of(
         aligned_scope_exprs_.begin(), aligned_scope_exprs_.end(), [](bool b) {
           return b;
         });
@@ -3251,7 +3251,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       return;
     }
 
-    pushAlignmentInfo(ite);
+    // When register sharing is used, threads in data loading branch are teminated
+    // after loading is finished. isAlignedScopeExpr() doesn't consider the early 
+    // termination of threads, need to skip pushAlignmentInfo() in this case.
+    if (!kernel_->hasManaged("enable_register_sharing") ||
+        !kernel_->getManaged<bool>("enable_register_sharing")){
+      pushAlignmentInfo(ite);
+    }
 
     indent() << "if (" << genInline(conditional) << ") ";
 
@@ -3268,7 +3274,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     endBlock();
 
-    popAlignmentInfo();
+    if (!kernel_->hasManaged("enable_register_sharing") ||
+        !kernel_->getManaged<bool>("enable_register_sharing")){
+      popAlignmentInfo();
+    }
   }
 
   void handle(const kir::Allocate* alloc) final {
