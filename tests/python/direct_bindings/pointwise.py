@@ -24,12 +24,19 @@ tv3.set_memory_type(MemoryType.shared)
 tv4.set_memory_type(MemoryType.shared)
 tv5.set_memory_type(MemoryType.shared)
 
-all_tensors = [tv3, tv4, tv5, tv2]
-for tensor in all_tensors:
-    tensor.merge(axis=0)
-    tensor.split(axis=0, factor=128)
-    tensor.axis(0).parallelize(ParallelType.grid_x)
-    tensor.axis(1).parallelize(ParallelType.block_x)
+selected_tensors = [tv2, tv3, tv4, tv5]
+reference_tv = tv2
+reference_tv.merge(axis=0)
+reference_tv.split(axis=0, factor=128)
+fd.schedule.transform_like(reference_tv)
+
+reference_tv.axis(0).parallelize(ParallelType.grid_x)
+reference_tv.axis(1).parallelize(ParallelType.block_x)
+fd.schedule.parallelize_like(reference_tv)
+
+fd.schedule.inline_most()
+
+fd.fusion.print_math()
 
 inputs = [
     torch.ones(4, 8, device="cuda"),
