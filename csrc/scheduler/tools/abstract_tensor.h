@@ -956,6 +956,11 @@ class AbstractTensorWithInfo {
     return AbstractTensorWithInfo<EmptyInfo>(domain_);
   }
 
+  void reverse() {
+    std::reverse(domain_.begin(), domain_.end());
+    std::reverse(info_.begin(), info_.end());
+  }
+
  protected:
   std::vector<AbstractId> domain_;
   std::vector<Info> info_;
