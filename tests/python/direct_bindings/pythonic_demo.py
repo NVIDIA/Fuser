@@ -4,7 +4,7 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import direct, DataType
+from nvfuser import direct, DataType  # noqa: F401
 from direct_fusion_definition import FusionDefinition
 
 inputs = [

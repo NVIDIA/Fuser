@@ -42,7 +42,7 @@ class DirectFusionDefinition {
 void bindDirectOperations(py::class_<DirectFusionDefinition>& fusion_def);
 
 // Add direct bindings for CPP Schedule Operators
-void bindDirectScheduleOperators(py::class_<DirectFusionDefinition>& fusion_def);
-
+void bindDirectScheduleOperators(
+    py::class_<DirectFusionDefinition>& fusion_def);
 
 } // namespace nvfuser::python_frontend
