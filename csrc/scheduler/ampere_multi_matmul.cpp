@@ -474,12 +474,13 @@ void AmpereMultipleMatmulScheduler::run() {
 
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs
-  // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
   cacheInputsAndOutputs(/*skip_intermediates=*/false);
-  findRoles();
 
+  // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
   cacheOperandsToRegisters(acw_smems_, acrs_);
   cacheOperandsToRegisters(bcw_smems_, bcrs_);
+
+  findRoles();
 
   // Schedules:
   //   - global->smem (cp.async)
@@ -523,8 +524,7 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
       tv_r = ldst->out()->as<TensorView>();
       ldst->setOpType(LoadStoreOpType::LdMatrix);
     } else {
-      tv_r = cacheAfter(
-          tv_smem,
+      tv_r = tv_smem->cacheAfter(
           LoadStoreOpType::LdMatrix,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
@@ -950,6 +950,8 @@ void AmpereMultipleMatmulScheduler::schedulePrologues() {
     // TODO: save all register prologue tensors instead to a new vector called
     // prologue_register_tensors_
     NVF_ERROR(mma_inputs.empty());
+    std::unordered_set<TensorView*>
+        mma_input_set; // to prevent double insertion
     for (TensorView* mma_result : mma_results_) {
       MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
       NVF_ERROR(mma != nullptr);
@@ -959,6 +961,10 @@ void AmpereMultipleMatmulScheduler::schedulePrologues() {
       } else if (operand_type == MmaOperand::B) {
         mma_input = mma->inB()->as<TensorView>();
       }
+      if (mma_input_set.count(mma_input)) {
+        continue;
+      }
+      mma_input_set.insert(mma_input);
       NVF_ERROR(mma_input != nullptr);
       mma_inputs.push_back(mma_input);
     }
