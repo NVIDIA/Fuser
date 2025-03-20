@@ -546,7 +546,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //! Check if the current scope is aligned, i.e., guaranteed to cause
   //! no thread divergence
   bool isAligned() const {
-    return !aligned_scope_exprs_.empty() && std::all_of(
+    if (kernel_->hasManaged("enable_register_sharing") &&
+        kernel_->getManaged<bool>("enable_register_sharing")){
+        return false;
+    }
+    return std::all_of(
         aligned_scope_exprs_.begin(), aligned_scope_exprs_.end(), [](bool b) {
           return b;
         });
@@ -3044,6 +3048,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         reduction_dims.second == nullptr) {
       if(use_static){
         int64_t number_of_threads = std::atoi(std::getenv("THREADS"));
+        if (std::getenv("CMP_WGROUPS") != nullptr) {
+          func_args.arg(
+              genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
+
+        } else {
+          func_args.arg(
+              genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+        }
         func_args.arg(genBarrierId());
         template_args.arg(
             kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
@@ -3237,6 +3249,13 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     startBlock(true);
     kir::ConstIrVisitor::handle(loop);
     endBlock();
+
+        // WAR final outer reduction bug in RMS Norm BWd
+    if(mbarrier_invalidate_count_ == 2 && std::getenv("CMP_WGROUPS") != nullptr){
+      mbarrier_invalidate_count_ = 0;
+      indent() << "// WAR final outer reduction bug when using two math warp groups in RMS Norm BWd\n";
+      indent() << "if(threadIdx.x >= 128){return;}\n\n";
+    }
   }
 
   void handle(const kir::IfThenElse* ite) final {
@@ -3254,10 +3273,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // When register sharing is used, threads in data loading branch are teminated
     // after loading is finished. isAlignedScopeExpr() doesn't consider the early 
     // termination of threads, need to skip pushAlignmentInfo() in this case.
-    if (!kernel_->hasManaged("enable_register_sharing") ||
-        !kernel_->getManaged<bool>("enable_register_sharing")){
-      pushAlignmentInfo(ite);
-    }
+
+    pushAlignmentInfo(ite);
 
     indent() << "if (" << genInline(conditional) << ") ";
 
@@ -3274,10 +3291,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     endBlock();
 
-    if (!kernel_->hasManaged("enable_register_sharing") ||
-        !kernel_->getManaged<bool>("enable_register_sharing")){
-      popAlignmentInfo();
-    }
+    popAlignmentInfo();
   }
 
   void handle(const kir::Allocate* alloc) final {
@@ -3746,6 +3760,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto call = genCall(
         "mbarrier::inval", ArgumentBuilder().arg(genInline(inval->mbarrier())));
     indent() << call << ";\n";
+    mbarrier_invalidate_count_++;
   }
 
   void handle(const kir::MBarrierArrive* arrive) final {
@@ -3949,6 +3964,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::unordered_set<std::string> generated_utilities_;
 
   std::string smem_buf_wg_offset_;
+
+  int mbarrier_invalidate_count_ = 0;
 };
 
 } // namespace

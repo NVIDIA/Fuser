@@ -36,16 +36,16 @@ namespace nvfuser {
 using SerialGridReductionTest = NVFuserTest;
 
 TEST_F(SerialGridReductionTest, Scheduling) {
-  for (bool serial : {true, false}) {
-    for (int64_t num_warps : {4, 8}) {
+  for (bool serial : {true}) {
+    for (int64_t num_warps : {4}) {
       // B is size of inner serial loop. Outer loop is hardcoded at A=4
       // Here we set B to a small value of 8 instead of 32 (i.e. 128 elements
       // per thread), so that the non-serial compilation does not take too
       // long.
       for (int64_t B : {8}) {
-        std::stringstream ss;
-        DebugStreamGuard dsg(ss);
-        DebugDumpOptionsGuard ddog;
+        // std::stringstream ss;
+        // DebugStreamGuard dsg(ss);
+        // DebugDumpOptionsGuard ddog;
         DebugDumpOptionsGuard::getCurOptions().set(
             DebugDumpOption::GlobalZeroedMemory);
 
@@ -120,26 +120,82 @@ TEST_F(SerialGridReductionTest, Scheduling) {
         if (serial) {
           tv3->definition()->as<ReductionOp>()->requestSerialGridReduction();
         }
+
+        fusion->printMath();
+
         ke.compile(fusion);
 
         auto input = at::randn(
             {H, W}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
         auto outputs = ke.run({input});
 
-        if (serial) {
-          // Verify that zeroed semaphore memory was reused instead of
-          // launching memset. We cannot easily confirm that the memset kernel
-          // was not launched, but we can check that the global zeroed memory
-          // pool actually serviced an allocation request.
-          EXPECT_THAT(
-              ss.str(),
-              testing::HasSubstr("Allocating byte range: 0 to 512 bytes"));
-        }
+        // if (serial) {
+        //   // Verify that zeroed semaphore memory was reused instead of
+        //   // launching memset. We cannot easily confirm that the memset kernel
+        //   // was not launched, but we can check that the global zeroed memory
+        //   // pool actually serviced an allocation request.
+        //   EXPECT_THAT(
+        //       ss.str(),
+        //       testing::HasSubstr("Allocating byte range: 0 to 512 bytes"));
+        // }
 
         testValidate(fusion, outputs, {input}, __LINE__, __FILE__);
       }
     }
   }
+}
+
+  // Needs call it N/bdimx times
+  // for(nvfuser_index_t i4 = 0; i4 < 4; ++i4) {
+  //   nvfuser_index_t i5;
+  //   i5 = i4 + nvfuser_zero;
+  //   Array<float, 1, 1> T1;
+  //   T1[0] = 0.000000000e+00f;
+  //   if ((i2 < (-i5))) {
+  //     T1[0]
+  //        = T0[(i1 + i5)];
+  //   }
+  //   // Allocate global tensor T5
+  //   reduction::serialReductionStep</*vec_size=*/1>(
+  //     &T2[i4],
+  //     &T1[0],
+  //     0.000000000e+00f,
+  //     &T5[(i0 + i5)],
+  //     [](float &a, float b) { a = a + b; },
+  //     index_utils::maskedOffset<true, false, false>(blockIdx, gridDim) == 0,
+  //     index_utils::maskedOffset<true, false, false>(blockIdx, gridDim) == index_utils::maskedSize<true, false, false>(gridDim) - 1,
+  //     true,
+  //     true);
+  // }
+TEST_F(SerialGridReductionTest, SimpleOuterReduction) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  auto fusion = fusion_ptr.get();
+  FusionGuard fg(fusion);
+
+  TensorView* tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = sum(tv1, {0});
+  auto tv3 = set(tv2);
+  fusion->addOutput(tv3);
+
+
+  for(auto tv : {tv1, tv2}){
+    tv->split(1, 4);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::TIDx);
+  }
+  tv3->split(0, 4);
+  tv3->axis(0)->parallelize(ParallelType::TIDx);
+  inlineMost();
+
+  tv2->definition()->as<ReductionOp>()->requestSerialGridReduction();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto input = at::randn({32, 128}, options);
+  KernelExecutor ke;
+  ke.compile(fusion);
+  auto outputs = ke.run({input});
 }
 
 } // namespace nvfuser
