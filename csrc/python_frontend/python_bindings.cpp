@@ -3679,7 +3679,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       "direct", "Direct python bindings for CPP Direct Fusion");
   direct_bindings.def("translate_fusion", &translateFusion);
   bindDirectIr(direct_bindings);
-  bindDirectOperations(direct_bindings);
+  bindDirectFusionDefinition(direct_bindings);
   bindDirectRuntime(direct_bindings);
 }
 

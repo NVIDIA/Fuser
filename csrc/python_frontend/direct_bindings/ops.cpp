@@ -6,27 +6,11 @@
  */
 // clang-format on
 #include <ops/all_ops.h>
-#include <python_frontend/python_bindings.h>
+#include <python_frontend/direct_bindings/fusion_definition.h>
 
 namespace nvfuser::python_frontend {
 
 namespace {
-
-//! The DirectFusionDefinition class exposes the NvFuser operations to mimic the
-//! interface of the FusionDefinition class.
-class DirectFusionDefinition {
- public:
-  DirectFusionDefinition() : ops(this) {}
-
-  //! The Operators define what operations are fused. They are not directly
-  //! defined here but in the python bindings through lambda functions.
-  struct Operators {
-    Operators(DirectFusionDefinition* fd) : fusion_definition(fd) {}
-    DirectFusionDefinition* fusion_definition;
-  };
-
-  Operators ops;
-};
 
 #define NVFUSER_DIRECT_BINDING_BINARY_OP(NAME, OP_NAME, DOCSTRING)           \
   ops.def(                                                                   \
@@ -1459,17 +1443,12 @@ Val or TensorView
 
 } // namespace
 
-void bindDirectOperations(py::module& fusion) {
+void bindDirectOperations(py::class_<DirectFusionDefinition>& fusion_def) {
   //! The Operators class is a nested class of DirectFusionDefinition to allow
   //! the user to query the class for the list of operators.
   //!
   //! Example:
   //!   help(DirectFusionDefinition.Operators)
-  py::class_<DirectFusionDefinition> fusion_def(
-      fusion, "_DirectFusionDefinition");
-  fusion_def.def(py::init<>())
-      .def_readwrite("ops", &DirectFusionDefinition::ops);
-
   py::class_<DirectFusionDefinition::Operators> nvf_ops(
       fusion_def, "Operators");
   nvf_ops.def(py::init<DirectFusionDefinition*>());
