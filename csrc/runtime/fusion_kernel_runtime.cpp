@@ -730,7 +730,7 @@ void FusionKernelRuntime::compileKernel(
   auto heuristic_params = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
-  NVF_ERROR(!sg || heuristic_params->scheduler_type == sg->schedulerType());
+  NVF_ERROR(heuristic_params->scheduler_type == sg->schedulerType());
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
