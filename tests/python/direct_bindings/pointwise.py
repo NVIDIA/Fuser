@@ -5,7 +5,7 @@
 
 import torch
 from nvfuser import direct
-from nvfuser import MemoryType, ParallelType
+from nvfuser import MemoryType, ParallelType, SchedulerType
 from direct_fusion_definition import FusionDefinition
 
 fd = FusionDefinition()
@@ -16,6 +16,12 @@ fd.add_input(tv0)
 fd.add_input(tv1)
 tv2 = fd.ops.add(tv0, tv1)
 fd.add_output(tv2)
+
+inputs = [
+    torch.ones(4, 8, device="cuda"),
+    torch.ones(4, 8, device="cuda"),
+]
+print(fd.schedule.can_schedule(fd.fusion, inputs, SchedulerType.pointwise))
 
 tv3 = tv0.cache_after()
 tv4 = tv1.cache_after()
@@ -38,8 +44,5 @@ fd.schedule.inline_most()
 
 fd.fusion.print_math()
 
-inputs = [
-    torch.ones(4, 8, device="cuda"),
-    torch.ones(4, 8, device="cuda"),
-]
+
 print(fd.execute(inputs, auto_schedule=False))

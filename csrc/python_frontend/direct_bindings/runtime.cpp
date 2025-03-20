@@ -11,6 +11,7 @@
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
 #include <ops/all_ops.h>
+#include <python_frontend/direct_bindings/fusion_definition.h>
 #include <python_frontend/python_bindings.h>
 #include <runtime/fusion_executor_cache.h>
 #include <runtime/fusion_kernel_runtime.h>
@@ -307,45 +308,6 @@ Notes
 -----
 - This is a cached version that is invalidated when the fusion changes.
 )");
-}
-
-//! Convert a py::iterable to a KernelArgumentHolder
-KernelArgumentHolder from_pyiterable(
-    const py::iterable& iter,
-    std::optional<int64_t> device = std::nullopt) {
-  KernelArgumentHolder args;
-  for (py::handle obj : iter) {
-    // Allows for a Vector of Sizes to be inputed as a list/tuple
-    if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
-      for (py::handle item : obj) {
-        args.push(torch::jit::toIValue(item, c10::AnyType::get()));
-      }
-    } else {
-      args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
-    }
-  }
-
-  // Transform int64_t device to int8_t
-  std::optional<int8_t> selected_device = std::nullopt;
-  if (device.has_value()) {
-    NVF_CHECK(device.value() < 256, "Maximum device index is 255");
-    selected_device = (int8_t)device.value();
-  }
-  args.setDeviceIndex(selected_device);
-  return args;
-}
-
-//! Convert a KernelArgumentHolder to a std::vector<at::Tensor>
-std::vector<at::Tensor> to_tensor_vector(const KernelArgumentHolder& outputs) {
-  // Convert outputs KernelArgumentHolder to std::vector<at::Tensor>
-  std::vector<at::Tensor> out_tensors;
-  out_tensors.reserve(outputs.size());
-  std::transform(
-      outputs.begin(),
-      outputs.end(),
-      std::back_inserter(out_tensors),
-      [](const PolymorphicValue& out) { return out.as<at::Tensor>(); });
-  return out_tensors;
 }
 
 void bindFusionExecutorCache(py::module& fusion) {

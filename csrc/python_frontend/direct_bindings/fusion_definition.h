@@ -45,4 +45,12 @@ void bindDirectOperations(py::class_<DirectFusionDefinition>& fusion_def);
 void bindDirectScheduleOperators(
     py::class_<DirectFusionDefinition>& fusion_def);
 
+//! Convert a py::iterable to a KernelArgumentHolder
+KernelArgumentHolder from_pyiterable(
+    const py::iterable& iter,
+    std::optional<int64_t> device = std::nullopt);
+
+//! Convert a KernelArgumentHolder to a std::vector<at::Tensor>
+std::vector<at::Tensor> to_tensor_vector(const KernelArgumentHolder& outputs);
+
 } // namespace nvfuser::python_frontend

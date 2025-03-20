@@ -5,8 +5,13 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <fusion.h>
 #include <multidevice/utils.h>
+#include <options.h>
 #include <python_frontend/direct_bindings/fusion_definition.h>
+#include <runtime/executor_params.h>
+#include <scheduler/registry.h>
+#include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
@@ -15,7 +20,7 @@ namespace nvfuser::python_frontend {
 
 namespace {
 
-void bindScheduleOps(
+void bindTensorViewScheduleOps(
     py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
   sched.def(
       "to_string",
@@ -507,6 +512,56 @@ void bindScheduleOps(
       py::arg("mesh"));
 }
 
+void bindFusionScheduleOps(
+    py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
+  sched.def(
+      "can_schedule",
+      [](DirectFusionDefinition::ScheduleOperators& self,
+         Fusion* fusion,
+         const py::iterable& iter,
+         const SchedulerType& scheduler_type) {
+        // Enable collection of messages from canScheduleRejectReason
+        DebugDumpOptionsGuard debug_dump_options_guard;
+        DebugDumpOptionsGuard::getCurOptions().set(
+            DebugDumpOption::FusionSegmenterLog);
+
+        // Send debug messages to stringstream
+        std::stringstream ss;
+        DebugStreamGuard dsg(ss);
+
+        SchedulerRuntimeInfo runtime_info(
+            fusion,
+            from_pyiterable(iter),
+            /*precomputed_values=*/nullptr,
+            fusion->allTvs());
+        bool can_schedule =
+            Schedule::canSchedule(scheduler_type, fusion, runtime_info);
+        return std::make_tuple(can_schedule, ss.str());
+      },
+      R"(
+        Check if the fusion can be scheduled with the given scheduler type.
+
+        Parameters
+        ----------
+        scheduler_type : SchedulerType
+            The type of scheduler to check compatibility with.
+
+        Returns
+        -------
+        bool
+            True if the fusion can be scheduled with the given scheduler type,
+            False otherwise.
+
+        Notes
+        -----
+        This is a debug function that checks if the fusion's structure is compatible
+        with the specified scheduler type. It does not actually schedule the fusion.
+      )",
+      py::arg("fusion"),
+      py::arg("inputs"),
+      py::arg("scheduler_type"));
+}
+
 } // namespace
 
 void bindDirectScheduleOperators(
@@ -519,7 +574,8 @@ void bindDirectScheduleOperators(
   py::class_<DirectFusionDefinition::ScheduleOperators> nvf_sched(
       fusion_def, "ScheduleOperators");
   nvf_sched.def(py::init<DirectFusionDefinition*>());
-  bindScheduleOps(nvf_sched);
+  bindTensorViewScheduleOps(nvf_sched);
+  bindFusionScheduleOps(nvf_sched);
 }
 
 } // namespace nvfuser::python_frontend
