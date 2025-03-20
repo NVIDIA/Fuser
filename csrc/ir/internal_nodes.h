@@ -136,8 +136,8 @@ class IndexPutAccumulateOp : public Expr {
   // logical ID groups of IndexPutAccumulateOp
   // args:
   //     acc   [ ID_indexed_g0, ID_g0 ]
-  //     index [ ID_indexed_g1 ]
-  //     value [ ID_indexed_g1 ]
+  //     index [ ID_indexing_g1 ]
+  //     value [ ID_indexing_g1, ID_g0 ]
   // output:
   //     out   [ ID_indexed_g0, ID_g0 ]
   //
@@ -175,11 +175,11 @@ class IndexPutAccumulateOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
-  // return ID_indexed_g1 from index
-  IterDomain* getIndexedID() const;
+  // return ID_indexing_g1 from index
+  IterDomain* getIndexingID() const;
 
-  // return ID_indexed_g1 from value
-  IterDomain* getIndexedIDOfValue() const;
+  // return ID_indexing_g1 from value
+  IterDomain* getIndexingIDOfValue() const;
 };
 
 class NVF_API GatherOp : public Expr {
