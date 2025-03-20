@@ -74,25 +74,27 @@ PairwiseLogicalDomainMap::PairwiseLogicalDomainMap(
 
 namespace {
 
-// Returns a producer ID that is indirectly accessed. A bool is also
-// returned indicating there's a corresponding consumer ID. For
-// example, select doesn't have a consumer ID, whereas index_select
-// does.
-std::pair<std::unordered_set<IterDomain*>, bool> getIndexedDomainInfo(
+// Returns producer IDs that don't map identically to consumer. A bool is
+// returned indicating whether corresponding consumer IDs exists. For example,
+// select doesn't have a consumer ID, whereas index_select does.
+std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
     const TensorView* consumer_tv) {
   std::unordered_set<IterDomain*> indexed_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     indexed_ids.insert(sop->getIndexedID());
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == sop->lookupTv()) {
       indexed_ids.insert(sop->getIndexedID());
       has_consumer_id = true;
     }
   } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == gop->lookupTv()) {
       indexed_ids.insert(gop->getIndexedID());
       has_consumer_id = true;
@@ -102,10 +104,10 @@ std::pair<std::unordered_set<IterDomain*>, bool> getIndexedDomainInfo(
           dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
     // see [ Note -- IndexPutAccumulate shape restriction ]
     if (producer_tv == iaop->indexTv()) {
-      indexed_ids.insert(iaop->getIndexedID());
+      indexed_ids.insert(iaop->getIndexingID());
       has_consumer_id = false;
     } else if (producer_tv == iaop->valueTv()) {
-      indexed_ids.insert(iaop->getIndexedIDOfValue());
+      indexed_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
   }
@@ -131,8 +133,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     squeeze_flags = sop->getSqueezeDimFlags();
   }
 
-  auto [indexed_producer_id, has_consumer_of_indexed_id] =
-      getIndexedDomainInfo(producer_tv_, consumer_tv_);
+  auto [non_mapping_producer_id, has_consumer_of_indexed_id] =
+      getNonMappingDomainInfo(producer_tv_, consumer_tv_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_logical = TensorDomain::noReductions(producer->logical());
@@ -368,13 +370,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     IterDomain* consumer_id = consumer_root.at(itc);
 
     // Conditions to check:
-    // 1. Indirectly accessed IDs (e.g., select)
+    // 1. Non mapping IDs (e.g., select)
     // 2. IDs that may have different extents (e.g., non indexed
     //  domains of torchGather)
     // 3. Squeeze and unsqueeze
 
-    // Condition 1: when the producer ID is the dim of a select-like op
-    if (indexed_producer_id.count(producer_id) != 0) {
+    // Condition 1: when the producer ID is the dim of a select-like op, or when
+    // it doesn't map to the output IDs, like indexing IDs of indexPutAccumulate
+    if (non_mapping_producer_id.count(producer_id) != 0) {
       // If there's no corresponding consumer, skip the indexed producer
       if (!has_consumer_of_indexed_id) {
         itp++;
@@ -392,7 +395,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     if (auto gop = dynamic_cast<GatherOp*>(consumer_tv_->definition());
         gop != nullptr && !gop->exactSizes() &&
         producer_tv_ == gop->lookupTv() &&
-        indexed_producer_id.count(producer_id) == 0 &&
+        non_mapping_producer_id.count(producer_id) == 0 &&
         !map_different_extents_) {
       itp++;
       itc++;
