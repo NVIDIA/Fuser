@@ -16,7 +16,7 @@
 
 namespace nvfuser {
 
-struct IndexingAllocationInfo {
+struct AllocationDomainInfo {
   std::vector<IterDomain*> ids;
   std::vector<Val*> strides;
   std::vector<bool> contiguity;

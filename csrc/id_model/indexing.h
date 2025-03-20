@@ -88,7 +88,7 @@ class TensorIndexer {
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const IndexingAllocationInfo& alloc_info,
+      const AllocationDomainInfo& alloc_info,
       const std::vector<ForLoop*>& loops) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
@@ -133,7 +133,7 @@ class TensorIndexer {
   // on loop_index_map_.
   void buildLoopIndexMap();
 
-  const IndexingAllocationInfo& getIndexAllocationInfo(TensorView* tv) const;
+  const AllocationDomainInfo& getIndexAllocationInfo(TensorView* tv) const;
 
 #if 0
   const IndexingAllocationInfo& getIndexingAllocationInfo(
@@ -174,7 +174,7 @@ class TensorIndexer {
   //
   // Currently, only backward traversal is supported.
   std::pair<std::vector<ValGroup>, std::vector<Val*>> getContigDomainsAndStrides(
-      const IndexingAllocationInfo& alloc_info,
+      const AllocationDomainInfo& alloc_info,
       const ExprPath<ExprGroup>& traversal_path) const;
 
   // Get a replace map for tensor indexing. Examples include replacing
@@ -210,7 +210,7 @@ class TensorIndexer {
 
   // Allocation info for each tensor. Must be filled before computing
   // the index of each tensor
-  std::unordered_map<TensorView*, IndexingAllocationInfo> alloc_info_;
+  std::unordered_map<TensorView*, AllocationDomainInfo> alloc_info_;
 };
 
 } // namespace nvfuser

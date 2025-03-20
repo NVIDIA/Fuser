@@ -116,7 +116,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
       // For fusion input, we can just use getMaybeAllocationDomain.
 
-      auto alloc_info = getIndexingAllocationInfo(
+      auto alloc_info = getAllocationDomainInfo(
           producer_tv,
           producer_tv->getMaybeAllocationDomain(),
           producer_tv->domain()->contiguity());
@@ -140,7 +140,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
         auto [alloc_domains, contiguity] =
             getAllocationDomainsAndContiguity(out_tv, for_loops_);
         auto alloc_info =
-            getIndexingAllocationInfo(out_tv, alloc_domains, contiguity);
+            getAllocationDomainInfo(out_tv, alloc_domains, contiguity);
         tv_alloc_info_map[out_tv] = alloc_info;
       }
       for (auto in_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -313,9 +313,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
     return {allocation_domains, contiguity};
   }
 
-  // Get allocation info used for indexing. Loop promotion is
-  // considered. Strides are also calculated.
-  IndexingAllocationInfo getIndexingAllocationInfo(
+  // Get allocation info necessary for allocation and indexing. Loop promotion
+  // is considered. Strides are also calculated.
+  AllocationDomainInfo getAllocationDomainInfo(
       TensorView* tv,
       std::vector<IterDomain*> allocation_domains,
       std::vector<std::optional<bool>> contiguity) {
@@ -398,7 +398,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     NVF_ERROR(actual_allocation_domains.size() == actual_strides.size());
     NVF_ERROR(actual_allocation_domains.size() == actual_contiguity.size());
 
-    return IndexingAllocationInfo{
+    return AllocationDomainInfo{
         actual_allocation_domains, actual_strides, actual_contiguity};
   }
 
@@ -728,7 +728,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     return patched_allocation_domains;
   }
 
-  std::unordered_map<TensorView*, IndexingAllocationInfo> tv_alloc_info_map;
+  std::unordered_map<TensorView*, AllocationDomainInfo> tv_alloc_info_map;
   std::unordered_set<TensorView*> used_as_producer;
 };
 

@@ -793,7 +793,7 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 }
 
-const IndexingAllocationInfo& TensorIndexer::getIndexAllocationInfo(
+const AllocationDomainInfo& TensorIndexer::getIndexAllocationInfo(
     TensorView* tv) const {
   return GpuLower::current()->getAllocationInfo(tv);
 }
@@ -1280,7 +1280,7 @@ ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
 
 std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
     getContigDomainsAndStrides(
-        const IndexingAllocationInfo& alloc_info,
+        const AllocationDomainInfo& alloc_info,
         const ExprPath<ExprGroup>& traversal_path) const {
   const std::unordered_map<IterDomain*, ValGroup>& contig_domains =
       getContigDomains(
@@ -1325,7 +1325,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
         const Expr* expr,
         bool as_consumer,
-        const IndexingAllocationInfo& alloc_info,
+        const AllocationDomainInfo& alloc_info,
         const std::vector<ForLoop*>& for_loops) const {
   auto index_info = computeIndex(expr, alloc_info.ids, for_loops);
   const auto& index_map = index_info.index_map;
