@@ -684,6 +684,8 @@ static const char* ternary_op_type2string(TernaryOpType t) {
       return "threshold";
     case TernaryOpType::Where:
       return "where";
+    case TernaryOpType::Philox:
+      return "philox";
     default:
       NVF_THROW("Unexpected TernaryOpType");
   }
@@ -1527,8 +1529,10 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
+    case DataType::Short:
     case DataType::UInt64:
     case DataType::UInt32:
+    case DataType::UInt16:
     case DataType::SMemAddress:
       return "i";
     case DataType::ComplexFloat:
@@ -1666,6 +1670,23 @@ int max_digits10(DataType dtype) {
         "Unhandled floating point type in max_digits10 ",
         dtype);
     return 0;
+  }
+}
+
+std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
+  switch (dp) {
+    case TMemRegisterDataPath::Path32x32b:
+      return os << "32x32b";
+    case TMemRegisterDataPath::Path16x64b:
+      return os << "16x64b";
+    case TMemRegisterDataPath::Path16x128b:
+      return os << "16x128b";
+    case TMemRegisterDataPath::Path16x256b:
+      return os << "16x256b";
+    case TMemRegisterDataPath::Path16x32bx2:
+      return os << "16x32bx2";
+    default:
+      NVF_THROW("Unknown TMemRegisterDataPath");
   }
 }
 

@@ -1803,9 +1803,13 @@ class TestNvFuserFrontend(NVFuserTest):
         for fd in test_defs:
             # Attempting to get the cuda code for an un-executed FusionDefinition
             # should trigger a RuntimeError and not a segfault
-            with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(Invalid fusion definition!|never been executed)"
+            ):
                 _ = fd.last_cuda_code()
-            with self.assertRaisesRegex(RuntimeError, "Invalid fusion definition!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(Invalid fusion definition!|never been executed)"
+            ):
                 _ = fd.last_scheduled_fusion_ir()
             # Only make this check for function based definitions
             if hasattr(super(type(self), self), "definition"):
@@ -1840,9 +1844,13 @@ class TestNvFuserFrontend(NVFuserTest):
 
             # Attempt to get strings for inputs that do not heuristically match
             # and a new fusion has not been compiled
-            with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(not compiled|never been executed)"
+            ):
                 _ = fd.cuda_code_for(big_inputs)
-            with self.assertRaisesRegex(RuntimeError, "Fusion is not compiled!"):
+            with self.assertRaisesRegex(
+                RuntimeError, "(not compiled|never been executed)"
+            ):
                 _ = fd.scheduled_fusion_ir_for(big_inputs)
 
         # It is necessary to reset the Fusion Cache
@@ -1985,7 +1993,7 @@ class TestNvFuserFrontend(NVFuserTest):
             # t5 = fd.ops.cat([t0, t3], 0)
             # fd.add_output(t5)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
@@ -2008,7 +2016,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t3 = fd.ops.cat([t0_pad, t1_pad], 1)
             fd.add_output(t3)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         # pad tensors t0 and t1, so their first dimension are size 10.
         pad_input0 = torch.nn.functional.pad(inputs[0], [0, 0, 0, 8])
@@ -2953,7 +2961,8 @@ class TestNvFuserFrontend(NVFuserTest):
             T37 = fd.ops.reshape(T33, new_shape=[2, 2])
             fd.add_output(T37)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        # `supports_segmentation` is to work around #3856
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
         t7 = inputs[0].reshape((2, 1, 2))
         t8 = t7.var(dim=2, unbiased=False)
         t9 = t7.mean(dim=2)
@@ -3276,6 +3285,16 @@ class TestNvFuserFrontend(NVFuserTest):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
         # self.assertEqual(nvf_out[0], t24)
 
+        # This fusion takes a long time to segment and schedule
+        # because of the resized extents, which seem to stress the
+        # expression simplifier a lot. Serializing this fusion would
+        # significantly increase the test time as it would be
+        # deserialized every time, which includes segmentation and
+        # scheduling. Ideally, we should optimize the expression
+        # simplifier, but for now resetting the cache should avoid the
+        # issue.
+        FusionCache.reset()
+
     # Test that symbolic IterDomains can be concatenated
     # https://github.com/NVIDIA/Fuser/issues/1554
     def test_cat_symbolic(self):
@@ -3346,9 +3365,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T28)
 
         # TODO: Support segmentation. See #3594.
-        nvf_out, _ = self.exec_nvfuser(
-            fusion_func, inputs, is_clonable=True, supports_segmentation=False
-        )
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
         t12 = inputs[1] * inputs[-2]
         t13 = torch.permute(t12, [0, 1, 3, 2])
@@ -3379,14 +3396,14 @@ class TestNvFuserFrontend(NVFuserTest):
         def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
                 shape=[1, -1, -1],
-                contiguity=[None, True, True],
+                contiguity=True,
                 dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[2, 1, 0],
             )
             T1 = fd.define_tensor(
                 shape=[-1, -1],
-                contiguity=[True, True],
+                contiguity=True,
                 dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[1, 0],
@@ -4401,9 +4418,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T16)
 
         # TODO: Support segmentation. See #3594.
-        nvf_out, _ = self.exec_nvfuser(
-            fusion_func, inputs, is_clonable=True, supports_segmentation=False
-        )
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     def test_returning_aliased_outputs(self):
         inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]
@@ -4876,3 +4891,82 @@ fd.execute(inputs)
 
         self.assertEqual(nvf_out[0], d)
         self.assertEqual(nvf_out[1], e)
+
+    # See https://github.com/NVIDIA/Fuser/issues/3833
+    def test_bcast_squeeze_replace_aliased_output(self):
+        inputs = [
+            torch.testing.make_tensor(
+                (1, 1, 576), dtype=torch.bfloat16, device="cuda:0"
+            ),
+            torch.testing.make_tensor((1, 576), dtype=torch.bfloat16, device="cuda:0"),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[1, 1, 576],
+                contiguity=[None, None, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[2, 1, 0],
+            )
+            T1 = fd.define_tensor(
+                shape=[1, 576],
+                contiguity=[None, True],
+                dtype=DataType.BFloat16,
+                is_cpu=False,
+                stride_order=[1, 0],
+            )
+            T5 = fd.ops.reshape(T0, new_shape=[1, 576])
+            T6 = fd.ops.set(T5)
+            fd.add_output(T6, T1)
+            fd.add_output(T5)
+
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func,
+            inputs,
+            skip_serde_check=True,
+        )
+
+        assert len(nvf_out) == 1
+        self.assertEqual(nvf_out[0], inputs[0].squeeze(1))
+
+    # See https://github.com/NVIDIA/Fuser/issues/3957
+    # This test checks that our alias update keeps the output layout consistency
+    def test_inplace_update_on_non_contiguous_inputs(self):
+        inputs = [
+            torch.randn(5, dtype=torch.float32, device="cuda:0").as_strided(
+                (2, 2), (1, 3)
+            ),
+        ]
+
+        def fusion_func(fd: FusionDefinition) -> None:
+            T0 = fd.define_tensor(
+                shape=[2, 2],
+                contiguity=[False, True],
+                dtype=DataType.Float,
+                is_cpu=False,
+                stride_order=[0, 1],
+            )
+            S1 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T2 = fd.ops.gt(T0, S1)
+            S3 = fd.define_scalar(0.00000, dtype=DataType.Double)
+            T4 = fd.ops.where(T2, T0, S3)
+            T5 = fd.ops.cast(T4, dtype=DataType.Float)
+            T6 = fd.ops.set(T5)
+            fd.add_output(T6, T0)
+            fd.add_output(T6)
+
+        ref_inp = inputs[0].clone()
+
+        # is_clonable is not supported yet, because the print out would explicitly mark output
+        # with stride_order and overwrite its contiguity flag. This would violates the memory
+        # layout required by the alias.
+        nvf_out, _ = self.exec_nvfuser(
+            fusion_func,
+            inputs,
+            is_clonable=False,
+        )
+
+        assert len(nvf_out) == 1
+        self.assertEqual(nvf_out[0], inputs[0])
+        self.assertEqual(nvf_out[0], ref_inp.relu())

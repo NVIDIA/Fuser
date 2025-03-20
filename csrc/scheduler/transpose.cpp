@@ -56,13 +56,13 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
       return false;
     }
   }
-  for (auto torch_gather : ir_utils::getOpsOfType<TorchGatherOp>(fusion)) {
+  for (auto torch_gather : ir_utils::getOpsOfType<GatherOp>(fusion)) {
     auto inner = TensorDomain::noReductions(
         torch_gather->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (torch_gather->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
-          "TorchGatherOp on inner dim is not supported by transpose scheduler yet."
+          "GatherOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
     }
@@ -385,16 +385,16 @@ getReferenceTensors(
   return reference_tensors_entry;
 }
 
-std::pair<std::vector<int64_t>, int64_t> getShapeInReference(
+std::pair<std::vector<int64_t>, int64_t> getLoopDomainSizes(
     HeuristicDataCache* data_cache,
     SchedulerRuntimeInfo& runtime_info,
     TensorView* reference,
     scheduler_tools::TransposeDomainMap& domain_map) {
-  auto ref_logical = reference->getLogicalDomain();
+  auto ref_loop = reference->getLoopDomain();
   std::vector<int64_t> shape_in_ref;
   shape_in_ref.reserve(reference->nDims());
   int64_t n_elems = 1;
-  for (auto id : ref_logical) {
+  for (auto id : ref_loop) {
     auto concrete_id = domain_map.getComputeAtMap().getConcreteMappedID(
         id, IdMappingMode::EXACT);
     auto inferred_val =
@@ -425,7 +425,7 @@ getInnerMostDimInfoInReference(
               auto inner_most_id = scheduler_utils::innerMostAllocDim(ref_tv);
               auto inner_most_pos_in_global_ref =
                   domain_map.getInnerLeafDim(global_reference, inner_most_id);
-              data.emplace_back(inner_most_pos_in_global_ref);
+              data.push_back(inner_most_pos_in_global_ref);
             }
             return std::make_unique<std::vector<int64_t>>(std::move(data));
           });
@@ -449,10 +449,8 @@ std::string getTransposeRuntimeRejectReason(
   auto reference_tensors = reference_tensors_entry.get();
   TensorView* reference1 = reference_tensors[0];
 
-  auto pair =
-      getShapeInReference(data_cache, runtime_info, reference1, domain_map);
-  auto& shape_in_ref1 = pair.first;
-  auto& n_elems = pair.second;
+  auto [shape_in_ref1, n_elems] =
+      getLoopDomainSizes(data_cache, runtime_info, reference1, domain_map);
 
   auto innermost_info_entry = getInnerMostDimInfoInReference(
       data_cache, reference_tensors, reference1, domain_map);
@@ -475,8 +473,8 @@ std::string getTransposeRuntimeRejectReason(
     return "Transpose scheduler does not perform well on small problem sizes.";
   }
 
-  auto inner_size1 = shape_in_ref1[inner_most_pos1_in_ref1];
-  auto inner_size2 = shape_in_ref1[inner_most_pos2_in_ref1];
+  auto inner_size1 = shape_in_ref1.at(inner_most_pos1_in_ref1);
+  auto inner_size2 = shape_in_ref1.at(inner_most_pos2_in_ref1);
 
   // For cases like
   //   transpose(T0[1000000000, 2, 2], 1, 2)
@@ -593,10 +591,8 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
   auto reference_tensors = reference_tensors_entry.get();
   TensorView* reference1 = reference_tensors[0];
   TensorView* reference2 = reference_tensors[1];
-  auto pair =
-      getShapeInReference(data_cache, runtime_info, reference1, domain_map);
-  auto& shape_in_ref1 = pair.first;
-  auto& n_elems = pair.second;
+  auto [shape_in_ref1, n_elems] =
+      getLoopDomainSizes(data_cache, runtime_info, reference1, domain_map);
 
   const int64_t device_multiprocessor_count =
       (int64_t)at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
@@ -733,9 +729,14 @@ std::unique_ptr<TransposeParams> getTransposeHeuristics(
     // Adding a domain_guard so we can transform reference1
     ir_utils::TVDomainGuard domain_guard(reference1, cloned_1_td);
 
+    std::vector<int64_t> to_update(
+        {inner_most_pos1_in_ref1, inner_most_pos2_in_ref1});
     // we only apply split here, since we want to merge split dimensions, we can
     // simply map those merged domains via ContiguousInnerDimensionsMapper
-    scheduler_utils::splitDims(reference1, tparams->split_before_tiling);
+    scheduler_utils::splitDims(
+        reference1, tparams->split_before_tiling, to_update);
+    inner_most_pos1_in_ref1 = to_update[0];
+    inner_most_pos2_in_ref1 = to_update[1];
 
     tparams->vectorize_factor1 =
         vectorize_helper::getVectorizationFactorTransposeGroup(

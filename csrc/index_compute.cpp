@@ -20,6 +20,7 @@
 #include <expr_simplifier.h>
 #include <instrumentation.h>
 #include <ir/all_nodes.h>
+#include <ir/builder.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -1607,9 +1608,31 @@ Val* Index::getLinearLogicalIndex(
     TensorView* consumer_tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
-  auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
-  return sumVals(
-      getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
+      ir_utils::isCpAsyncBulkLoad(consumer_tv->definition()) ||
+      GpuLower::current()->idModelOptions().consumerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
+    const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
+    auto per_dim_indices = indexer.getIndexFor(
+        consumer_tv->definition(),
+        /*as_consumer=*/true,
+        consumer_tv->getLogicalDomain(),
+        loops);
+    Val* stride = consumer_tv->fusion()->oneVal();
+    for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
+      auto per_dim_index = per_dim_indices.at(i);
+      auto logical_id = consumer_tv->getLogicalDomain().at(i);
+      auto per_dim_strided_index =
+          SimplifyingIrBuilder::mulExpr(per_dim_index, stride);
+      per_dim_indices.at(i) = per_dim_strided_index;
+      stride = SimplifyingIrBuilder::mulExpr(stride, logical_id->extent());
+    }
+    return sumVals(per_dim_indices);
+  } else {
+    auto guard = ir_utils::allocateToLogicalDomainGuard(consumer_tv, true);
+    return sumVals(
+        getGlobalConsumerStridedIndices(consumer_tv, loops, rotated_loops));
+  }
 }
 
 std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
@@ -1617,7 +1640,8 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
     const std::vector<ForLoop*>& loops,
     const std::unordered_set<ForLoop*>& rotated_loops) {
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
-      GpuLower::current()->idModelOptions().consumerIndex()) {
+      GpuLower::current()->idModelOptions().consumerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
         consumer_tv->definition(),
@@ -1640,7 +1664,8 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
     const std::unordered_set<ForLoop*>& rotated_loops,
     const std::unordered_map<IterDomain*, Val*>& override_index) {
   if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
-      GpuLower::current()->idModelOptions().producerIndex()) {
+      GpuLower::current()->idModelOptions().producerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
         consumer_tv->definition(),
@@ -2123,14 +2148,17 @@ kir::TensorIndex* Index::getProducerIndex(
   Val* index = nullptr;
   bool is_producer_tma_op = producer->definition() != nullptr &&
       producer->definition()->isA<LoadStoreOp>() &&
-      producer->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::CpAsyncBulkTensorTile;
+      ir_utils::isCpAsyncBulkLoad(producer->definition());
+  bool is_consumer_tma_op = consumer->definition() != nullptr &&
+      consumer->definition()->isA<LoadStoreOp>() &&
+      ir_utils::isCpAsyncBulkLoad(consumer->definition());
 
   if (!ir_utils::hasRootToLoopLinearTransformations(producer) ||
       (consumer->definition()->isA<MmaOp>() &&
        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
-      is_producer_tma_op ||
-      GpuLower::current()->idModelOptions().producerIndex()) {
+      is_producer_tma_op || is_consumer_tma_op ||
+      GpuLower::current()->idModelOptions().producerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops);
     if (generate_pointer) {
@@ -2233,7 +2261,8 @@ kir::TensorIndex* Index::getConsumerIndex(
   Val* index = nullptr;
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
-      GpuLower::current()->idModelOptions().consumerIndex()) {
+      GpuLower::current()->idModelOptions().consumerIndex() ||
+      GpuLower::current()->tmemInfo().hasTMemTensor()) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition(), loops);
     if (generate_pointer) {
@@ -2657,7 +2686,6 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
 
   // 1D TMA without tensor map
   if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
-    NVF_ERROR(dim == 1L, "1D TMA but got more than one indices.")
     if (is_load) {
       std::stringstream ss;
       ss << "Hopper::CpAsyncBulkG2SIndex";
@@ -2669,7 +2697,13 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
            {"mbarrier", mbarrier}},
           ss.str());
     } else {
-      NVF_THROW("S2G for CpAsyncBulk is not implemented yet.")
+      std::stringstream ss;
+      ss << "Hopper::CpAsyncBulkS2GIndex";
+      auto gmem_address =
+          getConsumerIndex(consumer_tv, loops, rotated_loops, {}, true);
+      index = IrBuilder::structExpr(
+          {{"raw_gmem_addr", gmem_address}, {"bytes", expected_bytes}},
+          ss.str());
     }
   } else {
     // ND TMA with tensor map
@@ -2695,6 +2729,14 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     auto indices_inner_to_outer =
         indexer.getIndexFor(ldst, !is_load, ids_to_index, loops);
+
+    // These are the box coordinates of the TMA box, which must be of type
+    // int32_t. Possible overflow in each of these dims should be checked
+    // elsewhere.
+    for (size_t i : c10::irange(indices_inner_to_outer.size())) {
+      indices_inner_to_outer[i] =
+          IrBuilder::maybeCastExpr(DataType::Int32, indices_inner_to_outer[i]);
+    }
 
     auto coordinate = IrBuilder::arrayExpr(indices_inner_to_outer);
     auto descriptor = tma_info.tensorMap();

@@ -84,7 +84,7 @@ class Val;
   f(TensorConstruct);             \
   f(SelectOp);                    \
   f(IndexSelectOp);               \
-  f(TorchGatherOp);               \
+  f(GatherOp);                    \
   f(ScatterOp);                   \
   f(RNGOp);                       \
   f(ReductionOp);                 \
@@ -146,7 +146,8 @@ class Val;
   f(InitMagicZero);                   \
   f(UpdateMagicZero);                 \
   f(GetRNGSeedAndOffsetFromHost);     \
-  f(EncodeTensorMapTiled);
+  f(EncodeTensorMapTiled);            \
+  f(RNGOp);
 #define DISPATCH_FOR_ALL_HIR_EXPRS(f) \
   f(HostUnit);                        \
   f(PostOnStream);                    \

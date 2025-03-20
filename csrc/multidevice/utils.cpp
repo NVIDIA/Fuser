@@ -32,16 +32,6 @@ NVF_API bool distributedEnabled() {
 
 namespace {
 
-std::unordered_set<IterDomain*> getShardedIterDomains(TensorView* tv) {
-  std::unordered_set<IterDomain*> sharded_ids;
-  std::copy_if(
-      tv->getLoopDomain().begin(),
-      tv->getLoopDomain().end(),
-      std::inserter(sharded_ids, sharded_ids.begin()),
-      [](auto id) { return id->isDeviceDim(); });
-  return sharded_ids;
-}
-
 // Returns the position where an axis is allocated in a tv, skipping trivial
 // dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
 // tv's loop domain WAR: today we assume that the loop domain match with the
@@ -230,6 +220,21 @@ int64_t getShardedLogicalAxis(
   return logical_id_to_axis.at(id);
 }
 
+int64_t getShardedLoopAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  NVF_ERROR(
+      isParallelTypeDeviceDim(parallel_type),
+      "Expect a DID but found: ",
+      parallel_type);
+  for (int64_t i : c10::irange(tv->nDims())) {
+    if (tv->getLoopDomain()[i]->isDeviceDim()) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 at::Tensor shardTensor(
     at::Tensor tensor,
     const int64_t axis,
@@ -393,28 +398,90 @@ bool haveDifferentShardings(
       }
     }
 
-    auto is_mapped_in_id_model =
-        [](IterDomain* a, IterDomain* b, const IdModel& id_model) -> bool {
-      if (a == nullptr && b == nullptr) {
+    auto is_mapped_in_id_model = [producer, consumer, mapped_c_root_ids](
+                                     IterDomain* p_loop_id,
+                                     IterDomain* c_loop_id,
+                                     const IdModel& id_model) -> bool {
+      if (p_loop_id == nullptr && c_loop_id == nullptr) {
         return true;
       }
 
-      if (a == nullptr || b == nullptr) {
+      if (p_loop_id == nullptr || c_loop_id == nullptr) {
         return false;
+      }
+
+      if (consumer->definition()->isA<ViewOp>()) {
+        // Consider the reshape: [h]-> [a, h/a] where `h` and `a` are sharded,
+        // IdModel currently does not map the two DID axes. Similarly for the
+        // corresponding merge reshape. This is a temporary workaround to check
+        // if the reshape is resharding when sharding is on reshaped ids.
+
+        // Get the root iterdomains in the consumer that produce reshape logical
+        // Ids.
+        std::unordered_set<IterDomain*> c_reshape_ids;
+        for (auto id : consumer->getLogicalDomain()) {
+          if (id->isRFactorProduct() && id->definition() &&
+              !id->definition()->isA<Resize>()) {
+            auto root_ids = getInputsInTargetDomain(
+                id, {mapped_c_root_ids.begin(), mapped_c_root_ids.end()});
+            for (auto root_id : root_ids) {
+              c_reshape_ids.insert(root_id);
+            }
+          }
+        }
+
+        // Get the logical iterdomains in the producer that are reshaped.
+        const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+            PairwiseLogicalDomainMap(producer, consumer)
+                .mapConsumerToProducer();
+        std::unordered_set<IterDomain*> p_reshape_ids;
+        for (auto id : c_reshape_ids) {
+          auto p_id = c2p.find(id);
+          if (p_id != c2p.end()) {
+            p_reshape_ids.insert(p_id->second);
+          }
+        }
+
+        auto p_transforms = DependencyCheck::getAllExprsBetween(
+            {p_reshape_ids.begin(), p_reshape_ids.end()}, {p_loop_id});
+        auto c_transforms = DependencyCheck::getAllExprsBetween(
+            {c_reshape_ids.begin(), c_reshape_ids.end()}, {c_loop_id});
+
+        if (p_transforms.size() > 0 && c_transforms.size() > 0) {
+          // Both a and b come from reshaped ids.
+          NVF_ERROR(
+              p_loop_id->definition()->isA<Split>(),
+              p_loop_id,
+              " is not a Split: ",
+              p_loop_id->definition());
+          NVF_ERROR(
+              c_loop_id->definition()->isA<Split>(),
+              c_loop_id,
+              " is not a Split: ",
+              c_loop_id->definition());
+          // Get the split producing the sharded axis
+          auto* p_split = p_transforms.back()->as<Split>();
+          auto* c_split = c_transforms.back()->as<Split>();
+
+          // Reshape is not resharding if both the DID splits are either inner
+          // or outer splits. Note that we currently do not exercise inner
+          // splits in the multidevice tests.
+          return p_split->innerSplit() == c_split->innerSplit();
+        }
       }
 
       // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
       // would be flagged by ALMOSTEXACT as a false positive.
       if (id_model.idGraph(IdMappingMode::BROADCAST)
               .disjointValSets()
-              .strictAreMapped(a, b)) {
+              .strictAreMapped(p_loop_id, c_loop_id)) {
         return true;
       }
 
       // Check ALMOSTEXACT so iDIDx{N}*b{1} and iDIDx{N} are mapped.
       return id_model.idGraph(IdMappingMode::ALMOSTEXACT)
           .disjointValSets()
-          .strictAreMapped(a, b);
+          .strictAreMapped(p_loop_id, c_loop_id);
     };
 
     if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
@@ -618,25 +685,53 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
 }
 
 void reorderDIDToFront(TensorView* tv) {
-  // new position to old position
+  // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
 
   for (auto pos : c10::irange(tv->nDims())) {
     if (tv->axis(pos)->isDeviceDim()) {
-      order_map[current_pos] = pos;
-      current_pos++;
-    }
-  }
-
-  for (auto pos : c10::irange(tv->nDims())) {
-    if (!tv->axis(pos)->isDeviceDim()) {
-      order_map[current_pos] = pos;
+      order_map[pos] = current_pos;
       current_pos++;
     }
   }
 
   tv->reorder(order_map);
+}
+
+std::unordered_set<TensorView*> getTvsWithDifferentSharding(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs) {
+  std::unordered_set<TensorView*> ret;
+  const auto& reference_dom = ref->getLoopDomain();
+  FusionGuard fg(ref->fusion());
+  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
+  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
+  for (auto id : reference_dom) {
+    auto ca_id =
+        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+    concrete_to_reference_map[ca_id] = id;
+  }
+
+  for (TensorView* tv : tvs) {
+    if (ref->getDeviceMesh().vector() != tv->getDeviceMesh().vector()) {
+      ret.insert(tv);
+      continue;
+    }
+    for (auto id : tv->getLoopDomain()) {
+      auto ca_id =
+          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
+      if (concrete_to_reference_map.count(ca_id) > 0) {
+        auto ref_id = concrete_to_reference_map.at(ca_id);
+        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
+            ref_id->getParallelType() != id->getParallelType()) {
+          ret.insert(tv);
+          break;
+        }
+      }
+    }
+  }
+  return ret;
 }
 
 } // namespace nvfuser

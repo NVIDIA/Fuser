@@ -13,6 +13,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
@@ -29,25 +30,70 @@
 
 namespace nvfuser {
 
-void HopperMultipleMatmulScheduler::transformLikeMmaOutput(TensorView* tv) {
+void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithK(
+    TensorView* tv) {
+  NVF_ERROR(tv->axis(-1)->isReduction(), "Inner axis should be Reduction.");
+  // The input is originally block tiled so that the inner dims are the CTA tile
+  // size
+  //
+  // We split this into warp tiles then instruction tiles
+  // Original: [..., M, N, K]
+  tv->split(-3, params_->tile_sizes.warp_tile.m);
+  tv->split(-3, getM(params_->mma_macro));
+  tv->split(-2, params_->tile_sizes.warp_tile.n);
+  tv->split(-2, getN(params_->mma_macro));
+  // K dimension is present for mma_result
+  // We don't need to split by warp_tile.k, since we always have
+  // cta_tile.k == warp_tile.k
+  tv->split(-1, getK(params_->mma_macro));
+  // After Split: [..., Mo, Mw, Mi, No, Nw, Ni, Kw, Ki]
+  tv->reorder({
+      {-8, -8}, // Mo
+      {-7, -6}, // Mw
+      {-6, -3}, // Mi
+      {-5, -7}, // No
+      {-4, -5}, // Nw
+      {-3, -2}, // Ni
+      {-2, -4}, // Kw
+      {-1, -1}, // Ki
+  });
+  // After Reorder: [..., Mo, No, Mw, Nw, Kw, Mi, Ni, Ki]
+  tv->merge(-8);
+  // After Merge: [..., Mo * No, Mw, Nw, Kw, Mi, Ni]
+  tv->axis(-7)->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Kw, Mi, Ni, Ki]
+}
+
+void HopperMultipleMatmulScheduler::transformLikeMmaOutputWithoutK(
+    TensorView* tv) {
   NVF_ERROR(
       tv->domain()->loop().size() >= 4,
-      "transformLikeMmaOutput requires at least four iterDomains but ",
+      "transformLikeMmaOutputWithoutK requires at least four iterDomains but ",
       tv->toString(),
       " only has ",
       tv->domain()->loop().size(),
       ".");
+  NVF_ERROR(
+      !tv->axis(-1)->isReduction(), "Inner axis should not be Reduction.");
 
-  // Original: [..., Mo, No, Mi, Ni]
+  // The input is originally block tiled so that the inner dims are the CTA tile
+  // size
+  // Original: [..., M, N]
+  // We split this into warp tiles then instruction tiles
+  tv->split(-2, params_->tile_sizes.warp_tile.m);
   tv->split(-2, getM(params_->mma_macro));
+  tv->split(-1, params_->tile_sizes.warp_tile.n);
   tv->split(-1, getN(params_->mma_macro));
-  // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-  tv->reorder({{-3, -2}});
-  // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-  tv->merge(-4);
-  // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-  tv->axis(-3)->parallelize(ParallelType::TIDy);
-  // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
+  // After Split: [..., Mo, Mw, Mi, No, Nw, Ni]
+  tv->reorder({
+      {-3, -5},
+      {-2, -3},
+  });
+  // After Reorder: [..., Mo, No, Mw, Nw, Mi, Ni]
+  tv->merge(-6);
+  // After Merge: [..., Mo * No, Mw, Nw, Mi, Ni]
+  tv->axis(-5)->parallelize(ParallelType::TIDy);
+  // After Parallelize: [..., Mo * No (TIDy), Mw, Nw, Mi, Ni]
 }
 
 MatmulDimRole HopperMultipleMatmulScheduler::findMatmulDimRole(IterDomain* id) {
@@ -68,11 +114,6 @@ void HopperMultipleMatmulScheduler::validate() const {
         params_->splitk_factor == 1,
         "Hopper matmul scheduler does not support scheduling persistent split-K kernels");
   }
-
-  NVF_CHECK(
-      params_->tiling_strategy !=
-          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs,
-      "Hopper matmul scheduler TEMPORARILY does not support persistent scheduling of tiles yet");
 
   NVF_CHECK(
       params_->tiling_strategy !=
@@ -156,7 +197,7 @@ void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
   for (size_t i : c10::irange(operands.size())) {
     TensorView* operand = operands[i];
 
-    NVF_ERROR(operand->uses().size() == 1);
+    NVF_ERROR(!operand->uses().empty());
     smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
 
     LoadStoreOpType load_op = params_->async_gmem_load_operands
@@ -338,6 +379,21 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
         }
       }
     }
+
+    if (params_->tiling_strategy ==
+        MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+      // Persistent kernel scheduling
+      if (params_->cta_order ==
+          MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        tv->reorder(
+            {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
+      }
+      tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
+
+      const int64_t num_sms =
+          at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      tv->split(num_device_and_batch_dims_, num_sms);
+    }
   }
   return all_merged_roles;
 }
@@ -352,7 +408,9 @@ void HopperMultipleMatmulScheduler::inspectPrologues() const {
       // might be introduced when translating a MatmulOp or LinearOp to MmaOp.
       Expr* def = op_input->definition();
       NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
-      NVF_ERROR(def->input(0)->isFusionInput());
+      NVF_ERROR(
+          def->input(0)->as<TensorView>()->getMemoryType() ==
+          MemoryType::Global);
     }
   }
 }
@@ -365,6 +423,7 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
                             const std::vector<TensorView*>& smem_operands,
                             MmaOperand operand_type) {
     blockTileTensors(smem_operands);
+    parallelizeBlocks(smem_operands);
     for (TensorView* tv : smem_operands) {
       if (params_->promote_prologue_smem_reuse) {
         tv->promoteReuse();
@@ -381,21 +440,35 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
-    switch (params_->cta_order) {
-      // TODO: Should we instead check the roles of these dimensions to take the
-      // outermost two M or N axes?
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
-        tv->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDy);
+    switch (params_->tiling_strategy) {
+      case MatmulParams::TilingStrategy::OneTilePerCTA:
+        // Data-parallel kernels are parallelized BIDx BIDy
+        switch (params_->cta_order) {
+          // TODO: Should we instead check the roles of these dimensions to take
+          // the outermost two M or N axes?
+          case MatmulParams::TileRasterizationOrder::RowMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDy);
+            break;
+          case MatmulParams::TileRasterizationOrder::ColumnMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDx);
+            break;
+          default:
+            NVF_THROW(
+                "Invalid TileRasterizationOrder passed to Matmul scheduler");
+        }
         break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
+      case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
+      case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
+        // For persistent kernels, we just parallelize the SM dimension
         tv->axis(num_device_and_batch_dims_ + 1)
             ->parallelize(ParallelType::BIDx);
         break;
-      default:
-        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
     }
   }
 }
@@ -452,33 +525,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
       splitk_sums_.push_back(splitk_sum);
     }
 
-    // Original: [..., Mo, No, Mi, Ni, Ki]
-    mma_result->split(-3, getM(params_->mma_macro));
-    mma_result->split(-2, getN(params_->mma_macro));
-
-    // Split k dimension of warp tile only if it is larger than k dimension of
-    // mma macro. Inlining can be at incorrect position for circular buffering
-    // if a reduction iterDomain has iterDomain 1.
-    if (params_->tile_sizes.warp_tile.k > getK(params_->mma_macro)) {
-      mma_result->split(-1, getK(params_->mma_macro));
-      // After Split: [..., Mo, No, Mio, Mii, Nio, Nii, Kio, Kii]
-      mma_result->reorder({{-5, -4}});
-      // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii, Kio, Kii]
-      mma_result->reorder({{-2, -4}});
-      // After Reorder: [..., Mo, No, Mio, Nio, Kio, Mii, Nii, Kii]
-      mma_result->merge(-6);
-      // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-      mma_result->axis(-5)->parallelize(ParallelType::TIDy);
-      // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
-    } else {
-      // After Split: [..., Mo, No, Mio, Mii, Nio, Nii]
-      mma_result->reorder({{-4, -3}});
-      // After Reorder: [..., Mo, No, Mio, Nio, Mii, Nii]
-      mma_result->merge(-5);
-      // After Merge: [..., Mo, No, Mio * Nio, Mii, Nii]
-      mma_result->axis(-4)->parallelize(ParallelType::TIDy);
-      // After Parallelize: [..., Mo, No, Mio * Nio (TIDy), Mii, Nii]
-    }
+    transformLikeMmaOutputWithK(mma_result);
 
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         mma_result->getLoopDomain());
@@ -514,7 +561,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // op.
       blockTileTensors({d});
       parallelizeBlocks({d});
-      transformLikeMmaOutput(d);
+      transformLikeMmaOutputWithoutK(d);
 
       auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
           d->getLoopDomain());
@@ -545,13 +592,13 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
     // tile is a multiple of the macro size because stmatrix stores results from
     // wgmma to shared memory. For maximum inlining and to reduce shared memory
     // usage, the tma tile is mma_macro size.
-    const int64_t tma_m = getM(params_->mma_macro);
-    const int64_t tma_n = getN(params_->mma_macro);
+    const int64_t tma_m = params_->tile_sizes.warp_tile.m;
+    const int64_t tma_n = params_->tile_sizes.warp_tile.n;
 
-    fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
-    fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
-    fusion_->manage("st_matrix_m", tma_m);
-    fusion_->manage("st_matrix_n", tma_n);
+    fusion_->manage("ldst_matrix_m_tile", stmatrix_tile_m);
+    fusion_->manage("ldst_matrix_n_tile", stmatrix_tile_n);
+    fusion_->manage("ldst_matrix_m_smem", tma_m);
+    fusion_->manage("ldst_matrix_n_smem", tma_n);
 
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {
@@ -594,7 +641,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       blockTileTensors(tvs_to_schedule);
       parallelizeBlocks(tvs_to_schedule);
       for (auto tv : tvs_to_schedule) {
-        transformLikeMmaOutput(tv);
+        transformLikeMmaOutputWithoutK(tv);
       }
 
       // Should not propagate if the dc is a mma output as the mma output has
@@ -627,7 +674,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       if (store_with_stmatrix) {
         // Schedule shared memory cache; Output from StMatrix
         mma_utils::scheduleStMatrixForMmaOutput(
-            d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+            d_smem, stmatrix_tile_m, stmatrix_tile_n);
       }
 
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
@@ -645,7 +692,7 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
   for (TensorView* splitk_sum : splitk_sums_) {
     // Always use serial grid reduction for split-K sum
     splitk_sum->definition()->as<ReductionOp>()->requestSerialGridReduction();
-    transformLikeMmaOutput(splitk_sum);
+    transformLikeMmaOutputWithoutK(splitk_sum);
     auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
         splitk_sum->getLoopDomain());
     splitk_sum->setLoopDomain(s.as<IterDomain*>());
@@ -697,11 +744,47 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
 
     CircularBufferType cb_type;
     switch (params_->circular_buffering_strategy) {
-      case MatmulParams::CircularBufferingStrategy::Pipelined:
+      case MatmulParams::CircularBufferingStrategy::Pipelined: {
         cb_type = (CircularBufferType)Pipelined(false);
         break;
-      case MatmulParams::CircularBufferingStrategy::WarpSpecialized:
-        cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+      }
+      case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
+        if (params_->tiling_strategy ==
+            MatmulParams::TilingStrategy::OneTilePerCTA) {
+          int64_t num_math_warp_groups = 1L;
+          NVF_ERROR(!mma_results_.empty());
+          for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+            if (id->getParallelType() == ParallelType::TIDy) {
+              num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
+            }
+          }
+          NVF_ERROR(
+              num_math_warp_groups <= 2,
+              "There can be at most two compute warp groups for register ",
+              "sharing with warp specialization");
+          if (num_math_warp_groups == 1) {
+            // Disable register sharing when there is only one math warp group.
+            // In such case we will have 128 math threads and 128 dma threads,
+            // for a total of 256 threads per CTA. The register file size on
+            // Hopper is 64K registers, which is filled when a 256-thread CTA
+            // has 256 registers per thread. Since 256 is already the maximum
+            // number of registers per thread even with register sharing, there
+            // is no point in doing register sharing to try and increase it.
+            cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+          } else {
+            constexpr int64_t num_registers_load_warp = 40;
+            constexpr int64_t num_registers_compute_warp = 232;
+            cb_type = (CircularBufferType)WarpSpecialized(
+                ParallelType::TIDy,
+                std::make_pair(
+                    num_registers_load_warp, num_registers_compute_warp));
+          }
+        } else {
+          // Persistent kernels cannot yet use register sharing
+          cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        }
+        break;
+      }
     }
     for (TensorView* acw_smem : acw_smems_) {
       acw_smem->circularBuffer(

@@ -49,7 +49,7 @@ NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
-  ss << ir_utils::varName(this);
+  indent(ss, indent_size) << ir_utils::varName(this);
   switch (getMemoryType()) {
     case MemoryType::Global:
       ss << "_g";
@@ -66,7 +66,7 @@ std::string TensorView::toString(int indent_size) const {
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
-  ss << "_" << dtype() << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString();
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";
@@ -121,7 +121,8 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
       promote_reuse_(src->promote_reuse_),
-      mesh_(src->mesh_) {}
+      mesh_(src->mesh_),
+      tmem_dim_sep_pos_(src->tmem_dim_sep_pos_) {}
 
 void TensorView::printTransforms() const {
   IrTransformPrinter(std::cout).printTransforms(this);
@@ -196,89 +197,21 @@ void TensorView::inlineAt(
   }
 
   for (auto consumer : ir_utils::consumerTvsOf(this)) {
-    consumer->updateMaxProducerPosition();
+    consumer->updateMaxProducerPosition(calc);
   }
 }
 
-namespace {
-
-// Try to find the aligned position on consumer's domain corresponding to a
-//  position of producer domain. No checking on actual
-//  producer-consumer relationship.
-int64_t getConsumerPosAlignedToProducerCA(
-    TensorView* consumer,
-    TensorView* producer,
-    int64_t producer_pos) {
-  // Locate consumer's position that aligns with
-  //  the producer's position. We need broadcast axes forwarded so we
-  //  need to replay PasC as CasP will not forward braodcast dims. For example
-  //  if we have:
-  // T2[ iS22{( 3 * 1 )} ] ca_pos( 1 ) = broadcast( T1[ iS1{3} ] ca_pos( 1 )
-  // produce_pos( 1) ) CasP will have the mapping iS1{3} -> iS2{3} and PasC will
-  // have the mapping iS22{( 3 * 1 )} <- iS1{3} We need the latter. Refer to
-  // NVFuserTest.FusionComplexBCast1_CUDA
-
-  int64_t consumer_pos = consumer->nDims();
-
-  const bool may_need_forwarding =
-      ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer) &&
-      ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(consumer);
-
-  if (may_need_forwarding) {
-    auto disjoint_sets = BestEffortReplay::replayPasC(
-                             producer,
-                             consumer,
-                             -1,
-                             PairwiseLogicalDomainMap(producer, consumer))
-                             .getIterDomainEquivalence();
-
-    // Find the innermost position of consumer that has
-    //  been mapped within the producer ca axis.
-
-    while (consumer_pos > 0) {
-      auto consumer_id = consumer->axis(consumer_pos - 1);
-      const auto& p_dom = producer->getLoopDomain();
-      if (std::any_of(
-              p_dom.begin(),
-              p_dom.begin() + producer_pos,
-              [&consumer_id, &disjoint_sets](IterDomain* p_id) {
-                return disjoint_sets.permissiveAreMapped(consumer_id, p_id);
-              })) {
-        break;
-      }
-      consumer_pos--;
-    }
-  } else {
-    IdModel id_model({consumer->definition()}, {}, false);
-    id_model.buildBroadcastGraph();
-    const auto& inlining_graph = id_model.idGraph(IdMappingMode::BROADCAST);
-
-    while (consumer_pos > 0) {
-      auto consumer_id = consumer->axis(consumer_pos - 1);
-      const auto& p_dom = producer->getLoopDomain();
-      if (std::any_of(
-              p_dom.begin(),
-              p_dom.begin() + producer_pos,
-              [&consumer_id, &inlining_graph](IterDomain* p_id) {
-                return inlining_graph.disjointValSets().strictAreMapped(
-                    consumer_id, p_id);
-              })) {
-        break;
-      }
-      consumer_pos--;
-    }
+void TensorView::updateMaxProducerPosition(MaxPosCalculator* calc) {
+  std::unique_ptr<MaxPosCalculator> calc_owner;
+  if (calc == nullptr) {
+    calc_owner = std::make_unique<MaxPosCalculator>();
+    calc = calc_owner.get();
   }
 
-  return consumer_pos;
-}
-
-} // namespace
-
-void TensorView::updateMaxProducerPosition() {
   for (auto producer : ir_utils::producerTvsOf(this)) {
     max_producer_pos_ = std::max(
         max_producer_pos_,
-        getConsumerPosAlignedToProducerCA(
+        calc->getConsumerPosAlignedToProducerCA(
             this, producer, producer->getComputePosition(this)));
   }
 
@@ -293,7 +226,7 @@ void TensorView::updateMaxProducerPosition() {
     if (producer->hasComputeWith() && !producer->hasResolvedComputeWith()) {
       maybe_max_producer_pos_ = std::max(
           maybe_max_producer_pos_,
-          getConsumerPosAlignedToProducerCA(
+          calc->getConsumerPosAlignedToProducerCA(
               this, producer, producer->getComputeWithPosition()));
     }
   }
@@ -591,6 +524,47 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
   return this;
 }
 
+TensorView* TensorView::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
+  NVF_ERROR(
+      nDims() > 0,
+      "Tried to do resize on a 0-dim TensorView. ",
+      "Tensor: ",
+      toString());
+
+  axis = wrapDim(axis);
+
+  NVF_CHECK(
+      axis >= getMaxComputePosition(),
+      "Cannot resize axis within compute at position. Axis = ",
+      axis,
+      " computePosition = ",
+      getMaxComputePosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      axis >= getMaybeMaxProducerPosition(),
+      "Cannot resize axis within max producer position. Axis = ",
+      axis,
+      " maxProducerPosition = ",
+      getMaybeMaxProducerPosition(),
+      ". Tensor: ",
+      toString());
+
+  NVF_CHECK(
+      this->axis(axis)->getParallelType() == ParallelType::Serial,
+      "Resizing an axis of non-Serial parallel type is not supported at this time."
+      " Parallelization strategy must be set after calling resize: ",
+      toString());
+
+  domain()->resize(axis, left_expansion, right_expansion, iter_type);
+  return this;
+}
+
 TensorView* TensorView::flatten(int64_t from, int64_t to) {
   NVF_ERROR(nDims() > 0, "Tried to do flatten on a 0-dim TensorView");
   from = wrapDim(from);
@@ -807,23 +781,12 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       "Error rfactoring ",
       this,
       " its definition is either a nullptr or not a reduction.");
-  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
-  // using commitLeafToLogical. Thus, the original logical domain is moved to
-  // the root domain.
-  NVF_CHECK(
-      definition()->isA<MmaOp>() || !domain()->hasRoot(),
-      "Cannot call rfactor on the same view twice.");
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
 
   // Split tensor view into 2 parts
-  auto domain_pair = domain()->rFactor(axes);
-
-  // Producer in the pair
-  auto producer_domain = domain_pair.first;
-  // Consumer in the pair
-  auto consumer_domain = domain_pair.second;
+  auto [producer_domain, consumer_domain] = domain()->rFactor(axes);
 
   // This domain will be the consumer, so create the producer
   TensorView* producer =
@@ -1470,6 +1433,15 @@ void TensorView::commitLeafToLogical() {
       TensorDomain::getContiguityFilledWith(
           (domain_->hasAllocation() ? domain_->allocation() : domain_->loop()),
           true)));
+}
+
+void TensorView::setTMemDimSepPos(int64_t pos) {
+  int64_t ndims = (int64_t)getMaybeAllocationDomain().size();
+  pos = nvfuser::wrapDim(pos, ndims + 1);
+  NVF_CHECK(
+      pos >= 0 && pos <= ndims,
+      "Invalid position for tensor memory dimension separator");
+  tmem_dim_sep_pos_ = pos;
 }
 
 TensorViewBuilder& TensorViewBuilder::ndims(int64_t ndims) {

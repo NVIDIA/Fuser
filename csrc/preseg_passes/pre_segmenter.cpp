@@ -25,6 +25,7 @@
 #include <preseg_passes/remove_empty.h>
 #include <preseg_passes/reorder_sharded_axis.h>
 #include <preseg_passes/segment_inplace_update.h>
+#include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
 
 namespace nvfuser::preseg_passes {
@@ -68,7 +69,7 @@ namespace nvfuser::preseg_passes {
   // currently only limited to pointwise patterns and does not
   // support, for example, reductions, etc, so this preseg pass still
   // may be preferable in some cases.
-  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
+  if (isOptionDisabled(DisableOption::ResizeScheduler)) {
     OptimizationPass<MovePadPass>::runPass(fusion);
   }
   // NOTE vvv this doesn't really work, since our type promotion to higher
@@ -82,6 +83,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
+  OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

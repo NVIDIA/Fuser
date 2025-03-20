@@ -143,7 +143,7 @@ bool isTvOp(const Expr* expr) {
           TensorConstruct,
           SelectOp,
           IndexSelectOp,
-          TorchGatherOp,
+          GatherOp,
           ScatterOp,
           RNGOp,
           FullOp,
@@ -175,7 +175,8 @@ bool isTvOp(const Expr* expr) {
           kir::GridBroadcast,
           kir::GridWelford,
           kir::GroupedGridWelford,
-          kir::VectorizedWelfordOp>())) {
+          kir::VectorizedWelfordOp,
+          kir::RNGOp>())) {
     return true;
   }
   return false;
@@ -551,6 +552,32 @@ class ReplaceExprInput : private kir::ExprMutator {
   void handle(RNGOp* node) final {
     // RNGOp has no input
     return;
+  }
+
+  void handle(kir::RNGOp* node) final {
+    auto replaced_inputs = getMaybeInputReplacementMap(node);
+    if (replaced_inputs.has_value()) {
+      kir::RNGOp* replacement = nullptr;
+      if (node->inputs().size() == 4) {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType(),
+            std::vector<Val*>{
+                replaced_inputs->at(node->input(2)),
+                replaced_inputs->at(node->input(3))});
+      } else {
+        replacement = IrBuilder::create<kir::RNGOp>(
+            node->output(0),
+            replaced_inputs->at(node->input(0)),
+            replaced_inputs->at(node->input(1)),
+            node->dtype(),
+            node->getRNGOpType());
+      }
+      registerReplaceWithPredicate(node, replacement);
+    }
   }
 
   void handle(ReductionOp* node) final {
@@ -1291,23 +1318,21 @@ Val* extent(const Projection& proj) {
 Projection simplify(Projection proj);
 
 // Given an expression on the traversal path and its direction, get the from
-// and to groups. Note that the traversal path is obtained by running BFS from
-// domain to linear_g, so the direction is flipped with respect to how we
-// propagate from linear_g to domain.
+// and to groups.
 auto fromGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.outputGroups(eg)
-                                         : id_graph.inputGroups(eg);
+  return direction == Direction::Backward ? id_graph.outputGroups(eg)
+                                          : id_graph.inputGroups(eg);
 }
 
 auto toGroups(
     const ValGraph& id_graph,
     const ExprGroup& eg,
     Direction direction) {
-  return direction == Direction::Forward ? id_graph.inputGroups(eg)
-                                         : id_graph.outputGroups(eg);
+  return direction == Direction::Backward ? id_graph.inputGroups(eg)
+                                          : id_graph.outputGroups(eg);
 }
 
 // Do the propagation to project linear_g on domain through the given
@@ -1921,24 +1946,56 @@ Val* proveLinearAndGetStride(
     return linear_g->front()->fusion()->zeroVal();
   }
   // Propagate from linear_g to domain. Use frontier to keep track of the
-  // how linear_g lives in the current propagation front.
+  // how linear_g lives in the current propagation front. Note that linear_g may
+  // not contain full dependency of domain.
   Projection frontier = linear_g;
   auto path =
-      ValGraphBFS::getExprGroupsBetween(id_graph, domain, {linear_g}).first;
-  while (!path.empty()) {
-    const auto& [eg, direction] = path.back();
-    path.pop_back();
-    auto from = fromGroups(id_graph, eg, direction);
+      ValGraphPermissiveBFS::getExprGroupsBetween(
+          id_graph, {linear_g}, domain, /*require_all_to_visited=*/false)
+          .first;
+  // Propagate along the path from linear_g to domain. Note that we do not
+  // always propagate all the way through the path. Instead, early stopping
+  // is necessary to be functionally correct. For example, if we have the
+  // following ValGroups:
+  //   4   2
+  //    \ /
+  //     8
+  //    / \.
+  //   4'  2'
+  // and we are asking: is 2' linear in [4, 2']? The answer is trivially
+  // yes by eyeballing, because 2' is the inner of [4, 2']. However, we must be
+  // careful in propagation to algorithmically get it right. Although we can
+  // directly tell the answer for this example without any progagation, because
+  // ValGraphPermissiveBFS has no information about the underlying problem we
+  // are solving, it always generate a path that visits `domain` as much as
+  // possible, regardless of whether the underlying problem want it or not.
+  // For this case, although the 4 in `domain` is unrelated to the answer,
+  // ValGraphPermissiveBFS will still visit it. Therefore, it will generate a
+  // path that include the merge of 4 and 2, and the split of 8. If we
+  // mindlessly propagate along this path without early stopping, we will
+  // propagate linear_g into frontier = 2, which leads to a conclusion that
+  // "linear_g is the 2, and domain is [4, 2'], linear_g is not in domain, so I
+  // can not prove linearity", which is not the answer we want. Note that
+  // patterns like this can appear anywhere in the path, so we need to check for
+  // early stopping at each step of the propagation.
+  Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  if (stride != nullptr) {
+    return stride;
+  }
+  for (const auto& [eg, direction] : path) {
     frontier = propagate(frontier, id_graph, eg, direction);
     if (!frontier.hasValue()) {
       // Not representable (or don't know how to represent) by the language of
       // the dynamic type Projection.
       return nullptr;
     }
+    // Check for early stopping.
+    Val* stride = proveLinearAndGetStrideAfterPropagation(frontier, domain);
+    if (stride != nullptr) {
+      return stride;
+    }
   }
-  // After propagation, we should have the information about how linear_g lives
-  // in domain. Parse this information to check if linear_g is linear in domain.
-  return proveLinearAndGetStrideAfterPropagation(frontier, domain);
+  return nullptr;
 }
 
 IterDomain* getConcreteLoopID(IterDomain* id) {
@@ -1995,11 +2052,16 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-std::vector<Expr*> getSyncExprs(AsyncOpType async_type, int64_t keep_stages) {
+std::vector<Expr*> getSyncExprs(
+    AsyncOpType async_type,
+    int64_t keep_stages,
+    bool requires_commit) {
   std::vector<Expr*> sync_exprs;
   sync_exprs.reserve(2);
-  auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-  sync_exprs.push_back(commit);
+  if (requires_commit) {
+    auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
+    sync_exprs.push_back(commit);
+  }
   auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
   sync_exprs.push_back(wait);
   return sync_exprs;

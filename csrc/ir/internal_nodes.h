@@ -129,16 +129,14 @@ class IndexSelectOp : public Expr {
   }
 };
 
-class NVF_API TorchGatherOp : public Expr {
+class NVF_API GatherOp : public Expr {
  public:
   using Expr::Expr;
 
   //! Parameter exact_sizes indicates whether the non-indexed domains
   //! of the index tensor have the same extents of those of the input
-  //! tensor. It's true in the case of torch.take_along_dim and
-  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
-  //! they are the same.
-  TorchGatherOp(
+  //! tensor. It's true in the case of take_along_axis.
+  GatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
@@ -149,7 +147,7 @@ class NVF_API TorchGatherOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "TorchGatherOp";
+    return "GatherOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -2280,10 +2278,15 @@ output = [N, H, L, Ev]
 logsumexp = [N, H, L]
 query_seq_len = scalar(int)
 key_seq_len = scalar(int)
-philox_seed = scalar tensor
-philox_offset = scalar tensor
+philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
 debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
 setting `return_debug_mask=False` when invoking flash attention)
+
+Note: For older versions, torch returns CPU scalar tensors for philox_seed and
+philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
+(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
+contains both seed and offset.
 
 query = [N, H, L, E]
 key = [N, H, S, E]
@@ -2572,6 +2575,9 @@ class ForLoop final : public Expr {
   //! True if loop is grouped reduction/welford
   bool isGroup() const;
 
+  //! True if loop needs to call a runtime reduction function
+  bool hasRuntimeReductionFunctions() const;
+
   //! Returns the stage of a circular buffered iterdomain
   //!  that this for loop materializes.
   auto circularBufferLoopStage() const {
@@ -2606,9 +2612,14 @@ output = [N, H, L, Ev]
 logsumexp = [N, H, L]
 dropout_p = scalar(double)
 is_causal = scalar(bool)
-philox_seed = scalar CPU tensor
-philox_offset = scalar CPU tensor
-scale = scalar(double)
+philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale =
+scalar(double)
+
+Note: For older versions, torch accepts CPU scalar tensors for philox_seed and
+philox_offset. For torch 2.7.0 and above, torch accepts philox_seed -> rng_state
+(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
+contains both seed and offset.
 
 N = number of sequences / batch size
 H = num of heads

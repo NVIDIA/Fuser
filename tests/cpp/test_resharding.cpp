@@ -50,8 +50,8 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
         .run_final_merge = true,
         .only_segment_resharding_exprs = true};
 
-    auto segmented_fusion =
-        SegmentCandidateFinder::segment(std::move(fusion_), nullptr, options);
+    auto segmented_fusion = SegmentCandidateFinder::segment(
+        std::move(fusion_), KernelArgumentHolder(), options, true);
 
     for (SegmentedGroup* group : segmented_fusion->groups()) {
       // TODO: use EXPECT_THAT.
@@ -64,7 +64,7 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
     }
     // checks that the segments are disjoints and that the graph of segment is
     // acyclic
-    segmented_fusion->validate();
+    segmented_fusion->validateDisjoint();
   }
 
   std::unique_ptr<Fusion> fusion_;

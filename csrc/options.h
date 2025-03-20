@@ -104,9 +104,11 @@ enum class EnableOption {
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
-  ResizeScheduler, //! Enable the resize scheduler
   StaticFusionCount, //! Enable using single static count in kernel name
+  WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
+                // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
+  HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   EndOfOption //! Placeholder for counting the number of elements
 };
 
@@ -123,6 +125,7 @@ enum class DisableOption {
   Fma, //! Disable FMA instructions
   GroupedGridWelfordOuterOpt, //! Disable use of outer-optimized
                               //! grouped grid welford kernel
+  IdModel, //! Disable IdModel
   IndexHoist, //! Disable index hoisting
   MagicZero, //! Disable nvfuser_zero
   MatmulExprEval, //! Disable ATen evaluation for the entire fusion containing
@@ -144,6 +147,7 @@ enum class DisableOption {
                //! need this in particular to investigate possible conflicts
                //! between nvFuser communicator and the framework also setting
                //! up `c10d::ProcessGroup`
+  ResizeScheduler, //! Disable the resize scheduler
   EndOfOption //! Placeholder for counting the number of elements
 };
 

@@ -118,10 +118,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
         continue;
       }
 
-      // Not yet set. This must be an input tensor.
+      // Not yet set. This must be an input tensor or it must be aliased via
+      // aliasTensorProducer, in which case it will not be allocated.
       NVF_ERROR(
-          producer_tv->isFusionInput(),
-          "Expected a fusion input: ",
+          producer_tv->isFusionInput() ||
+              GpuLower::current()->getTensorProducerAlias(producer_tv) !=
+                  nullptr,
+          "Expected a fusion input or aliased tensor but found: ",
           producer_tv->toString());
 
       // For fusion input, we can just use getMaybeAllocationDomain.
@@ -748,10 +751,7 @@ TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
   buildLoopIndexMap();
 
   if (isDebugDumpEnabled(DebugDumpOption::IndexingVerbose)) {
-    std::ofstream ofs("indexing_traversal_graph.dot", std::ofstream::trunc);
-    auto dot_string = traversalGraph().toGraphvizDotGraph();
-    ofs << dot_string;
-    ofs.close();
+    traversalGraph().dumpGraphvizDotGraph("indexing_traversal_graph.dot");
   }
 }
 

@@ -16,6 +16,12 @@ class TensorView;
 
 namespace scheduler_tools {
 
+bool isResizeBasedOp(Expr* expr);
+
+bool hasResizeBasedOps(Fusion* fusion);
+
+std::vector<Expr*> getResizeBasedOps(Fusion* fusion);
+
 // For a given resize-based tensor op such as SliceOp and PadOp, make the loop
 // domain of each dependent producer tensor exact-mapped by propagating
 // the iter-domain ops of the output tensor of the given op. Note that

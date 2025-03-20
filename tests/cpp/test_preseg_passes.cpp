@@ -15,6 +15,7 @@
 #include <preseg_passes/consecutive_cast.h>
 #include <preseg_passes/optimization_pass.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -39,7 +40,7 @@ TEST_F(PresegTest, FusionTestOptimizationPassFlag) {
     static void runPass(Fusion* fusion) {
       throw std::runtime_error("running DerivedPass");
     };
-    static std::string name() {
+    static constexpr std::string_view name() {
       return "DerivedPass";
     }
   };
@@ -347,7 +348,7 @@ TEST_F(PresegTest, FusionTestCastOptimization) {
     // (input)float -> half -> bfloat16 -> half
     fusion->addOutput(tv);
     OptimizationPass<PreSegmenter>::runPass(fusion.get());
-    // simplified as (input)float -> half -> bfloat -> half
+    // simplified as (input)float -> half -> bfloat16 -> half
     auto ref_tv = castOp(DataType::Half, tv0);
     ref_tv = castOp(DataType::BFloat16, ref_tv);
     ref_tv = castOp(DataType::Half, ref_tv);
@@ -368,10 +369,9 @@ TEST_F(PresegTest, FusionRemoveEmptyOutput) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at0 = at::randn({0, 3}, options);
-  std::vector<c10::IValue> aten_inputs = {at0};
+  at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   // In the FusionKernelRuntime, before segmentation a number of optimization
@@ -387,7 +387,7 @@ TEST_F(PresegTest, FusionRemoveEmptyOutput) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(preseg_fusion, outputs, aten_inputs, {at0}, __LINE__, __FILE__);
+  testValidate(preseg_fusion, outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
 // Test that we replace empty reduction with full
@@ -403,10 +403,9 @@ TEST_F(PresegTest, FusionRemoveEmptyReduction) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at0 = at::randn({0, 3}, options);
-  std::vector<c10::IValue> aten_inputs = {at0};
+  at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -417,7 +416,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReduction) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(preseg_fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // In this test, a reduction over a non-empty axis occurs first, followed by a
@@ -436,10 +435,9 @@ TEST_F(PresegTest, FusionRemoveEmptyReductionWithNonReduction) {
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at0 = at::randn({0, 3, 2}, options);
-  std::vector<c10::IValue> aten_inputs = {at0};
+  at::Tensor t0 = at::randn({0, 3, 2}, options);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -450,7 +448,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReductionWithNonReduction) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(preseg_fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test that we replace empty Welford with full
@@ -468,10 +466,9 @@ TEST_F(PresegTest, FusionRemoveEmptyWelford) {
   fusion.addOutput(var);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at0 = at::randn({0, 3}, options);
-  std::vector<c10::IValue> aten_inputs = {at0};
+  at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -493,8 +490,8 @@ TEST_F(PresegTest, FusionRemoveEmptyWelford) {
   testValidate(
       preseg_fusion,
       outputs,
-      aten_inputs,
-      {at::mean(at0, 0), at::var(at0, 0)},
+      {t0},
+      {at::mean(t0, 0), at::var(t0, 0)},
       __LINE__,
       __FILE__);
 }
@@ -521,12 +518,11 @@ TEST_F(PresegTest, FusionRemoveEmptyCat) {
   fusion.addOutput(tv4);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at0 = at::randn({0, 3}, options);
-  at::Tensor at1 = at::randn({2, 3}, options);
-  at::Tensor at2 = at::randn({4, 3}, options);
-  std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
+  at::Tensor t0 = at::randn({0, 3}, options);
+  at::Tensor t1 = at::randn({2, 3}, options);
+  at::Tensor t2 = at::randn({4, 3}, options);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args({t0, t1, t2});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -542,7 +538,7 @@ TEST_F(PresegTest, FusionRemoveEmptyCat) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(preseg_fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // Test that we replace empty tensors in pad properly
@@ -563,10 +559,9 @@ TEST_F(PresegTest, FusionRemoveEmptyPad) {
   fusion.addOutput(tv1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor at0 = at::randn({3, 0}, options);
-  std::vector<c10::IValue> aten_inputs = {at0};
+  at::Tensor t0 = at::randn({3, 0}, options);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -580,7 +575,7 @@ TEST_F(PresegTest, FusionRemoveEmptyPad) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(preseg_fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test that we replace empty tensors in matmuls properly
@@ -607,11 +602,10 @@ TEST_F(PresegTest, FusionRemoveEmptyMatmul) {
   fusion.addOutput(tv2);
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
-  at::Tensor at0 = at::randn({16, 0}, options);
-  at::Tensor at1 = at::randn({0, 8}, options);
-  std::vector<c10::IValue> aten_inputs = {at0, at1};
+  at::Tensor t0 = at::randn({16, 0}, options);
+  at::Tensor t1 = at::randn({0, 8}, options);
 
-  auto args = KernelArgumentHolder::createKernelArgumentHolder(aten_inputs);
+  KernelArgumentHolder args({t0, t1});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -625,7 +619,7 @@ TEST_F(PresegTest, FusionRemoveEmptyMatmul) {
   runtime.compileFusionParallel(args);
   auto outputs = runtime.runWithInputs(args);
 
-  testValidate(preseg_fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(preseg_fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, ReplaceOutput) {
@@ -641,10 +635,10 @@ TEST_F(PresegTest, ReplaceOutput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({10}, at::device(at::kCUDA));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
 
   testValidate(
-      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, ExtentSubstitution) {
@@ -802,10 +796,9 @@ TEST_F(PresegTest, TranslateRepeatToExpand1) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({32}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   // Should be scheduled as a pointwise kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -843,10 +836,9 @@ TEST_F(PresegTest, TranslateRepeatToExpand2) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({32}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   // Should be scheduled as a pointwise kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -884,10 +876,9 @@ TEST_F(PresegTest, TranslateRepeatToExpand3) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({4, 8}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   // Should be scheduled as a pointwise kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -932,10 +923,9 @@ TEST_F(PresegTest, TranslateRepeatToExpand4) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({4, 8}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   // Should be segmented to two pointwise kernels
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -972,10 +962,9 @@ TEST_F(PresegTest, TranslateRepeatToExpand5) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({32}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   // Should be scheduled as a pointwise kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -1020,10 +1009,9 @@ TEST_F(PresegTest, TranslateRepeatToExpand6) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({32, 1}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 
   // Should be scheduled as a pointwise kernel
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
@@ -1064,10 +1052,9 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp0) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({2, 4}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, FusionTestCastOptimizationMetaOp1) {
@@ -1088,14 +1075,13 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp1) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({2, 4}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
   bool is_segmented =
       executor_cache.getMostRecentKernelRuntime()->isSegmented();
   NVF_CHECK(!is_segmented, "Fusion should not be segmented");
 
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, FusionTestCastOptimizationMetaOp2) {
@@ -1117,14 +1103,13 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp2) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({2, 4}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
   bool is_segmented =
       executor_cache.getMostRecentKernelRuntime()->isSegmented();
   NVF_CHECK(!is_segmented, "Fusion should not be segmented");
 
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, FusionTestCastOptimizationMetaOp3) {
@@ -1143,10 +1128,9 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp3) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({2, 4}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
@@ -1183,11 +1167,11 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({2, 3, 4}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  ASSERT_TRUE(outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  ASSERT_TRUE(outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, FusionTestCastOptimizationMetaOp5) {
@@ -1224,10 +1208,9 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp5) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   auto t0 = at::randn({2, 3, 4}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
@@ -1270,10 +1253,85 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp6) {
 
   auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(at::kHalf);
   auto t0 = at::randn({2, 3, 4}, options);
-  std::vector<c10::IValue> inputs = {t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(executor_cache.fusion(), outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
+}
+
+struct MatmulInputShape {
+  std::vector<int64_t> shape_a;
+  std::vector<int64_t> shape_b;
+  std::string toString() const {
+    std::stringstream ss;
+    ss << toDelimitedString(shape_a, "x") << "_"
+       << toDelimitedString(shape_b, "x");
+    return ss.str();
+  }
+};
+
+using TranslateNoReductionMatmulTest =
+    NVFuserFixtureParamTest<MatmulInputShape>;
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TranslateNoReductionMatmulTest,
+    testing::Values(
+        MatmulInputShape{{8, 1}, {1, 16}},
+        MatmulInputShape{{8, 1}, {1}},
+        MatmulInputShape{{1}, {1, 8}},
+        MatmulInputShape{{2, 3, 1}, {2, 1, 4}},
+        MatmulInputShape{{2, 3, 4, 1}, {2, 3, 1, 5}},
+        MatmulInputShape{{4, 1}, {2, 1, 5}},
+        MatmulInputShape{{4, 1}, {2, 3, 1, 5}},
+        MatmulInputShape{{1}, {2, 3, 1, 5}},
+        MatmulInputShape{{3, 4, 1}, {1}},
+        MatmulInputShape{{2, 3, 4, 1}, {1}}),
+    [](const testing::TestParamInfo<MatmulInputShape>& info) {
+      return info.param.toString();
+    });
+
+// Test the translation of MatmulOp when K=1
+TEST_P(TranslateNoReductionMatmulTest, Test) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(&fusion);
+
+  const auto config = GetParam();
+
+  auto tv0 = makeContigConcreteTensor(config.shape_a);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor(config.shape_b);
+  fusion.addInput(tv1);
+
+  auto tv2 = matmul(tv0, tv1);
+  fusion.addOutput(tv2);
+
+  {
+    // Make sure MatmulOp no longer exists
+    Fusion fusion_copy = fusion;
+    OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(
+        &fusion_copy);
+    auto new_exprs = fusion_copy.exprs();
+    EXPECT_EQ(
+        std::find_if(
+            new_exprs.begin(),
+            new_exprs.end(),
+            [](Expr* new_expr) { return new_expr->isA<MatmulOp>(); }),
+        new_exprs.end());
+  }
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto t0 = at::randn(config.shape_a, options);
+  auto t1 = at::randn(config.shape_b, options);
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  testValidate(executor_cache.fusion(), outputs, {t0, t1}, __LINE__, __FILE__);
+
+  // Should be scheduled as a pointwise kernel
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::PointWise)));
 }
 
 } // namespace nvfuser::preseg_passes

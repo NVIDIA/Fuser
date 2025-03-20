@@ -178,7 +178,7 @@ std::vector<PolymorphicValue> IndexSelectOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
 
-TorchGatherOp::TorchGatherOp(
+GatherOp::GatherOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in,
@@ -193,7 +193,7 @@ TorchGatherOp::TorchGatherOp(
   addDataAttribute(exact_sizes);
 }
 
-std::string TorchGatherOp::toString(int indent_size) const {
+std::string GatherOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
@@ -208,19 +208,19 @@ std::string TorchGatherOp::toString(int indent_size) const {
   return ss.str();
 }
 
-std::string TorchGatherOp::toInlineString(int indent_size) const {
+std::string GatherOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* TorchGatherOp::getIndexedID() const {
+IterDomain* GatherOp::getIndexedID() const {
   return TensorDomain::noReductions(lookupTv()->getLogicalDomain()).at(dim());
 }
 
-IterDomain* TorchGatherOp::getConsumerOfIndexedID() const {
+IterDomain* GatherOp::getConsumerOfIndexedID() const {
   return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
 }
 
-std::vector<PolymorphicValue> TorchGatherOp::evaluate(
+std::vector<PolymorphicValue> GatherOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& input = inputs.at(0).as<at::Tensor>();
@@ -233,7 +233,7 @@ std::vector<PolymorphicValue> TorchGatherOp::evaluate(
   }
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(TorchGatherOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(GatherOp)
 
 ScatterOp::ScatterOp(
     IrBuilderPasskey passkey,
@@ -599,18 +599,20 @@ std::vector<PolymorphicValue> BinaryOp::evaluate(
       return {lhs * rhs};
       break;
     case BinaryOpType::Div:
+      NVF_CHECK(
+          !rhs.is<int64_t>() || rhs != 0, "Integer division by zero detected");
       return {lhs / rhs};
       break;
     case BinaryOpType::Mod:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "Modulo zero detected");
       return {lhs % rhs};
       break;
     case BinaryOpType::Fmod:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "Float modulo zero detected");
       return {fmod(lhs, rhs)};
       break;
     case BinaryOpType::CeilDiv:
-      NVF_CHECK(rhs != 0);
+      NVF_CHECK(rhs != 0, "CeilDiv by zero detected");
       return {ceildiv(lhs, rhs)};
       break;
     case BinaryOpType::LogicalAnd:
@@ -1377,7 +1379,17 @@ SqueezeOp::SqueezeOp(
 std::string SqueezeOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << "\n";
-  indent(ss, indent_size) << "   = squeeze( " << in()->toString() << " )\n";
+  indent(ss, indent_size) << "   = squeeze( " << in()->toString()
+                          << ", flags = {";
+  bool is_first = true;
+  for (const auto f : getSqueezeDimFlags()) {
+    if (!is_first) {
+      ss << ", ";
+    }
+    ss << (f ? "true" : "false");
+    is_first = false;
+  }
+  ss << "} )\n";
   return ss.str();
 }
 
@@ -3682,6 +3694,26 @@ void TensorDomain::swizzle(
   resetDomains();
 }
 
+void TensorDomain::resize(
+    int64_t axis,
+    Val* left_expansion,
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
+  NVF_ERROR(nDims() > 0, "Tried to do resize on a 0-dim domain");
+  axis = wrapDim(axis);
+
+  IterDomain* id = this->axis(axis);
+
+  auto resized_id = IterDomain::resize(
+      id,
+      left_expansion,
+      right_expansion,
+      /*mark_as_rfactor=*/false,
+      iter_type);
+  loop_domain_.at(axis) = resized_id;
+  resetDomains();
+}
+
 std::vector<IterDomain*> TensorDomain::noReductions(
     const std::vector<IterDomain*>& td) {
   std::vector<IterDomain*> noReductionDomain;
@@ -5040,6 +5072,10 @@ bool ForLoop::isUnrolled() const {
     return false;
   }
 
+  if (hasRuntimeReductionFunctions()) {
+    return false;
+  }
+
   return true;
 }
 
@@ -5185,6 +5221,43 @@ bool ForLoop::isGroup() const {
       {typeid(GroupedReductionOp),
        typeid(kir::GroupedGridReduction),
        typeid(kir::GroupedGridWelford)});
+}
+
+namespace {
+
+//! A utility class to check if runtime reduction exists
+class RuntimeReductionFinder : kir::ConstIrVisitor {
+ public:
+  static bool exists(const Expr* expr) {
+    NVF_CHECK(expr->container()->isA<kir::Kernel>());
+    RuntimeReductionFinder finder;
+    finder.handle(std::vector<const Expr*>{expr});
+    return finder.is_found_;
+  }
+
+ private:
+  using kir::ConstIrVisitor::handle;
+
+  void dispatch(const Expr* expr) final {
+    if (expr->isA<ReductionOp>() || expr->isA<WelfordOp>() ||
+        expr->isA<kir::GridReduction>() ||
+        expr->isA<kir::GroupedGridReduction>() ||
+        expr->isA<kir::GridWelford>() || expr->isA<kir::GroupedGridWelford>() ||
+        expr->isA<GroupedReductionOp>()) {
+      is_found_ = true;
+      return;
+    }
+    kir::ConstIrVisitor::dispatch(expr);
+  }
+
+ private:
+  bool is_found_ = false;
+};
+
+} // namespace
+
+bool ForLoop::hasRuntimeReductionFunctions() const {
+  return RuntimeReductionFinder::exists(this);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(ForLoop)

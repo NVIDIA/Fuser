@@ -11,6 +11,7 @@
 #include <debug.h>
 #include <device_lower/analysis/device_version.h>
 #include <device_lower/analysis/divisible_split.h>
+#include <device_lower/analysis/tensor_producer_aliases.h>
 #include <device_lower/pass/alias_memory.h>
 #include <device_lower/pass/allocation.h>
 #include <device_lower/pass/circular_buffer.h>
@@ -27,6 +28,7 @@
 #include <device_lower/pass/misaligned_vectorization.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/replace_size.h>
+#include <device_lower/pass/rng.h>
 #include <device_lower/pass/unroll.h>
 #include <device_lower/pass/vectorize_welford.h>
 #include <device_lower/pass/warp_reduce.h>
@@ -264,7 +266,8 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
           // Each pass is a pair of (name, function), where the name will be
           // printed in verbose mode of lowering. The function must take a
           // const std::vector<Expr*>& and return a std::vector<Expr*>.
-          {{"LoopNestGenerator", LoopNestGenerator::loweredExprs},
+          {{"removeTensorProducerAliases", removeTensorProducerAliases},
+           {"LoopNestGenerator", LoopNestGenerator::loweredExprs},
            {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
@@ -281,6 +284,7 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"generateConditionalFromPredicate",
             generateConditionalFromPredicate},
            {"vectorizeWelford", vectorizeWelford},
+           {"addRNG", addRNG},
            {"allocateCommonScalars", allocateCommonScalars},
            {"insertMagicZero", insertMagicZero},
            {"KIRCleaner", KIRCleaner::cleanUp},
@@ -419,7 +423,8 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
   // If a tensor does not have a nice root->logical/allocation->loop
   // linear transformation history, use TensorIndexer
   for (auto tv : fusion->allTvs()) {
-    if (!ir_utils::hasRootToLoopLinearTransformations(tv)) {
+    if (tv->getMemoryType() == MemoryType::Tensor ||
+        !ir_utils::hasRootToLoopLinearTransformations(tv)) {
       options.setBuildTensorIndexer(true);
     }
   }
@@ -487,12 +492,9 @@ void GpuLower::analysis(Fusion* fusion) {
   // information.
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
-  // Transitory testing of IdModel if enabled. No existing
-  // functionality should be affected. New IterDomains may be created,
-  // so it is expected that generated code may use diffrent variable
-  // names
+  // New IterDomains may be created, so it is expected that generated
+  // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
-    // Enable validation in the DEBUG build mode
     id_model_ = std::make_unique<IdModel>(
         fusion_,
         /*build_graphs=*/true,
@@ -566,6 +568,11 @@ void GpuLower::analysis(Fusion* fusion) {
   // all of the lookup TVs are fusion inputs
   validateLookupTV(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateLookupTV");
+
+  // Find trivial global to global broadcast, squeeze, and set operations and
+  // mark their outputs as aliases of their inputs.
+  findTensorProducerAliases(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "findTensorProducerAliases");
 
   // Depends on thread_pred_map_, validates parallelization collects which
   // tensor views need WAR or RAW syncs
@@ -662,6 +669,30 @@ Val* GpuLower::getLoopIndexVariable(
     return idModel().getLoopIndexVariable(id, stage);
   } else {
     return caMap()->getIndexVariable(id, stage);
+  }
+}
+
+void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
+  if (TensorView* producer_alias = getTensorProducerAlias(producer)) {
+    // Chase reference. If producer itself is an alias, then get the tensor it
+    // is aliased to.
+    NVF_ERROR(
+        getTensorProducerAlias(producer_alias) == nullptr,
+        "Found unsimplified alias from ",
+        producer->toString(),
+        " to ",
+        producer_alias->toString(),
+        " which is then aliased to ",
+        getTensorProducerAlias(producer_alias)->toString());
+    producer = producer_alias;
+  }
+  tensor_producer_alias_map_[consumer] = producer;
+  for (auto& [c, p] : tensor_producer_alias_map_) {
+    // If anything was previously aliased _to_ consumer, update those links to
+    // point to producer
+    if (p == consumer) {
+      p = producer;
+    }
   }
 }
 

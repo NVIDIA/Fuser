@@ -42,53 +42,10 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   using kir::ExprMutator::handle;
 
-  // The ElectSync predicate expects a single thread to run operations within
-  // If-Then-Else. Any TensorView with thread parallelization is incompatible
-  // with this If-Then-Else because it can create a conflicting predicate.
-  void checkElectSyncCompatibility(Expr* expr) {
-    NVF_CHECK(expr->predicate()->predicate_type() == PredicateType::ElectSync);
-    NVF_ERROR(expr->isA<kir::IfThenElse>());
-
-    // Check all the expressions in the scope
-    auto check_scope_compatibility = [](Scope& scope) {
-      for (Expr* expr : scope.exprs()) {
-        // Thread predicates are generated based on the expression's outputs
-        for (Val* val : expr->outputs()) {
-          // short-circuit
-          if (!val->isA<kir::TensorIndex>()) {
-            continue;
-          }
-          // Check that none of the IterDomains in TensorView are parallelized
-          // with a thread dimension like TIDx, TIDy, or TIDz.
-          TensorView* tv = val->as<kir::TensorIndex>()->view();
-          bool is_thread_parallelized = std::any_of(
-              tv->domain()->loop().begin(),
-              tv->domain()->loop().end(),
-              [](IterDomain* id) { return id->isThreadDim(); });
-          NVF_ERROR(
-              !is_thread_parallelized,
-              "This thread-parallelized TensorView ",
-              tv->toString(),
-              " is incorrectly contained within a If-Then-Else with the ",
-              "ElectSync predicate.");
-        }
-      }
-    };
-
-    // Check the thenBody and elseBody of If-Then-Else
-    kir::IfThenElse* ite = expr->as<kir::IfThenElse>();
-    check_scope_compatibility(ite->thenBody());
-    check_scope_compatibility(ite->elseBody());
-  }
-
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
-
-      if (expr->predicate()->predicate_type() == PredicateType::ElectSync) {
-        checkElectSyncCompatibility(expr);
-      }
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
@@ -104,7 +61,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
-                  vec_expr->isA<TernaryOp>(),
+                  vec_expr->isA<TernaryOp>() || vec_expr->isA<IndexSelectOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),
@@ -237,50 +194,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-        Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
-        Val* full_mask_val =
-            IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-
-        Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-        IrBuilder::create<UnaryOp>(
-            UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-
-        auto load_warp_loop_it =
-            std::find_if(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
-              return fl->circularBufferLoopStage() ==
-                  CircularBufferLoopStage::LoadWarp;
-            });
-        ParallelType load_warp_on = ParallelType::Serial;
-        if (load_warp_loop_it != for_loops_.end()) {
-          load_warp_on = std::get<WarpSpecialized>(
-                             GpuLower::current()
-                                 ->circularBufferInfo()
-                                 .getCircularBufferOptionsFor(
-                                     (*load_warp_loop_it)->iter_domain())
-                                 .type)
-                             .on;
-        }
-
-        // If we are in a load warp, then the warp-dispatching IfThenElse
-        // already selects on `load_warp_on`, so we should not generate
-        // predicates for it here.
-        const auto& pdim_map = GpuLower::current()->parallelDimensionMap();
-        Val* conditional = load_warp_on == ParallelType::TIDx
-            ? pred->fusion()->trueVal()
-            : SimplifyingIrBuilder::logicalAndExpr(
-                  elect_sync_val,
-                  IrBuilder::ltExpr(
-                      NamedScalar::getParallelIndex(ParallelType::TIDx),
-                      warp_size));
-        for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-          if (pdim_map.has(pt) && load_warp_on != pt) {
-            conditional = SimplifyingIrBuilder::logicalAndExpr(
-                conditional,
-                IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
-          }
-        }
-        return conditional;
+        return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
       }
       default:
         break;

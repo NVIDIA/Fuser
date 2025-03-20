@@ -41,8 +41,8 @@ def test_allgather(multidevice_test):
     sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded])
-    torch.testing.assert_close(output.local.cpu(), unsharded)
+    (output,), _ = fd.execute([sharded])
+    torch.testing.assert_close(output.cpu(), unsharded)
 
 
 @pytest.mark.mpi
@@ -52,22 +52,37 @@ def test_allreduce(multidevice_test):
 
     class Model(FusionDefinition):
         def definition(self):
-            self.inp = self.define_tensor((d, 4), contiguity=True, dtype=DataType.Float)
-            self.out = self.ops.sum(self.inp, [0])
+            self.inp = self.define_tensor(
+                (-1, -1, -1), contiguity=True, dtype=DataType.Float
+            )
+            self.out = self.ops.sum(self.inp, [1])
             self.add_output(self.out)
 
         def multidevice_schedule(self):
+            self.sched.split(self.inp, 1, d, False)
+            self.sched.split(self.out, 1, d, False)
+            out_local = self.sched.rfactor(self.out, [2])
+
             self.sched._set_device_mesh(self.inp, mesh)
             self.sched._set_device_mesh(self.out, mesh)
+            self.sched._set_device_mesh(out_local, mesh)
 
-            self.sched.parallelize(self.inp, 0, nvfuser.ParallelType.mesh_x)
+            self.sched.parallelize(self.inp, 1, nvfuser.ParallelType.mesh_x)
+            self.sched.parallelize(out_local, 1, nvfuser.ParallelType.mesh_x)
 
-    unsharded = torch.randn(d, 4)
-    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
+            self.sched.set_allocation_as_loop(self.inp)
+            self.sched.set_allocation_as_loop(out_local)
+            self.sched.set_allocation_as_loop(self.out)
+
+    m = 2
+    k = d * 3
+    n = 5
+    unsharded = torch.randn(m, k, n)
+    sharded = multidevice_test.shard_tensor(unsharded, 1, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded])
-    torch.testing.assert_close(output.local.cpu(), unsharded.sum(0))
+    outputs, _ = fd.execute([sharded])
+    torch.testing.assert_close(outputs[0].cpu(), unsharded.sum(1))
 
 
 @pytest.mark.mpi
@@ -97,9 +112,9 @@ def test_reduce_scatter(multidevice_test):
     sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded])
+    (output,), _ = fd.execute([sharded])
     torch.testing.assert_close(
-        output.local, multidevice_test.shard_tensor(unsharded.sum(0), 0, mesh)
+        output, multidevice_test.shard_tensor(unsharded.sum(0), 0, mesh)
     )
 
 
@@ -139,7 +154,7 @@ def test_reduce_scatter_noncontiguous(multidevice_test):
     sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded])
+    (output,), _ = fd.execute([sharded])
     torch.testing.assert_close(
-        output.local, multidevice_test.shard_tensor(unsharded.sum(0), 1, mesh)
+        output, multidevice_test.shard_tensor(unsharded.sum(0), 1, mesh)
     )

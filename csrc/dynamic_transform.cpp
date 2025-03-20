@@ -18,6 +18,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
 #include <transform_iter.h>
+#include <transform_replay.h>
 #include <transform_view.h>
 #include <utils.h>
 
@@ -831,9 +832,13 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   NVF_ERROR(
       old_logical.size() == new_logical.size(),
       "Concretized reshape logical size does not match symbolic logical size");
-  for (auto idx : c10::irange((int64_t)new_logical.size())) {
-    auto old_extent = old_logical.at(idx)->extent();
-    auto new_extent = new_logical.at(idx)->extent();
+
+  TransformReplay::selfReplay(
+      incomplete_out_tv->domain(), concrete_reshape_out_tv->domain());
+
+  for (auto&& [old_id, new_id] : zip(old_logical, new_logical)) {
+    Val* old_extent = old_id->extent();
+    Val* new_extent = new_id->extent();
     // If the old extent did not have a definition, we don't need to replace
     // it, since it will get bound whenever this tensor is a segmentation
     // edge.
@@ -1451,13 +1456,6 @@ std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     const DynamicTransformConcretizationInfo* info) {
   DynamicTransformConcretizer concretizer(fusion, info);
   return concretizer.getSymbolicToConcretizedMap();
-}
-
-std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
-    Fusion* fusion,
-    const std::vector<c10::IValue>& aten_inputs) {
-  return concretizeFusion(
-      fusion, KernelArgumentHolder::createKernelArgumentHolder(aten_inputs));
 }
 
 std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(

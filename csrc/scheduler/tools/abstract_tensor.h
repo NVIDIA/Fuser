@@ -344,6 +344,28 @@ struct DispatchParallelize {
 
 } // namespace
 
+struct EmptyInfo {
+  static EmptyInfo merge(const EmptyInfo&, const EmptyInfo&) {
+    return {};
+  }
+
+  static std::pair<EmptyInfo, EmptyInfo> split(const EmptyInfo& a) {
+    return {{}, {}};
+  }
+
+  template <typename SwizzleT>
+  static std::pair<EmptyInfo, EmptyInfo> swizzle(
+      SwizzleT swizzle_type,
+      const EmptyInfo& a,
+      const EmptyInfo& b) {
+    return {{}, {}};
+  }
+
+  bool operator==(const EmptyInfo& t) const {
+    return true;
+  }
+};
+
 // AbstractTensor is similar to TensorView, it has multiple dimensions, where
 // each dimension is represented by an Abstract IterDomain. The interface of
 // AbstractTensor is also similar to that of TensorViews, that is, it has merge,
@@ -510,6 +532,11 @@ class AbstractTensorWithInfo {
 
   virtual ~AbstractTensorWithInfo() = default;
 
+  const Info& info(int64_t i) const {
+    i = wrapDim(i, (int64_t)info_.size());
+    return info_.at(i);
+  }
+
   template <typename T>
   std::vector<T> as() const {
     std::vector<T> result;
@@ -594,6 +621,10 @@ class AbstractTensorWithInfo {
 
   decltype(auto) crend() const {
     return domain_.crend();
+  }
+
+  decltype(auto) back() const {
+    return domain_.back();
   }
 
   AbstractTensorWithInfo& pushBack(AbstractId id) {
@@ -921,31 +952,13 @@ class AbstractTensorWithInfo {
     return *this;
   }
 
+  AbstractTensorWithInfo<EmptyInfo> dropInfo() const {
+    return AbstractTensorWithInfo<EmptyInfo>(domain_);
+  }
+
  protected:
   std::vector<AbstractId> domain_;
   std::vector<Info> info_;
-};
-
-struct EmptyInfo {
-  static EmptyInfo merge(const EmptyInfo&, const EmptyInfo&) {
-    return {};
-  }
-
-  static std::pair<EmptyInfo, EmptyInfo> split(const EmptyInfo& a) {
-    return {{}, {}};
-  }
-
-  template <typename SwizzleT>
-  static std::pair<EmptyInfo, EmptyInfo> swizzle(
-      SwizzleT swizzle_type,
-      const EmptyInfo& a,
-      const EmptyInfo& b) {
-    return {{}, {}};
-  }
-
-  bool operator==(const EmptyInfo& t) const {
-    return true;
-  }
 };
 
 using AbstractTensor = AbstractTensorWithInfo<EmptyInfo>;

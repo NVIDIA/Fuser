@@ -1,6 +1,6 @@
 #!/bin/bash
 
-pip3 install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu121
+pip3 install --pre torch --index-url https://download.pytorch.org/whl/nightly/cu128
 
 # PyTorch's has a buildin Modules_CUDA which is super old. Remove it.
 rm -rf $(python -c 'import torch; print(torch.__path__[0])')/share/cmake/Caffe2/Modules_CUDA_fix

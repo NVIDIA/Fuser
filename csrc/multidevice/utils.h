@@ -42,41 +42,9 @@ int64_t numDeviceDims(const TensorView*);
 
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
-template <typename TvIterator>
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
     TensorView* ref,
-    TvIterator tvs) {
-  std::unordered_set<TensorView*> ret;
-  const auto& reference_dom = ref->getLoopDomain();
-  FusionGuard fg(ref->fusion());
-  auto ca_map = ComputeAtMap(FusionGuard::getCurFusion());
-  std::unordered_map<IterDomain*, IterDomain*> concrete_to_reference_map;
-  for (auto id : reference_dom) {
-    auto ca_id =
-        ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
-    concrete_to_reference_map[ca_id] = id;
-  }
-
-  for (TensorView* tv : tvs) {
-    if (ref->getDeviceMesh().vector() != tv->getDeviceMesh().vector()) {
-      ret.insert(tv);
-      continue;
-    }
-    for (auto id : tv->getLoopDomain()) {
-      auto ca_id =
-          ca_map.getConcreteMappedID(id, IdMappingMode::PERMISSIVE_RESIZE);
-      if (concrete_to_reference_map.count(ca_id) > 0) {
-        auto ref_id = concrete_to_reference_map.at(ca_id);
-        if ((ref_id->isDeviceDim() || id->isDeviceDim()) &&
-            ref_id->getParallelType() != id->getParallelType()) {
-          ret.insert(tv);
-          break;
-        }
-      }
-    }
-  }
-  return ret;
-}
+    const std::vector<TensorView*>& tvs);
 
 // Returns whether an Expr embeds multi-device resharding
 bool isResharding(const Expr* expr);
@@ -134,6 +102,10 @@ void unshard(TensorView*);
 // `at::Tensor::sizes` is a factor of the corresponding logical IterDomain's
 // extent if that IterDomain is sharded.
 int64_t getShardedLogicalAxis(const TensorView* tv, ParallelType parallel_type);
+
+// Returns the index of the loop axis that's parallelized on `parallel_type`.
+// If it's not found, returns -1.
+int64_t getShardedLoopAxis(const TensorView* tv, ParallelType parallel_type);
 
 // Shards the input tensor along `axis`. How the tensor gets sliced along `axis`
 // is determined by `mesh` and `device_id`. Returns the sharded tensor.

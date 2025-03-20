@@ -41,7 +41,7 @@ bool canIgnoreIndexedInputDomainID(
                ->isBroadcast()) {
         return false;
       }
-    } else if (auto gather = dynamic_cast<TorchGatherOp*>(use)) {
+    } else if (auto gather = dynamic_cast<GatherOp*>(use)) {
       // TODO: Remove this. Once slice is used for torchGather, this
       // should not be necessary. For now, it is necessary to not
       // break the existing torchGather tests
@@ -79,7 +79,7 @@ getIndexedConsumerToProducerMap(Fusion* fusion, const ComputeAtMap& ca_map) {
       indexed_id_map;
 
   for (auto expr : fusion->exprs()) {
-    if (auto gather = dynamic_cast<TorchGatherOp*>(expr)) {
+    if (auto gather = dynamic_cast<GatherOp*>(expr)) {
       auto p_id = gather->getIndexedID();
       auto c_id = gather->getConsumerOfIndexedID();
       indexed_id_map.emplace(

@@ -21,8 +21,13 @@
 
 #include <cstdlib>
 #include <filesystem>
+#include <forward_list>
 #include <fstream>
+#include <list>
+#include <random>
+#include <ranges>
 #include <system_error>
+#include <vector>
 
 namespace nvfuser {
 
@@ -469,8 +474,7 @@ TEST_F(VectorizeHelperTest, BackwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2 * 3, 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv0).size(), 2);
@@ -792,8 +796,7 @@ TEST_F(VectorizeHelperTest, ForwardMapper5) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor inp = at::randn({2, 3 * 4}, options);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder::createKernelArgumentHolder({inp});
+  KernelArgumentHolder args({inp});
   auto expr_eval = executor_utils::bindInputs(args, &fusion);
 
   EXPECT_EQ(mapper.mappedLogicalIds(tv2).size(), 2);
@@ -1625,6 +1628,448 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 
   Val* v4_7_in_v4 = lower_utils::proveLinearAndGetStride(g, v4[7], v4);
   EXPECT_EQ(simplifyExpr(v4_7_in_v4)->value(), 1);
+}
+
+// Test that lower_utils::proveLinearAndGetStride still works even if some
+// dependency are missing, as long as the missing dependency is irrelevant to
+// result.
+TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  for (auto _ : c10::irange(100)) {
+    (void)_;
+    // [16, 8, 2, 4]
+    auto id16 =
+        IterDomainBuilder(
+            fusion.zeroVal(), IrBuilder::create<Val>(16, DataType::Index))
+            .build();
+    auto id8 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(8, DataType::Index))
+                   .build();
+    auto id2 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                   .build();
+    auto id4 = IterDomainBuilder(
+                   fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                   .build();
+
+    ValGraph g;
+    g.initializeVal(id16);
+    g.initializeVal(id8);
+    g.initializeVal(id2);
+    g.initializeVal(id4);
+    ValGroup g16{g.toGroup(id16)};
+    ValGroup g8{g.toGroup(id8)};
+    ValGroup g2{g.toGroup(id2)};
+    ValGroup g4{g.toGroup(id4)};
+    ValGroupAndItsGraph gg16{g16, &g};
+    ValGroupAndItsGraph gg8{g8, &g};
+    ValGroupAndItsGraph gg2{g2, &g};
+    ValGroupAndItsGraph gg4{g4, &g};
+
+    AbstractTensor v({gg16, gg8, gg2, gg4});
+    // Merge all dims in random order
+    while (v.size() > 1) {
+      v.merge(std::rand() % (v.size() - 1));
+    }
+    v.split(0, 32);
+
+    ValGroup linear_g = v[1].as<ValGroupAndItsGraph>().group;
+    // Although linear_g depend on g16, whether it is linear w.r.t. [8, 2, 4] is
+    // not relevant to g16. So we should not require g16 to exist in order to
+    // prove linearity.
+    Val* stride =
+        lower_utils::proveLinearAndGetStride(g, linear_g, {g8, g2, g4});
+    ASSERT_NE(stride, nullptr);
+    EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+  }
+}
+
+TEST_F(NVFuserTest, ProveLinearAndGetStrideEarlyStopping) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [4, 2]
+  auto id4 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(4, DataType::Index))
+                 .build();
+  auto id2 = IterDomainBuilder(
+                 fusion.zeroVal(), IrBuilder::create<Val>(2, DataType::Index))
+                 .build();
+
+  ValGraph g;
+  g.initializeVal(id4);
+  g.initializeVal(id2);
+  ValGroup g4{g.toGroup(id4)};
+  ValGroup g2{g.toGroup(id2)};
+  ValGroupAndItsGraph gg4{g4, &g};
+  ValGroupAndItsGraph gg2{g2, &g};
+  AbstractTensor v({gg4, gg2});
+  v.merge(0);
+  v.split(0, 2);
+  ValGroup g4_ = v[0].as<ValGroupAndItsGraph>().group;
+  ValGroup g2_ = v[1].as<ValGroupAndItsGraph>().group;
+  Val* stride = lower_utils::proveLinearAndGetStride(g, g2_, {g4, g2_});
+  ASSERT_NE(stride, nullptr);
+  EXPECT_EQ(simplifyExpr(stride)->value(), 1);
+}
+
+using TestCpp23BackPort = NVFuserTest;
+
+TEST_F(TestCpp23BackPort, ZipDifferentWaysToSayZeroToTen) {
+  // vector of integers
+  std::vector<int64_t> integer{0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+
+  // list of English words
+  std::list<std::string> english{
+      "zero",
+      "one",
+      "two",
+      "three",
+      "four",
+      "five",
+      "six",
+      "seven",
+      "eight",
+      "nine"};
+
+  // Custom iterator and range implementing the set-theoretic definition of
+  // natural numbers:
+  // https://en.wikipedia.org/wiki/Set-theoretic_definition_of_natural_numbers
+  struct SetTheoreticNaturalNumber {
+    std::vector<SetTheoreticNaturalNumber> content;
+    using value_type = SetTheoreticNaturalNumber;
+    using difference_type = std::ptrdiff_t;
+    SetTheoreticNaturalNumber() = default; // zero
+    SetTheoreticNaturalNumber(
+        std::initializer_list<SetTheoreticNaturalNumber> x)
+        : content(x) {}
+    SetTheoreticNaturalNumber operator*() const {
+      return *this;
+    }
+    SetTheoreticNaturalNumber& operator++() {
+      content.emplace_back(*this);
+      return *this;
+    }
+    SetTheoreticNaturalNumber operator++(int) {
+      SetTheoreticNaturalNumber temp = *this;
+      ++(*this);
+      return temp;
+    }
+    bool operator==(const SetTheoreticNaturalNumber& other) const {
+      return content == other.content;
+    }
+  };
+  static_assert(std::input_iterator<SetTheoreticNaturalNumber>);
+  struct ZeroToInf : std::ranges::view_interface<ZeroToInf> {
+    SetTheoreticNaturalNumber begin() {
+      return SetTheoreticNaturalNumber();
+    }
+    auto end() {
+      return std::unreachable_sentinel;
+    }
+  } set_theoretic_zero_to_inf;
+  static_assert(std::ranges::input_range<ZeroToInf>);
+  static_assert(std::ranges::view<ZeroToInf>);
+
+  int64_t counter = 0;
+  auto english_it = english.begin();
+  for (auto&& [i, e, s, iota] :
+       zip(integer,
+           english,
+           set_theoretic_zero_to_inf,
+           std::views::iota((int64_t)0))) {
+    static_assert(std::is_same_v<decltype(i), int64_t&>);
+    static_assert(std::is_same_v<decltype(e), std::string&>);
+    static_assert(std::is_same_v<decltype(s), SetTheoreticNaturalNumber>);
+    static_assert(std::is_same_v<decltype(iota), int64_t>);
+    EXPECT_EQ(i, counter);
+    EXPECT_EQ(&i, &integer[counter]);
+    EXPECT_EQ(&e, &*english_it);
+    EXPECT_EQ(iota, counter);
+    switch (counter) {
+      case 0: {
+        EXPECT_EQ(e, "zero");
+        SetTheoreticNaturalNumber expect = {};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 1: {
+        EXPECT_EQ(e, "one");
+        SetTheoreticNaturalNumber expect = {{}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 2: {
+        EXPECT_EQ(e, "two");
+        SetTheoreticNaturalNumber expect = {{}, {{}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 3: {
+        EXPECT_EQ(e, "three");
+        SetTheoreticNaturalNumber expect = {{}, {{}}, {{}, {{}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 4: {
+        EXPECT_EQ(e, "four");
+        SetTheoreticNaturalNumber expect = {
+            {}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 5: {
+        EXPECT_EQ(e, "five");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 6: {
+        EXPECT_EQ(e, "six");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 7: {
+        EXPECT_EQ(e, "seven");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 8: {
+        EXPECT_EQ(e, "eight");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+      case 9: {
+        EXPECT_EQ(e, "nine");
+        SetTheoreticNaturalNumber expect = {
+            {},
+            {{}},
+            {{}, {{}}},
+            {{}, {{}}, {{}, {{}}}},
+            {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}},
+            {{},
+             {{}},
+             {{}, {{}}},
+             {{}, {{}}, {{}, {{}}}},
+             {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}},
+             {{},
+              {{}},
+              {{}, {{}}},
+              {{}, {{}}, {{}, {{}}}},
+              {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}},
+              {{},
+               {{}},
+               {{}, {{}}},
+               {{}, {{}}, {{}, {{}}}},
+               {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}},
+               {{},
+                {{}},
+                {{}, {{}}},
+                {{}, {{}}, {{}, {{}}}},
+                {{}, {{}}, {{}, {{}}}, {{}, {{}}, {{}, {{}}}}}}}}}};
+        EXPECT_EQ(s, expect);
+        break;
+      }
+    }
+    counter++;
+    english_it++;
+  }
+  EXPECT_EQ(counter, 10);
+}
+
+TEST_F(TestCpp23BackPort, ZipWithReverse) {
+  std::vector<int> v{1, 2, 3, 4, 5};
+  std::vector<int> v2{5, 4, 3, 2, 1};
+
+  int64_t count = 0;
+  for (auto&& [x, y] : zip(v, v2)) {
+    EXPECT_EQ(x, 6 - y);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  for (auto&& [x, y] : zip(v, v2) | std::views::reverse) {
+    EXPECT_EQ(x, 6 - y);
+    EXPECT_EQ(x, 5 - count);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  std::forward_list<int> fl{1, 2, 3, 4, 5};
+  for (auto&& [x, y] : zip(v, fl)) {
+    EXPECT_EQ(x, y);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  // Can not do zip(v, fl) | std::views::reverse because fl is not bidirectional
+}
+
+TEST_F(TestCpp23BackPort, Enumerate) {
+  std::vector<int> v{1, 2, 3, 4, 5};
+
+  int64_t count = 0;
+  for (auto&& [i, x] : enumerate(v)) {
+    EXPECT_EQ(i, count);
+    EXPECT_EQ(x, count + 1);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  count = 0;
+  for (auto&& [i, x] : enumerate(v) | std::views::reverse) {
+    EXPECT_EQ(i + 1, x);
+    EXPECT_EQ(i, 4 - count);
+    count++;
+  }
+  EXPECT_EQ(count, 5);
+
+  std::forward_list<int> fl{1, 2, 3, 4, 5};
+  for (auto&& [i, x] : enumerate(fl)) {
+    EXPECT_EQ(i + 1, x);
+  }
+  EXPECT_EQ(count, 5);
+
+  // Can not do enumerate(fl) | std::views::reverse because fl is not
+  // bidirectional
 }
 
 } // namespace nvfuser
