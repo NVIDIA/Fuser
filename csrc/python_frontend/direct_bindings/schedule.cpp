@@ -12,15 +12,17 @@ namespace nvfuser::python_frontend {
 
 namespace {
 
-void bindScheduleOps(py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
-    // TODO: Implement
+void bindScheduleOps(
+    py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
+  // TODO: Implement
 }
 
 } // namespace
 
-void bindDirectScheduleOperators(py::class_<DirectFusionDefinition>& fusion_def) {
-  //! The ScheduleOperators class is a nested class of DirectFusionDefinition to allow
-  //! the user to query the class for the list of schedule operators.
+void bindDirectScheduleOperators(
+    py::class_<DirectFusionDefinition>& fusion_def) {
+  //! The ScheduleOperators class is a nested class of DirectFusionDefinition to
+  //! allow the user to query the class for the list of schedule operators.
   //!
   //! Example:
   //!   help(DirectFusionDefinition.ScheduleOperators)
