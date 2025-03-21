@@ -25,6 +25,16 @@ namespace nvfuser {
 
 namespace {
 
+// Tensor memory is similar to shared memory because they are both
+// shared between threads in a block. In that sense, we can consider
+// tensor memory as special type of shared memory. In this file, we use
+// the term "shared memory", "smem" to refer to both shared and tensor
+// memories.
+bool isSharedMemory(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared ||
+      tv->getMemoryType() == MemoryType::Tensor;
+}
+
 // Warp primitives are currently limited to un-predicated usage,
 //   predicating these ops will require extra steps to ensure that
 //   the whole warp will get the same value.
@@ -207,8 +217,7 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
   //  when the predicate around shared mem cannot be removed.
   for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (producer->getMemoryType() == MemoryType::Shared ||
-          consumer->getMemoryType() == MemoryType::Shared) {
+      if (isSharedMemory(producer) || isSharedMemory(consumer)) {
         if (needSharedMemPredicate(producer, consumer)) {
           RECORD_AND_RETURN(true);
         }
