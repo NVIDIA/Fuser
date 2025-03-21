@@ -984,90 +984,6 @@ class AllocationInserter : public kir::ExprMutator {
     return init_expr;
   }
 
-  // TODO: Today, we always allocate loop domain, even if the allocation
-  // domain is explicitly set. This is clearly not the right thing to do,
-  // and we should fix this in the future. However, today, we still don't
-  // have a clear design of how to allocate tensors with explicit allocation
-  // domain. This problem is very difficult to solve, and there are many
-  // things to consider. For example, if the allocation domain contains a
-  // subset of inlined loop IDs, we should not allocate the inlined IDs.
-  // But what if the opposite is true? What if the allocation domain
-  // does not contain all inlined IDs? Is this considered an error, or
-  // a valid case that we need to infer which to allocate from the loop
-  // domain? We need to think about this carefully and come up with a
-  // clear design. For now, we just allocate the loop domain for historical
-  // reasons for all cases except for the Hopper MMA output tensor.
-  //
-  // Hopper MMA output tensor is a special case because the loop domain
-  // is scheduled in a way that the entire tile is parallelized by MMA, and
-  // The TIDx parallelization is a new broadcast dimension that is not
-  // connected to any other IterDomains. This way of scheduling effectively
-  // makes the loop domain 128x larger than the allocation domain, because
-  // the allocation domain is sharded on threads but the loop domain is not.
-  std::vector<Val*> getMmaOpAllocationSizes(AllocationInformation& info) {
-    NVF_ERROR(
-        info.buffer->definition()->isA<MmaOp>() &&
-        isHopper(info.buffer->definition()->as<MmaOp>()->macro()));
-
-    const IdModel& id_model = GpuLower::current()->idModel();
-
-    std::unordered_set<IterDomain*> exclude_ca_ids;
-    for (auto i : c10::irange(info.alloc_pos)) {
-      auto ca_id = info.buffer->axis(i);
-      if (!ir_utils::isMemorySharedAcross(
-              info.buffer->getMemoryType(), ca_id->getParallelType())) {
-        exclude_ca_ids.insert(ca_id);
-      }
-    }
-
-    const std::vector<IterDomain*>& domain_to_alloc =
-        info.buffer->hasAllocation() ? info.buffer->getAllocationDomain()
-                                     : info.buffer->getLoopDomain();
-
-    std::vector<Val*> alloc_dims;
-    info.allocation_domains = std::make_unique<std::vector<IterDomain*>>();
-
-    for (auto id : domain_to_alloc) {
-      if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
-        // Don't use reduction/stride/broadcast/device axis in the
-        // allocation computation
-        if (id->isReduction() || id->isStride() || id->isBroadcast() ||
-            id->isDeviceDim()) {
-          continue;
-        }
-        if (ir_utils::isMemoryPartitionedAcross(
-                info.buffer->getMemoryType(), id->getParallelType())) {
-          continue;
-        }
-        info.allocation_domains->push_back(id);
-
-        // Loop promotion may affect allocations. Promotions of intermediate
-        // domains may not be defined correctly. Only consider loop domains
-        // for now.
-        bool is_loop = std::find(
-                           info.buffer->getLoopDomain().begin(),
-                           info.buffer->getLoopDomain().end(),
-                           id) != info.buffer->getLoopDomain().end();
-        if (is_loop) {
-          id = getLoopPromotion(id, id_model);
-        }
-
-        alloc_dims.push_back(id->extent());
-      } else {
-        exclude_ca_ids.erase(id);
-      }
-    }
-    NVF_ERROR(
-        exclude_ca_ids.empty(),
-        "The non-allocating compute-at IDs are not found in the allocation domain. ",
-        "It is unclear how to allocate the tensor: ",
-        info.buffer->toString(),
-        " allocation domain: ",
-        ir_utils::toString(info.buffer->getAllocationDomain()));
-
-    return alloc_dims;
-  }
-
   kir::Allocate* createAllocExpr(AllocationInformation& info, bool is_output) {
     if (is_output) {
       return nullptr;
@@ -1081,23 +997,15 @@ class AllocationInserter : public kir::ExprMutator {
         "Unexpected to have a tensor with no definition: ",
         tv_to_alloc->toString());
 
-    const bool is_mma = tv_to_alloc->definition()->isA<MmaOp>() &&
-        isHopper(info.buffer->definition()->as<MmaOp>()->macro());
-
+    const auto& alloc_ids =
+        GpuLower::current()->getAllocationInfo(tv_to_alloc).ids;
     std::vector<Val*> alloc_dims;
-
-    if (false && is_mma) {
-      alloc_dims = getMmaOpAllocationSizes(info);
-    } else {
-      const auto& alloc_ids =
-          GpuLower::current()->getAllocationInfo(tv_to_alloc).ids;
-      alloc_dims.reserve(alloc_ids.size());
-      for (const auto& id : alloc_ids) {
-        alloc_dims.push_back(id->extent());
-      }
-      info.allocation_domains =
-          std::make_unique<std::vector<IterDomain*>>(alloc_ids);
+    alloc_dims.reserve(alloc_ids.size());
+    for (const auto& id : alloc_ids) {
+      alloc_dims.push_back(id->extent());
     }
+    info.allocation_domains =
+        std::make_unique<std::vector<IterDomain*>>(alloc_ids);
 
     if (alloc_dims.empty() && !info.buffer->domain()->noReductions().empty()) {
       alloc_dims.push_back(info.buffer->container()->oneVal());

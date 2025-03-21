@@ -8,7 +8,6 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <id_model/schedule.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
