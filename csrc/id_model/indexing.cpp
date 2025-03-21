@@ -218,6 +218,11 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
     }
 
+    // Allocation position is not always the same as the CA
+    // position. See also lower_utils::getAllocInformation.
+    int64_t allocation_pos =
+        lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
+
     if (use_set_allocation_domain) {
       if (tv->getMemoryType() == MemoryType::Global) {
         // For global memory tensors we always allocate the entire tensor
@@ -227,7 +232,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
         contiguity = tv->domain()->contiguity();
       } else {
         std::unordered_set<IterDomain*> exclude_ca_ids;
-        for (auto i : c10::irange(tv->getComputeAtPosition())) {
+        for (auto i : c10::irange(allocation_pos)) {
           auto ca_id = tv->axis(i);
           if (!ir_utils::isMemorySharedAcross(
                   tv->getMemoryType(), ca_id->getParallelType())) {
@@ -263,10 +268,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
         allocation_domains = tv->getLogicalDomain();
         contiguity = tv->domain()->contiguity();
       } else {
-        // Allocation position is not always the same as the CA
-        // position. See also lower_utils::getAllocInformation.
-        int64_t allocation_pos =
-            lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
         for (const auto i : c10::irange(tv->nDims())) {
           auto loop_id = tv->getLoopDomain().at(i);
           auto pt = loop_id->getParallelType();
