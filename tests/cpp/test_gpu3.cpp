@@ -6808,7 +6808,7 @@ TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
   fusion->addOutput(output);
 
   resetPeakMemoryStats(0);
-  EXPECT_EQ(maxMemoryAllocated(0), 0) << "No tensors are allocated so far.";
+  ASSERT_EQ(maxMemoryAllocated(0), 0) << "No tensors are allocated so far.";
 
   auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
   at::Tensor at_x = at::randn(input_shape, options);
