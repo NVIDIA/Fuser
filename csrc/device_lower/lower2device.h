@@ -160,6 +160,17 @@ class GpuLower : public NonCopyable {
     return local_allocation_info_map_;
   }
 
+  const std::unordered_map<TensorView*, AllocationDomainInfo>& allocationInfo()
+      const {
+    return allocation_info_;
+  }
+
+  std::unordered_map<TensorView*, AllocationDomainInfo>& allocationInfo() {
+    return allocation_info_;
+  }
+
+  const AllocationDomainInfo& getAllocationInfo(TensorView* tv) const;
+
   const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
     return warp_pad_info_;
   }
@@ -393,6 +404,7 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<PredicateElimination> pred_elimination_;
   std::shared_ptr<ComputeAtMap> compute_at_map_;
   LocalAllocationInfoMap local_allocation_info_map_;
+  std::unordered_map<TensorView*, AllocationDomainInfo> allocation_info_;
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
