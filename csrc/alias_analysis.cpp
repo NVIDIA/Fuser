@@ -445,7 +445,7 @@ void AliasAnalysisResult::finalize(
     // as an alias op, since we will have a set operation on it.
     if (alias->fusion()->getOutputAlias(alias).type ==
         AllocationType::ReuseBuffer) {
-      return;
+      continue;
     }
 
     // Walks up the `alias_to_source_` chain.
