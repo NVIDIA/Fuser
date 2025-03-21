@@ -773,7 +773,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
       return std::nullopt;
     }
 
-
     auto [path, all_visited] = getExprsBetween<IRBFS>(
         {allocation_domains.begin(), allocation_domains.end()},
         indexed_logical_ids.vector(),
