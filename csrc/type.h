@@ -711,7 +711,6 @@ enum class ParallelType {
   TIDx,
   Stream,
   Vectorize,
-  MisalignedVectorize,
   Unroll,
   Unswitch,
   Mma,
