@@ -384,11 +384,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
     }
 
-    // Filter out non-allocated domains. This is already done for Local
-    // and Shared tensors with no set allocation domains, but not for
-    // the other cases. For example, a reduction output tensor that is
-    // also a fusion output may still have reduction domains in their
-    // allocation domains, which aren't relevant for indexing
+    // Filter out non-allocated domains
     std::vector<IterDomain*> actual_allocation_domains;
     std::vector<Val*> actual_strides;
     std::vector<bool> actual_contiguity;
