@@ -730,7 +730,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   std::vector<Val*> used_vals = fusion->usedMathVals();
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
-    
+
     for (const auto i : c10::irange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
       IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);

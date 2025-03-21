@@ -469,8 +469,7 @@ class PredicateChcker : public IterVisitor {
   void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access =
         needsPredicateSharedMemAccess(expr);
-    needs_predicate_ = predicateIntDiv(expr) ||
-        needs_predicate_smem_access ||
+    needs_predicate_ = predicateIntDiv(expr) || needs_predicate_smem_access ||
         predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||

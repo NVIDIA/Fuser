@@ -526,9 +526,7 @@ void propagateParallelization(
       reference_tv,
       -1,
       selected_tvs,
-      allParallelTypesExcept(
-          {ParallelType::Unroll,
-           ParallelType::Vectorize}));
+      allParallelTypesExcept({ParallelType::Unroll, ParallelType::Vectorize}));
 
   if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
@@ -538,8 +536,7 @@ void propagateParallelization(
           -1,
           {unroll_vectorizable_cached_tvs.begin(),
            unroll_vectorizable_cached_tvs.end()},
-          {ParallelType::Unroll,
-           ParallelType::Vectorize});
+          {ParallelType::Unroll, ParallelType::Vectorize});
     }
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group.

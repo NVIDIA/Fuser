@@ -144,8 +144,10 @@ std::unique_ptr<caching::VectorizedTensorInfo> getVectorizedTensorValidationInfo
     const auto is_aligned =
         vector_dim->getParallelType() == ParallelType::Vectorize;
 
-    NVF_ERROR(is_aligned, "Unexpected parallel type of vectorized ID: ",
-              vector_dim->toString());
+    NVF_ERROR(
+        is_aligned,
+        "Unexpected parallel type of vectorized ID: ",
+        vector_dim->toString());
 
     // Collect information on corresponding fusion input and output
     // tensors to verify strides.
