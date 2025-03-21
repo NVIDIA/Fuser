@@ -259,9 +259,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
         for (const auto i : c10::irange(tv->nDims())) {
           auto loop_id = tv->getLoopDomain().at(i);
           auto pt = loop_id->getParallelType();
-          if (!mayRequireAllocation(tv, loop_id)) {
-            // continue;
-          }
 
           // If the position is left of the inlining position, no need to
           // allocate the domain unless it's shared. For example, if this

@@ -940,6 +940,7 @@ TensorView* applyViewTransforms(
       orig_tv->container(),
       orig_tv->domain()->view(view_analysis),
       orig_tv->getDataType().value());
+  consumer->setDeviceMesh(orig_tv->getDeviceMesh());
 
   IrBuilder::createInContainer<ViewOp>(
       orig_tv->container(), consumer, post_reduce_tv);
