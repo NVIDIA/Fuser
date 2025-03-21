@@ -194,8 +194,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
     bool zero_init,
     bool resets_to_zero = false);
 
-// TODO: Rename this to AllocationPosInfo
-struct BasicAllocInfo {
+struct AllocPosInfo {
   // The for loop that the initialization of this allocation must be
   // placed in, nullptr if not within a loop
   ForLoop* init_for_loop = nullptr;
@@ -217,7 +216,7 @@ struct BasicAllocInfo {
 
 // Fill the above allocation struct based on provided information. id_map is
 // used if we're looking at a producer tensor but loops on a consumer tensor.
-BasicAllocInfo getAllocInformation(
+AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {},

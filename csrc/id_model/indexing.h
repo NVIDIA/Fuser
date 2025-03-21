@@ -33,14 +33,6 @@ struct IndexingInfo {
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
 };
 
-#if 0
-struct IndexingAllocationInfo {
-  std::vector<IterDomain*> domains;
-  std::vector<Val*> strides;
-  std::vector<bool> contiguity;
-};
-#endif
-
 // The basic algorithm of indexing is:
 //
 // 1. Find the loop domains
@@ -112,9 +104,6 @@ class TensorIndexer {
     return id_model_.idGraph(traversalGraphType());
   }
 
-  // Traverse exprs and set allocation info for each tensor
-  void setupAllocationDomains(const std::vector<Expr*>& exprs);
-
   // Get the list of predicates of a given tensor appearing in a given
   // expr as a consumer. Each predicate corresponds to a domain of the
   // tensor, which is by default one of the logical domains but can be
@@ -142,18 +131,6 @@ class TensorIndexer {
   void buildLoopIndexMap();
 
   const AllocationDomainInfo& getIndexAllocationInfo(TensorView* tv) const;
-
-#if 0
-  const IndexingAllocationInfo& getIndexingAllocationInfo(
-      TensorView* tv) const {
-    auto it = alloc_info_.find(tv);
-    NVF_ERROR(
-        it != alloc_info_.end(),
-        "No allocation info found for ",
-        tv->toString());
-    return it->second;
-  }
-#endif
 
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by

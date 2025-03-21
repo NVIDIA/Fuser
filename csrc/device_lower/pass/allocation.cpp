@@ -208,7 +208,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // Allocation position is not always the same as the CA
     // position. See also lower_utils::getAllocInformation.
     int64_t allocation_pos =
-        lower_utils::getAllocInformation(tv, for_loops).alloc_pos;
+        lower_utils::getAllocPosInfo(tv, for_loops).alloc_pos;
 
     if (use_set_allocation_domain) {
       if (tv->getMemoryType() == MemoryType::Global) {
@@ -906,7 +906,7 @@ class AllocationInserter : public kir::ExprMutator {
   // info.init_place_before, info.alloc_for_loop, info.alloc_place_before
   void fillAllocationInformation(AllocationInformation& info, Expr* expr) {
     auto loop_alloc_info =
-        lower_utils::getAllocInformation(info.buffer, for_loops_);
+        lower_utils::getAllocPosInfo(info.buffer, for_loops_);
 
     info.init_for_loop = loop_alloc_info.init_for_loop;
     info.alloc_for_loop = loop_alloc_info.alloc_for_loop;
