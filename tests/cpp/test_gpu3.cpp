@@ -4859,15 +4859,12 @@ TEST_F(NVFuserTest, FusionSqueezeOnlyWelford_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  ASSERT_TRUE(
-      at::allclose(
-          cg_outputs[0].as<at::Tensor>(), cg_outputs[3].as<at::Tensor>()));
-  ASSERT_TRUE(
-      at::allclose(
-          cg_outputs[1].as<at::Tensor>(), cg_outputs[4].as<at::Tensor>()));
-  ASSERT_TRUE(
-      at::allclose(
-          cg_outputs[2].as<at::Tensor>(), cg_outputs[5].as<at::Tensor>()));
+  ASSERT_TRUE(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), cg_outputs[3].as<at::Tensor>()));
+  ASSERT_TRUE(at::allclose(
+      cg_outputs[1].as<at::Tensor>(), cg_outputs[4].as<at::Tensor>()));
+  ASSERT_TRUE(at::allclose(
+      cg_outputs[2].as<at::Tensor>(), cg_outputs[5].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionIssue2163ReproInvalidAlias_CUDA) {
@@ -6437,9 +6434,8 @@ TEST_F(NVFuserTest, CompareDomainWithReference1) {
       tv1->getLoopDomain().at(0)->definition()->input(0)->as<IterDomain>());
   // Create a further IDs to make the above IDs non leaf
   tv1->merge(0);
-  EXPECT_FALSE(
-      ir_utils::compareDomainWithReference(domain, reference)
-          .redundant_ids.empty());
+  EXPECT_FALSE(ir_utils::compareDomainWithReference(domain, reference)
+                   .redundant_ids.empty());
 
   // Remember the current loop domain
   domain = tv1->getLoopDomain();
@@ -6453,9 +6449,8 @@ TEST_F(NVFuserTest, CompareDomainWithReference1) {
   // Combine the previous loop domain and the new loop domain, which
   // should be detected as redundant
   domain.push_back(tv1->getLoopDomain()[0]);
-  EXPECT_FALSE(
-      ir_utils::compareDomainWithReference(domain, reference)
-          .redundant_ids.empty());
+  EXPECT_FALSE(ir_utils::compareDomainWithReference(domain, reference)
+                   .redundant_ids.empty());
 }
 
 // Pattern to test (see the comment of CompareDomainResult in
@@ -6478,10 +6473,9 @@ TEST_F(NVFuserTest, CompareDomainWithReference2) {
   tv1->merge(0);
   tv1->merge(1);
 
-  EXPECT_TRUE(
-      ir_utils::compareDomainWithReference(
-          tv1->getLoopDomain(), tv1->getLogicalDomain())
-          .empty());
+  EXPECT_TRUE(ir_utils::compareDomainWithReference(
+                  tv1->getLoopDomain(), tv1->getLogicalDomain())
+                  .empty());
   EXPECT_FALSE(
       ir_utils::compareDomainWithReference(
           {tv1->getLogicalDomain().begin() + 1, tv1->getLogicalDomain().end()},
@@ -6516,17 +6510,16 @@ TEST_F(NVFuserTest, CompareDomainWithReference3) {
   tv1->split(0, 3);
   tv1->split(-1, 4);
 
-  EXPECT_TRUE(
-      ir_utils::compareDomainWithReference(
-          {tv1->getLogicalDomain().at(0),
-           tv1->getLogicalDomain().at(1),
-           tv1->getLoopDomain().at(2),
-           tv1->getLoopDomain().at(3)},
-          {tv1->getLoopDomain().at(0),
-           tv1->getLoopDomain().at(1),
-           tv1->getLogicalDomain().at(2),
-           tv1->getLogicalDomain().at(3)})
-          .empty());
+  EXPECT_TRUE(ir_utils::compareDomainWithReference(
+                  {tv1->getLogicalDomain().at(0),
+                   tv1->getLogicalDomain().at(1),
+                   tv1->getLoopDomain().at(2),
+                   tv1->getLoopDomain().at(3)},
+                  {tv1->getLoopDomain().at(0),
+                   tv1->getLoopDomain().at(1),
+                   tv1->getLogicalDomain().at(2),
+                   tv1->getLogicalDomain().at(3)})
+                  .empty());
 
   // Testing [I0, I1, I8, I3]. Logical domain is used as a referene
   auto result1 = ir_utils::compareDomainWithReference(
