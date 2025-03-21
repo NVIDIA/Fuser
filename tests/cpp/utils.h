@@ -534,73 +534,15 @@ inline bool cudaArchGuardShouldSkip(
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
  protected:
-  void SetUp() override {
-    // Enable logging so debug messages in PyTorch can be printed out
-    // via `TORCH_CPP_LOG_LEVEL`.
-    c10::initLogging();
-
-    // requires PASCAL or newer
-    if (!deviceMajorMinorCheck(6)) {
-      GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
-    }
-    setFillAllocationWithNan(true);
-
-    maybeClearAllocator();
-
-    // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
-    // Otherwise, use system time. If a test fails, this seed will be printed.
-    at::manual_seed(getATenRandomSeed());
-
-    // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
-    // random seed. Otherwise, use zero. If a test fails, this seed will be
-    // printed.
-    std::srand(getCRandomSeed());
-
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::IdModelExtraValidation);
-  }
-
-  void TearDown() override {
-    if (::testing::Test::HasFailure()) {
-      auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
-      std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
-                << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
-                << " test_nvfuser --gtest_filter='"
-                << test_info->test_suite_name() << "." << test_info->name()
-                << "'" << std::endl;
-    }
-
-    // Make sure capturing of stdout is stopped
-    ensureStopCaptureStdout();
-
-    // Make sure profiler is unset in case it was set during test
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
-    ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
-  }
+  void SetUp() override;
+  void TearDown() override;
 
   // Start capturing of stdout if not already started
-  void captureStdout() {
-    if (!capturing_) {
-      testing::internal::CaptureStdout();
-      capturing_ = true;
-    }
-  }
-
+  void captureStdout();
   // Stop capturing of stdout if being captured
-  void ensureStopCaptureStdout() {
-    if (capturing_) {
-      testing::internal::GetCapturedStdout();
-      capturing_ = false;
-    }
-  }
-
+  void ensureStopCaptureStdout();
   // Get capturing stdout
-  std::string getCapturedStdout() {
-    NVF_ERROR(capturing_, "Not captured");
-    auto str = testing::internal::GetCapturedStdout();
-    capturing_ = false;
-    return str;
-  }
+  std::string getCapturedStdout();
 
  protected:
   EnableOptionsGuard enable_options_guard_;

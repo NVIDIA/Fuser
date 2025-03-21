@@ -806,6 +806,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   )
   target_include_directories(nvfuser_bench PUBLIC ${NVFUSER_ROOT})
   target_link_libraries(nvfuser_bench PRIVATE
+    GTest::gtest
     benchmark::benchmark
     codegen_internal
   )
@@ -843,6 +844,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
     target_include_directories(nvfuser_multidevice_bench PUBLIC ${NVFUSER_ROOT})
     target_link_libraries(nvfuser_multidevice_bench PRIVATE
+      GTest::gtest
       benchmark::benchmark
       codegen_internal
     )
