@@ -67,11 +67,18 @@ class TensorIndexer {
   // as a consumer or a producer. The predicate indexing will have a
   // separate interface.
   //
-  // The actual for-loops are required for handling circular buffering
+  // The actual for-loops are required for handling circular
+  // buffering.
+  //
+  // The override_index parameter is used to enable indirect indexing
+  // such as index_select. When the parameter is given, the index of a
+  // ValGroup corresponding to a given iter domain is given by its
+  // mapped index Val.
   Val* getLinearIndex(
       TensorView* tv,
       const Expr* expr,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index = {}) const;
 
   // Get the index of a loop domain.
   Val* getLoopIndex(IterDomain* loop_id, const std::vector<ForLoop*>& for_loops)
@@ -89,7 +96,8 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const AllocationDomainInfo& alloc_info,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<ForLoop*>& loops,
+      const std::unordered_map<IterDomain*, Val*>& override_index) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
