@@ -16,9 +16,6 @@
 #include <tests/cpp/validator.h>
 #include <val_graph_visitor.h>
 
-#include <fstream>
-#include <iostream>
-
 namespace nvfuser {
 
 using BFSTest = NVFuserTest;
@@ -575,6 +572,363 @@ TEST_F(BFSTest, IRBFSPermissiveTraversal2) {
                    {iS6},
                    /*require_all_to_visited=*/false)
                    .second);
+}
+
+using FindAllExprsTest = NVFuserTest;
+
+#define VALIDATE_EXPR_PATH(actual, ref)                             \
+  do {                                                              \
+    ASSERT_EQ(actual.size(), ref.size());                           \
+    for (const auto i : c10::irange(actual.size())) {               \
+      EXPECT_EQ(actual.at(i).first, ref.at(i).first)                \
+          << "Mismathed expr at " << i                              \
+          << ". Expected: " << nvfuser::toString(ref.at(i).first)   \
+          << ". Actual: " << nvfuser::toString(actual.at(i).first); \
+      EXPECT_EQ(actual.at(i).second, ref.at(i).second)              \
+          << "Mismathed direction at " << i                         \
+          << ". Expected: " << ref.at(i).second                     \
+          << ". Actual: " << actual.at(i).second;                   \
+    }                                                               \
+  } while (0);
+
+// Traversing backward and then forward
+TEST_F(FindAllExprsTest, Test1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  fusion.addOutput(tv1);
+
+  // tv0: [i0, i1]
+  // tv1: [i0, i1]
+
+  // Use different merge orderings
+  tv0->merge(0, 1)->split(0, 4);
+  tv1->merge(1, 0)->split(0, 4);
+
+  // tv0: [i0*i1/4, 4]
+  // tv1: [i1*i0/4, 4]
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
+  ValGroups tv1_loop_groups = graph.toGroups(tv1->getLoopDomain());
+
+  auto result =
+      getAllExprGroupsBetween(graph, tv0_loop_groups, tv1_loop_groups).first;
+
+  ExprGroupPath reference_path{
+      {graph.toGroup(tv0->getLoopDomain().at(0)->definition()),
+       Direction::Backward},
+      {graph.toGroup(
+           tv0->getLoopDomain().at(0)->definition()->input(0)->definition()),
+       Direction::Backward},
+      {graph.toGroup(
+           tv1->getLoopDomain().at(0)->definition()->input(0)->definition()),
+       Direction::Forward},
+      {graph.toGroup(tv1->getLoopDomain().at(0)->definition()),
+       Direction::Forward},
+  };
+
+  VALIDATE_EXPR_PATH(result, reference_path);
+}
+
+// Traversing a cyclic graph
+TEST_F(FindAllExprsTest, Test2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // Create an ID graph with two cycles
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+  // One cycle from tv0 to tv1 and then tv2
+  auto tv1 = reshape(tv0, {10}, {2, 5});
+  auto tv2 = reshape(tv1, {2, 5}, {10});
+  // Another cycle from tv0 to tv3 and then tv4
+  auto tv3 = reshape(tv0, {10}, {5, 2});
+  auto tv4 = reshape(tv3, {5, 2}, {10});
+  // Merge tv0, tv2 and tv4 to form cycles
+  auto tv5 = add(tv0, tv2);
+  auto tv6 = add(tv5, tv4);
+  fusion.addOutput(tv6);
+
+  // Effectiely, the ID graph looks like:
+  //
+  // {tv0, tv2, tv4, tv5, tv6}
+  //      ^    ^
+  //      |    +---------------> {tv1}
+  //      |
+  //      +----------------> {tv3}
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  ValGroups tv0_loop_groups = graph.toGroups(tv0->getLoopDomain());
+
+  // Forward traversal from the tv0 groups. Should visit both tv1 and
+  // tv3
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv0_loop_groups,
+                      tv0_loop_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Forward)
+                      .first;
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Forward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+
+  // Back traversal from the tv0 groups. Should visit both tv1 and tv3
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv0_loop_groups,
+                      tv0_loop_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Backward)
+                      .first;
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+
+  // Forward and backward traversal from the tv0 groups. Should visit
+  // both tv1 and tv3
+  {
+    auto result =
+        getAllExprGroupsBetween(graph, tv0_loop_groups, tv0_loop_groups).first;
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+}
+
+// Testing with a graph structure of
+//
+// tv0 -> tv1,tv5,tv6 -> tv2 -> tv3 -> tv4
+//             ^                 |
+//             +-----------------+
+//
+// Each edge corresponds to an expr.
+TEST_F(FindAllExprsTest, Test3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeConcreteTensor({10});
+  fusion.addInput(tv0);
+  auto tv1 =
+      slice(tv0, {{fusion.oneVal(), tv0->getLogicalDomain().at(0)->extent()}});
+  auto tv2 =
+      slice(tv1, {{fusion.oneVal(), tv1->getLogicalDomain().at(0)->extent()}});
+  auto tv3 =
+      slice(tv2, {{fusion.oneVal(), tv2->getLogicalDomain().at(0)->extent()}});
+  auto tv4 =
+      slice(tv3, {{fusion.oneVal(), tv3->getLogicalDomain().at(0)->extent()}});
+  fusion.addOutput(tv4);
+  auto tv5 = pad(tv3, {IrBuilder::create<Val>(2L), fusion.zeroVal()});
+  auto tv6 = add(tv1, tv5);
+  fusion.addOutput(tv6);
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
+  ValGroups tv4_logical_groups = graph.toGroups(tv4->getLogicalDomain());
+
+  // Forward traversal from tv0.
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv0_logical_groups,
+                      tv4_logical_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Forward)
+                      .first;
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+
+  // Backward traversal from tv4.
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv4_logical_groups,
+                      tv0_logical_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Backward)
+                      .first;
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv0_logical_groups,
+                      tv4_logical_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Undefined)
+                      .first;
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv1->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv3->getLogicalDomain().at(0)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv5->getLogicalDomain().at(0)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv2->getLogicalDomain().at(0)->definition()),
+         Direction::Backward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
+}
+
+// Test with the ROPE rotation pattern
+TEST_F(FindAllExprsTest, Rotation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({16, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[1] / 2)}});
+
+  auto tv3 = sin(tv0);
+
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(shape[1] / 2),
+        IrBuilder::create<Val>(shape[1])}});
+
+  auto tv5 = cat({tv4, tv2}, 1);
+
+  auto tv6 = add(tv0, tv5);
+
+  fusion.addOutput(tv6);
+
+  IdModel id_model(&fusion);
+  const ValGraph& graph = id_model.buildExactGraph();
+
+  // Traversal from tv6 to tv0 should include all exprs
+  ValGroups tv0_logical_groups = graph.toGroups(tv0->getLogicalDomain());
+  ValGroups tv6_logical_groups = graph.toGroups(tv6->getLogicalDomain());
+
+  {
+    auto result = getAllExprGroupsBetween(
+                      graph,
+                      tv6_logical_groups,
+                      tv0_logical_groups,
+                      /*require_all_to_visited=*/true,
+                      Direction::Undefined)
+                      .first;
+    auto tv4_pad = tv5->definition()->input(0)->as<TensorView>();
+    auto tv2_pad = tv5->definition()->input(1)->as<TensorView>();
+
+    ExprGroupPath reference_path{
+        {graph.toGroup(tv2->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4_pad->getLogicalDomain().at(1)->definition()),
+         Direction::Forward},
+        {graph.toGroup(tv4->getLogicalDomain().at(1)->definition()),
+         Direction::Backward},
+        {graph.toGroup(tv2->getLogicalDomain().at(1)->definition()),
+         Direction::Backward}};
+
+    VALIDATE_EXPR_PATH(result, reference_path);
+  }
 }
 
 } // namespace nvfuser

@@ -261,6 +261,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
   ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
+  ${NVFUSER_SRCS_DIR}/statement_guard.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
   ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
@@ -367,17 +368,8 @@ add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-
-  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
-    # recommends to link asan statically. This is the default with Clang. GCC
-    # needs `-static-libasan`.
-    target_link_options(codegen_internal PUBLIC -fsanitize=address -static-libasan)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -static-libasan)
-  else()
-    target_link_options(codegen_internal PUBLIC -fsanitize=address)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
-  endif()
+  target_link_options(codegen_internal PUBLIC -fsanitize=address)
+  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
@@ -572,17 +564,18 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
@@ -608,12 +601,14 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_rope.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_scatter_gather.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_scatter.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_statement_guard.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp

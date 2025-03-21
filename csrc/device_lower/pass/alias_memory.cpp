@@ -483,6 +483,9 @@ class ScopeMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::IrVisitor::handle(ite);
   }
 
@@ -562,7 +565,7 @@ struct AllocationInfo {
   const kir::Allocate* alias_to = nullptr;
   bool is_inner_alias = false;
   bool should_try_alias = true;
-  bool is_cp_async_bulk = false;
+  int64_t alignment = 16;
   MemoryType mem_type = MemoryType::Local;
   DataType data_type = DataType::Float;
   std::string size_expr;
@@ -764,6 +767,25 @@ class AllocationInfoMap : private kir::IrVisitor {
     collectLivenessInfoOfExpr(expr);
   }
 
+  std::optional<MmaInputSmemSwizzle> getTmaSwizzle(TensorView* tv) {
+    bool is_tma_load = tv->definition() != nullptr &&
+        ir_utils::isCpAsyncBulk(tv->definition());
+    if (is_tma_load) {
+      return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
+    }
+
+    for (Expr* e : tv->uses()) {
+      if (ir_utils::isCpAsyncBulk(e)) {
+        TensorView* consumer_tv = ir_utils::getTvOutput(e);
+        return GpuLower::current()
+            ->consumerToTMAInfo()
+            .at(consumer_tv)
+            .swizzle();
+      }
+    }
+    return std::nullopt;
+  }
+
   void handle(ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
     if (!for_loop->isTrivial()) {
@@ -786,6 +808,9 @@ class AllocationInfoMap : private kir::IrVisitor {
   }
 
   void handle(kir::IfThenElse* ite) final {
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::IrVisitor::handle(ite);
   }
 
@@ -841,9 +866,11 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->size_expr = size_print;
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
-    alloc_info->is_cp_async_bulk =
-        (tv->definition() != nullptr &&
-         ir_utils::isCpAsyncBulk(tv->definition()));
+
+    std::optional<MmaInputSmemSwizzle> tma_swizzle = getTmaSwizzle(tv);
+    alloc_info->alignment = (tma_swizzle.has_value())
+        ? getSharedMemoryByteAlignment(tma_swizzle.value())
+        : 16;
 
     // record short cuts
     allocation_info_map_[alloc] = alloc_info;
@@ -1757,8 +1784,8 @@ class StackBasedSharedMemAllocator : kir::IrVisitor {
           SimplifyingIrBuilder::addExpr(top_alloc->address(), top_size);
       // Shared memory allocations must by 128B aligned for cpAsyncBulk
       // operations to avoid CUDA_ERROR_MISALIGNED_ADDRESS.
-      auto aligned_address = alignExpr(
-          unaligned_address, (alloc_info->is_cp_async_bulk) ? 128 : 16);
+      auto aligned_address =
+          alignExpr(unaligned_address, alloc_info->alignment);
       // TODO: hoisting of addresses using for_loops_ recorded at first write
       alloc->setAddress(aligned_address);
     }

@@ -143,7 +143,7 @@ bool isTvOp(const Expr* expr) {
           TensorConstruct,
           SelectOp,
           IndexSelectOp,
-          TorchGatherOp,
+          GatherOp,
           ScatterOp,
           RNGOp,
           FullOp,
@@ -242,6 +242,14 @@ bool isCpAsyncBulkLoad(const Expr* expr) {
 
 bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
+}
+
+bool isLdStTMem(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::LdTMem ||
+        ldst->opType() == LoadStoreOpType::StTMem;
+  }
+  return false;
 }
 
 bool isTensorScalarFillOp(const Expr* expr) {

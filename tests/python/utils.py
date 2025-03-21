@@ -13,11 +13,12 @@ from torch.testing import make_tensor
 from functools import wraps
 from enum import Enum, auto
 from torch.testing._internal.common_utils import TestCase
+from looseversion import LooseVersion
 
 # flake8 complains about DataType being unused in this file but it is necessary
 # to run captured fusion definition.
 # flake8: noqa
-from nvfuser import FusionCache, FusionDefinition, DataType, clone
+from nvfuser import FusionCache, FusionDefinition, DataType, clone, Tensor
 
 try:
     # flake8: noqa
@@ -378,7 +379,8 @@ def nvfusertest_serde_check(test_fn: Callable):
     if disable_serde:
 
         def inner_fn(*args, **kwargs):
-            kwargs.pop("skip_serde_check")
+            # Remove skip_serde_check if it was given
+            kwargs.pop("skip_serde_check", None)
             return test_fn(*args, **kwargs)
 
         return inner_fn
@@ -415,6 +417,35 @@ def nvfusertest_serde_check(test_fn: Callable):
         return test_fn(self, fusion_func, inputs, **kwargs)
 
     return inner_fn
+
+
+UPDATED_SDPA = LooseVersion(torch.__version__) >= LooseVersion("2.7.0")
+
+
+def define_sdpa_rng_state(fd: FusionDefinition) -> tuple[Tensor, Tensor]:
+    dtype = DataType.UInt64 if UPDATED_SDPA else DataType.Int
+    is_cpu = False if UPDATED_SDPA else True
+    philox_shape = [2] if UPDATED_SDPA else []
+    philox_seed = fd.define_tensor(
+        shape=philox_shape,
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    philox_offset = fd.define_tensor(
+        shape=[],
+        dtype=dtype,
+        is_cpu=is_cpu,
+    )
+    return philox_seed, philox_offset
+
+
+def create_sdpa_rng_tensors() -> tuple[torch.Tensor, torch.Tensor]:
+    dtype = torch.uint64 if UPDATED_SDPA else torch.int64
+    device = "cuda" if UPDATED_SDPA else "cpu"
+    philox_shape = (2,) if UPDATED_SDPA else ()
+    philox_seed = torch.testing.make_tensor(philox_shape, device=device, dtype=dtype)
+    philox_offset = torch.testing.make_tensor((), device=device, dtype=dtype)
+    return philox_seed, philox_offset
 
 
 """
