@@ -752,23 +752,34 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
         if (params_->tiling_strategy ==
             MatmulParams::TilingStrategy::OneTilePerCTA) {
+          int64_t num_math_warp_groups = 1L;
+          NVF_ERROR(!mma_results_.empty());
+          for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+            if (id->getParallelType() == ParallelType::TIDy) {
+              num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
+            }
+          }
           NVF_ERROR(
-              std::all_of(
-                  mma_results_.begin(),
-                  mma_results_.end(),
-                  [](TensorView* tv) {
-                    IterDomain* ws_axis = tv->axis(-7);
-                    return ws_axis->getParallelType() == ParallelType::TIDy &&
-                        ws_axis->extent()->evaluate().as<int64_t>() <= 2;
-                  }),
+              num_math_warp_groups <= 2,
               "There can be at most two compute warp groups for register ",
               "sharing with warp specialization");
-          constexpr int64_t num_registers_load_warp = 40;
-          constexpr int64_t num_registers_compute_warp = 232;
-          cb_type = (CircularBufferType)WarpSpecialized(
-              ParallelType::TIDy,
-              std::make_pair(
-                  num_registers_load_warp, num_registers_compute_warp));
+          if (num_math_warp_groups == 1) {
+            // Disable register sharing when there is only one math warp group.
+            // In such case we will have 128 math threads and 128 dma threads,
+            // for a total of 256 threads per CTA. The register file size on
+            // Hopper is 64K registers, which is filled when a 256-thread CTA
+            // has 256 registers per thread. Since 256 is already the maximum
+            // number of registers per thread even with register sharing, there
+            // is no point in doing register sharing to try and increase it.
+            cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+          } else {
+            constexpr int64_t num_registers_load_warp = 40;
+            constexpr int64_t num_registers_compute_warp = 232;
+            cb_type = (CircularBufferType)WarpSpecialized(
+                ParallelType::TIDy,
+                std::make_pair(
+                    num_registers_load_warp, num_registers_compute_warp));
+          }
         } else {
           // Persistent kernels cannot yet use register sharing
           cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
