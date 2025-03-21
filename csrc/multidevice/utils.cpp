@@ -6,10 +6,13 @@
  */
 // clang-format on
 
+#include <c10/util/irange.h>
+
 #include <device_lower/utils.h>
+#include <expr_simplifier.h>
 #include <host_ir/lower.h>
-#include <id_model/id_model.h>
 #include <instrumentation.h>
+#include <ir/container.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
@@ -17,8 +20,7 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/utils.h>
-
-#include <c10/util/irange.h>
+#include <statement_guard.h>
 
 namespace nvfuser {
 
@@ -105,6 +107,7 @@ bool isSharded(const TensorView* tv) {
 }
 
 namespace {
+
 // Collect device-parallel IterDomains in `domain` and return them as a
 // ParallelType-to-IterDomain map.
 std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
@@ -276,36 +279,65 @@ int64_t numDeviceDims(const TensorView* tv) {
 }
 
 namespace {
+// Given a loop ID `id` and a source domain `sources`, returns the Val* that
+// represents the index of that loop ID. `sources` is either the producer's
+// logical or the consumer's root. The boolean returned indicates whether the
+// loop ID depends on a producer logical ID or a consumer root ID that are
+// mapped by PairwiseLogicalDomainMap. Recall that the caller only examines DIDs
+// that originates from a mapped ID. `id_to_index` operates as a cache.
+std::pair<Val*, bool> computeLoopIndex(
+    IterDomain* id,
+    const std::vector<IterDomain*>& sources,
+    std::unordered_map<IterDomain*, std::pair<Val*, bool>>& id_to_index) {
+  if (id == nullptr) {
+    return {nullptr, false};
+  }
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
-    const std::vector<IterDomain*>& target_domain) {
-  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
-      {loop_id}, {target_domain.begin(), target_domain.end()});
+  std::vector<Expr*> transforms =
+      StmtSort::getExprsBetween({sources.begin(), sources.end()}, {id});
+  for (Expr* transform : transforms) {
+    if (std::all_of(
+            transform->outputs().begin(),
+            transform->outputs().end(),
+            [&](Val* val) {
+              return id_to_index.count(val->as<IterDomain>()) > 0;
+            })) {
+      continue;
+    }
 
-  std::vector<IterDomain*> inputs_as_iter_domains;
-  inputs_as_iter_domains.reserve(inputs_as_vals.size());
-  std::transform(
-      inputs_as_vals.begin(),
-      inputs_as_vals.end(),
-      std::back_inserter(inputs_as_iter_domains),
-      [](Val* val) { return val->as<IterDomain>(); });
-  return inputs_as_iter_domains;
-}
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      auto* in = split->in()->as<IterDomain>();
+      auto* outer = split->outer()->as<IterDomain>();
+      auto* inner = split->inner()->as<IterDomain>();
 
-bool overlaps(
-    const std::vector<IterDomain*>& a,
-    const std::unordered_set<IterDomain*>& b) {
-  return std::any_of(
-      a.begin(), a.end(), [&](IterDomain* id) { return b.count(id); });
+      const auto& in_info = id_to_index.at(in);
+      id_to_index[outer] = {
+          div(in_info.first, inner->extent()), in_info.second};
+      id_to_index[inner] = {
+          mod(in_info.first, inner->extent()), in_info.second};
+    } else if (auto* merge = dynamic_cast<Merge*>(transform)) {
+      auto* outer = merge->outer()->as<IterDomain>();
+      auto* inner = merge->inner()->as<IterDomain>();
+      auto* out = merge->out()->as<IterDomain>();
+
+      const auto& outer_info = id_to_index.at(outer);
+      const auto& inner_info = id_to_index.at(inner);
+      id_to_index[out] = {
+          add(mul(outer_info.first, inner->extent()), inner_info.first),
+          outer_info.second || inner_info.second};
+    } else {
+      NVF_THROW("Unexpected transform: ", transform);
+    }
+  }
+
+  return id_to_index.at(id);
 }
 
 } // namespace
 
 bool haveDifferentShardings(
     const TensorView* producer,
-    const TensorView* consumer,
-    const IdModel& id_model) {
+    const TensorView* consumer) {
   // cpu scalars are not required to have a mesh
   if (producer->isCpuScalar() || consumer->isCpuScalar()) {
     return false;
@@ -345,22 +377,58 @@ bool haveDifferentShardings(
   // Therefore, we collect all the loop IterDomains that depend on the
   // logical-domain-mapped IterDomains, and check if they are DID-parallelized
   // consistently.
-  const std::unordered_map<IterDomain*, IterDomain*>& p2c =
-      PairwiseLogicalDomainMap(producer, consumer).mapProducerToConsumer();
-  std::unordered_set<IterDomain*> mapped_p_logical_ids;
-  mapped_p_logical_ids.reserve(p2c.size());
-  std::unordered_set<IterDomain*> mapped_c_root_ids;
-  mapped_c_root_ids.reserve(p2c.size());
-  for (IterDomain* p_logical_id : producer->getLogicalDomain()) {
-    const auto i = p2c.find(p_logical_id);
-    if (i == p2c.end()) {
-      // This happens e.g. when `p_logical_id` is squeezed or is a product of a
-      // reduction. Even if `p_logical_id` is parallelized on DID, the
-      // dimension is size-1 and doesn't trigger resharding.
+  const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+      PairwiseLogicalDomainMap(producer, consumer)
+          // We skip broadcast dimensions because they are replicated on all
+          // devices regardless of DIDx. Even when the corresponding consumer
+          // dimension is non-broadcast, they don't cause communication. If we
+          // didn't skip them, we would need to modify the downstream code for
+          // collecting assumptions of `index < extent`. Recall that
+          // non-expanded broadcast dimensions have a fixed extent of 1.
+          .mapBroadcast(false)
+          .mapConsumerToProducer();
+
+  Fusion* fusion = producer->fusion();
+  NVF_ERROR(
+      fusion == consumer->fusion(),
+      "The producer and consumer must be in the same fusion.");
+  FusionGuard fg(fusion);
+  StatementGuard sg(fusion);
+
+  // The second element of the value pair indicates whether the IterDomain
+  // depends on a mapped producer logical IterDomain or a mapped consumer root
+  // IterDomain. Propagating this information is needed to solve the matmul
+  // example above.
+  std::unordered_map<IterDomain*, std::pair<Val*, bool>> id_to_index;
+  std::vector<Val*> assumptions;
+  assumptions.reserve(
+      (producer->getLogicalDomain().size() +
+       consumer->getMaybeRootDomain().size()) *
+      2);
+
+  auto create_index = [&](IterDomain* id) {
+    auto* index = IrBuilder::create<Val>(DataType::Index);
+    NVF_ERROR(id_to_index.emplace(id, std::make_pair(index, false)).second);
+    assumptions.push_back(
+        SimplifyingIrBuilder::leExpr(fusion->zeroVal(), index));
+    assumptions.push_back(SimplifyingIrBuilder::ltExpr(index, id->extent()));
+  };
+
+  for (IterDomain* p_id : producer->getLogicalDomain()) {
+    create_index(p_id);
+  }
+  for (IterDomain* c_id : consumer->getMaybeRootDomain()) {
+    IterDomain* p_id = getOrDefault(c2p, c_id);
+    if (p_id == nullptr) {
+      create_index(c_id);
       continue;
     }
-    mapped_p_logical_ids.insert(p_logical_id);
-    mapped_c_root_ids.insert(i->second);
+
+    std::pair<Val*, bool>& index_and_mapped = id_to_index.at(p_id);
+    index_and_mapped.second = true;
+    NVF_ERROR(
+        id_to_index.emplace(c_id, std::make_pair(index_and_mapped.first, true))
+            .second);
   }
 
   // In practice, only loop IterDomains can be parallelized, and no two loop
@@ -372,119 +440,48 @@ bool haveDifferentShardings(
   // consumer's root domain. If that input IterDomain is not
   // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
   // parallelized but just not a concern for this producer-consumer pair.
-  // 3. Check if the two loop IterDomains are almost-exactly mapped in the
-  // IdModel.
+  // 3. Check if the two loop IterDomains map to two indices that are
+  // mathematically equivalent.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapDeviceParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       mapDeviceParallelTypeToId(consumer->getLoopDomain());
 
   for (const auto parallel_type : kParallelTypeDIDs) {
-    IterDomain* p_loop_id = getOrDefault(p_parallel_type_to_id, parallel_type);
-    if (p_loop_id != nullptr) {
-      auto p_inputs =
-          getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain());
-      if (!overlaps(p_inputs, mapped_p_logical_ids)) {
-        p_loop_id = nullptr;
-      }
+    IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
+    Val* p_index = nullptr;
+    bool p_mapped = false;
+    std::tie(p_index, p_mapped) =
+        computeLoopIndex(p_id, producer->getLogicalDomain(), id_to_index);
+    if (!p_mapped) {
+      p_index = nullptr;
     }
 
-    IterDomain* c_loop_id = getOrDefault(c_parallel_type_to_id, parallel_type);
-    if (c_loop_id != nullptr) {
-      auto c_inputs =
-          getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain());
-      if (!overlaps(c_inputs, mapped_c_root_ids)) {
-        c_loop_id = nullptr;
-      }
+    IterDomain* c_id = getOrDefault(c_parallel_type_to_id, parallel_type);
+    Val* c_index = nullptr;
+    bool c_mapped = false;
+    std::tie(c_index, c_mapped) =
+        computeLoopIndex(c_id, consumer->getMaybeRootDomain(), id_to_index);
+    if (!c_mapped) {
+      c_index = nullptr;
     }
 
-    auto is_mapped_in_id_model = [producer, consumer, mapped_c_root_ids](
-                                     IterDomain* p_loop_id,
-                                     IterDomain* c_loop_id,
-                                     const IdModel& id_model) -> bool {
-      if (p_loop_id == nullptr && c_loop_id == nullptr) {
+    const bool is_equivalent = [&]() -> bool {
+      if (p_index == nullptr && c_index == nullptr) {
         return true;
       }
-
-      if (p_loop_id == nullptr || c_loop_id == nullptr) {
+      if (p_index == nullptr || c_index == nullptr) {
         return false;
       }
 
-      if (consumer->definition()->isA<ViewOp>()) {
-        // Consider the reshape: [h]-> [a, h/a] where `h` and `a` are sharded,
-        // IdModel currently does not map the two DID axes. Similarly for the
-        // corresponding merge reshape. This is a temporary workaround to check
-        // if the reshape is resharding when sharding is on reshaped ids.
+      return simplifyExpr(
+                 SimplifyingIrBuilder::eqExpr(p_index, c_index),
+                 /*variables=*/{},
+                 assumptions)
+          ->isTrue();
+    }();
 
-        // Get the root iterdomains in the consumer that produce reshape logical
-        // Ids.
-        std::unordered_set<IterDomain*> c_reshape_ids;
-        for (auto id : consumer->getLogicalDomain()) {
-          if (id->isRFactorProduct() && id->definition() &&
-              !id->definition()->isA<Resize>()) {
-            auto root_ids = getInputsInTargetDomain(
-                id, {mapped_c_root_ids.begin(), mapped_c_root_ids.end()});
-            for (auto root_id : root_ids) {
-              c_reshape_ids.insert(root_id);
-            }
-          }
-        }
-
-        // Get the logical iterdomains in the producer that are reshaped.
-        const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-            PairwiseLogicalDomainMap(producer, consumer)
-                .mapConsumerToProducer();
-        std::unordered_set<IterDomain*> p_reshape_ids;
-        for (auto id : c_reshape_ids) {
-          auto p_id = c2p.find(id);
-          if (p_id != c2p.end()) {
-            p_reshape_ids.insert(p_id->second);
-          }
-        }
-
-        auto p_transforms = DependencyCheck::getAllExprsBetween(
-            {p_reshape_ids.begin(), p_reshape_ids.end()}, {p_loop_id});
-        auto c_transforms = DependencyCheck::getAllExprsBetween(
-            {c_reshape_ids.begin(), c_reshape_ids.end()}, {c_loop_id});
-
-        if (p_transforms.size() > 0 && c_transforms.size() > 0) {
-          // Both a and b come from reshaped ids.
-          NVF_ERROR(
-              p_loop_id->definition()->isA<Split>(),
-              p_loop_id,
-              " is not a Split: ",
-              p_loop_id->definition());
-          NVF_ERROR(
-              c_loop_id->definition()->isA<Split>(),
-              c_loop_id,
-              " is not a Split: ",
-              c_loop_id->definition());
-          // Get the split producing the sharded axis
-          auto* p_split = p_transforms.back()->as<Split>();
-          auto* c_split = c_transforms.back()->as<Split>();
-
-          // Reshape is not resharding if both the DID splits are either inner
-          // or outer splits. Note that we currently do not exercise inner
-          // splits in the multidevice tests.
-          return p_split->innerSplit() == c_split->innerSplit();
-        }
-      }
-
-      // Going between bDIDx{1} and iDIDx{N} doesn't trigger resharding, but
-      // would be flagged by ALMOSTEXACT as a false positive.
-      if (id_model.idGraph(IdMappingMode::BROADCAST)
-              .disjointValSets()
-              .strictAreMapped(p_loop_id, c_loop_id)) {
-        return true;
-      }
-
-      // Check ALMOSTEXACT so iDIDx{N}*b{1} and iDIDx{N} are mapped.
-      return id_model.idGraph(IdMappingMode::ALMOSTEXACT)
-          .disjointValSets()
-          .strictAreMapped(p_loop_id, c_loop_id);
-    };
-
-    if (!is_mapped_in_id_model(p_loop_id, c_loop_id, id_model)) {
+    if (!is_equivalent) {
       return true;
     }
   }
@@ -499,16 +496,11 @@ bool isResharding(const Expr* expr) {
     return false;
   }
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
-  IdModel id_model({const_cast<Expr*>(expr)}, {}, false, false);
-  id_model.buildAlmostExactGraph();
-  id_model.buildBroadcastGraph();
   // We don't use getTvsWithDifferentSharding because it creates a computeAtMap,
   // which is too costly
   for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
     for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-      // exit early in the unsharded case for performance
-      if (haveDifferentShardings(input, output, id_model)) {
+      if (haveDifferentShardings(input, output)) {
         return true;
       }
     }

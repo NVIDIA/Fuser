@@ -53,11 +53,8 @@ void insertReshardingsBefore(Fusion* fusion) {
     auto output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
-    IdModel id_model({expr}, {}, false, false);
-    id_model.buildAlmostExactGraph();
-    id_model.buildBroadcastGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output, id_model)) {
+      if (haveDifferentShardings(input, output)) {
         inputs.insert(input);
       }
     }
@@ -97,11 +94,8 @@ void insertReshardingsAfter(Fusion* fusion) {
     auto output = expr->output(0)->as<TensorView>();
 
     std::unordered_set<TensorView*> inputs;
-    IdModel id_model({expr}, {}, false, false);
-    id_model.buildAlmostExactGraph();
-    id_model.buildBroadcastGraph();
     for (auto input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (haveDifferentShardings(input, output, id_model)) {
+      if (haveDifferentShardings(input, output)) {
         inputs.insert(input);
       }
     }
