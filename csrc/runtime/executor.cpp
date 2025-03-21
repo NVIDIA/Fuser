@@ -1256,7 +1256,6 @@ KernelArgumentHolder KernelExecutor::run(
           executor_entry->arg_ptrs.data(),
           nullptr));
     } else {
-      std::cerr << "coop launch\n";
       FUSER_PERF_SCOPE("ExecutorRunFusion::cuLaunchCooperativeKernel");
       NVFUSER_CUDA_SAFE_CALL(cuLaunchCooperativeKernel(
           compiled_kernel_->cudaExecutable()->function,
