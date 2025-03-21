@@ -304,8 +304,7 @@ class WarSyncInserter : private kir::ExprMutator {
   WarMemoryInfo& getMemInfo(TensorView* tv) {
     auto maybe_aliased_tv = alloc_map_.getRealBuffer(tv);
     auto alloc_it = smem_allocations_.find(maybe_aliased_tv);
-    auto ca_loop =
-        lower_utils::getAllocPosInfo(tv, for_loops_).init_for_loop;
+    auto ca_loop = lower_utils::getAllocPosInfo(tv, for_loops_).init_for_loop;
     if (alloc_it == smem_allocations_.end()) {
       WarMemoryInfo mem_info;
       mem_info.ca_loop = ca_loop;
