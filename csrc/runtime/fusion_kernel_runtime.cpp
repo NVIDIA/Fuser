@@ -347,7 +347,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   auto group_cache_id = args.getCacheId();
 
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
-  num_live_args_after_segment_runs_.reserve(num_groups);
   if (isProfilerEnabled()) {
     FusionProfiler::startCompile();
   }
@@ -424,7 +423,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // map output args to tensor map
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-    num_live_args_after_segment_runs_.emplace_back((int64_t)args.size());
   }
 
   // add all expressions and compiled kernels to the host ir container
@@ -638,7 +636,6 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
-  num_live_args_after_segment_runs_.reserve(num_groups);
   kernel_time_ms_ = 0;
   for (auto run_order_id : c10::irange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
@@ -660,7 +657,6 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
 
     args_manager.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
-    num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
 
   if (isProfilerEnabled()) {
