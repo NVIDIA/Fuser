@@ -44,15 +44,12 @@ void NVFuserTest::SetUp() {
   std::srand(getCRandomSeed());
 
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
-
-  resetPeakMemoryStats(0);
-  ASSERT_EQ(maxMemoryAllocated(0), 0);
 }
 
 void NVFuserTest::TearDown() {
   at::cuda::clearCublasWorkspaces();
+  ASSERT_EQ(memoryAllocated(0), 0) << "Memory leak detected";
 
-  ASSERT_EQ(memoryAllocated(0), 0);
   if (::testing::Test::HasFailure()) {
     auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
     std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
@@ -68,6 +65,27 @@ void NVFuserTest::TearDown() {
   // Make sure profiler is unset in case it was set during test
   ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
+}
+
+void NVFuserTest::captureStdout() {
+  if (!capturing_) {
+    testing::internal::CaptureStdout();
+    capturing_ = true;
+  }
+}
+
+void NVFuserTest::ensureStopCaptureStdout() {
+  if (capturing_) {
+    testing::internal::GetCapturedStdout();
+    capturing_ = false;
+  }
+}
+
+std::string NVFuserTest::getCapturedStdout() {
+  NVF_ERROR(capturing_, "Not captured");
+  auto str = testing::internal::GetCapturedStdout();
+  capturing_ = false;
+  return str;
 }
 
 const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(

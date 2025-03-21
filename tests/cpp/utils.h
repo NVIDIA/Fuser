@@ -535,32 +535,14 @@ inline bool cudaArchGuardShouldSkip(
 class NVFuserTest : public ::testing::Test {
  protected:
   void SetUp() override;
-
   void TearDown() override;
 
   // Start capturing of stdout if not already started
-  void captureStdout() {
-    if (!capturing_) {
-      testing::internal::CaptureStdout();
-      capturing_ = true;
-    }
-  }
-
+  void captureStdout();
   // Stop capturing of stdout if being captured
-  void ensureStopCaptureStdout() {
-    if (capturing_) {
-      testing::internal::GetCapturedStdout();
-      capturing_ = false;
-    }
-  }
-
+  void ensureStopCaptureStdout();
   // Get capturing stdout
-  std::string getCapturedStdout() {
-    NVF_ERROR(capturing_, "Not captured");
-    auto str = testing::internal::GetCapturedStdout();
-    capturing_ = false;
-    return str;
-  }
+  std::string getCapturedStdout();
 
  protected:
   EnableOptionsGuard enable_options_guard_;
