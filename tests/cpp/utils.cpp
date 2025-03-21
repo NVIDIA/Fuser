@@ -5,15 +5,18 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <tests/cpp/utils.h>
-
-#include <ops/all_ops.h>
-#include <scheduler/mma_utils.h>
-
 #include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
+
+#include <c10/core/Allocator.h>
+#include <c10/core/CachingDeviceAllocator.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+
+#include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
+#include <tests/cpp/utils.h>
 
 namespace nvfuser {
 
@@ -858,4 +861,26 @@ std::pair<at::Tensor, at::Tensor> createSdpaRngTensors() {
 #endif
   return std::make_pair(philox_seed, philox_offset);
 }
+
+void resetPeakMemoryStats(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  allocator->resetPeakStats(device);
+}
+
+int64_t maxMemoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes
+      .at(static_cast<uint64_t>(c10::CachingAllocator::StatType::AGGREGATE))
+      .peak;
+}
+
 } // namespace nvfuser

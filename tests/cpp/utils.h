@@ -880,4 +880,11 @@ bool isVectorized(TensorView* tv);
 std::pair<TensorView*, TensorView*> createSdpaRngTvs();
 std::pair<at::Tensor, at::Tensor> createSdpaRngTensors();
 
+// C++ implementation of torch.cuda.reset_peak_memory_stats. Note that this
+// resets peak to current, not zero.
+void resetPeakMemoryStats(c10::DeviceIndex device);
+
+// C++ implementation of torch.cuda.max_memory_allocated
+int64_t maxMemoryAllocated(const c10::DeviceIndex device);
+
 } // namespace nvfuser
