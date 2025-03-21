@@ -12,6 +12,7 @@
 
 #include <fusion.h>
 #include <fusion_guard.h>
+#include <global_allocator.h>
 #include <ops/arith.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -21,6 +22,10 @@ namespace nvfuser {
 using RuntimeTest = NVFuserTest;
 
 TEST_F(RuntimeTest, ClearGmemBetweenSegments) {
+  at::cuda::clearCublasWorkspaces();
+  releaseZeroedMemory();
+  ASSERT_EQ(memoryAllocated(0), 0) << "Memory leak detected";
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   std::vector<int64_t> input_shape{32, 64, 8, 128};

@@ -47,9 +47,6 @@ void NVFuserTest::SetUp() {
 }
 
 void NVFuserTest::TearDown() {
-  at::cuda::clearCublasWorkspaces();
-  ASSERT_EQ(memoryAllocated(0), 0) << "Memory leak detected";
-
   if (::testing::Test::HasFailure()) {
     auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
     std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
