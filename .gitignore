@@ -5,6 +5,9 @@ bin
 build
 .lintbin
 
+# sphinx documentation
+sphinx_docs/build
+
 # pip wheel directory
 dist
 
