@@ -279,7 +279,13 @@ int64_t numDeviceDims(const TensorView* tv) {
 }
 
 namespace {
-std::pair<Val*, bool> computeIndex(
+// Given a loop ID `id` and a source domain `sources`, returns the Val* that
+// represents the index of that loop ID. `sources` is either the producer's
+// logical or the consumer's root. The boolean returned indicates whether the
+// loop ID depends on a producer logical ID or a consumer root ID that are
+// mapped by PairwiseLogicalDomainMap. Recall that the caller only examines DIDs
+// that originates from a mapped ID. `id_to_index` operates as a cache.
+std::pair<Val*, bool> computeLoopIndex(
     IterDomain* id,
     const std::vector<IterDomain*>& sources,
     std::unordered_map<IterDomain*, std::pair<Val*, bool>>& id_to_index) {
@@ -446,7 +452,7 @@ bool haveDifferentShardings(
     Val* p_index = nullptr;
     bool p_mapped = false;
     std::tie(p_index, p_mapped) =
-        computeIndex(p_id, producer->getLogicalDomain(), id_to_index);
+        computeLoopIndex(p_id, producer->getLogicalDomain(), id_to_index);
     if (!p_mapped) {
       p_index = nullptr;
     }
@@ -455,7 +461,7 @@ bool haveDifferentShardings(
     Val* c_index = nullptr;
     bool c_mapped = false;
     std::tie(c_index, c_mapped) =
-        computeIndex(c_id, consumer->getMaybeRootDomain(), id_to_index);
+        computeLoopIndex(c_id, consumer->getMaybeRootDomain(), id_to_index);
     if (!c_mapped) {
       c_index = nullptr;
     }
