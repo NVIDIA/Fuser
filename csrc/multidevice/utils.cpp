@@ -404,15 +404,9 @@ bool haveDifferentShardings(
           .mapBroadcast(false)
           .mapConsumerToProducer();
 
-  // FIXME: simplify with keys and values
-  std::unordered_set<IterDomain*> mapped_p_logical_ids;
-  mapped_p_logical_ids.reserve(c2p.size());
-  std::unordered_set<IterDomain*> mapped_c_root_ids;
-  mapped_c_root_ids.reserve(c2p.size());
-  for (auto&& [c_id, p_id] : c2p) {
-    mapped_p_logical_ids.insert(p_id);
-    mapped_c_root_ids.insert(c_id);
-  }
+  auto c2p_values = std::views::values(c2p);
+  std::unordered_set<IterDomain*> mapped_p_logical_ids(
+      c2p_values.begin(), c2p_values.end());
 
   Fusion* fusion = producer->fusion();
   NVF_ERROR(
@@ -440,28 +434,17 @@ bool haveDifferentShardings(
     assumptions.push_back(SimplifyingIrBuilder::ltExpr(index, id->extent()));
   };
 
-  // In practice, only loop IterDomains can be parallelized, and no two loop
-  // IterDomains in a TensorView can have the same parallel type. Therefore, we
-  // do the check in reverse order for efficiency and simplicity:
-  // 1. For each DID parallel type, find the loop IterDomain in producer and the
-  // one in consumer that have the type.
-  // 2. Find what IterDomains they come from in producer's logical or
-  // consumer's root domain. If that input IterDomain is not
-  // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
-  // parallelized but just not a concern for this producer-consumer pair.
-  // 3. Check if the two loop IterDomains map to two indices that are
-  // mathematically equivalent.
+  // Create indices for producer logical IDs and consumer root IDs. As an
+  // optimization, we create indices only for those that DIDs depend on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapDeviceParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       mapDeviceParallelTypeToId(consumer->getLoopDomain());
-
   for (const auto parallel_type : kParallelTypeDIDs) {
     if (IterDomain* p_loop_id =
             getOrDefault(p_parallel_type_to_id, parallel_type)) {
-      std::vector<IterDomain*> p_logical_ids =
-          getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain());
-      for (IterDomain* p_logical_id : p_logical_ids) {
+      for (IterDomain* p_logical_id :
+           getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain())) {
         if (id_to_index.count(p_logical_id) > 0) {
           continue;
         }
@@ -474,34 +457,36 @@ bool haveDifferentShardings(
   for (const auto parallel_type : kParallelTypeDIDs) {
     if (IterDomain* c_loop_id =
             getOrDefault(c_parallel_type_to_id, parallel_type)) {
-      std::vector<IterDomain*> c_root_ids =
-          getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain());
-      for (IterDomain* c_root_id : c_root_ids) {
+      for (IterDomain* c_root_id :
+           getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain())) {
         if (id_to_index.count(c_root_id) > 0) {
           continue;
         }
 
         IterDomain* p_logical_id = getOrDefault(c2p, c_root_id);
         if (p_logical_id == nullptr) {
-          create_index(c_root_id, false);
+          create_index(c_root_id, /*mapped=*/false);
           continue;
         }
 
-        if (id_to_index.count(p_logical_id) > 0) {
-          const std::pair<Val*, bool>& index_and_mapped =
-              id_to_index.at(p_logical_id);
-          NVF_ERROR(
-              id_to_index
-                  .emplace(
-                      c_root_id, std::make_pair(index_and_mapped.first, true))
-                  .second);
-        } else {
-          create_index(c_root_id, true);
+        auto i = id_to_index.find(p_logical_id);
+        if (i == id_to_index.end()) {
+          create_index(c_root_id, /*mapped=*/true);
+          continue;
         }
+        // Reuse the same index as the mapped producer logical ID. This is
+        // necessary for proving is-non-resharding; otherwise we won't see any
+        // connections between producer and consumer's loop indices.
+        NVF_ERROR(id_to_index
+                      .emplace(c_root_id, std::make_pair(i->second.first, true))
+                      .second);
       }
     }
   }
 
+  // For each parallel type, check whether the corresponding loop index in the
+  // producer and that in the consumer are equivalent. If they can't be proven
+  // to be equivalent, return is-resharding.
   for (const auto parallel_type : kParallelTypeDIDs) {
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
     Val* p_index = nullptr;
