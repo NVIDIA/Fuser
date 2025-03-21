@@ -275,8 +275,6 @@ int64_t numDeviceDims(const TensorView* tv) {
       [](IterDomain* id) { return id->isDeviceDim(); });
 }
 
-namespace {
-
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
     const std::vector<IterDomain*>& target_domain) {
@@ -293,6 +291,7 @@ std::vector<IterDomain*> getInputsInTargetDomain(
   return inputs_as_iter_domains;
 }
 
+namespace {
 bool overlaps(
     const std::vector<IterDomain*>& a,
     const std::unordered_set<IterDomain*>& b) {
@@ -541,13 +540,22 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
+void shardAllLike(
+    TensorView* ref,
+    std::vector<TensorView*> tvs,
+    bool parallelize_inputs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
+
   if (!tvs.empty()) {
     scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
+        ref,
+        /*pos=*/-1,
+        /*selected_tvs=*/tvs,
+        /*selected_parallel_types=*/{ParallelType::DIDx, ParallelType::Serial},
+        /*propagate_padding=*/false,
+        /*parallelize_inputs=*/parallelize_inputs);
   }
 
   // parallelAllLke, tries to DID-parallelize
@@ -684,7 +692,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   return ret;
 }
 
-void reorderDIDToFront(TensorView* tv) {
+int64_t reorderDIDToFront(TensorView* tv) {
   // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
@@ -697,6 +705,7 @@ void reorderDIDToFront(TensorView* tv) {
   }
 
   tv->reorder(order_map);
+  return current_pos;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
