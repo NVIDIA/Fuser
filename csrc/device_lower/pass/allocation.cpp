@@ -278,7 +278,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
 
       if (auto indexed_alloc_dom =
-              patchAllocationOfIndexedTensor(tv, allocation_domains);
+              patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
           indexed_alloc_dom.has_value()) {
         allocation_domains = indexed_alloc_dom.value();
         // Make sure the original allocation domains are fully contiguous
@@ -740,7 +740,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
     return patched_allocation_domains;
   }
 
-  std::optional<std::vector<IterDomain*>> patchAllocationOfIndexedTensor(
+  // If a producer tensor is accessed through supplied indices, the
+  // indexed logical IDs need to be entirely allocated.
+  std::optional<std::vector<IterDomain*>> patchAllocationOfIndexedProducerTensor(
       const TensorView* tv,
       const std::vector<IterDomain*>& allocation_domains) const {
     VectorOfUniqueEntries<Val*> indexed_logical_ids;
@@ -773,6 +775,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
       return std::nullopt;
     }
 
+    // indexed_logical_ids is not in the current allocation ID
+    // list. Find the allocation IDs that are equivalent to the
+    // indexed IDs. The indexed IDs should be reachable from the
+    // allocation IDs, and those allocation IDs used in the traversal
+    // path should be the ones that should be replaced with the
+    // indexed IDs.
+
     auto [path, all_visited] = getExprsBetween<IRBFS>(
         {allocation_domains.begin(), allocation_domains.end()},
         indexed_logical_ids.vector(),
@@ -789,6 +798,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> patched_allocation_ids;
     for (auto id : allocation_domains) {
       if (std::find(inputs.begin(), inputs.end(), id) != inputs.end()) {
+        // Remove the inputs of the path
         continue;
       }
       patched_allocation_ids.push_back(id);
