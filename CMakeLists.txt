@@ -261,6 +261,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
   ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
+  ${NVFUSER_SRCS_DIR}/statement_guard.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
   ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
@@ -599,6 +600,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_rope.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_runtime.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scatter.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
@@ -607,6 +609,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_statement_guard.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
@@ -804,6 +807,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   )
   target_include_directories(nvfuser_bench PUBLIC ${NVFUSER_ROOT})
   target_link_libraries(nvfuser_bench PRIVATE
+    GTest::gtest
     benchmark::benchmark
     codegen_internal
   )
@@ -841,6 +845,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
     target_include_directories(nvfuser_multidevice_bench PUBLIC ${NVFUSER_ROOT})
     target_link_libraries(nvfuser_multidevice_bench PRIVATE
+      GTest::gtest
       benchmark::benchmark
       codegen_internal
     )

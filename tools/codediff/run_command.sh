@@ -5,6 +5,14 @@
 #
 # run_command.sh - run a single command and record environment info
 #
+
+if [ "${BASH_VERSINFO:-0}" -lt 4 ]
+then
+    # Required for fallthrough token ;& in case statements
+    echo "This script requires bash 4.0+"
+    exit 1
+fi
+
 set -e
 set -o pipefail
 usage() {
@@ -210,14 +218,21 @@ if [[ -z $commandtype ]]
 then
     case "$testcmd" in
         *test_nvfuser*)
+            ;&
+        *tutorial_*)
+            ;&
+        *split_binary_nvfuser_tests*)
             commandtype="GOOGLETEST"
             ;;
+        *split_nvbench*)
+            ;&
         *nvfuser_bench*)
             commandtype="GOOGLEBENCH"
             ;;
         *pytest*)
-            commandtype="PYTEST"
-            ;;
+            ;&
+        *tests/python*)
+            ;&
         *python_tests*)
             commandtype="PYTEST"
             ;;

@@ -244,6 +244,14 @@ bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
 }
 
+bool isLdStTMem(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    return ldst->opType() == LoadStoreOpType::LdTMem ||
+        ldst->opType() == LoadStoreOpType::StTMem;
+  }
+  return false;
+}
+
 bool isTensorScalarFillOp(const Expr* expr) {
   // Check that the input is a single scalar.
   if (expr->inputs().size() == 1 && expr->input(0)->isScalar()) {
@@ -755,13 +763,13 @@ kir::Allocate* allocGlobalBufferForGridComm(
       resets_to_zero);
 }
 
-BasicAllocInfo getAllocInformation(
+AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
     const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
   DEBUG_PRINT_SCOPE(tv);
-  BasicAllocInfo info;
+  AllocPosInfo info;
   auto gpu_lower = GpuLower::current();
 
   bool outer_alloc_found = false;
