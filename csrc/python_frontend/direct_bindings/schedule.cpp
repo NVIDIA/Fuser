@@ -615,11 +615,12 @@ void bindFusionScheduleOps(
       py::arg("inputs"));
 
   sched.def(
-      "schedule",
+      "auto_schedule",
       [](DirectFusionDefinition::ScheduleOperators& self,
          Fusion* fusion,
          const py::iterable& iter,
-         const SchedulerType& heuristic) {
+         const SchedulerType& heuristic,
+         HeuristicParams* heuristic_params) {
         SchedulerRuntimeInfo runtime_info(
             fusion,
             from_pyiterable(iter),
@@ -631,9 +632,13 @@ void bindFusionScheduleOps(
 
         std::unique_ptr<SchedulerEntry> scheduler =
             SchedulerEntry::makeSchedulerInstance(heuristic);
-        std::unique_ptr<HeuristicParams> heuristic_params =
-            scheduler->computeHeuristics(fusion, runtime_info, nullptr);
-        scheduler->schedule(fusion, heuristic_params.get());
+        if (heuristic_params == nullptr) {
+          std::unique_ptr<HeuristicParams> heuristic_params =
+              scheduler->computeHeuristics(fusion, runtime_info, nullptr);
+          scheduler->schedule(fusion, heuristic_params.get());
+        } else {
+          scheduler->schedule(fusion, heuristic_params);
+        }
       },
       R"(
         Schedule the fusion with the given scheduler type.
@@ -649,7 +654,48 @@ void bindFusionScheduleOps(
       )",
       py::arg("fusion"),
       py::arg("inputs"),
-      py::arg("heuristic"));
+      py::arg("heuristic"),
+      py::arg("heuristic_params") = py::none());
+
+  sched.def(
+      "compute_heuristics",
+      [](DirectFusionDefinition::ScheduleOperators& self,
+         Fusion* fusion,
+         const py::iterable& iter,
+         const SchedulerType& scheduler_type) {
+        std::unique_ptr<SchedulerEntry> scheduler =
+            SchedulerEntry::makeSchedulerInstance(scheduler_type);
+        SchedulerRuntimeInfo runtime_info(
+            fusion,
+            from_pyiterable(iter),
+            /*precomputed_values=*/nullptr,
+            fusion->allTvs());
+        NVF_CHECK(
+            scheduler->canScheduleCompileTime(fusion) &&
+                scheduler->canScheduleRunTime(fusion, runtime_info),
+            "Could not schedule fusion with ",
+            scheduler_type,
+            " scheduler.");
+        return scheduler->computeHeuristics(fusion, runtime_info, nullptr);
+      },
+      R"(
+        Compute the heuristics for the given fusion and inputs.
+
+        Parameters
+        ----------
+        fusion : Fusion
+            The fusion to compute heuristics for.
+        inputs : iterable
+            The inputs to the fusion.
+
+        Returns
+        -------
+        PointwiseParams
+            The pointwise heuristics for the given fusion and inputs.
+      )",
+      py::arg("fusion"),
+      py::arg("inputs"),
+      py::arg("scheduler_type"));
 }
 
 } // namespace
