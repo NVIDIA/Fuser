@@ -196,7 +196,7 @@ Val* TensorIndexer::getLinearIndex(
   const auto alloc_info = getIndexAllocationInfo(tv);
 
   indexing_utils::verbose()
-      << "Allocation domains: " << toDelimitedString(alloc_info.domains)
+      << "Allocation domains: " << toDelimitedString(alloc_info.ids)
       << std::endl;
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
@@ -693,7 +693,7 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   const auto all_tvs = fusion->allTvs();
 
   auto printReason = [](const std::string& reason) -> void {
-    VERBOSE() << "TensorIndexer disabled due to: " << reason << std::endl;
+    VERBOSE() << "TensorIndexer disabled due to: " << reason << "\n";
   };
 
   if (fusion->hasManaged("loop_rotation")) {
@@ -706,15 +706,12 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
 
     if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
         loadstore != nullptr &&
-        (loadstore->opType() == LoadStoreOpType::LdMatrix)) {
-      reason << "LoadStoreOp not supported: " << loadstore->toString();
+        (loadstore->opType() == LoadStoreOpType::LdMatrix ||
+         loadstore->opType() == LoadStoreOpType::StMatrix)) {
+      reason << "LoadStoreOpType not supported: " << loadstore->toString();
     } else {
       for (const auto& id : tv->domain()->allIDs()) {
-        if (id->getParallelType() == ParallelType::MisalignedVectorize) {
-          reason << "MialignedVectorize is used: " << id->toString();
-          break;
-        } else if (
-            auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
           reason << "Swizzle2D not supported: " << swizzle2d->toString();
           break;
         } else if (ir_utils::isIndexedConsumerID(tv, id)) {
