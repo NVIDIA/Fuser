@@ -230,6 +230,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/multi_matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/ampere_multi_matmul.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/accumulate.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/hopper_multi_matmul.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_heuristic_plugin.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/matmul_utils.cpp

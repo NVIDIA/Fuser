@@ -16,3 +16,5 @@
 #include <scheduler/pointwise.h>
 #include <scheduler/reduction.h>
 #include <scheduler/transpose.h>
+#include <scheduler/accumulate.h>
+#include <scheduler/resize.h>
