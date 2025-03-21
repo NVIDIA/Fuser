@@ -450,7 +450,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         indent() << "const unsigned smem_offset = 0;\n";
       }
     }
-
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
+      insertWarpGroupIdx();
+    }
     // Call the initialization function if using a custom block sync
     if (getNvFuserEnv("USE_BLOCK_SYNC_ATOMIC")) {
       indent() << "block_sync::init();\n";
@@ -3698,9 +3700,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       code_ << ");\n";
     }
 
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
-      insertWarpGroupIdx();
-    }
+
   }
 
   void handle(const kir::BlockSync* sync) final {

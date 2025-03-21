@@ -112,8 +112,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       }
       case CircularBufferLoopStage::ComputeWarp: {
 
-        if (std::getenv("CMP_WGROUPS") != nullptr) {
-          int64_t number_of_cmp_warp_groups = std::atoi(std::getenv("CMP_WGROUPS"));
+        if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
+          int64_t number_of_cmp_warp_groups = std::atoi(std::getenv("NEW_CMP_WGROUPS"));
           start = NamedScalar::getParallelIndex(ParallelType::WgGIDx);
           step = SimplifyingIrBuilder::create<Val>(
               number_of_cmp_warp_groups, DataType::Index);
@@ -917,6 +917,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if_expr->thenBody().push_back(mbarrier_arrive_tx_);
     if_expr->thenBody().push_back(expr);
 
+    std::cout << "addTmaLoadBlock expr:\n" << expr->toString() << std::endl;
+
     mbarrier_arrive_tx_ = nullptr;
   }
 
@@ -1527,7 +1529,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
 
     // put this prefetch loop inside an if-then-else, only needs one warp group
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
           NamedScalar::getParallelIndex(ParallelType::WgGIDx),
           circular_buffer_loop->fusion()->zeroVal()));

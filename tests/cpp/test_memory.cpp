@@ -3237,7 +3237,7 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
-  auto tv1 = makeBroadcastTensor({false,true}, aten_to_data_type(dtype));
+  auto tv1 = makeBroadcastTensor({false, true}, aten_to_data_type(dtype));
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = set(tv0);
@@ -3268,17 +3268,15 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBuffer) {
   tv2->axis(2)->parallelize(ParallelType::Unroll);
   tv3->axis(2)->parallelize(ParallelType::Unroll);
   tv6->axis(2)->parallelize(ParallelType::Unroll);
-  for(auto tv : {tv3,tv4,tv5,tv6}){
+  for (auto tv : {tv3, tv4, tv5, tv6}) {
     tv->axis(-1)->parallelize(ParallelType::TIDx);
   }
   inlineMost();
   //[BIDx, Unroll, Bulk]
   // inlineAllAt(tv2, /*pos=*/1);
 
-
   CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
   tv2->circularBuffer(2, 1, circular_buffer_type);
-
 
   constexpr int dim0 = 1024, dim1 = 256;
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -3319,17 +3317,17 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBufferEpilogue) {
   fusion->addOutput(tv9);
 
   // First part of the fusion [BIDx, S, TIDx or Bulk]
-  for(auto tv : {tv0, tv1, tv2, tv3,tv4,tv5,tv6, tv7}){
+  for (auto tv : {tv0, tv1, tv2, tv3, tv4, tv5, tv6, tv7}) {
     tv->split(0, 148, false);
     tv->axis(0)->parallelize(ParallelType::BIDx);
-    if(tv == tv2){
+    if (tv == tv2) {
       tv->axis(-1)->parallelize(ParallelType::Bulk);
-    }else{
+    } else {
       tv->axis(-1)->parallelize(ParallelType::TIDx);
     }
   }
   // Second part of the fusion [TIDx, S]
-  for(auto tv : {tv8, tv9}){
+  for (auto tv : {tv8, tv9}) {
     tv->axis(0)->parallelize(ParallelType::TIDx);
   }
 
@@ -3337,10 +3335,8 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBufferEpilogue) {
   //[BIDx, Unroll, Bulk]
   // inlineAllAt(tv2, /*pos=*/1);
 
-
   CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
   tv2->circularBuffer(2, 1, circular_buffer_type);
-
 
   constexpr int dim0 = 256, dim1 = 128;
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
@@ -3351,5 +3347,197 @@ TEST_F(TMATest, CpAsyncBulk1DCircularBufferEpilogue) {
   ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
   auto outputs = ke.run({at_tv0, at_tv1});
   testValidate(fusion.get(), outputs, {at_tv0, at_tv1}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, CpAsyncBulk1DCircularBufferTwoWarpGroups) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, tv2);
+  auto tv4 = set(tv3);
+  fusion->addOutput(tv4);
+
+  // First part of the fusion [BIDx, S, warp groups, Unroll, TIDx or Bulk]
+  int64_t n_sm = 132;
+  int64_t n_unroll = 4;
+  int64_t n_warp_groups = 2;
+
+  for (auto tv : {tv2, tv3, tv4}) {
+    tv->split(0, n_unroll);
+    tv->split(0, n_sm, false);
+    tv->split(1, n_warp_groups);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::Serial);
+    tv->axis(2)->parallelize(ParallelType::TIDy);
+    tv->axis(3)->parallelize(ParallelType::Serial);
+    tv->axis(4)->parallelize(ParallelType::TIDx);
+  }
+  tv1->split(0, n_unroll);
+  tv1->split(0, n_sm, false);
+  tv1->split(1, n_warp_groups);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->axis(2)->parallelize(ParallelType::Serial);
+  tv1->axis(3)->parallelize(ParallelType::Serial);
+  tv1->axis(-1)->parallelize(ParallelType::Bulk);
+
+  inlineSelectedAt({tv1}, tv1, 3);
+  inlineMost(std::vector<TensorView*>{tv2, tv3, tv4});
+  fusion->printMath();
+
+  int64_t n_stages = 2;
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+  tv1->circularBuffer(n_stages, 1, circular_buffer_type);
+
+  int dim0 = n_sm * n_warp_groups * n_unroll * n_stages, dim1 = 128;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, NormTwoWarpGroups) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  fusion->addOutput(tv5);
+
+  // First part of the fusion [BIDx, S, warp groups, Unroll, TIDx or Bulk]
+  int64_t n_sm = 3;
+  int64_t n_unroll = 4;
+  int64_t n_warp_groups = 2;
+
+  for (auto tv : {tv2, tv3, tv4, tv5}) {
+    tv->split(0, n_unroll);
+    tv->split(0, n_sm, false);
+    tv->split(1, n_warp_groups);
+    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->axis(1)->parallelize(ParallelType::Serial);
+    tv->axis(2)->parallelize(ParallelType::TIDy);
+    tv->axis(3)->parallelize(ParallelType::Serial);
+    tv->axis(4)->parallelize(ParallelType::TIDx);
+  }
+  tv1->split(0, n_unroll);
+  tv1->split(0, n_sm, false);
+  tv1->split(1, n_warp_groups);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->axis(2)->parallelize(ParallelType::Serial);
+  tv1->axis(3)->parallelize(ParallelType::Serial);
+  tv1->axis(4)->parallelize(ParallelType::Bulk);
+
+  inlineSelectedAt({tv1}, tv1, 2);
+  inlineMost(std::vector<TensorView*>{tv2, tv3, tv4, tv5});
+  // inlineSelectedAt({tv1, tv3, tv4, tv5}, tv1, /*pos=*/2);
+  // inlineSelectedAt({tv2}, tv2, -1, true);
+  fusion->printMath();
+
+  int64_t n_stages = 2;
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+  tv1->circularBuffer(n_stages, 1, circular_buffer_type);
+
+  int dim0 = n_sm * n_warp_groups * n_unroll * n_stages, dim1 = 128;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  testValidate(fusion.get(), outputs, {at_tv0}, __LINE__, __FILE__);
+}
+
+
+TEST_F(TMATest, InnerOuter) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  auto tv2 = set(tv0);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv2->setMemoryType(MemoryType::Shared);
+  auto tv3 = set(tv1);
+  auto tv4 = set(tv2);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5,{1});
+  auto tv7 = broadcast(tv6, {false, true});
+  auto tv8 = add(tv5, tv7);
+  auto tv9 = sum(tv3, {0});
+  fusion->addOutput(tv8);
+  fusion->addOutput(tv9);
+  auto fusion_copy = *fusion;
+
+  //[I/Unroll/BIDx, BIDx, Unroll]
+  for (auto tv : {tv2, tv3, tv4, tv5, tv6, tv7, tv8, tv9}) {
+    tv->split(0, 4);
+    tv->split(0, 21);
+    tv->axis(0)->parallelize(ParallelType::Serial);
+    tv->axis(1)->parallelize(ParallelType::BIDx);
+    tv->axis(2)->parallelize(ParallelType::Serial);
+    //[BIDx, I/Unroll/BIDx, Unroll]
+    tv->reorder({1, 0});
+    if(tv == tv2) {
+      tv->axis(-1)->parallelize(ParallelType::Bulk);
+    } else {
+      tv->axis(-1)->parallelize(ParallelType::TIDx);
+    }
+  }
+  // tv3 --> tv9
+  // tv3 -> tv10 -> tv9
+  auto tv10 = tv9->rFactor({1,2});
+  tv10->setMemoryType(MemoryType::Global);
+  // tv3 -> tv10 [g] -> tv11 -> tv9
+  auto tv11 = tv10->cacheAfter();
+  tv11->axis(0)->parallelize(ParallelType::Serial);
+  tv11->axis(1)->parallelize(ParallelType::TIDx);
+  tv9->axis(0)->parallelize(ParallelType::Serial);
+
+  inlineSelectedAt({tv2}, tv2, 2);
+  inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv8, tv9});
+  //[BIDx, Unroll, Bulk]
+  // inlineAllAt(tv2, /*pos=*/1);
+  fusion->printMath();
+
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+  tv2->circularBuffer(2, 1, circular_buffer_type);
+
+  constexpr int dim0 = 1024, dim1 = 256;
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+  at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
+  auto outputs = ke.run({at_tv0, at_tv1});
+  testValidate(&fusion_copy, outputs, {at_tv0, at_tv1}, __LINE__, __FILE__);
 }
 } // namespace nvfuser
