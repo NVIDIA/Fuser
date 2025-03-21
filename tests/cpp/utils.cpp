@@ -46,10 +46,13 @@ void NVFuserTest::SetUp() {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
 
   resetPeakMemoryStats(0);
-  NVF_ERROR_EQ(maxMemoryAllocated(0), 0);
+  ASSERT_EQ(maxMemoryAllocated(0), 0);
 }
 
 void NVFuserTest::TearDown() {
+  at::cuda::clearCublasWorkspaces();
+
+  ASSERT_EQ(memoryAllocated(0), 0);
   if (::testing::Test::HasFailure()) {
     auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
     std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
@@ -928,6 +931,19 @@ int64_t maxMemoryAllocated(const c10::DeviceIndex device) {
   return device_stats.allocated_bytes
       .at(static_cast<uint64_t>(c10::CachingAllocator::StatType::AGGREGATE))
       .peak;
+}
+
+int64_t memoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes
+      .at(static_cast<uint64_t>(c10::CachingAllocator::StatType::AGGREGATE))
+      .current;
 }
 
 } // namespace nvfuser

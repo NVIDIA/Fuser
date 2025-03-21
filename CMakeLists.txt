@@ -808,6 +808,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   target_link_libraries(nvfuser_bench PRIVATE
     benchmark::benchmark
     codegen_internal
+    GTest::gtest
   )
   add_dependencies(nvfuser_bench flatc build_flatbuffer_config)
 
@@ -845,6 +846,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     target_link_libraries(nvfuser_multidevice_bench PRIVATE
       benchmark::benchmark
       codegen_internal
+      GTest::gtest
     )
     add_dependencies(nvfuser_multidevice_bench flatc build_flatbuffer_config)
 

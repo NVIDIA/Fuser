@@ -847,4 +847,7 @@ void resetPeakMemoryStats(c10::DeviceIndex device);
 // C++ implementation of torch.cuda.max_memory_allocated
 int64_t maxMemoryAllocated(const c10::DeviceIndex device);
 
+// C++ implementation of torch.cuda.memory_allocated
+int64_t memoryAllocated(const c10::DeviceIndex device);
+
 } // namespace nvfuser
