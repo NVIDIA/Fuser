@@ -6,7 +6,12 @@
  */
 // clang-format on
 
-#include<scheduler/tools/accumulate_utils.h>
+#include <ir/utils.h>
+#include <scheduler/utils.h>
+#include <scheduler/tools/accumulate_utils.h>
+//#include <scheduler/tools/loop_domain_scheduler.h>
+#include <scheduler/tools/compile_time_info.h>
+#include <scheduler/registry_utils.h>
 
 namespace nvfuser {
 
@@ -15,31 +20,6 @@ namespace {
 // Just use the pointwise version for now
 TensorView* getReferenceTensor(Fusion* fusion) {
   return pointwise_utils::getReferenceTensor(fusion);
-}
-
-// Returns the largest tensor with its number of elements
-std::pair<TensorView*, int64_t> getLargestTensor(
-    const std::vector<Val*>& vals,
-    SchedulerRuntimeInfo& runtime_info) {
-  int64_t max_num_elms = -1;
-  TensorView* largest_tv = nullptr;
-  for (auto tv : ir_utils::filterByType<TensorView>(vals)) {
-    int64_t num_elms = 1;
-    for (auto logical_id : tv->getLogicalDomain()) {
-      auto inferred_val =
-          runtime_info.expressionEvaluator().evaluate(logical_id->extent());
-      NVF_ERROR(
-          inferred_val.hasValue(),
-          "Error inferring extent of: ",
-          logical_id->toString());
-      num_elms *= inferred_val.as<int64_t>();
-    }
-    if (num_elms > max_num_elms) {
-      largest_tv = tv;
-      max_num_elms = num_elms;
-    }
-  }
-  return std::make_pair(largest_tv, max_num_elms);
 }
 
 } // namespace
@@ -75,44 +55,6 @@ bool AccumulateScheduler::canScheduleCompileTime(Fusion* fusion) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(), "No reference found");
     return false;
-  }
-
-  // Having different resizes between outputs is not allowed at this
-  // moment. For example, consider a fusion like:
-  //
-  // t0 = [i0]
-  // fusion.addInput(t0)
-  // t1 = t0[:i0/2]
-  // t2 = t0[i0/2:]
-  // fusion.addOutput(t1)
-  // fusion.addOutput(t2)
-  //
-  // For now, this is not going to be fused since t1 and t2 have
-  // different resize ops, although in this case, since the extents of t1 and
-  // t2 are the same, it should be relatively straightforward to fuse them
-  // together.
-  for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    if (out_tv == ref_tv) {
-      continue;
-    }
-    auto exprs = ValGraphBFS::getExprGroupsBetween(
-                     broadcast_graph,
-                     broadcast_graph.toGroups(ref_tv->getLogicalDomain()),
-                     broadcast_graph.toGroups(out_tv->getLogicalDomain()),
-                     /*require_all_to_visited=*/false)
-                     .first;
-    for (const auto& [expr_g, dir] : exprs) {
-      if (expr_g->front()->isA<Resize>()) {
-        std::stringstream msg;
-        msg << "Resize between reference and output not allowed.";
-        msg << " Reference: " << ref_tv->toString()
-            << ". Output: " << out_tv->toString()
-            << ". Resize: " << expr_g->front()->toString();
-        scheduler_debug_utils::canScheduleRejectReason(
-            schedulerType(), msg.str());
-        return false;
-      }
-    }
   }
 
   // Skip transpose-like patterns for now
