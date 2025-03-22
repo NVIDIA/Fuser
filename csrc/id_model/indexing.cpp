@@ -46,6 +46,8 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 
   Fusion* fusion = id_model_.fusion();
+  // ADD
+  FusionGuard fg(fusion);
 
   for (auto expr : fusion->exprs()) {
     if (!ir_utils::isTvOp(expr)) {
@@ -72,6 +74,9 @@ void TensorIndexer::buildLoopIndexMap() {
       }
 
       loop_index_map_[loop_group] = loop_index;
+      indexing_utils::verbose()
+          << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
+          << loop_index->toInlineString() << std::endl;
     }
   }
 }
@@ -184,7 +189,15 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  const auto& alloc_info = getIndexAllocationInfo(tv);
+  indexing_utils::verbose() << "getLinearIndex of " << tv->toString() << " as "
+                            << (as_consumer ? "consumer" : "producer") << " in "
+                            << expr->toString() << std::endl;
+
+  const auto alloc_info = getIndexAllocationInfo(tv);
+
+  indexing_utils::verbose()
+      << "Allocation domains: " << toDelimitedString(alloc_info.ids)
+      << std::endl;
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
       expr, as_consumer, alloc_info, for_loops, override_index);
@@ -207,6 +220,8 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
+  indexing_utils::verbose()
+      << "Final index: " << linear_index->toInlineString() << std::endl;
   return linear_index;
 }
 
@@ -216,6 +231,18 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
+
+  // ADD
+  // If this is an expr initializing a buffer for a reduction, there
+  // should be no loops for reduction domains
+  if (lower_utils::isReductionInitExpr(expr)) {
+    loop_domains.erase(
+        std::remove_if(
+            loop_domains.begin(),
+            loop_domains.end(),
+            [](IterDomain* id) -> bool { return id->isReduction(); }),
+        loop_domains.end());
+  }
 
   for (auto& loop_id : loop_domains) {
     loop_id = getLoopPromotion(loop_id, id_model_);
@@ -351,6 +378,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
 
+  if (predicate_domains.empty()) {
+    return {};
+  }
+
   const IndexingInfo& index_info =
       computeIndex(expr, predicate_domains, for_loops);
 
@@ -427,6 +458,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       const ValGroup& contig_domain_group = contig_domains_it->second;
       if (already_indexed_domains.find(contig_domain_group) !=
           already_indexed_domains.end()) {
+        indexing_utils::verbose()
+            << "Already indexed: " << predicate_domain->toString() << std::endl;
         continue;
       }
       already_indexed_domains.emplace(contig_domain_group);
@@ -654,6 +687,49 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   }
 
   return {result, contig_strides};
+}
+
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = fusion->allTvs();
+
+  auto printReason = [](const std::string& reason) -> void {
+    VERBOSE() << "TensorIndexer disabled due to: " << reason << "\n";
+  };
+
+  if (fusion->hasManaged("loop_rotation")) {
+    printReason("loop rotation is not supported");
+    return false;
+  }
+
+  for (const auto& tv : all_tvs) {
+    std::stringstream reason;
+
+    if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
+        loadstore != nullptr &&
+        (loadstore->opType() == LoadStoreOpType::LdMatrix ||
+         loadstore->opType() == LoadStoreOpType::StMatrix)) {
+      reason << "LoadStoreOpType not supported: " << loadstore->toString();
+    } else {
+      for (const auto& id : tv->domain()->allIDs()) {
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+          reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
+          reason << "Indirect indexing of consumer ID not supported: "
+                 << tv->toString() << ", " << id->toString() << ", "
+                 << tv->definition()->toString();
+          break;
+        }
+      }
+    }
+
+    if (!reason.str().empty()) {
+      printReason(reason.str());
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace nvfuser

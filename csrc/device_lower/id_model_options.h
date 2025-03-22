@@ -65,6 +65,11 @@ class IdModelOptions {
     ensureConsistency();
   }
 
+  void setIndex(bool b) {
+    setConsumerIndex(b);
+    setProducerIndex(b);
+  }
+
   bool inlinePredicate() const {
     return inline_predicate_;
   }
@@ -81,6 +86,11 @@ class IdModelOptions {
   void setUnswitchPredicate(bool b) {
     unswitch_predicate_ = b;
     ensureConsistency();
+  }
+
+  void setPredicate(bool b) {
+    setInlinePredicate(b);
+    setUnswitchPredicate(b);
   }
 
   bool loop() const {
