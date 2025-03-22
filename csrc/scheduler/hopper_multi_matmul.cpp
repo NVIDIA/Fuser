@@ -127,19 +127,20 @@ void HopperMultipleMatmulScheduler::validate() const {
 }
 
 void HopperMultipleMatmulScheduler::run() {
-  // Clears memory spaces on intermediate tensors, calls
-  // cache{After,Before,Fork} on inputs and outputs
-  cacheInputsAndOutputs();
-
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
   findPatterns();
   translatePatterns();
-  findRoles();
 
+  // Clears memory spaces on intermediate tensors, calls
+  // cache{After,Before,Fork} on inputs and outputs.
   // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
-  // This also collects mma_results_
-  defineOperandCaches();
+  cacheInputsAndOutputs(/*skip_intermediates=*/true);
+
+  // We wait until we are done caching tensors to find roles, since this
+  // requires building an IdModel, which would not be updated during the cache
+  // calls.
+  findRoles();
 
   inspectPrologues();
 
@@ -162,51 +163,6 @@ void HopperMultipleMatmulScheduler::run() {
   // mma_result is scheduled, since everything in the main loop will need to
   // be rotated
   setUpCircularBuffering();
-}
-
-void HopperMultipleMatmulScheduler::cacheInputsAndOutputs() {
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion_);
-
-  // Cache inputs
-  scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
-
-  // Cache and fork outputs
-  scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
-}
-
-void HopperMultipleMatmulScheduler::defineOperandCaches() {
-  cacheOperandsToSmem(as_, acw_smems_);
-  cacheOperandsToSmem(bs_, bcw_smems_);
-
-  // Now that we are finished possibly redefining the inputs to the MmaOps,
-  // we can set the macro for those ops
-  for (TensorView* mma_result : mma_results_) {
-    MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
-    NVF_ERROR(mma != nullptr);
-    mma->setMacro(params_->mma_macro);
-  }
-}
-
-void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
-    const std::vector<TensorView*>& operands,
-    std::vector<TensorView*>& smem_operands) {
-  // Use cp.async.bulk (tma) as requested in scheduler params.
-  smem_operands.resize(operands.size(), nullptr);
-  for (size_t i : c10::irange(operands.size())) {
-    TensorView* operand = operands[i];
-
-    NVF_ERROR(!operand->uses().empty());
-    smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
-
-    LoadStoreOpType load_op = params_->async_gmem_load_operands
-        ? LoadStoreOpType::CpAsyncBulkTensorTile
-        : LoadStoreOpType::Set;
-
-    smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
-    smem_operands[i]->setMemoryType(MemoryType::Shared);
-  }
 }
 
 void HopperMultipleMatmulScheduler::swizzleBlockTiles(
@@ -705,10 +661,6 @@ void HopperMultipleMatmulScheduler::scheduleSplitKSum() {
 void HopperMultipleMatmulScheduler::setUpInlining() {
   // auto inline for all tensors except register tensors
   std::unordered_set<TensorView*> smem_loads_and_mma_inputs;
-  smem_loads_and_mma_inputs.insert(acrs_.begin(), acrs_.end());
-  smem_loads_and_mma_inputs.insert(bcrs_.begin(), bcrs_.end());
-  smem_loads_and_mma_inputs.insert(abs_.begin(), abs_.end());
-  smem_loads_and_mma_inputs.insert(bbs_.begin(), bbs_.end());
   inlineMost(ir_utils::allTvsExcept(fusion_, smem_loads_and_mma_inputs));
 
   // if auto inline, will inline to position-7, leads to performance
@@ -826,6 +778,16 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         all_smem_loads);
   }
   */
+}
+
+void HopperMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
+    TensorView* operand,
+    int64_t vec_size) {
+  auto* lsop = operand->definition()->as<LoadStoreOp>();
+  LoadStoreOpType load_op = params_->async_gmem_load_operands
+      ? LoadStoreOpType::CpAsyncBulkTensorTile
+      : LoadStoreOpType::Set;
+  lsop->setOpType(load_op);
 }
 
 } // namespace nvfuser
