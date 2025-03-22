@@ -490,8 +490,7 @@ void clearUnrollVectorizationAddGroupReduction(
         }
       } else if (
           id->getParallelType() == ParallelType::Unroll ||
-          id->getParallelType() == ParallelType::Vectorize ||
-          id->getParallelType() == ParallelType::MisalignedVectorize) {
+          id->getParallelType() == ParallelType::Vectorize) {
         tv->axis(i)->parallelize(ParallelType::Serial);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
           sibling->axis(i)->parallelize(ParallelType::Serial);
@@ -527,10 +526,7 @@ void propagateParallelization(
       reference_tv,
       -1,
       selected_tvs,
-      allParallelTypesExcept(
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize}));
+      allParallelTypesExcept({ParallelType::Unroll, ParallelType::Vectorize}));
 
   if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
@@ -540,9 +536,7 @@ void propagateParallelization(
           -1,
           {unroll_vectorizable_cached_tvs.begin(),
            unroll_vectorizable_cached_tvs.end()},
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize});
+          {ParallelType::Unroll, ParallelType::Vectorize});
     }
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group.
@@ -565,8 +559,7 @@ int idPos(const IterDomain* id) {
   // Reduction and unrolled
   if (id->isReduction() &&
       (id->getParallelType() == ParallelType::Unroll ||
-       id->getParallelType() == ParallelType::Vectorize ||
-       id->getParallelType() == ParallelType::MisalignedVectorize)) {
+       id->getParallelType() == ParallelType::Vectorize)) {
     return inner_most;
   }
   inner_most--;
@@ -598,8 +591,7 @@ int idPos(const IterDomain* id) {
   // Iter and unrolled
   if (!id->isReduction() &&
       (id->getParallelType() == ParallelType::Unroll ||
-       id->getParallelType() == ParallelType::Vectorize ||
-       id->getParallelType() == ParallelType::MisalignedVectorize)) {
+       id->getParallelType() == ParallelType::Vectorize)) {
     return inner_most;
   }
   inner_most--;

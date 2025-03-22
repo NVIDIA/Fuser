@@ -726,8 +726,6 @@ static const char* parallel_type2string(ParallelType t) {
       return "Stream";
     case ParallelType::Vectorize:
       return "V";
-    case ParallelType::MisalignedVectorize:
-      return "MV";
     case ParallelType::Unroll:
       return "UR";
     case ParallelType::Unswitch:
@@ -755,7 +753,6 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::TIDy,
       ParallelType::TIDx,
       ParallelType::Vectorize,
-      ParallelType::MisalignedVectorize,
       ParallelType::Unroll,
       ParallelType::Unswitch,
       ParallelType::Mma,
@@ -1562,8 +1559,7 @@ bool isParallelTypeThread(ParallelType ptype) {
 }
 
 bool isParallelTypeVectorize(ParallelType ptype) {
-  return ptype == ParallelType::Vectorize ||
-      ptype == ParallelType::MisalignedVectorize;
+  return ptype == ParallelType::Vectorize;
 }
 
 std::optional<std::string> cast_func_str(

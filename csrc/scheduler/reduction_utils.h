@@ -59,7 +59,7 @@ NVF_API std::unordered_set<TensorView*> getCachedTvsToUnrollOrVectorize(
     const std::vector<std::pair<TensorView*, TensorView*>>& cached_outputs);
 
 // Propagate parallelization from the reference TensorView to other TensorViews.
-// Unroll, Vectorize, and MisalignedVectorize types are explicitly handled for
+// Unroll and Vectorize types are explicitly handled for
 // TensorViews in unroll_vectorizable_cached_tvs. Clears unroll parallelization
 // for reduction_tv and reference_tv if they shouldn't be unrolled.
 //
