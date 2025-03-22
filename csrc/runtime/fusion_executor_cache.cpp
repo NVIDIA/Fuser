@@ -493,7 +493,8 @@ void FusionExecutorCache::deserialize(
           std::nullopt,
           fusion_id_,
           fb_device_runtimes->concrete_id(),
-          device_runtimes.size()));
+          device_runtimes.size(),
+          auto_schedule_));
 
       // 3. For FusionKernelRuntime, we have a separate deserialize function
       // to create the KernelExecutor objects.
