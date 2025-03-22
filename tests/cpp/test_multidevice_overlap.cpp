@@ -181,7 +181,6 @@ class OverlapTest : public MultiDeviceTest {
 
 class CollectiveBasedOverlapTest : public OverlapTest {
  protected:
-  at::Tensor tc_locally_reduced_;
   void SetUp() override {
     OverlapTest::SetUp();
     if (!communicator_->is_available()) {
@@ -210,6 +209,8 @@ class CollectiveBasedOverlapTest : public OverlapTest {
          params.N});
     return tc_unsharded_expected_reshaped.select(1, my_device_index_);
   }
+
+  at::Tensor tc_locally_reduced_;
 };
 
 // clang-format off

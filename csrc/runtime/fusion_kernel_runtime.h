@@ -83,10 +83,6 @@ class FusionKernelRuntime {
   //! multithreaded. The segments in the fusion are compiled independently.
   NVF_API void compileFusionParallel(KernelArgumentHolder args);
 
-  const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
-    return num_live_args_after_segment_runs_;
-  }
-
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
     profiling_ = to_profile;
@@ -199,12 +195,6 @@ class FusionKernelRuntime {
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
   RuntimeWorkSpace runtime_workspace_;
-
-  //! store number of arguments in KernelArgumentHolder after each segment
-  //! used to check if arguments are erased if not being used in the following
-  //! segments
-  //! Only used in a single test: test_gpu3::FusionClearGmemBetweenSegments_CUDA
-  std::vector<int64_t> num_live_args_after_segment_runs_;
 
   // States for profiling support
   bool profiling_ = false;

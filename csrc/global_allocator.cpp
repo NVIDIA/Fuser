@@ -29,7 +29,8 @@ class Arena {
       debug() << "[global zeroed memory] Resetting allocated bytes to 0"
               << std::endl;
     }
-    allocated_bytes_ = 0LL;
+    allocated_bytes_ = 0;
+    tensor_.reset();
   }
 
   at::Tensor getTensor(
@@ -97,7 +98,7 @@ class Arena {
 
  private:
   at::Tensor tensor_;
-  int64_t allocated_bytes_ = 0LL;
+  int64_t allocated_bytes_ = 0;
 };
 
 // We hold one Arena for each device
