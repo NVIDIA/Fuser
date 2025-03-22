@@ -152,15 +152,18 @@ void FusionKernelRuntime::evictCache(size_t input_id) {
   }
 }
 
-bool FusionKernelRuntime::isCompiled() const {
+bool FusionKernelRuntime::isCompiled() {
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     return hie_ != nullptr;
   } else {
     std::lock_guard<std::mutex> guard(mutex_);
-    return std::all_of(
+    if (!compiled_) { 
+      compiled_ =  std::all_of(
         executors_.begin(), executors_.end(), [](const auto& executor) {
           return ExecutorDispatch::isCompiled(executor.get());
         });
+    }
+    return compiled_;
   }
 }
 
@@ -169,7 +172,7 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
   // See table definition for FusionKernelRuntime in serde/fusion_cache.fbs
 
   NVF_CHECK(
-      isCompiled(),
+      compiled_,
       "Tried to serialize entries of executors before they were initialized.");
 
   // 1. Serialize KernelExecutor objects
@@ -340,8 +343,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       " inputs but expecting ",
       segmented_fusion_->inputs().size());
 
-  ArgumentManager args_manager(
-      args, runtime_workspace_, segmented_fusion_->inputs());
+  args_manager_ = ArgumentManager(args, runtime_workspace_, segmented_fusion_->inputs());
 
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
@@ -376,7 +378,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_runtime_inputs =
-        args_manager.translateValsToArgs(group_to_run->inputs());
+        args_manager_.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
@@ -422,7 +424,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
     // map output args to tensor map
-    args_manager.updateWithSegmentOutputs(
+    args_manager_.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.emplace_back((int64_t)args.size());
   }
@@ -520,7 +522,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
   // We make a mutable copy of args so that we can use it in an
   // ArgumentManager
-  ArgumentManager args_manager(
+  args_manager_ = ArgumentManager(
       args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
   for (int64_t group_id : c10::irange(num_groups)) {
@@ -533,7 +535,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
 
     // Get input arguments for SchedulerRuntimeInfo
     KernelArgumentHolder group_runtime_inputs =
-        args_manager.translateValsToArgs(group_to_run->inputs());
+        args_manager_.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
 
     // Create PrecomputedValues for fusion segment
@@ -600,7 +602,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
         group_runtime_inputs,
         evaluator_precomputed_values.get());
 
-    args_manager.updateWithSegmentOutputs(
+    args_manager_.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, group_id);
   }
   return heuristics;
@@ -632,8 +634,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
       " inputs but expected ",
       segmented_fusion_->inputs().size());
 
-  ArgumentManager args_manager(
-      args, runtime_workspace_, segmented_fusion_->inputs());
+  args_manager_.update( args, segmented_fusion_->inputs());
 
   // group should share cache id.
   auto group_cache_id = args.getCacheId();
@@ -645,7 +646,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
     KernelArgumentHolder group_runtime_inputs =
-        args_manager.translateValsToArgs(group_to_run->inputs());
+        args_manager_.translateValsToArgs(group_to_run->inputs());
     group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
     if (group_cache_id.has_value()) {
       group_runtime_inputs.setCacheId(group_cache_id.value());
@@ -658,7 +659,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     KernelArgumentHolder group_runtime_outputs =
         runKernelWithInput(group_runtime_inputs, group_to_run);
 
-    args_manager.updateWithSegmentOutputs(
+    args_manager_.updateWithSegmentOutputs(
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
     num_live_args_after_segment_runs_.push_back((int64_t)args.size());
   }
@@ -667,7 +668,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     int64_t input_bytes = 0;
     for (auto* inp : fusionSegments()->inputs()) {
       if (inp->isA<TensorView>()) {
-        const auto& tensor = args_manager.checkTensorMap(inp).as<at::Tensor>();
+        const auto& tensor = args_manager_.checkTensorMap(inp).as<at::Tensor>();
         input_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
@@ -676,14 +677,14 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
     int64_t output_bytes = 0;
     for (auto* outp : fusionSegments()->outputs()) {
       if (outp->isA<TensorView>()) {
-        const auto& tensor = args_manager.checkTensorMap(outp).as<at::Tensor>();
+        const auto& tensor = args_manager_.checkTensorMap(outp).as<at::Tensor>();
         output_bytes += static_cast<int64_t>(tensor.storage().nbytes());
       }
     }
     FusionProfiler::outputBytesAccessed(output_bytes);
   }
 
-  return args_manager.getTensorMap();
+  return args_manager_.getTensorMap();
 }
 
 KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
