@@ -2124,67 +2124,95 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
   return true;
 }
 
-std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+namespace {
+
+void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
+  auto find_it =
+          std::find(ids.begin(), ids.end(), split->in());
+  if (find_it == ids.end()) {
+    // Transformations before rfactor, ignore those.
+    return;
+  }
+  auto pos = std::distance(ids.begin(), find_it);
+  ids[pos] = split->inner();
+  ids.insert(ids.begin() + pos, split->outer());
+}
+
+void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
+  auto find_it_0 =
+        std::find(ids.begin(), ids.end(), merge->outer());
+  auto find_it_1 =
+        std::find(ids.begin(), ids.end(), merge->inner());
+  if (find_it_0 == ids.end() &&
+      find_it_1 == ids.end()) {
+    // Transformations before rfactor, ignore those.
+    return;
+  }
+  NVF_ERROR(
+      find_it_0 != ids.end() && find_it_1 != ids.end(),
+      "Error in transformations of ",
+      tv->toString(),
+      "\nTransformations before rfactor should not mix with transformations after rfactor.");
+  auto pos0 = std::distance(ids.begin(), find_it_0);
+  auto pos1 = std::distance(ids.begin(), find_it_1);
+    if (pos0 > pos1) {
+      std::swap(pos0, pos1);
+    }
+    // Should be impossible.
+    NVF_ERROR(
+        pos0 != pos1,
+        "Didn't expect merge inputs to be the same iteration domain:\n",
+        merge->toString());
+
+  ids.erase(ids.begin() + pos0);
+  ids[--pos1] = merge->out();
+}
+
+void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
+  auto find_it =
+      std::find(ids.begin(), ids.end(), resize->in());
+  if (find_it == ids.end()) {
+    // Transformations before rfactor, ignore those.
+    return;
+  }
+  *find_it = resize->out();
+}
+
+std::unordered_map<int64_t, int64_t> createReorderMap(std::vector<IterDomain*>& orig_domain, std::vector<IterDomain*>& new_domain) {
+  std::unordered_map<int64_t, int64_t> old2new;
+  for (auto idx : c10::irange((int64_t)orig_domain.size())) {
+    auto orig_id = orig_domain.at(idx);
+    auto find_it = std::find(new_domain.begin(), new_domain.end(), orig_id);
+    NVF_ERROR(
+        find_it != new_domain.end(),
+        "Reordering map creation failed, uninitialized iterdomain,",
+        " likely something is wrong with the transformations between the logical and loop domain.");
+    int64_t new_pos = (int64_t)std::distance(new_domain.begin(), find_it);
+    old2new[idx] = new_pos;
+  }
+  return old2new;
+}
+
+// simply update this vector of id's as progressing through the transformation
+// expressions. We'll always insert the result of split in the location of the
+// input, and insert the merge result in the position of the inner dimension.
+void reorderDomain(TensorView* tv, std::vector<IterDomain*>& ids) {
   FusionGuard fg(tv->fusion());
   auto transform_exprs = StmtSort::getExprsTo(
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-  // simply update this vector of id's as progressing through the transformation
-  // expressions. We'll always insert the result of split in the location of the
-  // input, and insert the merge result in the position of the inner dimension.
-
-  auto reordered_ids = tv->getLogicalDomain();
   for (const auto* expr : transform_exprs) {
     if (const Split* split = dynamic_cast<const Split*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), split->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      auto pos = std::distance(reordered_ids.begin(), find_it);
-      reordered_ids[pos] = split->inner();
-      reordered_ids.insert(reordered_ids.begin() + pos, split->outer());
+      applySplitTransform(split, ids);
     } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      auto find_it_0 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->outer());
-      auto find_it_1 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->inner());
-      if (find_it_0 == reordered_ids.end() &&
-          find_it_1 == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      NVF_ERROR(
-          find_it_0 != reordered_ids.end() && find_it_1 != reordered_ids.end(),
-          "Error in transformations of ",
-          tv->toString(),
-          "\nTransformations before rfactor should not mix with transformations after rfactor.");
-      auto pos0 = std::distance(reordered_ids.begin(), find_it_0);
-      auto pos1 = std::distance(reordered_ids.begin(), find_it_1);
-      if (pos0 > pos1) {
-        std::swap(pos0, pos1);
-      }
-      // Should be impossible.
-      NVF_ERROR(
-          pos0 != pos1,
-          "Didn't expect merge inputs to be the same iteration domain:\n",
-          merge->toString());
-
-      reordered_ids.erase(reordered_ids.begin() + pos0);
-      reordered_ids[--pos1] = merge->out();
+      applyMergeTransform(merge, ids);
     } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), resize->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      *find_it = resize->out();
+      applyResizeTransform(resize, ids);
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
+}
 
   std::unordered_map<int64_t, int64_t> old2new;
   for (auto id_i : arange((int64_t)tv->getLoopDomain().size())) {
@@ -2199,7 +2227,16 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
     int64_t old_pos = id_i;
     old2new[old_pos] = new_pos;
   }
-  return old2new;
+  auto reordered_ids = tv->getAllocationDomain();
+  reorderDomain(tv, reordered_ids);
+  return createReorderMap(tv->getLoopDomain(), reordered_ids);
+}
+
+// Returns a map reordering the loop domain of the tensor view as the logical domain
+std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+  auto reordered_ids = tv->getLoopDomain();
+  reorderDomain(tv, reordered_ids);
+  return createReorderMap(tv->getLoopDomain(), reordered_ids);
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
