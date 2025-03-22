@@ -276,12 +276,9 @@ int64_t shardViewOp(ViewOp* view_op, std::unordered_map<int64_t, int64_t>& new2o
   return num_reshape_shardings;
 }
 
-void reorderLoopDomainAsAllocationMap(std::vector<TensorView*> tvs) {
+void reorderLoopDomainAsLogicalMap(std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
-    auto reorder_map = scheduler_utils::domainReorderAsAllocationMap(tv);
-    if (reorder_map.empty()) {
-      continue;
-    }
+    auto reorder_map = scheduler_utils::domainReorderAsLogicalMap(tv);
     tv->reorder(reorder_map);
   }
 }
@@ -304,13 +301,6 @@ std::unordered_map<int64_t, int64_t> selectiveReorderDIDToFront(TensorView* tv, 
 
   tv->reorder(old2new);
   return new2old;
-}
-
-void propagateAllocationDomain(std::vector<TensorView*> tvs) {
-  // TODO: Propagate/fully allocate ParallelType::Stream based on inputs.
-  for (auto tv : tvs) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
 }
 
 } // namespace
@@ -378,12 +368,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // Due to the restriction that the allocation domain is the same as the loop domain,
     // we reorder it as allocation domain in the interim. Ideally, this should follow logical domain
     // and DIDx axis at the front.
-    reorderLoopDomainAsAllocationMap(outputs_without_mesh);
+    reorderLoopDomainAsLogicalMap(outputs_without_mesh);
     // TODO: Do we reorder to front here or reorder_sharded_axis?
 
-    // Currently sets it as loop domain. In general, it will be different from loop domain
-    // for the case of ParallelType::Stream when fully allocated.
-    propagateAllocationDomain(expr->outputs());
+    // TODO: Propagate AllocationDomain.
   }
 
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
