@@ -563,7 +563,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
   // [32b, 32a] is returned.
   std::optional<std::vector<IterDomain*>> patchAllocationOfTransposedSmemTensor(
       const TensorView* tv,
-      const std::vector<IterDomain*>& allocation_domains,
+      const std::vector<IterDomain*>& allocation_ids,
       const ValGraph& exact_graph) const {
     // First, do pattern matching to see if this tensor is a shared
     // memory tensor transpose. Pattern matching conditions include:
@@ -576,18 +576,25 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // - The consumer tensor also has a merge but with the inner and
     //   outer reversed
 
-    if (allocation_domains.empty()) {
+    if (tv->getMemoryType() != MemoryType::Shared) {
       return std::nullopt;
     }
 
-    if (tv->getMemoryType() != MemoryType::Shared) {
+    std::vector<IterDomain*> actual_allocation_ids;
+    for (auto id : allocation_ids) {
+      if (mayRequireAllocation(tv, id)) {
+        actual_allocation_ids.push_back(id);
+      }
+    }
+
+    if (actual_allocation_ids.empty()) {
       return std::nullopt;
     }
 
     // No BID/DID parallel type should be used
     if (std::any_of(
-            allocation_domains.begin(),
-            allocation_domains.end(),
+            actual_allocation_ids.begin(),
+            actual_allocation_ids.end(),
             [](IterDomain* id) -> bool {
               return isParallelTypeDeviceDim(id->getParallelType()) ||
                   isParallelTypeBlockDim(id->getParallelType());
@@ -644,7 +651,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     };
 
     Merge* producer_common_merge =
-        getOriginatingMerge(allocation_domains.front());
+        getOriginatingMerge(actual_allocation_ids.front());
     if (producer_common_merge == nullptr) {
       return std::nullopt;
     }
@@ -653,10 +660,10 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // equivalent
     auto producer_merge_dep_exprs = DependencyCheck::getAllExprsBetween(
         {producer_common_merge->out()},
-        {allocation_domains.begin(), allocation_domains.end()});
+        {actual_allocation_ids.begin(), actual_allocation_ids.end()});
 
     std::unordered_set<IterDomain*> equiv_domain_set(
-        allocation_domains.begin(), allocation_domains.end());
+        actual_allocation_ids.begin(), actual_allocation_ids.end());
 
     // Traverse back from the allocation domains to the merge output
     // and see if they are equivalent
@@ -749,7 +756,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
   // indexed logical IDs need to be entirely allocated.
   std::optional<std::vector<IterDomain*>> patchAllocationOfIndexedProducerTensor(
       const TensorView* tv,
-      const std::vector<IterDomain*>& allocation_domains) const {
+      const std::vector<IterDomain*>& allocation_ids) const {
     VectorOfUniqueEntries<Val*> indexed_logical_ids;
     for (auto use_expr : tv->uses()) {
       auto indexed_id = ir_utils::getIndexedProducerID(use_expr);
@@ -766,10 +773,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
 
       // If it's already in the allocation ID set, nothing further
       // needs to be done
-      if (std::find(
-              allocation_domains.begin(),
-              allocation_domains.end(),
-              indexed_id) != allocation_domains.end()) {
+      if (std::find(allocation_ids.begin(), allocation_ids.end(), indexed_id) !=
+          allocation_ids.end()) {
         continue;
       }
 
@@ -788,7 +793,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // indexed IDs.
 
     auto [path, all_visited] = getExprsBetween<IRBFS>(
-        {allocation_domains.begin(), allocation_domains.end()},
+        {allocation_ids.begin(), allocation_ids.end()},
         indexed_logical_ids.vector(),
         /*require_all_to_visited=*/false);
     NVF_ERROR(
@@ -796,12 +801,12 @@ class AllocationDomainSetup : private kir::IrVisitor {
         "Failed to infer valid allocation IDs. Indexed logical IDs need to be entirely allocated but not found in the inferred allocation ID set. Indexed logical IDs: ",
         toDelimitedString(indexed_logical_ids.vector()),
         ". Allocation IDs: ",
-        toDelimitedString(allocation_domains));
+        toDelimitedString(allocation_ids));
 
     auto inputs = getInputsOfExprPath<IRBFS>(path);
 
     std::vector<IterDomain*> patched_allocation_ids;
-    for (auto id : allocation_domains) {
+    for (auto id : allocation_ids) {
       if (std::find(inputs.begin(), inputs.end(), id) != inputs.end()) {
         // Remove the inputs of the path
         continue;
