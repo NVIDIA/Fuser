@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <bfs.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/pass/allocation.h>
 #include <expr_evaluator.h>
@@ -258,9 +259,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
         for (const auto i : c10::irange(tv->nDims())) {
           auto loop_id = tv->getLoopDomain().at(i);
           auto pt = loop_id->getParallelType();
-          if (!mayRequireAllocation(tv, loop_id)) {
-            continue;
-          }
 
           // If the position is left of the inlining position, no need to
           // allocate the domain unless it's shared. For example, if this
@@ -275,6 +273,19 @@ class AllocationDomainSetup : private kir::IrVisitor {
           allocation_domains.push_back(loop_id);
         }
         // Assume Local and Shared are always fully contiguous
+        contiguity =
+            std::vector<std::optional<bool>>(allocation_domains.size(), true);
+      }
+
+      if (auto indexed_alloc_dom =
+              patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
+          indexed_alloc_dom.has_value()) {
+        allocation_domains = indexed_alloc_dom.value();
+        // Make sure the original allocation domains are fully contiguous
+        NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
+          return b.has_value() && b.value();
+        }));
+        // Set the new allocation domains fully contiguous
         contiguity =
             std::vector<std::optional<bool>>(allocation_domains.size(), true);
       }
@@ -373,11 +384,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
       }
     }
 
-    // Filter out non-allocated domains. This is already done for Local
-    // and Shared tensors with no set allocation domains, but not for
-    // the other cases. For example, a reduction output tensor that is
-    // also a fusion output may still have reduction domains in their
-    // allocation domains, which aren't relevant for indexing
+    // Filter out non-allocated domains
     std::vector<IterDomain*> actual_allocation_domains;
     std::vector<Val*> actual_strides;
     std::vector<bool> actual_contiguity;
@@ -727,6 +734,77 @@ class AllocationDomainSetup : private kir::IrVisitor {
         merge_inner, merge_outer};
 
     return patched_allocation_domains;
+  }
+
+  // If a producer tensor is accessed through supplied indices, the
+  // indexed logical IDs need to be entirely allocated.
+  std::optional<std::vector<IterDomain*>> patchAllocationOfIndexedProducerTensor(
+      const TensorView* tv,
+      const std::vector<IterDomain*>& allocation_domains) const {
+    VectorOfUniqueEntries<Val*> indexed_logical_ids;
+    for (auto use_expr : tv->uses()) {
+      auto indexed_id = ir_utils::getIndexedProducerID(use_expr);
+      if (indexed_id == nullptr ||
+          std::find(
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              indexed_id) == tv->getLogicalDomain().end()) {
+        continue;
+      }
+
+      // This indexed_id is indirectly accessed and needs to be
+      // allocated entirely.
+
+      // If it's already in the allocation ID set, nothing further
+      // needs to be done
+      if (std::find(
+              allocation_domains.begin(),
+              allocation_domains.end(),
+              indexed_id) != allocation_domains.end()) {
+        continue;
+      }
+
+      indexed_logical_ids.pushBack(indexed_id);
+    }
+
+    if (indexed_logical_ids.empty()) {
+      return std::nullopt;
+    }
+
+    // indexed_logical_ids is not in the current allocation ID
+    // list. Find the allocation IDs that are equivalent to the
+    // indexed IDs. The indexed IDs should be reachable from the
+    // allocation IDs, and those allocation IDs used in the traversal
+    // path should be the ones that should be replaced with the
+    // indexed IDs.
+
+    auto [path, all_visited] = getExprsBetween<IRBFS>(
+        {allocation_domains.begin(), allocation_domains.end()},
+        indexed_logical_ids.vector(),
+        /*require_all_to_visited=*/false);
+    NVF_ERROR(
+        all_visited,
+        "Failed to infer valid allocation IDs. Indexed logical IDs need to be entirely allocated but not found in the inferred allocation ID set. Indexed logical IDs: ",
+        toDelimitedString(indexed_logical_ids.vector()),
+        ". Allocation IDs: ",
+        toDelimitedString(allocation_domains));
+
+    auto inputs = getInputsOfExprPath<IRBFS>(path);
+
+    std::vector<IterDomain*> patched_allocation_ids;
+    for (auto id : allocation_domains) {
+      if (std::find(inputs.begin(), inputs.end(), id) != inputs.end()) {
+        // Remove the inputs of the path
+        continue;
+      }
+      patched_allocation_ids.push_back(id);
+    }
+
+    for (auto val : indexed_logical_ids) {
+      patched_allocation_ids.push_back(val->as<IterDomain>());
+    }
+
+    return patched_allocation_ids;
   }
 
   std::unordered_map<TensorView*, AllocationDomainInfo> tv_alloc_info_map;
