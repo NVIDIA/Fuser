@@ -436,6 +436,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
          tv->getMaybeAllocationDomain().end()},
         {allocation_domains.begin(), allocation_domains.end()});
 
+    auto [path, all_visited] = getExprsBetween<IRBFS>(
+        {tv->getMaybeAllocationDomain().begin(),
+         tv->getMaybeAllocationDomain().end()},
+        {allocation_domains.begin(), allocation_domains.end()},
+        /*require_all_to_visited=*/false);
+    NVF_ERROR(all_visited);
+
     if (exprs.empty()) {
       return std::nullopt;
     }
@@ -443,10 +450,10 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // Replay exprs from the logical domain to get the non-reordered
     // domains
     auto ordered_domains = tv->getMaybeAllocationDomain();
-    for (auto expr : exprs) {
+    for (auto [expr, dir] : path) {
       // Find the position to insert the outputs.
       int64_t insertion_pos = -1;
-      for (auto inp : expr->inputs()) {
+      for (auto inp : getInputsOfExpr(expr, dir)) {
         auto it =
             std::find(ordered_domains.begin(), ordered_domains.end(), inp);
         if (it == ordered_domains.end()) {
@@ -465,13 +472,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
           " in ",
           tv->toString());
       // Insert the outputs
-      for (auto out : expr->outputs()) {
+      for (auto out : getOutputsOfExpr(expr, dir)) {
         ordered_domains.insert(
             ordered_domains.begin() + insertion_pos, out->as<IterDomain>());
         ++insertion_pos;
       }
       // Delete the inputs
-      for (auto inp : expr->inputs()) {
+      for (auto inp : getInputsOfExpr(expr, dir)) {
         auto it =
             std::find(ordered_domains.begin(), ordered_domains.end(), inp);
         if (it == ordered_domains.end()) {
@@ -491,7 +498,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
           "Missing allocation domain: ",
           alloc_dom->toString(),
           ", domains: ",
-          toDelimitedString(ordered_domains));
+          toDelimitedString(ordered_domains),
+          ", tv: ",
+          tv->toString());
     }
 
     // Pick only the allocation domains from the ordered domains
