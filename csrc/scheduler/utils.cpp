@@ -2162,17 +2162,6 @@ void reorderDomain(TensorView* tv, std::vector<IterDomain*>& ids) {
   }
 }
 
-// TODO: Separate out this refactor into a separate PR and combine with maybeReorderAsAllocationMap
-// Returns a map reordering the loop domain of the tensor view as the allocation domain
-std::unordered_map<int64_t, int64_t> domainReorderAsAllocationMap(TensorView* tv) {
-  if (!tv->hasAllocation()) {
-    return {};
-  }
-  auto reordered_ids = tv->getAllocationDomain();
-  reorderDomain(tv, reordered_ids);
-  return createReorderMap(tv->getLoopDomain(), reordered_ids);
-}
-
 // Returns a map reordering the loop domain of the tensor view as the logical domain
 std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   auto reordered_ids = tv->getLoopDomain();
