@@ -143,6 +143,7 @@ bool isTvOp(const Expr* expr) {
           TensorConstruct,
           SelectOp,
           IndexSelectOp,
+          IndexPutAccumulateOp,
           GatherOp,
           ScatterOp,
           RNGOp,
