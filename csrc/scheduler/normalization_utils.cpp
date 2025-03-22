@@ -1260,6 +1260,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
     const std::vector<TensorView*>& cached_inputs) {
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
   std::vector<TensorView*> smem_consumers;
   // Transfer the persistent buffer tensors to shared memory. These tensors are
   // housed in smem_persistent_buffers. If a candidate tensor is input, move its
@@ -1267,6 +1268,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
   if (rparams->smem_persistent_buffers.empty()) {
     return {};
   }
+
   const auto& persistent_buffers =
       scheduler_utils::persistentBuffers(fusion).persistent_buffers;
   auto isSharedMemoryPersistent = [&rparams](const TensorView* lookup_tv) {
@@ -1295,7 +1297,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
   };
-  for (auto tv : persistent_buffers) {
+  for (auto buffer : persistent_buffers) {
     // Persistent buffers are categorized into two types:
     // (1) Cached input tensors.
     //     For these, [smem_persistent_buffers] holds the original input
@@ -1309,24 +1311,25 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     // other for the buffer's input tensor if the buffer is a cached input
     // and it is not in [smem_persistent_buffers].
     bool is_cached_input = false;
-    bool use_smem = isSharedMemoryPersistent(tv);
+    bool use_smem = isSharedMemoryPersistent(buffer);
     if (!use_smem &&
-        std::find(cached_inputs.begin(), cached_inputs.end(), tv) !=
+        std::find(cached_inputs.begin(), cached_inputs.end(), buffer) !=
             cached_inputs.end()) {
-      auto input_tv = ir_utils::producerTvsOf(tv).at(0);
+      auto input_tv = ir_utils::producerTvsOf(buffer).at(0);
       use_smem = isSharedMemoryPersistent(input_tv);
       is_cached_input = true;
     }
     if (use_smem) {
-      tv->setMemoryType(MemoryType::Shared);
+      buffer->setMemoryType(MemoryType::Shared);
       // When loading from global memory (gmem), use CpAsync with a short data
       // path of gmem -> smem to reduce temporary register usage. Otherwise, the
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
-        tv->definition()->as<LoadStoreOp>()->setOpType(
+      if (supportCpAsync(buffer) && is_cached_input) {
+        buffer->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
-        tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
+        buffer->definition()->as<LoadStoreOp>()->setCacheOp(
+            CacheOp::Unspecified);
       }
       // do a register cache for all the uses of this smem tv.
       // The load from smem to register cache will then be vectorized to avoid
@@ -1335,22 +1338,68 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transactions (32 threads * 16 bytes per thread / 128 bytes per
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
-      auto cached_tv = tv->cacheAfter();
-      // At this point, if cached_tv has multiple uses,  it becomes the
-      // persistent buffer instead of tv due to the way the persistent buffer
-      // selector works. To make tv remain as the persistent buffer, all of the
-      // uses must be privatized.
-      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
-      smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      auto regs_buffer = buffer->cacheAfter();
+      smem_consumers.push_back(regs_buffer);
+      const auto& consumers_of_cached_buffer =
+          ir_utils::consumerTvsOf(regs_buffer);
+      if (std::getenv("USE_MAIN") == nullptr) {
+        // buffer (shared memory buffer) was used before & after reduction, so
+        // does the regs_buffer. Thus, the regs_buffer is also a persistent
+        // buffer. To avoid this, we can recompute all the before-reduction-uses
+        // from the shared memory buffer. Then, all the
+        // before-and-after-reduction-uses are inlined separately. So the cached
+        // buffer is no longer a persistent buffer. This saves register space.
+        auto before_redu_replicate =
+            RecomputeTv::recompute(regs_buffer, {buffer});
+        smem_consumers.push_back(before_redu_replicate);
+        for (auto c_of_cached_buffer : consumers_of_cached_buffer) {
+          if (std::any_of(
+                  reduction_tvs.begin(),
+                  reduction_tvs.end(),
+                  [c_of_cached_buffer](TensorView* rtv) {
+                    return DependencyCheck::isDependencyOf(
+                        c_of_cached_buffer, rtv);
+                  })) {
+            ir_utils::replaceValInExprInputs(
+                c_of_cached_buffer->definition(),
+                regs_buffer,
+                before_redu_replicate);
+          }
+        }
+
+        // remove not used smem_consumers. why?
+        // (1) ir_utils::consumerTvsOf() doesn't ensure tvs are used.
+        // (2) after replicate, `regs_buffer` may no longer be used.
+        // When all the consumers of the cached input are inputs to reductions,
+        // they are all recomputed from the shared memory buffer and no longer
+        // used in the fusion. Happened in test
+        // DistributedTransformerTest.Backward
+        std::unordered_set<TensorView*> smem_consumers_set;
+        for (auto val : fusion->usedMathVals()) {
+          if (auto tv = dynamic_cast<TensorView*>(val)) {
+            smem_consumers_set.insert(tv);
+          }
+        }
+        for (auto tv : smem_consumers) {
+          if (smem_consumers_set.count(tv) == 0) {
+            smem_consumers.erase(
+                std::remove(smem_consumers.begin(), smem_consumers.end(), tv),
+                smem_consumers.end());
+          }
+        }
+
+      } else {
+        for (auto i = 1; i < (int)consumers_of_cached_buffer.size(); i++) {
+          auto consumer = consumers_of_cached_buffer.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate =
+              RecomputeTv::recompute(regs_buffer, {buffer});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), regs_buffer, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
     }
   }
@@ -1634,10 +1683,10 @@ class PersistentBufferResolution : public IterVisitor {
     // necessary to traverse any of the tensors between the persistent
     // tensor and reduction tensor since the resolution point must be on
     // the other paths.
-    const auto reduction_producers = DependencyCheck::getAllValsBetween(
+    const auto tvs_before_reduction = DependencyCheck::getAllValsBetween(
         {persistent_buffer_}, {reduction_tv});
     const std::unordered_set<Val*> reduction_producer_set(
-        reduction_producers.begin(), reduction_producers.end());
+        tvs_before_reduction.begin(), tvs_before_reduction.end());
 
     // Resolution points must be a dependent tensor of the reduction tensor
     const std::unordered_set<Val*> reduction_dep_tvs =
