@@ -666,7 +666,7 @@ TEST_F(NVFuserTest, IndexSelectVectorizationLookupTensorCase0) {
   // output tv [ 1025, 1024 ]
   // output tv and lookup tv share the innermost dimension 1024. We'll have
   // vectorized store and load on lookup tv
-  checkIndexSelectVectorization(executor_cache, 2, true, false);
+  checkIndexSelectVectorization(executor_cache, 4, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -814,7 +814,7 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase0) {
   // output tv [ 768,  256, 4 ] (stride [ 1024, 1, 256 ])
   // output tv doesn't share the innermost dimension with inputs. We'll have
   // vectorized store only
-  checkIndexSelectVectorization(executor_cache, 2, false, false);
+  checkIndexSelectVectorization(executor_cache, 4, false, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
@@ -853,7 +853,7 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
   // output tv [ 768,  256, 4 ] (stride [ 1024, 1, 256 ])
   // output tv and lookup tv share the innermost dimension 1024. We'll have
   // vectorized store and load on lookup tv
-  checkIndexSelectVectorization(executor_cache, 2, true, false);
+  checkIndexSelectVectorization(executor_cache, 4, true, false);
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
