@@ -16,6 +16,8 @@
 #include <ops/all_ops.h>
 #include <transform_iter.h>
 
+#include <ranges>
+
 namespace nvfuser {
 
 //! There's three domains associated with performing a view operation:
@@ -365,7 +367,8 @@ class AnalyzeViewTransformation {
     AnalyzeViewConstraint constraint;
     constraint.original_constraint =
         std::vector<int64_t>(original_view_.begin(), original_view_.end());
-    for (auto i : c10::irange(constraint.original_constraint.size())) {
+    for (const auto i :
+         std::views::iota(0LL, constraint.original_constraint.size())) {
       if (constraint.original_constraint[i] != 1) {
         constraint.original_constraint[i] = 0;
       }
@@ -373,7 +376,8 @@ class AnalyzeViewTransformation {
 
     constraint.new_constraint =
         std::vector<int64_t>(new_view_.begin(), new_view_.end());
-    for (auto i : c10::irange(constraint.new_constraint.size())) {
+    for (const auto i :
+         std::views::iota(0LL, constraint.new_constraint.size())) {
       if (constraint.new_constraint[i] != 1) {
         constraint.new_constraint[i] = 0;
       }
@@ -684,7 +688,7 @@ TensorDomain* createViewDomain(
       TensorDomain::noReductions(original_domain->logical());
 
   // Apply squeeze.
-  for (auto id_i : c10::irange(orig_logical_domain.size())) {
+  for (auto id_i : std::views::iota(0LL, orig_logical_domain.size())) {
     if (!view_analysis.squeeze_axes.at(id_i)) {
       auto id = orig_logical_domain.at(id_i);
       new_root_domain.push_back(id->cloneWithoutRFactor());
@@ -836,7 +840,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
     return false;
   }
 
-  for (const auto i : c10::irange(transforms.size())) {
+  for (const auto i : std::views::iota(0LL, transforms.size())) {
     auto transform = transforms.at(i);
     auto other_transform = other.transforms.at(i);
     if (transform->isA<SplitTransform>()) {
@@ -863,7 +867,7 @@ bool AnalyzeViewResult::operator==(const AnalyzeViewResult& other) const {
 size_t AnalyzeViewResult::hash() const {
   auto bool_vec_hash = [](const std::vector<bool>& vec) -> size_t {
     size_t hash = 0;
-    for (const auto i : c10::irange(vec.size())) {
+    for (const auto i : std::views::iota(0LL, vec.size())) {
       hash = (hash << 1) + static_cast<size_t>(vec.at(i));
     }
     return hash;
