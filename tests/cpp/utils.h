@@ -534,8 +534,9 @@ inline bool cudaArchGuardShouldSkip(
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
  protected:
+  NVFuserTest();
+  ~NVFuserTest() override;
   void SetUp() override;
-  void TearDown() override;
 
   // Start capturing of stdout if not already started
   void captureStdout();
