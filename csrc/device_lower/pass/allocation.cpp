@@ -164,6 +164,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> allocation_domains;
     std::vector<std::optional<bool>> contiguity;
 
+    std::cerr << tv->toString() << "\n";
+
     // In general, if the tensor has an allocation domain set, it
     // should be used with no change. However, set allocation domains
     // are not always right allocation domains. For example,
@@ -281,6 +283,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
               patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
           indexed_alloc_dom.has_value()) {
         allocation_domains = indexed_alloc_dom.value();
+        std::cerr << "Indexed alloc: " << toDelimitedString(allocation_domains)
+                  << "\n";
         // Make sure the original allocation domains are fully contiguous
         NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
           return b.has_value() && b.value();
@@ -290,6 +294,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
             std::vector<std::optional<bool>>(allocation_domains.size(), true);
       }
 
+      // reorderAllocationDomains and
+      // patchAllocationOfTransposedSmemTensor assume unallocated IDs
+      // are removed
       std::vector<IterDomain*> actual_allocation_ids;
       std::vector<std::optional<bool>> actual_contiguity;
       for (auto [i, id] : enumerate(allocation_domains)) {
@@ -305,6 +312,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
               reorderAllocationDomains(tv, allocation_domains);
           reordered_domains.has_value()) {
         allocation_domains = reordered_domains.value();
+        std::cerr << "Reordered: " << toDelimitedString(allocation_domains)
+                  << "\n";
         NVF_ERROR(
             std::all_of(
                 contiguity.begin(),
@@ -321,6 +330,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
                   GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
           transposed_smem_alloc_dom.has_value()) {
         allocation_domains = transposed_smem_alloc_dom.value();
+        std::cerr << "Transposed: " << toDelimitedString(allocation_domains)
+                  << "\n";
         // Make sure the original allocation domains are fully contiguous
         NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
           return b.has_value() && b.value();
@@ -332,6 +343,9 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     NVF_ERROR(allocation_domains.size() == contiguity.size());
+
+    std::cerr << "Final alloc domain of " << tv->toString() << ": "
+              << toDelimitedString(allocation_domains) << "\n";
 
     return {allocation_domains, contiguity};
   }
@@ -523,7 +537,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     if (reordered_allocation_domains == allocation_domains) {
       return std::nullopt;
     }
-
     return reordered_allocation_domains;
   }
 
@@ -787,30 +800,48 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // path should be the ones that should be replaced with the
     // indexed IDs.
 
-    auto [path, all_visited] = getExprsBetween<IRBFS>(
-        {allocation_ids.begin(), allocation_ids.end()},
-        indexed_logical_ids.vector(),
-        /*require_all_to_visited=*/false);
-    NVF_ERROR(
-        all_visited,
-        "Failed to infer valid allocation IDs. Indexed logical IDs need to be entirely allocated but not found in the inferred allocation ID set. Indexed logical IDs: ",
-        toDelimitedString(indexed_logical_ids.vector()),
-        ". Allocation IDs: ",
-        toDelimitedString(allocation_ids));
+    // In order to retain the original ordering of allocation IDs,
+    // each indexed logical ID is examined one by one. Specifically,
+    // for each of them, we find the corresponding IDs in the current
+    // allocation ID vector and replace them with the indexed logical
+    // ID.
+    auto patched_allocation_ids = allocation_ids;
+    for (auto indexed_logical_id : indexed_logical_ids) {
+      auto [path, all_visited] = getExprsBetween<IRBFS>(
+          {patched_allocation_ids.begin(), patched_allocation_ids.end()},
+          {indexed_logical_id},
+          /*require_all_to_visited=*/false);
+      NVF_ERROR(
+          all_visited,
+          "Failed to infer valid allocation IDs. Indexed logical IDs need to be entirely allocated but not found in the inferred allocation ID set. Indexed logical ID: ",
+          indexed_logical_id->toString(),
 
-    auto inputs = getInputsOfExprPath<IRBFS>(path);
+          ". Allocation IDs: ",
+          toDelimitedString(patched_allocation_ids));
 
-    std::vector<IterDomain*> patched_allocation_ids;
-    for (auto id : allocation_ids) {
-      if (std::find(inputs.begin(), inputs.end(), id) != inputs.end()) {
-        // Remove the inputs of the path
-        continue;
+      auto dependent_allocation_ids = getInputsOfExprPath<IRBFS>(path);
+
+      // Insert indexed_logical_id at the innermost position of
+      // dependent_allocation_ids.
+      int num_dependent_allocation_ids = 0;
+      std::vector<IterDomain*> pathched_allocation_ids_next;
+      for (auto id : allocation_ids) {
+        if (std::find(
+                dependent_allocation_ids.begin(),
+                dependent_allocation_ids.end(),
+                id) != dependent_allocation_ids.end()) {
+          ++num_dependent_allocation_ids;
+          if (num_dependent_allocation_ids ==
+              std::ssize(dependent_allocation_ids)) {
+            pathched_allocation_ids_next.push_back(
+                indexed_logical_id->as<IterDomain>());
+          }
+        } else {
+          pathched_allocation_ids_next.push_back(id);
+        }
       }
-      patched_allocation_ids.push_back(id);
-    }
 
-    for (auto val : indexed_logical_ids) {
-      patched_allocation_ids.push_back(val->as<IterDomain>());
+      std::swap(patched_allocation_ids, pathched_allocation_ids_next);
     }
 
     return patched_allocation_ids;
