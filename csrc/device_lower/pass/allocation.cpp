@@ -290,6 +290,17 @@ class AllocationDomainSetup : private kir::IrVisitor {
             std::vector<std::optional<bool>>(allocation_domains.size(), true);
       }
 
+      std::vector<IterDomain*> actual_allocation_ids;
+      std::vector<std::optional<bool>> actual_contiguity;
+      for (auto [i, id] : enumerate(allocation_domains)) {
+        if (mayRequireAllocation(tv, id)) {
+          actual_allocation_ids.push_back(id);
+          actual_contiguity.push_back(contiguity.at(i));
+        }
+      }
+      std::swap(allocation_domains, actual_allocation_ids);
+      std::swap(contiguity, actual_contiguity);
+
       if (auto reordered_domains =
               reorderAllocationDomains(tv, allocation_domains);
           reordered_domains.has_value()) {
@@ -436,13 +447,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
          tv->getMaybeAllocationDomain().end()},
         {allocation_domains.begin(), allocation_domains.end()});
 
-    auto [path, all_visited] = getExprsBetween<IRBFS>(
-        {tv->getMaybeAllocationDomain().begin(),
-         tv->getMaybeAllocationDomain().end()},
-        {allocation_domains.begin(), allocation_domains.end()},
-        /*require_all_to_visited=*/false);
-    NVF_ERROR(all_visited);
-
     if (exprs.empty()) {
       return std::nullopt;
     }
@@ -450,10 +454,10 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // Replay exprs from the logical domain to get the non-reordered
     // domains
     auto ordered_domains = tv->getMaybeAllocationDomain();
-    for (auto [expr, dir] : path) {
+    for (auto expr : exprs) {
       // Find the position to insert the outputs.
       int64_t insertion_pos = -1;
-      for (auto inp : getInputsOfExpr(expr, dir)) {
+      for (auto inp : expr->inputs()) {
         auto it =
             std::find(ordered_domains.begin(), ordered_domains.end(), inp);
         if (it == ordered_domains.end()) {
@@ -472,13 +476,13 @@ class AllocationDomainSetup : private kir::IrVisitor {
           " in ",
           tv->toString());
       // Insert the outputs
-      for (auto out : getOutputsOfExpr(expr, dir)) {
+      for (auto out : expr->outputs()) {
         ordered_domains.insert(
             ordered_domains.begin() + insertion_pos, out->as<IterDomain>());
         ++insertion_pos;
       }
       // Delete the inputs
-      for (auto inp : getInputsOfExpr(expr, dir)) {
+      for (auto inp : expr->inputs()) {
         auto it =
             std::find(ordered_domains.begin(), ordered_domains.end(), inp);
         if (it == ordered_domains.end()) {
@@ -498,9 +502,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
           "Missing allocation domain: ",
           alloc_dom->toString(),
           ", domains: ",
-          toDelimitedString(ordered_domains),
-          ", tv: ",
-          tv->toString());
+          toDelimitedString(ordered_domains));
     }
 
     // Pick only the allocation domains from the ordered domains
@@ -563,7 +565,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
   // [32b, 32a] is returned.
   std::optional<std::vector<IterDomain*>> patchAllocationOfTransposedSmemTensor(
       const TensorView* tv,
-      const std::vector<IterDomain*>& allocation_ids,
+      const std::vector<IterDomain*>& allocation_domains,
       const ValGraph& exact_graph) const {
     // First, do pattern matching to see if this tensor is a shared
     // memory tensor transpose. Pattern matching conditions include:
@@ -576,25 +578,18 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // - The consumer tensor also has a merge but with the inner and
     //   outer reversed
 
-    if (tv->getMemoryType() != MemoryType::Shared) {
+    if (allocation_domains.empty()) {
       return std::nullopt;
     }
 
-    std::vector<IterDomain*> actual_allocation_ids;
-    for (auto id : allocation_ids) {
-      if (mayRequireAllocation(tv, id)) {
-        actual_allocation_ids.push_back(id);
-      }
-    }
-
-    if (actual_allocation_ids.empty()) {
+    if (tv->getMemoryType() != MemoryType::Shared) {
       return std::nullopt;
     }
 
     // No BID/DID parallel type should be used
     if (std::any_of(
-            actual_allocation_ids.begin(),
-            actual_allocation_ids.end(),
+            allocation_domains.begin(),
+            allocation_domains.end(),
             [](IterDomain* id) -> bool {
               return isParallelTypeDeviceDim(id->getParallelType()) ||
                   isParallelTypeBlockDim(id->getParallelType());
@@ -651,7 +646,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     };
 
     Merge* producer_common_merge =
-        getOriginatingMerge(actual_allocation_ids.front());
+        getOriginatingMerge(allocation_domains.front());
     if (producer_common_merge == nullptr) {
       return std::nullopt;
     }
@@ -660,10 +655,10 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // equivalent
     auto producer_merge_dep_exprs = DependencyCheck::getAllExprsBetween(
         {producer_common_merge->out()},
-        {actual_allocation_ids.begin(), actual_allocation_ids.end()});
+        {allocation_domains.begin(), allocation_domains.end()});
 
     std::unordered_set<IterDomain*> equiv_domain_set(
-        actual_allocation_ids.begin(), actual_allocation_ids.end());
+        allocation_domains.begin(), allocation_domains.end());
 
     // Traverse back from the allocation domains to the merge output
     // and see if they are equivalent
