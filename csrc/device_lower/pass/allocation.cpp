@@ -164,8 +164,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> allocation_domains;
     std::vector<std::optional<bool>> contiguity;
 
-    std::cerr << tv->toString() << "\n";
-
     // In general, if the tensor has an allocation domain set, it
     // should be used with no change. However, set allocation domains
     // are not always right allocation domains. For example,
@@ -283,8 +281,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
               patchAllocationOfIndexedProducerTensor(tv, allocation_domains);
           indexed_alloc_dom.has_value()) {
         allocation_domains = indexed_alloc_dom.value();
-        std::cerr << "Indexed alloc: " << toDelimitedString(allocation_domains)
-                  << "\n";
         // Make sure the original allocation domains are fully contiguous
         NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
           return b.has_value() && b.value();
@@ -312,8 +308,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
               reorderAllocationDomains(tv, allocation_domains);
           reordered_domains.has_value()) {
         allocation_domains = reordered_domains.value();
-        std::cerr << "Reordered: " << toDelimitedString(allocation_domains)
-                  << "\n";
         NVF_ERROR(
             std::all_of(
                 contiguity.begin(),
@@ -330,8 +324,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
                   GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT));
           transposed_smem_alloc_dom.has_value()) {
         allocation_domains = transposed_smem_alloc_dom.value();
-        std::cerr << "Transposed: " << toDelimitedString(allocation_domains)
-                  << "\n";
         // Make sure the original allocation domains are fully contiguous
         NVF_ERROR(std::all_of(contiguity.begin(), contiguity.end(), [](auto b) {
           return b.has_value() && b.value();
@@ -343,9 +335,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
     }
 
     NVF_ERROR(allocation_domains.size() == contiguity.size());
-
-    std::cerr << "Final alloc domain of " << tv->toString() << ": "
-              << toDelimitedString(allocation_domains) << "\n";
 
     return {allocation_domains, contiguity};
   }
