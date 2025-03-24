@@ -1309,6 +1309,32 @@ TensorView* defineTensor(
   return tv;
 }
 
+void bindScalar(py::module& fusion) {
+  fusion.def(
+      "define_scalar",
+      [](PolymorphicValue::VariantType value,
+         std::optional<PrimDataType> dtype) {
+        PolymorphicValue cast_value(
+            dtype.has_value() ? castToDtype(std::move(value), dtype.value())
+                              : std::move(value));
+        PrimDataType value_dtype(
+            dtype.has_value()
+                ? dtype.value()
+                : std::get<PrimDataType>(getDataType(value).type));
+        return IrBuilder::create<nvfuser::Val>(value, value_dtype);
+      },
+      py::arg("value"),
+      py::arg("dtype") = std::nullopt,
+      py::return_value_policy::reference);
+  fusion.def(
+      "define_scalar",
+      [](PrimDataType dtype) {
+        return IrBuilder::create<nvfuser::Val>(std::monostate{}, dtype);
+      },
+      py::arg("dtype") = DataType::Double,
+      py::return_value_policy::reference);
+}
+
 void bindDefineTensor(py::module& fusion) {
   fusion
       .def(
@@ -1418,6 +1444,7 @@ void bindDirectIr(py::module& fusion) {
   bindBaseNodes(fusion);
   bindInternalBaseNodes(fusion);
   bindInterfaceNodes(fusion);
+  bindScalar(fusion);
   bindDefineTensor(fusion);
 }
 

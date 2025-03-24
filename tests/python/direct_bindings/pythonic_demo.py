@@ -15,9 +15,13 @@ inputs = [
 with FusionDefinition() as fd:
     tv0 = fd.from_pytorch(inputs[0])
     tv1 = fd.from_pytorch(inputs[1])
+    c0 = fd.define_scalar(3.0)
     tv2 = fd.ops.add(tv0, tv1)
-    fd.add_output(tv2)
+    tv3 = fd.ops.mul(tv2, c0)
+    tv4 = fd.ops.sum(tv3, [-1], False, DataType.Float)
+    fd.add_output(tv4)
 
+fd.fusion.print_math()
 outputs = fd.execute(inputs)
 print(outputs)
 
@@ -30,6 +34,6 @@ func_name = "nvfuser_fusion"
 with FusionDefinition() as fd_cap:
     eval(func_name)(fd_cap)
 
-print(fd_cap.fusion.print_math())
+fd_cap.fusion.print_math()
 captured_outputs = fd_cap.execute(inputs)
 print(captured_outputs)
