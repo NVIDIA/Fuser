@@ -1486,8 +1486,7 @@ void scheduleInnerOuterPersistentKernel(
     // special inline & inline most
     std::unordered_set<TensorView*> exclude_tvs;
     for (auto [k, v] : tv_inline_pos_map) {
-      std::cout << "inlineSelectedAt : " << k->toString() << ", pos= " << v
-                << std::endl;
+      std::cout << "inlineSelectedAt : " << k->toString() << ", pos= " << v << std::endl;
       exclude_tvs.insert(k);
       inlineSelectedAt({k}, k, v);
     }

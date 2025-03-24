@@ -1764,7 +1764,7 @@ std::vector<Expr*> reorderExprsForComputeAt() {
       if(is_scalar){
         n_scalar_exprs++;
       }
-      std::cout  << "is_scalar: " << is_scalar << ", " << "is_loading_input: " << is_loading_input(expr) << ", " << expr->toString() << std::endl;
+      // std::cout  << "is_scalar: " << is_scalar << ", " << "is_loading_input: " << is_loading_input(expr) << ", " << expr->toString() << std::endl;
     }
     // sort based on ca & put gmem load first
     std::stable_sort(sorted_exprs.begin() + n_scalar_exprs, sorted_exprs.end(), [](Expr* expr1, Expr* expr2) {
