@@ -515,11 +515,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       last_writes_.pop_front();
       // Found that a sync is needed
 
-      // Tensor memory is similar to shared memory because they are both
-      // shared between threads in a block. In that sense, we can consider
-      // tensor memory as special type of shared memory. In this file, we use
-      // the term "shared memory", "smem" to refer to both shared and tensor
-      // memories.
       if (!sync_bitmap.hasBID() &&
           std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
