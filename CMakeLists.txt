@@ -366,9 +366,17 @@ target_link_libraries(codegen_internal PUBLIC
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 if(NVFUSER_BUILD_WITH_ASAN)
-  target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-  target_link_options(codegen_internal PUBLIC -fsanitize=address)
-  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
+  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+    target_compile_options(codegen_internal PRIVATE -fsanitize=address)
+    target_link_options(codegen_internal PUBLIC -fsanitize=address)
+    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
+  else()
+    # clang by default uses `-static-libsan`, which works great with statically
+    # built unit tests but not libnvfuser_codegen.so.
+    target_compile_options(codegen_internal PRIVATE -fsanitize=address -shared-libsan)
+    target_link_options(codegen_internal PUBLIC -fsanitize=address -shared-libsan)
+    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -shared-libsan)
+  endif()
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
