@@ -1144,7 +1144,6 @@ TensorView
 Notes
 -----
 - All required properties (dimensions, dtype, shape) must be set before building.
-- The build method validates the configuNVFUSER::DIMENSION SEPARATOR POSITION.
 )");
 }
 

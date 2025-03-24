@@ -20,8 +20,7 @@ namespace {
          nvfuser::Val* rhs) -> nvfuser::Val* {                               \
         return static_cast<nvfuser::Val* (*)(nvfuser::Val*, nvfuser::Val*)>( \
             nvfuser::OP_NAME)(lhs, rhs);                                     \
-      },                                                                     \
-      DOCSTRING);                                                            \
+      });                                                                    \
   ops.def(                                                                   \
       NAME,                                                                  \
       [](DirectFusionDefinition::Operators& self,                            \
@@ -30,8 +29,7 @@ namespace {
         return static_cast<nvfuser::TensorView* (*)(nvfuser::TensorView*,    \
                                                     nvfuser::Val*)>(         \
             nvfuser::OP_NAME)(lhs, rhs);                                     \
-      },                                                                     \
-      DOCSTRING);                                                            \
+      });                                                                    \
   ops.def(                                                                   \
       NAME,                                                                  \
       [](DirectFusionDefinition::Operators& self,                            \
@@ -40,8 +38,7 @@ namespace {
         return static_cast<nvfuser::TensorView* (*)(nvfuser::Val*,           \
                                                     nvfuser::TensorView*)>(  \
             nvfuser::OP_NAME)(lhs, rhs);                                     \
-      },                                                                     \
-      DOCSTRING);                                                            \
+      });                                                                    \
   ops.def(                                                                   \
       NAME,                                                                  \
       [](DirectFusionDefinition::Operators& self,                            \
@@ -60,8 +57,7 @@ namespace {
          nvfuser::Val* v) -> nvfuser::Val* {                                \
         return static_cast<nvfuser::Val* (*)(nvfuser::Val*)>(               \
             nvfuser::OP_NAME)(v);                                           \
-      },                                                                    \
-      DOCSTRING);                                                           \
+      });                                                                   \
   ops.def(                                                                  \
       NAME,                                                                 \
       [](DirectFusionDefinition::Operators& self,                           \
@@ -930,12 +926,6 @@ void bindBinaryOps(py::class_<DirectFusionDefinition::Operators>& ops) {
       R"(
 Element-wise addition of two operands.
 
-This operation supports the following type combinations:
-- scalar + scalar -> scalar
-- tensor + scalar -> tensor
-- scalar + tensor -> tensor
-- tensor + tensor -> tensor
-
 Parameters
 ----------
 lhs : Val or TensorView
@@ -946,12 +936,7 @@ rhs : Val or TensorView
 Returns
 -------
 Val or TensorView
-    If both inputs are scalars (Val), returns a scalar.
-    If either input is a tensor, returns a tensor.
-
-Notes
------
-When using tensors, broadcasting is supported following NumPy rules.
+    The sum of the inputs.
 )")
   NVFUSER_DIRECT_BINDING_BINARY_OP(
       "atan2",

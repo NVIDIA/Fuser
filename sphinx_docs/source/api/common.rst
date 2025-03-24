@@ -8,19 +8,75 @@ Common API
 
 This section documents the common API components of nvFuser.
 
-Direct Fusion Definition
------------------------
+Statement
+---------
 
-.. autoclass:: nvfuser.direct._DirectFusionDefinition
+.. autoclass:: nvfuser.direct.Statement
+   :members:
+   :undoc-members:
+
+   Statement represents a base class for all statements in the nvFuser IR.
+   It provides methods for:
+   
+   - Accessing statement properties
+   - Managing statement dependencies
+   - Querying statement type and attributes
+
+Val
+---
+
+.. autoclass:: nvfuser.direct.Val
    :members:
    :undoc-members:
    :show-inheritance:
 
-   The DirectFusionDefinition class provides a low-level interface for defining nvFuser operations.
-   It exposes two main components:
+   Val represents a value in the nvFuser IR. It provides methods for:
+   
+   - Accessing value properties and type
+   - Managing value dependencies
+   - Querying value attributes and constraints
 
-   - ``ops``: Contains the operators for defining fusion operations
-   - ``sched``: Contains the scheduling operators for optimizing the fusion
+Expr
+----
+
+.. autoclass:: nvfuser.direct.Expr
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   Expr represents an expression in the nvFuser IR. It provides methods for:
+   
+   - Accessing expression operands
+   - Managing expression dependencies
+   - Querying expression type and attributes
+
+IterDomain
+----------
+
+.. autoclass:: nvfuser.direct.IterDomain
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   IterDomain represents an iteration domain in the nvFuser IR. It provides methods for:
+   
+   - Accessing domain properties (extent, start, stop)
+   - Managing domain dependencies
+   - Querying domain attributes and constraints
+
+TensorDomain
+-----------
+
+.. autoclass:: nvfuser.direct.TensorDomain
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   TensorDomain represents a tensor domain in the nvFuser IR. It provides methods for:
+   
+   - Accessing domain dimensions
+   - Managing domain properties
+   - Querying domain attributes and constraints
 
 TensorView
 ---------
@@ -42,7 +98,6 @@ TensorViewBuilder
 .. autoclass:: nvfuser.direct.TensorViewBuilder
    :members:
    :undoc-members:
-   :show-inheritance:
 
    TensorViewBuilder provides a fluent interface for creating TensorView objects with specific properties.
 
@@ -52,7 +107,6 @@ FusionExecutorCache
 .. autoclass:: nvfuser.direct.FusionExecutorCache
    :members:
    :undoc-members:
-   :show-inheritance:
 
    FusionExecutorCache manages the compilation and execution of fusion definitions.
    It provides methods for:
@@ -67,7 +121,6 @@ KernelExecutor
 .. autoclass:: nvfuser.direct.KernelExecutor
    :members:
    :undoc-members:
-   :show-inheritance:
 
    KernelExecutor provides a lower-level interface for executing compiled kernels.
    It allows for:
@@ -76,13 +129,24 @@ KernelExecutor
    - Direct kernel execution
    - Access to kernel properties and scheduling information
 
+Direct Fusion Definition
+-----------------------
+
+.. autoclass:: nvfuser.direct._DirectFusionDefinition
+   :members:
+   :undoc-members:
+
+   The DirectFusionDefinition class provides a low-level interface for defining nvFuser operations.
+   It exposes two main components:
+
+   - ``ops``: Contains the operators for defining fusion operations
+   - ``sched``: Contains the scheduling operators for optimizing the fusion
+
 Data Types
 ---------
 
 .. autoclass:: nvfuser.DataType
    :members:
-   :undoc-members:
-   :show-inheritance:
 
    DataType enum defines the supported data types in nvFuser.
 
@@ -91,8 +155,6 @@ Memory Types
 
 .. autoclass:: nvfuser.MemoryType
    :members:
-   :undoc-members:
-   :show-inheritance:
 
    MemoryType enum defines the different memory types available for tensor storage.
 
@@ -101,8 +163,6 @@ Parallel Types
 
 .. autoclass:: nvfuser.ParallelType
    :members:
-   :undoc-members:
-   :show-inheritance:
 
    ParallelType enum defines the different parallelization strategies available for tensor operations.
 
@@ -111,7 +171,5 @@ Scheduler Types
 
 .. autoclass:: nvfuser.SchedulerType
    :members:
-   :undoc-members:
-   :show-inheritance:
 
    SchedulerType enum defines the different scheduling strategies available for optimizing fusion execution.
