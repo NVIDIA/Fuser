@@ -395,13 +395,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           const auto& pdim_map = kernel_->summary().parallel_dimension_map;
           auto bdimx =
               genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDx));
+
           auto bdimy =
               genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDy));
           auto bdimz =
               genInlineOrOne(pdim_map.getRawCompute(ParallelType::TIDz));
-          smem_buf_size_ss << bdimx << " * " << bdimy << " * " << bdimz
+          
+          if (std::getenv("NEW_CMP_WGROUPS")) {
+            smem_buf_size_ss << 128 << " * " << bdimy << " * " << bdimz
                            << " * sizeof("
-                           << kernel_summary.largest_smem_data_type << ")";
+                           << kernel_summary.largest_smem_data_type << ")";            
+          }else{
+            smem_buf_size_ss << bdimx << " * " << bdimy << " * " << bdimz
+                            << " * sizeof("
+                            << kernel_summary.largest_smem_data_type << ")";
+          }
+
 
           // extra due to grouped reduction, welford, multiple math warp groups
           int64_t extra_factor = kernel_summary.num_grouped_iterations;

@@ -71,6 +71,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
                 conditional,
                 GpuLower::current()->threadPredMap().getPredicate(
                     ir_utils::getTvOutput(vec_expr)));
+            std::cout << "Vectorize kir::IfThenElse Conditional: " << conditional->toInlineString() << std::endl;
           }
         } else {
           NVF_ERROR(lower_utils::supportInlinePredicate(expr));
@@ -81,11 +82,13 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
               conditional,
               GpuLower::current()->threadPredMap().getPredicate(
                   ir_utils::getTvOutput(expr)));
+          std::cout << "Vectorize not kir::IfThenElse Conditional: " << conditional->toInlineString() << std::endl;
         }
       }
       NVF_ERROR(conditional != nullptr);
       conditional = GpuLower::current()->commonScalarMap().hoistScalar(
           conditional, for_loops_);
+      std::cout << "ConditionalFromPredicateModifier Conditional: " << conditional->toInlineString() << std::endl;
       expr->predicate()->setValue(conditional);
       NVF_ERROR(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
