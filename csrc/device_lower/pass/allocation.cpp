@@ -1117,6 +1117,10 @@ class AllocationInserter : public kir::ExprMutator {
             "Welford should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedWelfordOp>()->getInitValOfOutput(out);
       } else if (out_tv->getMemoryType() != MemoryType::Tensor) {
+        // TODO: TMem should not be initialized as ... = 0, because it must be
+        // accessed with special instructions. We do not have a good way to
+        // initialize TMem yet. For now, we just skip the initialization for
+        // TMem.
         init = default_val;
       }
 
@@ -1224,10 +1228,11 @@ class AllocationInserter : public kir::ExprMutator {
       mbarrier->setMemoryType(MemoryType::Shared);
       auto mbarrier_init = IrBuilder::create<kir::MBarrierInit>(
           mbarrier,
-          simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
-              DataType::UInt32,
-              lower_utils::getNumThreadsInTensorView(
-                  expr->output(0)->as<TensorView>()))));
+          simplifyExpr(
+              SimplifyingIrBuilder::maybeCastExpr(
+                  DataType::UInt32,
+                  lower_utils::getNumThreadsInTensorView(
+                      expr->output(0)->as<TensorView>()))));
       auto sync_init = IrBuilder::create<kir::BlockSync>();
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
