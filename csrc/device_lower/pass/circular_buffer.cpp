@@ -107,24 +107,23 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::LoadWarp:{
+      case CircularBufferLoopStage::LoadWarp: {
         break;
       }
       case CircularBufferLoopStage::ComputeWarp: {
-
         if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
-          int64_t number_of_cmp_warp_groups = std::atoi(std::getenv("NEW_CMP_WGROUPS"));
+          int64_t number_of_cmp_warp_groups =
+              std::atoi(std::getenv("NEW_CMP_WGROUPS"));
           start = NamedScalar::getParallelIndex(ParallelType::WgGIDx);
           step = SimplifyingIrBuilder::create<Val>(
               number_of_cmp_warp_groups, DataType::Index);
-        }        
+        }
         break;
       }
       default: {
         NVF_THROW("Unsupported loop mode, got: ", loop_type_);
       }
     }
-
 
     cloned_top_level_loop_ = IrBuilder::create<ForLoop>(
         circular_buffer_loop_->iter_domain(),
@@ -150,7 +149,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     // {
     //   cloned_loop = cloned_top_level_loop_;
     // }else{
-    //   if(std::getenv("CMP_WGROUPS") != nullptr && fl->iter_domain()->isThreadDim()){
+    //   if(std::getenv("CMP_WGROUPS") != nullptr &&
+    //   fl->iter_domain()->isThreadDim()){
     //     // cloned_loop = IrBuilder::create<ForLoop>(fl);
     //   cloned_loop = IrBuilder::create<ForLoop>(
     //       fl->iter_domain(),
@@ -163,12 +163,12 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
     //       fl->isUnrollRequired(),
     //       fl->circularBufferLoopStage(),
     //       fl->circularBufferLoopStageDepth());
-    //     std::cout << "cloned_loop:\n" << cloned_loop->toString() << std::endl;
+    //     std::cout << "cloned_loop:\n" << cloned_loop->toString() <<
+    //     std::endl;
     //   }else{
     //     cloned_loop = IrBuilder::create<ForLoop>(fl);
     //   }
     // }
-
 
     // Add to stack
     for_loop_stack_.push_back(cloned_loop);
@@ -196,7 +196,8 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void dispatch(Expr* expr) override {
-    // std::cout << "====== dispatch: " << expr->getOpString() << "\n" << expr->toString()
+    // std::cout << "====== dispatch: " << expr->getOpString() << "\n" <<
+    // expr->toString()
     //           << std::endl;
     // Skip expression if it is in exclude set
     if (exclude_.count(expr) > 0) {
@@ -1463,9 +1464,9 @@ class CircularBufferInserter : private kir::ExprMutator {
           raw, IrBuilder::create<Val>(128L, DataType::Index));
       predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
           NamedScalar::getParallelIndex(warp_specialize_on), tma_val));
-      std::cout << "insertTmaWarpSpecialized pred "
-                << predicate_val->toInlineString() << std::endl;
     }
+    std::cout << "insertTmaWarpSpecialized pred "
+              << predicate_val->toInlineString() << std::endl;
     kir::IfThenElse* warp_dispatch_ite =
         IrBuilder::create<kir::IfThenElse>(predicate_val);
 
@@ -1544,8 +1545,6 @@ class CircularBufferInserter : private kir::ExprMutator {
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
-
-
 
     warp_dispatch_ite->elseBody().push_back(compute_loop);
 

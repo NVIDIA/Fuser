@@ -759,7 +759,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       // padding 128 threads each thread can use less than 256 registers, then
       // we can use register sharing.
       if (std::getenv("TMAREG") && std::getenv("CMPREG") &&
-          iop.threads_per_block > 256 - 128) {
+          (iop.threads_per_block > 256 - 128 || std::getenv("NEW_CMP_WGROUPS"))) {
         int64_t tma_reg = 32L;
         int64_t cmp_reg = 120L;
         tma_reg = std::atoi(std::getenv("TMAREG"));

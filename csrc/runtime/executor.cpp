@@ -425,7 +425,7 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
     // WAR
     int64_t warp_reduction_factor = 1;
-    if(std::getenv("USE_TMA")) {
+    if(std::getenv("REDUCTION_SMEM_SIZE")) {
       warp_reduction_factor = 32;
     }
 
@@ -469,19 +469,19 @@ LaunchParams KernelExecutor::computeLaunchParams(
 
 
 
-  if (std::getenv("NEW_CMP_WGROUPS")) {
-    int warp_groups = std::stoi(std::getenv("NEW_CMP_WGROUPS"));
-    launch_params.bindUnsafe(
-        launch_params.bdimy() + warp_groups - 1, ParallelType::TIDy);
-    std::cout << "Setting TIDy to " << launch_params.bdimx() << std::endl;
-  }else  if (std::getenv("CMP_WGROUPS_MANUAL")) {
-    int warp_groups = std::stoi(std::getenv("CMP_WGROUPS_MANUAL"));
-    int tma_bimdx = 128;
-    int cmp_bimdx = launch_params.bdimx() - tma_bimdx;
-    launch_params.bindUnsafe(
-        cmp_bimdx * warp_groups + tma_bimdx, ParallelType::TIDx);
-    std::cout << "Setting TIDx to " << launch_params.bdimx() << std::endl;
-  }
+  // if (std::getenv("NEW_CMP_WGROUPS")) {
+  //   int warp_groups = std::stoi(std::getenv("NEW_CMP_WGROUPS"));
+  //   launch_params.bindUnsafe(
+  //       launch_params.bdimy() + warp_groups - 1, ParallelType::TIDy);
+  //   std::cout << "Setting TIDy to " << launch_params.bdimx() << std::endl;
+  // }else  if (std::getenv("CMP_WGROUPS_MANUAL")) {
+  //   int warp_groups = std::stoi(std::getenv("CMP_WGROUPS_MANUAL"));
+  //   int tma_bimdx = 128;
+  //   int cmp_bimdx = launch_params.bdimx() - tma_bimdx;
+  //   launch_params.bindUnsafe(
+  //       cmp_bimdx * warp_groups + tma_bimdx, ParallelType::TIDx);
+  //   std::cout << "Setting TIDx to " << launch_params.bdimx() << std::endl;
+  // }
 
   return launch_params;
 }

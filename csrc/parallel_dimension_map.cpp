@@ -152,7 +152,11 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
   auto dim_it = dim_map_.find(pt);
   if (dim_it == dim_map_.end()) {
-    dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
+      int64_t threads = 2;
+      if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
+        threads++;
+      }    
+    dim_map_[pt] = IrBuilder::create<Val>(threads, DataType::Index);
   } else {
     // Intentionally not using SimplifyingIrBuilder::addExpr here so that
     // we still have access to the pointer to the original IR node.
@@ -213,6 +217,9 @@ Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
 }
 
 Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
+  if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
+    return IrBuilder::create<Val>(128L, DataType::Index);
+  }   
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
     auto dim = getRawCompute(pt);

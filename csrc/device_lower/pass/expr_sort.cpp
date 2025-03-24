@@ -1750,14 +1750,14 @@ std::vector<Expr*> reorderExprsForComputeAt() {
 
   if(std::getenv("SORT_EXPRS_GMEM") != nullptr && std::atoi(std::getenv("SORT_EXPRS_GMEM")) != 0) {
     std::cout << "\n before SORT_EXPRS_GMEM:" << std::endl;
-    auto is_loading_input = [](Expr* expr){
-      if(auto ls = dynamic_cast<LoadStoreOp*>(expr)){
-        if(auto tv = ls->in()->as<TensorView>()){
-          return tv->isFusionInput();
-        }
-      }
-      return false;
-    };
+    // auto is_loading_input = [](Expr* expr){
+    //   if(auto ls = dynamic_cast<LoadStoreOp*>(expr)){
+    //     if(auto tv = ls->in()->as<TensorView>()){
+    //       return tv->isFusionInput();
+    //     }
+    //   }
+    //   return false;
+    // };
     int64_t n_scalar_exprs = 0;
     for(auto expr : sorted_exprs){
       bool is_scalar = ir_utils::isScalarOp(expr);

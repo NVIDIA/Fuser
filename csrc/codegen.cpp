@@ -406,24 +406,34 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           // extra due to grouped reduction, welford, multiple math warp groups
           int64_t extra_factor = kernel_summary.num_grouped_iterations;
 
-          if (std::getenv("CMP_WGROUPS")) {
+          if (std::getenv("NEW_CMP_WGROUPS")) {
             std::stringstream ss;
             ss << bdimx << " * " << bdimy << " * " << bdimz << " * "
                << kernel_summary.num_grouped_iterations;
+            if(std::getenv("REDUCTION_SMEM_SIZE")) {
+              int64_t warp_reduction_factor = 1;
+              warp_reduction_factor = 32;
+              ss << " / " << warp_reduction_factor;
+            }
             smem_buf_wg_offset_ = ss.str();
-            extra_factor *= 2;
+            if(std::getenv("WARPTIDX")) {
+              extra_factor *= 2;
+            }
+          }else{
+            // WAR
+            if(std::getenv("REDUCTION_SMEM_SIZE")) {
+              int64_t warp_reduction_factor = 1;
+              warp_reduction_factor = 32;
+              smem_buf_size_ss << " / " << warp_reduction_factor;
+            }
           }
+
           if (has_parallel_welford) {
             extra_factor *= 3;
           }
 
           smem_buf_size_ss << " * " << extra_factor;
-          // WAR
-          if(std::getenv("USE_TMA")) {
-            int64_t warp_reduction_factor = 1;
-            warp_reduction_factor = 32;
-            smem_buf_size_ss << " / " << warp_reduction_factor;
-          }
+
 
           std::string smem_buf_size = smem_buf_size_ss.str();
           if (kernel_summary.has_outer_grouped_grid_welford) {
@@ -1335,7 +1345,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args;
     func_args.arg(gen(stmt->out()));
     func_args.arg(gen(stmt->in()));
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
       func_args.arg(
           genStaticCast(genPtrType(data_type), "shared_mem") + " + " +
           genSmemOffset());
@@ -1346,7 +1356,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
     func_args.arg(genComputeBlockDim());
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
       func_args.arg(
           genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
 
@@ -1382,7 +1392,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
       func_args.arg(
           genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
           genSmemOffset());
@@ -1394,7 +1404,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genInline(read_pred));
     func_args.arg(genStaticCast(output->dtype(), genInline(init)));
     func_args.arg(genComputeBlockDim());
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
       func_args.arg(
           genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
 
@@ -3040,7 +3050,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableNameConvertAlignedArray(output));
     func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    if (std::getenv("CMP_WGROUPS") != nullptr) {
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
       func_args.arg(
           genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
           genSmemOffset());
@@ -3056,7 +3066,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         reduction_dims.second == nullptr) {
       if(use_static){
         int64_t number_of_threads = std::atoi(std::getenv("THREADS"));
-        if (std::getenv("CMP_WGROUPS") != nullptr) {
+        if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
           func_args.arg(
               genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
 
@@ -3079,7 +3089,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         func_args.arg(genInline(read_pred));
         func_args.arg(genStaticCast(output->dtype(), genInline(init)));
         func_args.arg(genComputeBlockDim());
-        if (std::getenv("CMP_WGROUPS") != nullptr) {
+        if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
           func_args.arg(
               genInline(NamedScalar::getParallelIndex(ParallelType::WgTIDx)));
 
@@ -3399,7 +3409,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void insertWarpGroupIdx() {
     // must match ParallelType::WgGIDx in parallel_type2string
-    indent() << "const nvfuser_index_t WgGIDx = threadIdx.x / 128;\n";
+    // indent() << "const nvfuser_index_t WgGIDx = threadIdx.x / 128;\n";
+    indent() << "const nvfuser_index_t WgGIDx = threadIdx.y;\n";
     indent() << "const nvfuser_index_t WgTIDx = threadIdx.x % 128;\n";
   }
 
@@ -3726,9 +3737,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool bidy = sync->syncDims().get(ParallelType::BIDy);
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
 
+    bool is_aligned = isAligned();
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
+      is_aligned = false;
+    }  
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true).arg(
-        isAligned());
+    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true).arg(is_aligned);
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
