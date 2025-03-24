@@ -274,6 +274,8 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 
   analyzeFactoryOutputs(expr_eval);
 
+  analyzeInputContiguity(expr_eval);
+
   auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
   for (auto i : c10::irange((int64_t)maybe_zero_extents.size())) {
     auto ext = maybe_zero_extents.at(i);
@@ -550,6 +552,10 @@ bool DynamicTransformConcretizationInfo::operator==(
     if (ee != other_ee) {
       return false;
     }
+  }
+
+  if (input_contiguities_ != other.input_contiguities_) {
+    return false;
   }
 
   return true;

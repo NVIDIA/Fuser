@@ -196,6 +196,10 @@ class DynamicTransformConcretizationInfo {
     return factory_output_itertypes_;
   }
 
+  const std::vectr<std::vector<bool>>& getInputContiguities() const {
+    return input_contiguities_;
+  }
+
   //! Comparison operator for the purposes of determining cache hits. This does
   //! not guarantee equality of all members. Instead, it returns equal if the
   //! resulting concretizations would be structurally equivalent. Note that
@@ -224,6 +228,10 @@ class DynamicTransformConcretizationInfo {
   //! Given an ExpressionEvaluator which already has input scalars bound to it,
   //! determine the IterTypes of factory function outputs.
   void analyzeFactoryOutputs(ExpressionEvaluator* expr_eval);
+
+  //! Given an ExpressionEvaluator which already has input scalars bound to it,
+  //! determine the contiguity of each input TensorView
+  void analyzeInputContiguity(ExpressionEvaluator* expr_eval);
 
   const DynamicTransformInitialInfo* initialInfo() const {
     return initial_info_;
@@ -273,6 +281,12 @@ class DynamicTransformConcretizationInfo {
   //! initial_info_->getDynamicFactoryOutputs().
   std::vector<std::vector<std::pair<int64_t, IterType>>>
       factory_output_itertypes_;
+
+  //! This holds the contiguity of input TensorViews. There is one entry per
+  //! input, including for scalar inputs. For each TensorView input, the
+  //! vector<bool> is populated with the true contiguity for concrete
+  //! dimensions, and will be set to true for broadcast dims.
+  std::vector<std::vector<bool>> input_contiguities_;
 
   friend class DynamicTransformInfoBuilder;
 };
