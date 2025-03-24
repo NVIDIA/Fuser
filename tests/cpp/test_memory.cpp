@@ -3432,25 +3432,26 @@ TEST_F(TMATest, NormTwoWarpGroups) {
   int64_t n_warp_groups = 2;
 
   for (auto tv : {tv2, tv3, tv4, tv5}) {
+    // [I/Unroll/BIDx/WarpGroups, WarpGroups, BIDx, Unroll]
     tv->split(0, n_unroll);
-    tv->split(0, n_sm, false);
-    tv->split(1, n_warp_groups);
-    tv->axis(0)->parallelize(ParallelType::BIDx);
+    tv->split(0, n_sm);
+    tv->split(0, n_warp_groups);
+    tv->axis(0)->parallelize(ParallelType::Serial);
     tv->axis(1)->parallelize(ParallelType::Serial);
-    tv->axis(2)->parallelize(ParallelType::TIDy);
-    tv->axis(3)->parallelize(ParallelType::Serial);
-    tv->axis(4)->parallelize(ParallelType::TIDx);
+    tv->axis(2)->parallelize(ParallelType::BIDx);
+    // if(tv==tv1 || tv== tv5){
+    //   tv->axis(3)->parallelize(ParallelType::Unroll);
+    // }
+    if(tv == tv1){
+      tv->axis(4)->parallelize(ParallelType::Bulk);
+    }else{
+      tv->axis(4)->parallelize(ParallelType::TIDx);
+    }
+    // [BIDx, I/Unroll/BIDx/WarpGroups, WarpGroups, Unroll]
+    tv->reorder({{0,1},{1,2},{2,0}});
   }
-  tv1->split(0, n_unroll);
-  tv1->split(0, n_sm, false);
-  tv1->split(1, n_warp_groups);
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
-  tv1->axis(1)->parallelize(ParallelType::Serial);
-  tv1->axis(2)->parallelize(ParallelType::Serial);
-  tv1->axis(3)->parallelize(ParallelType::Serial);
-  tv1->axis(4)->parallelize(ParallelType::Bulk);
 
-  inlineSelectedAt({tv1}, tv1, 2);
+  inlineSelectedAt({tv1}, tv1, 3);
   inlineMost(std::vector<TensorView*>{tv2, tv3, tv4, tv5});
   // inlineSelectedAt({tv1, tv3, tv4, tv5}, tv1, /*pos=*/2);
   // inlineSelectedAt({tv2}, tv2, -1, true);
@@ -3517,9 +3518,9 @@ TEST_F(TMATest, InnerOuter) {
   tv10->setMemoryType(MemoryType::Global);
   // tv3 -> tv10 [g] -> tv11 -> tv9
   auto tv11 = tv10->cacheAfter();
+  tv9->axis(0)->parallelize(ParallelType::Serial);
   tv11->axis(0)->parallelize(ParallelType::Serial);
   tv11->axis(1)->parallelize(ParallelType::TIDx);
-  tv9->axis(0)->parallelize(ParallelType::Serial);
 
   inlineSelectedAt({tv2}, tv2, 2);
   inlineMost(std::vector<TensorView*>{tv3, tv4, tv5, tv6, tv7, tv8, tv9});
@@ -3539,5 +3540,43 @@ TEST_F(TMATest, InnerOuter) {
   ke.compile(fusion.get(), {at_tv0, at_tv1}, {}, index32bit);
   auto outputs = ke.run({at_tv0, at_tv1});
   testValidate(&fusion_copy, outputs, {at_tv0, at_tv1}, __LINE__, __FILE__);
+}
+
+
+TEST_F(TMATest, SIMPLE) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  constexpr int dim0 = 128;
+  auto tv0 = makeContigConcreteTensor({dim0}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = add(tv1, tv1);
+  auto tv3 = set(tv2);
+  fusion->addOutput(tv3);
+  auto fusion_copy = *fusion;
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    // tv->split(0, 32);
+    // tv->axis(-1)->parallelize(ParallelType::TIDx);
+    tv->split(0, 4);
+    
+  }
+  inlineMost();
+
+  //[BIDx, Unroll, Bulk]
+  // inlineAllAt(tv2, /*pos=*/1);
+  fusion->print();
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  auto outputs = ke.run({at_tv0});
+  testValidate(&fusion_copy, outputs, {at_tv0}, __LINE__, __FILE__);
 }
 } // namespace nvfuser

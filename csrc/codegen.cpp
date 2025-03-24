@@ -418,6 +418,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           }
 
           smem_buf_size_ss << " * " << extra_factor;
+          // WAR
+          if(std::getenv("USE_TMA")) {
+            int64_t warp_reduction_factor = 1;
+            warp_reduction_factor = 32;
+            smem_buf_size_ss << " / " << warp_reduction_factor;
+          }
 
           std::string smem_buf_size = smem_buf_size_ss.str();
           if (kernel_summary.has_outer_grouped_grid_welford) {

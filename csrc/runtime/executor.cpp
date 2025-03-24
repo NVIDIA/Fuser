@@ -423,10 +423,16 @@ LaunchParams KernelExecutor::computeLaunchParams(
       compute_threads -= 128;
     }
 
+    // WAR
+    int64_t warp_reduction_factor = 1;
+    if(std::getenv("USE_TMA")) {
+      warp_reduction_factor = 32;
+    }
+
     reduction_broadcast_workspace =
         (int64_t)dataTypeSize(
             kernel_summary.largest_smem_data_type, index_type) *
-        grouped_iter_factor * welford_factor * compute_threads;
+        grouped_iter_factor * welford_factor * compute_threads / warp_reduction_factor;
 
     if (std::getenv("CMP_WGROUPS_MANUAL")) {
       int warp_groups = std::stoi(std::getenv("CMP_WGROUPS_MANUAL"));

@@ -1326,7 +1326,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // data path from gmem to shared memory (smem) follows this sequence: gmem
       // -> L1 cache -> register -> smem.
       if (is_cached_input) {
-        if (rparams->use_tma_load) {
+        if (rparams->use_tma_load && tv->nDims() > 1) {
           tv->definition()->as<LoadStoreOp>()->setOpType(
               LoadStoreOpType::CpAsyncBulk);
         } else if (supportCpAsync(tv)) {

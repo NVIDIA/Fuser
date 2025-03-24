@@ -535,7 +535,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   auto getBdimxBdimy = [&](int64_t threads_per_block,
                            int64_t vectorization_factor_outer,
                            int64_t gdimy) {
-    if(rparams->use_tidx_only){
+    if (rparams->use_tidx_only) {
       return std::make_pair(threads_per_block, (int64_t)1);
     }
     // For widely used hidden sizes, threads_per_block has factor of 8, roundup
@@ -590,7 +590,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
 
   // Use the maximum vectorization factor
   int64_t vect_factor = (int64_t)vectorize_factor;
-  if (std::getenv("VECT_FACTOR") && std::atoi(std::getenv("VECT_FACTOR")) != 0) {
+  if (std::getenv("VECT_FACTOR") &&
+      std::atoi(std::getenv("VECT_FACTOR")) != 0) {
     vect_factor = (int64_t)std::atoi(std::getenv("VECT_FACTOR"));
   }
   // Set a reasonable range for threads per block based on the number of
@@ -664,7 +665,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // after divide by inner_vect and inner_batch. In this case, bdimy is used to
   // parallelize outer_dim instead of inner_dim. This pattern is named multi
   // reductions per block (mrpb).
-  if (inner_dim_numel <= 1024) {
+  if (inner_dim_numel <= 1024 && std::getenv("USE_TMA") == nullptr) {
     rparams->multiple_reds_per_blk = true;
     rparams->tidx_for_outer_reduction = true;
 
@@ -707,7 +708,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         iop.inner_batch);
     NVF_ERROR(iop.bdimz == 1, "bdimz must be 1.");
   }
-  if(rparams->use_tidx_only){
+  if (rparams->use_tidx_only) {
     rparams->pad_inner_reduction_to_warp = true;
   }
 
@@ -738,7 +739,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
         (int64_t)std::atoi(std::getenv("VECT_OUTER"));
   }
 
-
   if (std::getenv("USE_TMA") && std::atoi(std::getenv("USE_TMA")) != 0) {
     rparams->use_tma_load = true;
     ParallelType warp_parallel_type = ParallelType::Serial;
@@ -755,7 +755,11 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     if (warp_parallel_type != ParallelType::Serial) {
       // cmp: 128 * 4 * 120 = 61440
       // tma: 128 * 4 * 8   / (32 * 4) = 32
-      if (std::getenv("TMAREG") && std::getenv("CMPREG")) {
+      // If CMPREG and TMAREG are set, and threads_per_block >= 128, then after
+      // padding 128 threads each thread can use less than 256 registers, then
+      // we can use register sharing.
+      if (std::getenv("TMAREG") && std::getenv("CMPREG") &&
+          iop.threads_per_block > 256 - 128) {
         int64_t tma_reg = 32L;
         int64_t cmp_reg = 120L;
         tma_reg = std::atoi(std::getenv("TMAREG"));
@@ -989,22 +993,23 @@ void scheduleReductionCombinedOuter(
       rfactor_axes.push_back(0);
       rfactor_axes.push_back(1);
     } else {
-      if(std::getenv("NOT_ALL_SM") && std::atoi(std::getenv("NOT_ALL_SM")) >=1){
+      if (std::getenv("NOT_ALL_SM") &&
+          std::atoi(std::getenv("NOT_ALL_SM")) >= 1) {
         int64_t n_rows = 16384;
         int64_t sm_count = 148;
-        int64_t iter_per_cta = ceilDiv(n_rows, rparams->unroll_factor_iter_dom * sm_count);
-        int64_t gdimy = ceilDiv(n_rows, rparams->unroll_factor_iter_dom * iter_per_cta);
+        int64_t iter_per_cta =
+            ceilDiv(n_rows, rparams->unroll_factor_iter_dom * sm_count);
+        int64_t gdimy =
+            ceilDiv(n_rows, rparams->unroll_factor_iter_dom * iter_per_cta);
         NVF_ERROR(
-            rparams->lparams.gdimy() >= gdimy,
-            "not enough gdimy, ",
-            gdimy);
+            rparams->lparams.gdimy() >= gdimy, "not enough gdimy, ", gdimy);
         // [gdimy, R/Unroll/gdimy, Unroll]
         outer_reduction_tv->split(0, iter_per_cta);
         if (rparams->unroll_factor_iter_dom > 1) {
           rfactor_axes.push_back(1);
           rfactor_axes.push_back(2);
-        }        
-      }else{
+        }
+      } else {
         // [R/Unroll/gdimy, gdimy, Unroll]
         outer_reduction_tv->split(0, rparams->lparams.gdimy());
         rfactor_axes.push_back(0);
@@ -1069,36 +1074,36 @@ void scheduleReductionCombinedOuter(
 
     } else {
       // reduction domain
-      if(rparams->lparams.bdimy() > 1){
+      if (rparams->lparams.bdimy() > 1) {
         outer_reduction_tv->split(0, rparams->lparams.bdimy());
         outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
-      }else{
+      } else {
         // [148] --> [74, 2]
-        if (std::getenv("UNROLL_OUTER") && std::atoi(std::getenv("UNROLL_OUTER")) >=1) {
+        if (std::getenv("UNROLL_OUTER") &&
+            std::atoi(std::getenv("UNROLL_OUTER")) >= 1) {
           int64_t unroll_outer = std::atoi(std::getenv("UNROLL_OUTER"));
           outer_reduction_tv->split(0, unroll_outer);
           // [148] --> [74, 2] --> [74, 1US, 2UR], 83 us --> 108 us
-          if (std::getenv("UNSWITCH_OUTER") && std::atoi(std::getenv("UNSWITCH_OUTER")) >=1) {
+          if (std::getenv("UNSWITCH_OUTER") &&
+              std::atoi(std::getenv("UNSWITCH_OUTER")) >= 1) {
             outer_reduction_tv->split(0, 1);
             outer_reduction_tv->axis(1)->parallelize(ParallelType::Unswitch);
             outer_reduction_tv->axis(2)->parallelize(ParallelType::Unroll);
-          }else{
+          } else {
             outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
-          }      
-        }        
+          }
+        }
       }
-
 
       // iteration domain
       int axisID = -1;
       if (rparams->vectorization_factor_outer > 1) {
         outer_reduction_tv->split(axisID, rparams->vectorization_factor_outer);
-        outer_reduction_tv->axis(axisID)->parallelize(
-            ParallelType::Vectorize);
+        outer_reduction_tv->axis(axisID)->parallelize(ParallelType::Vectorize);
         axisID--; // -2
       }
 
-      if(rparams->use_tidx_only){
+      if (rparams->use_tidx_only) {
         // [.., I/V, V] --> [.., gdimy, I/V/gdimy, V]
         // outer_reduction_tv->split(axisID, rparams->lparams.gdimy(), false);
 
@@ -1107,7 +1112,7 @@ void scheduleReductionCombinedOuter(
 
         outer_reduction_tv->axis(axisID - 1)->parallelize(ParallelType::BIDy);
         outer_reduction_tv->axis(axisID)->parallelize(ParallelType::TIDx);
-      }else{
+      } else {
         if (rparams->lparams.bdimx() > 1) {
           outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
           outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
@@ -1120,13 +1125,11 @@ void scheduleReductionCombinedOuter(
 
         outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
       }
-
-
     }
     std::cout << "outer_reduction_tv: " << outer_reduction_tv->toString()
               << "\n";
     auto outer_reference_tv = outer_reduction_tv;
-    if(rparams->lparams.bdimy() > 1){
+    if (rparams->lparams.bdimy() > 1) {
       outer_reference_tv =
           reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
     }
@@ -1256,8 +1259,8 @@ void scheduleInnerOuterPersistentKernel(
   bool use_grouped_reduction = rparams->persistent_kernel &&
       rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
 
-  if(rparams->unroll_factor_iter_dom > 1 && std::getenv("GROUPED_REDUCTION") && 
-     std::atoi(std::getenv("GROUPED_REDUCTION")) != 0){
+  if (rparams->unroll_factor_iter_dom > 1 && std::getenv("GROUPED_REDUCTION") &&
+      std::atoi(std::getenv("GROUPED_REDUCTION")) != 0) {
     use_grouped_reduction = true;
   }
   // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
@@ -1318,8 +1321,9 @@ void scheduleInnerOuterPersistentKernel(
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
 
-  std::cout << "inner_reduction_tvs[0]: " << inner_reduction_tvs[0]->toString()<< "\n";
-  std::cout << "inner_reference_tv: " << inner_reference_tv->toString()<< "\n";
+  std::cout << "inner_reduction_tvs[0]: " << inner_reduction_tvs[0]->toString()
+            << "\n";
+  std::cout << "inner_reference_tv: " << inner_reference_tv->toString() << "\n";
 
   for (auto tv : cached_gmem_reload) {
     std::cout << "cached_gmem_reload3 " << tv->toString() << std::endl;
@@ -1431,7 +1435,7 @@ void scheduleInnerOuterPersistentKernel(
     if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
       std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
           fusion, {smem_consumers.begin(), smem_consumers.end()});
-      for(auto tv : smem_consumers){
+      for (auto tv : smem_consumers) {
         tv_inline_pos_map.emplace(tv, 2);
       }
     }
@@ -1445,26 +1449,29 @@ void scheduleInnerOuterPersistentKernel(
     // WAR for rms_bwd_copy
     if (std::getenv("WAR_COPY") && std::atoi(std::getenv("WAR_COPY")) != 0) {
       auto input1 = dynamic_cast<TensorView*>(fusion->inputs()[1]);
-      auto war_tv = ir_utils::consumerTvsOf(ir_utils::consumerTvsOf(input1).at(0)).at(0);
+      auto war_tv =
+          ir_utils::consumerTvsOf(ir_utils::consumerTvsOf(input1).at(0)).at(0);
       tv_inline_pos_map.emplace(war_tv, 2);
-    }else{
-      // WAR for rms_BWD, inline at 2, otherwise inlineMost will inline at 3 and leads
-      // to failure in expr sort.
-      for(auto tv : fusion->allTvs()){
-        if(tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
-          tv->definition()->as<UnaryOp>()->getUnaryOpType() == UnaryOpType::Reciprocal){
-            if(use_grouped_reduction){
-              tv_inline_pos_map.emplace(tv, 2);
-            }
+    } else {
+      // WAR for rms_BWD, inline at 2, otherwise inlineMost will inline at 3 and
+      // leads to failure in expr sort.
+      for (auto tv : fusion->allTvs()) {
+        if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
+            tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
+                UnaryOpType::Reciprocal) {
+          if (use_grouped_reduction) {
+            tv_inline_pos_map.emplace(tv, 2);
+          }
         }
       }
     }
 
     // move inner bcast input to top expr
-    if (std::getenv("CACHE_INNER_BCAST") && std::atoi(std::getenv("CACHE_INNER_BCAST")) != 0) {
-      for(auto val : fusion->inputs()){
-        if(auto tv = dynamic_cast<TensorView*>(val)){
-          if(tv->hasBroadcast()){
+    if (std::getenv("CACHE_INNER_BCAST") &&
+        std::atoi(std::getenv("CACHE_INNER_BCAST")) != 0) {
+      for (auto val : fusion->inputs()) {
+        if (auto tv = dynamic_cast<TensorView*>(val)) {
+          if (tv->hasBroadcast()) {
             // tv->cacheAfter();
             auto cached_tv = tv->cacheAfter();
             cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
@@ -1475,7 +1482,6 @@ void scheduleInnerOuterPersistentKernel(
         }
       }
     }
-
 
     // special inline & inline most
     std::unordered_set<TensorView*> exclude_tvs;
