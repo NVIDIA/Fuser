@@ -160,6 +160,17 @@ class GpuLower : public NonCopyable {
     return local_allocation_info_map_;
   }
 
+  const std::unordered_map<TensorView*, AllocationDomainInfo>& allocationInfo()
+      const {
+    return allocation_info_;
+  }
+
+  std::unordered_map<TensorView*, AllocationDomainInfo>& allocationInfo() {
+    return allocation_info_;
+  }
+
+  const AllocationDomainInfo& getAllocationInfo(TensorView* tv) const;
+
   const WarpPaddedParallelInfo& getWarpPaddedParallelInfo() const {
     return warp_pad_info_;
   }
@@ -277,6 +288,14 @@ class GpuLower : public NonCopyable {
     return tmem_info_;
   }
 
+  const std::pair<int64_t, int64_t>& decIncRegisterUsage() const {
+    return dec_inc_register_usage;
+  }
+
+  std::pair<int64_t, int64_t>& decIncRegisterUsage() {
+    return dec_inc_register_usage;
+  }
+
   // Register a boolean Val as a predicate to validate at the run time. Optional
   // validation error messages can be given as args.
   template <typename... Args>
@@ -385,6 +404,7 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<PredicateElimination> pred_elimination_;
   std::shared_ptr<ComputeAtMap> compute_at_map_;
   LocalAllocationInfoMap local_allocation_info_map_;
+  std::unordered_map<TensorView*, AllocationDomainInfo> allocation_info_;
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
@@ -399,6 +419,7 @@ class GpuLower : public NonCopyable {
   std::unique_ptr<IdModel> id_model_;
   std::unique_ptr<TensorIndexer> tensor_indexer_;
   std::unordered_map<TensorView*, const TMAInfo> consumer_to_tma_info_;
+  std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
 
   // Track which tensor views are inputs or outputs of a vectorized operation
   // and their maximum vectorized access size

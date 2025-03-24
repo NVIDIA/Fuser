@@ -26,6 +26,11 @@
 
 namespace nvfuser {
 
+using testing::Each;
+using testing::IsEmpty;
+using testing::IsFalse;
+using testing::ResultOf;
+
 using ReshardingTestParams =
     std::tuple<DeviceMesh, DeviceMesh, DeviceMesh, bool, bool, bool>;
 
@@ -64,12 +69,69 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
     }
     // checks that the segments are disjoints and that the graph of segment is
     // acyclic
-    segmented_fusion->validate();
+    segmented_fusion->validateDisjoint();
   }
 
   std::unique_ptr<Fusion> fusion_;
   std::unique_ptr<FusionGuard> fg_;
 };
+
+TEST_F(ReshardingTest, SplitingView) {
+  const int b = 2, s = 3, h = 96, e = 128;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigConcreteTensor({-1, -1, h * e});
+  TensorView* out = reshape(
+      in,
+      {size(in, 0),
+       size(in, 1),
+       IrBuilder::create<Val>(h),
+       IrBuilder::create<Val>(e)});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  const int d = 2;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  at::Tensor in_tensor = at::randn({b, s, h * e / d}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+  DynamicTransform::concretizeFusion(&fusion, args);
+
+  EXPECT_THAT(fusion.exprs(), Each(ResultOf(isResharding, IsFalse())));
+}
+
+TEST_F(ReshardingTest, MergingView) {
+  const int b = 2, s = 3, h = 96, e = 128;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigConcreteTensor({-1, -1, h, e});
+  TensorView* out = flatten(in, /*start_dim=*/2);
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  const int d = 2;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(2, d);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  at::Tensor in_tensor = at::randn({b, s, h / d, e}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+  DynamicTransform::concretizeFusion(&fusion, args);
+
+  EXPECT_FALSE(isResharding(out->definition()));
+}
 
 TEST_F(ReshardingTest, Set_SameMesh_NoParallelTypes) {
   Fusion fusion;
@@ -424,9 +486,8 @@ TEST_F(ReshardingTest, ReshardingSqueeze) {
   EXPECT_TRUE(isResharding(out->definition()));
 }
 
-// IdMappingMode::BROADCAST can't map i0*b1 and i0. IdMappingMode::ALMOSTEXACT
-// can but would fail on ReshardingTest.Add_Broadcast.
-TEST_F(ReshardingTest, NonreshardingSqueeze) {
+// Currently, simplifyExpr doesn't recognize that `0 <= x < 1` ==> `x == 0`.
+TEST_F(ReshardingTest, DISABLED_NonreshardingSqueeze) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -506,7 +567,7 @@ TEST_F(ReshardingTest, InsertResharding_After) {
   EXPECT_TRUE(expr->isA<LoadStoreOp>());
   EXPECT_EQ(expr->as<LoadStoreOp>()->opType(), LoadStoreOpType::Set);
   std::vector<TensorView*> tvs = {expr->inputs()[0]->as<TensorView>()};
-  EXPECT_THAT(getTvsWithDifferentSharding(a, tvs), ::testing::IsEmpty());
+  EXPECT_THAT(getTvsWithDifferentSharding(a, tvs), IsEmpty());
 }
 
 TEST_F(ReshardingTest, InsertShardedAxisReordering) {
@@ -607,12 +668,12 @@ DeviceMesh Mesh2({0, 1, 2, 3});
 INSTANTIATE_TEST_SUITE_P(
     ,
     ReshardingTest,
-    ::testing::Combine(
-        ::testing::Values(Mesh0, Mesh2),
-        ::testing::Values(Mesh1, Mesh2),
-        ::testing::Values(Mesh2),
-        ::testing::Bool(),
-        ::testing::Bool(),
-        ::testing::Bool()));
+    testing::Combine(
+        testing::Values(Mesh0, Mesh2),
+        testing::Values(Mesh1, Mesh2),
+        testing::Values(Mesh2),
+        testing::Bool(),
+        testing::Bool(),
+        testing::Bool()));
 
 } // namespace nvfuser

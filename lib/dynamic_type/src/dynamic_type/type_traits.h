@@ -11,8 +11,6 @@
 #include <type_traits>
 #include <utility>
 
-#include "C++20/type_traits"
-
 // Note on the coding style of this file:
 // - I use `namespace dynamic_type` and `} // namespace dynamic_type` a lot to
 //   separate different parts of the code, so that we can easily fold and unfold

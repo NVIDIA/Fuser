@@ -745,7 +745,7 @@ IterDomain* getIndexedProducerID(const Expr* expr) {
     return select->getIndexedID();
   } else if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
     return index_select->getIndexedID();
-  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+  } else if (auto gather = dynamic_cast<const GatherOp*>(expr)) {
     return gather->getIndexedID();
   } else {
     return nullptr;
@@ -755,7 +755,7 @@ IterDomain* getIndexedProducerID(const Expr* expr) {
 IterDomain* getConsumerOfIndexedProducerID(const Expr* expr) {
   if (auto index_select = dynamic_cast<const IndexSelectOp*>(expr)) {
     return index_select->getConsumerOfIndexedID();
-  } else if (auto gather = dynamic_cast<const TorchGatherOp*>(expr)) {
+  } else if (auto gather = dynamic_cast<const GatherOp*>(expr)) {
     return gather->getConsumerOfIndexedID();
   } else {
     return nullptr;
@@ -791,10 +791,10 @@ bool isIndexSelectIndicesTv(const TensorView* tv) {
   return false;
 }
 
-bool isTorchGatherLookupTv(const Val* tv) {
+bool isGatherLookupTv(const Val* tv) {
   for (auto expr : tv->uses()) {
-    if (expr->isA<TorchGatherOp>()) {
-      auto idx_sel = expr->as<TorchGatherOp>();
+    if (expr->isA<GatherOp>()) {
+      auto idx_sel = expr->as<GatherOp>();
       if (idx_sel->lookupTv() == tv) {
         return true;
       }
@@ -1551,8 +1551,9 @@ std::vector<IterDomain*> strideOrderToAllocation(
 
 std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
     UnaryOp* uop) {
+  NVF_CHECK(uop != nullptr);
   NVF_CHECK(
-      uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cast,
+      uop->getUnaryOpType() == UnaryOpType::Cast,
       "Invalid expr: ",
       uop->toString());
 

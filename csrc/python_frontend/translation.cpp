@@ -1117,13 +1117,13 @@ class FusionTranslator : public OptInConstDispatch {
         sop->dim()));
   }
 
-  // Map TorchGatherOp to python frontend
-  void handle(const TorchGatherOp* gop) final {
+  // Map GatherOp to python frontend
+  void handle(const GatherOp* gop) final {
     TensorView* out_tv = gop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
-    fd_->defineRecord(new TorchGatherOpRecord(
+    fd_->defineRecord(new GatherOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(gop->lookupTv())),
          fd_->recordingState(map_val_to_fd_index_.at(gop->indexTv()))},
         {fd_->recordingState(output())},
