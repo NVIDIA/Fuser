@@ -8,6 +8,8 @@
 #pragma once
 
 #include <device_lower/analysis/trivial_broadcast.h>
+#include <device_lower/pass/allocation.h>
+#include <device_lower/utils.h>
 #include <id_model/id_model.h>
 #include <ir/base_nodes.h>
 #include <ir/interface_nodes.h>
@@ -29,12 +31,6 @@ struct IndexingInfo {
   std::unordered_map<ValGroup, Val*> index_map;
   // Mappings from ID groups to dependent loop groups
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
-};
-
-struct IndexingAllocationInfo {
-  std::vector<IterDomain*> domains;
-  std::vector<Val*> strides;
-  std::vector<bool> contiguity;
 };
 
 // The basic algorithm of indexing is:
@@ -91,7 +87,7 @@ class TensorIndexer {
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
       const Expr* expr,
       bool as_consumer,
-      const IndexingAllocationInfo& alloc_info,
+      const AllocationDomainInfo& alloc_info,
       const std::vector<ForLoop*>& loops,
       const std::unordered_map<IterDomain*, Val*>& override_index) const;
 
@@ -107,9 +103,6 @@ class TensorIndexer {
   ValGraph& traversalGraph() const {
     return id_model_.idGraph(traversalGraphType());
   }
-
-  // Traverse exprs and set allocation info for each tensor
-  void setupAllocationDomains(const std::vector<Expr*>& exprs);
 
   // Get the list of predicates of a given tensor appearing in a given
   // expr as a consumer. Each predicate corresponds to a domain of the
@@ -137,15 +130,7 @@ class TensorIndexer {
   // on loop_index_map_.
   void buildLoopIndexMap();
 
-  const IndexingAllocationInfo& getIndexingAllocationInfo(
-      TensorView* tv) const {
-    auto it = alloc_info_.find(tv);
-    NVF_ERROR(
-        it != alloc_info_.end(),
-        "No allocation info found for ",
-        tv->toString());
-    return it->second;
-  }
+  const AllocationDomainInfo& getIndexAllocationInfo(TensorView* tv) const;
 
   // Returns the index map as well as its traversal path of given
   // index domains appearing in a given expr. Used by
@@ -174,7 +159,7 @@ class TensorIndexer {
   //
   // Currently, only backward traversal is supported.
   std::pair<std::vector<ValGroup>, std::vector<Val*>> getContigDomainsAndStrides(
-      const IndexingAllocationInfo& alloc_info,
+      const AllocationDomainInfo& alloc_info,
       const ExprPath<ExprGroup>& traversal_path) const;
 
   // Get a replace map for tensor indexing. Examples include replacing
@@ -210,7 +195,7 @@ class TensorIndexer {
 
   // Allocation info for each tensor. Must be filled before computing
   // the index of each tensor
-  std::unordered_map<TensorView*, IndexingAllocationInfo> alloc_info_;
+  std::unordered_map<TensorView*, AllocationDomainInfo> alloc_info_;
 };
 
 } // namespace nvfuser

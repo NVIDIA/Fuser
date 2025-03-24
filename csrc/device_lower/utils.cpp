@@ -763,13 +763,13 @@ kir::Allocate* allocGlobalBufferForGridComm(
       resets_to_zero);
 }
 
-BasicAllocInfo getAllocInformation(
+AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
     const std::vector<ForLoop*>& for_loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map,
     bool use_id_map) {
   DEBUG_PRINT_SCOPE(tv);
-  BasicAllocInfo info;
+  AllocPosInfo info;
   auto gpu_lower = GpuLower::current();
 
   bool outer_alloc_found = false;

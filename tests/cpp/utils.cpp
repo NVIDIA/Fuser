@@ -21,15 +21,11 @@
 
 namespace nvfuser {
 
-void NVFuserTest::SetUp() {
+NVFuserTest::NVFuserTest() {
   // Enable logging so debug messages in PyTorch can be printed out
   // via `TORCH_CPP_LOG_LEVEL`.
   c10::initLogging();
 
-  // requires PASCAL or newer
-  if (!deviceMajorMinorCheck(6)) {
-    GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
-  }
   setFillAllocationWithNan(true);
 
   maybeClearAllocator();
@@ -46,7 +42,14 @@ void NVFuserTest::SetUp() {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
 }
 
-void NVFuserTest::TearDown() {
+void NVFuserTest::SetUp() {
+  // requires PASCAL or newer
+  if (!deviceMajorMinorCheck(6)) {
+    GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
+  }
+}
+
+NVFuserTest::~NVFuserTest() {
   if (::testing::Test::HasFailure()) {
     auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
     std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()

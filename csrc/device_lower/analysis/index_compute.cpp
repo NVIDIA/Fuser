@@ -188,7 +188,7 @@ IndexingParameters getNonGlobalInitialIndexParameters(
   }
 
   auto alloc_tv = index_producer ? producer_tv : consumer_tv;
-  auto alloc_info = lower_utils::getAllocInformation(
+  auto alloc_info = lower_utils::getAllocPosInfo(
       alloc_tv, loops, alloc_id_map, index_producer);
 
   std::unordered_map<ForLoop*, Val*> loop_to_ind_map;

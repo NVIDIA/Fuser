@@ -194,6 +194,11 @@ class CollectiveBasedOverlapTest : public OverlapTest {
     tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options_);
   }
 
+  void TearDown() override {
+    tc_locally_reduced_.reset();
+    OverlapTest::TearDown();
+  }
+
   at::Tensor getExpectedResult() override {
     auto tc_unsharded_expected = getUnshardedExpectedResult();
     auto tc_unsharded_expected_reshaped = at::reshape(
