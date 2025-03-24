@@ -469,8 +469,7 @@ class PredicateChcker : public IterVisitor {
   void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access =
         needsPredicateSharedMemAccess(expr);
-    needs_predicate_ = predicateIntDiv(expr) ||
-        predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
+    needs_predicate_ = predicateIntDiv(expr) || needs_predicate_smem_access ||
         predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
@@ -549,28 +548,6 @@ class PredicateChcker : public IterVisitor {
         auto p_id = entry.first;
         auto c_id = entry.second;
         if (p_id->hasExpandedExtent() && c_id->isReduction()) {
-          RECORD_AND_RETURN(true);
-        }
-      }
-    }
-    RECORD_AND_RETURN(false);
-  }
-
-  // Skip if MisalignedVectorize is involved for now. This could be
-  // relaxed.
-  bool predicateMisalignedVectorize(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    std::vector<const std::vector<Val*>*> inputs_and_outputs = {
-        &(expr->inputs()), &(expr->outputs())};
-    for (const auto& inputs_or_outputs : inputs_and_outputs) {
-      for (auto tv : ir_utils::filterByType<TensorView>(*inputs_or_outputs)) {
-        if (std::any_of(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                [](IterDomain* axis) {
-                  return axis->getParallelType() ==
-                      ParallelType::MisalignedVectorize;
-                })) {
           RECORD_AND_RETURN(true);
         }
       }
