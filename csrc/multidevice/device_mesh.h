@@ -98,7 +98,7 @@ class DeviceMesh final {
 
   // Returns the rank (number of dimensions) of the mesh.
   int64_t rank() const {
-    return static_cast<int64_t>(shape_.size());
+    return std::ssize(shape_);
   }
 
   bool operator==(const DeviceMesh& other) const {
