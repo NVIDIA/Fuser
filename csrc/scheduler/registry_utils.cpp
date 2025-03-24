@@ -169,13 +169,12 @@ bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
     SchedulerType scheduler_type) {
   for (auto expr : fusion->exprs()) {
-    if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
+    if (expr->isOneOf<SelectOp, IndexSelectOp, GatherOp>()) {
       // For now, only relax the input requirement when it's
       // takeAlongAxis. Also since this would require memory
       // promotion, i.e., persistent global sync in the case of
       // block-parallel ops, it needs to be explictly enabled.
-      if (expr->isA<TorchGatherOp>() &&
-          expr->as<TorchGatherOp>()->exactSizes() &&
+      if (expr->isA<GatherOp>() && expr->as<GatherOp>()->exactSizes() &&
           isOptionEnabled(EnableOption::MemoryPromotion)) {
         continue;
       }
@@ -1016,8 +1015,7 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (scheduler_tools::isResizeBasedOp(expr)) {
       has_resize = true;
-    } else if (
-        expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+    } else if (expr->isOneOf<GatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
       has_index_op = true;
     }
 

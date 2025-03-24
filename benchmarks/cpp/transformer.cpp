@@ -141,8 +141,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto mha_dropout_mask = at::rand({B * S, E}, options).lt(1.0 - 0.1);
   auto sdpa_output = at::randn({B, H, S, E / H}, options);
   auto sdpa_logsum_exp = at::randn({B, H, S}, options).to(at::kFloat);
-  auto sdpa_seed = at::scalar_tensor(1, at::kLong);
-  auto sdpa_offset = at::scalar_tensor(1, at::kLong);
+  auto [sdpa_seed, sdpa_offset] = createSdpaRngTensors();
   auto ln0_mean = at::randn({B * S, 1}, options).to(at::kFloat);
   auto ln0_rstd = at::randn({B * S, 1}, options).to(at::kFloat);
   auto ln1_mean = at::randn({B * S, 1}, options).to(at::kFloat);

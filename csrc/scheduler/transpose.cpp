@@ -56,13 +56,13 @@ bool TransposeScheduler::canScheduleCompileTime(Fusion* fusion) {
       return false;
     }
   }
-  for (auto torch_gather : ir_utils::getOpsOfType<TorchGatherOp>(fusion)) {
+  for (auto torch_gather : ir_utils::getOpsOfType<GatherOp>(fusion)) {
     auto inner = TensorDomain::noReductions(
         torch_gather->input(0)->as<TensorView>()->getMaybeAllocationDomain());
     if (torch_gather->getIndexedID() == inner[inner.size() - 1]) {
       scheduler_debug_utils::canScheduleRejectReason(
           schedulerType(),
-          "TorchGatherOp on inner dim is not supported by transpose scheduler yet."
+          "GatherOp on inner dim is not supported by transpose scheduler yet."
           "In transpose scheduler, we want to leave the select dim alone, instead of creating a tile for it.");
       return false;
     }
