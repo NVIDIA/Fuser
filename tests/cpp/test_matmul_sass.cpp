@@ -225,7 +225,7 @@ TEST_P(MatmulSASSTestWithLayout, AmpereSanity) {
 INSTANTIATE_TEST_SUITE_P(
     ,
     MatmulSASSTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 // Check the modifiers of instructions. We are particularily interested in

@@ -107,7 +107,7 @@ TensorView* indexSelect(
 }
 
 // torch.gather
-TensorView* torchGather(TensorView* inp, int64_t dim, TensorView* index) {
+TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   auto idx_domain = TensorDomain::noReductions(index->getLogicalDomain());
   NVF_CHECK(
@@ -134,7 +134,7 @@ TensorView* torchGather(TensorView* inp, int64_t dim, TensorView* index) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
 
-  IrBuilder::create<TorchGatherOp>(out_tensor, inp, dim, index, false);
+  IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, false);
   return out_tensor->as<TensorView>();
 }
 
@@ -243,7 +243,7 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
 
-  IrBuilder::create<TorchGatherOp>(out_tensor, inp, dim, index, true);
+  IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, true);
 
   return out_tensor->as<TensorView>();
 }

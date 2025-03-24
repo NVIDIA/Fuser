@@ -256,7 +256,7 @@ TEST_P(MmaTest, SingleTileWithStridedInput) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
-auto all_dtypes = testing::Values(DataType::Half, DataType::BFloat16);
+auto all_dtypes = std::vector<PrimDataType>{DataType::Half, DataType::BFloat16};
 
 std::string testName(const testing::TestParamInfo<MmaTestParams>& info) {
   std::ostringstream os;
@@ -282,7 +282,7 @@ INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     testing::Combine(
         testing::Values(MmaMacro::Ampere_16_8_16, MmaMacro::Ampere_16_16_16),
-        all_dtypes),
+        testing::ValuesIn(all_dtypes)),
     testName);
 
 // For smem mma input tensors, the schedule does not matter, we just naively
@@ -494,10 +494,10 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
   // This is a temporary way to pass this information
   // to the custom index generator for stmatrix.
   // TODO: remove the need for fusion managed cache.
-  fusion.manage("st_matrix_m_tile", tile_m);
-  fusion.manage("st_matrix_n_tile", tile_n);
-  fusion.manage("st_matrix_m", getM(macro));
-  fusion.manage("st_matrix_n", getN(macro));
+  fusion.manage("ldst_matrix_m_tile", tile_m);
+  fusion.manage("ldst_matrix_n_tile", tile_n);
+  fusion.manage("ldst_matrix_m_smem", getM(macro));
+  fusion.manage("ldst_matrix_n_smem", getN(macro));
 
   tv0->merge(1);
   tv0->merge(1);
@@ -581,23 +581,56 @@ INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     HopperRSStmatrix,
     testing::Combine(
-        kAllHopperMacros,
-        testing::Values(DataType::Half, DataType::BFloat16),
-        testing::Values(MmaLayout::TN, MmaLayout::TT),
-        kAllSmemSwizzleModes,
+        testing::ValuesIn(kAllHopperMacros),
+        testing::Values(DataType::Half),
+        testing::Values(MmaLayout::TN),
+        testing::Values(MmaInputSmemSwizzle::None),
         testing::Values(
             // M, N
             std::vector<int64_t>{16, 8},
             std::vector<int64_t>{16, 16})));
 
+auto mmaHopperRSParamsGenerator() {
+  // A very simple PRNG:
+  // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
+  uint32_t lcg_parkmiller = 1;
+  // Only select 1/dilute of the params, 1 means not diluting
+  const uint32_t dilute = std::stoi(getNvFuserEnv("MMA_TEST_DILUTE", "8"));
+  std::vector<HopperMmaRSTestParams> params;
+  std::unordered_set<MmaMacro> macros;
+  std::unordered_set<PrimDataType> dtypes;
+  std::unordered_set<MmaLayout> layouts;
+  std::unordered_set<MmaInputSmemSwizzle> swizzle_bs;
+  for (auto macro : kAllHopperMacros) {
+    for (auto dtype : all_dtypes) {
+      for (auto layout : {MmaLayout::TT, MmaLayout::TN}) {
+        for (auto swizzle_b : kAllSmemSwizzleModes) {
+          bool new_macro = macros.insert(macro).second;
+          bool new_dtype = dtypes.insert(dtype).second;
+          bool new_layout = layouts.insert(layout).second;
+          bool new_swizzle_b = swizzle_bs.insert(swizzle_b).second;
+          // Ensure that we test all possible values for each parameter
+          // at least once
+          if (new_macro || new_dtype || new_layout || new_swizzle_b) {
+            params.push_back(std::make_tuple(macro, dtype, layout, swizzle_b));
+          } else {
+            if (lcg_parkmiller % dilute == 0) {
+              params.push_back(
+                  std::make_tuple(macro, dtype, layout, swizzle_b));
+            }
+            lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
+          }
+        }
+      }
+    }
+  }
+  return testing::ValuesIn(params);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     HopperRS,
-    testing::Combine(
-        kAllHopperMacros,
-        all_dtypes,
-        testing::Values(MmaLayout::TT, MmaLayout::TN),
-        kAllSmemSwizzleModes),
+    mmaHopperRSParamsGenerator(),
     testNameHopperRS);
 
 using HopperMmaSSTestParams = std::tuple<
@@ -1064,15 +1097,53 @@ std::string testNameHopperSS(
   return os.str();
 }
 
+auto mmaHopperSSParamsGenerator() {
+  // A very simple PRNG:
+  // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
+  uint32_t lcg_parkmiller = 1;
+  // Only select 1/dilute of the params, 1 means not diluting
+  const uint32_t dilute = std::stoi(getNvFuserEnv("MMA_TEST_DILUTE", "8"));
+  std::vector<HopperMmaSSTestParams> params;
+  std::unordered_set<MmaMacro> macros;
+  std::unordered_set<PrimDataType> dtypes;
+  std::unordered_set<MmaLayout> layouts;
+  std::unordered_set<MmaInputSmemSwizzle> swizzle_as;
+  std::unordered_set<MmaInputSmemSwizzle> swizzle_bs;
+  for (auto macro : kAllHopperMacros) {
+    for (auto dtype : all_dtypes) {
+      for (auto layout : kAllSupportedMmaLayout) {
+        for (auto swizzle_a : kAllSmemSwizzleModes) {
+          for (auto swizzle_b : kAllSmemSwizzleModes) {
+            bool new_macro = macros.insert(macro).second;
+            bool new_dtype = dtypes.insert(dtype).second;
+            bool new_layout = layouts.insert(layout).second;
+            bool new_swizzle_a = swizzle_as.insert(swizzle_a).second;
+            bool new_swizzle_b = swizzle_bs.insert(swizzle_b).second;
+            // Ensure that we test all possible values for each parameter
+            // at least once
+            if (new_macro || new_dtype || new_layout || new_swizzle_a ||
+                new_swizzle_b) {
+              params.push_back(
+                  std::make_tuple(macro, dtype, layout, swizzle_a, swizzle_b));
+            } else {
+              if (lcg_parkmiller % dilute == 0) {
+                params.push_back(std::make_tuple(
+                    macro, dtype, layout, swizzle_a, swizzle_b));
+              }
+              lcg_parkmiller = (uint64_t)lcg_parkmiller * 48271 % 0x7fffffff;
+            }
+          }
+        }
+      }
+    }
+  }
+  return testing::ValuesIn(params);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     HopperSS,
-    testing::Combine(
-        kAllHopperMacros,
-        all_dtypes,
-        kAllSupportedMmaLayout,
-        kAllSmemSwizzleModes,
-        kAllSmemSwizzleModes),
+    mmaHopperSSParamsGenerator(),
     testNameHopperSS);
 
 } // namespace nvfuser

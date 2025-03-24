@@ -28,10 +28,7 @@ NVF_API TensorView* indexSelect(
     TensorView* index);
 
 // torch.gather
-NVF_API TensorView* torchGather(
-    TensorView* input,
-    int64_t dim,
-    TensorView* index);
+NVF_API TensorView* gather(TensorView* input, int64_t dim, TensorView* index);
 
 // torch.scatter
 TensorView* scatterOp(

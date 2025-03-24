@@ -10,6 +10,7 @@
 
 #include <alias_analysis.h>
 #include <dispatch.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
@@ -289,11 +290,10 @@ void AliasFinder::handle(const SliceOp* slice) {
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_logical;
   {
     const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
-    const auto out_rank = out_root.size();
-    NVF_ERROR(out_logical.size() == out_rank);
-    out_root_to_logical.reserve(out_rank);
-    for (auto i : c10::irange(out_rank)) {
-      out_root_to_logical[out_root[i]] = out_logical[i];
+    NVF_ERROR_EQ(out_root.size(), out_logical.size());
+    out_root_to_logical.reserve(out_root.size());
+    for (auto&& [root_id, logical_id] : zip(out_root, out_logical)) {
+      out_root_to_logical[root_id] = logical_id;
     }
   }
 
@@ -445,7 +445,7 @@ void AliasAnalysisResult::finalize(
     // as an alias op, since we will have a set operation on it.
     if (alias->fusion()->getOutputAlias(alias).type ==
         AllocationType::ReuseBuffer) {
-      return;
+      continue;
     }
 
     // Walks up the `alias_to_source_` chain.

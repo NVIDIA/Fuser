@@ -815,6 +815,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Half", DataType::Half)
       .value("Int", DataType::Int)
       .value("Int32", DataType::Int32)
+      .value("UInt64", DataType::UInt64)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
       .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
@@ -837,7 +838,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("tma", ParallelType::Bulk)
       .value("unroll", ParallelType::Unroll)
       .value("unswitch", ParallelType::Unswitch)
-      .value("vectorize", ParallelType::Vectorize);
+      .value("vectorize", ParallelType::Vectorize)
+      .value("stream", ParallelType::Stream);
 
   //! LoadStoreOpType used for scheduling
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
@@ -1083,9 +1085,10 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<std::optional<size_t>, size_t>(),
+          py::init<std::optional<size_t>, size_t, bool>(),
           py::arg("id") = py::none(),
-          py::arg("max_length") = int(1024))
+          py::arg("max_length") = int(1024),
+          py::arg("use_multidevice_executor") = false)
       .def_readwrite("ops", &FusionDefinition::ops)
       .def_readwrite("sched", &FusionDefinition::sched)
       .def(
@@ -3135,7 +3138,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
-        fd->defineRecord(new TorchGatherOpRecord(
+        fd->defineRecord(new GatherOpRecord(
             {
                 fd->recordingState(arg1()),
                 fd->recordingState(index()),
@@ -3621,7 +3624,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         size_t ndims = query.dims;
         Tensor output = fd->defineTensor(/*dims=*/ndims);
         Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
-        Tensor philox_seed = fd->defineTensor(/*dims=*/0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+        int64_t philox_ndims = 1;
+#else
+        int64_t philox_ndims = 0;
+#endif
+        Tensor philox_seed = fd->defineTensor(philox_ndims);
         Tensor philox_offset = fd->defineTensor(/*dims=*/0);
 
         auto dropout_p_state = dropout_p.has_value()

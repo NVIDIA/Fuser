@@ -707,14 +707,17 @@ namespace {
 // the scheduling.
 class PersistentBufferProjector {
  public:
-  PersistentBufferProjector(Fusion* fusion, const bool project_to_inputs)
+  PersistentBufferProjector(
+      Fusion* fusion,
+      scheduler_utils::PersistentBufferInfo persistent_info,
+      const bool project_to_inputs)
       : fusion_(fusion),
-        persistent_info(scheduler_utils::persistentBuffers(fusion)),
-        persistent_buffers(persistent_info.persistent_buffers),
+        persistent_info_(std::move(persistent_info)),
+        persistent_buffers(persistent_info_.persistent_buffers),
         persistent_buffer_resolution_points(
-            persistent_info.persistent_buffer_resolution_points),
+            persistent_info_.persistent_buffer_resolution_points),
         projectable_persistent_buffers(
-            persistent_info.projectable_persistent_buffers),
+            persistent_info_.projectable_persistent_buffers),
         project_to_inputs_(project_to_inputs) {}
 
   const std::vector<TensorView*>& project() {
@@ -728,7 +731,7 @@ class PersistentBufferProjector {
 
  private:
   Fusion* fusion_;
-  const scheduler_utils::PersistentBufferInfo persistent_info;
+  const scheduler_utils::PersistentBufferInfo persistent_info_;
   const std::vector<TensorView*>& persistent_buffers;
   const std::vector<std::vector<TensorView*>>&
       persistent_buffer_resolution_points;
@@ -798,7 +801,9 @@ class PersistentBufferProjector {
               persistent_buffers[a], persistent_buffers[b]);
         });
 
-    // try to project buffer to its producers
+    // try to project buffer to its producers when
+    // (1) all producers are persistent buffers
+    // (2) or, the buffer is the input to an upcast op
     std::unordered_set<TensorView*> persistent_buffer_set(
         persistent_buffers.begin(), persistent_buffers.end());
     for (auto buffer_i : visiting_order) {
@@ -809,6 +814,23 @@ class PersistentBufferProjector {
         projectToInputOrImmediatePersistentProducer(
             (int)buffer_i,
             std::vector<Val*>(producers.begin(), producers.end()));
+      } else if (
+          auto upcast_input = scheduler_utils::getUpCastInputOf(buffer)) {
+        // Similar to projecting to inputs and persistent producers, this logic
+        // projects the buffer to its producer when the buffer is the output of
+        // an upcast op. This optimization reduces buffer size and can be
+        // extended to project to low-precision intermediate tensors, even if
+        // the recomputation involves non-cast ops. However, this should be
+        // avoided when the recomputation cost outweighs the benefits of reduced
+        // register usage.
+        // TODO: extend to allow non-cast ops in the recomputation.
+        auto consumers = ir_utils::consumerTvsOf(buffer);
+        for (auto i : c10::irange(1, consumers.size())) {
+          ir_utils::replaceValInExprInputs(
+              consumers.at(i)->definition(),
+              buffer,
+              RecomputeTv::recompute(buffer, {upcast_input}));
+        }
       }
     }
   }
@@ -909,8 +931,10 @@ class PersistentBufferProjector {
 } // namespace
 std::vector<TensorView*> projectPersistentBuffers(
     Fusion* fusion,
+    const scheduler_utils::PersistentBufferInfo& persistent_info,
     const bool project_to_inputs) {
-  PersistentBufferProjector pb_projector(fusion, project_to_inputs);
+  PersistentBufferProjector pb_projector(
+      fusion, persistent_info, project_to_inputs);
   return pb_projector.project();
 }
 
