@@ -10,6 +10,8 @@
 // segmented graphs
 #include <gtest/gtest.h>
 
+#include <c10/util/env.h>
+
 #include <fusion.h>
 #include <fusion_guard.h>
 #include <global_allocator.h>
@@ -24,7 +26,7 @@ using RuntimeTest = NVFuserTest;
 TEST_F(RuntimeTest, ClearGmemBetweenSegments) {
   at::cuda::clearCublasWorkspaces();
   releaseZeroedMemory();
-  ASSERT_EQ(memoryAllocated(0), 0) << "Memory leak detected";
+  ASSERT_EQ(memoryAllocated(0), 0) << "Previous tests leaked memory.";
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -53,6 +55,13 @@ TEST_F(RuntimeTest, ClearGmemBetweenSegments) {
   EXPECT_EQ(runtime->fusionSegments()->groups().size(), 3)
       << "segmentation didn't happen as expected";
   testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
+
+  if (c10::utils::check_env("PYTORCH_NO_CUDA_MEMORY_CACHING") == true) {
+    GTEST_SKIP() << "Skipped because PYTORCH_NO_CUDA_MEMORY_CACHING is on. "
+                    "This usually happens when running with compute-sanitizer. "
+                    "maxMemoryAllocated can only collect peak memory "
+                    "from a caching allocator.";
+  }
 
   EXPECT_EQ(
       max_memory_allocated,
