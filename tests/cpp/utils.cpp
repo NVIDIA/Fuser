@@ -938,6 +938,19 @@ void resetPeakMemoryStats(const c10::DeviceIndex device) {
   allocator->resetPeakStats(device);
 }
 
+namespace {
+// Stats like allocated_bytes comes as a size-3 array (cf.
+// https://github.com/pytorch/pytorch/blob/feb503c1df78afd46962ed04e446d6e88ac0522d/c10/core/Allocator.h#L365-L370).
+// The 0-th element is an aggregation of both the small pool and the large.
+constexpr auto kAggregateStatsIndex = static_cast<uint64_t>(
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+    c10::CachingAllocator::StatType::AGGREGATE
+#else
+    c10::CachingDeviceAllocator::StatType::AGGREGATE
+#endif
+);
+} // namespace
+
 int64_t maxMemoryAllocated(const c10::DeviceIndex device) {
   c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
       c10::cuda::CUDACachingAllocator::get();
@@ -946,9 +959,7 @@ int64_t maxMemoryAllocated(const c10::DeviceIndex device) {
   c10::CachingDeviceAllocator::DeviceStats device_stats =
       allocator->getDeviceStats(device);
 
-  return device_stats.allocated_bytes
-      .at(static_cast<uint64_t>(c10::CachingAllocator::StatType::AGGREGATE))
-      .peak;
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).peak;
 }
 
 int64_t memoryAllocated(const c10::DeviceIndex device) {
@@ -959,9 +970,7 @@ int64_t memoryAllocated(const c10::DeviceIndex device) {
   c10::CachingDeviceAllocator::DeviceStats device_stats =
       allocator->getDeviceStats(device);
 
-  return device_stats.allocated_bytes
-      .at(static_cast<uint64_t>(c10::CachingAllocator::StatType::AGGREGATE))
-      .current;
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).current;
 }
 
 } // namespace nvfuser
