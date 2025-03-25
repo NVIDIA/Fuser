@@ -417,7 +417,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
           if (std::getenv("NEW_CMP_WGROUPS")) {
             std::stringstream ss;
-            ss << bdimx << " * " << bdimy << " * " << bdimz << " * "
+            ss << 128 << " * "
                << kernel_summary.num_grouped_iterations;
             if(std::getenv("REDUCTION_SMEM_SIZE")) {
               int64_t warp_reduction_factor = 1;
@@ -3769,7 +3769,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(sync_idx)
         .append("]");
     sync_call_args.arg(sync_segment_size);
-    sync_call_args.arg(genComputeBlockDim());
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
+      sync_call_args.arg("dim3(128, 1, 1)");
+    } else {
+      sync_call_args.arg(genComputeBlockDim());
+    }    
     auto sync_call =
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);
 
