@@ -142,6 +142,19 @@ Direct Fusion Definition
    - ``ops``: Contains the operators for defining fusion operations
    - ``sched``: Contains the scheduling operators for optimizing the fusion
 
+Abstract Tensor
+--------------
+
+.. autoclass:: nvfuser.direct._DirectFusionDefinition.ScheduleOperators.AbstractTensor
+   :members:
+   :undoc-members:
+
+   AbstractTensor represents an abstract tensor in the nvFuser IR. It provides methods for:
+
+   - Accessing tensor properties (domain, axes, etc.)
+   - Performing operations on tensors
+   - Managing tensor memory and scheduling
+
 Data Types
 ---------
 

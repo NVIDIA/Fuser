@@ -841,28 +841,6 @@ self : AbstractTensor
           py::arg("parallel_type"))
       .def(
           "split",
-          py::overload_cast<int64_t, Val*, bool>(&AbstractTensor::split),
-          R"(
-Split a dimension into two dimensions.
-
-Parameters
-----------
-axis : int
-    The dimension to split
-factor : Val
-    The splitting factor
-inner_split : bool, optional
-    If True, the factor determines the size of the inner dimension (default: True)
-
-Returns
--------
-self : AbstractTensor
-    Returns self for method chaining.)",
-          py::arg("axis"),
-          py::arg("factor"),
-          py::arg("inner_split") = true)
-      .def(
-          "split",
           py::overload_cast<int64_t, int64_t, bool>(&AbstractTensor::split),
           R"(
 Split a dimension into two dimensions using an integer factor.
@@ -883,25 +861,6 @@ self : AbstractTensor
           py::arg("axis"),
           py::arg("factor"),
           py::arg("inner_split") = true)
-      .def(
-          "merge",
-          py::overload_cast<int64_t, int64_t>(&AbstractTensor::merge),
-          R"(
-Merge two dimensions into one.
-
-Parameters
-----------
-outer : int
-    The outer dimension to merge
-inner : int
-    The inner dimension to merge
-
-Returns
--------
-self : AbstractTensor
-    Returns self for method chaining.)",
-          py::arg("outer"),
-          py::arg("inner"))
       .def(
           "merge",
           py::overload_cast<int64_t>(&AbstractTensor::merge),
