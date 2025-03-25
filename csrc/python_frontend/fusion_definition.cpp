@@ -53,6 +53,8 @@ const char* dtypeToPyString(PrimDataType t) {
       return "DataType.ComplexDouble";
     case DataType::Null:
       return "DataType.Null";
+    case DataType::UInt64:
+      return "DataType.UInt64";
     default:
       break;
   }
@@ -353,17 +355,15 @@ namespace {
 // the outputs have a device mesh, returns an empty vector indicating single-GPU
 // execution.
 std::vector<Sharding> getOutputShardings(Fusion* fusion) {
-  std::vector<Sharding> output_shardings;
+  std::vector<TensorView*> all_tvs = fusion->allTvs();
   if (std::none_of(
-          fusion->outputs().begin(), fusion->outputs().end(), [](Val* v) {
-            if (auto* tv = dynamic_cast<TensorView*>(v)) {
-              return tv->hasDeviceMesh();
-            }
-            return false;
-          })) {
-    return output_shardings;
+          all_tvs.begin(),
+          all_tvs.end(),
+          std::mem_fn(&TensorView::hasDeviceMesh))) {
+    return {};
   }
 
+  std::vector<Sharding> output_shardings;
   output_shardings.reserve(fusion->outputs().size());
   for (Val* out_val : fusion->outputs()) {
     if (auto* out_tv = dynamic_cast<TensorView*>(out_val)) {

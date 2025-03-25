@@ -815,6 +815,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Half", DataType::Half)
       .value("Int", DataType::Int)
       .value("Int32", DataType::Int32)
+      .value("UInt64", DataType::UInt64)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
       .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
@@ -3137,7 +3138,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
-        fd->defineRecord(new TorchGatherOpRecord(
+        fd->defineRecord(new GatherOpRecord(
             {
                 fd->recordingState(arg1()),
                 fd->recordingState(index()),
@@ -3623,7 +3624,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         size_t ndims = query.dims;
         Tensor output = fd->defineTensor(/*dims=*/ndims);
         Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
-        Tensor philox_seed = fd->defineTensor(/*dims=*/0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+        int64_t philox_ndims = 1;
+#else
+        int64_t philox_ndims = 0;
+#endif
+        Tensor philox_seed = fd->defineTensor(philox_ndims);
         Tensor philox_offset = fd->defineTensor(/*dims=*/0);
 
         auto dropout_p_state = dropout_p.has_value()

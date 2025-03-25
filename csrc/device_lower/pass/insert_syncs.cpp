@@ -304,8 +304,7 @@ class WarSyncInserter : private kir::ExprMutator {
   WarMemoryInfo& getMemInfo(TensorView* tv) {
     auto maybe_aliased_tv = alloc_map_.getRealBuffer(tv);
     auto alloc_it = smem_allocations_.find(maybe_aliased_tv);
-    auto ca_loop =
-        lower_utils::getAllocInformation(tv, for_loops_).init_for_loop;
+    auto ca_loop = lower_utils::getAllocPosInfo(tv, for_loops_).init_for_loop;
     if (alloc_it == smem_allocations_.end()) {
       WarMemoryInfo mem_info;
       mem_info.ca_loop = ca_loop;
@@ -634,6 +633,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse* ite) final {
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::ExprMutator::handle(ite);
   }
 

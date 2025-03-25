@@ -62,9 +62,8 @@ std::pair<TensorView*, int64_t> getLargestTensor(
 } // namespace
 
 bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
-  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
-    scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(), "Not enabled");
+  if (isOptionDisabled(DisableOption::ResizeScheduler)) {
+    scheduler_debug_utils::canScheduleRejectReason(schedulerType(), "Disabled");
     return false;
   }
 
@@ -100,7 +99,7 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& broadcast_graph = id_model.buildBroadcastGraph();
 
-  auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+  auto resize_tensor_ops = scheduler_tools::getResizeBasedOps(fusion);
 
   // Slicing of or to a broadcast ID is not allowed yet.
   for (auto resize_tensor_op : resize_tensor_ops) {
@@ -472,9 +471,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   if (vec_factor > 1) {
-    auto vec_ref_tv = largest_input != nullptr ? largest_input : ref_tv;
     const auto tvs_to_vectorize =
-        scheduler_utils::getInputsOutputsWithInnerDim(vec_ref_tv, true, true);
+        scheduler_utils::getInputsOutputsWithInnerDim(ref_tv, true, true);
     for (auto tv_to_vectorize : tvs_to_vectorize) {
       if (tv_to_vectorize->isFusionInput()) {
         for (auto consumer_tv : ir_utils::consumerTvsOf(tv_to_vectorize)) {
