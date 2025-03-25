@@ -3247,7 +3247,11 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(NBatch);
 
     ArgumentBuilder func_args;
-    func_args.arg("T57.array");
+    if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
+      func_args.arg("T57.array");
+    } else {
+      func_args.arg("T59.array");
+    }
     func_args.arg("static_cast<float*>(shared_mem)");
 
     indent() << genCall("twoWarpGroupsReduction", template_args, func_args) << ";\n";
