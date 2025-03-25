@@ -646,7 +646,8 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
     codegen_internal
     ${ADDITIONAL_LINK}
     dynamic_type
-    GTest::gtest GTest::gmock
+    GTest::gtest
+    GTest::gmock
     flatbuffers
     ${TORCH_LIBRARIES}
   )
