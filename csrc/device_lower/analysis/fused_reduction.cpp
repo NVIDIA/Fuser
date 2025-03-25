@@ -68,9 +68,12 @@ class FusionInspector : private IterVisitor {
     // this reduction.
     // Only consider when out is on register as that is assumed in the
     // fused reduction kernel.
+    bool fuse_bcast = std::getenv("FUSE_BCAST") && 
+        std::atoi(std::getenv("FUSE_BCAST")) != 0;
     auto out = ir_utils::getTvOutput(rop);
-    if (out->getMemoryType() == MemoryType::Local &&
-        out->domain()->hasGridReduction()) {
+    if (fuse_bcast || (out->getMemoryType() == MemoryType::Local &&
+        out->domain()->hasGridReduction())) {
+      std::cout << "Try to fuse bcast with grouped reduction out: " << out->toString() << std::endl;
       reduction_dep_[out].insert(rop);
     }
   }

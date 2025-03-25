@@ -1397,6 +1397,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       BinaryOpType reduction_op_type,
       kir::Predicate* read_pred,
       std::pair<IterDomain*, IterDomain*> reduction_dims) {
+
+    if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
+      ArgumentBuilder template_args;
+      ArgumentBuilder func_args;
+      func_args.arg(gen(output));
+      func_args.arg(gen(input));
+      func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+      func_args.arg(genBarrierId());
+      indent() << genCall("warp::staticFusedSingleWarpGroupReduce", template_args, func_args)
+               << ";\n";   
+      return;   
+    }
+
+
     ArgumentBuilder func_args;
     func_args.arg(gen(output));
     func_args.arg(gen(input));
@@ -3223,6 +3239,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         " which is handled by its own handler");
   }
 
+
+  void genTwoWarpGroupsReduction(int NBatch) {
+    bool is_aligned = false;
+    ArgumentBuilder template_args;
+    template_args.arg(is_aligned);
+    template_args.arg(NBatch);
+
+    ArgumentBuilder func_args;
+    func_args.arg("T57.array");
+    func_args.arg("static_cast<float*>(shared_mem)");
+
+    indent() << genCall("twoWarpGroupsReduction", template_args, func_args) << ";\n";
+  }
+
   void handle(const ForLoop* loop) final {
     if (loop->isTrivial()) {
       handleTrivialLoop(loop);
@@ -3278,10 +3308,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     endBlock();
 
         // WAR final outer reduction bug in RMS Norm BWd
-    if(mbarrier_invalidate_count_ == 2 && std::getenv("CMP_WGROUPS") != nullptr){
+    if(mbarrier_invalidate_count_ == 2 && std::getenv("NEW_CMP_WGROUPS")){
       mbarrier_invalidate_count_ = 0;
+      indent() << "/////////////////////////////////////////////////////////////////////////////////\n";
       indent() << "// WAR final outer reduction bug when using two math warp groups in RMS Norm BWd\n";
-      indent() << "if(threadIdx.x >= 128){return;}\n\n";
+      int n_batch = std::atoi(std::getenv("PERSISTENT_BATCH"));
+      genTwoWarpGroupsReduction(n_batch);
+      indent() << "if(WgGIDx == 1){return;}\n";
+      indent() << "/////////////////////////////////////////////////////////////////////////////////\n";
     }
   }
 

@@ -395,3 +395,38 @@ __device__ void blockIterGroupedYdimReduce(
       init_val,
       block_dim);
 }
+
+// Assume cta shape is (128, 2, 1)
+template <
+    bool Aligned,
+    int NBatch, // Number of elements per input array
+    typename T>
+    __device__ void twoWarpGroupsReduction(
+  T* in_place_redu,
+  T* smem_redu){
+  block_sync::sync<false>(dim3(128, 2, 1), 15);
+  #pragma unroll
+  for(int i = 0; i < NBatch; ++i) {
+    // write to smem
+    if(threadIdx.y == 1) {
+      #pragma unroll
+      for(int j = 0; j < 2; ++j) {
+        loadGeneric<float, 4>(smem_redu + j*512 + threadIdx.x * 4 , in_place_redu + i*8 + j*4);
+      }
+    }
+    block_sync::sync<false>(dim3(128, 2, 1), 14);
+    // load from smem & sum
+    if(threadIdx.y == 0) {
+      #pragma unroll
+      for(int j = 0; j < 2; ++j) {
+        __align__(16) float T577[4];
+        loadGeneric<float, 4>(T577, smem_redu + j * 512 + threadIdx.x * 4);
+        #pragma unroll
+        for(int k = 0; k < 4; ++k){
+          in_place_redu[i*8 + j*4 + k] += T577[k];
+        }
+      }
+    }
+    block_sync::sync<false>(dim3(128, 2, 1), 13);
+  }
+}

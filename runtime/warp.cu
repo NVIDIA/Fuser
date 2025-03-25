@@ -310,6 +310,40 @@ __device__ void warpReduceTIDX(
   }
 }
 
+template <
+    typename T,
+    typename Func>
+__device__ void staticFusedSingleWarpGroupReduce(
+    T& out,
+    const T& inp_val,
+    Func reduction_op,
+    T* shared_mem,
+    uint32_t barrier_id = 1) {
+  // Reduce within each warp
+  constexpr int WARP_SIZE = 32;
+  T reduce_val = inp_val;
+  for (int i = 16; i >= 1; i /= 2) {
+    reduction_op(reduce_val, shfl_xor(reduce_val, i, WARP_SIZE));
+  }
+  // cross warp reduction using shared memory
+  constexpr int num_of_warps = 4;
+  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+  unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+  if (lane_idx == 0) {
+    shared_mem[warp_idx] = reduce_val;
+  }
+  block_sync::sync<false>(dim3(128,1,1), barrier_id);
+
+  out = shared_mem[0];
+  #pragma unroll
+  for (int i = 1; i < num_of_warps; i++) {
+    out += shared_mem[i];
+  }
+  // needs sync, otherwise other warps may access shared memory before this
+  // reduction is done.
+  block_sync::sync<false>(dim3(128,1,1), barrier_id);
+}
+
 
 template <
     int BDIMX,
