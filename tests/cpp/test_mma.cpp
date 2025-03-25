@@ -1244,6 +1244,7 @@ TEST_P(Blackwell1CTAM128SS, SingleTile) {
     tv2->setTMemDimSepPos(1);
   }
   {
+    tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
     for (auto tv : {tv3, tv4}) {
       tv->axis(0)->parallelize(ParallelType::TIDx);
     }

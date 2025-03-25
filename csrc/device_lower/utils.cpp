@@ -956,7 +956,6 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   if (isAmpere(expr->macro()) || isTuring(expr->macro())) {
     return {UnitDim::K, UnitDim::K};
   }
-  NVF_ERROR(isHopper(expr->macro()));
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   std::array<UnitDim, 2> layout;
