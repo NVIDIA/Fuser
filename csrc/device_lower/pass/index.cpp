@@ -2619,9 +2619,9 @@ void IndexLowering::handle(const MmaOp* mma) {
   if (mma->out()->as<TensorView>()->getMemoryType() == MemoryType::Tensor) {
     Val* index = IrBuilder::create<Val>(
         std::vector<int64_t>{0, 0},
-        ArrayType(std::make_shared<DataType>(DataType::UInt16), 2),
-        DataType::TMemAddress);
-    out = IrBuilder::create<kir::TensorIndex>(mma->out(), index);
+        ArrayType(std::make_shared<DataType>(DataType::UInt16), 2));
+    out = IrBuilder::create<kir::TensorIndex>(
+        mma->out(), index, DataType::TMemAddress);
   } else {
     out = lowerDstIndex(
         mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
