@@ -6,8 +6,6 @@
 import torch
 from nvfuser import (
     direct,
-    MemoryType,
-    ParallelType,
     SchedulerType,
     DirectFusionDefinition,
     DataType,
