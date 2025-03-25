@@ -1306,7 +1306,7 @@ Val* extent(const Composition<Projection>& comp) {
   return std::accumulate(
       comp.begin(),
       comp.end(),
-      static_cast<Val*>(nullptr),
+      FusionGuard::getCurFusion()->oneVal(),
       [](Val* acc, const auto& g) {
         return SimplifyingIrBuilder::mulExpr(acc, extent(g));
       });
@@ -1491,8 +1491,6 @@ Projection propagate(
     const ExprGroup& eg,
     Direction direction) {
   // Just recursively propagate subtree.
-  auto from = fromGroups(id_graph, eg, direction);
-  auto to = toGroups(id_graph, eg, direction);
   auto propagated = propagate(*part.what, id_graph, eg, direction);
   if (!propagated.hasValue()) {
     return {};
@@ -1626,6 +1624,9 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Composition<Projection>& comp,
     const ValGroups& domain) {
+  if (comp.empty()) {
+    return FusionGuard::getCurFusion()->zeroVal();
+  }
   auto it = search(domain, comp);
   if (it == domain.end()) {
     return nullptr;
@@ -1725,7 +1726,6 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   if (new_inner_extent->isOne()) {
     new_inner_extent = nullptr;
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
@@ -1814,7 +1814,6 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
   while (count < (int64_t)dq.size()) {
     dq.pop_front();
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
