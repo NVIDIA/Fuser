@@ -979,6 +979,56 @@ bool
           py::arg("other"));
 }
 
+void bindLdStMatrix(
+    py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
+  sched.def(
+      "ldst_matrix",
+      [](DirectFusionDefinition::ScheduleOperators& self,
+         TensorView* tv,
+         const LoadStoreOpType& op_type,
+         int64_t m_tile,
+         int64_t n_tile,
+         int64_t m_smem,
+         int64_t n_smem) {
+        tv->fusion()->manage("ldst_matrix_m_tile", m_tile);
+        tv->fusion()->manage("ldst_matrix_n_tile", n_tile);
+        tv->fusion()->manage("ldst_matrix_m_smem", m_smem);
+        tv->fusion()->manage("ldst_matrix_n_smem", n_smem);
+        TensorView* result = tv->cacheAfter();
+        result->definition()->as<LoadStoreOp>()->setOpType(op_type);
+        return result;
+      },
+      R"(
+        Apply LDMatrix to the given TensorView.
+
+        Parameters
+        ----------
+        tv : TensorView
+            The TensorView to apply LDMatrix to.
+        op_type : LoadStoreOpType
+            Select LoadStoreOpType.load_matrix or LoadStoreOpType.store_matrix.
+        m_tile : int
+            The size of the tile in the M dimension.
+        n_tile : int
+            The size of the tile in the N dimension.
+        m_smem : int
+            The size of the SMEM in the M dimension.
+        n_smem : int
+            The size of the SMEM in the N dimension.
+
+        Returns
+        -------
+        TensorView
+            The TensorView with LDMatrix applied.
+      )",
+      py::arg("tv"),
+      py::arg("op_type"),
+      py::arg("m_tile"),
+      py::arg("n_tile"),
+      py::arg("m_smem"),
+      py::arg("n_smem"));
+}
+
 } // namespace
 
 void bindDirectScheduleOperators(
@@ -995,6 +1045,7 @@ void bindDirectScheduleOperators(
   bindFusionScheduleOps(nvf_sched);
   bindCircularBuffering(nvf_sched);
   bindAbstractTensor(nvf_sched);
+  bindLdStMatrix(nvf_sched);
 }
 
 } // namespace nvfuser::python_frontend
