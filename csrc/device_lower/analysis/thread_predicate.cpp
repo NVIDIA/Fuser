@@ -778,6 +778,12 @@ ThreadPredicateMap::PredicateInfo ThreadPredicateMap::getPredicateInfo(
     auto parallel_bcast = getParallelBroadcastDomains(tv);
     pred_info.limited_types ^= parallel_bcast;
   }
+  // skip TIDy
+  if(std::getenv("NEW_CMP_WGROUPS") && tv->isFusionOutput()) {
+    std::cout << "pred_info.redundant_types0 " << pred_info.redundant_types.toString() << std::endl;
+    pred_info.redundant_types.clear(ParallelType::TIDy);
+    std::cout << "pred_info.redundant_types1 " << pred_info.redundant_types.toString() << std::endl;
+  }
   return pred_info;
 }
 
