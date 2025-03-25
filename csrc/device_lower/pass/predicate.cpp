@@ -71,7 +71,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
                 conditional,
                 GpuLower::current()->threadPredMap().getPredicate(
                     ir_utils::getTvOutput(vec_expr)));
-            std::cout << "Vectorize kir::IfThenElse Conditional: " << conditional->toInlineString() << std::endl;
+            // std::cout << "Vectorize kir::IfThenElse Conditional: " << conditional->toInlineString() << std::endl;
           }
         } else {
           NVF_ERROR(lower_utils::supportInlinePredicate(expr));

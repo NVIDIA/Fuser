@@ -759,7 +759,8 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
       // padding 128 threads each thread can use less than 256 registers, then
       // we can use register sharing.
       if (std::getenv("TMAREG") && std::getenv("CMPREG") &&
-          (iop.threads_per_block > 256 - 128 || std::getenv("NEW_CMP_WGROUPS"))) {
+          (iop.threads_per_block > 256 - 128 ||
+           std::getenv("NEW_CMP_WGROUPS"))) {
         int64_t tma_reg = 32L;
         int64_t cmp_reg = 120L;
         tma_reg = std::atoi(std::getenv("TMAREG"));
@@ -1217,8 +1218,16 @@ void scheduleInnerOuterPersistentKernel(
       if (std::find(tma_load_tvs.begin(), tma_load_tvs.end(), smem_tv) ==
           tma_load_tvs.end()) {
         std::cout << "smem_tv: " << smem_tv->toString() << std::endl;
-        tma_load_tvs.emplace_back(smem_tv);
-        boundaryNodesSet.insert(smem_tv);
+        if (std::getenv("OUTER_BCAST_TV_REGS") &&
+            std::atoi(std::getenv("OUTER_BCAST_TV_REGS")) != 0) {
+          tma_load_tvs.emplace_back(smem_tv);
+          boundaryNodesSet.insert(smem_tv);
+        } else {
+          if (smem_tv->nDims() > 1) {
+            tma_load_tvs.emplace_back(smem_tv);
+            boundaryNodesSet.insert(smem_tv);
+          }
+        }
       }
     }
     // tma tvs are excluded in transform propagation, to add a valid path from
@@ -1436,7 +1445,10 @@ void scheduleInnerOuterPersistentKernel(
       std::vector<TensorView*> all_tvs_except_special = ir_utils::allTvsExcept(
           fusion, {smem_consumers.begin(), smem_consumers.end()});
       for (auto tv : smem_consumers) {
-        tv_inline_pos_map.emplace(tv, 2);
+        // WAR for OUTER_BCAST_TV_REGS
+        if(tv->nDims() > 3) {
+          tv_inline_pos_map.emplace(tv, 2);
+        }
       }
     }
     // WAR wrong compute at position
@@ -1486,7 +1498,8 @@ void scheduleInnerOuterPersistentKernel(
     // special inline & inline most
     std::unordered_set<TensorView*> exclude_tvs;
     for (auto [k, v] : tv_inline_pos_map) {
-      std::cout << "inlineSelectedAt : " << k->toString() << ", pos= " << v << std::endl;
+      std::cout << "inlineSelectedAt : " << k->toString() << ", pos= " << v
+                << std::endl;
       exclude_tvs.insert(k);
       inlineSelectedAt({k}, k, v);
     }

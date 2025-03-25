@@ -1320,6 +1320,7 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       is_cached_input = true;
     }
     if (use_smem) {
+      bool is_tma_loaded = false;
       tv->setMemoryType(MemoryType::Shared);
       // When loading from global memory (gmem), use CpAsync with a short data
       // path of gmem -> smem to reduce temporary register usage. Otherwise, the
@@ -1327,9 +1328,10 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // -> L1 cache -> register -> smem.
       if (is_cached_input) {
         if (rparams->use_tma_load && tv->nDims() > 1) {
+          is_tma_loaded = true;
           tv->definition()->as<LoadStoreOp>()->setOpType(
               LoadStoreOpType::CpAsyncBulk);
-        } else if (supportCpAsync(tv)) {
+        } else if (supportCpAsync(tv) && false) {
           tv->definition()->as<LoadStoreOp>()->setOpType(
               LoadStoreOpType::CpAsync);
           tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
@@ -1350,20 +1352,20 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // uses must be privatized.
       const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
+      if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0 && is_tma_loaded) {
         std::cout << "== SMEM2REG,still needs reg persistent ==" << std::endl;
-      } else {
-        for (auto i = 1; i < (int)consumers.size(); i++) {
-          auto consumer = consumers.at(i);
-          // recompute cached_tv for each consumer, so it is no longer
-          // persistent similar to project to inputs, here we are projecting to
-          // the shared memory buffer.
-          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-          ir_utils::replaceValInExprInputs(
-              consumer->definition(), cached_tv, cached_tv_replicate);
-          smem_consumers.push_back(cached_tv_replicate);
-        }
+        continue;
       }
+      for (auto i = 1; i < (int)consumers.size(); i++) {
+        auto consumer = consumers.at(i);
+        // recompute cached_tv for each consumer, so it is no longer
+        // persistent similar to project to inputs, here we are projecting to
+        // the shared memory buffer.
+        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+        ir_utils::replaceValInExprInputs(
+            consumer->definition(), cached_tv, cached_tv_replicate);
+        smem_consumers.push_back(cached_tv_replicate);
+      }      
     }
   }
   return smem_consumers;

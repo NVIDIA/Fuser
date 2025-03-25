@@ -3247,7 +3247,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     template_args.arg(NBatch);
 
     ArgumentBuilder func_args;
-    if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0) {
+    if (std::getenv("SMEM2REG") && std::atoi(std::getenv("SMEM2REG")) != 0 && (std::getenv("OUTER_BCAST_TV_REGS") &&
+      std::atoi(std::getenv("OUTER_BCAST_TV_REGS")) != 0)) {
       func_args.arg("T57.array");
     } else {
       func_args.arg("T59.array");
