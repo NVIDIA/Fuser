@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
-#include <fusion_segmenter.h>
 #include <host_ir/lower.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -559,6 +558,30 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
 }
 
+
+bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
+  return expr->isOneOf<
+      MatmulOp,
+      SliceOp,
+      BinaryOp,
+      ReductionOp,
+      LinearOp,
+      Communication,
+      P2PCommunication>() ||
+      (isResharding(expr) && expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
+}
+
+bool HostIrLower::ShouldMergeSegmentedGroups(SegmentedGroup* group1, SegmentedGroup* group2) {
+  for (auto group : {group1, group2}) {
+      for (auto expr : group->exprs()) {
+        if (isLoweredAsStandaloneHostOp(expr)) {
+          return false;
+        }
+      }
+    }
+    return true;
+}
+
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     std::unique_ptr<Fusion> fusion,
     int64_t my_device_index) {
@@ -582,7 +605,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       .run_combine_reductions = false,
       .run_herrmann_merge = true,
       .run_final_merge = true,
-      .only_segment_resharding_exprs = true};
+      .custom_should_merge_groups = &ShouldMergeSegmentedGroups};
   std::unique_ptr<SegmentedFusion> staged_fusion =
       SegmentCandidateFinder::segment(
           std::move(fusion), KernelArgumentHolder(), options, true);
@@ -611,75 +634,27 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
       continue;
     }
-    const bool is_resharding = std::any_of(
-        group->exprs().begin(), group->exprs().end(), [](auto expr) {
-          return isResharding(expr);
-        });
-    if (is_resharding) {
+    // we decide whether to insert the Expr as a standalone op in the
+    // HostIRContainer, which will result in using ATen Op to evaluate it --
+    // or, alternatively, to wrap them into a PostOnStream(HostUnit(.)) which
+    // will result in a kernel code generation.
+    if (std::all_of(
+            group->exprs().begin(),
+            group->exprs().end(),
+            isLoweredAsStandaloneHostOp)) {
       NVF_ERROR(
           group->exprs().size() == 1,
-          "Communication segments must contain only one Expr");
-      for (auto* expr :
-           HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
-        // Allocate the recv buffers of communications
-        if (expr->isA<Communication>()) {
-          auto* communication = expr->as<Communication>();
-          TensorView* tv = communication->out();
-          if (tv->getDeviceMesh().has(my_device_index)) {
-            auto* allocate =
-                IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-            hic->pushBackTopLevelExprs(allocate);
-          }
-        }
-        hic->pushBackTopLevelExprs(expr);
-        if (expr->isA<Communication>()) {
-          auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
-          hic->pushBackTopLevelExprs(wait);
-        }
-      }
+          "Expr executed as a standalone op cannot be fused");
+      hic->pushBackTopLevelExprs(ir_cloner.clone(group->exprs().at(0)));
     } else {
-      // we decide whether to insert the Expr as a standalone op in the
-      // HostIRContainer, which will result in using ATen Op to evaluate it --
-      // or, alternatively, to wrap them into a PostOnStream(HostUnit(.)) which
-      // will result in a kernel code generation.
-      if (std::all_of(
-              group->exprs().begin(),
-              group->exprs().end(),
-              isLoweredAsStandaloneHostOp)) {
-        // we need to topologically sort the exprs inside the group. For this
-        // need to use StmtSort::getExprs(Fusion*) so we need to create a Fusion
-        // out of the segmented group, sort the expr (which are cloned from the
-        // segmented group to the newly created fusion), and infer back the
-        // order within the segmented group's expr.
-        std::vector<Expr*> sorted_exprs;
-        {
-          auto
-              [/*IrCloner*/ group_ir_cloner,
-               /*std::unique_ptr<Fusion>*/ group_fusion] =
-                  staged_fusion->makeFusion(group);
-          std::unordered_map<Expr*, Expr*> inverse_clone_map;
-          for (auto expr : group->exprs()) {
-            inverse_clone_map[group_ir_cloner.clone(expr)] = expr;
-          }
-          std::vector<Expr*> sorted_cloned_exprs =
-              StmtSort::getExprs(group_fusion.get());
-          for (auto cloned_expr : sorted_cloned_exprs) {
-            sorted_exprs.push_back(inverse_clone_map[cloned_expr]);
-          }
-        }
-
-        for (Expr* expr : sorted_exprs) {
-          hic->pushBackTopLevelExprs(ir_cloner.clone(expr));
-        }
-      } else {
-        auto host_unit = IrBuilder::create<hir::HostUnit>(
-            staged_fusion->makeFusion(group).second);
-        auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
-            host_unit, clone(group->inputs()), clone(group->outputs()));
-        hic->pushBackTopLevelExprs(post_on_stream);
-      }
+      auto host_unit = IrBuilder::create<hir::HostUnit>(
+          staged_fusion->makeFusion(group).second);
+      auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
+          host_unit, clone(group->inputs()), clone(group->outputs()));
+      hic->pushBackTopLevelExprs(post_on_stream);
     }
   }
+
   for (auto input : staged_fusion->inputs()) {
     hic->addInput(ir_cloner.clone(input));
   }
@@ -693,6 +668,33 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
 
   preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
       hic.get());
+
+  std::vector<Expr*> new_top_level_exprs;
+  for (auto top_level_expr : hic->topLevelExprs()) {
+    if (!isResharding(top_level_expr)) {
+      new_top_level_exprs.push_back(top_level_expr);
+      continue;
+    }
+    for (auto* expr :
+          HostIrLower::lower(top_level_expr)) {
+      // Allocate the recv buffers of communications
+      if (expr->isA<Communication>()) {
+        auto* communication = expr->as<Communication>();
+        TensorView* tv = communication->out();
+        if (tv->getDeviceMesh().has(my_device_index)) {
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          new_top_level_exprs.push_back(allocate);
+        }
+      }
+      new_top_level_exprs.push_back(expr);
+      if (expr->isA<Communication>()) {
+        auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
+        new_top_level_exprs.push_back(wait);
+      }
+    }
+  }
+  hic->resetTopLevelExprs(new_top_level_exprs);
 
   return hic;
 }
