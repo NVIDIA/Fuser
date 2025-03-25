@@ -102,9 +102,19 @@ $ python setup.py develop --build-with-asan
 # or if you are on the PJNL docker image, NVFUSER_BUILD_EXTRA_PYTHON_ARGS='--build-with-asan' _bn
 
 $ LD_PRELOAD=$(gcc -print-file-name=libasan.so) ASAN_OPTIONS=protect_shadow_gap=0 <CMD>
-# or LD_PRELOAD=$(clang -print-file-name=libclang_rt.asan-x86_64.so) ASAN_OPTIONS=protect_shadow_gap=0 <CMD>
 # The ASAN_OPTIONS is needed to work around https://github.com/google/sanitizers/issues/629.
 ```
+
+If you use clang, run the following instead.
+```shell
+$ ASAN_OPTIONS=protect_shadow_gap=0 <test binary e.g. bin/test_nvfuser>
+```
+for C++ tests.
+```shell
+$ LD_PRELOAD=$(clang -print-file-name=libclang_rt.asan-x86_64.so) ASAN_OPTIONS=protect_shadow_gap=0 pytest tests/python/<test_file e.g. test_python_frontend.py>
+```
+For Python tests. Clang by default uses `-static-libsan`, so C++ tests, which
+are statically linked, don't need the `LD_PRELOAD`.
 
 ## Debug memory leaks or excessive memory usage
 
