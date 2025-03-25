@@ -313,7 +313,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         mma,
         IrBuilder::create<kir::Asm>(
             "tcgen05.mma.cta_group::1.kind::f16",
-            std::vector<Val*>{mma->out()},
+            std::vector<Val*>{mma->out()->as<kir::TensorIndex>()->index()},
             std::vector<Val*>{
                 mma->inA(),
                 mma->inB(),
