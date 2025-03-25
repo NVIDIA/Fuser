@@ -4,10 +4,9 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import direct
-from direct_fusion_definition import FusionDefinition
+from nvfuser import direct, DirectFusionDefinition
 
-fd = FusionDefinition()
+fd = DirectFusionDefinition()
 tv0 = direct.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
 tv1 = direct.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
 

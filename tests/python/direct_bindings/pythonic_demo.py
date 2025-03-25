@@ -4,15 +4,14 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import direct, DataType  # noqa: F401
-from direct_fusion_definition import FusionDefinition
+from nvfuser import direct, DirectFusionDefinition, DataType  # noqa: F401
 
 inputs = [
     torch.ones(2, 4, 8, device="cuda"),
     torch.ones(2, 4, 8, device="cuda"),
 ]
 
-with FusionDefinition() as fd:
+with DirectFusionDefinition() as fd:
     tv0 = fd.from_pytorch(inputs[0])
     tv1 = fd.from_pytorch(inputs[1])
     c0 = fd.define_scalar(3.0)
@@ -31,7 +30,7 @@ exec(fd_str)
 func_name = "nvfuser_fusion"
 
 # Execute the python definition that was captured
-with FusionDefinition() as fd_cap:
+with DirectFusionDefinition() as fd_cap:
     eval(func_name)(fd_cap)
 
 fd_cap.fusion.print_math()

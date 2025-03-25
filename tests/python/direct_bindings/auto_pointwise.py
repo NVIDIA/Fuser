@@ -4,11 +4,16 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import direct, DataType  # noqa: F401
-from nvfuser import MemoryType, ParallelType, SchedulerType
-from direct_fusion_definition import FusionDefinition
+from nvfuser import (
+    direct,
+    MemoryType,
+    ParallelType,
+    SchedulerType,
+    DirectFusionDefinition,
+    DataType,
+)  # noqa: F401
 
-fd = FusionDefinition()
+fd = DirectFusionDefinition()
 tv0 = direct.TensorViewBuilder().num_dims(2).contiguity(True).build()
 tv1 = direct.TensorViewBuilder().num_dims(2).contiguity(True).build()
 
@@ -21,7 +26,7 @@ fd.add_output(tv2)
 fd_str = direct.translate_fusion(fd.fusion)
 
 
-def nvfuser_fusion(fd: FusionDefinition) -> None:
+def nvfuser_fusion(fd: DirectFusionDefinition) -> None:
     tv0 = fd.define_tensor(
         shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False
     )
@@ -46,7 +51,7 @@ print(fd.execute(inputs, auto_schedule=False))
 
 exec(fd_str)
 func_name = "nvfuser_fusion"
-with FusionDefinition() as fd_cap:
+with DirectFusionDefinition() as fd_cap:
     eval(func_name)(fd_cap)
 
 params = fd_cap.schedule.compute_heuristics(

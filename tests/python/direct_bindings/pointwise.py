@@ -4,11 +4,15 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import direct
-from nvfuser import MemoryType, ParallelType, SchedulerType
-from direct_fusion_definition import FusionDefinition
+from nvfuser import (
+    direct,
+    MemoryType,
+    ParallelType,
+    SchedulerType,
+    DirectFusionDefinition,
+)
 
-fd = FusionDefinition()
+fd = DirectFusionDefinition()
 tv0 = direct.TensorViewBuilder().num_dims(2).contiguity(True).build()
 tv1 = direct.TensorViewBuilder().num_dims(2).contiguity(True).build()
 

@@ -4,15 +4,14 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import DataType
-from direct_fusion_definition import FusionDefinition
+from nvfuser import DataType, DirectFusionDefinition
 
 inputs = [
     torch.ones(2, 4, 8, device="cuda"),
     torch.ones(2, 4, 8, device="cuda"),
 ]
 
-with FusionDefinition() as fd:
+with DirectFusionDefinition() as fd:
     tv0 = fd.define_tensor(
         shape=[-1, -1, -1],
         contiguity=[True, True, True],

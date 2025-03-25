@@ -4,64 +4,11 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import direct, DataType
+from nvfuser import direct
 import traceback
 
-_torch_dtype_to_nvfuser_dtype_map = {
-    torch.cdouble: DataType.ComplexDouble,
-    torch.cfloat: DataType.ComplexFloat,
-    torch.double: DataType.Double,
-    torch.float: DataType.Float,
-    torch.half: DataType.Half,
-    torch.bfloat16: DataType.BFloat16,
-    torch.float8_e4m3fn: DataType.Float8_e4m3fn,
-    torch.float8_e5m2: DataType.Float8_e5m2,
-    torch.long: DataType.Int,
-    torch.int: DataType.Int32,
-    torch.bool: DataType.Bool,
-    # Python scalars
-    complex: DataType.ComplexDouble,
-    float: DataType.Double,
-    int: DataType.Int,
-    bool: DataType.Bool,
-}
 
-
-def python_scalar_to_nvfuser_dtype(a):
-    """
-    Convert a Python scalar type to the corresponding nvFuser DataType.
-
-    Parameters
-    ----------
-    a : object
-        Python scalar value
-
-    Returns
-    -------
-    DataType
-        The corresponding nvFuser DataType
-    """
-    return _torch_dtype_to_nvfuser_dtype_map[type(a)]
-
-
-def torch_dtype_to_nvfuser_dtype(dtype):
-    """
-    Translate from torch.dtype to nvFuser's DataType enum.
-
-    Parameters
-    ----------
-    dtype : torch.dtype
-        PyTorch data type
-
-    Returns
-    -------
-    DataType
-        The corresponding nvFuser DataType
-    """
-    return _torch_dtype_to_nvfuser_dtype_map[dtype]
-
-
-class FusionDefinition(direct._DirectFusionDefinition):
+class DirectFusionDefinition(direct._DirectFusionDefinition):
     """
     A class for defining and executing fused operations in nvFuser.
 
@@ -81,7 +28,7 @@ class FusionDefinition(direct._DirectFusionDefinition):
         """
         Initialize a new FusionDefinition instance.
         """
-        super(FusionDefinition, self).__init__()
+        super(DirectFusionDefinition, self).__init__()
         self.profiled = False
         self.fusion = direct.Fusion()
         self.fusion_guard = direct.FusionGuard(self.fusion)
@@ -242,6 +189,11 @@ class FusionDefinition(direct._DirectFusionDefinition):
         ValueError
             If a CPU non-scalar tensor is provided
         """
+        try:
+            from .pytorch_utils import torch_dtype_to_nvfuser_dtype
+        except ImportError:
+            raise ImportError("Unable to import pytorch_utils!")
+
         if not tensor.is_cuda and len(tensor.size()) != 0:
             raise ValueError("CPU non-scalar tensor is not supported!")
 

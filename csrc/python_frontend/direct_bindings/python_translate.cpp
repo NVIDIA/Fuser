@@ -78,7 +78,7 @@ class PythonTranslator : public OptInConstDispatch {
   }
 
   void translate() {
-    os_ << "def nvfuser_fusion(fd : FusionDefinition) -> None :\n";
+    os_ << "def nvfuser_fusion(fd : DirectFusionDefinition) -> None :\n";
 
     // Add Fusion inputs to FusionDefinition
     for (nvfuser::Val* v : fusion_->inputs()) {

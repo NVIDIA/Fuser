@@ -23,6 +23,7 @@ from ._C import *  # noqa: F401,F403
 
 from . import contrib  # noqa: F401
 
+from .direct_fusion_definition import DirectFusionDefinition
 
 logger = logging.getLogger("nvfuser")
 
