@@ -105,16 +105,17 @@ $ LD_PRELOAD=$(gcc -print-file-name=libasan.so) ASAN_OPTIONS=protect_shadow_gap=
 # The ASAN_OPTIONS is needed to work around https://github.com/google/sanitizers/issues/629.
 ```
 
-If you use clang, run the following instead.
+### If built with clang
+
 ```shell
 $ ASAN_OPTIONS=protect_shadow_gap=0 <test binary e.g. bin/test_nvfuser>
 ```
-for C++ tests.
+for C++ tests. `LD_PRELOAD` isn't needed because clang by default uses `-static-libsan` and C++ tests are statically linked.
+
 ```shell
 $ LD_PRELOAD=$(clang -print-file-name=libclang_rt.asan-x86_64.so) ASAN_OPTIONS=protect_shadow_gap=0 pytest tests/python/<test_file e.g. test_python_frontend.py>
 ```
-For Python tests. Clang by default uses `-static-libsan`, so C++ tests, which
-are statically linked, don't need the `LD_PRELOAD`.
+For Python tests. `LD_PRELOAD` is needed because the Python API loads nvFuser as a shared library.
 
 ## Debug memory leaks or excessive memory usage
 
