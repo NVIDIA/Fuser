@@ -3389,7 +3389,7 @@ class HopperMatmulSchedulerTest
 
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   const auto& [A, B] =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+      matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   inputs = {A, B};
 
   TensorView* tv0 = nullptr;
@@ -3447,7 +3447,7 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 // run on hopper.
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
   const auto& [A, B] =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+      matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   const auto& C = matmulAtInput2D(
       layout, TensorMatmulPos::Bias, data_type_to_aten(dtype), M, N, K);
   inputs = {A, B, C};

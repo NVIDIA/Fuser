@@ -661,6 +661,81 @@ static auto kAllHopperMacros = std::vector<MmaMacro>{
     MmaMacro::Hopper_64_232_16, MmaMacro::Hopper_64_240_16,
     MmaMacro::Hopper_64_248_16, MmaMacro::Hopper_64_256_16};
 
+
+static auto kAllBlackwell1CTAM64Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell1CTA_64_8_16,
+    MmaMacro::Blackwell1CTA_64_16_16,
+    MmaMacro::Blackwell1CTA_64_24_16,
+    MmaMacro::Blackwell1CTA_64_32_16,
+    MmaMacro::Blackwell1CTA_64_40_16,
+    MmaMacro::Blackwell1CTA_64_48_16,
+    MmaMacro::Blackwell1CTA_64_56_16,
+    MmaMacro::Blackwell1CTA_64_64_16,
+    MmaMacro::Blackwell1CTA_64_72_16,
+    MmaMacro::Blackwell1CTA_64_80_16,
+    MmaMacro::Blackwell1CTA_64_88_16,
+    MmaMacro::Blackwell1CTA_64_96_16,
+    MmaMacro::Blackwell1CTA_64_104_16,
+    MmaMacro::Blackwell1CTA_64_112_16,
+    MmaMacro::Blackwell1CTA_64_120_16,
+    MmaMacro::Blackwell1CTA_64_128_16,
+    MmaMacro::Blackwell1CTA_64_136_16,
+    MmaMacro::Blackwell1CTA_64_144_16,
+    MmaMacro::Blackwell1CTA_64_152_16,
+    MmaMacro::Blackwell1CTA_64_160_16,
+    MmaMacro::Blackwell1CTA_64_168_16,
+    MmaMacro::Blackwell1CTA_64_176_16,
+    MmaMacro::Blackwell1CTA_64_184_16,
+    MmaMacro::Blackwell1CTA_64_192_16,
+    MmaMacro::Blackwell1CTA_64_200_16,
+    MmaMacro::Blackwell1CTA_64_208_16,
+    MmaMacro::Blackwell1CTA_64_216_16,
+    MmaMacro::Blackwell1CTA_64_224_16,
+    MmaMacro::Blackwell1CTA_64_232_16,
+    MmaMacro::Blackwell1CTA_64_240_16,
+    MmaMacro::Blackwell1CTA_64_248_16,
+    MmaMacro::Blackwell1CTA_64_256_16
+};
+
+static auto kAllBlackwell1CTAM128Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell1CTA_128_16_16,
+    MmaMacro::Blackwell1CTA_128_32_16,
+    MmaMacro::Blackwell1CTA_128_48_16,
+    MmaMacro::Blackwell1CTA_128_64_16,
+    MmaMacro::Blackwell1CTA_128_80_16,
+    MmaMacro::Blackwell1CTA_128_96_16,
+    MmaMacro::Blackwell1CTA_128_112_16,
+    MmaMacro::Blackwell1CTA_128_128_16,
+    MmaMacro::Blackwell1CTA_128_144_16,
+    MmaMacro::Blackwell1CTA_128_160_16,
+    MmaMacro::Blackwell1CTA_128_176_16,
+    MmaMacro::Blackwell1CTA_128_192_16,
+    MmaMacro::Blackwell1CTA_128_208_16,
+    MmaMacro::Blackwell1CTA_128_224_16,
+    MmaMacro::Blackwell1CTA_128_240_16,
+    MmaMacro::Blackwell1CTA_128_256_16};
+
+static auto kAllBlackwell2CTAM128Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell2CTA_128_32_16,
+    MmaMacro::Blackwell2CTA_128_64_16,
+    MmaMacro::Blackwell2CTA_128_96_16,
+    MmaMacro::Blackwell2CTA_128_128_16,
+    MmaMacro::Blackwell2CTA_128_160_16,
+    MmaMacro::Blackwell2CTA_128_192_16,
+    MmaMacro::Blackwell2CTA_128_224_16,
+    MmaMacro::Blackwell2CTA_128_256_16};
+
+static auto kAllBlackwell2CTAM256Macros = std::vector<MmaMacro>{
+    MmaMacro::Blackwell2CTA_256_32_16,
+    MmaMacro::Blackwell2CTA_256_64_16,
+    MmaMacro::Blackwell2CTA_256_96_16,
+    MmaMacro::Blackwell2CTA_256_128_16,
+    MmaMacro::Blackwell2CTA_256_160_16,
+    MmaMacro::Blackwell2CTA_256_192_16,
+    MmaMacro::Blackwell2CTA_256_224_16,
+    MmaMacro::Blackwell2CTA_256_256_16};
+
+
 std::string macroToString(const MmaMacro macro);
 
 // Utility to generate matmul input tensors based on given layout
@@ -736,7 +811,7 @@ inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperRS(
 }
 
 inline std::pair<std::vector<int64_t>, std::vector<int64_t>>
-matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
+matmulAtInputShape3DSS(int M, int N, int K, MmaLayout layout) {
   switch (layout) {
     case MmaLayout::TT:
       return {{M, K, 1}, {1, K, N}};
@@ -751,14 +826,14 @@ matmulAtInputShape3DHopperSS(int M, int N, int K, MmaLayout layout) {
   }
 }
 
-inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DHopperSS(
+inline std::pair<at::Tensor, at::Tensor> matmulAtInput3DSS(
     int M,
     int N,
     int K,
     MmaLayout layout,
     c10::ScalarType dtype) {
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  auto shapes = matmulAtInputShape3DHopperSS(M, N, K, layout);
+  auto shapes = matmulAtInputShape3DSS(M, N, K, layout);
   return std::make_pair(
       at::randn(shapes.first, options), at::randn(shapes.second, options));
 }
