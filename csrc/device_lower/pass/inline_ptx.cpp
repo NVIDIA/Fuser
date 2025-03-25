@@ -333,7 +333,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         IrBuilder::create<kir::Asm>(
             "nanosleep.u32",
             std::vector<Val*>{},
-            std::vector<Val*>{IrBuilder::create<Val>(100000)},
+            std::vector<Val*>{IrBuilder::create<Val>(100000), DataType::UInt32},
             kir::Asm::Options{/*volatile=*/true}));
   }
 
