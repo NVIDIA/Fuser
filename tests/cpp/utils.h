@@ -534,8 +534,9 @@ inline bool cudaArchGuardShouldSkip(
 // anonymous namespace
 class NVFuserTest : public ::testing::Test {
  protected:
+  NVFuserTest();
+  ~NVFuserTest() override;
   void SetUp() override;
-  void TearDown() override;
 
   // Start capturing of stdout if not already started
   void captureStdout();
@@ -821,5 +822,15 @@ bool isVectorized(TensorView* tv);
 // torch version.
 std::pair<TensorView*, TensorView*> createSdpaRngTvs();
 std::pair<at::Tensor, at::Tensor> createSdpaRngTensors();
+
+// C++ implementation of torch.cuda.reset_peak_memory_stats. Note that this
+// resets peak to current, not zero.
+void resetPeakMemoryStats(c10::DeviceIndex device);
+
+// C++ implementation of torch.cuda.max_memory_allocated
+int64_t maxMemoryAllocated(const c10::DeviceIndex device);
+
+// C++ implementation of torch.cuda.memory_allocated
+int64_t memoryAllocated(const c10::DeviceIndex device);
 
 } // namespace nvfuser

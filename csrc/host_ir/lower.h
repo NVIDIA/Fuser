@@ -29,11 +29,11 @@ class HostIrLower {
   static bool canLower(Expr* expr, bool ignore_inner_resharding = false);
 
   // Lower a sharded Expr into a series of Communication.
-  std::vector<Expr*> lower(Expr* c);
+  std::vector<Expr*> lower(Expr* c, DeviceIdxType my_device_index);
 
   std::unique_ptr<hir::HostIrContainer> lower(
       std::unique_ptr<Fusion> fusion,
-      int64_t my_device_index);
+      DeviceIdxType my_device_index);
 
  private:
   std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);

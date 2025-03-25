@@ -7,7 +7,6 @@
 // clang-format on
 #include <runtime/fusion_kernel_runtime.h>
 #include <tests/cpp/validator.h>
-
 #include <validator_utils.h>
 
 namespace nvfuser {

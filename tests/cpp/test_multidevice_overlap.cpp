@@ -181,7 +181,6 @@ class OverlapTest : public MultiDeviceTest {
 
 class CollectiveBasedOverlapTest : public OverlapTest {
  protected:
-  at::Tensor tc_locally_reduced_;
   void SetUp() override {
     OverlapTest::SetUp();
     if (!communicator_->is_available()) {
@@ -195,6 +194,11 @@ class CollectiveBasedOverlapTest : public OverlapTest {
     tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options_);
   }
 
+  void TearDown() override {
+    tc_locally_reduced_.reset();
+    OverlapTest::TearDown();
+  }
+
   at::Tensor getExpectedResult() override {
     auto tc_unsharded_expected = getUnshardedExpectedResult();
     auto tc_unsharded_expected_reshaped = at::reshape(
@@ -205,6 +209,8 @@ class CollectiveBasedOverlapTest : public OverlapTest {
          params.N});
     return tc_unsharded_expected_reshaped.select(1, my_device_index_);
   }
+
+  at::Tensor tc_locally_reduced_;
 };
 
 // clang-format off

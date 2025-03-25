@@ -333,6 +333,22 @@ std::pair<Val*, bool> computeLoopIndex(
   return id_to_index.at(id);
 }
 
+std::vector<IterDomain*> getInputsInTargetDomain(
+    IterDomain* loop_id,
+    const std::vector<IterDomain*>& target_domain) {
+  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
+      {loop_id}, {target_domain.begin(), target_domain.end()});
+
+  std::vector<IterDomain*> inputs_as_iter_domains;
+  inputs_as_iter_domains.reserve(inputs_as_vals.size());
+  std::transform(
+      inputs_as_vals.begin(),
+      inputs_as_vals.end(),
+      std::back_inserter(inputs_as_iter_domains),
+      [](Val* val) { return val->as<IterDomain>(); });
+  return inputs_as_iter_domains;
+}
+
 } // namespace
 
 bool haveDifferentShardings(
@@ -388,6 +404,10 @@ bool haveDifferentShardings(
           .mapBroadcast(false)
           .mapConsumerToProducer();
 
+  auto c2p_values = std::views::values(c2p);
+  std::unordered_set<IterDomain*> mapped_p_logical_ids(
+      c2p_values.begin(), c2p_values.end());
+
   Fusion* fusion = producer->fusion();
   NVF_ERROR(
       fusion == consumer->fusion(),
@@ -406,47 +426,67 @@ bool haveDifferentShardings(
        consumer->getMaybeRootDomain().size()) *
       2);
 
-  auto create_index = [&](IterDomain* id) {
+  auto create_index = [&](IterDomain* id, bool mapped) {
     auto* index = IrBuilder::create<Val>(DataType::Index);
-    NVF_ERROR(id_to_index.emplace(id, std::make_pair(index, false)).second);
+    NVF_ERROR(id_to_index.emplace(id, std::make_pair(index, mapped)).second);
     assumptions.push_back(
         SimplifyingIrBuilder::leExpr(fusion->zeroVal(), index));
     assumptions.push_back(SimplifyingIrBuilder::ltExpr(index, id->extent()));
   };
 
-  for (IterDomain* p_id : producer->getLogicalDomain()) {
-    create_index(p_id);
-  }
-  for (IterDomain* c_id : consumer->getMaybeRootDomain()) {
-    IterDomain* p_id = getOrDefault(c2p, c_id);
-    if (p_id == nullptr) {
-      create_index(c_id);
-      continue;
-    }
-
-    std::pair<Val*, bool>& index_and_mapped = id_to_index.at(p_id);
-    index_and_mapped.second = true;
-    NVF_ERROR(
-        id_to_index.emplace(c_id, std::make_pair(index_and_mapped.first, true))
-            .second);
-  }
-
-  // In practice, only loop IterDomains can be parallelized, and no two loop
-  // IterDomains in a TensorView can have the same parallel type. Therefore, we
-  // do the check in reverse order for efficiency and simplicity:
-  // 1. For each DID parallel type, find the loop IterDomain in producer and the
-  // one in consumer that have the type.
-  // 2. Find what IterDomains they come from in producer's logical or
-  // consumer's root domain. If that input IterDomain is not
-  // logical-domain-mapped, treat the loop IterDomain as not existing -- it is
-  // parallelized but just not a concern for this producer-consumer pair.
-  // 3. Check if the two loop IterDomains map to two indices that are
-  // mathematically equivalent.
+  // Create indices for producer logical IDs and consumer root IDs. As an
+  // optimization, we create indices only for those that DIDs depend on.
   std::unordered_map<ParallelType, IterDomain*> p_parallel_type_to_id =
       mapDeviceParallelTypeToId(producer->getLoopDomain());
   std::unordered_map<ParallelType, IterDomain*> c_parallel_type_to_id =
       mapDeviceParallelTypeToId(consumer->getLoopDomain());
+  for (const auto parallel_type : kParallelTypeDIDs) {
+    if (IterDomain* p_loop_id =
+            getOrDefault(p_parallel_type_to_id, parallel_type)) {
+      for (IterDomain* p_logical_id :
+           getInputsInTargetDomain(p_loop_id, producer->getLogicalDomain())) {
+        if (id_to_index.count(p_logical_id) > 0) {
+          continue;
+        }
 
+        create_index(p_logical_id, mapped_p_logical_ids.count(p_logical_id));
+      }
+    }
+  }
+
+  for (const auto parallel_type : kParallelTypeDIDs) {
+    if (IterDomain* c_loop_id =
+            getOrDefault(c_parallel_type_to_id, parallel_type)) {
+      for (IterDomain* c_root_id :
+           getInputsInTargetDomain(c_loop_id, consumer->getMaybeRootDomain())) {
+        if (id_to_index.count(c_root_id) > 0) {
+          continue;
+        }
+
+        IterDomain* p_logical_id = getOrDefault(c2p, c_root_id);
+        if (p_logical_id == nullptr) {
+          create_index(c_root_id, /*mapped=*/false);
+          continue;
+        }
+
+        auto i = id_to_index.find(p_logical_id);
+        if (i == id_to_index.end()) {
+          create_index(c_root_id, /*mapped=*/true);
+          continue;
+        }
+        // Reuse the same index as the mapped producer logical ID. This is
+        // necessary for proving is-non-resharding; otherwise we won't see any
+        // connections between producer and consumer's loop indices.
+        NVF_ERROR(id_to_index
+                      .emplace(c_root_id, std::make_pair(i->second.first, true))
+                      .second);
+      }
+    }
+  }
+
+  // For each parallel type, check whether the corresponding loop index in the
+  // producer and that in the consumer are equivalent. If they can't be proven
+  // to be equivalent, return is-resharding.
   for (const auto parallel_type : kParallelTypeDIDs) {
     IterDomain* p_id = getOrDefault(p_parallel_type_to_id, parallel_type);
     Val* p_index = nullptr;
@@ -636,9 +676,7 @@ int64_t requestedNumberOfDevices(Fusion* fusion) {
   DeviceIdxType max_index = 0;
   for (auto tv : fusion->allTvs()) {
     if (tv->hasDeviceMesh()) {
-      for (auto d_id : tv->getDeviceMesh().vector()) {
-        max_index = std::max(max_index, d_id);
-      }
+      max_index = std::max(max_index, tv->getDeviceMesh().maxDeviceId());
     }
   }
   return static_cast<int64_t>(max_index + 1);

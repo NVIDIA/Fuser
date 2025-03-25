@@ -254,7 +254,7 @@ void mapAllocationDomain(
 //   `target->getLogicalDomain()`, which would gives `target` similar innermost
 //   dimensions as with `ref`. For details on the propagation rule see Note [
 //   Allocation Order Mapping ]
-void inferenceAllocationOrder(
+void inferAllocationOrder(
     Fusion* fusion,
     const std::vector<TensorView*>& srcs,
     const std::vector<TensorView*>& dsts) {
@@ -419,7 +419,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     dsts.push_back(output);
   }
   // propagate allocation domain from sources to destinations
-  inferenceAllocationOrder(fusion, srcs, dsts);
+  inferAllocationOrder(fusion, srcs, dsts);
 
   SdpaPropagator sdpa_propagator;
   for (Expr* e : fusion->exprs()) {

@@ -5,27 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <tests/cpp/utils.h>
-
-#include <ops/all_ops.h>
-#include <scheduler/mma_utils.h>
-
 #include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
 
+#include <c10/core/Allocator.h>
+#include <c10/core/CachingDeviceAllocator.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+
+#include <exceptions.h>
+#include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
+#include <tests/cpp/utils.h>
+
 namespace nvfuser {
 
-void NVFuserTest::SetUp() {
+NVFuserTest::NVFuserTest() {
   // Enable logging so debug messages in PyTorch can be printed out
   // via `TORCH_CPP_LOG_LEVEL`.
   c10::initLogging();
 
-  // requires PASCAL or newer
-  if (!deviceMajorMinorCheck(6)) {
-    GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
-  }
   setFillAllocationWithNan(true);
 
   maybeClearAllocator();
@@ -42,7 +42,14 @@ void NVFuserTest::SetUp() {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
 }
 
-void NVFuserTest::TearDown() {
+void NVFuserTest::SetUp() {
+  // requires PASCAL or newer
+  if (!deviceMajorMinorCheck(6)) {
+    GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
+  }
+}
+
+NVFuserTest::~NVFuserTest() {
   if (::testing::Test::HasFailure()) {
     auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
     std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
@@ -922,4 +929,48 @@ std::pair<at::Tensor, at::Tensor> createSdpaRngTensors() {
 #endif
   return std::make_pair(philox_seed, philox_offset);
 }
+
+void resetPeakMemoryStats(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  allocator->resetPeakStats(device);
+}
+
+namespace {
+// Stats like allocated_bytes comes as a size-3 array (cf.
+// https://github.com/pytorch/pytorch/blob/feb503c1df78afd46962ed04e446d6e88ac0522d/c10/core/Allocator.h#L365-L370).
+// The 0-th element is an aggregation of both the small pool and the large.
+constexpr auto kAggregateStatsIndex = static_cast<uint64_t>(
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+    c10::CachingAllocator::StatType::AGGREGATE
+#else
+    c10::CachingDeviceAllocator::StatType::AGGREGATE
+#endif
+);
+} // namespace
+
+int64_t maxMemoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).peak;
+}
+
+int64_t memoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).current;
+}
+
 } // namespace nvfuser
