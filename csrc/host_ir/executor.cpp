@@ -569,19 +569,27 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 }
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
-  if (!(load_store_op->out()->isA<TensorView>() &&
-        isKnown(load_store_op->out()))) {
-    return unhandled(load_store_op);
-  }
+  NVF_ERROR(load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();
-  NVF_ERROR(
-      !out_tv->hasRoot() ||
-          out_tv->getRootDomain() == out_tv->getLogicalDomain(),
-      "when output is preallocated, the logical domain must be the same as the root domain in the expr ",
-      load_store_op->toString());
   auto in_tensor = getKnownConcreteData(load_store_op->in()).as<at::Tensor>();
-  auto out_tensor = getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
-  out_tensor.copy_(in_tensor);
+
+  // If output has root domain, compute and apply permutation
+  if (out_tv->hasRoot()) {
+    auto permutation = ir_utils::computePermutation(
+        out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(
+        permutation.has_value(),
+        "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
+        out_tv->toString());
+    in_tensor = in_tensor.permute(*permutation).contiguous();
+  }
+  if (!isKnown(load_store_op->out())) {
+    bind(load_store_op->out(), in_tensor);
+  } else {
+    auto out_tensor = getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
+    out_tensor.copy_(in_tensor);
+  }
+
 }
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {

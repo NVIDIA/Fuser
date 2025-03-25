@@ -563,6 +563,8 @@ bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
   return expr->isOneOf<
       MatmulOp,
       SliceOp,
+      SelectOp,
+      LoadStoreOp,
       BinaryOp,
       ReductionOp,
       LinearOp,

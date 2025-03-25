@@ -69,7 +69,11 @@ void StreamParallelType::runPass(Fusion* fusion) {
   // the stream parallelization, and the relevant expressions grouped inside the
   // for-loops bodies.
   for (auto expr : hic->topLevelExprs()) {
-    // we only support exprs having 1 output for now
+    // we only support exprs having at most 1 output for now
+    if (expr->outputs().size() == 0) {
+      new_top_level_exprs.push_back(expr);
+      continue;
+    }
     NVF_CHECK(
         expr->outputs().size() == 1,
         "Each expr should have at most one output.");
@@ -84,7 +88,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
     }
     NVF_ERROR(
         HostIrLower::isLoweredAsStandaloneHostOp(expr),
-        "Stream parallel type not support for expr ",
+        "Stream parallel type not supported for expr ",
         expr);
     // find the corresponding stream axis but in the Logical (and not Loop
     // Domain)
@@ -266,6 +270,9 @@ void StreamParallelType::runPass(Fusion* fusion) {
               hic->markAlias(output_j, output_j_alias);
               *it_running_expr = ir_utils::transferDefinitionToNewOutputs(
                   running_expr, {output_j_alias});
+              if (Communication* comm = dynamic_cast<Communication*>(output_j_alias->definition()); comm && comm->type() == CommunicationType::Allgather) {
+                std::cout << "HERE, with expr:" << *it_running_expr << std::endl;
+              }
             }
           }
         }
