@@ -303,8 +303,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
     NVF_ERROR(
         mma->isBlackwell1CTA(), "Currently only supports 1 CTA Blackwell MMA");
 
-    // Do MMA
+    // Create instruction descriptor
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-instruction-descriptor
     Val* idesc = IrBuilder::create<Val>(0, DataType::UInt32);
+
+    // Do MMA
     Val* enable_input_d = IrBuilder::create<Val>(true, DataType::Bool);
     registerInsertBefore(
         mma,
@@ -321,7 +324,16 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 /*volatile=*/true,
                 /*memory=*/false,
                 /*readable_outputs=*/{0}}));
-    registerRemove(mma);
+    // TODO: This is clearly a wrong way to sync, but as an intermediate step to
+    // enable incremental development, we use nanosleep to sync the mma. We
+    // should replace this with a correct sync method.
+    registerReplace(
+        mma,
+        IrBuilder::create<kir::Asm>(
+            "nanosleep.u32",
+            std::vector<Val*>{},
+            std::vector<Val*>{IrBuilder::create<Val>(100000)},
+            kir::Asm::Options{/*volatile=*/true}));
   }
 
   void handle(MmaOp* mma) final {
