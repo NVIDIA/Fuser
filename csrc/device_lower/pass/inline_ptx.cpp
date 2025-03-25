@@ -296,11 +296,41 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerRemove(mma);
   }
 
+  void handleBlackwellMma(MmaOp* mma) {
+    // Reference:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensorcore-5th-generation-of-mma-instructions
+
+    NVF_ERROR(
+        mma->isBlackwell1CTA(), "Currently only supports 1 CTA Blackwell MMA");
+
+    // Do MMA
+    Val* idesc = IrBuilder::create<Val>(0, DataType::UInt32);
+    Val* enable_input_d = IrBuilder::create<Val>(true, DataType::Bool);
+    registerInsertBefore(
+        mma,
+        IrBuilder::create<kir::Asm>(
+            "tcgen05.mma.cta_group::1.kind::f16",
+            std::vector<Val*>{mma->out()},
+            std::vector<Val*>{
+                mma->inA(),
+                mma->inB(),
+                idesc,
+                enable_input_d,
+            },
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{0}}));
+    registerRemove(mma);
+  }
+
   void handle(MmaOp* mma) final {
     if (mma->isTuring() || mma->isAmpere()) {
       handleTuringOrAmpereMma(mma);
     } else if (mma->isHopper()) {
       handleHopperMma(mma);
+    } else if (mma->isBlackwell()) {
+      handleBlackwellMma(mma);
     } else {
       NVF_THROW("Unsupported MMA architecture");
     }
