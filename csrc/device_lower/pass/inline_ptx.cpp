@@ -316,8 +316,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
             std::vector<Val*>{},
             std::vector<Val*>{
                 mma->out(),
-                mma->inA(),
-                mma->inB(),
+                mma->inA()->as<kir::TensorIndex>()->index(),
+                mma->inB()->as<kir::TensorIndex>()->index(),
                 idesc,
                 enable_input_d,
             },
