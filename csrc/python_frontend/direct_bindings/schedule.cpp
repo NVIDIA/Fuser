@@ -698,6 +698,75 @@ void bindFusionScheduleOps(
       py::arg("scheduler_type"));
 }
 
+void bindCircularBuffering(
+    py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
+  sched.def(
+      "warp_specialize",
+      [](DirectFusionDefinition::ScheduleOperators& self,
+         TensorView* tv,
+         int64_t number_of_stages,
+         int64_t prefetch_distance,
+         ParallelType parallel_type,
+         std::optional<std::pair<int64_t, int64_t>> num_registers) {
+        CircularBufferType circular_buffer_type = (num_registers.has_value())
+            ? WarpSpecialized(parallel_type, num_registers.value())
+            : WarpSpecialized(parallel_type);
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      },
+      R"(
+        Apply warp specialization circular buffering to the given TensorView.
+
+        Parameters
+        ----------
+        tensor : TensorView
+            The TensorView to apply warp specialization circular buffering to. 
+        number_of_stages : int
+            The number of stages in the circular buffer.
+        prefetch_distance : int
+            The prefetch distance for the circular buffer.
+        parallel_type : ParallelType
+            The parallel type to apply warp specialization to.
+        num_registers : tuple of int, optional
+            The number of registers to use for the warp specialization.
+      )",
+      py::arg("tensor"),
+      py::arg("number_of_stages"),
+      py::arg("prefetch_distance"),
+      py::arg("parallel_type"),
+      py::arg("num_registers") = py::none());
+  sched.def(
+      "pipeline",
+      [](DirectFusionDefinition::ScheduleOperators& self,
+         TensorView* tv,
+         int64_t number_of_stages,
+         int64_t prefetch_distance,
+         bool uses_mbarrier_for_war) {
+        CircularBufferType circular_buffer_type =
+            Pipelined(uses_mbarrier_for_war);
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      },
+      R"(
+        Apply circular buffering pipelining to the given TensorView.
+
+        Parameters
+        ----------
+        tensor : TensorView
+            The TensorView to apply circular buffering pipelining to. 
+        number_of_stages : int
+            The number of stages in the circular buffer.
+        prefetch_distance : int
+            The prefetch distance for the circular buffer.
+        uses_mbarrier_for_war : bool
+            Whether to use mbarrier synchronization for the circular buffer pipelining.
+      )",
+      py::arg("tensor"),
+      py::arg("number_of_stages"),
+      py::arg("prefetch_distance"),
+      py::arg("uses_mbarrier_for_war") = false);
+}
+
 } // namespace
 
 void bindDirectScheduleOperators(
@@ -712,6 +781,7 @@ void bindDirectScheduleOperators(
   nvf_sched.def(py::init<DirectFusionDefinition*>());
   bindTensorViewScheduleOps(nvf_sched);
   bindFusionScheduleOps(nvf_sched);
+  bindCircularBuffering(nvf_sched);
 }
 
 } // namespace nvfuser::python_frontend
