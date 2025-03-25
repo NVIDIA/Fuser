@@ -640,9 +640,9 @@ using MmaSSTestParams = std::tuple<
     MmaInputSmemSwizzle,
     MmaInputSmemSwizzle>;
 
-template<typename Base>
+template <typename Base>
 class SSTest : public Base,
-                 public ::testing::WithParamInterface<MmaSSTestParams> {
+               public ::testing::WithParamInterface<MmaSSTestParams> {
  protected:
   MmaLayout layout;
   MmaMacro macro;
@@ -667,8 +667,8 @@ TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto shapes = matmulAtInputShape3DSS(
-      getM(macro), getN(macro), getK(macro), layout);
+  auto shapes =
+      matmulAtInputShape3DSS(getM(macro), getN(macro), getK(macro), layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);
@@ -786,8 +786,8 @@ TEST_P(HopperSS, SingleTileTransposed) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto shapes = matmulAtInputShape3DSS(
-      getM(macro), getN(macro), getK(macro), layout);
+  auto shapes =
+      matmulAtInputShape3DSS(getM(macro), getN(macro), getK(macro), layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);
@@ -1087,8 +1087,7 @@ TEST_P(HopperSS, MultipleTile) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
-std::string testNameSS(
-    const testing::TestParamInfo<MmaSSTestParams>& info) {
+std::string testNameSS(const testing::TestParamInfo<MmaSSTestParams>& info) {
   std::ostringstream os;
   auto macro = std::get<0>(info.param);
   auto dtype = std::get<1>(info.param);
@@ -1149,17 +1148,19 @@ INSTANTIATE_TEST_SUITE_P(
     mmaSSParamsGenerator(kAllHopperMacros),
     testNameSS);
 
-using Blackwell1CTAM64SS = SSTest<BlackwellBase>;
-using Blackwell1CTAM128SS = SSTest<BlackwellBase>;
-using Blackwell2CTAM128SS = SSTest<BlackwellBase>;
-using Blackwell2CTAM256SS = SSTest<BlackwellBase>;
+// using Blackwell1CTAM64SS = SSTest<BlackwellBase>;
+// using Blackwell1CTAM128SS = SSTest<BlackwellBase>;
+// using Blackwell2CTAM128SS = SSTest<BlackwellBase>;
+// using Blackwell2CTAM128SS = SSTest<BlackwellBase>;
+
+using Blackwell1CTAM128SS = SSTest<NVFuserTest>;
 
 TEST_P(Blackwell1CTAM128SS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto shapes = matmulAtInputShape3DSS(
-      getM(macro), getN(macro), getK(macro), layout);
+  auto shapes =
+      matmulAtInputShape3DSS(getM(macro), getN(macro), getK(macro), layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);

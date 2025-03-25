@@ -939,16 +939,23 @@ void validateMmaTensors(MmaOp* mma) {
 
   // Note: this check will be relaxed in a follow up.
   auto validate_operand = [mma](const TensorView* tv, MmaOperand operand) {
-    if (mma->isHopper()) {
+    if (mma->isHopper() || mma->isBlackwell()) {
       if (operand == MmaOperand::B) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Shared,
-            "Only supporting smem input for Hopper mma input B");
-      } else {
+            "Only supporting smem input for Hopper/Blackwell mma input B");
+      } else if (mma->isHopper()) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Local ||
                 tv->getMemoryType() == MemoryType::Shared,
             "Only supporting register or shared memory input for Hopper mma input A");
+      } else if (mma->isBlackwell()) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Tensor ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting tensor or shared memory input for Blackwell mma input A");
+      } else {
+        NVF_THROW("Should not reach here");
       }
     } else {
       NVF_ERROR(
