@@ -15,6 +15,7 @@
 #include <scheduler/reduction.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
@@ -767,6 +768,217 @@ void bindCircularBuffering(
       py::arg("uses_mbarrier_for_war") = false);
 }
 
+void bindAbstractTensor(
+    py::class_<DirectFusionDefinition::ScheduleOperators>& sched) {
+  // Bind AbstractTensor specialized with EmptyInfo
+  py::class_<AbstractTensor>(sched, "AbstractTensor", R"(
+Abstract representation of a tensor with multiple dimensions.
+
+The AbstractTensor is similar to TensorView, having multiple dimensions where each dimension
+is represented by an Abstract IterDomain. It provides operations like merge, split, etc.,
+but only has a single "domain" instead of multiple domains like "logical domain", "loop domain", etc.)")
+      .def(py::init<>(), R"(
+Default constructor creating an empty AbstractTensor.)")
+      .def(py::init<const std::vector<IterDomain*>&>(), R"(
+Create an AbstractTensor from a vector of IterDomains.
+
+Parameters
+----------
+domains : List[IterDomain]
+    List of IterDomains representing the tensor dimensions.)")
+
+      // Access methods
+      .def(
+          "__getitem__",
+          [](AbstractTensor& self, int64_t i) { return self[i]; },
+          R"(
+Access dimension at the given index.
+
+Parameters
+----------
+index : int
+    Index of the dimension to access.
+
+Returns
+-------
+AbstractId
+    The abstract domain at the specified index.)",
+          py::arg("index"))
+      .def("size", &AbstractTensor::size, R"(
+Get the number of dimensions in the tensor.
+
+Returns
+-------
+int
+    Number of dimensions.)")
+      .def("empty", &AbstractTensor::empty, R"(
+Check if the tensor has no dimensions.
+
+Returns
+-------
+bool
+    True if the tensor has no dimensions, False otherwise.)")
+
+      // Transformation methods
+      .def(
+          "parallelize",
+          &AbstractTensor::parallelize,
+          R"(
+Parallelize a specific dimension.
+
+Parameters
+----------
+axis : int
+    The dimension to parallelize
+parallel_type : ParallelType
+    The type of parallelization to apply
+
+Returns
+-------
+self : AbstractTensor
+    Returns self for method chaining.)",
+          py::arg("axis"),
+          py::arg("parallel_type"))
+      .def(
+          "split",
+          py::overload_cast<int64_t, Val*, bool>(&AbstractTensor::split),
+          R"(
+Split a dimension into two dimensions.
+
+Parameters
+----------
+axis : int
+    The dimension to split
+factor : Val
+    The splitting factor
+inner_split : bool, optional
+    If True, the factor determines the size of the inner dimension (default: True)
+
+Returns
+-------
+self : AbstractTensor
+    Returns self for method chaining.)",
+          py::arg("axis"),
+          py::arg("factor"),
+          py::arg("inner_split") = true)
+      .def(
+          "split",
+          py::overload_cast<int64_t, int64_t, bool>(&AbstractTensor::split),
+          R"(
+Split a dimension into two dimensions using an integer factor.
+
+Parameters
+----------
+axis : int
+    The dimension to split
+factor : int
+    The splitting factor
+inner_split : bool, optional
+    If True, the factor determines the size of the inner dimension (default: True)
+
+Returns
+-------
+self : AbstractTensor
+    Returns self for method chaining.)",
+          py::arg("axis"),
+          py::arg("factor"),
+          py::arg("inner_split") = true)
+      .def(
+          "merge",
+          py::overload_cast<int64_t, int64_t>(&AbstractTensor::merge),
+          R"(
+Merge two dimensions into one.
+
+Parameters
+----------
+outer : int
+    The outer dimension to merge
+inner : int
+    The inner dimension to merge
+
+Returns
+-------
+self : AbstractTensor
+    Returns self for method chaining.)",
+          py::arg("outer"),
+          py::arg("inner"))
+      .def(
+          "merge",
+          py::overload_cast<int64_t>(&AbstractTensor::merge),
+          R"(
+Merge a dimension with the next dimension.
+
+Parameters
+----------
+axis : int
+    The dimension to merge with the next dimension
+
+Returns
+-------
+self : AbstractTensor
+    Returns self for method chaining.)",
+          py::arg("axis"))
+      .def(
+          "reorder",
+          py::overload_cast<const std::vector<int64_t>&>(
+              &AbstractTensor::reorder),
+          R"(
+Reorder the dimensions according to the given permutation.
+
+Parameters
+----------
+permutation : List[int]
+    The new order of dimensions
+
+Returns
+-------
+self : AbstractTensor
+    Returns self for method chaining.)",
+          py::arg("permutation"))
+      .def(
+          "swizzle",
+          py::overload_cast<SwizzleType, int64_t, int64_t>(
+              &AbstractTensor::swizzle),
+          R"(
+Apply a swizzle operation between two dimensions.
+
+Parameters
+----------
+swizzle_type : SwizzleType
+    The type of swizzle operation to apply
+dim_x : int
+    First dimension for swizzling
+dim_y : int
+    Second dimension for swizzling
+
+Returns
+-------
+self : AbstractTensor
+    Returns self for method chaining.)",
+          py::arg("swizzle_type"),
+          py::arg("dim_x"),
+          py::arg("dim_y"))
+
+      // Comparison operators
+      .def(
+          "__eq__",
+          py::overload_cast<const AbstractTensor&>(
+              &AbstractTensor::operator==, py::const_),
+          R"(
+Compare this AbstractTensor with another for equality.
+
+Parameters
+----------
+other : AbstractTensor
+    The other AbstractTensor to compare with
+
+Returns
+-------
+bool
+    True if the tensors are equal, False otherwise.)",
+          py::arg("other"));
+}
+
 } // namespace
 
 void bindDirectScheduleOperators(
@@ -782,6 +994,7 @@ void bindDirectScheduleOperators(
   bindTensorViewScheduleOps(nvf_sched);
   bindFusionScheduleOps(nvf_sched);
   bindCircularBuffering(nvf_sched);
+  bindAbstractTensor(nvf_sched);
 }
 
 } // namespace nvfuser::python_frontend
