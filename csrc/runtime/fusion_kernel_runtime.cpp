@@ -388,7 +388,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
       compileKernel(group_runtime_inputs, group_to_run, hic.get());
     } else {
-      hir::HostIrContainer* hic_p = hic.get();
+      hir::HostIrContainer* hic_ptr = hic.get();
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
@@ -397,12 +397,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             &detect_exception_in_thread_pool,
                             &thread_pool_error_message,
                             &thread_pool_error_message_mutex,
-                            hic_p]() {
+                            hic_ptr]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-          compileKernel(group_runtime_inputs, group_to_run, hic_p);
+          compileKernel(group_runtime_inputs, group_to_run, hic_ptr);
         } catch (const std::exception& e) {
           // Set flag inside lambda so we can throw an exception after thread
           // pool completes its work.
@@ -428,7 +428,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   }
 
   // add all expressions and compiled kernels to the host ir container
-  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (hic != nullptr) {
     IrCloner ir_cloner(hic.get());
     FusionGuard::setCurFusion(hic.get());
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
@@ -471,7 +471,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
 
-  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+  if (hic != nullptr) {
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         hir::HostIrEvaluator(std::move(hic)));
   }
@@ -732,6 +732,15 @@ void FusionKernelRuntime::compileKernel(
   // Check that the heuristics are matched, in the case of segmented fusion
   NVF_ERROR(heuristic_params->scheduler_type == sg->schedulerType());
 
+  if (hic != nullptr &&
+      (sg->schedulerType() == SchedulerType::ExprEval ||
+       sg->schedulerType() == SchedulerType::Communication)) {
+    // When lowering to host IR, ExprEval and Communication segments are lowered
+    // to top-level expressions in the host IR container, not executors. Only
+    // kernels need to be compiled.
+    return;
+  }
+
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
   auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
@@ -748,22 +757,14 @@ void FusionKernelRuntime::compileKernel(
       "Kernel index type is not defined.");
 
   if (hic != nullptr) {
-    // if it's a kernel executor, compile the segment and append to hic
-    // otherwise, push the segment's exprs directly to the hic
-    if (!HostIrExecutor::supported(fusion_to_run.get()) &&
-        !ExprEvalExecutor::supported(fusion_to_run.get())) {
-      NVF_ERROR(
-          KernelExecutor::supported(fusion_to_run.get()),
-          "Fusion not supported by any executor type");
-      auto ke = std::make_unique<KernelExecutor>();
-      ke->compile(
-          fusion_to_run.get(),
-          args,
-          heuristic_params->lparams,
-          heuristic_params->cparams,
-          heuristic_params->scheduler_type);
-      hic->setKernelExecutor(group_id, std::move(ke));
-    }
+    auto ke = std::make_unique<KernelExecutor>();
+    ke->compile(
+        fusion_to_run.get(),
+        args,
+        heuristic_params->lparams,
+        heuristic_params->cparams,
+        heuristic_params->scheduler_type);
+    hic->setKernelExecutor(group_id, std::move(ke));
   } else {
     // Initialize associated executors
     executors_[group_id] = ExecutorDispatch::makeExecutor(
