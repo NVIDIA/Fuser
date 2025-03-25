@@ -38,8 +38,6 @@ constexpr static bool verbose = false; /*
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
-#define NOT_IMPLEMENTED GTEST_SKIP() << "Not implemented yet";
-
 namespace nvfuser {
 
 using ReviewInliningParallelization = NVFuserTest;
