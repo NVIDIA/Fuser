@@ -415,6 +415,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           thread_pool_error_message = ss.str();
         }
       });
+      getThreadPool()->waitWorkComplete();
     }
 
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
