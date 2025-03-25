@@ -2615,8 +2615,16 @@ void IndexLowering::handle(const MmaOp* mma) {
     b = lowerSrcIndex(
         mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
   }
-  const auto out = lowerDstIndex(
-      mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  Val* out = nullptr;
+  if (mma->out()->as<TensorView>()->getMemoryType() == MemoryType::Tensor) {
+    Val* index = IrBuilder::create<Val>(
+        std::vector<int64_t>{0, 0},
+        ArrayType(std::make_shared<DataType>(DataType::UInt16), 2));
+    out = IrBuilder::create<kir::TensorIndex>(mma->out(), index);
+  } else {
+    out = lowerDstIndex(
+        mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  }
   auto mma_indexed = IrBuilder::create<MmaOp>(
       out, a, b, mma->init(), mma->axisMapping(), mma->macro());
   pushBack(mma_indexed);
