@@ -33,6 +33,17 @@ class DirectFusionDefinition(direct._DirectFusionDefinition):
         self.fusion = direct.Fusion()
         self.fusion_guard = direct.FusionGuard(self.fusion)
 
+    def __repr__(self):
+        """
+        Return a string representation of the DirectFusionDefinition.
+
+        Returns
+        -------
+        str
+            A string representation of the DirectFusionDefinition
+        """
+        return direct.translate_fusion(self.fusion)
+
     def __enter__(self):
         """
         Enter the context manager.

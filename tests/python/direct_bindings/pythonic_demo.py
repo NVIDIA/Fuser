@@ -24,7 +24,7 @@ fd.fusion.print_math()
 outputs = fd.execute(inputs)
 print(outputs)
 
-fd_str = direct.translate_fusion(fd.fusion)
+fd_str = fd.__repr__()
 print(fd_str)
 exec(fd_str)
 func_name = "nvfuser_fusion"
