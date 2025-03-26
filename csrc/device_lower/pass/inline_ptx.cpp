@@ -344,7 +344,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         ArrayType{std::make_shared<DataType>(DataType::UInt32), 4});
 
     // Do MMA
-    Val* enable_input_d = IrBuilder::create<Val>(true, DataType::Bool);
+    Val* enable_input_d = IrBuilder::create<Val>(false, DataType::Bool);
     registerInsertBefore(
         mma,
         IrBuilder::create<kir::Asm>(
