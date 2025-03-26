@@ -586,7 +586,6 @@ columns of the tensor memory, while all the specified patterns requires the warp
 to access a contiguous 32 or 16 lanes of data.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -610,7 +609,8 @@ TEST_F(TMemTutorialC, WrongSubpartition) {
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+          "Invalid data access pattern in TMem load/store: "
+          "Warps are not accessing the correct sub-partition.")));
 } /*
 ```
 
@@ -621,7 +621,6 @@ However, warp 0 can only access subpartition 0, and warp 1 can only access
 subpartition 1.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition2) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -645,7 +644,8 @@ TEST_F(TMemTutorialC, WrongSubpartition2) {
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
       ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+          "Invalid data access pattern in TMem load/store: "
+          "Warps are not accessing the correct sub-partition.")));
 } /*
 ```
 
@@ -1173,7 +1173,6 @@ TEST_F(TMemTutorialR, Vectorization) {
 
       ke.compile(&fusion);
 
-      NOT_IMPLEMENTED
       at::Tensor t0 = at::rand({128, 256}, at::kCUDA);
       auto out = ke.run({t0});
       EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
