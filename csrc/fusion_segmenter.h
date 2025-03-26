@@ -501,7 +501,8 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
-  bool only_segment_resharding_exprs = false;
+  bool (*custom_should_merge_groups)(SegmentedGroup*, SegmentedGroup*) =
+      nullptr;
 };
 
 //!  SegmentCandidateFinder

@@ -3919,15 +3919,8 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
-  if (options_.only_segment_resharding_exprs) {
-    for (auto group : {group1, group2}) {
-      for (auto expr : group->exprs()) {
-        if (isResharding(expr)) {
-          return false;
-        }
-      }
-    }
-    return true;
+  if (options_.custom_should_merge_groups != nullptr) {
+    return (*options_.custom_should_merge_groups)(group1, group2);
   }
   return tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2) !=
       SchedulerType::None;
@@ -3938,7 +3931,7 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 SchedulerType SegmentCandidateFinder::deriveSchedulerType(
     SegmentedGroup* group) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::deriveSchedulerType");
-  if (options_.only_segment_resharding_exprs) {
+  if (options_.custom_should_merge_groups != nullptr) {
     // We don't need to generate a SchedulerType for multidevice segments at
     // this moment
     return SchedulerType::None;
@@ -3958,7 +3951,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     : options_(options), runtime_inputs_(inputs) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::SegmentCandidateFinder");
   NVF_ERROR(
-      !options_.only_segment_resharding_exprs ||
+      options_.custom_should_merge_groups == nullptr ||
           (!options_.run_translate_welford &&
            !options_.run_combine_reductions && options_.run_herrmann_merge &&
            options_.run_final_merge),
