@@ -323,14 +323,14 @@ TEST_F(TMemTest, InexactParallelType) {
 
   auto tv0 = makeContigConcreteTensor({2, 33});
   fusion.addInput(tv0);
-  auto tv1 = set(tv0); // gmem
+  auto tv1 = set(tv0); // smem
   auto tv2 = set(tv1); // register
   auto tv3 = set(tv2); // tmem
   auto tv4 = set(tv3); // register
   auto tv5 = set(tv4); // gmem
   fusion.addOutput(tv5);
 
-  tv1->setMemoryType(MemoryType::Global);
+  tv1->setMemoryType(MemoryType::Shared);
   tv3->setMemoryType(MemoryType::Tensor);
   tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
   tv4->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
