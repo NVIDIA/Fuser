@@ -1216,13 +1216,11 @@ TEST_F(AllocationTest, inHostForLoop) {
   TensorView* tv0 = makeConcreteTensor(sizes);
   tv0->setMemoryType(MemoryType::Global);
   auto* allocate = IrBuilder::create<kir::Allocate>(tv0, MemoryType::Global);
-  TensorView* tv1 = set(tv0);
 
   for_loop->body().push_back(allocate);
-  for_loop->body().push_back(tv1->definition());
 
   hic->pushBackTopLevelExprs(for_loop);
-  hic->addOutput(tv1);
+  hic->addOutput(tv0);
 
   HostIrEvaluator hie(std::move(hic));
 
