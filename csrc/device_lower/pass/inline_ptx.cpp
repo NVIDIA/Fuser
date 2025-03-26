@@ -60,11 +60,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
               wait->ptx(),
               std::vector<Val*>{},
               std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-              kir::Asm::Options{
-                  /*volatile=*/true,
-                  /*memory=*/wait->memory(),
-                  /*readable_outputs=*/{},
-                  /*immediate_inputs=*/{0}}));
+              kir::Asm::Options{/*volatile=*/true,
+                                /*memory=*/wait->memory(),
+                                /*readable_outputs=*/{},
+                                /*immediate_inputs=*/{0}}));
     }
   }
 
@@ -123,11 +122,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
                   invertedPredicate(ldst->predicate())},
-              kir::Asm::Options{
-                  /*volatile=*/true,
-                  /*memory=*/false,
-                  /*readable_outputs=*/{},
-                  /*immediate_inputs=*/{2}}));
+              kir::Asm::Options{/*volatile=*/true,
+                                /*memory=*/false,
+                                /*readable_outputs=*/{},
+                                /*immediate_inputs=*/{2}}));
     } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
       const auto& tmem_info = GpuLower::current()->tmemInfo();
       std::stringstream ptx_ss;
@@ -288,11 +286,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
             inst_ss.str(),
             std::vector<Val*>{mma->out()},
             inputs,
-            kir::Asm::Options{
-                /*volatile=*/true,
-                /*memory=*/false,
-                /*readable_outputs=*/{0},
-                /*immediate_inputs=*/{3, 4, 5, 6}}));
+            kir::Asm::Options{/*volatile=*/true,
+                              /*memory=*/false,
+                              /*readable_outputs=*/{0},
+                              /*immediate_inputs=*/{3, 4, 5, 6}}));
     registerRemove(mma);
   }
 
@@ -305,26 +302,30 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
     // Create instruction descriptor
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-instruction-descriptor
+    Val* accumulator_dtype = IrBuilder::create<Val>(1 << 4, DataType::UInt32);
+    Val* a_dtype = IrBuilder::create<Val>(
+        (mma->inA()->dtype() == DataType::BFloat16 ? 1 : 0) << 7,
+        DataType::UInt32);
+    Val* b_dtype = IrBuilder::create<Val>(
+        (mma->inB()->dtype() == DataType::BFloat16 ? 1 : 0) << 10,
+        DataType::UInt32);
+
     auto layout = lower_utils::getMmaLayout(mma);
-    Val* tnspA = nullptr;
-    if (layout[0] == UnitDim::K) {
-      tnspA = IrBuilder::create<Val>(0, DataType::UInt32);
-    } else {
-      tnspA = IrBuilder::create<Val>(1 << 15, DataType::UInt32);
-    }
-    Val* tnspB = nullptr;
-    if (layout[1] == UnitDim::K) {
-      tnspB = IrBuilder::create<Val>(0, DataType::UInt32);
-    } else {
-      tnspB = IrBuilder::create<Val>(1 << 16, DataType::UInt32);
-    }
+    Val* tnspA = IrBuilder::create<Val>(
+        (layout[0] == UnitDim::K ? 0 : 1) << 15, DataType::UInt32);
+    Val* tnspB = IrBuilder::create<Val>(
+        (layout[1] == UnitDim::K ? 0 : 1) << 16, DataType::UInt32);
 
     Val* n = IrBuilder::create<Val>((mma->n() >> 3) << 17, DataType::UInt32);
     Val* m = IrBuilder::create<Val>((mma->m() >> 4) << 24, DataType::UInt32);
 
     Val* idesc = SimplifyingIrBuilder::bitwiseOrExpr(
-        SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
-        SimplifyingIrBuilder::bitwiseOrExpr(n, m));
+        SimplifyingIrBuilder::bitwiseOrExpr(
+            accumulator_dtype,
+            SimplifyingIrBuilder::bitwiseOrExpr(a_dtype, b_dtype)),
+        SimplifyingIrBuilder::bitwiseOrExpr(
+            SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
+            SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
 
     // Do MMA
     Val* enable_input_d = IrBuilder::create<Val>(true, DataType::Bool);
@@ -340,10 +341,9 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 idesc,
                 enable_input_d,
             },
-            kir::Asm::Options{
-                /*volatile=*/true,
-                /*memory=*/false,
-                /*readable_outputs=*/{0}}));
+            kir::Asm::Options{/*volatile=*/true,
+                              /*memory=*/false,
+                              /*readable_outputs=*/{0}}));
     // TODO: This is clearly a wrong way to sync, but as an intermediate step to
     // enable incremental development, we use nanosleep to sync the mma. We
     // should replace this with a correct sync method.
@@ -398,11 +398,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
             ptx,
             std::vector<Val*>{},
             std::vector<Val*>{maxnreg->numberOfRegisters()},
-            kir::Asm::Options{
-                /*volatile=*/true,
-                /*memory=*/false,
-                /*readable_outputs=*/{},
-                /*immediate_inputs=*/{0}}));
+            kir::Asm::Options{/*volatile=*/true,
+                              /*memory=*/false,
+                              /*readable_outputs=*/{},
+                              /*immediate_inputs=*/{0}}));
   }
 
   void handle(kir::AllocTMem* alloc) final {
