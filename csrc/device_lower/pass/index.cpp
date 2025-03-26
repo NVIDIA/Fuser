@@ -264,8 +264,9 @@ void IndexLowering::handle(const TernaryOp* top) {
   const auto in2 = lowerSrcIndex(top->in2(), top->out());
   const auto in3 = lowerSrcIndex(top->in3(), top->out());
   const auto out = lowerDstIndex(top->out());
-  pushBack(IrBuilder::create<TernaryOp>(
-      top->getTernaryOpType(), out, in1, in2, in3));
+  pushBack(
+      IrBuilder::create<TernaryOp>(
+          top->getTernaryOpType(), out, in1, in2, in3));
   GpuLower::current()->propagateExprInfo(top, back());
 }
 
@@ -365,13 +366,14 @@ void IndexLowering::handle(const ScatterOp* sop) {
       {sop->dim(), lowered_index}};
   auto lowered_out = lowerDstIndex(sop->output(0), override_index_out);
 
-  pushBack(IrBuilder::create<ScatterOp>(
-      sop->getScatterOpType(),
-      lowered_out,
-      sop->selfTv(),
-      sop->dim(),
-      lowered_index,
-      lowered_src));
+  pushBack(
+      IrBuilder::create<ScatterOp>(
+          sop->getScatterOpType(),
+          lowered_out,
+          sop->selfTv(),
+          sop->dim(),
+          lowered_index,
+          lowered_src));
   GpuLower::current()->propagateExprInfo(sop, back());
 }
 
@@ -410,8 +412,9 @@ void IndexLowering::handle(const ViewAsScalar* uop) {
             IdMappingMode::LOOP)) {
       // TODO: this doesn't work with loop rotation
       Val* index = loop->indexOrStartIfTrivial();
-      pushBack(IrBuilder::create<LoadStoreOp>(
-          LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
+      pushBack(
+          IrBuilder::create<LoadStoreOp>(
+              LoadStoreOpType::Set, out, IrBuilder::getItemExpr(in, index)));
       GpuLower::current()->propagateExprInfo(uop, back());
       return;
     }
@@ -845,11 +848,12 @@ void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
   } else {
     for (const auto i :
          c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
-      pushBack(IrBuilder::create<BinaryOp>(
-          grouped_rop->getReductionOpType(i),
-          indexed_outputs.at(i),
-          indexed_outputs.at(i),
-          indexed_inputs.at(i)));
+      pushBack(
+          IrBuilder::create<BinaryOp>(
+              grouped_rop->getReductionOpType(i),
+              indexed_outputs.at(i),
+              indexed_outputs.at(i),
+              indexed_inputs.at(i)));
     }
   }
 }
@@ -1110,8 +1114,9 @@ void IndexLowering::handleGridWelford(WelfordOp* indexed_wop) {
   if (indexed_wop->predicate()) {
     if (block_reduce_separated) {
       grid_welford = grid_welford
-                         ->withPredicate(IrBuilder::create<kir::Predicate>(
-                             GpuLower::current()->kernel()->trueVal()))
+                         ->withPredicate(
+                             IrBuilder::create<kir::Predicate>(
+                                 GpuLower::current()->kernel()->trueVal()))
                          ->as<kir::GridWelford>();
     } else {
       grid_welford = grid_welford->withPredicate(indexed_wop->predicate())
@@ -1454,8 +1459,9 @@ void IndexLowering::handle(const kir::MBarrierArrive* arrive_transaction) {
 
   Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
       arrive_transaction->mbarrier()->as<kir::TensorIndex>());
-  pushBack(IrBuilder::create<kir::MBarrierArrive>(
-      arrive_transaction->state(), smem_address_ptr));
+  pushBack(
+      IrBuilder::create<kir::MBarrierArrive>(
+          arrive_transaction->state(), smem_address_ptr));
 }
 
 void IndexLowering::handle(
@@ -1466,10 +1472,11 @@ void IndexLowering::handle(
 
   Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
       arrive_transaction->mbarrier()->as<kir::TensorIndex>());
-  pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
-      arrive_transaction->state(),
-      smem_address_ptr,
-      arrive_transaction->txCount()));
+  pushBack(
+      IrBuilder::create<kir::MBarrierArriveExpectTx>(
+          arrive_transaction->state(),
+          smem_address_ptr,
+          arrive_transaction->txCount()));
 }
 
 void IndexLowering::handle(const kir::MBarrierWait* mwait) {
@@ -1488,8 +1495,9 @@ void IndexLowering::handle(const kir::MBarrierWaitParity* mwait) {
       "Expected kir::TensorIndex in MBarrierWaitParity");
   Val* smem_address_ptr = lower_utils::u32IndexScalarSmemTv(
       mwait->mbarrier()->as<kir::TensorIndex>());
-  pushBack(IrBuilder::create<kir::MBarrierWaitParity>(
-      smem_address_ptr, mwait->parity()));
+  pushBack(
+      IrBuilder::create<kir::MBarrierWaitParity>(
+          smem_address_ptr, mwait->parity()));
 }
 
 void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
@@ -1532,10 +1540,12 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     // arrive and expect_tx mbarrier
     Val* state = IrBuilder::create<Val>(DataType::UInt64);
-    pushBack(IrBuilder::create<kir::Allocate>(
-        state, MemoryType::Local, ldst->container()->oneVal()));
-    pushBack(IrBuilder::create<kir::MBarrierArriveExpectTx>(
-        state, mbarrier_index, expect_bytes));
+    pushBack(
+        IrBuilder::create<kir::Allocate>(
+            state, MemoryType::Local, ldst->container()->oneVal()));
+    pushBack(
+        IrBuilder::create<kir::MBarrierArriveExpectTx>(
+            state, mbarrier_index, expect_bytes));
 
     // indexing ldst op
     Val* out = lowerDstIndex(
@@ -2359,9 +2369,9 @@ static Val* constructBlackwellMatrixDescriptor(
       IrBuilder::lShiftExpr(or5, IrBuilder::create<Val>(61, DataType::UInt64));
   return IrBuilder::bitwiseOrExpr(
       IrBuilder::bitwiseOrExpr(
-          IrBuilder::bitwiseOrExpr(IrBuilder::bitwiseOrExpr(or0, or1), or2),
-          or3),
-      or4);
+          IrBuilder::bitwiseOrExpr(or0, or1),
+          IrBuilder::bitwiseOrExpr(or2, or3)),
+      IrBuilder::bitwiseOrExpr(or4, or5));
 }
 
 // Get the ValGroup of the ID in consumer's loop domain that corresponds to the
@@ -2894,8 +2904,9 @@ void IndexLowering::handle(const PadOp* pad) {
 
   pred = GpuLower::current()->commonScalarMap().hoistScalar(pred, for_loops_);
 
-  pushBack(IrBuilder::create<TernaryOp>(
-      TernaryOpType::Where, out, pred, in, pad_val));
+  pushBack(
+      IrBuilder::create<TernaryOp>(
+          TernaryOpType::Where, out, pred, in, pad_val));
   GpuLower::current()->propagateExprInfo(pad, back());
 }
 
