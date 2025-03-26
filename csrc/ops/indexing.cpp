@@ -20,8 +20,14 @@
 
 namespace nvfuser {
 
-TensorView* select(TensorView* tv, int64_t dim, Val* index) {
-  auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
+TensorView* select(
+    TensorView* tv,
+    int64_t dim,
+    Val* index,
+    bool keep_reduction_axis) {
+  auto dom = keep_reduction_axis
+      ? tv->getLogicalDomain()
+      : TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
 
   std::vector<IterDomain*> new_root;
