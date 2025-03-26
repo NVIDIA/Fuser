@@ -1098,8 +1098,8 @@ class AllocationInserter : public kir::ExprMutator {
         MmaOp* mma = expr->as<MmaOp>();
         init = mma->init();
         if (mma->isBlackwell()) {
-          // For Blackwell mma, we can choose between C = A x B or C = C + A x B.
-          // So there is no need to initialize the output tensor.
+          // For Blackwell mma, we can choose between C = A x B or C = C + A x
+          // B. So there is no need to initialize the output tensor.
           // TODO: we should do the same for Hopper
           NVF_ERROR(
               init == nullptr || init->isZero(),
