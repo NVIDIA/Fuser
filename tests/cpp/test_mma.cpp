@@ -1252,8 +1252,8 @@ TEST_P(Blackwell1CTAM128SS, SingleTile) {
 
   auto inputs = matmulAtInput3DSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
-  debug_utils::setAsIdentity(inputs.first.squeeze());
-  debug_utils::setAsARange(inputs.second.squeeze());
+  debugging::setAsIdentity(inputs.first.squeeze());
+  debugging::setAsARange(inputs.second.squeeze());
 
   KernelExecutor ke;
   ke.compile(
