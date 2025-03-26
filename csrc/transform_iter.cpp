@@ -10,8 +10,6 @@
 #include <logical_domain_map.h>
 #include <transform_iter.h>
 
-#include <c10/util/irange.h>
-
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>

@@ -8,7 +8,6 @@
 #include <index_compute.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 
 #include <contiguity.h>
 #include <device_lower/analysis/index_compute.h>

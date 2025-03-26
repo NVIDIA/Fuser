@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
 #include <compute_at.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>

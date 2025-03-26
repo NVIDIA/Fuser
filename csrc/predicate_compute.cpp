@@ -19,7 +19,6 @@
 #include <ops/arith.h>
 #include <transform_iter.h>
 
-#include <c10/util/irange.h>
 #include <device_lower/utils.h>
 
 namespace nvfuser {

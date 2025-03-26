@@ -25,7 +25,6 @@
 #include <transform_view.h>
 #include <type.h>
 
-#include <c10/util/irange.h>
 #include <torch/nn/options/embedding.h>
 
 #include <complex>

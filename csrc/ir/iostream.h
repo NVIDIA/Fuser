@@ -12,8 +12,6 @@
 
 #include <dispatch.h>
 
-#include <c10/util/irange.h>
-
 #include <iostream>
 
 namespace nvfuser {

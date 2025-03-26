@@ -15,8 +15,6 @@
 #include <scheduler/tools/inlining.h>
 #include <transform_iter.h>
 
-#include <c10/util/irange.h>
-
 namespace nvfuser {
 
 // Simple selector that only propagates across tensor views in the provided
