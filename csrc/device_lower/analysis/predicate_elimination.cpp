@@ -43,13 +43,14 @@ void assertOnWarpOps(const Expr* expr) {
   // Allow predicates for general LdMatrix usage.
   if (ir_utils::isLdMatrixOp(expr)) {
     const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-    NVF_ERROR(ldst->in()->isA<TensorView>());
-    TensorView* in_tv = ldst->in()->as<TensorView>();
+    TensorView* in_tv = ir_utils::getTv(ldst->in());
+    NVF_ERROR(in_tv != nullptr);
+
     NVF_ERROR(in_tv->definition() != nullptr);
     bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
 
-    NVF_ERROR(ldst->out()->isA<TensorView>());
-    TensorView* out_tv = ldst->out()->as<TensorView>();
+    TensorView* out_tv = ir_utils::getTv(ldst->out());
+    NVF_ERROR(out_tv != nullptr);
     bool any_mma_uses =
         std::any_of(out_tv->uses().begin(), out_tv->uses().end(), [](Expr* e) {
           return e->isA<MmaOp>();
