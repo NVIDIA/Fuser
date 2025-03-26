@@ -290,12 +290,8 @@ class BufferReuseDebugPrinter {
   }
 
   void handle(const kir::IfThenElse* node) {
-    // This pass doesn't yet need to handle
-    //  ite but could fill in the blank here
-    //  if this printer can be used for
-    //  other passes or we have more
-    //  complex ite pattern.
-    NVF_THROW("unsupported");
+    indent();
+    os_ << "IF " << node->predicate()->toString() << ":\n";
   }
 
   void printAllocInfo(const kir::Allocate* alloc);
@@ -811,7 +807,13 @@ class AllocationInfoMap : private kir::IrVisitor {
     // TODO: Currently we just naively dispatch into the IfThenElse node
     // assuming that this does not affect the analysis. For now, this assumption
     // is true, but in the future, we might need to revisit this.
+    if (debug_printer_) {
+      debug_printer_->pushScope();
+    }
     kir::IrVisitor::handle(ite);
+    if (debug_printer_) {
+      debug_printer_->popScope();
+    }
   }
 
   // Generate allocation info for allocation after some pre-filtering
@@ -944,7 +946,11 @@ class AllocationInfoMap : private kir::IrVisitor {
     // Collect all tv's that resolves broadcast in this
     //  expr. The current analysis isn't enough to capture
     //  their liveness range.
-    for (auto input_tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
+    for (Val* input : expr->inputs()) {
+      TensorView* input_tv = ir_utils::getTv(input);
+      if (!input_tv) {
+        continue;
+      }
       auto alloc_info = getAllocInfoFromTV(input_tv);
       if (alloc_info) {
         if (!isSerialBroadcastResolution(input_tv, for_loops_)) {
@@ -967,7 +973,11 @@ class AllocationInfoMap : private kir::IrVisitor {
         }
       }
     }
-    for (auto output_tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
+    for (Val* output : expr->outputs()) {
+      TensorView* output_tv = ir_utils::getTv(output);
+      if (!output_tv) {
+        continue;
+      }
       auto alloc_info = getAllocInfoFromTV(output_tv);
       if (alloc_info) {
         // Reductions use outputs as read-write parameters, so their
