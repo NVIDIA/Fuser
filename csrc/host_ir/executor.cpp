@@ -570,6 +570,31 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   }
 }
 
+void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
+  NVF_ERROR(
+      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+  auto in_tensor = getKnownConcreteData(load_store_op->in()).as<at::Tensor>();
+
+  // If output has root domain, compute and apply permutation
+  if (out_tv->hasRoot()) {
+    auto permutation = ir_utils::computePermutation(
+        out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(
+        permutation.has_value(),
+        "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
+        out_tv->toString());
+    in_tensor = in_tensor.permute(*permutation).contiguous();
+  }
+  if (!isKnown(load_store_op->out())) {
+    bind(load_store_op->out(), in_tensor);
+  } else {
+    auto out_tensor =
+        getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
+    out_tensor.copy_(in_tensor);
+  }
+}
+
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
@@ -591,6 +616,80 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       device,
       c10::nullopt);
   bind(tv, tensor);
+}
+
+void HostIrEvaluator::handle(BinaryOp* binary_op) {
+  if (!isKnown(binary_op->outputs().at(0))) {
+    return unhandled(binary_op);
+  }
+
+  auto lhs = getKnownConcreteData(binary_op->inputs().at(0)).as<at::Tensor>();
+  auto rhs = getKnownConcreteData(binary_op->inputs().at(1)).as<at::Tensor>();
+  auto output =
+      getKnownConcreteData(binary_op->outputs().at(0)).as<at::Tensor>();
+
+  switch (binary_op->getBinaryOpType()) {
+    case BinaryOpType::Add:
+      at::add_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Sub:
+      at::sub_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Mul:
+      at::mul_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Div:
+      at::div_out(output, lhs, rhs);
+      break;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          binary_op->getBinaryOpType(),
+          " in ",
+          binary_op);
+  }
+}
+
+void HostIrEvaluator::handle(ReductionOp* reduction_op) {
+  auto input_tv = reduction_op->in()->as<TensorView>();
+  auto output_tv = reduction_op->out()->as<TensorView>();
+  if (!isKnown(output_tv)) {
+    return unhandled(reduction_op);
+  }
+
+  NVF_ERROR(
+      !output_tv->hasRoot(),
+      "Evaluation for rFactored reductions is not supported.");
+  auto input = getKnownConcreteData(input_tv).as<at::Tensor>();
+  auto output = getKnownConcreteData(output_tv).as<at::Tensor>();
+
+  std::vector<int64_t> reduction_axes;
+  for (const auto i :
+       c10::irange(int64_t(output_tv->getLogicalDomain().size()))) {
+    auto ax = output_tv->getLogicalDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+    }
+  }
+  switch (reduction_op->getReductionOpType()) {
+    case BinaryOpType::Add:
+      at::sum_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Max:
+      at::amax_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Min:
+      at::amin_out(output, input, reduction_axes);
+      return;
+    default:
+      NVF_CHECK(
+          false,
+          "Unexpected operator type: ",
+          reduction_op->getReductionOpType(),
+          " in ",
+          reduction_op);
+  }
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {

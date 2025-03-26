@@ -597,6 +597,9 @@ bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
       SliceOp,
       SelectOp,
       LinearOp,
+      LoadStoreOp,
+      BinaryOp,
+      ReductionOp,
       Communication,
       P2PCommunication>();
 }
