@@ -2352,7 +2352,7 @@ static Val* constructBlackwellMatrixDescriptor(
       or5 = IrBuilder::create<Val>(4, DataType::UInt64);
       break;
     case MmaInputSmemSwizzle::B32:
-      or5 = IrBuilder::create<Val>(5, DataType::UInt64);
+      or5 = IrBuilder::create<Val>(6, DataType::UInt64);
       break;
   }
   or5 =
