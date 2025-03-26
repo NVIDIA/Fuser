@@ -352,6 +352,9 @@ TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
 }
 
+// This currently fails due to getShardingChanges reads root/logical only:
+// https://github.com/NVIDIA/Fuser/blob/1dda106a946adcfd1526b83e4f2d4abebb9e32e4/csrc/multidevice/utils.cpp#L77.
+// Will try to fix this in a follow-up PR and reenable the test.
 TEST_P(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
   EnableOptionsGuard opt_guard;
   const bool enable_host_ir_lowering = GetParam();
