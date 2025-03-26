@@ -594,12 +594,12 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
 bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
   return expr->isOneOf<
-             MatmulOp,
-             SliceOp,
-             SelectOp,
-             LinearOp,
-             Communication,
-             P2PCommunication>();
+      MatmulOp,
+      SliceOp,
+      SelectOp,
+      LinearOp,
+      Communication,
+      P2PCommunication>();
 }
 
 bool HostIrLower::ShouldMergeSegmentedGroups(
