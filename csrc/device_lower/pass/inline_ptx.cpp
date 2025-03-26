@@ -338,8 +338,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
             SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
             SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
 
-    // Disable disable-output-lane-id
-    Val* disable_output_lane_id = IrBuilder::create<Val>(
+    // Parameter disable-output-lane
+    Val* disable_output_lane = IrBuilder::create<Val>(
         std::vector<int64_t>{0, 0, 0, 0},
         ArrayType{std::make_shared<DataType>(DataType::UInt32), 4});
 
@@ -355,7 +355,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 mma->inA()->as<kir::TensorIndex>()->index(),
                 mma->inB()->as<kir::TensorIndex>()->index(),
                 idesc,
-                disable_output_lane_id,
+                disable_output_lane,
                 enable_input_d,
             },
             kir::Asm::Options{/*volatile=*/true,
