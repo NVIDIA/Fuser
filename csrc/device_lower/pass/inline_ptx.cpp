@@ -305,7 +305,26 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
     // Create instruction descriptor
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-instruction-descriptor
-    Val* idesc = IrBuilder::create<Val>(0, DataType::UInt32);
+    auto layout = lower_utils::getMmaLayout(mma);
+    Val* tnspA = nullptr;
+    if (layout[0] == UnitDim::K) {
+      tnspA = IrBuilder::create<Val>(0, DataType::UInt32);
+    } else {
+      tnspA = IrBuilder::create<Val>(1 << 15, DataType::UInt32);
+    }
+    Val* tnspB = nullptr;
+    if (layout[1] == UnitDim::K) {
+      tnspB = IrBuilder::create<Val>(0, DataType::UInt32);
+    } else {
+      tnspB = IrBuilder::create<Val>(1 << 16, DataType::UInt32);
+    }
+
+    Val* n = IrBuilder::create<Val>((mma->n() >> 3) << 17, DataType::UInt32);
+    Val* m = IrBuilder::create<Val>((mma->m() >> 4) << 24, DataType::UInt32);
+
+    Val* idesc = SimplifyingIrBuilder::bitwiseOrExpr(
+        SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
+        SimplifyingIrBuilder::bitwiseOrExpr(n, m));
 
     // Do MMA
     Val* enable_input_d = IrBuilder::create<Val>(true, DataType::Bool);
