@@ -302,14 +302,16 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
     // Create instruction descriptor
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-instruction-descriptor
-    Val* accumulator_dtype = IrBuilder::create<Val>(1LL << 4LL, DataType::UInt32);
+    Val* accumulator_dtype =
+        IrBuilder::create<Val>(1LL << 4LL, DataType::UInt32);
     Val* a_dtype = IrBuilder::create<Val>(
         (mma->inA()->dtype() == DataType::BFloat16 ? 1LL : 0LL) << 7LL,
         DataType::UInt32);
     Val* b_dtype = IrBuilder::create<Val>(
         (mma->inB()->dtype() == DataType::BFloat16 ? 1LL : 0LL) << 10LL,
         DataType::UInt32);
-    std::cout << "accumulator_dtype: " << accumulator_dtype->toInlineString() << std::endl;
+    std::cout << "accumulator_dtype: " << accumulator_dtype->toInlineString()
+              << std::endl;
     std::cout << "a_dtype: " << a_dtype->toInlineString() << std::endl;
     std::cout << "b_dtype: " << b_dtype->toInlineString() << std::endl;
 
@@ -321,8 +323,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
     std::cout << "tnspA: " << tnspA->toInlineString() << std::endl;
     std::cout << "tnspB: " << tnspB->toInlineString() << std::endl;
 
-    Val* n = IrBuilder::create<Val>((mma->n() >> 3LL) << 17LL, DataType::UInt32);
-    Val* m = IrBuilder::create<Val>((mma->m() >> 4LL) << 24LL, DataType::UInt32);
+    Val* n =
+        IrBuilder::create<Val>((mma->n() >> 3LL) << 17LL, DataType::UInt32);
+    Val* m =
+        IrBuilder::create<Val>((mma->m() >> 4LL) << 24LL, DataType::UInt32);
     std::cout << "n: " << n->toInlineString() << std::endl;
     std::cout << "m: " << m->toInlineString() << std::endl;
 
@@ -333,6 +337,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
         SimplifyingIrBuilder::bitwiseOrExpr(
             SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
             SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
+
+    // Disable disable-output-lane-id
+    Val* disable_output_lane_id = IrBuilder::create<Val>(
+        std::vector<int64_t>{0, 0, 0, 0},
+        ArrayType{std::make_shared<DataType>(DataType::UInt32), 4});
 
     // Do MMA
     Val* enable_input_d = IrBuilder::create<Val>(true, DataType::Bool);
@@ -346,6 +355,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 mma->inA()->as<kir::TensorIndex>()->index(),
                 mma->inB()->as<kir::TensorIndex>()->index(),
                 idesc,
+                disable_output_lane_id,
                 enable_input_d,
             },
             kir::Asm::Options{/*volatile=*/true,
