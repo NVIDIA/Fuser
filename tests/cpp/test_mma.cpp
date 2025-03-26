@@ -1252,11 +1252,14 @@ TEST_P(Blackwell1CTAM128SS, SingleTile) {
 
   auto inputs = matmulAtInput3DSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
+  debug_utils::setAsIdentity(inputs.first.squeeze());
+  debug_utils::setAsARange(inputs.second.squeeze());
 
   KernelExecutor ke;
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = ke.run({inputs.first, inputs.second});
+  std::cout << "cg_outputs[0]: " << cg_outputs[0] << std::endl;
   auto tref = atMatmul(
       inputs.first.squeeze().to(at::kFloat),
       inputs.second.squeeze().to(at::kFloat),
