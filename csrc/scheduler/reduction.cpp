@@ -1490,13 +1490,13 @@ std::unique_ptr<ReductionParams> getReductionHeuristics(
   // to be alive at the same time.
   int64_t n_tensor_inputs = 0;
   for (auto tv : unrollable_inputs_outputs) {
-    if (!tv->isFusionInput() && !tv->isFusionOutput()) {
-      continue;
-    }
     max_dtype_size_for_vectorization = std::max(
         max_dtype_size_for_vectorization,
         static_cast<int64_t>(dataTypeSize(
             tv->getDataType().value(), runtime_info.getIndexType())));
+    if (!tv->isFusionInput()) {
+      continue;
+    }
     n_tensor_inputs++;
   }
 
