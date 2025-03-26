@@ -41,6 +41,10 @@ class HostIrContainer final : public Fusion {
   //! Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
+  void resetTopLevelExprs(std::vector<Expr*> exprs) {
+    top_level_exprs_ = std::move(exprs);
+  }
+
   const std::vector<Expr*>& topLevelExprs() const;
 
   void pushBackTopLevelExprs(Expr* expr);
