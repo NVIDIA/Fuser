@@ -1167,6 +1167,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
         hp.threads_per_block_max,
         buffer_params.project_to_input,
         runtime_info.getIndexType());
+    rparams->tma_warp_specialized = true;
   } else {
     rparams = innerOuterPersistentHeuristic(
         properties.total_iteration_numel,
@@ -1483,6 +1484,86 @@ void scheduleInnerOuterPersistentKernel(
   inlineMost();
 }
 
+void scheduleTmaWarpSpecializedOuter(
+    Fusion* fusion,
+    const ReductionParams* rparams,
+    const std::vector<TensorView*>& outer_reduction_tvs,
+    std::vector<TensorView*>& cached_gmem,
+    std::vector<TensorView*>& cached_gmem_reload,
+    std::vector<TensorView*>& outer_reference_tvs,
+    std::unordered_set<TensorView*>& boundaryNodesSet) {
+  auto mergeReductionOrIterDomains = [](TensorView* tv, bool mergeReduction) {
+    int prev_i = -1;
+    for (int i = static_cast<int>(tv->nDims()) - 1; i >= 0; i--) {
+      if (mergeReduction == tv->axis(i)->isReduction()) {
+        if (prev_i == -1) {
+          prev_i = i;
+        } else {
+          tv->merge(i, prev_i);
+          prev_i = i;
+        }
+      }
+    }
+  };
+  for (auto& outer_reduction_tv : outer_reduction_tvs) {
+    // Similar to the inner reduction, we need to reorder the outer reduction tv
+    // when there are view operations.
+    if (!ir_utils::getViewOps(fusion).empty()) {
+      // Reorder reference_tv after propagating the view operation. This will
+      // reorder for better merging.
+      outer_reduction_tv->reorder(
+          scheduler_utils::domainReorderAsLogicalMap(outer_reduction_tv));
+    }
+
+    // merge tensorview to [reduction, iteraiton] domains
+    mergeReductionOrIterDomains(outer_reduction_tv, true);
+    mergeReductionOrIterDomains(outer_reduction_tv, false);
+
+    // First-stage of outer reduction
+    outer_reduction_tv->split(0, rparams->lparams.gdimy());
+    std::cout << "outer_reduction_tv1: " << outer_reduction_tv->toString()
+              << std::endl;
+
+    TensorView* partialResult = outer_reduction_tv->rFactor({0});
+    partialResult->cacheBefore();
+    partialResult->setMemoryType(MemoryType::Global);
+    TensorView* partialResultReload = partialResult->cacheAfter();
+
+    boundaryNodesSet.insert(partialResultReload);
+    cached_gmem.emplace_back(partialResult);
+    cached_gmem_reload.emplace_back(partialResultReload);
+
+    // Second-stage of outer reduction
+    // reduction domain, [I1/TIDy, TIDy]
+    outer_reduction_tv->split(0, rparams->lparams.bdimy());
+    outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+    // iteration domain, [BIDy, TIDx, Vect]
+    int axisID = -1;
+    if (rparams->vectorization_factor_outer > 1) {
+      outer_reduction_tv->split(axisID, rparams->vectorization_factor_outer);
+      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::Vectorize);
+    }
+
+    if (rparams->lparams.bdimx() > 1) {
+      outer_reduction_tv->split(axisID, rparams->lparams.bdimx());
+      outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::TIDx);
+    }
+
+    if (rparams->combined_split_grid_inner_dim) {
+      outer_reduction_tv->split(
+          axisID, NamedScalar::getParallelDim(ParallelType::BIDy));
+    }
+
+    outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
+    std::cout << "outer_reduction_tv2: " << outer_reduction_tv->toString()
+              << std::endl;
+
+    auto outer_reference_tv =
+        reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
+    outer_reference_tvs.emplace_back(outer_reference_tv);
+  }
+}
+
 void scheduleInnerOuterWarpSpecializedTmaKernel(
     Fusion* fusion,
     const ReductionParams* rparams) {
@@ -1533,7 +1614,7 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
   std::vector<TensorView*> cached_gmem_reload;
   std::vector<TensorView*> outer_reference_tvs;
   std::unordered_set<TensorView*> boundaryNodesSet;
-  scheduleReductionCombinedOuter(
+  scheduleTmaWarpSpecializedOuter(
       fusion,
       rparams,
       outer_reduction_tvs,
@@ -1932,11 +2013,10 @@ void InnerOuterPersistentKernelScheduler::schedule(
       rparams != nullptr && rparams->scheduler_type == schedulerType(),
       "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
       params);
-  if (isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
+  if (rparams->tma_warp_specialized) {
     scheduleInnerOuterWarpSpecializedTmaKernel(fusion, rparams);
-  }else{
+  } else {
     scheduleInnerOuterPersistentKernel(fusion, rparams);
   }
-
 }
 } // namespace nvfuser

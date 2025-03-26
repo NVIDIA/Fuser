@@ -1039,13 +1039,19 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
 using TmaWarpSpecializedParams = std::tuple<DataType, int64_t, int64_t>;
 class TmaWarpSpecializedTest
     : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
+ public:
   void SetUp() override {
-    EnableOptionsGuard opt_guard;
+    opt_guard_ = std::make_unique<EnableOptionsGuard>();
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::WarpSpecializedPersistent);
     NVFuserTest::SetUp();
   }
+
+ protected:
+  // This keeps the guard alive until all TmaWarpSpecializedTests are done.
+  std::unique_ptr<EnableOptionsGuard> opt_guard_;
 };
+
 TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto [dtype, dim0, dim1] = GetParam();
