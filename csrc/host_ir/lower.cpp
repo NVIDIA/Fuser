@@ -19,6 +19,7 @@
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
+#include <preseg_passes/stream_parallel_type.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <limits>
 
@@ -718,6 +719,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     hic->addOutput(ir_cloner.clone(output));
   }
 
+  for (auto tv : hic->allTvs()) {
+    tv->setMemoryType(MemoryType::Global);
+  }
+
   std::vector<Expr*> new_top_level_exprs;
   for (auto top_level_expr : hic->topLevelExprs()) {
     if (!isResharding(top_level_expr)) {
@@ -743,6 +748,9 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     }
   }
   hic->resetTopLevelExprs(new_top_level_exprs);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
 
   return hic;
 }
