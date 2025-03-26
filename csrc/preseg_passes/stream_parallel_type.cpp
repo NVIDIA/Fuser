@@ -270,8 +270,11 @@ void StreamParallelType::runPass(Fusion* fusion) {
               hic->markAlias(output_j, output_j_alias);
               *it_running_expr = ir_utils::transferDefinitionToNewOutputs(
                   running_expr, {output_j_alias});
-              if (Communication* comm = dynamic_cast<Communication*>(output_j_alias->definition()); comm && comm->type() == CommunicationType::Allgather) {
-                std::cout << "HERE, with expr:" << *it_running_expr << std::endl;
+              if (Communication* comm = dynamic_cast<Communication*>(
+                      output_j_alias->definition());
+                  comm && comm->type() == CommunicationType::Allgather) {
+                std::cout << "HERE, with expr:" << *it_running_expr
+                          << std::endl;
               }
             }
           }

@@ -558,30 +558,32 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
 }
 
-
 bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
   return expr->isOneOf<
-      MatmulOp,
-      SliceOp,
-      SelectOp,
-      LoadStoreOp,
-      BinaryOp,
-      ReductionOp,
-      LinearOp,
-      Communication,
-      P2PCommunication>() ||
-      (isResharding(expr) && expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
+             MatmulOp,
+             SliceOp,
+             SelectOp,
+             LoadStoreOp,
+             BinaryOp,
+             ReductionOp,
+             LinearOp,
+             Communication,
+             P2PCommunication>() ||
+      (isResharding(expr) && expr->isA<LoadStoreOp>() &&
+       expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set);
 }
 
-bool HostIrLower::ShouldMergeSegmentedGroups(SegmentedGroup* group1, SegmentedGroup* group2) {
+bool HostIrLower::ShouldMergeSegmentedGroups(
+    SegmentedGroup* group1,
+    SegmentedGroup* group2) {
   for (auto group : {group1, group2}) {
-      for (auto expr : group->exprs()) {
-        if (isLoweredAsStandaloneHostOp(expr)) {
-          return false;
-        }
+    for (auto expr : group->exprs()) {
+      if (isLoweredAsStandaloneHostOp(expr)) {
+        return false;
       }
     }
-    return true;
+  }
+  return true;
 }
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
@@ -668,17 +670,13 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     tv->setMemoryType(MemoryType::Global);
   }
 
-  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
-      hic.get());
-
   std::vector<Expr*> new_top_level_exprs;
   for (auto top_level_expr : hic->topLevelExprs()) {
     if (!isResharding(top_level_expr)) {
       new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
-    for (auto* expr :
-          HostIrLower::lower(top_level_expr)) {
+    for (auto* expr : HostIrLower::lower(top_level_expr)) {
       // Allocate the recv buffers of communications
       if (expr->isA<Communication>()) {
         auto* communication = expr->as<Communication>();
@@ -697,6 +695,9 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     }
   }
   hic->resetTopLevelExprs(new_top_level_exprs);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
 
   return hic;
 }

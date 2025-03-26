@@ -38,7 +38,9 @@ class HostIrLower {
 
   static bool isLoweredAsStandaloneHostOp(Expr* expr);
 
-  static bool ShouldMergeSegmentedGroups(SegmentedGroup* group1, SegmentedGroup* group2);
+  static bool ShouldMergeSegmentedGroups(
+      SegmentedGroup* group1,
+      SegmentedGroup* group2);
 
  private:
   std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);

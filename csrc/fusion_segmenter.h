@@ -497,7 +497,8 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
-  bool (*custom_should_merge_groups)(SegmentedGroup*, SegmentedGroup*) = nullptr;
+  bool (*custom_should_merge_groups)(SegmentedGroup*, SegmentedGroup*) =
+      nullptr;
 };
 
 //!  SegmentCandidateFinder

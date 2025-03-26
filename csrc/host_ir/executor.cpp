@@ -569,7 +569,8 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 }
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
-  NVF_ERROR(load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+  NVF_ERROR(
+      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();
   auto in_tensor = getKnownConcreteData(load_store_op->in()).as<at::Tensor>();
 
@@ -586,10 +587,10 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   if (!isKnown(load_store_op->out())) {
     bind(load_store_op->out(), in_tensor);
   } else {
-    auto out_tensor = getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
+    auto out_tensor =
+        getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
     out_tensor.copy_(in_tensor);
   }
-
 }
 
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
