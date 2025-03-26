@@ -8,6 +8,7 @@
 #include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/pass/magic_zero.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <id_model/circular_buffer_indexing.h>
@@ -207,6 +208,38 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
+  if (GpuLower::current()->isNvFuserZeroEnabled() &&
+      tv->getMemoryType() == MemoryType::Global) {
+    for (const auto for_loop : for_loops | std::views::reverse) {
+      Val* initial_loop_index =
+          getLoopIndex(for_loop->iter_domain(), for_loops);
+      if (!needsMagicZero(
+              for_loop, for_loop->iter_domain(), initial_loop_index)) {
+        continue;
+      }
+#if 0
+      std::cerr << "Magic zero required: "
+                << tv->toString() << " in " << expr->toString()
+                << for_loop->iter_domain()->toString()
+                << ". Loop index: " << initial_loop_index->toInlineString()
+                << ". Final index: " << linear_index->toInlineString()
+                << "\n";
+#endif
+      std::unordered_map<Val*, Val*> replacement_map;
+      replacement_map.emplace(
+          initial_loop_index,
+          SimplifyingIrBuilder::addExpr(
+              initial_loop_index,
+              GpuLower::current()->kernel()->magicZeroVal()));
+      linear_index =
+          ir_utils::replaceValRecursively(linear_index, replacement_map);
+#if 0
+      std::cerr << "Magic zero applied: " << linear_index->toInlineString() << "\n";
+#endif
+      break;
+    }
+  }
+
   return linear_index;
 }
 
@@ -290,6 +323,9 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
+    ForLoop* for_loop = indexing_utils::getForLoop(
+        loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
+
     Val* cur_index = getLoopIndex(loop_id, for_loops);
 
     Val* replacement_index = nullptr;
@@ -302,9 +338,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         loop_id->getParallelType() == ParallelType::Mma) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
-      ForLoop* for_loop = indexing_utils::getForLoop(
-          loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
-
       // for_loop is nullptr if no matching loop is found, which
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
@@ -330,7 +363,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         }
       }
     }
-
     if (replacement_index == nullptr || replacement_index == cur_index) {
       continue;
     }
@@ -529,6 +561,36 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       }
 
       info_vec.emplace_back(info);
+    }
+  }
+
+  if (GpuLower::current()->isNvFuserZeroEnabled()) {
+    for (const auto for_loop : for_loops | std::views::reverse) {
+      Val* initial_loop_index =
+          getLoopIndex(for_loop->iter_domain(), for_loops);
+      if (!needsMagicZero(
+              for_loop, for_loop->iter_domain(), initial_loop_index)) {
+        continue;
+      }
+
+      std::unordered_map<Val*, Val*> replacement_map;
+      replacement_map.emplace(
+          initial_loop_index,
+          SimplifyingIrBuilder::addExpr(
+              initial_loop_index,
+              GpuLower::current()->kernel()->magicZeroVal()));
+      for (auto& predicate_info : info_vec) {
+        auto protected_start_pred = ir_utils::replaceValRecursively(
+            predicate_info.start_predicate_, replacement_map);
+        predicate_info.start_predicate_ = protected_start_pred;
+        auto protected_stop_pred = ir_utils::replaceValRecursively(
+            predicate_info.stop_predicate_, replacement_map);
+#if 0
+        std::cerr << "Magic zero applied: " << predicate_info.stop_predicate_->toInlineString()
+                  << " -> " << protected_stop_pred->toInlineString() << "\n";
+#endif
+        predicate_info.stop_predicate_ = protected_stop_pred;
+      }
     }
   }
 
