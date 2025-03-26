@@ -186,8 +186,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->tag = "Pointwise heuristics";
   params->cparams.index_type = index_type;
 
-  auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
-
   auto domain_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>(
           data_cache, [fusion]() {
