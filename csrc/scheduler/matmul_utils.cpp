@@ -1045,7 +1045,7 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
     // Disable stmatrix unless the problem size is divisible by 16x16, which is
     // the hardcoded stmatrix size we use currently. See
     // See https://github.com/NVIDIA/Fuser/issues/3963
-    mparams->use_stmatrix =
+    mparams->use_ldst_matrix =
         problem_shape[(size_t)MatmulDimRole::M] % 16L == 0L &&
         problem_shape[(size_t)MatmulDimRole::N] % 16L == 0;
 

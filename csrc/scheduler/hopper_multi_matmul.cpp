@@ -688,7 +688,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Set LoadStoreOpType
       bool store_with_stmatrix =
-          params_->use_stmatrix && dataTypeSize(dc->dtype()) == 2;
+          params_->use_ldst_matrix && dataTypeSize(dc->dtype()) == 2;
       if (store_with_stmatrix) {
         d_smem->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::StMatrix);
