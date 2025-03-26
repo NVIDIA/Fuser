@@ -214,7 +214,8 @@ std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group)
   }
   return sorted_exprs;
 }
-}
+
+} // namespace
 
 void FusionKernelRuntime::deserialize(
     const serde::FusionKernelRuntime* buffer,
