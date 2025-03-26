@@ -309,15 +309,22 @@ class LowerToInlinePtx : public kir::ExprMutator {
     Val* b_dtype = IrBuilder::create<Val>(
         (mma->inB()->dtype() == DataType::BFloat16 ? 1LL : 0LL) << 10LL,
         DataType::UInt32);
+    std::cout << "accumulator_dtype: " << accumulator_dtype->toInlineString() << std::endl;
+    std::cout << "a_dtype: " << a_dtype->toInlineString() << std::endl;
+    std::cout << "b_dtype: " << b_dtype->toInlineString() << std::endl;
 
     auto layout = lower_utils::getMmaLayout(mma);
     Val* tnspA = IrBuilder::create<Val>(
         (layout[0] == UnitDim::K ? 0LL : 1LL) << 15LL, DataType::UInt32);
     Val* tnspB = IrBuilder::create<Val>(
         (layout[1] == UnitDim::K ? 0LL : 1LL) << 16LL, DataType::UInt32);
+    std::cout << "tnspA: " << tnspA->toInlineString() << std::endl;
+    std::cout << "tnspB: " << tnspB->toInlineString() << std::endl;
 
     Val* n = IrBuilder::create<Val>((mma->n() >> 3LL) << 17LL, DataType::UInt32);
     Val* m = IrBuilder::create<Val>((mma->m() >> 4LL) << 24LL, DataType::UInt32);
+    std::cout << "n: " << n->toInlineString() << std::endl;
+    std::cout << "m: " << m->toInlineString() << std::endl;
 
     Val* idesc = SimplifyingIrBuilder::bitwiseOrExpr(
         SimplifyingIrBuilder::bitwiseOrExpr(
