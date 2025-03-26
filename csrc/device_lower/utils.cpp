@@ -132,8 +132,7 @@ bool isTV(const Val* val) {
 
 // Check if we're a TensorView op that we can generate code for.
 bool isTvOp(const Expr* expr) {
-  if ((std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) ||
-       std::ranges::any_of(expr->inputs(), [](Val* v) { return isTV(v); })) &&
+  if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
           UnaryOp,
           BinaryOp,
@@ -167,7 +166,6 @@ bool isTvOp(const Expr* expr) {
           PadOp,
           SliceOp,
           CatOp,
-          kir::Asm,
           kir::AllocTMem,
           kir::GridReduction,
           kir::GroupedGridReduction,

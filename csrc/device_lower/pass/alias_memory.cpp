@@ -937,8 +937,6 @@ class AllocationInfoMap : private kir::IrVisitor {
     if (expr->isOneOf<kir::MBarrierInit, kir::MBarrierInvalidate>()) {
       collectLivenessInfoOfExprMBarrier(expr);
       return;
-    } else if (!ir_utils::isTvOp(expr)) {
-      return;
     }
 
     const auto expr_pos = scope_map_.getExprPos(expr);
