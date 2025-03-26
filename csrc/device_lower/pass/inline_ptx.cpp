@@ -302,22 +302,22 @@ class LowerToInlinePtx : public kir::ExprMutator {
 
     // Create instruction descriptor
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-instruction-descriptor
-    Val* accumulator_dtype = IrBuilder::create<Val>(1 << 4, DataType::UInt32);
+    Val* accumulator_dtype = IrBuilder::create<Val>(1LL << 4LL, DataType::UInt32);
     Val* a_dtype = IrBuilder::create<Val>(
-        (mma->inA()->dtype() == DataType::BFloat16 ? 1 : 0) << 7,
+        (mma->inA()->dtype() == DataType::BFloat16 ? 1LL : 0LL) << 7LL,
         DataType::UInt32);
     Val* b_dtype = IrBuilder::create<Val>(
-        (mma->inB()->dtype() == DataType::BFloat16 ? 1 : 0) << 10,
+        (mma->inB()->dtype() == DataType::BFloat16 ? 1LL : 0LL) << 10LL,
         DataType::UInt32);
 
     auto layout = lower_utils::getMmaLayout(mma);
     Val* tnspA = IrBuilder::create<Val>(
-        (layout[0] == UnitDim::K ? 0 : 1) << 15, DataType::UInt32);
+        (layout[0] == UnitDim::K ? 0LL : 1LL) << 15LL, DataType::UInt32);
     Val* tnspB = IrBuilder::create<Val>(
-        (layout[1] == UnitDim::K ? 0 : 1) << 16, DataType::UInt32);
+        (layout[1] == UnitDim::K ? 0LL : 1LL) << 16LL, DataType::UInt32);
 
-    Val* n = IrBuilder::create<Val>((mma->n() >> 3) << 17, DataType::UInt32);
-    Val* m = IrBuilder::create<Val>((mma->m() >> 4) << 24, DataType::UInt32);
+    Val* n = IrBuilder::create<Val>((mma->n() >> 3LL) << 17LL, DataType::UInt32);
+    Val* m = IrBuilder::create<Val>((mma->m() >> 4LL) << 24LL, DataType::UInt32);
 
     Val* idesc = SimplifyingIrBuilder::bitwiseOrExpr(
         SimplifyingIrBuilder::bitwiseOrExpr(
