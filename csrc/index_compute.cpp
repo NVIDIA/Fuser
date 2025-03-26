@@ -1325,7 +1325,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   // Global striding
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : arange(alloc_dom.size())) {
     Val* alloc_ind = alloc_indices.at(i);
 
     if (alloc_ind->isZeroInt()) {
@@ -1523,7 +1523,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
     is_mma_allocation = [](const IterDomain* id) { return false; };
   }
 
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : arange(alloc_dom.size())) {
     if (skip_indexing.count(alloc_dom[i])) {
       continue;
     }
@@ -1549,7 +1549,7 @@ std::vector<Val*> Index::getNonGlobalProducerStridedIndices(
 
     // Compute striding for this index.
     Val* stride = nullptr;
-    for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
+    for (const auto j : arange(i + 1, alloc_dom.size())) {
       if (skip_indexing.count(alloc_dom[j])) {
         continue;
       }
@@ -1619,7 +1619,7 @@ Val* Index::getLinearLogicalIndex(
         consumer_tv->getLogicalDomain(),
         loops);
     Val* stride = consumer_tv->fusion()->oneVal();
-    for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
+    for (const auto i : arange(consumer_tv->getLogicalDomain().size())) {
       auto per_dim_index = per_dim_indices.at(i);
       auto logical_id = consumer_tv->getLogicalDomain().at(i);
       auto per_dim_strided_index =
@@ -1688,7 +1688,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
       alloc_dom.size(), GpuLower::current()->kernel()->oneVal());
   {
     int stride_i = 0;
-    for (const auto i : c10::irange(alloc_dom.size())) {
+    for (const auto i : arange(alloc_dom.size())) {
       if (alloc_dom[i]->isReduction() || alloc_dom[i]->isStride()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
@@ -1701,7 +1701,7 @@ std::vector<Val*> Index::getStrides(TensorView* tv) {
 
   NVF_ERROR(alloc_dom.size() == tv->domain()->contiguity().size());
   Val* cur_contig_stride = GpuLower::current()->kernel()->oneVal();
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : arange(alloc_dom.size())) {
     auto dim = alloc_dom.size() - i - 1;
     if (alloc_dom[dim]->isReduction() || alloc_dom[dim]->isStride()) {
       continue;
@@ -1741,7 +1741,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
 
   std::vector<Val*> alloc_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : arange(alloc_dom.size())) {
     // See a comment in indexing to allocation domains in
     // getGlobalProducerIndex.
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
@@ -1847,7 +1847,7 @@ std::vector<Val*> Index::getProducerAllocationIndices(
   std::vector<Val*> alloc_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
 
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : arange(alloc_dom.size())) {
     auto override_it = override_index.find(alloc_dom[i]);
     const bool is_overriden = override_it != override_index.end();
 
@@ -1901,7 +1901,7 @@ std::vector<Val*> Index::getGlobalConsumerStridedIndices(
       loops.empty() ? nullptr : loops.back()->vectorize_shift();
   std::vector<Val*> strided_inds(
       alloc_inds.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_inds.size())) {
+  for (const auto i : arange(alloc_inds.size())) {
     auto override_it = override_index.find((int)i);
     if (override_it != override_index.end()) {
       alloc_inds[i] = override_it->second;
@@ -1965,7 +1965,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
   const auto& alloc_dom = consumer_tv->getMaybeAllocationDomain();
   std::vector<Val*> strided_inds(
       alloc_dom.size(), GpuLower::current()->kernel()->zeroVal());
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : arange(alloc_dom.size())) {
     if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast() ||
         alloc_dom[i]->isStride() || alloc_dom[i]->isDeviceDim() ||
         (alloc_dom[i]->isThread() &&
@@ -1998,7 +1998,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
 
     // Compute striding for this index.
     Val* stride = nullptr;
-    for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
+    for (const auto j : arange(i + 1, alloc_dom.size())) {
       if (alloc_dom[j]->isBroadcast() || alloc_dom[j]->isReduction() ||
           alloc_dom[j]->isDeviceDim() || alloc_dom[j]->isStride()) {
         continue;
@@ -2326,7 +2326,7 @@ std::vector<PredicateDomainInfo> getPredicateContigIds(
   }
 
   std::unordered_set<IterDomain*> final_ids;
-  for (auto root_i : c10::irange(consumer_root_domain.size())) {
+  for (auto root_i : arange(consumer_root_domain.size())) {
     auto root_id = consumer_root_domain[root_i];
     if (root_id->maybePartial()) {
       final_ids.insert(root_id);
@@ -2733,7 +2733,7 @@ std::pair<Val*, Val*> Index::getCpAsyncBulkGmemIndex(
     // These are the box coordinates of the TMA box, which must be of type
     // int32_t. Possible overflow in each of these dims should be checked
     // elsewhere.
-    for (size_t i : c10::irange(indices_inner_to_outer.size())) {
+    for (size_t i : arange(indices_inner_to_outer.size())) {
       indices_inner_to_outer[i] =
           IrBuilder::maybeCastExpr(DataType::Int32, indices_inner_to_outer[i]);
     }
