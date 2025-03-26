@@ -1275,7 +1275,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
   std::vector<Val*> strides(alloc_dom.size(), nullptr);
   {
     int stride_i = 0;
-    for (const auto i : c10::irange(alloc_dom.size())) {
+    for (const auto i : arange(alloc_dom.size())) {
       if (alloc_dom[i]->isReduction()) {
         strides[i] = GpuLower::current()->kernel()->oneVal();
         continue;
@@ -1289,7 +1289,7 @@ std::vector<Val*> Index::getGlobalProducerStridedIndices(
 
   NVF_ERROR(alloc_dom.size() == producer_tv->domain()->contiguity().size());
   Val* cur_contig_stride = GpuLower::current()->kernel()->oneVal();
-  for (const auto i : c10::irange(alloc_dom.size())) {
+  for (const auto i : arange(alloc_dom.size())) {
     auto dim = alloc_dom.size() - i - 1;
     if (alloc_dom[dim]->isReduction()) {
       continue;

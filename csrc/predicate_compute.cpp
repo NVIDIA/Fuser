@@ -246,7 +246,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   auto unswitch_protected_loop_ids =
       getUnswitchProtectedParallelLoopIds(expr, loops, unswitched_loop);
 
-  for (const auto i : c10::irange(loops.size())) {
+  for (const auto i : arange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.
@@ -774,7 +774,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   Val* cond = preds[0];
-  for (const auto i : c10::irange(1, preds.size())) {
+  for (const auto i : arange(1, preds.size())) {
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 

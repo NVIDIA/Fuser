@@ -504,7 +504,7 @@ BestEffortReplay::BestEffortReplay(
     bool missing_replay_input = false;
 
     // Map target_expr inputs to replay domain directly
-    for (const auto t_i : c10::irange(target_id_inps.size())) {
+    for (const auto t_i : arange(target_id_inps.size())) {
       // There might not be a mapping, that could be okay (depends on rfactor
       // checking).
       auto it = target2replay_id_map_.find(target_id_inps[t_i]);
@@ -644,7 +644,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     // Take replay expr inputs out of map:
-    for (const auto t_i : c10::irange(target_id_inps.size())) {
+    for (const auto t_i : arange(target_id_inps.size())) {
       auto t_inp = target_id_inps[t_i];
       auto r_orig_inp = target2replay_id_map_.at(t_inp);
       auto r_maybe_forwarded_inp = replay_inps[t_i];
@@ -661,7 +661,7 @@ BestEffortReplay::BestEffortReplay(
     }
 
     // Add outputs to map.
-    for (const auto i : c10::irange(target_expr->outputs().size())) {
+    for (const auto i : arange(target_expr->outputs().size())) {
       auto t_out = target_expr->output(i);
       auto r_out = replay_expr->output(i);
       if (t_out->getValType() == ValType::IterDomain &&
@@ -712,7 +712,7 @@ int64_t BestEffortReplay::findFirstMismatchedID(
 
   BestEffortReplay ber(td2->loop(), td1->loop(), id_map);
   for (const auto i :
-       c10::irange((int64_t)std::max(td1->loop().size(), td2->loop().size()))) {
+       arange((int64_t)std::max(td1->loop().size(), td2->loop().size()))) {
     if (ber.getReplay().find(td1->axis(i)) == ber.getReplay().end()) {
       return i;
     }
@@ -773,7 +773,7 @@ ForwardingInfo::ForwardingInfo(
   //
   // Initialize which id's should beforwarded.
   std::unordered_set<IterDomain*> forwarded_ids;
-  for (auto i : c10::irange(active_dim_flags->size())) {
+  for (auto i : arange(active_dim_flags->size())) {
     if (active_dim_flags->at(i)) {
       forwarded_ids.emplace(active_logical_dom.at(i));
     }

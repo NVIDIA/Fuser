@@ -13,6 +13,7 @@
 #include <exceptions.h>
 #include <execinfo.h>
 
+#include <utils.h>
 #include <cstdlib>
 #include <functional>
 #include <iostream>
@@ -191,7 +192,7 @@ std::string _get_backtrace(
   // Toggles to true after the first skipped python frame.
   bool has_skipped_python_frames = false;
 
-  for (const auto frame_number : c10::irange(callstack.size())) {
+  for (const auto frame_number : arange(callstack.size())) {
     const auto frame = parse_frame_information(symbols[frame_number]);
 
     if (skip_python_frames && frame && is_python_frame(*frame)) {

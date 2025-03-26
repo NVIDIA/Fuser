@@ -605,7 +605,7 @@ auto arange(auto start, auto end) {
   static_assert(std::is_integral<decltype(end)>());
   // If start and end are the same type, use the range directly
   if constexpr (std::is_same_v<decltype(start), decltype(end)>) {
-      return std::ranges::iota_view(start, end);
+    return std::ranges::iota_view(start, end);
   }
   return std::ranges::iota_view(decltype(end)(start), end);
 }
