@@ -338,7 +338,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
             SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
 
-    // Parameter disable-output-lane
+    // Parameter disable-output-lane. TODO: remove?
     Val* disable_output_lane = IrBuilder::create<Val>(
         std::vector<int64_t>{0, 0, 0, 0},
         ArrayType{std::make_shared<DataType>(DataType::UInt32), 4});
