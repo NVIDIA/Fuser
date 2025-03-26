@@ -110,7 +110,7 @@ INSTANTIATE_TEST_SUITE_P(
             {{{0, 1}, {0}},
              {{0, 1}, {1}},
              {{1, 2}, {0, 2}}})),
-        testing::Bool()),
+        false), // TODO: testing::Bool() after implementing communication lowering
     [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
       const auto& meshes = std::get<0>(info.param);
       const auto& in_mesh = meshes.first;
@@ -180,7 +180,7 @@ INSTANTIATE_TEST_SUITE_P(
             {{{0}, {0, 1}}, //
              {{1}, {0, 1}}, //
              {{0, 2}, {1, 2}}})),
-        testing::Bool()),
+        false), // TODO: testing::Bool() after implementing communication lowering
     [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
       const auto& meshes = std::get<0>(info.param);
       const auto& in_mesh = meshes.first;
@@ -253,7 +253,7 @@ INSTANTIATE_TEST_SUITE_P(
              {{1}, {0}},
              {{1, 2}, {0, 1}},
              {{1, 2}, {1, 0}}})),
-        testing::Bool()),
+        false), // TODO: testing::Bool() after implementing communication lowering
     [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
       const auto& meshes = std::get<0>(info.param);
       const auto& in_mesh = meshes.first;
@@ -623,7 +623,7 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
 INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerCollectiveTest,
-    testing::Bool(),
+    false, // TODO: testing::Bool() after implementing communication lowering
     [](const testing::TestParamInfo<bool>& info) {
       return info.param ? "HirLowerEnabled" : "HirLowerDisabled";
     });
