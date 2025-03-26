@@ -1237,7 +1237,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             for_loop->circularBufferLoopStage() ==
                 CircularBufferLoopStage::Main) {
           NVF_ERROR(num_exprs > 1);
-          NVF_ERROR(for_loop->body().exprs().back()->isA<kir::BlockSync>());
           --pos;
         }
 
