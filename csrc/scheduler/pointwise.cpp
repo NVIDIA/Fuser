@@ -210,15 +210,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   const auto device_multiprocessor_count = static_cast<int64_t>(
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
 
-  // TODO: Set to 1?
-  int64_t max_input_dtype_size = 2;
-
-  for (auto inp : in_tvs) {
-    max_input_dtype_size = std::max(
-        max_input_dtype_size,
-        (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
-  }
-
   auto reorder_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
           data_cache, [&fusion, &largest_out]() {
@@ -494,7 +485,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       fusion,
       break_point,
       total_blocks,
-      params->vectorization_factor * max_input_dtype_size,
+      params->vectorization_factor * max_dtype_size_for_vectorization,
       divisible_split,
       vectorizable_inputs_outputs_entry.get());
 
@@ -525,7 +516,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n===== Pointwise Stats ========\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "max_dtype_size_for_vectorization: "
+            << max_dtype_size_for_vectorization << "\n"
             << "unroll_factor_inner: " << params->unroll_factor_inner
             << std::endl
             << "unroll_factor_outer: " << params->unroll_factor_outer
