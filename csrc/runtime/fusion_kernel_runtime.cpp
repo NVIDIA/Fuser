@@ -200,12 +200,16 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 }
 
 namespace {
-std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group) {
+std::vector<Expr*> toposortExprs(
+    SegmentedFusion* fusion,
+    SegmentedGroup* group) {
   std::vector<Expr*> sorted_exprs;
   {
-    auto [/*IrCloner*/group_ir_cloner, /*std::unique_ptr<Fusion>*/group_fusion] = fusion->makeFusion(group);
+    auto
+        [/*IrCloner*/ group_ir_cloner,
+         /*std::unique_ptr<Fusion>*/ group_fusion] = fusion->makeFusion(group);
     std::unordered_map<Expr*, Expr*> inverse_clone_map;
-    for (auto expr: group->exprs()) { // Sorts the exprs in the group
+    for (auto expr : group->exprs()) { // Sorts the exprs in the group
       inverse_clone_map[group_ir_cloner.clone(expr)] = expr;
     }
     for (auto cloned_expr : group_fusion->exprs()) {
@@ -480,7 +484,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         } else {
           // push back segment's exprs into the container as top level
           // expressions
-          for (auto* expr : toposortExprs(segmented_fusion_.get(), group_to_run)) {
+          for (auto* expr :
+               toposortExprs(segmented_fusion_.get(), group_to_run)) {
             auto cloned_expr = ir_cloner.clone(expr);
             hic->pushBackTopLevelExprs(cloned_expr);
           }
