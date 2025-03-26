@@ -52,7 +52,7 @@ TEST_F(NVFuserTest, FunctionTrace1) {
   EXPECT_THAT(
       ss.str(),
       ::testing::HasSubstr("Leaving myFavoriteFunction returning 3 at "));
-  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:32"));
+  EXPECT_THAT(ss.str(), ::testing::HasSubstr("test_utils.cpp:37"));
 #else
   GTEST_SKIP() << "Test only runs in debug mode";
 #endif

@@ -106,6 +106,9 @@ Val* maybeUnwrapMagicZero(Val* val) {
 }
 
 bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
+  NVF_ERROR(ind != nullptr);
+  NVF_ERROR(reference_domain != nullptr);
+
   if (ind->isConstScalar()) {
     return false;
   }
@@ -114,11 +117,12 @@ bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
     return false;
   }
 
-  bool ref_dom_simple =
-      reference_domain == nullptr || reference_domain->definition() != nullptr;
-  bool ind_simple =
-      ind == nullptr || (ind->definition() != nullptr && !ind->isZeroInt());
-  return loop->isUnrolled() && (!ref_dom_simple || !ind_simple);
+  bool ref_dom_simple = reference_domain->definition() == nullptr;
+
+  // Unclear if isZeroInt is needed in additon to definition() == nullptr
+  bool ind_simple = ind->definition() == nullptr || ind->isZeroInt();
+
+  return loop->isUnrolled() && (ref_dom_simple || ind_simple);
 }
 
 void protectNonPredicateIndexWithMagicZero(
