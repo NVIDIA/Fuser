@@ -338,13 +338,12 @@ class LowerToInlinePtx : public kir::ExprMutator {
             SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
             SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
 
-    // Parameter disable-output-lane. TODO: remove?
-    Val* disable_output_lane = IrBuilder::create<Val>(
-        std::vector<int64_t>{0, 0, 0, 0},
-        ArrayType{std::make_shared<DataType>(DataType::UInt32), 4});
+    // Switch between C = A * B and C = A * B + C. For now, we always use the
+    // former, because we do not have a good way to zero out the accumulator
+    // yet.
+    Val* enable_input_d = IrBuilder::create<Val>(false, DataType::Bool);
 
     // Do MMA
-    Val* enable_input_d = IrBuilder::create<Val>(false, DataType::Bool);
     registerInsertBefore(
         mma,
         IrBuilder::create<kir::Asm>(
@@ -355,7 +354,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 mma->inA()->as<kir::TensorIndex>()->index(),
                 mma->inB()->as<kir::TensorIndex>()->index(),
                 idesc,
-                disable_output_lane,
                 enable_input_d,
             },
             kir::Asm::Options{/*volatile=*/true,
