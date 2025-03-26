@@ -80,7 +80,15 @@ struct MatMulTileOptions {
 enum class MmaMacro : uint64_t;
 
 struct MmaMacroEncode {
-  enum class Arch : uint16_t { NoMma, Volta, Turing, Ampere, Hopper } arch;
+  enum class Arch : uint16_t {
+    NoMma,
+    Volta,
+    Turing,
+    Ampere,
+    Hopper,
+    Blackwell1CTA,
+    Blackwell2CTA
+  } arch;
   uint16_t m;
   uint16_t n;
   uint16_t k;
@@ -162,6 +170,79 @@ enum class MmaMacro : uint64_t {
   MACRO(Hopper, 64, 240, 16),
   MACRO(Hopper, 64, 248, 16),
   MACRO(Hopper, 64, 256, 16),
+
+  // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-kind-shapes
+  // (M=64, N=multiple of 8, K=16)
+  MACRO(Blackwell1CTA, 64, 8, 16),
+  MACRO(Blackwell1CTA, 64, 16, 16),
+  MACRO(Blackwell1CTA, 64, 24, 16),
+  MACRO(Blackwell1CTA, 64, 32, 16),
+  MACRO(Blackwell1CTA, 64, 40, 16),
+  MACRO(Blackwell1CTA, 64, 48, 16),
+  MACRO(Blackwell1CTA, 64, 56, 16),
+  MACRO(Blackwell1CTA, 64, 64, 16),
+  MACRO(Blackwell1CTA, 64, 72, 16),
+  MACRO(Blackwell1CTA, 64, 80, 16),
+  MACRO(Blackwell1CTA, 64, 88, 16),
+  MACRO(Blackwell1CTA, 64, 96, 16),
+  MACRO(Blackwell1CTA, 64, 104, 16),
+  MACRO(Blackwell1CTA, 64, 112, 16),
+  MACRO(Blackwell1CTA, 64, 120, 16),
+  MACRO(Blackwell1CTA, 64, 128, 16),
+  MACRO(Blackwell1CTA, 64, 136, 16),
+  MACRO(Blackwell1CTA, 64, 144, 16),
+  MACRO(Blackwell1CTA, 64, 152, 16),
+  MACRO(Blackwell1CTA, 64, 160, 16),
+  MACRO(Blackwell1CTA, 64, 168, 16),
+  MACRO(Blackwell1CTA, 64, 176, 16),
+  MACRO(Blackwell1CTA, 64, 184, 16),
+  MACRO(Blackwell1CTA, 64, 192, 16),
+  MACRO(Blackwell1CTA, 64, 200, 16),
+  MACRO(Blackwell1CTA, 64, 208, 16),
+  MACRO(Blackwell1CTA, 64, 216, 16),
+  MACRO(Blackwell1CTA, 64, 224, 16),
+  MACRO(Blackwell1CTA, 64, 232, 16),
+  MACRO(Blackwell1CTA, 64, 240, 16),
+  MACRO(Blackwell1CTA, 64, 248, 16),
+  MACRO(Blackwell1CTA, 64, 256, 16),
+
+  // (M=128, N=multiple of 16, K=16)
+  MACRO(Blackwell1CTA, 128, 16, 16),
+  MACRO(Blackwell1CTA, 128, 32, 16),
+  MACRO(Blackwell1CTA, 128, 48, 16),
+  MACRO(Blackwell1CTA, 128, 64, 16),
+  MACRO(Blackwell1CTA, 128, 80, 16),
+  MACRO(Blackwell1CTA, 128, 96, 16),
+  MACRO(Blackwell1CTA, 128, 112, 16),
+  MACRO(Blackwell1CTA, 128, 128, 16),
+  MACRO(Blackwell1CTA, 128, 144, 16),
+  MACRO(Blackwell1CTA, 128, 160, 16),
+  MACRO(Blackwell1CTA, 128, 176, 16),
+  MACRO(Blackwell1CTA, 128, 192, 16),
+  MACRO(Blackwell1CTA, 128, 208, 16),
+  MACRO(Blackwell1CTA, 128, 224, 16),
+  MACRO(Blackwell1CTA, 128, 240, 16),
+  MACRO(Blackwell1CTA, 128, 256, 16),
+
+  // (M=128, N=multiple of 32, K=16)
+  MACRO(Blackwell2CTA, 128, 32, 16),
+  MACRO(Blackwell2CTA, 128, 64, 16),
+  MACRO(Blackwell2CTA, 128, 96, 16),
+  MACRO(Blackwell2CTA, 128, 128, 16),
+  MACRO(Blackwell2CTA, 128, 160, 16),
+  MACRO(Blackwell2CTA, 128, 192, 16),
+  MACRO(Blackwell2CTA, 128, 224, 16),
+  MACRO(Blackwell2CTA, 128, 256, 16),
+
+  // (M=256, N=multiple of 32, K=16)
+  MACRO(Blackwell2CTA, 256, 32, 16),
+  MACRO(Blackwell2CTA, 256, 64, 16),
+  MACRO(Blackwell2CTA, 256, 96, 16),
+  MACRO(Blackwell2CTA, 256, 128, 16),
+  MACRO(Blackwell2CTA, 256, 160, 16),
+  MACRO(Blackwell2CTA, 256, 192, 16),
+  MACRO(Blackwell2CTA, 256, 224, 16),
+  MACRO(Blackwell2CTA, 256, 256, 16),
 };
 
 #undef MACRO
@@ -193,6 +274,20 @@ inline bool isAmpere(MmaMacro macro) {
 
 inline bool isHopper(MmaMacro macro) {
   return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Hopper;
+}
+
+inline bool isBlackwell(MmaMacro macro) {
+  auto arch = MmaMacroEncode(macro).arch;
+  return arch == MmaMacroEncode::Arch::Blackwell1CTA ||
+      arch == MmaMacroEncode::Arch::Blackwell2CTA;
+}
+
+inline bool isBlackwell1CTA(MmaMacro macro) {
+  return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Blackwell1CTA;
+}
+
+inline bool isBlackwell2CTA(MmaMacro macro) {
+  return MmaMacroEncode(macro).arch == MmaMacroEncode::Arch::Blackwell2CTA;
 }
 
 //! Get the m size from macro type

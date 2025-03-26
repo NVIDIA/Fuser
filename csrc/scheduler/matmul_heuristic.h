@@ -310,6 +310,12 @@ class MatmulParams : public HeuristicParams {
   //! Promote reuse of prologue shared memory
   bool promote_prologue_smem_reuse = false;
 
+  //! If use_smem_epilogue==false, this has no effect. Otherwise, it enables
+  //! storing the result to shared memory using stmatrix instructions. Note that
+  //! stmatrix is never used on outputs whose dtype is not 16-bits in size
+  //! regardless of this setting.
+  bool use_stmatrix = true;
+
   //! Whether to do single-kernel split-K. If this is >1, we will rfactor the K
   //! axis and perform a grid reduction before the epilogue.
   int splitk_factor = 1;

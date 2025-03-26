@@ -703,6 +703,8 @@ enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
   DIDx,
+  DIDy,
+  DIDz,
   BIDz,
   BIDy,
   BIDx,
@@ -711,7 +713,6 @@ enum class ParallelType {
   TIDx,
   Stream,
   Vectorize,
-  MisalignedVectorize,
   Unroll,
   Unswitch,
   Mma,
@@ -741,8 +742,10 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDy,
     ParallelType::TIDz};
 
-static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
-    ParallelType::DIDx};
+static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
+    ParallelType::DIDx,
+    ParallelType::DIDy,
+    ParallelType::DIDz};
 
 enum class MemoryType { Local, Shared, Global, Tensor };
 
