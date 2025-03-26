@@ -132,6 +132,9 @@ struct KernelSummary {
   //! Do we have any possibly narrowing casts from DataType::Index variables?
   //! These need to be validated to prevent overflow.
   bool has_narrowing_index_casts = false;
+
+  //! adjusted register usage for tma load and computation warp groups
+  std::pair<int64_t, int64_t> dec_inc_register_usage = {-1, -1};
 };
 
 class KernelPerformanceProfile {

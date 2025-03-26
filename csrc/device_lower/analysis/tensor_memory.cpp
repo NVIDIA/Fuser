@@ -218,7 +218,7 @@ std::vector<ParallelType> getNonTrivialActiveThreadParallelTypes(
 // Get the [TIDz, TIDy, TIDx] projected to the given expression as ValGroups,
 // and merge them by contiguity. If any of the TIDz, TIDy, TIDx is not
 // interested (see above), we just ignore it. Return the merged ValGroups as an
-// AbstractTensor.
+// AbstractTensor, and the strides of these ValGroups.
 //
 // Why do we need this function?
 //
@@ -256,7 +256,17 @@ std::vector<ParallelType> getNonTrivialActiveThreadParallelTypes(
 // Ix.extent, Iy.extent, and Iz.extent. The contiguity of Ix, Iy, Iz are just
 // like considering the lattice as a 3D tensor, and the box as a slice of the
 // tensor.
-AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
+//
+// The strides returned are the stride of each edge of the box in that 3D CTA
+// lattice. For example, if the parallel dimension sizes of the kernel are:
+//   TIDz: 32, TIDy: 8, TIDx: 8
+// and the loop domain is:
+//   I0: TIDz, extent 32
+//   I1: TIDy, extent 7
+//   I2: TIDx, extent 8
+// then the strides are [8*8, 8, 1].
+std::pair<AbstractTensor, std::vector<Val*>>
+getThreadParallelTypesMergedByContiguity(const Expr* expr) {
   auto& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto nontrivial_tid_ptypes =
       getNonTrivialActiveThreadParallelTypes(expr->fusion());
@@ -317,37 +327,46 @@ AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
 
   // Grab ValGroups for each parallel type from loop domain and store it in
   // AbstractTensor
-  struct Contiguity {
+  struct ContiguityAndStride {
     bool contiguity;
-    static Contiguity merge(Contiguity x, Contiguity y) {
+    Val* stride;
+    static ContiguityAndStride merge(
+        ContiguityAndStride x,
+        ContiguityAndStride y) {
       NVF_ERROR(x.contiguity);
-      return {y.contiguity};
+      return {y.contiguity, y.stride};
     }
-    static std::pair<Contiguity, Contiguity> split(Contiguity x) {
-      return {{true}, x};
+    static std::pair<ContiguityAndStride, ContiguityAndStride> split(
+        ContiguityAndStride x) {
+      NVF_THROW("Should not reach here");
     }
-    static std::pair<Contiguity, Contiguity> swizzle(
-        Contiguity x,
-        Contiguity y) {
+    static std::pair<ContiguityAndStride, ContiguityAndStride> swizzle(
+        ContiguityAndStride x,
+        ContiguityAndStride y) {
       NVF_THROW("Should not reach here");
     }
   };
-  AbstractTensorWithInfo<Contiguity> pdims;
-  for (auto [i, pt] : enumerate(nontrivial_tid_ptypes)) {
+  AbstractTensorWithInfo<ContiguityAndStride> pdims;
+  Val* stride = expr->fusion()->oneVal();
+  for (auto [i, pt] : enumerate(nontrivial_tid_ptypes) | std::views::reverse) {
+    Val* pdim_size = pdim_map.getRaw(pt);
     auto id_it = std::find_if(
         loop_domain.begin(), loop_domain.end(), [pt](IterDomain* id) {
           // NOLINTNEXTLINE
           return id->getParallelType() == pt;
         });
     if (id_it == loop_domain.end()) {
+      stride = SimplifyingIrBuilder::mulExpr(stride, pdim_size);
       continue;
     }
     IterDomain* id = *id_it;
     const ValGroup& val_group = id_graph.toGroup(id);
     pdims.pushBack(
-        ValGroupAndItsGraph{val_group, &id_graph}, Contiguity{contiguity[i]});
+        ValGroupAndItsGraph{val_group, &id_graph},
+        ContiguityAndStride{contiguity[i], stride});
+    stride = SimplifyingIrBuilder::mulExpr(stride, pdim_size);
   }
-
+  pdims.reverse();
   // Merge contiguous parallel types
   for (int64_t index = 0; index < (int64_t)pdims.size() - 1;) {
     if (pdims.info(index).contiguity) {
@@ -357,7 +376,13 @@ AbstractTensor getThreadParallelTypesMergedByContiguity(const Expr* expr) {
     }
   }
 
-  return pdims.dropInfo();
+  std::vector<Val*> strides;
+  strides.reserve(pdims.size());
+  for (auto pdim : pdims.domainAndInfo()) {
+    strides.push_back(pdim.second.stride);
+  }
+
+  return {pdims.dropInfo(), strides};
 }
 
 // Infer the data path of TMem load/store operations from the loop domain of
@@ -404,7 +429,7 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
 
     // Get the merged parallel types of the interested TID parallel types
     // projected to expr.
-    AbstractTensor pdims = getThreadParallelTypesMergedByContiguity(expr);
+    auto [pdims, strides] = getThreadParallelTypesMergedByContiguity(expr);
 
     // The innermost merged parallel type must be a multiple of 32, otherwise
     // the expr won't be warp-collective.
@@ -421,6 +446,27 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
         inner_extent_is_multiple_of_32,
         "Invalid data access pattern in TMem load/store: ",
         "TMem load/store must be warp-collective, but the innermost extent is not a multiple of 32.");
+
+    // For each outer parallel type that has extent > 1, its stride must be a
+    // multiple of 32.
+    for (auto [pdim, stride] :
+         zip(pdims, strides) | std::views::take(strides.size() - 1)) {
+      Val* pdim_extent = pdim.as<ValGroupAndItsGraph>()
+                             .group->front()
+                             ->as<IterDomain>()
+                             ->extent();
+      Val* pdim_extent_is_one =
+          SimplifyingIrBuilder::eqExpr(pdim_extent, fusion->oneVal());
+      Val* stride_is_multiple_of_32 = SimplifyingIrBuilder::eqExpr(
+          SimplifyingIrBuilder::modExpr(
+              stride, IrBuilder::create<Val>(32, DataType::Index)),
+          fusion->zeroVal());
+      GpuLower::current()->validate(
+          SimplifyingIrBuilder::logicalOrExpr(
+              pdim_extent_is_one, stride_is_multiple_of_32),
+          "Invalid data access pattern in TMem load/store: ",
+          "Outer parallel types' strides must be a multiple of 32.");
+    }
 
     // Start pattern matching:
     // fail_reasons will be used to store the reasons why the pattern does
@@ -482,7 +528,29 @@ computeTMemLdStDataPath(Fusion* fusion, const TMemAlllocationInfo& allocation) {
       }
       NVF_THROW(error.str());
     }
-    // TODO: Validate that we are accessing the correct sub-partition
+    // Validate that warps are accessing the correct sub-partition
+    // Warp i can only access the sub-partition i % 4
+    AbstractTensor t = pdims;
+    t.split(-1, 32);
+    t.split(-2, 4);
+    Val* warp_group_stride = lower_utils::proveLinearAndGetStride(
+        id_graph,
+        t[-2].as<ValGroupAndItsGraph>().group,
+        lane_allocation_valgroups);
+    NVF_ERROR(
+        warp_group_stride != nullptr,
+        "Invalid data access pattern in TMem load/store: ",
+        "Warps are not accessing the correct sub-partition.");
+    // The stride must be either 0 or 32, 32 is the most common case.
+    // 0 is a special value indicating that there is only one warp.
+    GpuLower::current()->validate(
+        SimplifyingIrBuilder::logicalOrExpr(
+            SimplifyingIrBuilder::eqExpr(
+                warp_group_stride, IrBuilder::create<Val>(32)),
+            SimplifyingIrBuilder::eqExpr(
+                warp_group_stride, IrBuilder::create<Val>(0))),
+        "Invalid data access pattern in TMem load/store: ",
+        "Warps are not accessing the correct sub-partition.");
   }
   return {std::move(load_data_path), std::move(store_data_path)};
 }
