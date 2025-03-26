@@ -1483,6 +1483,174 @@ void scheduleInnerOuterPersistentKernel(
   inlineMost();
 }
 
+void scheduleInnerOuterWarpSpecializedTmaKernel(
+    Fusion* fusion,
+    const ReductionParams* rparams) {
+  FusionGuard fg(fusion);
+
+  // Grab the reduction, input, and output tensor views. dummy_outputs are
+  // helper tensors for persistent buffer projection.
+  std::vector<TensorView*> dummy_outputs, cached_inputs, reduction_tvs,
+      smem_consumers;
+  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs;
+  normalization_scheduler_utils::beforeSchedule(
+      fusion,
+      rparams,
+      dummy_outputs,
+      cached_inputs,
+      reduction_tvs,
+      smem_consumers,
+      cached_outputs);
+
+  // split reduction_tvs into inner and outer reduction_tvs
+  std::vector<TensorView*> inner_reduction_tvs, outer_reduction_tvs;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      inner_reduction_tvs.emplace_back(tv);
+    } else {
+      outer_reduction_tvs.emplace_back(tv);
+    }
+  }
+  NVF_ERROR(
+      !inner_reduction_tvs.empty(),
+      "schedulePersistentKernelInnerOuter is called but no inner reduction is found.");
+  NVF_ERROR(
+      !outer_reduction_tvs.empty(),
+      "schedulePersistentKernelInnerOuter is called but no outer reduction is found.");
+
+  // schedule inner reduction, only schedule the first inner reduction tv,
+  // then will be propagated to other inner reduction tvs.
+  TensorView* inner_reference_tv =
+      normalization_scheduler_utils::scheduleReductionGeneral(
+          fusion,
+          rparams,
+          inner_reduction_tvs,
+          InnerOuterPersistentKernelScheduler::schedulerType());
+
+  // schedule outer reduction, schedule all the outer reduction tvs since we
+  // need to store the intermediate results.
+  std::vector<TensorView*> cached_gmem;
+  std::vector<TensorView*> cached_gmem_reload;
+  std::vector<TensorView*> outer_reference_tvs;
+  std::unordered_set<TensorView*> boundaryNodesSet;
+  scheduleReductionCombinedOuter(
+      fusion,
+      rparams,
+      outer_reduction_tvs,
+      cached_gmem,
+      cached_gmem_reload,
+      outer_reference_tvs,
+      boundaryNodesSet);
+
+  // Propagate inner reduction and outer reductions
+  for (auto output : dummy_outputs) {
+    fusion->addOutput(output);
+  }
+
+  const bool is_unroll_or_vectorization = rparams->isUnrolled();
+  const bool is_vectorize =
+      rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
+  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
+      rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
+
+  // Propagate inner reduction. There is a cutoff at boundaryNodesSet, so this
+  // propagation will not propagate to the final outer reduction.
+  reduction_scheduler_utils::propagateTransformation(
+      inner_reference_tv, boundaryNodesSet);
+  reduction_scheduler_utils::propagateRFactor(
+      inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
+
+  // Don't allow parallelization propagation goes through boundaryNodesSet
+  const auto& selected_tvs_inner =
+      scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
+  const auto& unroll_vectorizable_cached_tvs =
+      reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+          inner_reference_tv, is_vectorize, cached_inputs, cached_outputs);
+  reduction_scheduler_utils::propagateParallelization(
+      inner_reduction_tvs[0],
+      inner_reference_tv,
+      is_unroll_or_vectorization,
+      is_outer_grid_persistence,
+      inner_reduction_tvs,
+      unroll_vectorizable_cached_tvs,
+      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+
+  // Propagate outer reduction. Each outer reduction is connected with its
+  // cached_gmem and output, since we added all the cached_gmem to the
+  // boundaryNodesSet, the transformation from one outer reduction can't
+  // propagate to other outer reductions due to the cutoff at
+  // boundaryNodesSet. Thus, we need a loop to initiate the propagation from
+  // each outer reduction. Don't allow parallelization propagation goes
+  // through cached_gmem, see issue 246.
+  for (long unsigned int i = 0; i < outer_reference_tvs.size(); i++) {
+    const auto& selected_tvs_outer = scheduler_utils::getAllTvsFrom(
+        {outer_reduction_tvs[i]}, {cached_gmem[i]});
+    reduction_scheduler_utils::propagateTransformation(
+        outer_reference_tvs[i], boundaryNodesSet);
+    const auto& unroll_vectorizable_cached_tvs =
+        reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
+            outer_reference_tvs[i],
+            is_vectorize,
+            cached_inputs,
+            cached_outputs);
+    reduction_scheduler_utils::propagateParallelization(
+        outer_reduction_tvs[i],
+        outer_reference_tvs[i],
+        is_unroll_or_vectorization,
+        is_outer_grid_persistence,
+        outer_reduction_tvs,
+        unroll_vectorizable_cached_tvs,
+        {selected_tvs_outer.begin(), selected_tvs_outer.end()});
+  }
+
+  // special vectorization of temp gmem, vectorization_factor_tmp_gmem_write
+  // is guaranteed to be smaller or equal to input vectorization factor.
+  if (rparams->vectorization_factor_tmp_gmem_write > 1) {
+    for (auto tv : cached_gmem) {
+      NVF_ERROR(
+          rparams->vectorization_factor_tmp_gmem_write <=
+              rparams->unroll_factor_inner_reduction,
+          "vectorization factor of temp gmem write should be smaller than that of inner reduction.")
+      if (rparams->vectorization_factor_tmp_gmem_write <
+          rparams->unroll_factor_inner_reduction) {
+        tv->split(-1, rparams->vectorization_factor_tmp_gmem_write);
+      }
+      tv->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+  }
+  // vectorization propagate through propagateParallelization only works for
+  // input and output tensors. propagate vectorization to cached_gmem_reload
+  // directly from output tv using parallelizeAllLike. must propagate
+  // seperaely for different tvs as outer reductions are transformed
+  // seperately.
+  if (rparams->vectorization_factor_outer > 1) {
+    for (auto tv : cached_gmem_reload) {
+      auto output_tvs = ir_utils::outputTvsOf(tv);
+      NVF_ERROR(
+          !output_tvs.empty(),
+          "cached_gmem_reload should have at least one output tensor.")
+      scheduler_utils::parallelizeAllLike(
+          output_tvs[0],
+          -1,
+          {cached_gmem_reload.begin(), cached_gmem_reload.end()},
+          {ParallelType::Vectorize});
+    }
+  }
+
+  // Needs special handling of vectorized loading from shared memory due to
+  // potential different data types of inputs and shared memory tensor.
+  if (is_vectorize) {
+    reduction_scheduler_utils::sharedMemoryConsumerVectorization(
+        smem_consumers, rparams->unroll_factor_inner_reduction);
+  }
+
+  // Remove dummy outputs as they can inadvertently affect CA positions
+  for (auto output : dummy_outputs) {
+    fusion->removeOutput(output);
+  }
+  inlineMost();
+}
+
 } // namespace
 
 bool InnerOuterPersistentKernelScheduler::canScheduleCompileTime(
@@ -1764,6 +1932,11 @@ void InnerOuterPersistentKernelScheduler::schedule(
       rparams != nullptr && rparams->scheduler_type == schedulerType(),
       "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
       params);
-  scheduleInnerOuterPersistentKernel(fusion, rparams);
+  if (isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
+    scheduleInnerOuterWarpSpecializedTmaKernel(fusion, rparams);
+  }else{
+    scheduleInnerOuterPersistentKernel(fusion, rparams);
+  }
+
 }
 } // namespace nvfuser
