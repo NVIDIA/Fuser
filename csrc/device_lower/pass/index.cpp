@@ -2364,26 +2364,6 @@ static Val* constructBlackwellMatrixDescriptor(
       or4);
 }
 
-static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getMaybeRootDomain();
-  const auto& loop_domain = tv->getLoopDomain();
-  auto exprs = StmtSort::getExprsBetween(
-      {alloc_domain.begin(), alloc_domain.end()},
-      {loop_domain.begin(), loop_domain.end()});
-  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
-  if (swizzle_exprs.empty()) {
-    return MmaInputSmemSwizzle::None;
-  }
-  NVF_ERROR(
-      swizzle_exprs.size() < 2,
-      "expected 2 or less swizzle expressions in mma input, got ",
-      swizzle_exprs.size());
-  auto swizzle = *swizzle_exprs.begin();
-  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
-  return getSwizzleFromBytes(
-      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
-}
-
 // Get the ValGroup of the ID in consumer's loop domain that corresponds to the
 // innermost dimension in the allocation domain of tv. This ID must be
 // parallelized on Mma.
@@ -2476,7 +2456,7 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
 // 3. Prove that `linear` is linear in the allocation domain of tv, and get the
 //    stride of `linear`.
 Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
-  auto swizzle = getSwizzleMode(tv);
+  auto swizzle = ir_utils::getSwizzleMode(tv);
   auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
@@ -2605,7 +2585,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inA()->as<TensorView>();
-    auto swizzle = getSwizzleMode(tv);
+    auto swizzle = ir_utils::getSwizzleMode(tv);
     // Because the entire tile is parallelized on MMA, which are trivial
     // loops and always have zero loop variables, the result of lowerSrcIndex
     // will be the address of the first element of the tile, which happens to
@@ -2624,7 +2604,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         leading_bytes,
         stride_bytes,
         IrBuilder::create<Val>(0, DataType::UInt64),
-        getSwizzleMode(tv));
+        ir_utils::getSwizzleMode(tv));
     a = IrBuilder::create<kir::TensorIndex>(
         tv,
         GpuLower::current()->commonScalarMap().hoistScalar(
@@ -2637,7 +2617,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inB()->as<TensorView>();
-    auto swizzle = getSwizzleMode(tv);
+    auto swizzle = ir_utils::getSwizzleMode(tv);
     // Because the entire tile is parallelized on MMA, which are trivial
     // loops and always have zero loop variables, the result of lowerSrcIndex
     // will be the address of the first element of the tile, which happens to
