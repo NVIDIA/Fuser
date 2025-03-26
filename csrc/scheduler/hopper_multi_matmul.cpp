@@ -556,8 +556,12 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           cache_tv->definition() != nullptr &&
           cache_tv->definition()->isA<LoadStoreOp>());
 
-      bool is_2d_epilogue_input = cache_tv->domain()->logical().size() == 2;
-      if (is_2d_epilogue_input && params_->async_gmem_load_operands) {
+      bool load_with_ldmatrix =
+          params_->use_ldst_matrix && dataTypeSize(cache_tv->dtype()) == 2;
+      bool is_2d_epilogue_input =
+          TensorDomain::noBroadcasts(cache_tv->domain()->logical()).size() == 2;
+      if (load_with_ldmatrix && is_2d_epilogue_input &&
+          params_->async_gmem_load_operands) {
         // Schedule TMA load into shared memory for epilogue input
         cache_tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsyncBulkTensorTile);
@@ -596,8 +600,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       parallelizeBlocks({d});
       transformLikeMmaOutputWithoutK(d);
 
-      AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          d->getLoopDomain());
+      const AbstractTensor s =
+          mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+              d->getLoopDomain());
       d->setLoopDomain(s.as<IterDomain*>());
 
       // TODO: We need to check bank conflicts in this path.
@@ -611,6 +616,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // We do not respect the vectorization_factor parameter, but always
       // vectorize the inner-dim with extent 2.
+      NVF_ERROR(params_->supported_vec_size.epilogue >= 2);
       // TODO: Support vectorization_factor in MatmulParams
       d->axis(-1)->parallelize(ParallelType::Vectorize);
       if (!cached_tvs.empty()) {
@@ -726,8 +732,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // First, create loop domain that matches wgmma register accumulator using
       // original loop domain.
-      AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          d_smem->getLoopDomain());
+      const AbstractTensor s =
+          mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+              d_smem->getLoopDomain());
       // Create allocation domain with swizzle for TMA Store.
       // This step modifies loop domain and the creates a new allocation domain.
       if (swizzle != MmaInputSmemSwizzle::None) {
