@@ -510,6 +510,56 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
     }
 
+    if (GpuLower::current()->isNvFuserZeroEnabled()) {
+      auto loop_group_dependencies_it = index_info.loop_group_dependencies.find(
+          actual_predicate_domain_group);
+      NVF_ERROR(
+          loop_group_dependencies_it !=
+          index_info.loop_group_dependencies.end());
+      const ValGroups& dep_loop_groups = loop_group_dependencies_it->second;
+      for (const auto for_loop : for_loops | std::views::reverse) {
+        const auto& for_loop_group = id_model_.idGraph(IdMappingMode::LOOP)
+                                         .toGroup(for_loop->iter_domain());
+        if (!dep_loop_groups.has(for_loop_group)) {
+          if (getenv("DEBUG")) {
+            std::cerr << "Not dep: " << for_loop->iter_domain()->toString()
+                      << "\n";
+          }
+          continue;
+        }
+
+        Val* initial_loop_index =
+            getLoopIndex(for_loop->iter_domain(), for_loops);
+        if (!needsMagicZero(
+                for_loop, for_loop->iter_domain(), initial_loop_index)) {
+          if (getenv("DEBUG")) {
+            std::cerr << "Not protecting: "
+                      << for_loop->iter_domain()->toString() << "\n";
+          }
+          continue;
+        }
+
+        std::unordered_map<Val*, Val*> replacement_map;
+        replacement_map.emplace(
+            initial_loop_index,
+            SimplifyingIrBuilder::addExpr(
+                initial_loop_index,
+                GpuLower::current()->kernel()->magicZeroVal()));
+        auto protected_start_pred = ir_utils::replaceValRecursively(
+            info.start_predicate_, replacement_map);
+        info.start_predicate_ = protected_start_pred;
+        auto protected_stop_pred = ir_utils::replaceValRecursively(
+            info.stop_predicate_, replacement_map);
+        if (getenv("DEBUG")) {
+          std::cerr << "Magic zero applied: "
+                    << info.stop_predicate_->toInlineString() << " -> "
+                    << protected_stop_pred->toInlineString() << "\n";
+        }
+        info.stop_predicate_ = protected_stop_pred;
+        break;
+      }
+    }
+
     info_vec.emplace_back(info);
   }
 
@@ -561,43 +611,6 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       }
 
       info_vec.emplace_back(info);
-    }
-  }
-
-  if (GpuLower::current()->isNvFuserZeroEnabled()) {
-    for (const auto for_loop : for_loops | std::views::reverse) {
-      Val* initial_loop_index =
-          getLoopIndex(for_loop->iter_domain(), for_loops);
-      if (!needsMagicZero(
-              for_loop, for_loop->iter_domain(), initial_loop_index)) {
-        if (getenv("DEBUG")) {
-          std::cerr << "Not protecting: " << for_loop->iter_domain()->toString()
-                    << "\n";
-        }
-        continue;
-      }
-
-      std::unordered_map<Val*, Val*> replacement_map;
-      replacement_map.emplace(
-          initial_loop_index,
-          SimplifyingIrBuilder::addExpr(
-              initial_loop_index,
-              GpuLower::current()->kernel()->magicZeroVal()));
-      for (auto& predicate_info : info_vec) {
-        auto protected_start_pred = ir_utils::replaceValRecursively(
-            predicate_info.start_predicate_, replacement_map);
-        predicate_info.start_predicate_ = protected_start_pred;
-        auto protected_stop_pred = ir_utils::replaceValRecursively(
-            predicate_info.stop_predicate_, replacement_map);
-        if (getenv("DEBUG")) {
-          std::cerr << "Magic zero applied: "
-                    << predicate_info.stop_predicate_->toInlineString()
-                    << " -> " << protected_stop_pred->toInlineString() << "\n";
-        }
-        predicate_info.stop_predicate_ = protected_stop_pred;
-      }
-
-      break;
     }
   }
 
