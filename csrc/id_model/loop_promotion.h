@@ -293,10 +293,14 @@ class LoopPromotionMapBuilder {
       const std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map)
       const;
 
+  void revertBroadcastOnlyLoopGroups(
+      std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) const;
+
  private:
   IdModel& id_model_;
   const StatefulInliningInfo& inlining_info_;
   LoopPromotionMapBuilderCallback* callback_ = nullptr;
+  std::unordered_set<Val*> broadcast_only_loop_group_ids_;
 
   // (For debugging only) When force_full_loop_promotion_analysis_ is
   // true, it always performs the full loop promotion analysis even

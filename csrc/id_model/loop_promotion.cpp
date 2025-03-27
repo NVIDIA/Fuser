@@ -380,6 +380,25 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
     return buildWithNoBroadcast();
   }
 
+  for (const auto& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    if (std::all_of(loop_group->begin(), loop_group->end(), [](Val* val) {
+          return val->as<IterDomain>()->isBroadcast();
+        })) {
+      // Picking the first ID only works when all of the IDs are exactly
+      // mapped. Otherwise, we still need to find the ID that has the
+      // largest number of unique input IDs.
+      if (idGraph(IdMappingMode::EXACT).toGroups(*loop_group).size() == 1) {
+        if (getenv("DEBUG")) {
+          std::cerr << "Broadcast only group: " << nvfuser::toString(loop_group)
+                    << "\n";
+        }
+        broadcast_only_loop_group_ids_.insert(
+            loop_group->begin(), loop_group->end());
+      }
+    }
+  }
+
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -470,6 +489,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   if (loop_promotion_map_to_propagate.empty()) {
     auto final_loop_promotion_map = updateValGroupIdMap(
         initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+    revertBroadcastOnlyLoopGroups(final_loop_promotion_map);
     sanityCheckLoopPromotionMap(final_loop_promotion_map);
     return final_loop_promotion_map;
   }
@@ -537,6 +557,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   final_loop_promotion_map = updateValGroupIdMap(
       final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
+  revertBroadcastOnlyLoopGroups(final_loop_promotion_map);
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
   if (callback_) {
@@ -899,6 +920,8 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
       promoted_expr =
           id_model_.addReplayAs(maybe_promoted_inputs, iel_expr->front());
       replayed = true;
+
+      std::cerr << "Replayed expr: " << promoted_expr->toString();
     }
 
     // Mark outputs as having a promoted iter domain
@@ -1291,6 +1314,43 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   }
 
   return map;
+}
+
+void LoopPromotionMapBuilder::revertBroadcastOnlyLoopGroups(
+    std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) const {
+  for (auto& [loop_group, promotion] : loop_promotion_map) {
+    if (promotion->isBroadcast()) {
+      continue;
+    }
+
+    if (getenv("DEBUG")) {
+      std::cerr << "Fixing up promotion of "
+                << toDelimitedString(loop_group->vector()) << "\n";
+
+      std::cerr << "Broacast only IDs: "
+                << toDelimitedString(broadcast_only_loop_group_ids_) << "\n";
+    }
+
+    bool broadcast_only =
+        std::any_of(loop_group->begin(), loop_group->end(), [&](Val* loop_val) {
+          return broadcast_only_loop_group_ids_.contains(loop_val);
+        });
+    if (!broadcast_only) {
+      std::cerr << "Not a broadcast only group\n";
+      continue;
+    }
+
+    // All IDs are broadcast but promoted to a non-broadcast
+    // ID. It should be valid to keep them promoted to a broadcast
+    // ID. To do so, just use the first ID as the promotion ID.
+
+    auto broadcast_promotion = loop_group->front()->as<IterDomain>();
+    if (getenv("DEBUG")) {
+      std::cerr << "Replacing promotion from " << promotion->toString()
+                << " to " << broadcast_promotion->toString() << "\n";
+    }
+    promotion = broadcast_promotion;
+  }
 }
 
 } // namespace nvfuser

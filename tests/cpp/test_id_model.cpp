@@ -3084,4 +3084,38 @@ TEST_F(IdModelTest, InvalidLoopPromotion) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+TEST_F(IdModelTest, BroadcastLoopPromotion) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(1, 1, false);
+    tv->reorder({{0, 1}, {1, 0}});
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->inlineAt(2);
+  }
+
+  fusion.print();
+
+  IdModel id_model(&fusion, true);
+  std::cerr << id_model.toString();
+
+  auto promotion_id = id_model.loopPromotionMap().at(
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv2->axis(-1)));
+  EXPECT_TRUE(promotion_id->isBroadcast())
+      << "Should not be promoted a non-broadcast ID";
+}
+
 } // namespace nvfuser
