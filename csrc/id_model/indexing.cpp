@@ -144,7 +144,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const std::vector<ForLoop*>& for_loops) const {
   auto info = computeIndex(expr, index_ids, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, info.loop_domains, for_loops, info.index_map);
+      expr, as_consumer, info.loop_ids, for_loops, info.index_map);
 
   // Note that IDs of index_ids may be mapped as the traversal graph
   // is the AlmostExact graph.
@@ -188,7 +188,7 @@ Val* TensorIndexer::getLinearIndex(
   const auto& alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
-      expr, as_consumer, alloc_info, for_loops, override_index);
+      tv, expr, as_consumer, alloc_info, for_loops, override_index);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -261,10 +261,10 @@ IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
-  const auto loop_domains = getLoopIds(expr, id_model_);
+  const auto loop_ids = getLoopIds(expr, id_model_);
   const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
   const std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(loop_domains, for_loops);
+      getInitialIndexMap(loop_ids, for_loops);
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
@@ -275,7 +275,7 @@ IndexingInfo TensorIndexer::computeIndex(
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
 
   // Initialize the loop dependency mappings
-  for (const auto& loop_domain : loop_domains) {
+  for (const auto& loop_domain : loop_ids) {
     const auto& traversal_graph_group = traversalGraph().toGroup(loop_domain);
     const auto& loop_graph_group =
         id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
@@ -310,7 +310,7 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{
-      loop_domains, traversal_path, index_map, loop_group_dependencies};
+      loop_ids, index_ids, traversal_path, index_map, loop_group_dependencies};
   return info;
 }
 
@@ -679,8 +679,55 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
       {contig_strides.begin(), contig_strides.end()}};
 }
 
+namespace {
+bool _debug = false;
+}
+
+std::vector<ForLoop*> TensorIndexer::getUsedForLoops(
+    const std::vector<ForLoop*>& for_loops,
+    const IndexingInfo& index_info) const {
+  ValGroups used_loop_groups;
+  for (const auto& index_id : index_info.index_ids) {
+    const ValGroups& loop_groups = index_info.loop_group_dependencies.at(
+        traversalGraph().toGroup(index_id));
+    used_loop_groups.pushBack(loop_groups);
+  }
+  if (_debug) {
+    for (const auto& g : used_loop_groups) {
+      std::cerr << "Used loop group: " << nvfuser::toString(g) << "\n";
+    }
+  }
+  std::vector<ForLoop*> used_for_loops;
+  for (auto for_loop : for_loops) {
+    if (_debug) {
+      std::cerr << "Used for loop?: " << for_loop->iter_domain()->toString()
+                << "\n";
+    }
+    for (const ValGroup& used_loop_group : used_loop_groups) {
+      if (used_loop_group->has(for_loop->iter_domain())) {
+        if (_debug) {
+          std::cerr << "Used for loop: " << for_loop->iter_domain()->toString()
+                    << "\n";
+        }
+        used_for_loops.push_back(for_loop);
+        break;
+      }
+    }
+  }
+  return used_for_loops;
+}
+
+void TensorIndexer::ensureStaticIndexing(
+    const std::vector<ForLoop*>& for_loops,
+    const IndexingInfo& index_info) const {
+  for (auto for_loop : getUsedForLoops(for_loops, index_info)) {
+    for_loop->requireUnroll();
+  }
+}
+
 std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
+        TensorView* tv,
         const Expr* expr,
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
@@ -699,7 +746,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   }
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, index_info.loop_domains, for_loops, index_map);
+      expr, as_consumer, index_info.loop_ids, for_loops, index_map);
 
   std::vector<ValGroup> contig_alloc_groups;
   std::vector<Val*> contig_strides;
@@ -733,6 +780,14 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     Val* idx = idx_it->second;
     Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
     result.push_back(replaced_idx);
+  }
+
+  if (tv->getMemoryType() == MemoryType::Local && as_consumer) {
+    //if (tv->name() == 4) {
+    //_debug = true;
+    //}
+    ensureStaticIndexing(for_loops, index_info);
+    _debug = false;
   }
 
   return {result, contig_strides};
