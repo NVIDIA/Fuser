@@ -1,0 +1,24 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+#include <direct_bindings.h>
+#include <fusion_definition.h>
+#include <ops/all_ops.h>
+
+namespace direct_bindings {
+
+void bindFusionDefinition(py::module& direct_bindings) {
+  py::class_<DirectFusionDefinition> fusion_def(
+      direct_bindings, "_DirectFusionDefinition");
+  fusion_def.def(py::init<>())
+      .def_readwrite("ops", &DirectFusionDefinition::ops)
+      .def_readwrite("schedule", &DirectFusionDefinition::sched);
+  bindDirectOperations(fusion_def);
+  bindDirectScheduleOperators(fusion_def);
+}
+
+} // namespace direct_bindings
