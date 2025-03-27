@@ -570,6 +570,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           getLoopIndex(for_loop->iter_domain(), for_loops);
       if (!needsMagicZero(
               for_loop, for_loop->iter_domain(), initial_loop_index)) {
+        if (getenv("DEBUG")) {
+          std::cerr << "Not protecting: " << for_loop->iter_domain()->toString()
+                    << "\n";
+        }
         continue;
       }
 
@@ -585,12 +589,15 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
         predicate_info.start_predicate_ = protected_start_pred;
         auto protected_stop_pred = ir_utils::replaceValRecursively(
             predicate_info.stop_predicate_, replacement_map);
-#if 0
-        std::cerr << "Magic zero applied: " << predicate_info.stop_predicate_->toInlineString()
-                  << " -> " << protected_stop_pred->toInlineString() << "\n";
-#endif
+        if (getenv("DEBUG")) {
+          std::cerr << "Magic zero applied: "
+                    << predicate_info.stop_predicate_->toInlineString()
+                    << " -> " << protected_stop_pred->toInlineString() << "\n";
+        }
         predicate_info.stop_predicate_ = protected_stop_pred;
       }
+
+      break;
     }
   }
 
