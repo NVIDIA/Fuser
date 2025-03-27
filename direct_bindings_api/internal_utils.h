@@ -86,4 +86,6 @@ nvfuser::KernelArgumentHolder from_pyiterable(
 std::vector<at::Tensor> to_tensor_vector(
     const nvfuser::KernelArgumentHolder& outputs);
 
+const char* dtypeToPyString(nvfuser::PrimDataType t);
+
 } // namespace direct_bindings

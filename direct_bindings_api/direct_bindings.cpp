@@ -12,6 +12,7 @@ namespace direct_bindings {
 
 void initNvFuserDirectBindings(PyObject* module) {
   auto direct_bindings = py::handle(module).cast<py::module>();
+  direct_bindings.def("translate_fusion", &translateFusion);
   bindFusionIr(direct_bindings);
   bindRuntime(direct_bindings);
   bindFusionDefinition(direct_bindings);

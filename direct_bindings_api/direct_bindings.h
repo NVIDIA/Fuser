@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <fusion.h>
 #include <fusion_definition.h>
 #include <torch/csrc/jit/python/pybind.h>
 #include <torch/csrc/utils/pybind.h>
@@ -30,5 +31,8 @@ void bindDirectOperations(py::class_<DirectFusionDefinition>& fusion_def);
 // Add direct bindings for CPP Schedule Operators
 void bindDirectScheduleOperators(
     py::class_<DirectFusionDefinition>& fusion_def);
+
+// Translate a CPP Fusion to a direct bindings python function
+std::string translateFusion(nvfuser::Fusion* f);
 
 } // namespace direct_bindings

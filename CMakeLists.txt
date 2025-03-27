@@ -563,6 +563,8 @@ if(BUILD_PYTHON_DIRECT)
     ${NVFUSER_DIRECT_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_DIRECT_BINDINGS}/ops.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/python_translate.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/python_translate_utils.cpp
     ${NVFUSER_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_DIRECT_BINDINGS}/internal_utils.cpp
   )
