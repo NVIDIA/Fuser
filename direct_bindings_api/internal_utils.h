@@ -7,12 +7,15 @@
 // clang-format on
 #pragma once
 
-#include <utility>
-#include <vector>
+#include <exceptions.h>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <exceptions.h>
+#include <utility>
+#include <vector>
+
+#include <runtime/executor_kernel_arg.h>
+#include <torch/csrc/utils/pybind.h>
 
 namespace direct_bindings {
 
@@ -73,5 +76,14 @@ computeTensorDescriptor(
 // The shape must be a list of integers, where each integer is either a positive
 // integer, -1, or 1.
 void verifyShape(const std::vector<int64_t>& shape);
+
+// Convert a py::iterable to a KernelArgumentHolder
+nvfuser::KernelArgumentHolder from_pyiterable(
+    const py::iterable& iter,
+    std::optional<int64_t> device = std::nullopt);
+
+// Convert a KernelArgumentHolder to a std::vector<at::Tensor>
+std::vector<at::Tensor> to_tensor_vector(
+    const nvfuser::KernelArgumentHolder& outputs);
 
 } // namespace direct_bindings

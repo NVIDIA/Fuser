@@ -561,6 +561,7 @@ if(BUILD_PYTHON_DIRECT)
     ${NVFUSER_DIRECT_BINDINGS}/direct_bindings_extension.cpp
     ${NVFUSER_DIRECT_BINDINGS}/direct_bindings.cpp
     ${NVFUSER_DIRECT_BINDINGS}/ir.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/runtime.cpp
     ${NVFUSER_DIRECT_BINDINGS}/internal_utils.cpp
   )
 
