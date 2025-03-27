@@ -135,6 +135,10 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<IterDomain*>& index_ids) const;
 
+  void protectPredicateIndicesWithMagicZero(
+      PredicateInfo& info,
+      const std::vector<ForLoop*>& for_loops) const;
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.
