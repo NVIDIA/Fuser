@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
 #include <compute_at.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
@@ -571,7 +570,7 @@ TensorView* TensorView::flatten(int64_t from, int64_t to) {
   to = wrapDim(to);
   NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
   int64_t num_merges = to - from;
-  for (auto _ : c10::irange(num_merges)) {
+  for (auto _ : arange(num_merges)) {
     (void)_;
     merge(from);
   }
@@ -864,7 +863,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
 
     // construct a trivial logical domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : c10::irange(logical.size())) {
+    for (const auto i : arange(logical.size())) {
       id_map[this_logical[i]] = logical[i];
     }
 
@@ -927,7 +926,7 @@ std::vector<TensorView*> TensorView::rFactor(
       definition()->outputs().size() == tvs.size(),
       "Rfactor of a multi-output reduction not used correctly");
 
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     NVF_CHECK(
         definition()->output(i) == tvs.at(i),
         "Rfactor of a multi-output reduction not used correctly");
@@ -946,13 +945,13 @@ std::vector<TensorView*> TensorView::rFactor(
 
   // Make sure this gets rfactored last so everybody gets
   //  replayed correctly
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     if (this != tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     if (this == tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
@@ -1297,7 +1296,7 @@ void TensorView::clearReductionIterDomains() {
   std::vector<IterDomain*> new_logical;
   std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(logical.size())) {
+  for (const auto i : arange(logical.size())) {
     auto root_i = logical.at(i);
     if (!root_i->isReduction()) {
       new_logical.push_back(root_i);
@@ -1555,7 +1554,7 @@ TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
 TensorView* TensorViewBuilder::build() const {
   // Build the domain
   std::vector<IterDomain*> domain(ndims_, nullptr);
-  for (const auto i : c10::irange(ndims_)) {
+  for (const auto i : arange(ndims_)) {
     bool is_expanded = false;
     Val* extent = nullptr;
     Val* expanded_extent = nullptr;

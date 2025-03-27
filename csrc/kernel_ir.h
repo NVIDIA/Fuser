@@ -1094,7 +1094,7 @@ class GroupedGridReduction final : public GroupedReductionOp {
     auto size = outputs().size();
     std::vector<Allocate*> result;
     result.reserve(size);
-    for (auto i : c10::irange(offset, offset + size)) {
+    for (auto i : arange(offset, offset + size)) {
       result.emplace_back(attribute(i)->as<Allocate>());
     }
     return result;
@@ -1298,7 +1298,7 @@ class GroupedGridWelford final : public GroupedWelfordOp {
     result[0].reserve(size);
     result[1].reserve(size);
     result[2].reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result[0].emplace_back(attribute(offset + i * 3)->as<Allocate>());
       result[1].emplace_back(attribute(offset + i * 3 + 1)->as<Allocate>());
       result[2].emplace_back(attribute(offset + i * 3 + 2)->as<Allocate>());

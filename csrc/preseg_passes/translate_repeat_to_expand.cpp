@@ -59,7 +59,7 @@ class RepeatToExpandTranslator {
       // Not supported if there are multiple expanded logical IDs
       IterDomain* out_padded_root_id = nullptr;
       bool multiple_resizes_found = false;
-      for (const auto i : c10::irange(pad_out->getLogicalDomain().size())) {
+      for (const auto i : arange(pad_out->getLogicalDomain().size())) {
         auto out_logical_id = pad_out->getLogicalDomain().at(i);
         auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
         if (resize == nullptr) {

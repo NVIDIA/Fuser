@@ -112,13 +112,11 @@ class NoReductionMatmulToMulSqueezeTranslator {
       auto missing_batch_ndims = std::abs(batch_ndims_a - batch_ndims_b);
       if (missing_batch_ndims) {
         if (batch_ndims_a < batch_ndims_b) {
-          for ([[maybe_unused]] const auto i :
-               c10::irange(missing_batch_ndims)) {
+          for ([[maybe_unused]] const auto i : arange(missing_batch_ndims)) {
             bc_flags_a.push_back(true);
           }
         } else {
-          for ([[maybe_unused]] const auto i :
-               c10::irange(missing_batch_ndims)) {
+          for ([[maybe_unused]] const auto i : arange(missing_batch_ndims)) {
             bc_flags_b.push_back(true);
           }
         }
@@ -126,12 +124,12 @@ class NoReductionMatmulToMulSqueezeTranslator {
 
       // Fill the false flags for the existing IDs
       for ([[maybe_unused]] const auto i :
-           c10::irange(batch_ndims_a + matrix_ndims_a)) {
+           arange(batch_ndims_a + matrix_ndims_a)) {
         bc_flags_a.push_back(false);
       }
 
       for ([[maybe_unused]] const auto i :
-           c10::irange(batch_ndims_b + matrix_ndims_b)) {
+           arange(batch_ndims_b + matrix_ndims_b)) {
         bc_flags_b.push_back(false);
       }
 

@@ -154,7 +154,7 @@ std::vector<int64_t> normalizeOld2New(
 
   // All available new positions
   std::set<int64_t> all_positions;
-  for (auto i : c10::irange(ndims)) {
+  for (auto i : arange(ndims)) {
     all_positions.insert((int64_t)i);
   }
 
@@ -236,7 +236,7 @@ Expr* transferDefinitionToNewOutputs(
       new_outputs.size() == expr->outputs().size(),
       "Number of new outputs must match old outputs");
   OptOutMutator mutator;
-  for (const auto i : c10::irange(new_outputs.size())) {
+  for (const auto i : arange(new_outputs.size())) {
     auto old_output = expr->outputs().at(i);
     auto new_output = new_outputs.at(i);
     if (new_output == old_output) {
@@ -717,7 +717,7 @@ bool isSqueezeInput(const TensorView* tv) {
 bool isSqueezedID(const TensorView* tv, const IterDomain* id) {
   auto logical_dom = TensorDomain::noReductions(tv->getLogicalDomain());
   auto squeezes = ir_utils::filterByType<SqueezeOp>(tv->uses());
-  for (auto i : c10::irange(logical_dom.size())) {
+  for (auto i : arange(logical_dom.size())) {
     if (logical_dom[i] != id) {
       continue;
     }
@@ -1526,7 +1526,7 @@ std::vector<IterDomain*> strideOrderToAllocation(
   auto rank = stride_order.size();
   std::vector<IterDomain*> allocation_domain_no_red(rank);
 
-  for (auto idx : c10::irange(rank)) {
+  for (auto idx : arange(rank)) {
     allocation_domain_no_red[rank - 1 - stride_order[idx]] =
         logical_domain_no_red[idx];
   }
@@ -1538,7 +1538,7 @@ std::vector<IterDomain*> strideOrderToAllocation(
   // Insert reduction axis at the original index in allocation domain
   std::vector<IterDomain*> allocation_domain(logical_domain.size());
   auto idx_no_red = 0;
-  for (auto idx : c10::irange(logical_domain.size())) {
+  for (auto idx : arange(logical_domain.size())) {
     if (logical_domain.at(idx)->isReduction()) {
       allocation_domain[idx] = logical_domain[idx];
     } else {

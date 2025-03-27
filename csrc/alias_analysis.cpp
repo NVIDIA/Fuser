@@ -149,7 +149,7 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
       PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
-  for (const auto i : c10::irange(preferred_in_layout.size())) {
+  for (const auto i : arange(preferred_in_layout.size())) {
     IterDomain* in_alloc_id = preferred_in_layout.allocation_domain[i];
     IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
     if (out_root_id == nullptr) {
@@ -176,7 +176,7 @@ void AliasFinder::handle(const ViewOp* view) {
   }
 
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
-  for (const auto i : c10::irange(out_root_layout->size())) {
+  for (const auto i : arange(out_root_layout->size())) {
     if (!out_root_layout->contiguity[i].has_value() &&
         !out_root_layout->allocation_domain[i]->isBroadcast()) {
       // TODO(#1126): Due to #1126, `out_root` materializes an expanded
@@ -352,7 +352,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
 
   // Put new, broadcast dimensions to the end.
   const std::vector<IterDomain*> out_logical = out->getLogicalDomain();
-  for (const auto i : c10::irange(out_logical.size())) {
+  for (const auto i : arange(out_logical.size())) {
     if (bcast->isBroadcastDim(i)) {
       out_layout->allocation_domain.push_back(out_logical[i]);
       out_layout->contiguity.emplace_back(std::nullopt);
@@ -550,7 +550,7 @@ bool Layout::isCompliantWith(const Layout& required) const {
     return false;
   }
 
-  for (const auto i : c10::irange(allocation_domain.size())) {
+  for (const auto i : arange(allocation_domain.size())) {
     if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
       return false;
     }

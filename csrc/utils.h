@@ -599,6 +599,23 @@ T pow(T a, T b) {
   }
 }
 
+// Returns a range of integers [start, end)
+auto arange(auto start, auto end) {
+  static_assert(std::is_integral<decltype(start)>());
+  static_assert(std::is_integral<decltype(end)>());
+  // If start and end are the same type, use the range directly
+  if constexpr (std::is_same_v<decltype(start), decltype(end)>) {
+    return std::ranges::iota_view(start, end);
+  }
+  return std::ranges::iota_view(decltype(end)(start), end);
+}
+
+// Returns a range of integers [0, end)
+auto arange(auto end) {
+  static_assert(std::is_integral<decltype(end)>());
+  return std::ranges::iota_view(decltype(end)(0), end);
+}
+
 // Returns true if given number is power of 2
 constexpr bool isPowOf2(int64_t x) {
   return x > 1 && (x & (x - 1)) == 0;

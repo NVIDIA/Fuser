@@ -129,7 +129,7 @@ Val* replaceCatOpWithBinaryOp(const std::vector<Val*>& inputs) {
   Val* (*binary_op)(Val*, Val*) =
       isBooleanType(data_type) ? logical_or_resolved : add_resolved;
   Val* res = inputs[0];
-  for (auto i : c10::irange(1, inputs.size())) {
+  for (auto i : arange(1, inputs.size())) {
     res = binary_op(res, inputs[i]);
   }
   // restore data type if it's promoted by BinaryOp.
@@ -242,9 +242,9 @@ TensorView* replayConcretePad(
     merged_pad_widths = vec_pad_widths.at(0);
   } else {
     merged_pad_widths.reserve(rank * 2);
-    for (const auto i : c10::irange(2 * rank)) {
+    for (const auto i : arange(2 * rank)) {
       Val* merged_pad_width = nullptr;
-      for (const auto idx : c10::irange(vec_pad_widths.size())) {
+      for (const auto idx : arange(vec_pad_widths.size())) {
         // skipping zero pad;
         Val* pad_width = vec_pad_widths[idx].at(i);
         if (pad_width->isZeroInt()) {
@@ -263,7 +263,7 @@ TensorView* replayConcretePad(
   // construct TensorDomain for output TV.
   std::vector<IterDomain*> merged_root_ids;
   std::vector<IterDomain*> merged_logical_ids;
-  for (const auto i : c10::irange(rank)) {
+  for (const auto i : arange(rank)) {
     Val* left_pad = merged_pad_widths.at(i * 2);
     Val* right_pad = merged_pad_widths.at(i * 2 + 1);
     IterDomain* inp_id = inp_dom.at(i);

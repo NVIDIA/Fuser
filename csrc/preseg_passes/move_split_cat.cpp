@@ -257,7 +257,7 @@ TensorView* slicesFormSplit(
     }
 
     // Check only the split axis is sliced.
-    for (auto j : c10::irange(
+    for (auto j : arange(
              static_cast<int64_t>(slice->out()->getMaybeRootDomain().size()))) {
       const bool sliced =
           (slice->out()->getMaybeRootDomain()[j] !=

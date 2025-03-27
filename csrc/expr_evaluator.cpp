@@ -34,7 +34,7 @@ std::string getInputPosString(const Val* val) {
   // Get position
   const std::vector<Val*>& inputs = val->fusion()->inputs();
   int64_t pos = -1;
-  for (size_t i : c10::irange(inputs.size())) {
+  for (size_t i : arange(inputs.size())) {
     if (inputs[i] == val) {
       pos = (int64_t)i;
       break;
@@ -146,7 +146,7 @@ void ExpressionEvaluator::bindTensorDomain(
       t.dim());
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, t.sizes());
-  for (auto i : c10::irange(t.dim())) {
+  for (auto i : arange(t.dim())) {
     auto id = logical_domain[i];
     if (id->isBroadcast()) {
       bind_(id->extent(), 1, evaluate_validate);
@@ -269,7 +269,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       auto outputs = def->evaluate(*this, known_values);
-      for (auto i : c10::irange(def->outputs().size())) {
+      for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }
       maybe_concrete_value = getValue(value, known_values);

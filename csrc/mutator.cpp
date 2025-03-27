@@ -5,12 +5,11 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
 #include <exceptions.h>
 #include <fusion.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-
+#include <utils.h>
 #include <vector>
 
 /*
@@ -219,19 +218,19 @@ Expr* OptOutMutator::mutateExpr(
   }
 
   bool all_same = true;
-  for (auto i : c10::irange(op->outputs().size())) {
+  for (auto i : arange(op->outputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_outputs[i] == op->output(i);
   }
-  for (auto i : c10::irange(op->inputs().size())) {
+  for (auto i : arange(op->inputs().size())) {
     if (!all_same) {
       break;
     }
     all_same = all_same && mutated_inputs[i] == op->input(i);
   }
-  for (auto i : c10::irange(op->attributes().size())) {
+  for (auto i : arange(op->attributes().size())) {
     if (!all_same) {
       break;
     }
