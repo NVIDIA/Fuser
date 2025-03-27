@@ -15,4 +15,7 @@ namespace direct_bindings {
 
 void initNvFuserDirectBindings(PyObject* module);
 
+// Add direct bindings for Fusion IR
+void bindFusionIr(py::module& direct_bindings);
+
 } // namespace direct_bindings
