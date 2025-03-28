@@ -244,6 +244,23 @@ bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
 }
 
+bool isCpAsyncUblk(const Expr* expr) {
+  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
+    if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
+      auto in_mem = getTv(ldst->in())->getMemoryType();
+      auto out_mem = getTv(ldst->out())->getMemoryType();
+      if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
+          (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
+        return true;
+      } else {
+        NVF_THROW("Invalid memory types for CpAsyncBulk");
+      }
+    }
+    return false;
+  }
+  return false;
+}
+
 bool isLdStTMem(const Expr* expr) {
   if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
     return ldst->opType() == LoadStoreOpType::LdTMem ||

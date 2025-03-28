@@ -207,6 +207,23 @@ Val* TensorIndexer::getLinearIndex(
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
 
+  // CpAsyncBulk, which lowers to UBLK, cannot handle out-of-bounds access.
+  // Since it's only used to load entire data along one dimension, we avoid
+  // explicit predicates by taking the modulo of the linear index with the
+  // logical tensor size. This effectively wraps out-of-bound accesses from the
+  // last row to the first. Although it may result in redundant loads,
+  // correctness is preserved because the output is always predicated.
+  if (!as_consumer && ir_utils::isCpAsyncUblk(expr)) {
+    auto gmem_tv = expr->input(0)->as<TensorView>();
+    auto logical_size = gmem_tv->fusion()->oneVal();
+    const auto& logical_domain = gmem_tv->getLogicalDomain();
+    for (const auto i : c10::irange(logical_domain.size())) {
+      logical_size = SimplifyingIrBuilder::mulExpr(
+          logical_size, logical_domain.at(i)->extent());
+    }
+    linear_index = SimplifyingIrBuilder::modExpr(linear_index, logical_size);
+  }
+
   return linear_index;
 }
 

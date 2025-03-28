@@ -1319,11 +1319,15 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      // When loading from global memory (gmem), use CpAsync with a short data
-      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
-      // data path from gmem to shared memory (smem) follows this sequence: gmem
-      // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
+      // Use 1D TMA, CpAsyncBulk
+      if (rparams->tma_warp_specialized && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulk);
+      } else if (supportCpAsync(tv) && is_cached_input) {
+        // When loading from global memory (gmem), use CpAsync with a short data
+        // path of gmem -> smem to reduce temporary register usage. Otherwise,
+        // the data path from gmem to shared memory (smem) follows this
+        // sequence: gmem -> L1 cache -> register -> smem.
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
