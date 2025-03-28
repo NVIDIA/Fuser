@@ -564,6 +564,8 @@ if(BUILD_PYTHON_DIRECT)
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_DIRECT_BINDINGS_SRCS})
 
+  # NOTE: For any future extension, change DIRECT_BINDINGS_EXTENSION to another
+  # name other than EXTENSION_NAME.
   target_compile_definitions(nvf_py_direct_internal PRIVATE
     "-DTORCH_CUDA_BUILD_MAIN_LIB"
     "-DC10_BUILD_MAIN_LIB=1"
