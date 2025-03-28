@@ -17,6 +17,7 @@
 #include <python_frontend/translation.h>
 #include <runtime/executor.h>
 #include <runtime/executor_dispatch.h>
+#include <runtime/expr_eval_exec.h>
 #include <runtime/fusion_cache_utils.h>
 #include <scheduler/heuristic.h>
 #include <serde/fusion_cache_generated.h>
