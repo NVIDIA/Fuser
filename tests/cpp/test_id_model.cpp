@@ -3084,4 +3084,49 @@ TEST_F(IdModelTest, InvalidLoopPromotion) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
+// When a loop group only includes broadcast IDs, the group should not
+// need to be promoted
+TEST_F(IdModelTest, BroadcastOnlyNoLoopPromotion) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = add(tv2, tv1);
+  fusion.addOutput(tv3);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->split(1, 1, false);
+    tv->reorder({{0, 1}, {1, 0}});
+  }
+
+  for (auto tv : fusion.allTvs()) {
+    tv->inlineAt(2);
+  }
+
+  // T2_l_float[bS10{1}, iS4{i0}, bS11{1}] ca_pos( 2 )
+  // = Set( T0_g_float[bS8{1}, iS0{i0}, bS9{1}], cache_op=Streaming )
+  // T3_g_float[iS14{1}, iS6{i0}, iS15{i5}] ca_pos( 2 ) produce_pos( 2 )
+  // = T2_l_float[bS10{1}, iS4{i0}, bS11{1}] ca_pos( 2 )
+  // + T1_g_float[iS12{1}, iS2{i4}, iS13{i5}];
+
+  // In this fusion, the innermost loop ID of tv2 is broadcast and is
+  // not inlined. While its producer ID is promoted to the concrete
+  // logical ID of tv3, it should not need to promote the loop ID as
+  // it's just a broadcast.
+
+  IdModel id_model(&fusion, /*build_graphs=*/true);
+
+  auto promotion_id = id_model.loopPromotionMap().at(
+      id_model.idGraph(IdMappingMode::LOOP).toGroup(tv2->axis(-1)));
+  EXPECT_TRUE(promotion_id->isBroadcast())
+      << "Should not be promoted a non-broadcast ID: "
+      << promotion_id->toString();
+}
+
 } // namespace nvfuser
