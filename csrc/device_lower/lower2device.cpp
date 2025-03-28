@@ -647,6 +647,7 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
       continue;
     }
     if (tv->hasComputeWith()) {
+      std::cout << "Resolve computeWith for " << tv->toString() << std::endl;
       if (exprs_sorted.empty()) {
         exprs_sorted = reorderExprsForComputeAt();
       }

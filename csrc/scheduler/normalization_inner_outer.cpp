@@ -793,9 +793,6 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   struct InnerOuterParams {
     int64_t inner_vect = -1;
     int64_t inner_batch = -1;
-    int64_t bdimx = -1;
-    int64_t bdimy = -1;
-    int64_t bdimz = -1;
     int64_t gdimy = -1;
     int64_t tmp_gmem_write_vect = -1;
     int64_t vectorization_factor_outer = -1;
@@ -808,8 +805,6 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
     void verify() {
       NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
       NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
-      NVF_ERROR(bdimx != -1, "bdimx is not set.");
-      NVF_ERROR(bdimy != -1, "bdimy is not set.");
       NVF_ERROR(gdimy != -1, "gdimy is not set.");
       NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
       NVF_ERROR(
@@ -819,7 +814,6 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
     std::string toString() const {
       std::stringstream ss;
       ss << "inner_vect: " << inner_vect << ", inner_batch: " << inner_batch
-         << ", bdimx: " << bdimx << ", bdimy: " << bdimy << ", bdimz: " << bdimz
          << ", gdimy: " << gdimy
          << ", tmp_gmem_write_vect: " << tmp_gmem_write_vect
          << ", vectorization_factor_outer: " << vectorization_factor_outer
@@ -881,34 +875,6 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
     return std::make_pair(tmp_gmem_write_vect, vectorization_factor_outer);
   };
 
-  // In the outer reduction part of the kernel, inner and outer dims are
-  // parallelized as:
-  // --- inner dim: vect, bdimx, gdimy ----
-  // --- outer dim: bdimy -----------------
-  // This function splits the threads_per_block into bdimx and bdimy using:
-  // bdimx = ceilDiv(inner_dim_numel / vect, gdimy)
-  // bdimy = threads_per_block / bdimx
-  auto getBdimxBdimy = [&](int64_t threads_per_block,
-                           int64_t vectorization_factor_outer,
-                           int64_t gdimy) {
-    // For widely used hidden sizes, threads_per_block has factor of 8, roundup
-    // to increase the probability of bdimx * bdimy == threads_per_block.
-    int64_t bdimx = scheduler_utils::roundUpPow2Or8(
-        ceilDiv(inner_dim_numel / vectorization_factor_outer, gdimy));
-    // if still not divisible, e.g. threads_per_block = 256, bdimx = 40.
-    // increase bdimx to make it divisible. Under worst case, bdimx equals to
-    // threads_per_block.
-    while (threads_per_block % bdimx) {
-      bdimx = std::min(bdimx + 8, threads_per_block);
-    }
-    // Set OuterParams Reduction dim: bdimy.
-    int64_t bdimy = threads_per_block / bdimx;
-    NVF_ERROR(
-        bdimy * bdimx == threads_per_block,
-        " threads_per_block must be divisible by bdimx and bdimy.");
-    return std::make_pair(bdimx, bdimy);
-  };
-
   // Get the heuristics given vectorization factor and threads per block
   auto getHeuristicsGivenVectThreads = [&](int64_t vect_factor,
                                            int64_t threads_per_block) {
@@ -924,13 +890,10 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
 
     // (2) outer reduction
     // Iteration dim: gdimy, bdimx, vectorization_factor_outer
-    // Reduction dim: bdimy
+    // Reduction dim: serial
     std::tie(iop.tmp_gmem_write_vect, iop.vectorization_factor_outer) =
         getOuterReductionBufferVectFactor(iop.inner_vect);
-    auto [bdimx, bdimy] = getBdimxBdimy(
-        threads_per_block, iop.vectorization_factor_outer, iop.gdimy);
-    iop.bdimx = bdimx;
-    iop.bdimy = bdimy;
+
     // (3) Derived metrics warps_per_sm and register usage for sorting
     iop.warps_per_sm = ceilDiv(iop.threads_per_block, dev_prop->warpSize) *
         iop.gdimy / device_multiprocessor_count;
@@ -1005,15 +968,8 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
 
   // Pick the best heuristic
   auto iop = iop_candidates.front();
-  rparams->block_dim_inner_reduction_extra = ParallelType::TIDy;
   rparams->combined_split_grid_inner_dim =
-      iop.vectorization_factor_outer * iop.bdimx * iop.gdimy < inner_dim_numel;
-  rparams->static_bdimx = true;
-  rparams->static_bdimy = true;
-  iop.bdimz = ceilDiv(
-      ceilDiv(ceilDiv(inner_dim_numel / iop.inner_vect, iop.bdimx), iop.bdimy),
-      iop.inner_batch);
-  NVF_ERROR(iop.bdimz == 1, "bdimz must be 1.");
+      iop.vectorization_factor_outer * iop.threads_per_block * iop.gdimy < inner_dim_numel;
 
   // check all the parameters in InnerOuterParams are set.
   iop.verify();
@@ -1027,6 +983,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
   rparams->cparams.maxrregcount = iop.available_register_per_thread;
   rparams->unroll_factor_inner_reduction = iop.inner_vect;
+  rparams->unroll_factor_outer_reduction = 2;
   rparams->batches_per_block_inner_reduction = iop.inner_batch;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->vectorize_inner_reduction = iop.inner_vect > 1;
@@ -1037,8 +994,8 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
       LaunchParams::UNINITIALIZED_VAL,
       iop.gdimy,
       LaunchParams::UNINITIALIZED_VAL,
-      iop.bdimx,
-      iop.bdimy,
+      iop.threads_per_block,
+      LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
   rparams->tag = "TMA Warp Specialized Persistent Heuristic.\n";
@@ -1059,7 +1016,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
             << "\n"
             << "warps_per_sm: " << iop.warps_per_sm << "\n"
             << "gdimy: " << iop.gdimy << "\n"
-            << "block(" << (iop.bdimx) << ", " << iop.bdimy << ", " << 1 << ")";
+            << "threads per block: " << iop.threads_per_block << "\n";
     debug() << rparams->toString() << std::endl;
   }
   return rparams;
@@ -1534,9 +1491,12 @@ void scheduleTmaWarpSpecializedOuter(
     cached_gmem_reload.emplace_back(partialResultReload);
 
     // Second-stage of outer reduction
-    // reduction domain, [I1/TIDy, TIDy]
-    outer_reduction_tv->split(0, rparams->lparams.bdimy());
-    outer_reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+    // Unroll 1 to WAR bug in validateAndPropagatePType which propagates BIDy
+    // to final outer reduction domain {132}
+    // reduction domain, [I1/Unroll, Unroll]
+    bool has_multiple_redu_domain = false;
+    outer_reduction_tv->split(0, 1);
+    outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
     // iteration domain, [BIDy, TIDx, Vect]
     int axisID = -1;
     if (rparams->vectorization_factor_outer > 1) {
@@ -1557,10 +1517,13 @@ void scheduleTmaWarpSpecializedOuter(
     outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     std::cout << "outer_reduction_tv2: " << outer_reduction_tv->toString()
               << std::endl;
-
-    auto outer_reference_tv =
-        reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
-    outer_reference_tvs.emplace_back(outer_reference_tv);
+    if(has_multiple_redu_domain){
+      auto outer_reference_tv =
+          reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
+      outer_reference_tvs.emplace_back(outer_reference_tv);
+    }else{
+      outer_reference_tvs.emplace_back(outer_reduction_tv);
+    }
   }
 }
 

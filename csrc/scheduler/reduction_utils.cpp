@@ -122,23 +122,9 @@ TensorView* scheduleReductionTV(
   };
 
   if (rparams->tma_warp_specialized) {
-    // Redu: [Persistent, UnSwitch, TIDz, TIDy, TIDx, Vect]
+    // Redu: [Persistent, UnSwitch, TIDx, Vect]
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
-    NVF_ERROR(
-        rparams->static_bdimx,
-        "blockDim.x must be static for combined_inner_outer");
-    inner_parallel_static(
-        inner_reduce_axis,
-        rparams->block_dim_inner_reduction,
-        rparams->lparams.bdimx());
 
-    NVF_ERROR(
-        rparams->static_bdimy,
-        "blockDim.y must be static for combined_inner_outer");
-    inner_parallel_static(
-        inner_reduce_axis,
-        rparams->block_dim_inner_reduction_extra,
-        rparams->lparams.bdimy());
     auto outer_i = inner_reduce_axis;
 
     reduction_tv->split(
@@ -146,7 +132,7 @@ TensorView* scheduleReductionTV(
 
     outer_unswitch(outer_i++);
 
-    reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDz);
+    reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDx);
 
     // Iteration: [I/BIDy, BIDy]
     inner_parallel_static(
