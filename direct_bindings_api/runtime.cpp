@@ -152,7 +152,14 @@ output : Val
 )")
       .def(
           "print_math",
-          &Fusion::printMath,
+          [](Fusion& f, bool from_outputs_only) {
+            // Send debug messages to stringstream
+            std::stringstream ss;
+            DebugStreamGuard dsg(ss);
+
+            f.printMath(from_outputs_only);
+            return ss.str();
+          },
           py::arg("from_outputs_only") = true,
           R"(
 Print arithmetic expressions in the fusion.
@@ -163,16 +170,43 @@ from_outputs_only : bool, optional
     If True, only print expressions reachable from outputs.
     If False, print all expressions.
     Default is True.
+
+Returns
+-------
+str
+    The fusion intermediate representation (IR) as a string.
 )")
-      .def("print_transforms", &Fusion::printTransforms, R"(
+      .def(
+          "print_transforms",
+          [](Fusion& f) {
+            // Send debug messages to stringstream
+            std::stringstream ss;
+            DebugStreamGuard dsg(ss);
+
+            f.printTransforms();
+            return ss.str();
+          },
+          R"(
 Print all transformations used in the fusion.
 
 This shows how tensor views have been transformed through operations like
 split, merge, and reorder.
+
+Returns
+-------
+str
+    A representation of all transformations applied to the fusion as a string.
 )")
       .def(
           "print_kernel",
-          &Fusion::printKernel,
+          [](Fusion& f, const CompileParams& compile_params) {
+            // Send debug messages to stringstream
+            std::stringstream ss;
+            DebugStreamGuard dsg(ss);
+
+            f.printKernel(compile_params);
+            return ss.str();
+          },
           py::arg("compile_params") = CompileParams(),
           R"(
 Lower the fusion and print the generated CUDA kernel.
@@ -182,6 +216,11 @@ Parameters
 compile_params : CompileParams, optional
     Parameters to control the compilation process.
     Default is default-constructed CompileParams.
+
+Returns
+-------
+str
+    The CUDA kernel as a string.
 )")
       .def("exprs", &Fusion::exprs, R"(
 Get all expressions in the fusion in topological order.
@@ -415,11 +454,23 @@ Fusion
 )")
       .def(
           "print_fusion",
-          &FusionExecutorCache::printFusion,
+          [](FusionExecutorCache& self) {
+            // Send debug messages to stringstream
+            std::stringstream ss;
+            DebugStreamGuard dsg(ss);
+
+            self.printFusion();
+            return ss.str();
+          },
           R"(
 Print the fusion IR to stdout.
 
 This is useful for debugging and understanding the structure of the fusion.
+
+Returns
+-------
+str
+    The fusion intermediate representation (IR) as a string.
 )")
       .def(
           "get_cuda_kernel",
