@@ -147,7 +147,12 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
       std::tie(
           covered_tensor.lane_allocation, covered_tensor.column_allocation) =
           getTMemAllocation(tv);
-      Val* num_columns = productOfExtents(covered_tensor.column_allocation);
+      // Each column is 4 bytes.
+      Val* num_columns = SimplifyingIrBuilder::ceilDivExpr(
+          SimplifyingIrBuilder::mulExpr(
+              productOfExtents(covered_tensor.column_allocation),
+              IrBuilder::create<Val>(dataTypeSize(tv->dtype()))),
+          IrBuilder::create<Val>(4));
       covered_tensor.lane_offset = tv->fusion()->zeroVal(DataType::UInt16);
       covered_tensor.column_offset =
           IrBuilder::maybeCastExpr(DataType::UInt16, region.num_columns);
@@ -166,6 +171,8 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
           max_lanes,
           " available.");
     }
+    // Number of columns must be a power of 2 with a minimum of 32.
+    // TODO: fix this
     constexpr int64_t unit_of_allocation = 32;
     Val* unit_of_allocation_val = IrBuilder::create<Val>(unit_of_allocation);
     region.num_columns = SimplifyingIrBuilder::maxExpr(
@@ -319,9 +326,10 @@ getThreadParallelTypesMergedByContiguity(const Expr* expr) {
     Val* extent_in_loop_domain = pt_in_loop_domain->extent();
     // If we can not symbolically prove that the extents are the same, then
     // we assume that they are not the same.
-    prev_exact = simplifyExpr(SimplifyingIrBuilder::eqExpr(
-                                  pt_extent, extent_in_loop_domain))
-                     ->isTrue();
+    prev_exact =
+        simplifyExpr(
+            SimplifyingIrBuilder::eqExpr(pt_extent, extent_in_loop_domain))
+            ->isTrue();
   }
   std::reverse(contiguity.begin(), contiguity.end());
 
