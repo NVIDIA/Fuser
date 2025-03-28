@@ -8,6 +8,7 @@
 #include <debug.h>
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/lower2device.h>
+#include <device_lower/pass/magic_zero.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <id_model/circular_buffer_indexing.h>
@@ -143,7 +144,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const std::vector<ForLoop*>& for_loops) const {
   auto info = computeIndex(expr, index_ids, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, info.loop_domains, for_loops, info.index_map);
+      expr, as_consumer, info.loop_ids, for_loops, info.index_map);
 
   // Note that IDs of index_ids may be mapped as the traversal graph
   // is the AlmostExact graph.
@@ -187,7 +188,7 @@ Val* TensorIndexer::getLinearIndex(
   const auto& alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
-      expr, as_consumer, alloc_info, for_loops, override_index);
+      tv, expr, as_consumer, alloc_info, for_loops, override_index);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -205,6 +206,38 @@ Val* TensorIndexer::getLinearIndex(
         getOffsetForCircularBufferTensor(tv, as_consumer, for_loops);
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
+  }
+
+  if (GpuLower::current()->isNvFuserZeroEnabled() &&
+      tv->getMemoryType() == MemoryType::Global) {
+    for (const auto for_loop : for_loops | std::views::reverse) {
+      Val* initial_loop_index =
+          getLoopIndex(for_loop->iter_domain(), for_loops);
+      if (!needsMagicZero(
+              for_loop, for_loop->iter_domain(), initial_loop_index)) {
+        continue;
+      }
+#if 0
+      std::cerr << "Magic zero required: "
+                << tv->toString() << " in " << expr->toString()
+                << for_loop->iter_domain()->toString()
+                << ". Loop index: " << initial_loop_index->toInlineString()
+                << ". Final index: " << linear_index->toInlineString()
+                << "\n";
+#endif
+      std::unordered_map<Val*, Val*> replacement_map;
+      replacement_map.emplace(
+          initial_loop_index,
+          SimplifyingIrBuilder::addExpr(
+              initial_loop_index,
+              GpuLower::current()->kernel()->magicZeroVal()));
+      linear_index =
+          ir_utils::replaceValRecursively(linear_index, replacement_map);
+#if 0
+      std::cerr << "Magic zero applied: " << linear_index->toInlineString() << "\n";
+#endif
+      break;
+    }
   }
 
   return linear_index;
@@ -228,10 +261,10 @@ IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
-  const auto loop_domains = getLoopIds(expr, id_model_);
+  const auto loop_ids = getLoopIds(expr, id_model_);
   const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
   const std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(loop_domains, for_loops);
+      getInitialIndexMap(loop_ids, for_loops);
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
@@ -242,7 +275,7 @@ IndexingInfo TensorIndexer::computeIndex(
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
 
   // Initialize the loop dependency mappings
-  for (const auto& loop_domain : loop_domains) {
+  for (const auto& loop_domain : loop_ids) {
     const auto& traversal_graph_group = traversalGraph().toGroup(loop_domain);
     const auto& loop_graph_group =
         id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
@@ -277,7 +310,7 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{
-      loop_domains, traversal_path, index_map, loop_group_dependencies};
+      loop_ids, index_ids, traversal_path, index_map, loop_group_dependencies};
   return info;
 }
 
@@ -290,6 +323,9 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   std::unordered_map<Val*, Val*> replacement_map;
 
   for (const auto loop_id : loop_domains) {
+    ForLoop* for_loop = indexing_utils::getForLoop(
+        loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
+
     Val* cur_index = getLoopIndex(loop_id, for_loops);
 
     Val* replacement_index = nullptr;
@@ -302,9 +338,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         loop_id->getParallelType() == ParallelType::Mma) {
       replacement_index = loop_id->fusion()->zeroVal();
     } else {
-      ForLoop* for_loop = indexing_utils::getForLoop(
-          loop_id, for_loops, id_model_.idGraph(IdMappingMode::LOOP));
-
       // for_loop is nullptr if no matching loop is found, which
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
@@ -330,7 +363,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
         }
       }
     }
-
     if (replacement_index == nullptr || replacement_index == cur_index) {
       continue;
     }
@@ -339,6 +371,59 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   }
 
   return replacement_map;
+}
+
+void TensorIndexer::protectPredicateIndicesWithMagicZero(
+    PredicateInfo& info,
+    const std::vector<ForLoop*>& for_loops) const {
+  if (!GpuLower::current()->isNvFuserZeroEnabled()) {
+    return;
+  }
+
+  // Gather the loop indices
+  std::unordered_set<Val*> loop_indices;
+  for (auto for_loop : for_loops) {
+    Val* initial_loop_index = getLoopIndex(for_loop->iter_domain(), for_loops);
+    loop_indices.insert(initial_loop_index);
+  }
+
+  auto protect = [&](Val* pred) -> Val* {
+    if (pred == nullptr) {
+      return pred;
+    }
+
+    // Figure out which loop indices are used in index
+    const auto vals = DependencyCheck::getAllValsBetween(loop_indices, {pred});
+
+    for (const auto for_loop : for_loops | std::views::reverse) {
+      Val* initial_loop_index =
+          getLoopIndex(for_loop->iter_domain(), for_loops);
+      if (std::find(vals.begin(), vals.end(), initial_loop_index) ==
+          vals.end()) {
+        continue;
+      }
+
+      if (!needsMagicZero(
+              for_loop, for_loop->iter_domain(), initial_loop_index)) {
+        continue;
+      }
+
+      std::unordered_map<Val*, Val*> replacement_map;
+      replacement_map.emplace(
+          initial_loop_index,
+          SimplifyingIrBuilder::addExpr(
+              initial_loop_index,
+              GpuLower::current()->kernel()->magicZeroVal()));
+      auto protected_pred =
+          ir_utils::replaceValRecursively(pred, replacement_map);
+      return protected_pred;
+    }
+
+    return pred;
+  };
+
+  info.startPredicate() = protect(info.startPredicate());
+  info.stopPredicate() = protect(info.stopPredicate());
 }
 
 std::vector<PredicateInfo> TensorIndexer::getPredicates(
@@ -478,6 +563,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
     }
 
+    protectPredicateIndicesWithMagicZero(info, for_loops);
+
     info_vec.emplace_back(info);
   }
 
@@ -527,6 +614,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       for (const auto& loop_dep : loop_deps) {
         info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
       }
+
+      protectPredicateIndicesWithMagicZero(info, for_loops);
 
       info_vec.emplace_back(info);
     }
@@ -597,8 +686,55 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
       {contig_strides.begin(), contig_strides.end()}};
 }
 
+namespace {
+bool _debug = false;
+}
+
+std::vector<ForLoop*> TensorIndexer::getUsedForLoops(
+    const std::vector<ForLoop*>& for_loops,
+    const IndexingInfo& index_info) const {
+  ValGroups used_loop_groups;
+  for (const auto& index_id : index_info.index_ids) {
+    const ValGroups& loop_groups = index_info.loop_group_dependencies.at(
+        traversalGraph().toGroup(index_id));
+    used_loop_groups.pushBack(loop_groups);
+  }
+  if (_debug) {
+    for (const auto& g : used_loop_groups) {
+      std::cerr << "Used loop group: " << nvfuser::toString(g) << "\n";
+    }
+  }
+  std::vector<ForLoop*> used_for_loops;
+  for (auto for_loop : for_loops) {
+    if (_debug) {
+      std::cerr << "Used for loop?: " << for_loop->iter_domain()->toString()
+                << "\n";
+    }
+    for (const ValGroup& used_loop_group : used_loop_groups) {
+      if (used_loop_group->has(for_loop->iter_domain())) {
+        if (_debug) {
+          std::cerr << "Used for loop: " << for_loop->iter_domain()->toString()
+                    << "\n";
+        }
+        used_for_loops.push_back(for_loop);
+        break;
+      }
+    }
+  }
+  return used_for_loops;
+}
+
+void TensorIndexer::ensureStaticIndexing(
+    const std::vector<ForLoop*>& for_loops,
+    const IndexingInfo& index_info) const {
+  for (auto for_loop : getUsedForLoops(for_loops, index_info)) {
+    for_loop->requireUnroll();
+  }
+}
+
 std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
+        TensorView* tv,
         const Expr* expr,
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
@@ -617,7 +753,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   }
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, index_info.loop_domains, for_loops, index_map);
+      expr, as_consumer, index_info.loop_ids, for_loops, index_map);
 
   std::vector<ValGroup> contig_alloc_groups;
   std::vector<Val*> contig_strides;
@@ -651,6 +787,11 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     Val* idx = idx_it->second;
     Val* replaced_idx = ir_utils::replaceValRecursively(idx, replacement_map);
     result.push_back(replaced_idx);
+  }
+
+  if (tv->getMemoryType() == MemoryType::Local) {
+    ensureStaticIndexing(for_loops, index_info);
+    _debug = false;
   }
 
   return {result, contig_strides};
