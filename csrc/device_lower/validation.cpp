@@ -853,6 +853,7 @@ void fillVectorizedContigAllocationDomains(
 
 } // namespace
 
+// TODO: Port to new indexer
 void fillConsumerVectorizedContigAllocationDomains(
     const TensorView* consumer_tv,
     const ContigIDs& contig_finder) {
@@ -875,6 +876,7 @@ void fillConsumerVectorizedContigAllocationDomains(
       consumer_tv, contig_finder, consumer_alloc_id, info);
 }
 
+// TODO: Port to new indexer
 void fillProducerVectorizedContigAllocationDomains(
     const TensorView* producer_tv,
     const TensorView* consumer_tv,

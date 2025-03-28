@@ -119,6 +119,8 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       ForLoop* unswitched_loop = nullptr) const;
 
+  static bool isSupported(Fusion* fusion);
+
   // Get the indexing traversal path for indexing a given list of IDs
   // for a given expr
   ExprPath<ExprGroup> getIndexingPath(
