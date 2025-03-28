@@ -4,8 +4,9 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-from nvfuser import direct
 import traceback
+
+from . import _C_DIRECT as direct
 
 
 class DirectFusionDefinition(direct._DirectFusionDefinition):

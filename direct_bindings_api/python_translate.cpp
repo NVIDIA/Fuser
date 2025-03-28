@@ -251,7 +251,9 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const BinaryOp* bop) final {
     NVF_ERROR(bop != nullptr);
     generateOperation(
-        "fd.ops." + toString(bop), {bop->lhs(), bop->rhs()}, {bop->out()});
+        "fd.ops." + direct_bindings::toString(bop),
+        {bop->lhs(), bop->rhs()},
+        {bop->out()});
   }
 
   // Find integer index corresponding with reduction iterDomains
@@ -281,7 +283,7 @@ class PythonTranslator : public OptInConstDispatch {
     static const std::vector<std::string> argument_names = {
         "dims", "keep_dim", "dtype"};
     generateKwargsOperation(
-        "fd.ops." + toString(rop),
+        "fd.ops." + direct_bindings::toString(rop),
         {toString(rop->in())},
         argument_names,
         {toString(getReductionAxes(rop->out()->as<TensorView>())),

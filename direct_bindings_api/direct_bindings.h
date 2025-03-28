@@ -26,7 +26,9 @@ void bindRuntime(py::module& direct_bindings);
 void bindFusionDefinition(py::module& direct_bindings);
 
 // Add bindings for Enums and HeuristicParams
-void bindParams(py::module& direct_bindings);
+// TODO: Move from python_frontend to direct_bindings_api
+// Cannot move to direct_bindings_api because of circular dependency
+// void bindParams(py::module& direct_bindings);
 
 // Add direct bindings for CPP Fusion Operations
 void bindOperations(py::class_<DirectFusionDefinition>& fusion_def);

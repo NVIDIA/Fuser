@@ -3674,14 +3674,6 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindSchedule(fusion_def);
 
   bindMultidevice(nvfuser);
-
-  // Create direct bindings
-  py::module direct_bindings = nvfuser.def_submodule(
-      "direct", "Direct python bindings for CPP Direct Fusion");
-  direct_bindings.def("translate_fusion", &translateFusion);
-  bindDirectIr(direct_bindings);
-  bindDirectFusionDefinition(direct_bindings);
-  bindDirectRuntime(direct_bindings);
 }
 
 void cleanup() {

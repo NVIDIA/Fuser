@@ -457,13 +457,6 @@ if(BUILD_PYTHON)
   # nvfuser python API sources
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/direct_bindings/fusion_definition.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/direct_bindings/ir.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/direct_bindings/ops.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/direct_bindings/python_translate.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/direct_bindings/runtime.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/direct_bindings/schedule.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/direct_bindings/utils.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/multidevice_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
     ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
@@ -563,7 +556,6 @@ if(BUILD_PYTHON_DIRECT)
     ${NVFUSER_DIRECT_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_DIRECT_BINDINGS}/ops.cpp
-    ${NVFUSER_DIRECT_BINDINGS}/params.cpp
     ${NVFUSER_DIRECT_BINDINGS}/python_translate.cpp
     ${NVFUSER_DIRECT_BINDINGS}/python_translate_utils.cpp
     ${NVFUSER_DIRECT_BINDINGS}/runtime.cpp

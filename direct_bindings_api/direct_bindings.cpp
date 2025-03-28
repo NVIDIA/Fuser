@@ -16,7 +16,6 @@ void initNvFuserDirectBindings(PyObject* module) {
   bindFusionIr(direct_bindings);
   bindRuntime(direct_bindings);
   bindFusionDefinition(direct_bindings);
-  bindParams(direct_bindings);
 }
 
 } // namespace direct_bindings
