@@ -17,8 +17,8 @@ void bindFusionDefinition(py::module& direct_bindings) {
   fusion_def.def(py::init<>())
       .def_readwrite("ops", &DirectFusionDefinition::ops)
       .def_readwrite("schedule", &DirectFusionDefinition::sched);
-  bindDirectOperations(fusion_def);
-  bindDirectScheduleOperators(fusion_def);
+  bindOperations(fusion_def);
+  bindScheduleOperators(fusion_def);
 }
 
 } // namespace direct_bindings

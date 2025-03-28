@@ -563,42 +563,26 @@ if(BUILD_PYTHON_DIRECT)
     ${NVFUSER_DIRECT_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_DIRECT_BINDINGS}/ir.cpp
     ${NVFUSER_DIRECT_BINDINGS}/ops.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/params.cpp
     ${NVFUSER_DIRECT_BINDINGS}/python_translate.cpp
     ${NVFUSER_DIRECT_BINDINGS}/python_translate_utils.cpp
     ${NVFUSER_DIRECT_BINDINGS}/runtime.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/schedule.cpp
     ${NVFUSER_DIRECT_BINDINGS}/internal_utils.cpp
   )
-
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_DIRECT_BINDINGS_SRCS})
-
-  # setup python API version
-  add_custom_command(
-    OUTPUT ${NVFUSER_ROOT}/nvfuser/version.py
-    COMMAND
-    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py') .touch() \"
-    COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_ROOT}/version.txt
-    WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
-  )
-  add_custom_target(
-    gen_nvfuser_version_direct ALL
-    DEPENDS ${NVFUSER_ROOT}/nvfuser/version.py
-  )
-  add_dependencies(nvf_py_direct_internal gen_nvfuser_version_direct)
 
   target_compile_definitions(nvf_py_direct_internal PRIVATE
     "-DTORCH_CUDA_BUILD_MAIN_LIB"
     "-DC10_BUILD_MAIN_LIB=1"
-    EXTENSION_NAME=_C_DIRECT
+    DIRECT_BINDINGS_EXTENSION=_C_DIRECT
   )
 
   add_library(nvfuser_next MODULE $<TARGET_OBJECTS:nvf_py_direct_internal>)
   target_compile_definitions(nvfuser_next PRIVATE
     "-DTORCH_CUDA_BUILD_MAIN_LIB"
     "-DC10_BUILD_MAIN_LIB=1"
-    EXTENSION_NAME=_C_DIRECT
+    DIRECT_BINDINGS_EXTENSION=_C_DIRECT
   )
 
   if(NOT MSVC)
@@ -609,6 +593,17 @@ if(BUILD_PYTHON_DIRECT)
     set(NVF_LIB_SUFFIX ".pyd")
   endif()
 
+  set_target_properties(nvf_py_direct_internal PROPERTIES
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
   set_target_properties(nvfuser_next PROPERTIES
     C_STANDARD ${NVFUSER_C_STANDARD}
     CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
@@ -619,17 +614,6 @@ if(BUILD_PYTHON_DIRECT)
     "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
     POSITION_INDEPENDENT_CODE Yes
     SUFFIX ${NVF_LIB_SUFFIX}
-    VISIBILITY_INLINES_HIDDEN Yes
-  )
-  set_target_properties(nvf_py_direct_internal PROPERTIES
-    C_STANDARD ${NVFUSER_C_STANDARD}
-    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
-    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
-    CXX_STANDARD_REQUIRED ON
-    CXX_VISIBILITY_PRESET hidden
-    INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
-    POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
 

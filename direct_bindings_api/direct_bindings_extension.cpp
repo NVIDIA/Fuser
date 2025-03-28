@@ -8,7 +8,7 @@
 #include <direct_bindings.h>
 #include <torch/extension.h>
 
-PYBIND11_MODULE(EXTENSION_NAME, m) {
+PYBIND11_MODULE(DIRECT_BINDINGS_EXTENSION, m) {
   m.doc() = "Direct python bindings for NvFuser CPP API";
   direct_bindings::initNvFuserDirectBindings(m.ptr());
 }

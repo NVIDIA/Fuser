@@ -25,12 +25,14 @@ void bindRuntime(py::module& direct_bindings);
 // Add direct bindings for FusionDefinition
 void bindFusionDefinition(py::module& direct_bindings);
 
+// Add bindings for Enums and HeuristicParams
+void bindParams(py::module& direct_bindings);
+
 // Add direct bindings for CPP Fusion Operations
-void bindDirectOperations(py::class_<DirectFusionDefinition>& fusion_def);
+void bindOperations(py::class_<DirectFusionDefinition>& fusion_def);
 
 // Add direct bindings for CPP Schedule Operators
-void bindDirectScheduleOperators(
-    py::class_<DirectFusionDefinition>& fusion_def);
+void bindScheduleOperators(py::class_<DirectFusionDefinition>& fusion_def);
 
 // Translate a CPP Fusion to a direct bindings python function
 std::string translateFusion(nvfuser::Fusion* f);

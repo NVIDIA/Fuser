@@ -634,7 +634,7 @@ void bindKernelExecutor(py::module& fusion) {
 
 } // namespace
 
-void bindDirectRuntime(py::module& fusion) {
+void bindRuntime(py::module& fusion) {
   bindIrContainer(fusion);
   bindFusionExecutorCache(fusion);
   bindKernelExecutor(fusion);

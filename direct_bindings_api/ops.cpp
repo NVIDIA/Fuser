@@ -1566,7 +1566,7 @@ TensorView
 
 } // namespace
 
-void bindDirectOperations(py::class_<DirectFusionDefinition>& fusion_def) {
+void bindOperations(py::class_<DirectFusionDefinition>& fusion_def) {
   //! The Operators class is a nested class of DirectFusionDefinition to allow
   //! the user to query the class for the list of operators.
   //!

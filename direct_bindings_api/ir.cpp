@@ -27,10 +27,10 @@ namespace {
 
 using namespace nvfuser;
 
-void bindBaseNodes(py::module& fusion) {
+void bindBaseNodes(py::module& direct_bindings) {
   // Statement
   py::class_<Statement, std::unique_ptr<Statement, py::nodelete>>(
-      fusion, "Statement")
+      direct_bindings, "Statement")
       .def(
           "name",
           &Statement::name,
@@ -114,7 +114,8 @@ bool
           "Convert the IterDomain to a string representation.");
 
   // Val
-  py::class_<Val, Statement, std::unique_ptr<Val, py::nodelete>>(fusion, "Val")
+  py::class_<Val, Statement, std::unique_ptr<Val, py::nodelete>>(
+      direct_bindings, "Val")
       .def(
           "vtype",
           &Val::vtype,
@@ -338,7 +339,7 @@ bool
 
   // Expr
   py::class_<Expr, Statement, std::unique_ptr<Expr, py::nodelete>>(
-      fusion, "Expr")
+      direct_bindings, "Expr")
       .def(
           "input",
           &Expr::input,
@@ -403,10 +404,10 @@ str
 )");
 }
 
-void bindInternalBaseNodes(py::module& fusion) {
+void bindInternalBaseNodes(py::module& direct_bindings) {
   // IterDomain
   py::class_<IterDomain, Val, std::unique_ptr<IterDomain, py::nodelete>>(
-      fusion, "IterDomain")
+      direct_bindings, "IterDomain")
       .def(
           "__eq__",
           &IterDomain::sameAs,
@@ -579,7 +580,7 @@ across CUDA threads and blocks.
 )");
 
   py::class_<TensorDomain, Val, std::unique_ptr<TensorDomain, py::nodelete>>(
-      fusion, "TensorDomain")
+      direct_bindings, "TensorDomain")
       .def(
           "__str__",
           [](TensorDomain* self) { return self->toString(/*indent_size=*/0); },
@@ -669,9 +670,9 @@ bool
 )");
 }
 
-void bindInterfaceNodes(py::module& fusion) {
+void bindInterfaceNodes(py::module& direct_bindings) {
   py::class_<TensorView, Val, std::unique_ptr<TensorView, py::nodelete>>(
-      fusion, "TensorView")
+      direct_bindings, "TensorView")
       .def(
           "__str__",
           [](TensorView* self) { return self->toString(/*indent_size=*/0); },
@@ -955,7 +956,7 @@ TensorView
     The newly created rfactor tensor.
 )");
 
-  py::class_<TensorViewBuilder>(fusion, "TensorViewBuilder")
+  py::class_<TensorViewBuilder>(direct_bindings, "TensorViewBuilder")
       .def(py::init<>(), R"(
 Create a new TensorViewBuilder.
 
@@ -1296,8 +1297,8 @@ TensorView* defineTensor(
   return tv;
 }
 
-void bindScalar(py::module& fusion) {
-  fusion.def(
+void bindScalar(py::module& direct_bindings) {
+  direct_bindings.def(
       "define_scalar",
       [](PolymorphicValue::VariantType value,
          std::optional<PrimDataType> dtype) {
@@ -1313,7 +1314,7 @@ void bindScalar(py::module& fusion) {
       py::arg("value"),
       py::arg("dtype") = std::nullopt,
       py::return_value_policy::reference);
-  fusion.def(
+  direct_bindings.def(
       "define_scalar",
       [](PrimDataType dtype) {
         return IrBuilder::create<Val>(std::monostate{}, dtype);
@@ -1322,8 +1323,8 @@ void bindScalar(py::module& fusion) {
       py::return_value_policy::reference);
 }
 
-void bindDefineTensor(py::module& fusion) {
-  fusion
+void bindDefineTensor(py::module& direct_bindings) {
+  direct_bindings
       .def(
           "define_tensor",
           [](const std::vector<int64_t>& shape,
