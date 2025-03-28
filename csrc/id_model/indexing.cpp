@@ -789,7 +789,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     result.push_back(replaced_idx);
   }
 
-  if (tv->getMemoryType() == MemoryType::Local && as_consumer) {
+  if (tv->getMemoryType() == MemoryType::Local) {
     ensureStaticIndexing(for_loops, index_info);
     _debug = false;
   }
