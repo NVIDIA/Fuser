@@ -23,6 +23,7 @@
 #include <c10/util/irange.h>
 
 #include <iostream>
+#include <ranges>
 #include <string>
 #include <unordered_map>
 
@@ -150,7 +151,7 @@ bool Val::sameAs(const Statement* other) const {
     }
     // For definition with multiple outputs, only outputs at the same position
     // could be the same
-    for (auto i : c10::irange(definition_->outputs().size())) {
+    for (const auto i : std::views::iota(0LL, definition_->outputs().size())) {
       if ((definition_->output(i) == this) !=
           (other_val->definition_->output(i) == other_val)) {
         return false;

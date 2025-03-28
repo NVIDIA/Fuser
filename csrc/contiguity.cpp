@@ -8,6 +8,7 @@
 #include <device_lower/lower2device.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
+#include <ranges>
 
 #include <contiguity.h>
 
@@ -22,7 +23,7 @@ OrderedIdInformation::OrderedIdInformation(
   }
 
   // Grab allocation ids and initialize them.
-  for (const auto alloc_i : c10::irange(alloc_domain.size())) {
+  for (const auto alloc_i : std::views::iota(0LL, alloc_domain.size())) {
     auto alloc_id = alloc_domain[alloc_i]->as<IterDomain>();
 
     // Initialize id_to_alloc_ids to map allocs to themselves
@@ -196,7 +197,7 @@ void OrderedIdInformation::handle(Merge* merge) {
     active_ids_[inner_pos] = nullptr;
   } else {
     active_ids_.erase(active_ids_.begin() + inner_pos);
-    for (auto i = outer_pos + 1; i < inner_pos; i++) {
+    for (auto i : std::views::iota(outer_pos + 1, inner_pos)) {
       // If there's broadcast axes between outer and inner and the merge was
       // contiguous, there may be broadcasts between outer and inner that cannot
       // be ordered merged anywhere else so remove them.
