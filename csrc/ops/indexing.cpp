@@ -100,6 +100,41 @@ TensorView* indexSelect(
   return out;
 }
 
+// This is a restricted version of torch.index_put(..., accumulate=true)
+TensorView* indexPutAccumulate(
+    TensorView* acc_tv,
+    TensorView* index_tv,
+    TensorView* value_tv) {
+  DataType dtype = acc_tv->getDataType().value();
+  NVF_CHECK(
+      dtype != DataType::Null, "Invalid datatype provided for new value.");
+
+  std::vector<IterDomain*> acc_domain =
+      TensorDomain::noReductions(acc_tv->getLogicalDomain());
+  std::vector<IterDomain*> index_domain =
+      TensorDomain::noReductions(index_tv->getLogicalDomain());
+  std::vector<IterDomain*> value_domain =
+      TensorDomain::noReductions(value_tv->getLogicalDomain());
+
+  // [ Note -- IndexPutAccumulate shape restriction ]
+  //
+  // Producers:
+  //     accumulate [ vocab, hidden ]
+  //     index [ *seq ]
+  //     value [ *seq, hidden ]
+  // Consumers:
+  //     output [ vocab, hidden ]
+  // Note: *seq could be multiple dimensions, we are keeping it as 1D for
+  // simplicity in indexing for now.
+  NVF_CHECK(acc_domain.size() == 2);
+  NVF_CHECK(index_domain.size() == 1);
+  NVF_CHECK(value_domain.size() == 2);
+
+  TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
+  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
+  return out;
+}
+
 // torch.gather
 TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());

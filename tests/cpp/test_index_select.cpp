@@ -857,4 +857,39 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, IndexPutAccumulate) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t vocab = 1024;
+  int64_t hidden = 3584;
+  int64_t seq = 3000;
+
+  auto tv_value = makeSymbolicTensor(2);
+  fusion.addInput(tv_value);
+  auto tv_index = makeContigTensor(1, DataType::Int);
+  fusion.addInput(tv_index);
+  // TODO: make this symbolic?!
+  auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
+  std::vector<nvfuser::Val*> buffer_size = {
+      s_vocab, tv_value->axis(-1)->extent()};
+  auto buf = zeros(buffer_size, DataType::Float, true);
+  // this should be an inplace. handle it when we have codegen support
+  auto out = indexPutAccumulate(buf, tv_index, tv_value);
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  std::vector<int64_t> shape1({seq, hidden});
+  std::vector<int64_t> shape2({seq});
+  auto t_value = at::randn(shape1, options);
+  auto t_index = at::randint(0, vocab, shape2, options_i);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t_value, t_index});
+
+  testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
