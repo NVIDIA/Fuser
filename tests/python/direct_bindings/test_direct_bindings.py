@@ -115,8 +115,8 @@ T2_g_float[iS6{2}, iS7{4}, iS8{8}]
 
     fec = direct.FusionExecutorCache(fd.fusion)
     inputs = [
-        torch.ones(2, 4, 8, device="cuda"),
-        torch.ones(2, 4, 8, device="cuda"),
+        torch.randn(2, 4, 8, device="cuda"),
+        torch.randn(2, 4, 8, device="cuda"),
     ]
 
     # Test fusion execution
@@ -196,8 +196,8 @@ def test_define_tensor():
 
     # Test fusion execution with dynamic shapes
     inputs = [
-        torch.ones(2, 4, 8, device="cuda"),
-        torch.ones(2, 4, 8, device="cuda"),
+        torch.randn(2, 4, 8, device="cuda"),
+        torch.randn(2, 4, 8, device="cuda"),
     ]
     outputs = fd.execute(inputs)
     assert torch.allclose(outputs[0], inputs[0] + inputs[1])
