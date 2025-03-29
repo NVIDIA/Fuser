@@ -13,6 +13,7 @@
 #include <ir/all_nodes.h>
 #include <ir/container.h>
 #include <ops/all_ops.h>
+#include <type.h>
 #include <utils.h>
 #include <ranges>
 
@@ -21,6 +22,179 @@ namespace direct_bindings {
 namespace {
 
 using namespace nvfuser;
+
+class PythonPrinter {
+ public:
+  PythonPrinter(std::ostream& os) : os_(os) {}
+
+  // Generate a python string for a boolean value.
+  std::string toString(bool b) {
+    return b ? "True" : "False";
+  }
+
+  // Generate a python string for an int64_t value.
+  std::string toString(int64_t i) {
+    return std::to_string(i);
+  }
+
+  // Generate a python string for a boolean value.
+  std::string toString(std::optional<bool> b) {
+    if (b.has_value()) {
+      return toString(b.value());
+    } else {
+      return "None";
+    }
+  }
+
+  // Generate a python string for a complex double value.
+  std::string toString(std::complex<double> c) {
+    std::stringstream ss;
+    ss << std::showpoint << std::real(c) << "+" << std::showpoint
+       << std::imag(c) << "j";
+    return ss.str();
+  }
+
+  // Generate a python string for a double value.
+  std::string toString(double d) {
+    if (std::isinf(d)) {
+      if (std::signbit(d)) {
+        return "float(\"-inf\")";
+      } else {
+        return "float(\"inf\")";
+      }
+    } else if (std::isnan(d)) {
+      return "float(\"nan\")";
+    } else {
+      std::stringstream ss;
+      ss << std::showpoint << d;
+      return ss.str();
+    }
+  }
+
+  // Generate a python string for a Datatype.
+  std::string toString(DataType dtype) {
+    return dtypeToPyString(std::get<PrimDataType>(dtype.type));
+  }
+
+  // Generate a python string for a PolymorphicValue with simple types.
+  std::string toString(const PolymorphicValue& pv) {
+    if (pv.is<bool>()) {
+      return toString(pv.as<bool>());
+    } else if (pv.is<int64_t>()) {
+      return toString(pv.as<int64_t>());
+    } else if (pv.is<std::complex<double>>()) {
+      return toString(pv.as<std::complex<double>>());
+    } else if (pv.is<double>()) {
+      return toString(pv.as<double>());
+    } else {
+      NVF_THROW("Unsupported PolymorphicValue type");
+    }
+  }
+
+  // Generate a unique name for a Val. Map val to name to track Val's lifetime.
+  std::string toString(const nvfuser::Val* v) {
+    std::stringstream ss;
+    if (v->isA<TensorView>()) {
+      ss << "tv" << v->name();
+    } else {
+      ss << "c" << v->name();
+    }
+    return ss.str();
+  }
+
+  // Generate a python list of values.
+  template <typename T>
+  std::string toString(const std::vector<T>& vec, bool is_list = true) {
+    std::stringstream ss;
+    if (is_list) {
+      ss << "[";
+    }
+    for (auto&& [i, val] : enumerate(vec)) {
+      ss << toString(val);
+      if (i < vec.size() - 1) {
+        ss << ", ";
+      }
+    }
+    if (is_list) {
+      ss << "]";
+    }
+    return ss.str();
+  }
+
+  // Generate a python list of values.
+  std::string generateList(const std::vector<std::string>& args) {
+    if (args.empty()) {
+      return "";
+    }
+    std::stringstream ss;
+    for (auto&& [i, arg] : enumerate(args)) {
+      if (i > 0) {
+        ss << ", ";
+      }
+      ss << arg;
+    }
+    return ss.str();
+  }
+
+  // Generate a python list of values with string keyword arguments.
+  std::string generateNamedList(
+      const std::vector<std::string>& argument_names,
+      const std::vector<std::optional<std::string>>& args) {
+    NVF_ERROR(
+        argument_names.size() == args.size(),
+        "Input argument names and inputs must have the same size.");
+    std::stringstream ss;
+    size_t i = 0;
+    for (auto&& [name, arg] : zip(argument_names, args)) {
+      if (!arg.has_value()) {
+        continue;
+      }
+      if (i > 0) {
+        ss << ", ";
+      }
+      ss << name << "=" << arg.value();
+      ++i;
+    }
+    return ss.str();
+  }
+
+  // Generate a python definition for a FusionDefinition.
+  void generateFusionDefinition() {
+    os_ << "def nvfuser_fusion(fd : DirectFusionDefinition) -> None :\n";
+  }
+
+  // Generate a python operation with a list of inputs and outputs.
+  void generateOperation(
+      const std::string& op_name,
+      const std::vector<const nvfuser::Val*>& inputs,
+      const std::vector<const nvfuser::Val*>& outputs) {
+    os_ << kTab;
+    if (!outputs.empty()) {
+      os_ << toString(outputs, /*is_list=*/false) << " = ";
+    }
+    os_ << op_name << "(" << toString(inputs, /*is_list=*/false) << ")\n";
+  }
+
+  // Generate a python operation with a list of inputs and outputs.
+  // A string keyword argument is added for each input.
+  void generateKwargsOperation(
+      const std::string& op_name,
+      const std::vector<std::string>& args,
+      const std::vector<std::string>& kwargs_names,
+      const std::vector<std::optional<std::string>>& kwargs,
+      const std::vector<const nvfuser::Val*>& outputs) {
+    std::string connect = (args.empty()) ? "" : ", ";
+    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
+        << "(" << generateList(args) << connect
+        << generateNamedList(kwargs_names, kwargs) << ")\n";
+  }
+
+ private:
+  //! The stream to print the python function to.
+  std::ostream& os_;
+  //! Indentation for python code.
+  static constexpr const char* kTab = "    ";
+};
 
 // PythonTranslator converts CPP Fusion to an equivalent python definition.
 //
@@ -48,7 +222,7 @@ class PythonTranslator : public OptInConstDispatch {
 
  private:
   PythonTranslator(std::ostream& os, Fusion* fusion)
-      : os_(os), fusion_(fusion) {}
+      : printer_(os), fusion_(fusion) {}
 
   bool isScheduledTensorView(TensorView* tv) const {
     NVF_ERROR(tv != nullptr);
@@ -72,12 +246,12 @@ class PythonTranslator : public OptInConstDispatch {
     // TODO Add check_view_dependency
     return std::all_of(
         e->inputs().begin(), e->inputs().end(), [&](const Val* v) {
-          return map_val_to_name_.count(v) > 0;
+          return visited_vals_.count(v) > 0;
         });
   }
 
   void translate() {
-    os_ << "def nvfuser_fusion(fd : DirectFusionDefinition) -> None :\n";
+    printer_.generateFusionDefinition();
 
     // Add Fusion inputs to FusionDefinition
     for (nvfuser::Val* v : fusion_->inputs()) {
@@ -178,11 +352,11 @@ class PythonTranslator : public OptInConstDispatch {
     if (v->definition() != nullptr) {
       return;
     }
-
     // short-circuit: value already exists in FusionDefinition
-    if (map_val_to_name_.count(v) > 0) {
+    if (visited_vals_.count(v) > 0) {
       return;
     }
+    visited_vals_.insert(v);
 
     // DataType::Index does not exist in python_frontend, so convert to
     // DataType::Int
@@ -190,11 +364,11 @@ class PythonTranslator : public OptInConstDispatch {
         (v->dtype() == DataType::Index) ? DataType::Int : v->dtype();
 
     static const std::vector<std::string> argument_names = {"dtype"};
-    generateKwargsOperation(
+    printer_.generateKwargsOperation(
         "fd.define_scalar",
-        {toString(v->value())},
+        {printer_.toString(v->value())},
         argument_names,
-        {dtypeToPyString(std::get<PrimDataType>(scalar_dtype.type))},
+        {printer_.toString(scalar_dtype)},
         {v});
   }
 
@@ -202,9 +376,10 @@ class PythonTranslator : public OptInConstDispatch {
   void handle(const TensorView* tv) final {
     NVF_ERROR(tv != nullptr);
     // short-circuit: value already exists in FusionDefinition
-    if (map_val_to_name_.count(tv) > 0) {
+    if (visited_vals_.count(tv) > 0) {
       return;
     }
+    visited_vals_.insert(tv);
 
     std::vector<int64_t> shape;
     std::transform(
@@ -221,16 +396,17 @@ class PythonTranslator : public OptInConstDispatch {
 
     static const std::vector<std::string> argument_names = {
         "shape", "contiguity", "dtype", "is_cpu", "stride_order"};
-    generateKwargsOperation(
+    printer_.generateKwargsOperation(
         "fd.define_tensor",
         {},
         argument_names,
-        {toString(shape),
-         toString(tv->domain()->contiguity()),
+        {printer_.toString(shape),
+         printer_.toString(tv->domain()->contiguity()),
          dtypeToPyString(std::get<PrimDataType>(tv->dtype().type)),
-         toString(tv->isCpuScalar()),
-         (stride_order.empty()) ? std::nullopt
-                                : std::make_optional(toString(stride_order))},
+         printer_.toString(tv->isCpuScalar()),
+         (stride_order.empty())
+             ? std::nullopt
+             : std::make_optional(printer_.toString(stride_order))},
         {tv});
   }
 
@@ -240,7 +416,7 @@ class PythonTranslator : public OptInConstDispatch {
   // Add Tensor output to FusionDefinition
   void handleOutput(const TensorView* tv) {
     NVF_ERROR(tv != nullptr);
-    os_ << kTab << "fd.add_output(" << toString(tv) << ")";
+    printer_.generateOperation("fd.add_output", {tv}, {});
   }
 
   // =================================================================================
@@ -250,7 +426,11 @@ class PythonTranslator : public OptInConstDispatch {
   // Map BinaryOp to python_frontend OpRecord
   void handle(const BinaryOp* bop) final {
     NVF_ERROR(bop != nullptr);
-    generateOperation(
+    if (visited_vals_.count(bop->out()) > 0) {
+      return;
+    }
+    visited_vals_.insert(bop->out());
+    printer_.generateOperation(
         "fd.ops." + direct_bindings::toString(bop),
         {bop->lhs(), bop->rhs()},
         {bop->out()});
@@ -275,189 +455,30 @@ class PythonTranslator : public OptInConstDispatch {
 
     // The min and max reduction operations expect the dtype argument to by
     // PrimDataType::Null
-    PrimDataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
-                          rop->getReductionOpType() == BinaryOpType::Max)
-        ? PrimDataType::Null
-        : std::get<PrimDataType>(rop->out()->dtype().type);
+    DataType dtype = (rop->getReductionOpType() == BinaryOpType::Min ||
+                      rop->getReductionOpType() == BinaryOpType::Max)
+        ? DataType::Null
+        : rop->out()->dtype();
 
     static const std::vector<std::string> argument_names = {
         "dims", "keep_dim", "dtype"};
-    generateKwargsOperation(
+    printer_.generateKwargsOperation(
         "fd.ops." + direct_bindings::toString(rop),
-        {toString(rop->in())},
+        {printer_.toString(rop->in())},
         argument_names,
-        {toString(getReductionAxes(rop->out()->as<TensorView>())),
+        {printer_.toString(getReductionAxes(rop->out()->as<TensorView>())),
          "False",
-         dtypeToPyString(dtype)},
+         printer_.toString(dtype)},
         {rop->out()});
   }
 
-  // =================================================================================
-  // String generation utilities
-
-  // Generate a python string for a boolean value.
-  std::string toString(bool b) {
-    return b ? "True" : "False";
-  }
-
-  // Generate a python string for an int64_t value.
-  std::string toString(int64_t i) {
-    return std::to_string(i);
-  }
-
-  // Generate a python string for a boolean value.
-  std::string toString(std::optional<bool> b) {
-    if (b.has_value()) {
-      return toString(b.value());
-    } else {
-      return "None";
-    }
-  }
-
-  // Generate a python string for a complex double value.
-  std::string toString(std::complex<double> c) {
-    std::stringstream ss;
-    ss << std::showpoint << std::real(c) << "+" << std::showpoint
-       << std::imag(c) << "j";
-    return ss.str();
-  }
-
-  // Generate a python string for a double value.
-  std::string toString(double d) {
-    if (std::isinf(d)) {
-      if (std::signbit(d)) {
-        return "float(\"-inf\")";
-      } else {
-        return "float(\"inf\")";
-      }
-    } else if (std::isnan(d)) {
-      return "float(\"nan\")";
-    } else {
-      std::stringstream ss;
-      ss << std::showpoint << d;
-      return ss.str();
-    }
-  }
-
-  // Generate a python string for a PolymorphicValue with simple types.
-  std::string toString(const PolymorphicValue& pv) {
-    if (pv.is<bool>()) {
-      return toString(pv.as<bool>());
-    } else if (pv.is<int64_t>()) {
-      return toString(pv.as<int64_t>());
-    } else if (pv.is<std::complex<double>>()) {
-      return toString(pv.as<std::complex<double>>());
-    } else if (pv.is<double>()) {
-      return toString(pv.as<double>());
-    } else {
-      NVF_THROW("Unsupported PolymorphicValue type");
-    }
-  }
-
-  // Generate a unique name for a Val. Map val to name to track Val's lifetime.
-  std::string toString(const nvfuser::Val* v) {
-    if (map_val_to_name_.count(v) > 0) {
-      return map_val_to_name_.at(v);
-    }
-    std::stringstream ss;
-    if (v->isA<TensorView>()) {
-      ss << "tv" << v->name();
-    } else {
-      ss << "c" << v->name();
-    }
-    std::string name = ss.str();
-    map_val_to_name_.emplace(v, name);
-    return name;
-  }
-
-  // Generate a python list of values.
-  template <typename T>
-  std::string toString(const std::vector<T>& vec, bool is_list = true) {
-    std::stringstream ss;
-    if (is_list) {
-      ss << "[";
-    }
-    for (auto&& [i, val] : enumerate(vec)) {
-      ss << toString(val);
-      if (i < vec.size() - 1) {
-        ss << ", ";
-      }
-    }
-    if (is_list) {
-      ss << "]";
-    }
-    return ss.str();
-  }
-
-  // Generate a python list of values.
-  std::string generateList(const std::vector<std::string>& args) {
-    if (args.empty()) {
-      return "";
-    }
-    std::stringstream ss;
-    for (auto&& [i, arg] : enumerate(args)) {
-      if (i > 0) {
-        ss << ", ";
-      }
-      ss << arg;
-    }
-    return ss.str();
-  }
-
-  // Generate a python list of values with string keyword arguments.
-  std::string generateNamedList(
-      const std::vector<std::string>& argument_names,
-      const std::vector<std::optional<std::string>>& args) {
-    NVF_ERROR(
-        argument_names.size() == args.size(),
-        "Input argument names and inputs must have the same size.");
-    std::stringstream ss;
-    size_t i = 0;
-    for (auto&& [name, arg] : zip(argument_names, args)) {
-      if (!arg.has_value()) {
-        continue;
-      }
-      if (i > 0) {
-        ss << ", ";
-      }
-      ss << name << "=" << arg.value();
-      ++i;
-    }
-    return ss.str();
-  }
-
-  // Generate a python operation with a list of inputs and outputs.
-  void generateOperation(
-      const std::string& op_name,
-      const std::vector<const nvfuser::Val*>& inputs,
-      const std::vector<const nvfuser::Val*>& outputs) {
-    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
-        << "(" << toString(inputs, /*is_list=*/false) << ")\n";
-  }
-
-  // Generate a python operation with a list of inputs and outputs.
-  // A string keyword argument is added for each input.
-  void generateKwargsOperation(
-      const std::string& op_name,
-      const std::vector<std::string>& args,
-      const std::vector<std::string>& kwargs_names,
-      const std::vector<std::optional<std::string>>& kwargs,
-      const std::vector<const nvfuser::Val*>& outputs) {
-    std::string connect = (args.empty()) ? "" : ", ";
-    os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
-        << "(" << generateList(args) << connect
-        << generateNamedList(kwargs_names, kwargs) << ")\n";
-  }
-
  private:
-  //! The stream to print the python function to.
-  std::ostream& os_;
+  //! Convert CPP values to python syntax.
+  PythonPrinter printer_;
   //! The reference CPP fusion to be translated.
   Fusion* fusion_ = nullptr;
-  //! Map nvfuser Val to FusionDefinition index.
-  std::unordered_map<const nvfuser::Val*, std::string> map_val_to_name_;
-  //! Indentation for python code.
-  static constexpr const char* kTab = "    ";
+  //! Set of NvFuser Val's created in the Fusion.
+  std::unordered_set<const nvfuser::Val*> visited_vals_;
 };
 
 } // namespace
