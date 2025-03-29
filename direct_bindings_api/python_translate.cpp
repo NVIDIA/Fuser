@@ -37,15 +37,6 @@ class PythonPrinter {
     return std::to_string(i);
   }
 
-  // Generate a python string for a boolean value.
-  std::string toString(std::optional<bool> b) {
-    if (b.has_value()) {
-      return toString(b.value());
-    } else {
-      return "None";
-    }
-  }
-
   // Generate a python string for a complex double value.
   std::string toString(std::complex<double> c) {
     std::stringstream ss;
@@ -102,6 +93,31 @@ class PythonPrinter {
     return ss.str();
   }
 
+  // Generate a python string for an optional value.
+  template <typename T>
+  std::string toString(std::optional<T> optional, bool skip_none = true) {
+    if (optional.has_value()) {
+      return toString(optional.value());
+    } else if (!skip_none) {
+      return "None";
+    } else {
+      return "";
+    }
+  }
+
+  // Generate a python string for a keyword argument.
+  template <typename T>
+  std::string toString(
+      const std::string& name,
+      T value,
+      const std::string& separator) {
+    std::string result = toString(value);
+    if (result.empty()) {
+      return "";
+    }
+    return separator + name + "=" + result;
+  }
+
   // Generate a python list of values.
   template <typename T>
   std::string toString(const std::vector<T>& vec, bool is_list = true) {
@@ -122,45 +138,40 @@ class PythonPrinter {
   }
 
   // Generate a python list of values.
-  std::string generateList(const std::vector<std::string>& args) {
-    if (args.empty()) {
+  template <typename... Ts>
+  std::string generateList(std::tuple<Ts...> const& args) {
+    if (sizeof...(Ts) == 0) {
       return "";
     }
     std::stringstream ss;
-    for (auto&& [i, arg] : enumerate(args)) {
-      if (i > 0) {
-        ss << ", ";
-      }
-      ss << arg;
-    }
+    std::apply(
+        [this, &ss](Ts const&... tuple_args) {
+          size_t i = 0;
+          (((ss << (i > 0 ? ", " : "") << toString(tuple_args)), ++i), ...);
+        },
+        args);
     return ss.str();
   }
 
   // Generate a python list of values with string keyword arguments.
+  template <typename... Ts>
   std::string generateNamedList(
       const std::vector<std::string>& argument_names,
-      const std::vector<std::optional<std::string>>& args) {
+      std::tuple<Ts...> const& args) {
     NVF_ERROR(
-        argument_names.size() == args.size(),
+        argument_names.size() == sizeof...(Ts),
         "Input argument names and inputs must have the same size.");
     std::stringstream ss;
-    size_t i = 0;
-    for (auto&& [name, arg] : zip(argument_names, args)) {
-      if (!arg.has_value()) {
-        continue;
-      }
-      if (i > 0) {
-        ss << ", ";
-      }
-      ss << name << "=" << arg.value();
-      ++i;
-    }
+    std::apply(
+        [this, &ss, &argument_names](Ts const&... tuple_args) {
+          size_t i = 0;
+          (((ss << toString(
+                 argument_names[i], tuple_args, (i > 0 ? ", " : ""))),
+            ++i),
+           ...);
+        },
+        args);
     return ss.str();
-  }
-
-  // Generate a python definition for a FusionDefinition.
-  void generateFusionDefinition() {
-    os_ << "def nvfuser_fusion(fd : DirectFusionDefinition) -> None :\n";
   }
 
   // Generate a python operation with a list of inputs and outputs.
@@ -177,16 +188,22 @@ class PythonPrinter {
 
   // Generate a python operation with a list of inputs and outputs.
   // A string keyword argument is added for each input.
+  template <typename... arg_types, typename... kwargs_types>
   void generateKwargsOperation(
       const std::string& op_name,
-      const std::vector<std::string>& args,
+      const std::tuple<arg_types...>& args,
       const std::vector<std::string>& kwargs_names,
-      const std::vector<std::optional<std::string>>& kwargs,
+      const std::tuple<kwargs_types...>& kwargs,
       const std::vector<const nvfuser::Val*>& outputs) {
-    std::string connect = (args.empty()) ? "" : ", ";
+    std::string connect = (sizeof...(arg_types) == 0) ? "" : ", ";
     os_ << kTab << toString(outputs, /*is_list=*/false) << " = " << op_name
         << "(" << generateList(args) << connect
         << generateNamedList(kwargs_names, kwargs) << ")\n";
+  }
+
+  // Generate a python definition for a FusionDefinition.
+  void generateFusionDefinition() {
+    os_ << "def nvfuser_fusion(fd : DirectFusionDefinition) -> None :\n";
   }
 
  private:
@@ -366,9 +383,9 @@ class PythonTranslator : public OptInConstDispatch {
     static const std::vector<std::string> argument_names = {"dtype"};
     printer_.generateKwargsOperation(
         "fd.define_scalar",
-        {printer_.toString(v->value())},
+        std::make_tuple(v->value()),
         argument_names,
-        {printer_.toString(scalar_dtype)},
+        std::make_tuple(scalar_dtype),
         {v});
   }
 
@@ -400,13 +417,13 @@ class PythonTranslator : public OptInConstDispatch {
         "fd.define_tensor",
         {},
         argument_names,
-        {printer_.toString(shape),
-         printer_.toString(tv->domain()->contiguity()),
-         dtypeToPyString(std::get<PrimDataType>(tv->dtype().type)),
-         printer_.toString(tv->isCpuScalar()),
-         (stride_order.empty())
-             ? std::nullopt
-             : std::make_optional(printer_.toString(stride_order))},
+        std::make_tuple(
+            shape,
+            tv->domain()->contiguity(),
+            tv->dtype(),
+            tv->isCpuScalar(),
+            (stride_order.empty()) ? std::nullopt
+                                   : std::make_optional(stride_order)),
         {tv});
   }
 
@@ -464,11 +481,10 @@ class PythonTranslator : public OptInConstDispatch {
         "dims", "keep_dim", "dtype"};
     printer_.generateKwargsOperation(
         "fd.ops." + direct_bindings::toString(rop),
-        {printer_.toString(rop->in())},
+        std::make_tuple(rop->in()),
         argument_names,
-        {printer_.toString(getReductionAxes(rop->out()->as<TensorView>())),
-         "False",
-         printer_.toString(dtype)},
+        std::make_tuple(
+            getReductionAxes(rop->out()->as<TensorView>()), false, dtype),
         {rop->out()});
   }
 
