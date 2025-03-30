@@ -553,6 +553,7 @@ if(BUILD_PYTHON_DIRECT)
   list(APPEND NVFUSER_DIRECT_BINDINGS_SRCS
     ${NVFUSER_DIRECT_BINDINGS}/direct_bindings_extension.cpp
     ${NVFUSER_DIRECT_BINDINGS}/direct_bindings.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/ir.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_DIRECT_BINDINGS_SRCS})
 
