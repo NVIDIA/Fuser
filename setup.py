@@ -14,6 +14,9 @@
 #   --no-python
 #     Skips python API target `libnvfuser.so`, i.e. `_C.cpython-xxx.so`
 #
+#   --no-python-direct
+#     Skips python API target `libnvfuser_next.so`, i.e. `_C_DIRECT.cpython-xxx.so`
+#
 #   --no-test
 #     Skips cpp tests `test_nvfuser`
 #
@@ -72,6 +75,7 @@ from setuptools import Extension, setup
 CMAKE_ONLY = False
 BUILD_SETUP = True
 NO_PYTHON = False
+NO_PYTHON_DIRECT = False
 NO_TEST = False
 NO_BENCHMARK = False
 NO_NINJA = False
@@ -96,6 +100,9 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg == "--no-python":
         NO_PYTHON = True
+        continue
+    if arg == "--no-python-direct":
+        NO_PYTHON_DIRECT = True
         continue
     if arg == "--no-test":
         NO_TEST = True
@@ -189,18 +196,23 @@ class clean(setuptools.Command):
 
 
 class build_ext(setuptools.command.build_ext.build_ext):
+    def copy_library(self, ext, library_name):
+        # Copy files on necessity.
+        filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
+        fileext = os.path.splitext(filename)[1]
+
+        libnvfuser_path = os.path.join("./nvfuser/lib", f"{library_name}{fileext}")
+        assert os.path.exists(libnvfuser_path)
+        install_dst = os.path.join(self.build_lib, filename)
+        if not os.path.exists(os.path.dirname(install_dst)):
+            os.makedirs(os.path.dirname(install_dst))
+        self.copy_file(libnvfuser_path, install_dst)
+
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
-            # Copy files on necessity.
-            filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
-            fileext = os.path.splitext(filename)[1]
-
-            libnvfuser_path = os.path.join("./nvfuser/lib", f"libnvfuser{fileext}")
-            assert os.path.exists(libnvfuser_path)
-            install_dst = os.path.join(self.build_lib, filename)
-            if not os.path.exists(os.path.dirname(install_dst)):
-                os.makedirs(os.path.dirname(install_dst))
-            self.copy_file(libnvfuser_path, install_dst)
+            self.copy_library(ext, "libnvfuser")
+        elif ext.name == "nvfuser._C_DIRECT":
+            self.copy_library(ext, "libnvfuser_next")
         else:
             super().build_extension(ext)
 
@@ -350,6 +362,9 @@ def cmake():
     if not NO_PYTHON:
         cmd_str.append("-DBUILD_PYTHON=ON")
         cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
+    if not NO_PYTHON_DIRECT:
+        cmd_str.append("-DBUILD_PYTHON_DIRECT=ON")
+        cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not NO_BENCHMARK:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
     if BUILD_WITH_ASAN:
@@ -432,7 +447,10 @@ def main():
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=["nvfuser"],
-            ext_modules=[Extension(name="nvfuser._C", sources=[])],
+            ext_modules=[
+                Extension(name="nvfuser._C", sources=[]),
+                Extension(name="nvfuser._C_DIRECT", sources=[]),
+            ],
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
