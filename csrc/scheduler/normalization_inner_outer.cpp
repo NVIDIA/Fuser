@@ -980,13 +980,25 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   rparams->combined_inner_outer = true;
 
   // Set circular buffer, n_stages and n_prefetch are tunable parameters.
-  int64_t n_stages = 2L;
+  // n_stages is also limited by smem
+  int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
+      (smem_overhead + smem_buffer_size);
+  int64_t n_stages_prefered = 2L;
+  int64_t n_stages_max_allowed = max_n_copies;
+  int64_t n_stages = std::min(n_stages_prefered, n_stages_max_allowed);
   int64_t n_prefetch = n_stages - 1L;
   CircularBufferOptions circular_buffer_options{
       .type = WarpSpecialized(ParallelType::TIDy),
       .stage = n_stages,
       .prefetch = n_prefetch};
   rparams->circular_buffer_options = circular_buffer_options;
+
+  // Iteration unroll factor, limited by:
+  // (1) heuristic selection
+  // (2) max possible due to smem limitation
+  int64_t heu_iter_unroll = 2L;
+  int64_t max_iter_unroll = max_n_copies / n_stages;
+  rparams->unroll_factor_iter_dom = std::min(heu_iter_unroll, max_iter_unroll);
 
   // tmp_gmem is the intermediate result of outer reduction, its dtype is float,
   // so the maximum vectorization factor is 4.
@@ -1489,11 +1501,22 @@ void scheduleTmaWarpSpecializedOuter(
     mergeReductionOrIterDomains(outer_reduction_tv, false);
 
     // First-stage of outer reduction
+    // [R, I]
+    std::vector<int64_t> rfactor_axes{0};
+    if (rparams->unroll_factor_iter_dom > 1) {
+      // [R/Unroll, Unroll]
+      // Should mark as serial to avoid unrolling the outer reduction
+      // which requires extra registers
+      outer_reduction_tv->split(0, rparams->unroll_factor_iter_dom);
+      outer_reduction_tv->axis(1)->parallelize(ParallelType::Serial);
+      rfactor_axes.push_back(2);
+    }
+    // [R/Unroll/BIDy, BIDy, Unroll]
     outer_reduction_tv->split(0, rparams->lparams.gdimy());
     std::cout << "outer_reduction_tv1: " << outer_reduction_tv->toString()
               << std::endl;
 
-    TensorView* partialResult = outer_reduction_tv->rFactor({0});
+    TensorView* partialResult = outer_reduction_tv->rFactor(rfactor_axes);
     partialResult->cacheBefore();
     partialResult->setMemoryType(MemoryType::Global);
     TensorView* partialResultReload = partialResult->cacheAfter();
@@ -1802,7 +1825,6 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
-  inlineMost();
 
   // apply circular buffer
   if (rparams->circular_buffer_options.isEnable()) {
@@ -1817,6 +1839,7 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
       }
     }
   }
+  inlineMost();
 }
 
 } // namespace

@@ -136,7 +136,10 @@ TensorView* scheduleReductionTV(
     if (rparams->pad_inner_reduction_to_warp) {
       reduction_tv->axis(outer_i)->padToMultipleOfWarp();
     }
-    // Iteration: [I/BIDy, BIDy]
+    // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
+    if (rparams->unroll_factor_iter_dom > 1) {
+      inner_unroll(iter_axis, rparams->unroll_factor_iter_dom);
+    }    
     inner_parallel_static(
         iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
     std::cout << "inner reduction_tv: " << reduction_tv->toString()
