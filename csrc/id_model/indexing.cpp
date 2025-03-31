@@ -688,4 +688,58 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   return {result, contig_strides};
 }
 
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = fusion->allTvs();
+
+  auto warn = [](const std::string& reason) -> void {
+#ifndef NDEBUG
+    TORCH_WARN("TensorIndexer disabled due to: ", reason);
+#endif // NDEBUG
+  };
+
+  // The following conditions are those that are known to be
+  // unsupported. It may not be a complete list.
+
+  if (fusion->hasManaged("loop_rotation")) {
+    warn("loop rotation is not supported");
+    return false;
+  }
+
+  for (const auto& tv : all_tvs) {
+    std::stringstream reason;
+
+    if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
+        loadstore != nullptr &&
+        (loadstore->opType() == LoadStoreOpType::LdMatrix ||
+         loadstore->opType() == LoadStoreOpType::StMatrix)) {
+      reason << "LoadStoreOpType not supported: " << loadstore->toString();
+    } else if (auto gather = dynamic_cast<GatherOp*>(tv->definition());
+               gather != nullptr && !gather->exactSizes()) {
+      // take_along_axis is supported but generic gather is not
+      reason << "Non-exact gather not supported: " << gather->toString();
+    } else if (tv->hasComputeWith()) {
+      reason << "computeWith not supported: " << tv->toString();
+    } else {
+      for (const auto& id : tv->domain()->allIDs()) {
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+          reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
+          reason << "Indirect indexing of consumer ID not supported: "
+                 << tv->toString() << ", " << id->toString() << ", "
+                 << tv->definition()->toString();
+          break;
+        }
+      }
+    }
+
+    if (!reason.str().empty()) {
+      warn(reason.str());
+      return false;
+    }
+  }
+
+  return true;
+}
+
 } // namespace nvfuser
