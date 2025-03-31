@@ -1097,7 +1097,6 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
 void IdModel::validateAndPropagatePType() {
   for (const ValGroup& loop_group :
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    std::cout << "\nLoop group: " << loop_group->toString() << std::endl;
     ParallelType common_ptype = ParallelType::Serial;
     for (Val* id : *loop_group) {
       auto id_ptype = id->as<IterDomain>()->getParallelType();

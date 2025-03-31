@@ -1256,6 +1256,40 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
   return true;
 }
 
+std::vector<TensorView*> getOuterBroadcastTvs(
+    Fusion* fusion,
+    const std::vector<TensorView*>& reduction_tvs) {
+  // set reference broadcast mask using the first inner reduction tv
+  std::vector<bool> ref_broadcast_mask;
+  for (auto tv : reduction_tvs) {
+    if (scheduler_utils::isFastestDimReduction(tv)) {
+      const auto& logical = tv->getLogicalDomain();
+      ref_broadcast_mask.reserve(logical.size());
+      for (const auto i : c10::irange(logical.size())) {
+        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
+      }
+      break;
+    }
+  }
+  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
+
+  // find the broadcast tensor whose broadcast mask is same to the reference
+  std::vector<TensorView*> outer_broadcast_tvs;
+  for (auto tv : fusion->allTvs()) {
+    if (std::any_of(
+            tv->getLoopDomain().begin(),
+            tv->getLoopDomain().end(),
+            [](IterDomain* id) { return id->isBroadcast(); })) {
+      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
+        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
+          outer_broadcast_tvs.emplace_back(tv);
+        }
+      }
+    }
+  }
+  return outer_broadcast_tvs;
+}
+
 std::vector<TensorView*> movePersistentBufferToSmem(
     Fusion* fusion,
     const ReductionParams* rparams,
@@ -1295,6 +1329,9 @@ std::vector<TensorView*> movePersistentBufferToSmem(
         (loading_size == 4 || loading_size == 8 || loading_size == 16);
     return is_supported_bytes;
   };
+  const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion);
+  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
+
   for (auto tv : persistent_buffers) {
     // Persistent buffers are categorized into two types:
     // (1) Cached input tensors.
@@ -1343,18 +1380,27 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // At this point, if cached_tv has multiple uses,  it becomes the
       // persistent buffer instead of tv due to the way the persistent buffer
       // selector works. To make tv remain as the persistent buffer, all of the
-      // uses must be privatized.
+      // uses must be privatized unless we want to further cache the buffers in
+      // register.
       const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      if (!rparams->pre_load_smem2reg ||
+          std::any_of(
+              outer_broadcast_tvs.begin(),
+              outer_broadcast_tvs.end(),
+              [&cached_tv](TensorView* tv) {
+                return DependencyCheck::isDependencyOf(cached_tv, tv);
+              })) {
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_tv, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
     }
   }

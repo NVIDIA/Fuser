@@ -140,6 +140,11 @@ class ReductionParams : public HeuristicParams {
   // TMA warp specialized, only used in inner-outer persistent scheduler
   bool tma_warp_specialized = false;
 
+  // Load from SMEM to REGS immediately after SMEM Write is done.
+  // Benefits: (1) Early release smem (2) Avoid duplicated copy from smem to
+  // register, one in reduction loop , the other in normalization loop.
+  bool pre_load_smem2reg = false;
+
   // Circular buffer is usually used in tma warp specialized kernel
   CircularBufferOptions circular_buffer_options;
 

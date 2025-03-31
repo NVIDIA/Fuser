@@ -49,45 +49,6 @@ int64_t roundUpSharedMemory(
   return max_smem;
 }
 
-// Return the broadcast tvs that are broadcast to the iteration dimensions of
-// the inner reduction tv. These tvs are reused in the loop over the iteration
-// dimension. This reuse reduced the number loads from gmem and this tensor
-// is likely the first candidate to be moved to shared memory when the register
-// space runs low.
-std::vector<TensorView*> getOuterBroadcastTvs(
-    Fusion* fusion,
-    const std::vector<TensorView*>& reduction_tvs) {
-  // set reference broadcast mask using the first inner reduction tv
-  std::vector<bool> ref_broadcast_mask;
-  for (auto tv : reduction_tvs) {
-    if (scheduler_utils::isFastestDimReduction(tv)) {
-      const auto& logical = tv->getLogicalDomain();
-      ref_broadcast_mask.reserve(logical.size());
-      for (const auto i : c10::irange(logical.size())) {
-        ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
-      }
-      break;
-    }
-  }
-  NVF_ERROR(!ref_broadcast_mask.empty(), "ref_broadcast_mask is empty!");
-
-  // find the broadcast tensor whose broadcast mask is same to the reference
-  std::vector<TensorView*> outer_broadcast_tvs;
-  for (auto tv : fusion->allTvs()) {
-    if (std::any_of(
-            tv->getLoopDomain().begin(),
-            tv->getLoopDomain().end(),
-            [](IterDomain* id) { return id->isBroadcast(); })) {
-      if (auto bcast = dynamic_cast<BroadcastOp*>(tv->definition())) {
-        if (bcast->getBroadcastDimFlags() == ref_broadcast_mask) {
-          outer_broadcast_tvs.emplace_back(tv);
-        }
-      }
-    }
-  }
-  return outer_broadcast_tvs;
-}
-
 // Size of buffers storing intermediate outer reduction results
 // TODO: check if we can directly start with [buffer_size = 1]
 int64_t partialOuterReductionBufferSize(
@@ -216,7 +177,9 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // outer broadcast tvs and always project to inputs.
   // Warp specialized persistent kernel alwadys cache inputs in shared memory,
   // should project to inputs.
-  const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
+  const auto& outer_broadcast_tvs =
+      normalization_scheduler_utils::getOuterBroadcastTvs(
+          fusion, reduction_tvs);
   bool skip_check_buffer_size = !outer_broadcast_tvs.empty() ||
       isOptionEnabled(EnableOption::WarpSpecializedPersistent);
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
@@ -983,7 +946,8 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // n_stages is also limited by smem
   int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
       (smem_overhead + smem_buffer_size);
-  int64_t n_stages_prefered = 2L;
+  int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
+  int64_t n_stages_prefered = std::min(2L, iter_remaining);
   int64_t n_stages_max_allowed = max_n_copies;
   int64_t n_stages = std::min(n_stages_prefered, n_stages_max_allowed);
   int64_t n_prefetch = n_stages - 1L;
@@ -996,9 +960,16 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // Iteration unroll factor, limited by:
   // (1) heuristic selection
   // (2) max possible due to smem limitation
-  int64_t heu_iter_unroll = 2L;
+  iter_remaining = scheduler_utils::safeDiv(iter_remaining, n_stages);
+  int64_t heu_iter_unroll = std::min(2L, iter_remaining);
   int64_t max_iter_unroll = max_n_copies / n_stages;
   rparams->unroll_factor_iter_dom = std::min(heu_iter_unroll, max_iter_unroll);
+
+  // Load from smem to regs immediately after TMA load is done.
+  // Increased register usage but avoids redundant smem--> regs
+  // load and immediately release smem barrier. Improves performance
+  // if not causing register spills.
+  rparams->pre_load_smem2reg = true;
 
   // tmp_gmem is the intermediate result of outer reduction, its dtype is float,
   // so the maximum vectorization factor is 4.
@@ -1648,6 +1619,7 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
   // Two steps are used since tma tvs are scheduled differently.
   // Step-1, propagate iteration domain in inner reduction.
   // Step-2, propagate reduction domain in inner reduction.
+  int first_redu_axis = -1;
   if (rparams->tma_warp_specialized) {
     std::unordered_set<TensorView*> special_tvs{
         tma_load_tvs.begin(), tma_load_tvs.end()};
@@ -1659,7 +1631,6 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
     }
 
     // Find the axis that splits the reduction domain and iteration domain.
-    int first_redu_axis = -1;
     int n_dims = (int)inner_reference_tv->nDims();
     for (auto i = 0; i < n_dims; i++) {
       if (inner_reference_tv->axis(i)->isReduction() ||
@@ -1826,6 +1797,31 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
     fusion->removeOutput(output);
   }
 
+  // adjust inline position
+  if (rparams->circular_buffer_options.isEnable() &&
+      rparams->pre_load_smem2reg) {
+    // adjust inline position for TMA load tvs
+    std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
+    for (auto tv : smem_consumers) {
+      std::cout << "smem_consumers tv: " << tv->toString() << "\n";
+      //[..Unroll, | TIDx, Persisent, USwitch, Vect]
+      int64_t inline_last_n_dims = rparams->unroll_factor_iter_dom > 1 ? 5 : 4;
+      if (tv->nDims() - inline_last_n_dims >= 0) {
+        tv_inline_pos_map.emplace(tv, tv->nDims() - inline_last_n_dims);
+      }
+    }
+    std::unordered_set<TensorView*> exclude_tvs;
+    for (auto [k, v] : tv_inline_pos_map) {
+      exclude_tvs.insert(k);
+      inlineSelectedAt({k}, k, v);
+    }
+    std::vector<TensorView*> inline_most_tvs =
+        ir_utils::allTvsExcept(fusion, exclude_tvs);
+    inlineMost(inline_most_tvs);
+  } else {
+    inlineMost();
+  }
+
   // apply circular buffer
   if (rparams->circular_buffer_options.isEnable()) {
     int64_t number_of_stages = rparams->circular_buffer_options.stage;
@@ -1839,7 +1835,6 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
       }
     }
   }
-  inlineMost();
 }
 
 } // namespace
