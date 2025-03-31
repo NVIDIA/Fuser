@@ -1237,7 +1237,14 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             for_loop->circularBufferLoopStage() ==
                 CircularBufferLoopStage::Main) {
           NVF_ERROR(num_exprs > 1);
-          --pos;
+          if (for_loop->body().exprs().back()->isA<kir::BlockSync>()) {
+            --pos;
+          } else {
+            // Insert a sync if there is not one already
+            auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+            kir::ExprMutator::registerInsertAfter(
+                for_loop->body().exprs().back(), sync_expr, &for_loop->body());
+          }
         }
 
         Expr* expr = for_loop->body().exprs().at(pos);
