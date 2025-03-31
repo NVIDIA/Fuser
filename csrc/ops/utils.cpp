@@ -148,11 +148,11 @@ IterType promoteIterType(IterType type1, IterType type2) {
   // VectorComponent: Converted to Iteration
 
   NVF_ERROR(
-      type1 != IterType::Reduction && type1 != IterType::Stride,
+      type1 != IterType::Reduction,
       "Invalid IterType: ",
       type1)
   NVF_ERROR(
-      type2 != IterType::Reduction && type2 != IterType::Stride,
+      type2 != IterType::Reduction,
       "Invalid IterType: ",
       type2);
 

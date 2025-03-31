@@ -2819,20 +2819,6 @@ std::pair<IterDomain*, IterDomain*> IterDomain::split(
   return {ido, idi};
 }
 
-std::pair<IterDomain*, IterDomain*> IterDomain::stridedSplit(int64_t factor) {
-  // Use partial split so that only valid values are retained
-  auto split_out = IterDomain::split(
-      this,
-      IrBuilder::createInContainer<Val>(container(), factor, DataType::Index),
-      true,
-      true);
-
-  split_out.second->iter_type_ = IterType::Stride;
-  split_out.first->is_rfactor_domain_ = true;
-  split_out.second->is_rfactor_domain_ = true;
-  return split_out;
-}
-
 std::pair<IterDomain*, IterDomain*> IterDomain::swizzle(
     SwizzleType swizzle_type,
     IterDomain* in_x,
