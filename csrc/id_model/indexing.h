@@ -24,7 +24,8 @@
 namespace nvfuser {
 
 struct IndexingInfo {
-  std::vector<IterDomain*> loop_domains;
+  std::vector<IterDomain*> loop_ids;
+  std::vector<IterDomain*> index_ids;
   // Indexing traversal path from loop domains
   ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
@@ -85,11 +86,22 @@ class TensorIndexer {
 
   // Get the contig indices of the given ID groups with their strides
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
+      TensorView* tv,
       const Expr* expr,
       bool as_consumer,
       const AllocationDomainInfo& alloc_info,
       const std::vector<ForLoop*>& loops,
       const std::unordered_map<IterDomain*, Val*>& override_index) const;
+
+  // Get all ValGroups of the Loop graph representing the used
+  // for-loops for the given indexing
+  ValGroups getUsedLoopGroups(const IndexingInfo& index_info) const;
+
+  // Add "pragma unroll" to for-loops whose loop indices are used for
+  // the given indexing. This is meant to be used for register tensors.
+  void ensureStaticIndexing(
+      const std::vector<ForLoop*>& loops,
+      const IndexingInfo& index_info) const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
