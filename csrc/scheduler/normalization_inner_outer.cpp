@@ -969,7 +969,8 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // Pick the best heuristic
   auto iop = iop_candidates.front();
   rparams->combined_split_grid_inner_dim =
-      iop.vectorization_factor_outer * iop.threads_per_block * iop.gdimy < inner_dim_numel;
+      iop.vectorization_factor_outer * iop.threads_per_block * iop.gdimy <
+      inner_dim_numel;
 
   // check all the parameters in InnerOuterParams are set.
   iop.verify();
@@ -977,6 +978,16 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   rparams->persistent_kernel = true;
   rparams->fastest_dim = true;
   rparams->combined_inner_outer = true;
+
+  // Set circular buffer, n_stages and n_prefetch are tunable parameters.
+  int64_t n_stages = 2L;
+  int64_t n_prefetch = n_stages - 1L;
+  CircularBufferOptions circular_buffer_options{
+      .type = WarpSpecialized(ParallelType::TIDy),
+      .stage = n_stages,
+      .prefetch = n_prefetch};
+  rparams->circular_buffer_options = circular_buffer_options;
+
   // tmp_gmem is the intermediate result of outer reduction, its dtype is float,
   // so the maximum vectorization factor is 4.
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
@@ -989,6 +1000,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   rparams->vectorize_inner_reduction = iop.inner_vect > 1;
   rparams->split_grid_dim_iter_dom_outer = true;
   rparams->grid_dim_iter_dom = ParallelType::BIDy;
+  rparams->pad_inner_reduction_to_warp = true;
 
   rparams->lparams = LaunchParams(
       LaunchParams::UNINITIALIZED_VAL,
@@ -1517,11 +1529,11 @@ void scheduleTmaWarpSpecializedOuter(
     outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
     std::cout << "outer_reduction_tv2: " << outer_reduction_tv->toString()
               << std::endl;
-    if(has_multiple_redu_domain){
+    if (has_multiple_redu_domain) {
       auto outer_reference_tv =
           reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
       outer_reference_tvs.emplace_back(outer_reference_tv);
-    }else{
+    } else {
       outer_reference_tvs.emplace_back(outer_reduction_tv);
     }
   }
@@ -1791,6 +1803,20 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
     fusion->removeOutput(output);
   }
   inlineMost();
+
+  // apply circular buffer
+  if (rparams->circular_buffer_options.isEnable()) {
+    int64_t number_of_stages = rparams->circular_buffer_options.stage;
+    int64_t prefetch_distance = rparams->circular_buffer_options.prefetch;
+    CircularBufferType circular_buffer_type =
+        rparams->circular_buffer_options.type;
+    for (auto tv : tma_load_tvs) {
+      if (tv->getComputeAtPosition() > 0) {
+        tv->circularBuffer(
+            number_of_stages, prefetch_distance, circular_buffer_type);
+      }
+    }
+  }
 }
 
 } // namespace

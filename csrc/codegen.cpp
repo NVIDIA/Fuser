@@ -1287,6 +1287,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     return ss.str();
   }
 
+  // There are 16 Named Barriers provided by Hardware starting in Hopper
+  // Their IDs are in the range 0-15
+  // Number of threads syncing using the barrier must be a multiple of warp-size
+  // ID 0 should not be used for safety, as other driver APIs (i.e.
+  // __syncthreads) may use it and conflict with other uses.
+  std::string genBarrierId() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    if (!pdim_map.hasWarpSpecialization()) {
+      ss << "0";
+    } else {
+      ss << "1" << " + " << genInline(current_buffer_id_);
+    }
+    return ss.str();
+  }
+
   std::string genReductionOp(BinaryOpType op_type, DataType data_type) {
     std::stringstream lambda;
     lambda << "[](" << data_type << " &a, " << data_type << " b) "
@@ -1363,6 +1379,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
         reduction_dims.second == nullptr) {
+      func_args.arg(genBarrierId());
       template_args.arg(
           kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
       template_args.arg(isAligned());
@@ -3640,6 +3657,29 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const kir::MBarrierWaitParity* wait) final {
+    // Trace back to find the original tensor index used to create the mbarrier.
+    // For example, mbarrier is i = toSmem(smem_ptr);
+    // where smem_ptr = &T_s[( ( idx % 2 ) + 2 )] view( T23 );
+    // This lambda function returns ( ( idx % 2 ) + 2 ).
+    auto getTensorIndex = [wait]() {
+      auto mbarrier = wait->mbarrier();
+      kir::TensorIndex* tensor_index = nullptr;
+      auto current_def = mbarrier->definition();
+      while (current_def && current_def->isA<UnaryOp>()) {
+        auto input = current_def->as<UnaryOp>()->in();
+        if (input->isA<kir::TensorIndex>()) {
+          tensor_index = input->as<kir::TensorIndex>();
+          break;
+        }
+        current_def = input->definition();
+      }
+      return tensor_index;
+    };
+
+    if (auto mbarrier_tensor_index = getTensorIndex()) {
+      current_buffer_id_ = mbarrier_tensor_index->index();
+    }
+
     auto call = genCall(
         "mbarrier::waitParity",
         ArgumentBuilder()
@@ -3770,6 +3810,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::unordered_set<const Val*> kernel_params_;
   //! Utility names already generated
   std::unordered_set<std::string> generated_utilities_;
+  // Keep track of the current circular buffer id
+  Val* current_buffer_id_;
 };
 
 } // namespace

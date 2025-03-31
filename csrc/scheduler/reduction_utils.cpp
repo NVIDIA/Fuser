@@ -133,7 +133,9 @@ TensorView* scheduleReductionTV(
     outer_unswitch(outer_i++);
 
     reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDx);
-
+    if (rparams->pad_inner_reduction_to_warp) {
+      reduction_tv->axis(outer_i)->padToMultipleOfWarp();
+    }
     // Iteration: [I/BIDy, BIDy]
     inner_parallel_static(
         iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
