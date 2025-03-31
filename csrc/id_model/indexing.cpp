@@ -614,12 +614,8 @@ void TensorIndexer::ensureStaticIndexing(
   const ValGroups used_loop_groups = getUsedLoopGroups(index_info);
 
   for (auto for_loop : for_loops) {
-    if (std::any_of(
-            used_loop_groups.begin(),
-            used_loop_groups.end(),
-            [&](const ValGroup& used_loop_group) {
-              return used_loop_group->has(for_loop->iter_domain());
-            })) {
+    if (used_loop_groups.has(id_model_.idGraph(IdMappingMode::LOOP)
+                                 .toGroup(for_loop->iter_domain()))) {
       for_loop->requireUnroll();
     }
   }
