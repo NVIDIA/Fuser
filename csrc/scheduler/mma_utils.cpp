@@ -1317,7 +1317,7 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
   }
 }
 
-void scheduleStMatrixForMmaOutput(
+void scheduleLdStMatrixForMmaOutput(
     TensorView* tv,
     int64_t tile_m,
     int64_t tile_n) {

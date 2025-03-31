@@ -25,7 +25,6 @@
 #include <device_lower/pass/loop_rotation.h>
 #include <device_lower/pass/loops.h>
 #include <device_lower/pass/magic_zero.h>
-#include <device_lower/pass/misaligned_vectorization.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/replace_size.h>
 #include <device_lower/pass/rng.h>
@@ -278,7 +277,6 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"insertWarAsyncWait", insertWarAsyncWait},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
-           {"processMisalignedVectorization", processMisalignedVectorization},
            {"IndexLowering", IndexLowering::getIndexedExprs},
            {"fuseWarpReduce", fuseWarpReduce},
            {"generateConditionalFromPredicate",
@@ -694,6 +692,15 @@ void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
       p = producer;
     }
   }
+}
+
+const AllocationDomainInfo& GpuLower::getAllocationInfo(TensorView* tv) const {
+  auto it = allocationInfo().find(tv);
+  NVF_ERROR(
+      it != allocationInfo().end(),
+      "Allocation info not found for ",
+      tv->toString());
+  return it->second;
 }
 
 } // namespace nvfuser

@@ -3569,8 +3569,7 @@ bool TensorDomain::hasViewLikeRFactor() const {
 bool TensorDomain::hasVectorize() const {
   return std::any_of(
       loop_domain_.begin(), loop_domain_.end(), [](IterDomain* id) {
-        return id->getParallelType() == ParallelType::Vectorize ||
-            id->getParallelType() == ParallelType::MisalignedVectorize;
+        return isParallelTypeVectorize(id->getParallelType());
       });
 }
 

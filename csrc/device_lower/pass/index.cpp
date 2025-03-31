@@ -8,7 +8,6 @@
 #include <device_lower/analysis/index_compute.h>
 #include <device_lower/analysis/tma.h>
 #include <device_lower/lower2device.h>
-#include <device_lower/utils.h>
 #include <id_model/schedule.h>
 #include <index_compute.h>
 #include <ir/iostream.h>
@@ -30,11 +29,6 @@ namespace nvfuser {
 std::vector<Expr*> IndexLowering::getIndexedExprs(
     std::vector<Expr*> incoming_exprs) {
   FUSER_PERF_SCOPE("GpuLower::Lower::IndexLowering::getIndexedExprs");
-  // Traverse the exprs and setup allocation domains before
-  // generating indices.
-  if (GpuLower::current()->isTensorIndexerEnabled()) {
-    GpuLower::current()->tensorIndexer().setupAllocationDomains(incoming_exprs);
-  }
   IndexLowering il;
   il.generate(incoming_exprs);
   return il.lowered_exprs_;
@@ -2119,6 +2113,14 @@ Val* indexTMemLdSt(
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, lane_index);
 
   Val* column_index = get_index_for(column_allocation_domain);
+  // The column_index above is in the unit of items, but the PTX instruction
+  // of TMem load/store is in the unit of 4 bytes.
+  column_index = SimplifyingIrBuilder::divExpr(
+      SimplifyingIrBuilder::mulExpr(
+          column_index,
+          IrBuilder::create<Val>(
+              dataTypeSize(consumer_tv->dtype()), DataType::Index)),
+      IrBuilder::create<Val>(4, DataType::Index));
   column_index =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
 
@@ -2241,20 +2243,19 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
           ldst->opType() == LoadStoreOpType::StTMem;
       if (is_ldst_tmem) {
-        // TODO: support other types
         NVF_ERROR(
-            dataTypeSize(ldst->in()->dtype()) == 4,
-            "For now, we only support 32-bit types in tmem");
-        NVF_ERROR(
-            dataTypeSize(ldst->out()->dtype()) == 4,
-            "For now, we only support 32-bit types in tmem");
+            ldst->in()->dtype() == ldst->out()->dtype(),
+            "TMem load/store must have the same type for input and output");
         // According to the specification of tcgen05.{ld,st}, the register
         // operand must be viewed as a vector of 32-bit elements.
         // See:
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
         as_type = ArrayType{
-            std::make_shared<DataType>(ldst->in()->dtype()),
-            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>())};
+            std::make_shared<DataType>(
+                dataTypeSize(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
+                                                       : DataType::UInt32),
+            (size_t)ir_utils::getTMemLdStVectorizeSize(
+                ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {

@@ -25,6 +25,16 @@ namespace nvfuser {
 
 namespace {
 
+// Tensor memory is similar to shared memory because they are both
+// shared between threads in a block. In that sense, we can consider
+// tensor memory as special type of shared memory. In this file, we use
+// the term "shared memory", "smem" to refer to both shared and tensor
+// memories.
+bool isSharedMemory(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared ||
+      tv->getMemoryType() == MemoryType::Tensor;
+}
+
 // Warp primitives are currently limited to un-predicated usage,
 //   predicating these ops will require extra steps to ensure that
 //   the whole warp will get the same value.
@@ -33,13 +43,14 @@ void assertOnWarpOps(const Expr* expr) {
   // Allow predicates for general LdMatrix usage.
   if (ir_utils::isLdMatrixOp(expr)) {
     const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-    NVF_ERROR(ldst->in()->isA<TensorView>());
-    TensorView* in_tv = ldst->in()->as<TensorView>();
+    TensorView* in_tv = ir_utils::getTv(ldst->in());
+    NVF_ERROR(in_tv != nullptr);
+
     NVF_ERROR(in_tv->definition() != nullptr);
     bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
 
-    NVF_ERROR(ldst->out()->isA<TensorView>());
-    TensorView* out_tv = ldst->out()->as<TensorView>();
+    TensorView* out_tv = ir_utils::getTv(ldst->out());
+    NVF_ERROR(out_tv != nullptr);
     bool any_mma_uses =
         std::any_of(out_tv->uses().begin(), out_tv->uses().end(), [](Expr* e) {
           return e->isA<MmaOp>();
@@ -207,8 +218,7 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
   //  when the predicate around shared mem cannot be removed.
   for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (producer->getMemoryType() == MemoryType::Shared ||
-          consumer->getMemoryType() == MemoryType::Shared) {
+      if (isSharedMemory(producer) || isSharedMemory(consumer)) {
         if (needSharedMemPredicate(producer, consumer)) {
           RECORD_AND_RETURN(true);
         }
@@ -460,8 +470,7 @@ class PredicateChcker : public IterVisitor {
   void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access =
         needsPredicateSharedMemAccess(expr);
-    needs_predicate_ = predicateIntDiv(expr) ||
-        predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
+    needs_predicate_ = predicateIntDiv(expr) || needs_predicate_smem_access ||
         predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
@@ -540,28 +549,6 @@ class PredicateChcker : public IterVisitor {
         auto p_id = entry.first;
         auto c_id = entry.second;
         if (p_id->hasExpandedExtent() && c_id->isReduction()) {
-          RECORD_AND_RETURN(true);
-        }
-      }
-    }
-    RECORD_AND_RETURN(false);
-  }
-
-  // Skip if MisalignedVectorize is involved for now. This could be
-  // relaxed.
-  bool predicateMisalignedVectorize(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    std::vector<const std::vector<Val*>*> inputs_and_outputs = {
-        &(expr->inputs()), &(expr->outputs())};
-    for (const auto& inputs_or_outputs : inputs_and_outputs) {
-      for (auto tv : ir_utils::filterByType<TensorView>(*inputs_or_outputs)) {
-        if (std::any_of(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                [](IterDomain* axis) {
-                  return axis->getParallelType() ==
-                      ParallelType::MisalignedVectorize;
-                })) {
           RECORD_AND_RETURN(true);
         }
       }

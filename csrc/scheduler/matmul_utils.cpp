@@ -1042,6 +1042,13 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
   if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
+    // Disable stmatrix unless the problem size is divisible by 16x16, which is
+    // the hardcoded stmatrix size we use currently. See
+    // See https://github.com/NVIDIA/Fuser/issues/3963
+    mparams->use_ldst_matrix =
+        problem_shape[(size_t)MatmulDimRole::M] % 16L == 0L &&
+        problem_shape[(size_t)MatmulDimRole::N] % 16L == 0;
+
     // Always promote smem reuse for Hopper. This is needed because we use TMA
     // which has higher alignment requirements, so it's important that we place
     // our TMA buffers at an offset that's a multiple of 64 (like 0) if
