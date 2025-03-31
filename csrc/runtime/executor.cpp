@@ -63,6 +63,8 @@ bool ExprEvalExecutor::supported(Fusion* fusion) {
 }
 
 void ExprEvalExecutor::compile(Fusion* fusion) {
+  std::cout << "Using ExprEvalExecutor" << std::endl;
+  fusion->printMath();
   FUSER_PERF_SCOPE("ExprEvalExecutor::compile");
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).startCompile();
