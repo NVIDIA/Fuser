@@ -7,14 +7,14 @@ import torch
 
 import multidevice_fixtures
 import nvfuser
-from nvfuser import DataType, FusionDefinition
+from nvfuser import DataType, FusionDefinition, CommunicatorBackend
 
 multidevice_test = multidevice_fixtures.multidevice_test
 
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
-    def __init__(self, m, k, n, s, num_devices):
-        super().__init__(use_multidevice_executor=True)
+    def __init__(self, m, k, n, s, num_devices, communication_backend):
+        super().__init__(use_multidevice_executor=True, backend_type=communication_backend)
         self.m = m
         self.k = k
         self.n = n
@@ -76,7 +76,7 @@ def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
     ins = [x, weight, bias]
     out_ref = torch.nn.functional.linear(x_unsharded, weight.cpu(), bias.cpu())
 
-    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d)
+    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d, CommunicatorBackend.ucc)
 
     # warmup
     for _ in range(N_WARMUPS):

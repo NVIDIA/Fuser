@@ -21,8 +21,8 @@
 namespace nvfuser {
 
 struct MultiDeviceExecutorParams {
-  hir::HostIrEvaluatorParams executor = hir::HostIrEvaluatorParams();
-  HostIrLowerParams lower = HostIrLowerParams();
+  hir::HostIrEvaluatorParams executor;
+  HostIrLowerParams lower;
 };
 
 /*
@@ -102,10 +102,6 @@ class MultiDeviceExecutor {
   const auto& getFusionExecutorCaches() {
     return host_ir_executor_->getFusionExecutorCaches();
   };
-
-  hir::HostIrEvaluator* hirEvaluator() {
-    return host_ir_executor_.get();
-  }
 
  private:
   // holds the Communicator to be used for execution
