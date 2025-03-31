@@ -415,12 +415,10 @@ std::string Asm::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Asm op can not be printed inline");
 }
 
-const std::string Asm::utility() const {
+std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
       {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
       {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
-      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "tmem::load"},
-      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "tmem::store"},
       {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
        "tmem::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
@@ -430,6 +428,9 @@ const std::string Asm::utility() const {
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
       {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
+      {"ldmatrix.sync.aligned.x1.m8n8.shared.b16", "ldmatrix1"},
+      {"ldmatrix.sync.aligned.x2.m8n8.shared.b16", "ldmatrix2"},
+      {"ldmatrix.sync.aligned.x4.m8n8.shared.b16", "ldmatrix4"},
       {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
       {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
       {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
@@ -442,6 +443,27 @@ const std::string Asm::utility() const {
   if (it != ptx_to_utility.end()) {
     return it->second;
   }
+
+  // Match patterns like tcgen05.{ld,st}.sync.aligned.32x32b.x1.b32
+  {
+    std::regex ld_pattern(R"(tcgen05\.ld\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
+    std::smatch match;
+    if (std::regex_match(code, match, ld_pattern)) {
+      std::string result = "tmem::load";
+      result.append(match[1]);
+      return result;
+    }
+  }
+  {
+    std::regex st_pattern(R"(tcgen05\.st\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
+    std::smatch match;
+    if (std::regex_match(code, match, st_pattern)) {
+      std::string result = "tmem::store";
+      result.append(match[1]);
+      return result;
+    }
+  }
+
   // Match wgmma. Example:
   // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
   // utility: wgmmaM64N256K16Half
@@ -466,6 +488,32 @@ const std::string Asm::utility() const {
     }
   }
   return "";
+}
+
+std::string Asm::signature() const {
+  std::string utility = this->utility();
+  if (utility.empty()) {
+    return "";
+  }
+  std::stringstream ss;
+  ss << "void " << utility << "(";
+  bool first = true;
+  for (auto operand : outputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    ss << operand->dtype() << "&";
+    first = false;
+  }
+  for (auto operand : inputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    ss << operand->dtype();
+    first = false;
+  }
+  ss << ")";
+  return ss.str();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)

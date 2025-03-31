@@ -482,6 +482,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   const std::vector<int64_t> shape({99, 101});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -567,8 +569,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape({99, 101});
 
@@ -604,6 +606,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction1) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   std::vector<int64_t> shape({100, 1000});
 
   auto tv0 = makeSymbolicTensor(2);
@@ -637,8 +641,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape({100, 100});
 
@@ -675,8 +679,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape_before_gather({100, 100});
   std::vector<int64_t> shape_after_gather({shape_before_gather[0], 120});
@@ -753,8 +757,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape({32, 1024});
 
@@ -843,8 +847,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape_before_gather({100, 100});
   std::vector<int64_t> shape_after_gather({shape_before_gather[0], 120});
@@ -886,6 +890,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction1) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape({32, 1024});
 
@@ -931,8 +937,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape({32, 1024});
 
@@ -976,8 +982,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // Make sure the shape is large enough to trigger the Transpose
   // scheduler. See also getTransposeRuntimeRejectReason for more details.
@@ -1023,8 +1029,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   // Make sure the shape is large enough to trigger the Transpose
   // scheduler. See also getTransposeRuntimeRejectReason for more details.
@@ -1063,8 +1069,8 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   std::vector<int64_t> shape_before(
       {deviceSMCount(),
@@ -1107,8 +1113,8 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto tv0 = makeContigTensor(2);
   fusion->addInput(tv0);

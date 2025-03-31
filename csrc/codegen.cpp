@@ -3257,7 +3257,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool utility_generated = false; // Is the same utility function already
                                     // generated when handling another asm_?
     if (as_utility) {
-      if (!generated_utilities_.insert(utility_name).second) {
+      if (!generated_utilities_.insert(asm_->signature()).second) {
         utility_generated = true;
       }
     }
