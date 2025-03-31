@@ -15,7 +15,9 @@ multidevice_test = multidevice_fixtures.multidevice_test
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
     def __init__(self, m, k, n, s, num_devices, communication_backend):
-        super().__init__(use_multidevice_executor=True, backend_type=communication_backend)
+        super().__init__(
+            use_multidevice_executor=True, backend_type=communication_backend
+        )
         self.m = m
         self.k = k
         self.n = n
@@ -60,7 +62,9 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
         self.sched.parallelize(self.out, 0, nvfuser.ParallelType.stream)
 
 
-def exec_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark, backend_type):
+def exec_overlap_allgather_matmul_stream_outermost(
+    multidevice_test, benchmark, backend_type
+):
     N_WARMUPS, N_ITERATIONS = 5, 15
     m, k, n, s, d = 1024, 1024, 1024, 8, multidevice_test.size
 
@@ -89,14 +93,20 @@ def exec_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark, 
     # benchmark
     benchmark.pedantic(lambda: fd.execute(ins), rounds=N_ITERATIONS)
 
+
 @pytest.mark.mpi
 def test_overlap_allgather_matmul_stream_outermost_ucc(multidevice_test, benchmark):
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
-    exec_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark, CommunicatorBackend.ucc)
+    exec_overlap_allgather_matmul_stream_outermost(
+        multidevice_test, benchmark, CommunicatorBackend.ucc
+    )
     # Resetting the cache here is necessary to workaround a bug that would need a proper fix. If not avoiding the cache, there is an issue for the second test that is being run. More specifically, the second time we define the fusion, we hit the cache in https://github.com/NVIDIA/Fuser/blob/6ff60e2a320733a2f49de57007d6bb45000107cd/csrc/python_frontend/fusion_definition.cpp#L95 . Later, when we call _set_device_mesh, we get a "thro out of range" here https://github.com/NVIDIA/Fuser/blob/6ff60e2a320733a2f49de57007d6bb45000107cd/csrc/python_frontend/schedule_bindings.cpp#L60 because the FusionDefinition has not run so it doesn't contain any state.
     nvfuser.FusionCache.reset()
 
+
 @pytest.mark.mpi
 def test_overlap_allgather_matmul_stream_outermost_nccl(multidevice_test, benchmark):
-    exec_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark, CommunicatorBackend.nccl)
+    exec_overlap_allgather_matmul_stream_outermost(
+        multidevice_test, benchmark, CommunicatorBackend.nccl
+    )
     nvfuser.FusionCache.reset()
