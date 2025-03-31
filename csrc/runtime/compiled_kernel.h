@@ -92,7 +92,7 @@ class CompiledKernel : public NonCopyable {
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compile(int64_t block_size);
+  NVF_API void compile(const LaunchParams& lparams);
 
   // Function to query whether a `CompiledKernel` has a compiled kernel to
   // execute

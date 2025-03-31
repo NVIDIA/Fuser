@@ -64,13 +64,19 @@ class FusionInspector : private IterVisitor {
   using IterVisitor::handle;
 
   void handle(ReductionOp* rop) final {
-    // If it's a grid reduction, keep track of tensors that depend on
-    // this reduction.
-    // Only consider when out is on register as that is assumed in the
-    // fused reduction kernel.
+    // If it's a grid reduction or has grouped Id, keep track of tensors that
+    // depend on this reduction. Only consider when out is on register as that
+    // is assumed in the fused reduction kernel.
     auto out = ir_utils::getTvOutput(rop);
     if (out->getMemoryType() == MemoryType::Local &&
-        out->domain()->hasGridReduction()) {
+        (out->domain()->hasGridReduction() ||
+         std::any_of(
+             out->getLoopDomain().begin(),
+             out->getLoopDomain().end(),
+             [](IterDomain* id) {
+               return id->getParallelType() == ParallelType::Group;
+             }))) {
+      std::cout << "reduction_dep_: " << rop->toString() << std::endl;
       reduction_dep_[out].insert(rop);
     }
   }
