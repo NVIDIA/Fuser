@@ -135,6 +135,12 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
       CacheOp cache_op = CacheOp::AllLevels,
       bool propagate_allocation_domain = false);
 
+  //! This calls orig->cacheBefore() and also updates the broadcast graph to
+  //! reflect the new IterDomain mappings
+  TensorView* cacheBefore(
+      TensorView* orig,
+      LoadStoreOpType op_type = LoadStoreOpType::Set);
+
   //! Do block tiling for a collection of TensorViews. The tensors should be
   //! unscheduled before this method is called.
   //!   1) Axes will be ordered according to canonicalDimOrdering, and then axes

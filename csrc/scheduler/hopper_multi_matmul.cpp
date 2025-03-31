@@ -308,6 +308,29 @@ TensorView* HopperMultipleMatmulScheduler::cacheAfter(
   return c;
 }
 
+TensorView* HopperMultipleMatmulScheduler::cacheBefore(
+    TensorView* orig,
+    LoadStoreOpType op_type) {
+  const std::vector<IterDomain*> orig_alloc = orig->getMaybeAllocationDomain();
+
+  TensorView* c = orig->cacheBefore(op_type);
+
+  const std::vector<IterDomain*> orig_logical = orig->getLogicalDomain();
+  const std::vector<IterDomain*> cache_logical =
+      TensorDomain::noReductions(c->getLogicalDomain());
+  // in split-K we do rFactor which gives us a full = sum(partial)
+  // where partial has root domain that matches the logical domain of the
+  // original tensor. The logical domain contains Iteration transforms of the
+  // Reduction axis in the original mma output.
+  NVF_ERROR(orig_logical.size() == cache_logical.size());
+  for (size_t i : c10::irange(orig_logical.size())) {
+    ValGroup vg = graph_->toGroup(orig_logical[i]);
+    graph_->initializeVal(cache_logical[i], vg);
+  }
+
+  return c;
+}
+
 std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     blockTileTensors(const std::vector<TensorView*>& tvs) {
   if (canonical_dim_ordering_.empty()) {
@@ -675,16 +698,19 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       // Apply cacheAfter to the existing cache tensor for output.
       // The chain of operations storing data to global memory:
       //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
-      TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
+      TensorView* d_smem = cacheBefore(d);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-      bool dc_in_mma_results =
-          std::find(mma_results_.begin(), mma_results_.end(), dc) !=
-          mma_results_.end();
+      bool schedule_dc = params_->use_smem_epilogue
+          ? std::find(splitk_sums_.begin(), splitk_sums_.end(), dc) ==
+              splitk_sums_.end()
+          : std::find(mma_results_.begin(), mma_results_.end(), dc) ==
+              mma_results_.end();
 
-      if (!dc_in_mma_results) {
-        // Skip scheduling dc if it is an mma_result. This can happen if we are
-        // not casting back to half-precision in the output
+      if (schedule_dc) {
+        // Skip scheduling dc if it is an mma_result or a splitk_sum. This can
+        // happen if we have no epilogue and we are not casting back to
+        // half-precision in the output.
         tvs_to_schedule.push_back(dc);
       }
 
@@ -713,7 +739,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Should not propagate if the dc is a mma output as the mma output has
       // already been scheduled.
-      if (!dc_in_mma_results) {
+      if (schedule_dc) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
