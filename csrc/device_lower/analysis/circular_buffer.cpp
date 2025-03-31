@@ -50,6 +50,22 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
       "Valid circular buffer axis not found due to Unroll. ",
       tv->toString());
 
+  // Ensure that the warp-specialized circular buffer loop is the outer-most
+  // for-loop if register sharing is enabled.
+  if (std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type) &&
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type)
+          .num_registers.has_value()) {
+    // Skip parallelized or broadcast axes
+    for (int64_t i = 0; i < unroll_or_ca_pos; ++i) {
+      auto pt = tv->axis(i)->getParallelType();
+      if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
+        return i;
+      }
+    }
+    return (int64_t)tv->getLoopDomain().size();
+  }
+
   int64_t valid_pos = (int64_t)tv->getLoopDomain().size();
   // Skip parallelized or broadcast axes
   for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
@@ -274,7 +290,7 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
     return GpuLower::current()->caMap()->areMapped(
-               loop->iter_domain(), axis, IdMappingMode::EXACT) &&
+               loop->iter_domain(), axis, IdMappingMode::LOOP) &&
         (!ignore_prologue ||
          loop->circularBufferLoopStage() != CircularBufferLoopStage::Prolog);
   });
