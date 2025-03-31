@@ -40,7 +40,7 @@ TEST_F(PresegTest, FusionTestOptimizationPassFlag) {
     static void runPass(Fusion* fusion) {
       throw std::runtime_error("running DerivedPass");
     };
-    static std::string name() {
+    static constexpr std::string_view name() {
       return "DerivedPass";
     }
   };
@@ -371,7 +371,7 @@ TEST_F(PresegTest, FusionRemoveEmptyOutput) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   // In the FusionKernelRuntime, before segmentation a number of optimization
@@ -405,7 +405,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -437,7 +437,7 @@ TEST_F(PresegTest, FusionRemoveEmptyReductionWithNonReduction) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3, 2}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -468,7 +468,7 @@ TEST_F(PresegTest, FusionRemoveEmptyWelford) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({0, 3}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -522,7 +522,7 @@ TEST_F(PresegTest, FusionRemoveEmptyCat) {
   at::Tensor t1 = at::randn({2, 3}, options);
   at::Tensor t2 = at::randn({4, 3}, options);
 
-  auto args = KernelArgumentHolder({t0, t1, t2});
+  KernelArgumentHolder args({t0, t1, t2});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -561,7 +561,7 @@ TEST_F(PresegTest, FusionRemoveEmptyPad) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 0}, options);
 
-  auto args = KernelArgumentHolder({t0});
+  KernelArgumentHolder args({t0});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -605,7 +605,7 @@ TEST_F(PresegTest, FusionRemoveEmptyMatmul) {
   at::Tensor t0 = at::randn({16, 0}, options);
   at::Tensor t1 = at::randn({0, 8}, options);
 
-  auto args = KernelArgumentHolder({t0, t1});
+  KernelArgumentHolder args({t0, t1});
   FusionKernelRuntime runtime(std::move(fusion_ptr), args);
 
   auto preseg_fusion = runtime.fusionSegments()->completeFusion();
@@ -635,10 +635,10 @@ TEST_F(PresegTest, ReplaceOutput) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor = at::randn({10}, at::device(at::kCUDA));
-  at::Tensor out_tensor = executor_cache.runFusionWithInputs({in_tensor})[0];
+  auto cg_outputs = executor_cache.runFusionWithInputs({in_tensor});
 
   testValidate(
-      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+      executor_cache.fusion(), cg_outputs, {in_tensor}, __LINE__, __FILE__);
 }
 
 TEST_F(PresegTest, ExtentSubstitution) {
@@ -1169,7 +1169,8 @@ TEST_F(PresegTest, FusionTestCastOptimizationMetaOp4) {
   auto t0 = at::randn({2, 3, 4}, options);
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0});
-  ASSERT_TRUE(outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
+  ASSERT_TRUE(outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
   testValidate(executor_cache.fusion(), outputs, {t0}, __LINE__, __FILE__);
 }
 

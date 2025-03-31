@@ -13,6 +13,7 @@
 #include <scheduler/debug_utils.h>
 #include <scheduler/hopper_multi_matmul.h>
 #include <scheduler/matmul.h>
+#include <scheduler/matmul_heuristic.h>
 #include <scheduler/matmul_utils.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
@@ -116,11 +117,6 @@ void HopperMultipleMatmulScheduler::validate() const {
 
   NVF_CHECK(
       params_->tiling_strategy !=
-          MatmulParams::TilingStrategy::DistributeTilesAcrossSMs,
-      "Hopper matmul scheduler TEMPORARILY does not support persistent scheduling of tiles yet");
-
-  NVF_CHECK(
-      params_->tiling_strategy !=
           MatmulParams::TilingStrategy::DistributeStagesAcrossSMs,
       "Hopper matmul scheduler does not support distributing stages across SMs a la stream-K");
 
@@ -201,7 +197,7 @@ void HopperMultipleMatmulScheduler::cacheOperandsToSmem(
   for (size_t i : c10::irange(operands.size())) {
     TensorView* operand = operands[i];
 
-    NVF_ERROR(operand->uses().size() == 1);
+    NVF_ERROR(!operand->uses().empty());
     smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
 
     LoadStoreOpType load_op = params_->async_gmem_load_operands
@@ -383,6 +379,21 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
         }
       }
     }
+
+    if (params_->tiling_strategy ==
+        MatmulParams::TilingStrategy::DistributeTilesAcrossSMs) {
+      // Persistent kernel scheduling
+      if (params_->cta_order ==
+          MatmulParams::TileRasterizationOrder::ColumnMajor) {
+        tv->reorder(
+            {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
+      }
+      tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
+
+      const int64_t num_sms =
+          at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      tv->split(num_device_and_batch_dims_, num_sms);
+    }
   }
   return all_merged_roles;
 }
@@ -397,7 +408,9 @@ void HopperMultipleMatmulScheduler::inspectPrologues() const {
       // might be introduced when translating a MatmulOp or LinearOp to MmaOp.
       Expr* def = op_input->definition();
       NVF_ERROR(def != nullptr && def->isA<LoadStoreOp>());
-      NVF_ERROR(def->input(0)->isFusionInput());
+      NVF_ERROR(
+          def->input(0)->as<TensorView>()->getMemoryType() ==
+          MemoryType::Global);
     }
   }
 }
@@ -427,21 +440,35 @@ void HopperMultipleMatmulScheduler::scheduleOperands() {
 void HopperMultipleMatmulScheduler::parallelizeBlocks(
     const std::vector<TensorView*>& tvs) const {
   for (TensorView* tv : tvs) {
-    switch (params_->cta_order) {
-      // TODO: Should we instead check the roles of these dimensions to take the
-      // outermost two M or N axes?
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDx);
-        tv->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDy);
+    switch (params_->tiling_strategy) {
+      case MatmulParams::TilingStrategy::OneTilePerCTA:
+        // Data-parallel kernels are parallelized BIDx BIDy
+        switch (params_->cta_order) {
+          // TODO: Should we instead check the roles of these dimensions to take
+          // the outermost two M or N axes?
+          case MatmulParams::TileRasterizationOrder::RowMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDy);
+            break;
+          case MatmulParams::TileRasterizationOrder::ColumnMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDx);
+            break;
+          default:
+            NVF_THROW(
+                "Invalid TileRasterizationOrder passed to Matmul scheduler");
+        }
         break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        tv->axis(num_device_and_batch_dims_)->parallelize(ParallelType::BIDy);
+      case MatmulParams::TilingStrategy::DistributeTilesAcrossSMs:
+      case MatmulParams::TilingStrategy::DistributeStagesAcrossSMs:
+        // For persistent kernels, we just parallelize the SM dimension
         tv->axis(num_device_and_batch_dims_ + 1)
             ->parallelize(ParallelType::BIDx);
         break;
-      default:
-        NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
     }
   }
 }
@@ -511,36 +538,75 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   std::vector<TensorView*> cached_tvs;
+  // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
+  std::vector<TensorView*> tma_load_epilogue_inputs;
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
   if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
-    auto& c_tvs = tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
-    // Load/cache the epilogue inputs if there are any.
-    for (auto* c : c_tvs) {
-      cached_tvs.push_back(c->cacheAfter());
+    const std::vector<TensorView*>& c_tvs =
+        tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
+    for (TensorView* c : c_tvs) {
+      // cacheInputsAndOutputs creates a cache_after for each epilogue input
+      NVF_ERROR(c->uses().size() == 1);
+      TensorView* cache_tv = ir_utils::consumerTvsOf(c).at(0);
+      NVF_ERROR(
+          cache_tv->definition() != nullptr &&
+          cache_tv->definition()->isA<LoadStoreOp>());
+
+      bool load_with_ldmatrix =
+          params_->use_ldst_matrix && dataTypeSize(cache_tv->dtype()) == 2;
+      bool is_2d_epilogue_input =
+          TensorDomain::noBroadcasts(cache_tv->domain()->logical()).size() == 2;
+      if (load_with_ldmatrix && is_2d_epilogue_input &&
+          params_->async_gmem_load_operands) {
+        // Schedule TMA load into shared memory for epilogue input
+        cache_tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulkTensorTile);
+        cache_tv->setMemoryType(MemoryType::Shared);
+
+        // Apply the default scheduling that is common to all register
+        // TensorViews after wgmma.
+        blockTileTensors({cache_tv});
+        parallelizeBlocks({cache_tv});
+        transformLikeMmaOutputWithoutK(cache_tv);
+
+        // Swizzle to avoid shared memory bank conflicts
+        MmaInputSmemSwizzle swizzle_type =
+            mma_utils::tmaSwizzleSharedMemory(cache_tv);
+        cache_tv->applyMmaSwizzleForTMALoad(swizzle_type);
+
+        tma_load_epilogue_inputs.push_back(cache_tv);
+        // Do not propagate any other changes to TMA load.
+        propagate_to.push_back(cache_tv);
+      } else {
+        cached_tvs.push_back(cache_tv);
+        // Propagate changes to the cache_after tensor if not using TMA load.
+        propagate_to.push_back(c);
+      }
     }
-    propagate_to.insert(propagate_to.end(), c_tvs.begin(), c_tvs.end());
   }
 
   if (!params_->use_smem_epilogue) {
     for (Val* dv : fusion_->outputs()) {
-      auto* d = dv->as<TensorView>();
+      TensorView* d = dv->as<TensorView>();
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
 
-      // Schedule the output TV and propagate it back to the outputs of the Mma
-      // op.
+      // Apply the default scheduling that is common to all register
+      // TensorViews after wgmma.
       blockTileTensors({d});
       parallelizeBlocks({d});
       transformLikeMmaOutputWithoutK(d);
 
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          d->getLoopDomain());
+      const AbstractTensor s =
+          mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+              d->getLoopDomain());
       d->setLoopDomain(s.as<IterDomain*>());
 
       // TODO: We need to check bank conflicts in this path.
+      // Propagate schedule changes back to the outputs of the Mma op.
       scheduler_utils::BoundedDirectionalTransformPropagator::backward(
           d,
           -1,
@@ -548,42 +614,70 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           scheduler_utils::BoundedDirectionalTransformPropagator::Options()
               .propagateParallelType());
 
-      // We don't respect vectorization_factor as yet. We vectorize the
-      // inner-dim with extent 2.
-      // TODO: support vectorization_factor.
+      // We do not respect the vectorization_factor parameter, but always
+      // vectorize the inner-dim with extent 2.
+      NVF_ERROR(params_->supported_vec_size.epilogue >= 2);
+      // TODO: Support vectorization_factor in MatmulParams
       d->axis(-1)->parallelize(ParallelType::Vectorize);
       if (!cached_tvs.empty()) {
         scheduler_utils::parallelizeAllLike(d, -1, cached_tvs);
       }
     }
   } else {
-    constexpr int64_t stmatrix_tile_m = 16;
-    constexpr int64_t stmatrix_tile_n = 16;
+    constexpr int64_t ldst_matrix_tile_m = 16;
+    constexpr int64_t ldst_matrix_tile_n = 16;
+    fusion_->manage("ldst_matrix_m_tile", ldst_matrix_tile_m);
+    fusion_->manage("ldst_matrix_n_tile", ldst_matrix_tile_n);
+    fusion_->manage("ldst_matrix_m_smem", params_->tile_sizes.warp_tile.m);
+    fusion_->manage("ldst_matrix_n_smem", params_->tile_sizes.warp_tile.n);
 
-    // TODO: Support tma tile sizes that are a multiple of mma_macro.
-    // The wgmma operation creates an output matrix of mma_macro size. The TMA
-    // tile is a multiple of the macro size because stmatrix stores results from
-    // wgmma to shared memory. For maximum inlining and to reduce shared memory
-    // usage, the tma tile is mma_macro size.
-    const int64_t tma_m = params_->tile_sizes.warp_tile.m;
-    const int64_t tma_n = params_->tile_sizes.warp_tile.n;
+    // For each TMA load, create and schedule LdMatrix to load from shared
+    // memory to registers
+    for (TensorView* smem_tv : tma_load_epilogue_inputs) {
+      TensorView* reg_tv = cacheAfter(smem_tv);
+      reg_tv->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::LdMatrix);
 
-    fusion_->manage("st_matrix_m_tile", stmatrix_tile_m);
-    fusion_->manage("st_matrix_n_tile", stmatrix_tile_n);
-    fusion_->manage("st_matrix_m", tma_m);
-    fusion_->manage("st_matrix_n", tma_n);
+      // Apply the default scheduling that is common to all register
+      // TensorViews after wgmma.
+      blockTileTensors({reg_tv});
+      parallelizeBlocks({reg_tv});
+      transformLikeMmaOutputWithoutK(reg_tv);
+
+      // Schedule the loop and allocation domain of LdMatrix like the
+      // accumulation register TensorView of wgmma.
+      AbstractTensor s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+          reg_tv->getLoopDomain());
+      reg_tv->setLoopDomain(s.as<IterDomain*>());
+      reg_tv->setAllocationDomain(
+          reg_tv->getLoopDomain(), /*new_contiguity=*/true);
+
+      // Apply LdStMatrix scheduling to the wgmma loop domain
+      mma_utils::scheduleLdStMatrixForMmaOutput(
+          reg_tv, ldst_matrix_tile_m, ldst_matrix_tile_n);
+
+      // Vectorize last iterDomain because LdMatrix loads all eight values with
+      // a single LdMatrix.x4 operation
+      reg_tv->axis(-1)->parallelize(ParallelType::Vectorize);
+
+      // Do not propagate any other changes to LdMatrix.
+      propagate_to.push_back(reg_tv);
+    }
 
     // Manually schedule register cache and output TensorView
     for (Val* dv : fusion_->outputs()) {
-      auto* d = dv->as<TensorView>();
+      TensorView* d = dv->as<TensorView>();
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
-      auto* dc = d->definition()->input(0)->as<TensorView>();
+      TensorView* dc = d->definition()->input(0)->as<TensorView>();
 
       // NOTE: cacheBefore does not work with blockTileTensors
+      // cacheInputsAndOutputs creates a cache_before for each output.
+      // Apply cacheAfter to the existing cache tensor for output.
+      // The chain of operations storing data to global memory:
+      //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
       TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-
       bool dc_in_mma_results =
           std::find(mma_results_.begin(), mma_results_.end(), dc) !=
           mma_results_.end();
@@ -598,10 +692,10 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       dc->setMemoryType(MemoryType::Local);
       d_smem->setMemoryType(MemoryType::Shared);
 
-      auto store_with_stmatrix = dataTypeSize(dc->dtype()) == 2;
-
+      // Set LoadStoreOpType
+      bool store_with_stmatrix =
+          params_->use_ldst_matrix && dataTypeSize(dc->dtype()) == 2;
       if (store_with_stmatrix) {
-        // Set LoadStoreOp
         d_smem->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::StMatrix);
       }
@@ -633,23 +727,27 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
                 .propagateParallelType());
       }
 
+      // Determine swizzle for TMA Store
       MmaInputSmemSwizzle swizzle = mma_utils::tmaSwizzleSharedMemory(d_smem);
 
-      // [M, N] -> [128(TIDx), N/8 ,  m(2) , n(2)]
-      auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-          d_smem->getLoopDomain());
+      // First, create loop domain that matches wgmma register accumulator using
+      // original loop domain.
+      const AbstractTensor s =
+          mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
+              d_smem->getLoopDomain());
+      // Create allocation domain with swizzle for TMA Store.
+      // This step modifies loop domain and the creates a new allocation domain.
       if (swizzle != MmaInputSmemSwizzle::None) {
-        // Create tma store allocation domain with swizzle
         mma_utils::scheduleTMAStoreForMmaOutput(d_smem, swizzle);
       }
+      // Finally, set loop domain using saved AbstractTensor.
       d_smem->setLoopDomain(s.as<IterDomain*>());
 
       if (store_with_stmatrix) {
-        // Schedule shared memory cache; Output from StMatrix
-        mma_utils::scheduleStMatrixForMmaOutput(
-            d_smem, swizzle, stmatrix_tile_m, stmatrix_tile_n);
+        // Apply LdStMatrix scheduling to the wgmma loop domain
+        mma_utils::scheduleLdStMatrixForMmaOutput(
+            d_smem, ldst_matrix_tile_m, ldst_matrix_tile_n);
       }
-
       d_smem->axis(-1)->parallelize(ParallelType::Vectorize);
 
       // Schedule global memory output; Output from TMA Store
@@ -722,23 +820,40 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         break;
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        NVF_ERROR(
-            std::all_of(
-                mma_results_.begin(),
-                mma_results_.end(),
-                [](TensorView* tv) {
-                  IterDomain* ws_axis = tv->axis(-7);
-                  return ws_axis->getParallelType() == ParallelType::TIDy &&
-                      ws_axis->extent()->evaluate().as<int64_t>() <= 2;
-                }),
-            "There can be at most two compute warp groups for register ",
-            "sharing with warp specialization");
-        constexpr int64_t num_registers_load_warp = 40;
-        constexpr int64_t num_registers_compute_warp = 232;
-        cb_type = (CircularBufferType)WarpSpecialized(
-            ParallelType::TIDy,
-            std::make_pair(
-                num_registers_load_warp, num_registers_compute_warp));
+        if (params_->tiling_strategy ==
+            MatmulParams::TilingStrategy::OneTilePerCTA) {
+          int64_t num_math_warp_groups = 1L;
+          NVF_ERROR(!mma_results_.empty());
+          for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+            if (id->getParallelType() == ParallelType::TIDy) {
+              num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
+            }
+          }
+          NVF_ERROR(
+              num_math_warp_groups <= 2,
+              "There can be at most two compute warp groups for register ",
+              "sharing with warp specialization");
+          if (num_math_warp_groups == 1) {
+            // Disable register sharing when there is only one math warp group.
+            // In such case we will have 128 math threads and 128 dma threads,
+            // for a total of 256 threads per CTA. The register file size on
+            // Hopper is 64K registers, which is filled when a 256-thread CTA
+            // has 256 registers per thread. Since 256 is already the maximum
+            // number of registers per thread even with register sharing, there
+            // is no point in doing register sharing to try and increase it.
+            cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+          } else {
+            constexpr int64_t num_registers_load_warp = 40;
+            constexpr int64_t num_registers_compute_warp = 232;
+            cb_type = (CircularBufferType)WarpSpecialized(
+                ParallelType::TIDy,
+                std::make_pair(
+                    num_registers_load_warp, num_registers_compute_warp));
+          }
+        } else {
+          // Persistent kernels cannot yet use register sharing
+          cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        }
         break;
       }
     }

@@ -6,7 +6,7 @@
  */
 // clang-format on
 #include <cuda_profiler_api.h>
-#include <nvToolsExt.h>
+#include <nvtx3/nvToolsExt.h>
 
 #include <benchmarks/cpp/utils.h>
 #include <fusion.h>
@@ -63,7 +63,7 @@ void forward_transformer(
   auto mlp_w1 = at::randn({E, 4 * E}, options) * kParamScale;
   auto mlp_b1 = at::randn({E}, options) * kParamScale;
 
-  std::vector<c10::IValue> at_inputs = {
+  KernelArgumentHolder args = {
       sequence_parallel ? shardTensor(x, 0, mesh, communicator).unsqueeze(0)
                         : x,
       ln0_w,
@@ -96,7 +96,7 @@ void forward_transformer(
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("FwdIteration" + std::to_string(i)).c_str());
     }
-    auto outputs = fec->runFusionWithInputs(at_inputs);
+    auto outputs = fec->runFusionWithInputs(args);
 
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();
@@ -141,8 +141,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto mha_dropout_mask = at::rand({B * S, E}, options).lt(1.0 - 0.1);
   auto sdpa_output = at::randn({B, H, S, E / H}, options);
   auto sdpa_logsum_exp = at::randn({B, H, S}, options).to(at::kFloat);
-  auto sdpa_seed = at::scalar_tensor(1, at::kLong);
-  auto sdpa_offset = at::scalar_tensor(1, at::kLong);
+  auto [sdpa_seed, sdpa_offset] = createSdpaRngTensors();
   auto ln0_mean = at::randn({B * S, 1}, options).to(at::kFloat);
   auto ln0_rstd = at::randn({B * S, 1}, options).to(at::kFloat);
   auto ln1_mean = at::randn({B * S, 1}, options).to(at::kFloat);
@@ -151,7 +150,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
   auto mha_linear0 = at::rand({B * S, 3 * E}, options);
   auto mlp_linear1 = at::rand({B * S, 4 * E}, options);
 
-  std::vector<c10::IValue> at_inputs = {
+  KernelArgumentHolder args = {
       x,
       grad,
       shardTensor(mha_w0.view({3, E, E}), 1, mesh, communicator)
@@ -179,7 +178,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
 
   DistributedTransformer model(D, B, E, H, S, kDropoutProb, kSdpaProb);
   auto fec = model.backward(dtype);
-  std::vector<at::Tensor> outputs;
+  KernelArgumentHolder outputs;
 
   cudaSetDevice(communicator->deviceId());
   auto start = std::chrono::high_resolution_clock::now();
@@ -191,7 +190,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
     if (i >= warmup_itrs && profile) {
       nvtxRangePush(("BwdIteration" + std::to_string(i)).c_str());
     }
-    outputs = fec->runFusionWithInputs(at_inputs);
+    outputs = fec->runFusionWithInputs(args);
 
     if (i >= warmup_itrs && profile) {
       nvtxRangePop();

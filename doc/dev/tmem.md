@@ -38,8 +38,6 @@ constexpr static bool verbose = false; /*
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 
-#define NOT_IMPLEMENTED GTEST_SKIP() << "Not implemented yet";
-
 namespace nvfuser {
 
 using ReviewInliningParallelization = NVFuserTest;
@@ -87,7 +85,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // T1 is allocated in full size
     EXPECT_EQ(ke.lastLaunchParams().smem(), 8 * sizeof(float));
   }
@@ -114,7 +112,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Because smem is distributed across different CTAs, only the first
     // dimension of T1 is allocated.
     EXPECT_EQ(ke.lastLaunchParams().smem(), 2 * sizeof(float));
@@ -141,7 +139,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Because the first dimension of T1 is inlined, inside the outer loop, T1
     // is consumed right after it is produced. So the first dimension of T1 is
     // not allocated.
@@ -171,7 +169,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Due to inlining, the first dimension of T1 is not allocated. Due to
     // BIDx parallelization, the second dimension of T1 is not allocated. So T1
     // is only allocated in size 1.
@@ -201,7 +199,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Although the first dimension of T1 is inlined, because shared memory is
     // shared by threads, the TIDx parallelization will override the inlining,
     // and make the first dimension of T1 allocated. The second dimension of T1
@@ -235,7 +233,7 @@ TEST_F(ReviewInliningParallelization, GSGCopy) {
     KernelExecutor ke;
     ke.compile(&fusion);
     auto out = ke.run({t0});
-    EXPECT_TRUE(at::equal(out[0], t0));
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
     // Although the first dimension of T1 is inlined, because shared memory is
     // shared by threads, the TIDx parallelization will override the inlining,
     // and make the first dimension of T1 allocated. The second dimension of T1
@@ -332,7 +330,6 @@ data path between gmem and tmem, so we have to use registers as transfer
 station.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, TooManyLanes) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -344,6 +341,8 @@ TEST_F(TMemTutorialC, TooManyLanes) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::BIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
@@ -357,7 +356,7 @@ TEST_F(TMemTutorialC, TooManyLanes) {
   // Tries to allocate (429, 17) for tv2.
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Not enough tensor memory lanes: tried to allocate 429, but only 128 available.")));
 } /*
 ```
@@ -379,7 +378,6 @@ lanes `128`.
 Now let's take a look at another example:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, TooManyCols) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -391,6 +389,8 @@ TEST_F(TMemTutorialC, TooManyCols) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::BIDx);
@@ -405,7 +405,7 @@ TEST_F(TMemTutorialC, TooManyCols) {
   // Tries to allocate (32, 1105) for tv2.
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
           "Not enough tensor memory columns: tried to allocate 1105, but only 512 available.")));
 } /*
 ```
@@ -483,7 +483,6 @@ With the above restrictions in mind, let's take a look at a few examples of how
 NOT to schedule TMem load and store:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotWarpCollective) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -495,6 +494,8 @@ TEST_F(TMemTutorialC, NotWarpCollective) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   scheduler_utils::parallelizeAllLike(tv4);
@@ -503,8 +504,10 @@ TEST_F(TMemTutorialC, NotWarpCollective) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(
-          ::testing::HasSubstr("TMem load/store must be warp collective.")));
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
+          "Invalid data access pattern in TMem load/store: "
+          "TMem load/store must be warp-collective, "
+          "but the innermost extent is not a multiple of 32.")));
 } /*
 ```
 
@@ -512,7 +515,6 @@ The above example is invalid because there are only 16 threads in the kernel.
 Warp collective operations require at least a whole warp to run.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, NotContiguous) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -524,6 +526,8 @@ TEST_F(TMemTutorialC, NotContiguous) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -533,8 +537,9 @@ TEST_F(TMemTutorialC, NotContiguous) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
+          "Invalid data access pattern in TMem load/store: "
+          "Warp linearly accessing lanes, but not with stride 1.")));
 } /*
 ```
 
@@ -546,7 +551,6 @@ patterns requires the warp to access a contiguous 32 or 16 lanes of data
 .<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, OneLane) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -558,6 +562,8 @@ TEST_F(TMemTutorialC, OneLane) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDy);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
@@ -567,8 +573,8 @@ TEST_F(TMemTutorialC, OneLane) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
+          "Invalid data access pattern in TMem load/store:")));
 } /*
 ```
 
@@ -578,7 +584,6 @@ columns of the tensor memory, while all the specified patterns requires the warp
 to access a contiguous 32 or 16 lanes of data.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -590,6 +595,8 @@ TEST_F(TMemTutorialC, WrongSubpartition) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDy);
   tv4->axis(2)->parallelize(ParallelType::TIDx);
@@ -599,8 +606,9 @@ TEST_F(TMemTutorialC, WrongSubpartition) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
+          "Invalid data access pattern in TMem load/store: "
+          "Warps are not accessing the correct sub-partition.")));
 } /*
 ```
 
@@ -611,7 +619,6 @@ However, warp 0 can only access subpartition 0, and warp 1 can only access
 subpartition 1.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialC, WrongSubpartition2) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -623,6 +630,8 @@ TEST_F(TMemTutorialC, WrongSubpartition2) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -632,8 +641,9 @@ TEST_F(TMemTutorialC, WrongSubpartition2) {
 
   EXPECT_THAT(
       [&]() { KernelExecutor().compile(&fusion); },
-      ::testing::ThrowsMessage<std::runtime_error>(::testing::HasSubstr(
-          "Invalid data access pattern in TMem load/store.")));
+      ::testing::ThrowsMessage<nvfError>(::testing::HasSubstr(
+          "Invalid data access pattern in TMem load/store: "
+          "Warps are not accessing the correct sub-partition.")));
 } /*
 ```
 
@@ -644,7 +654,6 @@ is not allowed.
 Now, let's take a look at some valid examples:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpXYZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -656,6 +665,8 @@ TEST_F(TMemTutorialR, WarpXYZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDz);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -673,7 +684,7 @@ TEST_F(TMemTutorialR, WarpXYZ) {
 
   at::Tensor t0 = at::rand({2, 4, 4, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -683,7 +694,6 @@ accesses a 32x1 box of the tensor memory. This is a valid 32x32b pattern
 .<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -695,6 +705,8 @@ TEST_F(TMemTutorialR, WarpGroupXYZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDz);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -712,7 +724,7 @@ TEST_F(TMemTutorialR, WarpGroupXYZ) {
 
   at::Tensor t0 = at::rand({2, 8, 8, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -721,7 +733,6 @@ This entire warp group is accessing a whole column, with each warp accessing its
 subpartition of 32 lanes. This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXYColZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -733,6 +744,8 @@ TEST_F(TMemTutorialR, WarpGroupXYColZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDy);
   tv4->axis(1)->parallelize(ParallelType::TIDx);
@@ -750,7 +763,7 @@ TEST_F(TMemTutorialR, WarpGroupXYColZ) {
 
   at::Tensor t0 = at::rand({8, 16, 8}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -759,7 +772,6 @@ whole column. Warp group `i` is accessing column `i`.
 This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, WarpGroupXColYZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -771,6 +783,8 @@ TEST_F(TMemTutorialR, WarpGroupXColYZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -788,7 +802,7 @@ TEST_F(TMemTutorialR, WarpGroupXColYZ) {
 
   at::Tensor t0 = at::rand({128, 2, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -803,7 +817,6 @@ shown in the table below:
 This is a valid 32x32b pattern.<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -815,6 +828,8 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   tv4->axis(0)->parallelize(ParallelType::TIDx);
   tv4->axis(1)->parallelize(ParallelType::TIDy);
@@ -832,7 +847,7 @@ TEST_F(TMemTutorialR, X1WarpGroupYColZ) {
 
   at::Tensor t0 = at::rand({1, 128, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -888,7 +903,6 @@ void checkAllocationSize(KernelExecutor& ke, int64_t expected_ncols) {
 Here comes the example 1:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated1) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -900,6 +914,8 @@ TEST_F(TMemTutorialR, Complicated1) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   // apply fancy transformations, shape is still [4096, 4096]
   fancyTransformations(tv4);
@@ -963,16 +979,16 @@ TEST_F(TMemTutorialR, Complicated1) {
   checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
+
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
 Here comes the example 2:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Complicated2) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -984,6 +1000,8 @@ TEST_F(TMemTutorialR, Complicated2) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   // apply fancy transformations, shape is still [4096, 4096]
   fancyTransformations(tv4);
@@ -1042,9 +1060,10 @@ TEST_F(TMemTutorialR, Complicated2) {
   checkAllocationSize(ke, 64);
 
   ke.compile(&fusion);
+
   at::Tensor t0 = at::rand({4096, 4096}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 } /*
 ```
 
@@ -1054,7 +1073,6 @@ pattern. The following example shows how to use tensor memory to do a transpose
 :<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Transpose) {
-  NOT_IMPLEMENTED
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -1066,6 +1084,8 @@ TEST_F(TMemTutorialR, Transpose) {
   auto tv4 = set(tv3);
   fusion.addOutput(tv4);
   tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
   for (auto tv : {tv1, tv2, tv3, tv4}) {
     tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -1084,7 +1104,7 @@ TEST_F(TMemTutorialR, Transpose) {
 
   at::Tensor t0 = at::rand({128, 2, 2}, at::kCUDA);
   auto out = ke.run({t0});
-  EXPECT_TRUE(at::equal(out[0], t0.transpose(1, 2)));
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0.transpose(1, 2)));
 } /*
 ```
 
@@ -1097,11 +1117,10 @@ In the above example, we store and load the tensor memory like the table below:
 
 ## Vectorization of TMem load and store
 
-Tensor memory load and store can be vectorized as a power of 2, from 1 all the
-way to 128:<!-- */ //-->\
+Tensor memory load and store can be vectorized as a power of 2, from 4 bytes all the
+way to 512 bytes:<!-- */ //-->\
 ```cpp
 TEST_F(TMemTutorialR, Vectorization) {
-  NOT_IMPLEMENTED
   const std::vector<int64_t> vec_factors = {1, 2, 4, 8, 16, 32, 64, 128};
   for (int64_t st_vec : vec_factors) {
     for (int64_t ld_vec : vec_factors) {
@@ -1116,6 +1135,8 @@ TEST_F(TMemTutorialR, Vectorization) {
       auto tv4 = set(tv3);
       fusion.addOutput(tv4);
       tv2->setMemoryType(MemoryType::Tensor);
+      tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+      tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
 
       for (auto tv : {tv1, tv2, tv3, tv4}) {
         tv->axis(0)->parallelize(ParallelType::TIDx);
@@ -1141,14 +1162,18 @@ TEST_F(TMemTutorialR, Vectorization) {
 
       KernelExecutor ke;
 
-      // Check that tv2 is allocated 256 columns.
-      checkAllocationSize(ke, 256);
+      // Check the allocation size of tv2. When the load and store vectorization
+      // factors are the same, the inlining position is one larger than the
+      // case when they are different.
+      const int64_t expected_ncols =
+          st_vec == ld_vec ? std::max<int64_t>(st_vec, 32) : 256;
+      checkAllocationSize(ke, expected_ncols);
 
       ke.compile(&fusion);
 
       at::Tensor t0 = at::rand({128, 256}, at::kCUDA);
       auto out = ke.run({t0});
-      EXPECT_TRUE(at::equal(out[0], t0));
+      EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
 
       // Check that vectorized PTX instructions are used
       GpuLower gpulw(&fusion);
@@ -1160,6 +1185,157 @@ TEST_F(TMemTutorialR, Vectorization) {
       EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
     }
   }
+} /*
+```
+
+Note that the minimum unit of TMem load/store is 4 bytes, and the vectorization
+factor used for TMem load/store must makes sure that the total size of the vector
+is a multiple of 4 bytes. For example, char2, half1 are invalid vectorization
+factors, but char4, half2 are valid:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, VectorizeMultipleOf4Bytes) {
+  auto run = [](DataType dtype, int64_t vec) {
+    Fusion fusion;
+    FusionGuard fg(&fusion);
+
+    auto tv0 = makeContigConcreteTensor({128, 256}, dtype);
+    fusion.addInput(tv0);
+    auto tv1 = set(tv0);
+    auto tv2 = set(tv1);
+    auto tv3 = set(tv2);
+    auto tv4 = set(tv3);
+    fusion.addOutput(tv4);
+    tv2->setMemoryType(MemoryType::Tensor);
+    tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+    tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+    for (auto tv : {tv1, tv2, tv3, tv4}) {
+      tv->axis(0)->parallelize(ParallelType::TIDx);
+    }
+
+    if (vec != 1) {
+      for (auto tv : {tv1, tv2, tv3, tv4}) {
+        tv->split(1, vec);
+      }
+      tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+      tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+    }
+
+    tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+    tv2->setTMemDimSepPos(1);
+
+    inlineMost();
+
+    if constexpr (verbose) {
+      fusion.printKernel();
+    }
+
+    KernelExecutor ke;
+
+    ke.compile(&fusion);
+
+    at::TensorOptions options = at::TensorOptions()
+                                    .dtype(data_type_to_aten(dtype))
+                                    .device(at::kCUDA, 0);
+    at::Tensor t0 = dtype == DataType::Char
+        ? at::randint(-128, 128, {128, 256}, options)
+        : at::rand({128, 256}, options);
+    auto out = ke.run({t0});
+    EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
+  };
+
+  EXPECT_THAT(
+      [&]() { run(DataType::Char, 2); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Vectorize size is not a multiple of 4 bytes")));
+  EXPECT_THAT(
+      [&]() { run(DataType::Half, 1); },
+      ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
+          "Vectorize size is not a multiple of 4 bytes")));
+  run(DataType::Char, 4);
+  run(DataType::Half, 2);
+} /*
+```
+
+When using tensor memory for non-matmul purposes, the allocation domain of the
+tensor memory tensor is usually dictated by the global scheduling of the
+problem, and the vectorization factor used for TMem load/store are the product
+of the unroll factor and the vectorization factor of the global memory load/store.
+The following example demonstrates a performant copy kernel
+gmem -> register -> tmem -> register -> gmem with vectorization 4 and unroll
+factor 2:<!-- */ //-->\
+```cpp
+TEST_F(TMemTutorialR, PerformantVectorizedCopy) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv4->split(0, 4);
+  tv4->axis(1)->parallelize(ParallelType::Vectorize);
+  tv4->split(0, 128);
+  tv4->axis(1)->parallelize(ParallelType::TIDx);
+  tv4->split(0, 2);
+  tv4->axis(1)->parallelize(ParallelType::TIDy);
+  tv4->split(0, 2);
+  tv4->axis(1)->parallelize(ParallelType::Serial);
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+
+  TransformPropagatorWithCheck propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(
+      tv4, {ParallelType::TIDx, ParallelType::TIDy, ParallelType::BIDx});
+  tv1->axis(-1)->parallelize(ParallelType::Vectorize);
+
+  // [BIDx, Serial, TIDy, TIDx, Vec'] ->
+  //   [BIDx, TIDx, |, TIDy, Vec{Serial * Vec'}]
+  // Where the Vec' above are the vectorization dims of gmem access, not
+  // the vectorization of the tmem access, and Vec is the the vectorization
+  // of tmem access.
+  for (auto tv : {tv2, tv3}) {
+    tv->reorder({{1, 3}, {3, 1}});
+    tv->merge(-2);
+    tv->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(2);
+
+  inlineMost();
+
+  if constexpr (verbose) {
+    fusion.printKernel();
+  }
+
+  KernelExecutor ke;
+
+  // Check that tv2 is allocated 32 columns. We actually only need
+  // TIDy{2} * Serial{2} * Vec'{4} = 16 columns, but 32 is the minimum
+  // unit of allocation.
+  checkAllocationSize(ke, 32);
+
+  ke.compile(&fusion);
+
+  at::Tensor t0 = at::rand({256 * 1024 * 1024}, at::kCUDA);
+  auto out = ke.run({t0});
+  EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
+
+  // Check that vectorized PTX instructions are used
+  GpuLower gpulw(&fusion);
+  auto kernel_str = codegen::generateCudaKernel(gpulw.run());
+  std::stringstream expect_st, expect_ld;
+  expect_st << "tcgen05.st.sync.aligned.32x32b.x8.b32";
+  expect_ld << "tcgen05.ld.sync.aligned.32x32b.x8.b32";
+  EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_st.str()));
+  EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
 } /*
 ```
 

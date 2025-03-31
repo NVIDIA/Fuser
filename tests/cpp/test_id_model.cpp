@@ -42,7 +42,10 @@ TEST_F(IdModelTest, DetectSelfMapping) {
   fusion.addOutput(tv2);
 
   EXPECT_THAT(
-      [&]() { IdModel id_model(&fusion, /*build_graphs=*/true); },
+      [&]() {
+        IdModel id_model(
+            &fusion, /*build_graphs=*/true, /*allow_self_mapping=*/false);
+      },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("are mapped with each other")));
 }
@@ -2102,6 +2105,42 @@ TEST_F(IdModelTest, ComplimentMappingCausingLoopSelfMapping) {
   //     loop_graph.toGroup(tv10->axis(1)), loop_graph.toGroup(tv10->axis(2)));
 }
 
+// When two broadcast IDs are merged, all of the two input IDs and the
+// output ID can be considered trivially mapped. However, doing so could
+// cause self mappings in a loop domain, which violates the assumption
+// of TensorIndexer. (For example, in this test case, tv1's loop
+// domain has two padded IDs of extent 3. If the merge of tv0 triggers
+// mappings of the two broadcast IDs of tv0, the two root IDs of tv1
+// would be mapped too in the AlmostExact graph, which then means the
+// two logical IDs of tv1 would also be mapped. This should be fixed
+// by avoiding mapping that could result in self mapping.
+//
+// This is also a repro of issue #3919.
+TEST_F(IdModelTest, SelfMappingInAlmostExactGraph) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  // [1, 1]
+  auto tv0 = makeConcreteTensor({1, 1});
+  fusion.addInput(tv0);
+
+  // [3, 3]
+  auto tv1 =
+      pad(tv0,
+          {fusion.oneVal(), fusion.oneVal(), fusion.oneVal(), fusion.oneVal()});
+
+  fusion.addOutput(tv1);
+
+  tv0->merge(0);
+
+  IdModel id_model(&fusion);
+  const auto& almost_exact = id_model.buildAlmostExactGraph();
+  EXPECT_FALSE(almost_exact.disjointValSets().strictAreMapped(
+      tv1->getLogicalDomain().at(0), tv1->getLogicalDomain().at(1)))
+      << "Should not be mapped: " << tv1->getLogicalDomain().at(0)->toString()
+      << ", " << tv1->getLogicalDomain().at(1)->toString();
+}
+
 namespace {
 bool iterDomainsAreMapped(
     const IdModel& id_model,
@@ -2894,6 +2933,155 @@ TEST_F(IdModelTest, LoopPromotionCyclicGraphWar) {
               .strictAreMapped(promotion_id, tv3->getLoopDomain().at(i)));
     }
   }
+}
+
+// Test to verify the split-aware covered group analysis. See
+// also https://github.com/NVIDIA/Fuser/pull/3877.
+TEST_F(IdModelTest, CoveredGroups) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({-1, 1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({-1});
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = reshape(tv1, {8}, {2, 4});
+  auto tv4 = add(tv2, tv3);
+  fusion.addOutput(tv4);
+
+  for (auto tv : fusion.allTvs()) {
+    tv->flatten();
+  }
+
+  inlineMost();
+
+  IdModel id_model(&fusion, true);
+  const auto& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
+  // The exact group of the tv3 and tv4 IDs should cover both the inner and
+  // outer split groups of the input group of the tv1 logical ID.
+  const auto covered_groups =
+      LoopPromotionMapBuilder::computeCoveredGroups(exact_graph, id_model);
+
+  const auto& input_group = exact_graph.toGroup(tv1->getLogicalDomain().at(0));
+  auto input_covered_group_it = covered_groups.find(input_group);
+  ASSERT_NE(input_covered_group_it, covered_groups.end());
+  const std::shared_ptr<CoveredGroups>& input_covered_groups =
+      input_covered_group_it->second;
+
+  const auto& tv4_exact_group = exact_graph.toGroup(tv4->axis(0));
+  auto tv4_exact_group_it = covered_groups.find(tv4_exact_group);
+  ASSERT_NE(tv4_exact_group_it, covered_groups.end());
+  const std::shared_ptr<CoveredGroups>& tv4_covered_groups =
+      tv4_exact_group_it->second;
+
+  // It should consist of two CoveredGroups, both of which inheriths
+  // from the logical ID of tv1 through a split
+  EXPECT_EQ(tv4_covered_groups->size(), 2);
+  for (const CoveredGroup& covered_group : *tv4_covered_groups) {
+    EXPECT_EQ(covered_group.splitIn(), input_covered_groups);
+    if (covered_group.isInner()) {
+      EXPECT_EQ(
+          covered_group.group(),
+          exact_graph.toGroup(tv4->getLogicalDomain().at(1)));
+    } else {
+      EXPECT_EQ(
+          covered_group.group(),
+          exact_graph.toGroup(tv4->getLogicalDomain().at(0)));
+    }
+  }
+}
+
+// Repro of issue #3702
+// https://github.com/NVIDIA/Fuser/issues/3702. Indexing traversal
+// faied due to invalid loop promotion.
+TEST_F(IdModelTest, InvalidLoopPromotion) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto T0 = makeContigConcreteTensor({1, 32, 6});
+  fusion.addInput(T0);
+  auto T32 = makeContigConcreteTensor({1, 6, 2048}, DataType::BFloat16);
+  fusion.addInput(T32);
+
+  auto T6 = transpose(T0, 1, 2);
+  auto T98 = broadcast(T6, {false, false, true, false});
+  auto T99 = expand(
+      T98,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(2L),
+       IrBuilder::create<Val>(-1L)});
+  auto T100 = reshape(
+      T99,
+      {IrBuilder::create<Val>(1L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(-1)});
+  auto T11 = sin(T100);
+  auto T13 = mul(T11, IrBuilder::create<Val>(1.0));
+  auto T15 = castOp(DataType::BFloat16, T13);
+  auto T43 = broadcast(T15, {false, true, false, false});
+  auto T59 = expand(
+      T43,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T61 = castOp(DataType::Float, T59);
+  auto T10 = cos(T100);
+  auto T12 = mul(T10, IrBuilder::create<Val>(1.0));
+  auto T14 = castOp(DataType::BFloat16, T12);
+  auto T41 = broadcast(T14, {false, true, false, false});
+  auto T66 = expand(
+      T41,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T79 = expand(
+      T43,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(8L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T81 = castOp(DataType::Float, T79);
+  auto T35 = reshape(
+      T32,
+      {IrBuilder::create<Val>(1L),
+       IrBuilder::create<Val>(6L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(64L)});
+  auto T36 = transpose(T35, 1, 2);
+  auto T47 = castOp(DataType::Float, T36);
+  auto T46 = expand(
+      T41,
+      {IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(32L),
+       IrBuilder::create<Val>(-1L),
+       IrBuilder::create<Val>(-1L)});
+  auto T48 = castOp(DataType::Float, T46);
+  auto T49 = mul(T47, T48);
+  fusion.addOutput(T61);
+  fusion.addOutput(T66);
+  fusion.addOutput(T81);
+  fusion.addOutput(T36);
+  fusion.addOutput(T49);
+
+  auto options_bf16 =
+      at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_fp32 =
+      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 32, 6}, options_fp32);
+  auto t32 = at::randn({1, 6, 2048}, options_bf16);
+  std::vector<c10::IValue> inputs({t0, t32});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

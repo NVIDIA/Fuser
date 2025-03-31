@@ -165,8 +165,7 @@ static void SingleMatmulBase(
   // Define fusion graph
   setupMatmul(fusion, layout, mparams);
 
-  KernelArgumentHolder args =
-      KernelArgumentHolder({inputs.first, inputs.second});
+  KernelArgumentHolder args({inputs.first, inputs.second});
 
   // Disable magic zero
   CompileParams cparams;
@@ -182,13 +181,11 @@ static void SingleMatmulBase(
           .empty(),
       "Shared memory bank conflict not removed.");
 
-  std::vector<c10::IValue> aten_inputs({inputs.first, inputs.second});
-
   // Warm up run
-  auto outputs = ke.run(aten_inputs);
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
+  auto outputs = ke.run(args);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), k);
 
-  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, args);
 
   // TODO: FLOPS calculation
 }
@@ -343,11 +340,9 @@ static void SingleMatmulPartitionedK(
       layout, TensorMatmulPos::A, at::kHalf, M, N, Ki, splitk_factor);
   at::Tensor aten_b = matmulAtInput2D(
       layout, TensorMatmulPos::B, at::kHalf, M, N, Ki, splitk_factor);
-  std::vector<c10::IValue> aten_inputs = {aten_a, aten_b};
+  KernelArgumentHolder args = {aten_a, aten_b};
   at::Tensor expected_output = splitkLikeAtMatmul(
       aten_a.to(at::kDouble), aten_b.to(at::kDouble), layout);
-
-  auto args = KernelArgumentHolder(aten_inputs);
 
   // Disable magic zero
   CompileParams cparams;
@@ -363,11 +358,11 @@ static void SingleMatmulPartitionedK(
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.run(aten_inputs);
+  auto outputs = ke.run(args);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), Ki);
 
-  runBenchmarkIterations(benchmark_state, &ke, aten_inputs);
+  runBenchmarkIterations(benchmark_state, &ke, args);
 
   // TODO: FLOPS calculation
 }
@@ -451,10 +446,10 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
   auto aten_c = at::randn({M, N, splitk_factor}, options);
-  std::vector<c10::IValue> aten_inputs = {aten_c};
+  KernelArgumentHolder args = {aten_c};
 
-  auto heuristic_params = SchedulerEntry::scheduleWith(
-      fusion, SchedulerType::Reduction, aten_inputs);
+  auto heuristic_params =
+      SchedulerEntry::scheduleWith(fusion, SchedulerType::Reduction, args);
 
   auto expected_output = aten_c.to(at::kDouble).sum(-1);
 
@@ -462,8 +457,6 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   heuristic_params->cparams.enable_magic_zero = false;
   heuristic_params->cparams.index_type =
       computeIndexType(M, N * splitk_factor, 1);
-
-  KernelArgumentHolder args(aten_inputs);
 
   // Compile kernel
   KernelExecutor ke;
@@ -477,12 +470,14 @@ static void NvFuserScheduler_MatmulSplitKReduction(
       "Shared memory bank conflict not removed.");
 
   // Warm up run
-  auto outputs = ke.run(aten_inputs, heuristic_params->lparams);
+  auto outputs = ke.run(args, {}, heuristic_params->lparams);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
+  checkMatch(
+      expected_output,
+      outputs[0].as<at::Tensor>().to(at::kDouble),
+      splitk_factor);
 
-  runBenchmarkIterations(
-      benchmark_state, &ke, aten_inputs, heuristic_params->lparams);
+  runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);
 
   // TODO: FLOPS calculation
 }

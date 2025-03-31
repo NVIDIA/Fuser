@@ -167,8 +167,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.genBody();
     codegen.endBlock();
     NVF_CHECK(codegen.block_nest_level_ == 0);
-    codegen.utilities_ << codegen.code_.str();
-    return codegen.utilities_.str();
+    std::stringstream final_code;
+    final_code << "// Codegen generated code\n";
+    for (const auto& [ns, code] : codegen.utilities_) {
+      if (!ns.empty()) {
+        final_code << "namespace " << ns << " {\n"
+                   << code.str() << "} // namespace " << ns << "\n";
+      } else {
+        final_code << code.str() << "\n";
+      }
+    }
+    final_code << codegen.code_.str();
+    return final_code.str();
   }
 
  private:
@@ -285,8 +295,28 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           num_threads_per_cta.has_value(),
           "__launch_bounds__ must be set for register sharing warp specialization");
-      code_ << "__launch_bounds__(/*MAX_THREADS_PER_BLOCK=*/"
-            << num_threads_per_cta.value() << ") ";
+
+      int64_t initial_reg_count =
+          getRegPerThreadGivenThreadsPerSM(num_threads_per_cta.value());
+      auto [decreased_reg_count, increased_register_count] =
+          kernel_->summary().dec_inc_register_usage;
+      NVF_ERROR(
+          initial_reg_count >= decreased_reg_count,
+          "Undefined behavior to decrease register count from ",
+          initial_reg_count,
+          " to ",
+          decreased_reg_count);
+      NVF_ERROR(
+          initial_reg_count <= increased_register_count,
+          "Undefined behavior to increase register count from ",
+          initial_reg_count,
+          " to ",
+          increased_register_count);
+
+      // leave a space between launch bound and kernel name
+      code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
+            << num_threads_per_cta.value()
+            << ", /*minBlocksPerMultiprocessor=*/1) ";
     }
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
@@ -1204,7 +1234,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IndexSelectOp* sop) final {
-    // generate code
+    NVF_ERROR(sop->output(0)->isA<kir::TensorIndex>());
+
+    // Get vectorization information
+    auto out_tv = sop->output(0)->as<kir::TensorIndex>()->view();
+    int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    // generate vectorized load and return.
+    if (is_vector_op) {
+      indent();
+      generateVectorizedLdSt(
+          sop->input(0), sop->output(0), CacheOp::AllLevels, vector_word_size);
+      code_ << ";\n";
+      return;
+    }
+
+    // generate non-vectorized load
     if (!print_inline_) {
       indent() << gen(sop->output(0));
       if (!sop->output(0)->isScalar()) {
@@ -3201,25 +3246,32 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // If asm_ has a utility name, we will wrap the PTX code in a utility
     // function with that name. Otherwise, we just generate the PTX code
     // directly in the kernel.
-    std::string utility_name = asm_->utility();
+    const std::string utility_name = asm_->utility();
+    std::string namespace_name = "";
+    std::string utility_name_no_ns = utility_name;
+    if (size_t pos = utility_name.rfind("::"); pos != std::string::npos) {
+      namespace_name = utility_name.substr(0, pos);
+      utility_name_no_ns = utility_name.substr(pos + 2);
+    }
     bool as_utility = !utility_name.empty();
     bool utility_generated = false; // Is the same utility function already
                                     // generated when handling another asm_?
     if (as_utility) {
-      if (!generated_utilities_.insert(utility_name).second) {
+      if (!generated_utilities_.insert(asm_->signature()).second) {
         utility_generated = true;
       }
     }
     // The stream to write the PTX code to
-    std::stringstream* asm_target = as_utility ? &utilities_ : &code_;
+    std::stringstream& utilities = utilities_[namespace_name];
+    std::stringstream* asm_target = as_utility ? &utilities : &code_;
     // Indentation for the PTX code
     int utility_block_nest_level = 1;
     std::function<std::ostream&()> indent_utility = [&]() -> std::ostream& {
       for (auto _ : c10::irange(utility_block_nest_level)) {
         (void)_;
-        utilities_ << kTab;
+        utilities << kTab;
       }
-      return utilities_;
+      return utilities;
     };
     std::function<std::ostream&()> indent_code = [this]() -> std::ostream& {
       return this->indent();
@@ -3240,46 +3292,45 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         const auto& outputs = asm_->outputs();
         const auto& inputs = asm_->inputs();
         if (!asm_->options().immediate_inputs.empty()) {
-          utilities_ << "template <";
+          utilities << "template <";
           bool first = true;
           for (auto in_i : c10::irange((int64_t)inputs.size())) {
             if (asm_->options().immediate_inputs.count(in_i)) {
               if (!first) {
-                utilities_ << ", ";
+                utilities << ", ";
               }
-              utilities_ << inputs.at(in_i)->dtype() << " in" << in_i;
+              utilities << inputs.at(in_i)->dtype() << " in" << in_i;
               first = false;
             }
           }
-          utilities_ << ">\n";
+          utilities << ">\n";
         }
-        utilities_ << "__device__ __inline__ void " << utility_name << "(";
+        utilities << "__device__ __inline__ void " << utility_name_no_ns << "(";
         for (auto out_i : c10::irange(outputs.size())) {
           if (out_i > 0) {
-            utilities_ << ", ";
+            utilities << ", ";
           }
-          utilities_ << outputs.at(out_i)->dtype() << "& out" << out_i;
+          utilities << outputs.at(out_i)->dtype() << "& out" << out_i;
         }
         if (!outputs.empty()) {
-          utilities_ << ", ";
+          utilities << ", ";
         }
         for (auto in_i : c10::irange((int64_t)inputs.size())) {
           if (asm_->options().immediate_inputs.count(in_i)) {
             continue;
           }
           if (in_i > 0) {
-            utilities_ << ", ";
+            utilities << ", ";
           }
-          utilities_ << get_type_or_index_type(inputs.at(in_i)) << " in"
-                     << in_i;
+          utilities << get_type_or_index_type(inputs.at(in_i)) << " in" << in_i;
         }
-        utilities_ << ") {\n";
+        utilities << ") {\n";
       }
       this->indent() << utility_name;
     }
     // Generate the actual PTX code like below:
     //   asm("bla.bla.bla": "=f"(out1): "f"(in1));
-    // We may either generate it in utilities_ or in code_, depending on
+    // We may either generate it in utilities or in code_, depending on
     // whether we are generating a utility function or not.
     if (!as_utility || !utility_generated) {
       indent() << "asm";
@@ -3479,7 +3530,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // utility call.
     if (as_utility) {
       if (!utility_generated) {
-        utilities_ << "}\n";
+        utilities << "}\n";
       }
       code_ << ");\n";
     }
@@ -3679,8 +3730,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // that contains the kernel code itself.
   //
   //   // Utility section
+  //   namespace feature1 {
   //   void myFunc(float& out1, float in1) {
   //     asm("bla.bla.bla": "=f"(out1): "f"(in1));
+  //   }
   //   }
   //   // Kernel section
   //   __global__ void kernel_name(Tensor T0, Tensor T1, ...) {
@@ -3689,8 +3742,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   //     ...
   //   }
 
-  // string for utility section
-  std::stringstream utilities_;
+  // string for utility section. namespace -> utility code
+  // using std::map instead of std::unordered_map for determinism
+  std::map<std::string, std::stringstream> utilities_;
   // string kernel section
   std::stringstream code_;
 

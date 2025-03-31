@@ -17,16 +17,23 @@
 namespace nvfuser {
 
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 128;
-  int64_t tensor_inner_dim = 128;
+  int64_t tensor_inner_dim = 1024;
+
+  // with bdimx = 256, bdimy = 1,
+  // after warp specialization, bdimy = 2,
+  // kernel has 256 * 2 = 512 threads, each can use 128 registers.
+  // With register sharing, adjust to [64, 192]
+  constexpr int64_t bulk_inner_dim = 256;
+
   CircularBufferType circular_buffer_type =
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(160L, 160L));
+      WarpSpecialized(ParallelType::TIDy, std::make_pair(64L, 192L));
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -44,9 +51,6 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
-
-  // Constants
-  constexpr int64_t bulk_inner_dim = 32;
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
@@ -70,7 +74,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
       number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Split reference to parallelize TMA tile
-  reference->split(-1, 32);
+  reference->split(-1, bulk_inner_dim);
   reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -79,8 +83,16 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
   at::Tensor t2 = t0 + t1;
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("'setmaxnreg' ignored"), std::string::npos)
+      << "'setmaxnreg' ignored!";
 
   auto cg_outputs = ke.run({t0, t1});
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
@@ -94,9 +106,14 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   int64_t number_of_stages = 4;
   int64_t prefetch_distance = 1;
   int64_t tensor_outer_dim = 128;
-  int64_t tensor_inner_dim = 128;
+  int64_t tensor_inner_dim = 1024;
+  // with bdimx = 256, bdimy = 1,
+  // after warp specialization, bdimy = 2,
+  // kernel has 256 * 2 = 512 threads, each can use 128 registers.
+  // With register sharing, adjust to [64, 192]
+  constexpr int64_t bulk_inner_dim = 256;
   CircularBufferType circular_buffer_type =
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(160L, 160L));
+      WarpSpecialized(ParallelType::TIDy, std::make_pair(64L, 192L));
 
   TensorView* tv0 = makeContigTensor(2);
   TensorView* tv1 = makeContigTensor(2);
@@ -114,9 +131,6 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
   tv4->setMemoryType(MemoryType::Shared);
 
   TensorView* reference = tv2;
-
-  // Constants
-  constexpr int64_t bulk_inner_dim = 32;
 
   // [M, N] -> [M, N/bid, bid]
   reference->split(-1, bulk_inner_dim);
@@ -140,7 +154,7 @@ TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseNested) {
       number_of_stages, prefetch_distance, circular_buffer_type);
 
   // Split reference to parallelize TMA tile
-  reference->split(-1, 32);
+  reference->split(-1, bulk_inner_dim);
   // reference->axis(0)->parallelize(ParallelType::BIDx);
   reference->axis(-1)->parallelize(ParallelType::TIDx);
 
@@ -1208,7 +1222,7 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1276,7 +1290,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   }
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1344,7 +1358,7 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   }
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1417,7 +1431,8 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1493,7 +1508,8 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   ke.compile(fusion.get(), {t0, t1});
 
   auto cg_outputs = ke.run({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -1568,7 +1584,8 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   ke.compile(fusion.get(), {t0, t1});
 
   auto cg_outputs = ke.run({t0, t1});
-  compare<float>(tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), t2);
+  compare<float>(
+      tensor_outer_dim, tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t2);
   testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
 }
 
@@ -1638,7 +1655,7 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_outer_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_outer_dim, cg_outputs[0].as<at::Tensor>(), t1);
   testValidate(fusion.get(), cg_outputs, {t0}, {t1}, __LINE__, __FILE__);
 }
 
@@ -1697,10 +1714,10 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   ke.compile(fusion.get(), {t0});
 
   auto cg_outputs = ke.run({t0});
-  compare<float>(tensor_inner_dim, cg_outputs.front(), t1);
+  compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
   // Please note that, serial reduction has larger error than parallel reduction
   // This is the nature of the algorithm, not a bug in the implementation.
-  EXPECT_EQ(at::allclose(cg_outputs.front(), t1, 1e-3, 1e-3), true);
+  EXPECT_EQ(at::allclose(cg_outputs[0].as<at::Tensor>(), t1, 1e-3, 1e-3), true);
 }
 
 TEST_P(TmaCircularBufferingTest, Persistent) {
@@ -1967,7 +1984,10 @@ TEST_P(TmaCircularBufferingTest, Matmul) {
 
   auto cg_outputs = ke.run({t0, t1});
   compare<float>(
-      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+      tensor_outer_dim,
+      tensor_inner_dim,
+      cg_outputs[0].as<at::Tensor>(),
+      aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
@@ -2094,7 +2114,10 @@ TEST_P(TmaCircularBufferingTest, MatmulWithBroadcastedInput) {
 
   auto cg_outputs = ke.run({t0, t1});
   compare<float>(
-      tensor_outer_dim, tensor_inner_dim, cg_outputs.front(), aten_output);
+      tensor_outer_dim,
+      tensor_inner_dim,
+      cg_outputs[0].as<at::Tensor>(),
+      aten_output);
   testValidate(
       fusion.get(), cg_outputs, {t0, t1}, {aten_output}, __LINE__, __FILE__);
 }
@@ -2107,9 +2130,7 @@ auto tmaCircularBufferingParams() {
       Pipelined(false),
       Pipelined(true),
       WarpSpecialized(ParallelType::TIDx),
-      WarpSpecialized(ParallelType::TIDy),
-      WarpSpecialized(ParallelType::TIDx, std::make_pair(40, 240)),
-      WarpSpecialized(ParallelType::TIDy, std::make_pair(40, 240))};
+      WarpSpecialized(ParallelType::TIDy)};
   const std::vector<LoadStoreOpType> tma_types{
       LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};
   std::vector<TmaCircularBufferingParams> values;

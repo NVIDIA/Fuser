@@ -253,7 +253,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
@@ -557,7 +557,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   if (transpose_a_alloc) {
     t0 = t0.as_strided({M, K}, {1, M});
   }
-  std::vector<c10::IValue> inputs{t0, t1};
+  KernelArgumentHolder inputs{t0, t1};
   at::Tensor tref;
   if (bias_dim >= 0) {
     at::Tensor bias;
@@ -568,7 +568,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     } else {
       NVF_THROW("Invalid bias dimension given:", bias_dim);
     }
-    inputs.emplace_back(bias);
+    inputs.push(bias);
     tref = at::linear(t0, t1, bias);
   } else {
     tref = at::linear(t0, t1);
@@ -787,7 +787,7 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     ,
     CombineMulSumAsMmaTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 } // namespace nvfuser

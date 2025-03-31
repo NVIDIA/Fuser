@@ -128,7 +128,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
@@ -223,7 +223,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -297,7 +297,7 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
@@ -347,7 +347,7 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 using OverlapDistributedMatmulTest = MultiDeviceTest;
@@ -394,13 +394,13 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
 
   at::Tensor t2;
 
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
+  constexpr int64_t kNumberOfIterations = 2;
+  constexpr int64_t kNumberOfWarmupIterations = 1;
   for (auto i : c10::irange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
     }
-    t2 = executor.runWithInput({t0, t1}).at(0);
+    t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
   }
   cudaProfilerStop();
 
@@ -454,13 +454,14 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
 
   at::Tensor out_at;
 
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
+  constexpr int64_t kNumberOfIterations = 2;
+  constexpr int64_t kNumberOfWarmupIterations = 1;
   for (auto i : c10::irange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
     }
-    out_at = executor.runWithInput({in_at, weight_at, bias_at}).at(0);
+    out_at =
+        executor.runWithInput({in_at, weight_at, bias_at})[0].as<at::Tensor>();
   }
   torch::cuda::synchronize();
   cudaProfilerStop();

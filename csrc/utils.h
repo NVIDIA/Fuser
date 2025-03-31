@@ -19,9 +19,13 @@
 #include <type.h>
 
 #include <c10/core/thread_pool.h>
+
+#include <concepts>
 #include <deque>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <regex>
 #include <sstream>
 #include <string>
@@ -49,10 +53,11 @@
 
 namespace nvfuser {
 
+class KernelArgumentHolder;
+
 int getNumThreads();
 c10::ThreadPool* getThreadPool();
 
-std::string debug_str(const c10::IValue& val);
 std::string debug_str(const at::Tensor& tensor);
 
 bool is_cpu_scalar(const at::Tensor& tensor);
@@ -65,8 +70,8 @@ bool is_meta_scalar(const at::Tensor& tensor);
 //! selected_device will be returned. If tensor inputs are found their devices
 //! must match one another, and if selected_device is given they must match it
 //! as well, otherwise -1 is returned.
-int8_t getCommonDeviceCUDA(
-    const c10::ArrayRef<c10::IValue>& inputs,
+int8_t NVF_API getCommonDeviceCUDA(
+    const KernelArgumentHolder& inputs,
     std::optional<int8_t> selected_device = std::nullopt);
 
 int64_t getRegPerThreadGivenThreadsPerSM(int64_t threads_per_sm);
@@ -539,7 +544,9 @@ inline void hashCombine(size_t& hash, size_t new_hash) {
 }
 
 //! A wrapper to std::getenv. env_name is prepended with NVFUSER_.
-NVF_API char* getNvFuserEnv(const char* env_name);
+NVF_API const char* getNvFuserEnv(
+    const char* env_name,
+    const char* default_value = nullptr);
 
 // Returns the mapped value or the default.
 template <typename K, typename V>
@@ -615,5 +622,208 @@ void checkAllEqual(std::initializer_list<T> elements) {
         "]");
   }
 }
+
+#if __cplusplus >= 202302L
+
+using std::views::enumerate;
+using std::views::zip;
+
+#else
+
+namespace views {
+template <std::ranges::view... Rs>
+class zip_view : public std::ranges::view_interface<zip_view<Rs...>> {
+ private:
+  std::tuple<Rs...> bases;
+
+  static constexpr bool is_bidirectional =
+      (std::ranges::bidirectional_range<Rs> && ...);
+
+  struct iterator {
+    std::tuple<std::ranges::iterator_t<Rs>...> iterators;
+
+    using value_type = std::tuple<std::ranges::range_value_t<Rs>...>;
+    using reference = std::tuple<std::ranges::range_reference_t<Rs>...>;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::conditional_t<
+        is_bidirectional,
+        std::bidirectional_iterator_tag,
+        std::input_iterator_tag>;
+
+    iterator& operator++() {
+      std::apply([](auto&... it) { ((++it), ...); }, iterators);
+      return *this;
+    }
+
+    iterator operator++(int) {
+      iterator temp = *this;
+      ++(*this);
+      return temp;
+    }
+
+    // Enable bidirectional iteration only if `is_bidirectional` is true
+    iterator& operator--() requires is_bidirectional {
+      std::apply([](auto&... it) { ((--it), ...); }, iterators);
+      return *this;
+    }
+
+    iterator operator--(int) requires is_bidirectional {
+      iterator temp = *this;
+      --(*this);
+      return temp;
+    }
+
+    reference operator*() const {
+      return std::apply(
+          [](auto&... it) -> reference { return {*it...}; }, iterators);
+    }
+
+    bool operator==(const iterator& other) const = default;
+  };
+
+  struct sentinel {
+    std::tuple<std::ranges::sentinel_t<Rs>...> sentinels;
+
+    bool operator==(const iterator& it) const {
+      return compare(it, std::make_index_sequence<sizeof...(Rs)>{});
+    }
+
+   private:
+    template <std::size_t... I>
+    bool compare(const iterator& it, std::index_sequence<I...>) const {
+      return ((std::get<I>(it.iterators) == std::get<I>(sentinels)) || ...);
+    }
+  };
+
+ public:
+  zip_view() = default;
+  explicit zip_view(Rs... ranges) : bases{std::move(ranges)...} {}
+
+  auto begin() {
+    return iterator{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::begin(r)...}; },
+        bases)};
+  }
+
+  auto end() {
+    return sentinel{std::apply(
+        [](auto&... r) { return std::tuple{std::ranges::end(r)...}; }, bases)};
+  }
+};
+
+// Deduction guide
+template <std::ranges::viewable_range... Rs>
+zip_view(Rs&&...) -> zip_view<std::views::all_t<Rs>...>;
+
+// Helper function
+template <std::ranges::viewable_range... Rs>
+auto zip(Rs&&... rs) {
+  return zip_view{std::forward<Rs>(rs)...};
+}
+
+template <std::ranges::view V>
+class enumerate_view : public std::ranges::view_interface<enumerate_view<V>> {
+ private:
+  V base_;
+
+  // Base iterator
+  template <typename BaseIterator, bool IsBidirectional>
+  struct iterator_base {
+    using base_iterator = BaseIterator;
+    using value_type =
+        std::pair<std::size_t, std::ranges::range_reference_t<V>>;
+    using reference = std::pair<std::size_t, std::ranges::range_reference_t<V>>;
+    using difference_type = std::ranges::range_difference_t<V>;
+    using iterator_category = std::conditional_t<
+        IsBidirectional,
+        std::bidirectional_iterator_tag,
+        std::forward_iterator_tag>;
+
+    base_iterator current_;
+    std::size_t index_;
+
+    iterator_base() = default;
+    iterator_base(base_iterator current, std::size_t index)
+        : current_(current), index_(index) {}
+
+    reference operator*() const {
+      return {index_, *current_};
+    }
+
+    iterator_base& operator++() {
+      ++current_;
+      ++index_;
+      return *this;
+    }
+
+    iterator_base operator++(int) {
+      iterator_base tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+
+    // Enable bidirectional iteration only if IsBidirectional == true
+    iterator_base& operator--() requires IsBidirectional {
+      --current_;
+      --index_;
+      return *this;
+    }
+
+    iterator_base operator--(int) requires IsBidirectional {
+      iterator_base tmp = *this;
+      --(*this);
+      return tmp;
+    }
+
+    bool operator==(const iterator_base& other) const = default;
+  };
+
+  struct sentinel {
+    std::ranges::sentinel_t<V> end_;
+
+    bool operator==(const auto& it) const {
+      return it.current_ == end_;
+    }
+  };
+
+  using base_iterator = std::ranges::iterator_t<V>;
+  static constexpr bool is_bidirectional = std::ranges::bidirectional_range<V>;
+
+  using iterator_type = iterator_base<base_iterator, is_bidirectional>;
+
+ public:
+  enumerate_view() = default;
+  explicit enumerate_view(V base) : base_(std::move(base)) {}
+
+  auto begin() {
+    return iterator_type{std::ranges::begin(base_), 0};
+  }
+  auto end() {
+    return sentinel{std::ranges::end(base_)};
+  } // Use sentinel for forward iterators
+
+  V base() const& {
+    return base_;
+  }
+  V base() && {
+    return std::move(base_);
+  }
+};
+
+// Deduction guide
+template <std::ranges::viewable_range R>
+enumerate_view(R&&) -> enumerate_view<std::views::all_t<R>>;
+
+// Helper function
+auto enumerate(std::ranges::viewable_range auto&& r) {
+  return enumerate_view{std::forward<decltype(r)>(r)};
+};
+
+} // namespace views
+
+using views::enumerate;
+using views::zip;
+
+#endif // C++23
 
 } // namespace nvfuser

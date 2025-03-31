@@ -108,11 +108,7 @@ class Communication : public Expr {
     return attribute<int64_t>(4);
   }
 
-  CommunicatorBackend& backend() {
-    return attribute<CommunicatorBackend>(5);
-  }
-
-  const CommunicatorBackend& backend() const {
+  CommunicatorBackend backend() const {
     return attribute<CommunicatorBackend>(5);
   }
 
@@ -137,7 +133,8 @@ class P2PCommunication : public Expr {
       IrBuilderPasskey passkey,
       P2PCommunicationType type,
       TensorView* buffer,
-      Val* peer);
+      Val* peer,
+      CommunicatorBackend backend = CommunicatorBackend::kNccl);
 
   P2PCommunication(const P2PCommunication& other) = delete;
   P2PCommunication& operator=(const P2PCommunication& other) = delete;
@@ -162,6 +159,10 @@ class P2PCommunication : public Expr {
 
   Val* peer() const {
     return attributeVal(1);
+  }
+
+  auto backend() const {
+    return attribute<CommunicatorBackend>(2);
   }
 };
 

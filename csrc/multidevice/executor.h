@@ -83,8 +83,7 @@ class MultiDeviceExecutor {
       MultiDeviceExecutorParams params = MultiDeviceExecutorParams());
 
   // Run the fusion on several devices with the given global inputs
-  std::vector<at::Tensor> runWithInput(
-      const c10::ArrayRef<c10::IValue>& inputs);
+  KernelArgumentHolder runWithInput(const KernelArgumentHolder& inputs);
 
   // Returns the Communicator
   Communicator* comm() const {

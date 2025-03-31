@@ -12,6 +12,7 @@
 #include <ir/utils.h>
 #include <kernel.h>
 #include <kernel_ir_dispatch.h>
+#include <type.h>
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -70,6 +71,11 @@ class KernelIrScanner : private IrVisitor {
     // Do we have any elect sync predicates?
     if (uop->getUnaryOpType() == UnaryOpType::ElectSync) {
       summary_.has_elect_sync_predicate = true;
+    } else if (
+        uop->getUnaryOpType() == UnaryOpType::Cast &&
+        uop->in()->dtype() == DataType::Index &&
+        uop->out()->dtype() != DataType::Int) {
+      summary_.has_narrowing_index_casts = true;
     }
   }
 
@@ -385,6 +391,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();
+  summary_.dec_inc_register_usage = GpuLower::current()->decIncRegisterUsage();
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {

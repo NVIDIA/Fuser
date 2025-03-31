@@ -415,19 +415,22 @@ std::string Asm::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Asm op can not be printed inline");
 }
 
-const std::string Asm::utility() const {
+std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "waitTMemLoad"},
-      {"tcgen05.wait::st.sync.aligned", "waitTMemStore"},
-      {"tcgen05.ld.sync.aligned.32x32b.x1.b32", "loadTMem"},
-      {"tcgen05.st.sync.aligned.32x32b.x1.b32", "storeTMem"},
-      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32", "allocTMem"},
+      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
+      {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
+       "tmem::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "relinquishTMemAllocPermit"},
-      {"wgmma.fence.sync.aligned", "wgmmaFence"},
+       "tmem::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
+      {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
-      {"wgmma.commit_group.sync.aligned", "wgmmaCommit"},
-      {"wgmma.wait_group.sync.aligned", "wgmmaWait"},
+      {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
+      {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
+      {"ldmatrix.sync.aligned.x1.m8n8.shared.b16", "ldmatrix1"},
+      {"ldmatrix.sync.aligned.x2.m8n8.shared.b16", "ldmatrix2"},
+      {"ldmatrix.sync.aligned.x4.m8n8.shared.b16", "ldmatrix4"},
       {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
       {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
       {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
@@ -440,6 +443,27 @@ const std::string Asm::utility() const {
   if (it != ptx_to_utility.end()) {
     return it->second;
   }
+
+  // Match patterns like tcgen05.{ld,st}.sync.aligned.32x32b.x1.b32
+  {
+    std::regex ld_pattern(R"(tcgen05\.ld\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
+    std::smatch match;
+    if (std::regex_match(code, match, ld_pattern)) {
+      std::string result = "tmem::load";
+      result.append(match[1]);
+      return result;
+    }
+  }
+  {
+    std::regex st_pattern(R"(tcgen05\.st\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
+    std::smatch match;
+    if (std::regex_match(code, match, st_pattern)) {
+      std::string result = "tmem::store";
+      result.append(match[1]);
+      return result;
+    }
+  }
+
   // Match wgmma. Example:
   // instruction: wgmma.mma_async.sync.aligned.m64n256k16.f32.f16.f16
   // utility: wgmmaM64N256K16Half
@@ -450,9 +474,7 @@ const std::string Asm::utility() const {
     std::smatch match;
     if (std::regex_match(code, match, pattern)) {
       std::string extracted = match[1];
-      std::transform(
-          extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
-      return "wgmma" + extracted + "Half";
+      return "wgmma::" + extracted + "Half";
     }
   }
   {
@@ -462,12 +484,36 @@ const std::string Asm::utility() const {
     std::smatch match;
     if (std::regex_match(code, match, pattern)) {
       std::string extracted = match[1];
-      std::transform(
-          extracted.begin(), extracted.end(), extracted.begin(), ::toupper);
-      return "wgmma" + extracted + "BF16";
+      return "wgmma::" + extracted + "BF16";
     }
   }
   return "";
+}
+
+std::string Asm::signature() const {
+  std::string utility = this->utility();
+  if (utility.empty()) {
+    return "";
+  }
+  std::stringstream ss;
+  ss << "void " << utility << "(";
+  bool first = true;
+  for (auto operand : outputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    ss << operand->dtype() << "&";
+    first = false;
+  }
+  for (auto operand : inputs()) {
+    if (!first) {
+      ss << ", ";
+    }
+    ss << operand->dtype();
+    first = false;
+  }
+  ss << ")";
+  return ss.str();
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Asm)
@@ -593,8 +639,13 @@ SetMaxNReg::SetMaxNReg(
 }
 
 std::string SetMaxNReg::toString(int indent_size) const {
-  return (increaseRegisters()) ? "setmaxnreg.inc.sync.aligned.u32"
-                               : "setmaxnreg.dec.sync.aligned.u32";
+  std::stringstream ss;
+  if (increaseRegisters()) {
+    indent(ss, indent_size) << "setmaxnreg.inc.sync.aligned.u32\n";
+  } else {
+    indent(ss, indent_size) << "setmaxnreg.dec.sync.aligned.u32\n";
+  }
+  return ss.str();
 }
 
 std::string SetMaxNReg::toInlineString(int indent_size) const {
@@ -611,7 +662,9 @@ Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
 }
 
 std::string Return::toString(int indent_size) const {
-  return "return";
+  std::stringstream ss;
+  indent(ss, indent_size) << "return\n";
+  return ss.str();
 }
 
 std::string Return::toInlineString(int indent_size) const {

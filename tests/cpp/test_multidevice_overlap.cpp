@@ -181,7 +181,6 @@ class OverlapTest : public MultiDeviceTest {
 
 class CollectiveBasedOverlapTest : public OverlapTest {
  protected:
-  at::Tensor tc_locally_reduced_;
   void SetUp() override {
     OverlapTest::SetUp();
     if (!communicator_->is_available()) {
@@ -195,6 +194,11 @@ class CollectiveBasedOverlapTest : public OverlapTest {
     tc_locally_reduced_ = at::empty(tc_locally_reduced_sizes, gpu_options_);
   }
 
+  void TearDown() override {
+    tc_locally_reduced_.reset();
+    OverlapTest::TearDown();
+  }
+
   at::Tensor getExpectedResult() override {
     auto tc_unsharded_expected = getUnshardedExpectedResult();
     auto tc_unsharded_expected_reshaped = at::reshape(
@@ -205,6 +209,8 @@ class CollectiveBasedOverlapTest : public OverlapTest {
          params.N});
     return tc_unsharded_expected_reshaped.select(1, my_device_index_);
   }
+
+  at::Tensor tc_locally_reduced_;
 };
 
 // clang-format off
@@ -405,7 +411,7 @@ TEST_F(
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
-    std::unordered_map<Val*, c10::IValue> inputs = {
+    std::unordered_map<Val*, PolymorphicValue> inputs = {
         {tva, ta_},
         {tvb, tb_},
         {tvc, tc_},
@@ -655,12 +661,12 @@ TEST_F(
     // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
     initializeIO();
-    std::unordered_map<Val*, c10::IValue> inputs = {
+    std::unordered_map<Val*, PolymorphicValue> inputs = {
         {tva_reshaped, ta_reshaped_}, {tvb, tb_}, {tv_dst_buffer, dst_buffer_}};
 
     auto outputs = hie.runWithInput(std::move(inputs));
     tc_ = at::reshape(
-        outputs.at(0),
+        outputs[0].as<at::Tensor>(),
         {params.S, params.M / (params.S * num_devices_), params.N});
   }
 }
@@ -920,7 +926,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
   for ([[maybe_unused]] const auto& _ :
        c10::irange(params.number_of_iterations)) {
     initializeIO();
-    std::unordered_map<Val*, c10::IValue> inputs = {
+    std::unordered_map<Val*, PolymorphicValue> inputs = {
         {tva, ta_},
         {tva_allgathered, ta_allgathered_},
         {tvb, tb_unsharded_},
@@ -1257,7 +1263,7 @@ TEST_F(
 
     initializeIO();
 
-    std::unordered_map<Val*, c10::IValue> inputs = {
+    std::unordered_map<Val*, PolymorphicValue> inputs = {
         {tva, ta_},
         {tvb_unsharded, tb_unsharded_},
         {tvc_unsharded, tc_unsharded_}};

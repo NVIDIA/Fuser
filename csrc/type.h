@@ -703,6 +703,8 @@ enum class TernaryOpType { Clamp, Lerp, Threshold, Where, Philox };
 
 enum class ParallelType {
   DIDx,
+  DIDy,
+  DIDz,
   BIDz,
   BIDy,
   BIDx,
@@ -711,7 +713,6 @@ enum class ParallelType {
   TIDx,
   Stream,
   Vectorize,
-  MisalignedVectorize,
   Unroll,
   Unswitch,
   Mma,
@@ -741,8 +742,10 @@ static constexpr std::array<ParallelType, 3> kParallelTypeTIDs = {
     ParallelType::TIDy,
     ParallelType::TIDz};
 
-static constexpr std::array<ParallelType, 1> kParallelTypeDIDs = {
-    ParallelType::DIDx};
+static constexpr std::array<ParallelType, 3> kParallelTypeDIDs = {
+    ParallelType::DIDx,
+    ParallelType::DIDy,
+    ParallelType::DIDz};
 
 enum class MemoryType { Local, Shared, Global, Tensor };
 
@@ -1121,5 +1124,21 @@ constexpr auto toUnderlying(E e) noexcept {
 }
 
 enum class AsyncOpType { NotAsync, CpAsync, CpAsyncBulk, WgMma };
+
+// Data path between TMem and register file. Tensor memory is not a general
+// byte-addressable memory like other memory types. The register <-> TMem
+// data transfer must follow one of the following specific patterns which has
+// well-defined specification about which thread's which register access to
+// which part of TMem. See:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-memory-layout
+enum class TMemRegisterDataPath {
+  Path32x32b,
+  Path16x64b,
+  Path16x128b,
+  Path16x256b,
+  Path16x32bx2,
+};
+
+std::ostream& operator<<(std::ostream&, TMemRegisterDataPath);
 
 } // namespace nvfuser
