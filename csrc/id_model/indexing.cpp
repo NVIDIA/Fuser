@@ -708,13 +708,8 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
   for (const auto& tv : all_tvs) {
     std::stringstream reason;
 
-    if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
-        loadstore != nullptr &&
-        (loadstore->opType() == LoadStoreOpType::LdMatrix ||
-         loadstore->opType() == LoadStoreOpType::StMatrix)) {
-      reason << "LoadStoreOpType not supported: " << loadstore->toString();
-    } else if (auto gather = dynamic_cast<GatherOp*>(tv->definition());
-               gather != nullptr && !gather->exactSizes()) {
+    if (auto gather = dynamic_cast<GatherOp*>(tv->definition());
+        gather != nullptr && !gather->exactSizes()) {
       // take_along_axis is supported but generic gather is not
       reason << "Non-exact gather not supported: " << gather->toString();
     } else if (tv->hasComputeWith()) {
