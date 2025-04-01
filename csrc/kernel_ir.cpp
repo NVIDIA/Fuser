@@ -1056,6 +1056,43 @@ GridReduction::GridReduction(
   addAttribute(serial_reduction_tensor);
 }
 
+WarpGroupReduction::WarpGroupReduction(
+    IrBuilderPasskey passkey,
+    BinaryOpType reduction_op_type,
+    Val* init,
+    Val* out,
+    Val* in,
+    Val* vect_factor,
+    Val* persistent_batch_size)
+    : ReductionOp(passkey, reduction_op_type, init, out, in, false) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+  addAttribute(vect_factor);
+  addAttribute(persistent_batch_size);
+}
+
+std::string WarpGroupReduction::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << " = WarpGroupReduction( "
+                          << in()->toString()
+                          << ", op = " << getReductionOpType()
+                          << ", initial value = " << init()->toString()
+                          << ",\n";
+  ++indent_size;
+  indent(ss, indent_size) << "vect_factor = " << vect_factor()->toString()
+                          << ",\n";
+  indent(ss, indent_size) << "persistent_batch_size = "
+                          << persistent_batch_size()->toString() << ",\n";
+  return ss.str();
+}
+
+std::string WarpGroupReduction::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+NVFUSER_DEFINE_CLONE_AND_CREATE(WarpGroupReduction)
+
 std::string GridReduction::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = reduction( "

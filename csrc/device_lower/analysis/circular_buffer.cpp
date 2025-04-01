@@ -230,6 +230,16 @@ void CircularBufferInfo::setCircularBufferOptions(
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
+    circular_buffer_computation_groups_ = opt.computation_groups;
+    max_circular_buffer_stages_ =
+        std::max(opt.stage, max_circular_buffer_stages_);
+    has_warp_sepcialized_ =
+        (has_warp_sepcialized_ ||
+         std::holds_alternative<WarpSpecialized>(opt.type));
+    NVF_ERROR(
+        opt.computation_groups == 1 || opt.computation_groups == 2,
+        "Computation groups should be 1 or 2: ",
+        opt.computation_groups);
   } else {
     NVF_ERROR(
         opt == maybe_existing_depth_it->second,

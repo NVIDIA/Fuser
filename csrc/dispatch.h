@@ -141,6 +141,7 @@ class Val;
   f(GridBroadcast);                   \
   f(GridWelford);                     \
   f(GroupedGridWelford);              \
+  f(WarpGroupReduction);              \
   f(VectorizedWelfordOp);             \
   f(AllocateFusedReduction);          \
   f(InitMagicZero);                   \

@@ -31,7 +31,8 @@ __device__ void blockBroadcast(
     // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim) {
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   const bool has_valid_data = (!X_THREAD || threadIdx.x == 0) &&
       (!Y_THREAD || threadIdx.y == 0) && (!Z_THREAD || threadIdx.z == 0);
 
@@ -43,13 +44,13 @@ __device__ void blockBroadcast(
     shared_mem[shared_offset] = inp_val;
   }
 
-  block_sync::sync<Aligned>(block_dim);
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 
   if (read_write_pred) {
     out = shared_mem[shared_offset];
   }
 
-  block_sync::sync<Aligned>(block_dim);
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
 } // namespace broadcast

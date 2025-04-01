@@ -162,6 +162,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const LaunchParams& lparams) {
     CudaKernelGenerator codegen(kernel);
     codegen.lparams_ = lparams;
+    codegen.max_used_barrier_id_ =
+        kernel->summary().circular_buffer_info.getMaxCircularBufferStages();
+    codegen.has_warp_specialized_ =
+        kernel->summary().circular_buffer_info.hasWarpSpecialized();
+    codegen.has_multiple_compute_groups_ =
+        kernel->summary()
+            .circular_buffer_info.getCircularBufferComputationGroups() > 1;
+
     codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
@@ -1337,7 +1345,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     NVF_ERROR(stmt->predicate() != nullptr && stmt->predicate()->hasValue());
     func_args.arg(genInline(stmt->predicate()));
     func_args.arg(genComputeBlockDim());
-
+    func_args.arg(genBarrierId());
     indent() << genCall("broadcast::blockBroadcast", template_args, func_args)
              << ";\n";
   }
@@ -1365,14 +1373,34 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(gen(output));
     func_args.arg(gen(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
-    NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
-    func_args.arg(genInline(read_pred));
-    func_args.arg(genStaticCast(output->dtype(), genInline(init)));
-    func_args.arg(genComputeBlockDim());
+    if (!has_multiple_compute_groups_) {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+      NVF_ERROR(read_pred != nullptr && read_pred->hasValue());
+      func_args.arg(genInline(read_pred));
+      func_args.arg(genStaticCast(output->dtype(), genInline(init)));
+      func_args.arg(genComputeBlockDim());
+    }
 
     ArgumentBuilder template_args;
-    if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+    if (has_multiple_compute_groups_) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genSmemOffset(ParallelType::TIDy));
+      NVF_ERROR(
+          lparams_.bdimx() % 128 == 0,
+          "staticWarpAllReduceTIDX() requires bdimx % 128 == 0.");
+      func_args.arg(
+          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+      func_args.arg(genBarrierId());
+      template_args.arg(
+          kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+      template_args.arg(/*Aligned=*/false);
+      template_args.arg(lparams_.bdimx());
+      indent() << genCall(
+                      "warp::staticWarpAllReduceTIDX", template_args, func_args)
+               << ";\n";
+    } else if (
+        reduction_dims.first->getParallelType() == ParallelType::TIDx &&
         reduction_dims.second == nullptr) {
       func_args.arg(genBarrierId());
       template_args.arg(
@@ -1810,6 +1838,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             .append("]");
       }
     }
+  }
+  void handle(const kir::WarpGroupReduction* wgrop) final {
+    int64_t vect_factor = wgrop->vect_factor()->value().as<int64_t>();
+    int64_t persistent_batch_size =
+        wgrop->persistent_batch_size()->value().as<int64_t>();
+    ArgumentBuilder template_args;
+    template_args.arg(vect_factor);
+    template_args.arg(persistent_batch_size);
+    ArgumentBuilder func_args;
+    func_args.arg(genVariableNameConvertAlignedArray(wgrop->out()));
+    func_args.arg("static_cast<float*>(shared_mem)");
+    func_args.arg(++max_used_barrier_id_);
+
+    indent() << genCall("twoWarpGroupsReduction", template_args, func_args)
+             << ";\n";
+    indent() << "if(threadIdx.y == 1){return;}\n";
   }
 
   void handle(const kir::GridReduction* grop) final {
@@ -2987,6 +3031,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
              << ";\n";
   }
 
+  std::string genSmemOffset(ParallelType pt) {
+    std::stringstream offset_ss;
+    offset_ss << genVariableName(NamedScalar::getParallelIndex(pt));
+    offset_ss << " * " << lparams_.bdimx();
+    return offset_ss.str();
+  }
   void genGroupedWarpReduction(
       const int num_grouped_iterations,
       kir::TensorIndex* output,
@@ -3005,8 +3055,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
 
-    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
-
+    // Each computation group uses a different section of shared memory
+    if (has_multiple_compute_groups_) {
+      func_args.arg(
+          genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
+          genSmemOffset(ParallelType::TIDy));
+    } else {
+      func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
+    }
     ArgumentBuilder template_args;
     if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
         reduction_dims.second == nullptr) {
@@ -3624,8 +3680,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
 
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true).arg(
-        isAligned());
+    sync_call_template_parms.arg(bidx)
+        .arg(bidy)
+        .arg(bidz)
+        .arg(/*PERSISTENT=*/true)
+        .arg(
+            has_multiple_compute_groups_ || has_warp_specialized_
+                ? false
+                : isAligned());
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -3643,7 +3705,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .append(sync_idx)
         .append("]");
     sync_call_args.arg(sync_segment_size);
-    sync_call_args.arg(genComputeBlockDim());
+    // Multiple computation groups is only used for InnerOuter persistent
+    // kernel, where the grid sync is used to dump partial outer reduction
+    // results after inner normalization is done. At that stage, only 1 warp
+    // group is used.
+    if (has_multiple_compute_groups_) {
+      std::stringstream ss;
+      ss << "dim3(" << lparams_.bdimx() << ", 1, 1)";
+      sync_call_args.arg(ss.str());
+    } else {
+      sync_call_args.arg(genComputeBlockDim());
+    }
+    sync_call_args.arg(++max_used_barrier_id_);
 
     auto sync_call =
         genCall("grid_sync::sync", sync_call_template_parms, sync_call_args);
@@ -3866,6 +3939,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   // Keep track of the current circular buffer id
   Val* current_buffer_id_;
   LaunchParams lparams_;
+  // Max used barrier id
+  // 0 is reserved for the default barrier
+  // [1, circular buffer stages] are used for circular buffer
+  // Other syncs start from max_used_barrier_id_ and increase by 1
+  // after using it.
+  uint32_t max_used_barrier_id_ = 0;
+  bool has_warp_specialized_;
+  bool has_multiple_compute_groups_;
 };
 
 } // namespace

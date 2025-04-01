@@ -59,7 +59,7 @@ class ParallelDimensionMap {
   //! And this function will return (32 * 16) because the extra one for TIDy is
   //! introduced by warp specialization and only used for loading circular
   //! buffer tensors.
-  Val* getNumComputeThreadsEachBlock() const;
+  Val* getNumComputeThreadsEachGroup() const;
 
   //! Get if the kernel uses warp specialization
   bool hasWarpSpecialization() const {
@@ -90,6 +90,7 @@ class ParallelDimensionMap {
 
   //! Set of parallel types that we are doing warp specialization on
   std::unordered_set<ParallelType> warp_specialized_types_;
+  int64_t compute_groups_ = 0;
 };
 
 } // namespace nvfuser

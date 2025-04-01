@@ -310,7 +310,7 @@ struct CircularBufferOptions {
   int64_t stage = 0; // Size of the circular buffer (number of buffers)
   int64_t prefetch = 0; // Number of iterations ahead of the compute to
                         // prefetch, can only be < stage.
-
+  int64_t computation_groups = 1; // Number of groups for computation
   bool isEnable() const {
     return stage > 1;
   }
@@ -333,7 +333,7 @@ inline std::ostream& operator<<(
     const CircularBufferOptions& options) {
   return os << "CircularBufferOptions{ stage=" << options.stage
             << ", prefetch=" << options.prefetch << ", type=" << options.type
-            << " }";
+            << ", computation_groups=" << options.computation_groups << " }";
 }
 
 //! TensorView is our primitive Tensor Type used in code generation. It can be
@@ -688,7 +688,8 @@ class NVF_API TensorView : public Val {
   void circularBuffer(
       int64_t number_of_stages,
       int64_t prefetch_distance = -1,
-      CircularBufferType type = Pipelined(false));
+      CircularBufferType type = Pipelined(false),
+      int64_t computation_groups = 1);
 
   // Returns true if this tensor is circular buffered.
   bool isCircularBuffered() const {

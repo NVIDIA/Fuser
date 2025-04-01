@@ -778,6 +778,13 @@ ThreadPredicateMap::PredicateInfo ThreadPredicateMap::getPredicateInfo(
     auto parallel_bcast = getParallelBroadcastDomains(tv);
     pred_info.limited_types ^= parallel_bcast;
   }
+  // skip TIDy when we have multiple computation groups
+  if (tv->isFusionOutput() &&
+      GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferComputationGroups() > 1) {
+    pred_info.redundant_types.clear(ParallelType::TIDy);
+  }
   return pred_info;
 }
 

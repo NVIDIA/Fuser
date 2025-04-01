@@ -70,6 +70,20 @@ class CircularBufferInfo {
   const CircularBufferOptions& getCircularBufferOptionsFor(
       IterDomain* circular_buffered_id) const;
 
+  //! Get computation groups.
+  const int64_t& getCircularBufferComputationGroups() const {
+    return circular_buffer_computation_groups_;
+  };
+
+  //! Get max circular buffer stages.
+  const int64_t& getMaxCircularBufferStages() const {
+    return max_circular_buffer_stages_;
+  };
+
+  const bool& hasWarpSpecialized() const {
+    return has_warp_sepcialized_;
+  };
+
   std::string toString() const;
 
  private:
@@ -104,6 +118,10 @@ class CircularBufferInfo {
   //! iterdomains.
   std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
+
+  int64_t circular_buffer_computation_groups_ = 1;
+  int64_t max_circular_buffer_stages_ = 1;
+  bool has_warp_sepcialized_;
 };
 
 } // namespace nvfuser

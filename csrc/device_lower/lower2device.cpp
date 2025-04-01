@@ -519,6 +519,10 @@ void GpuLower::analysis(Fusion* fusion) {
       std::make_shared<const ConcretizedBroadcastDomains>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build ConcretizedBroadcastDomains");
 
+  // Used in parallel dimension map
+  circularBufferInfo().build(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
+
   parallelDimensionMap().build(fusion_);
   if (isDebugDumpEnabled(DebugDumpOption::ParallelDimensions)) {
     debug() << "Parallel dimension map:" << std::endl;
@@ -587,9 +591,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // nonDivisibleSplitInfo.
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
-
-  circularBufferInfo().build(fusion_);
-  dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
   compute_at_map_->allocateIndexVariables();
   dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");

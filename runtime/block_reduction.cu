@@ -395,3 +395,45 @@ __device__ void blockIterGroupedYdimReduce(
       init_val,
       block_dim);
 }
+
+// bdimx = 128, bdimy = 2, bdimz = 1
+// reduction in y dimension
+// res[0][0-127][NBatch][Vect] += res[1][0-127][NBatch][Vect]
+// T == float
+template <int Vect, int NBatch, typename T>
+__device__ void twoWarpGroupsReduction(
+    T* res,
+    T* smem_redu,
+    uint32_t barrier_id = 1) {
+  constexpr int elements_per_load =
+      Vect * sizeof(T) > 16 ? 16 / sizeof(T) : Vect;
+  constexpr int n_load = Vect / elements_per_load;
+  block_sync::sync<false>(dim3(128, 2, 1), barrier_id);
+#pragma unroll
+  for (int i = 0; i < NBatch; ++i) {
+    // write to smem
+    if (threadIdx.y == 1) {
+#pragma unroll
+      for (int j = 0; j < n_load; ++j) {
+        loadGeneric<T, elements_per_load>(
+            smem_redu + j * 512 + threadIdx.x * elements_per_load,
+            res + i * Vect + j * elements_per_load);
+      }
+    }
+    block_sync::sync<false>(dim3(128, 2, 1), barrier_id);
+    // load from smem & sum
+    if (threadIdx.y == 0) {
+#pragma unroll
+      for (int j = 0; j < n_load; ++j) {
+        __align__(16) T tmp[elements_per_load];
+        loadGeneric<T, elements_per_load>(
+            tmp, smem_redu + j * 512 + threadIdx.x * elements_per_load);
+#pragma unroll
+        for (int k = 0; k < elements_per_load; ++k) {
+          res[i * Vect + j * elements_per_load + k] += tmp[k];
+        }
+      }
+    }
+    block_sync::sync<false>(dim3(128, 2, 1), barrier_id);
+  }
+}

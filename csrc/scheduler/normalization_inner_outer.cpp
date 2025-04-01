@@ -789,22 +789,6 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
     }
   };
 
-  // Set a minimum workload for each thread to take advantage of low
-  // intra-threads communication cost.
-  // Tuned for layer_norm backward on A100, still works fine on H100.
-  auto getMinimumBatch = [&]() -> int64_t {
-    if (inner_dim_numel >= 3072l) {
-      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
-        return 3l;
-      } else {
-        return 4l;
-      }
-    } else if (inner_dim_numel >= 2048l) {
-      return 2l;
-    }
-    return 1l;
-  };
-
   // Estimate register usage per thread based on buffer size.
   // Assuming a constant register overhead for non-buffer related usage,
   // and all the register buffers are stored in registers.
@@ -870,67 +854,15 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // Use the maximum vectorization factor
   const int64_t vect_factor = (int64_t)vectorize_factor;
 
-  // Set a reasonable range for threads per block based on the number of
-  // elements in the inner dimension after vectorization.
-  // Start from 128 or a smaller number if inner dim is small.
+  // TMP for threads per block
+  const int64_t max_persistent_batch = 10L;
   const int64_t after_vect = inner_dim_numel / vect_factor;
-  const int64_t batch_min = getMinimumBatch();
-  int64_t threads_per_block_min = hp_threads_per_block_min;
-  threads_per_block_min = std::min(threads_per_block_min, after_vect);
-  threads_per_block_min = scheduler_utils::roundUpPow2(threads_per_block_min);
+  int64_t threads_per_block = std::min(128L, after_vect);
+  threads_per_block =
+      std::max(threads_per_block, ceilDiv(after_vect, max_persistent_batch));
+  threads_per_block = scheduler_utils::roundUpToN(threads_per_block, 128L);
 
-  // star max threads per block from min threads per block
-  int64_t threads_per_block_max = threads_per_block_min;
-  // increase to cover the whole inner dim
-  threads_per_block_max =
-      std::max(threads_per_block_max, ceilDiv(after_vect, batch_min));
-  // round up to power of 2
-  threads_per_block_max = scheduler_utils::roundUpPow2(threads_per_block_max);
-  // don't go beyond the maximum threads per block
-  threads_per_block_max =
-      std::min(threads_per_block_max, hp_threads_per_block_max);
-
-  // Store all the possible heuristics based on different threads per block.
-  // Vectorizaton is fixed at the maximum value.
-  std::vector<InnerOuterParams> iop_candidates;
-  for (auto threads_per_block = threads_per_block_max;
-       threads_per_block >= threads_per_block_min;
-       threads_per_block /= 2) {
-    iop_candidates.emplace_back(
-        getHeuristicsGivenVectThreads(vect_factor, threads_per_block));
-  }
-
-  // Sort the heuristics based on the register usage and occupancy.
-  std::stable_sort(
-      iop_candidates.begin(),
-      iop_candidates.end(),
-      [](const InnerOuterParams& a, const InnerOuterParams& b) {
-        // If a thread can use more registers than required, there is a high
-        // chance that it can avoid register spilling and compiler can optimize
-        // for better instruction level parallelism.
-        int64_t extra_regs_a =
-            a.available_register_per_thread - a.required_register_per_thread;
-        int64_t extra_regs_b =
-            b.available_register_per_thread - b.required_register_per_thread;
-        if (extra_regs_a > 0 && extra_regs_b < 0) {
-          return true;
-        } else if (extra_regs_a < 0 && extra_regs_b > 0) {
-          return false;
-        }
-        // High occupancy provides better threads level parallelism.
-        // 25% is sufficient since ILP is high due to persistent batch sizes
-        // which is equivalent to unrolling inner dim.
-        if (a.warps_per_sm != b.warps_per_sm &&
-            (a.warps_per_sm < 16 || b.warps_per_sm < 16)) {
-          return a.warps_per_sm > b.warps_per_sm;
-        }
-        // Tie breaker, smaller threads_per_block to reduce communication
-        // overhead
-        return a.threads_per_block < b.threads_per_block;
-      });
-
-  // Pick the best heuristic
-  auto iop = iop_candidates.front();
+  auto iop = getHeuristicsGivenVectThreads(vect_factor, threads_per_block);
   rparams->combined_split_grid_inner_dim =
       iop.vectorization_factor_outer * iop.threads_per_block * iop.gdimy <
       inner_dim_numel;
@@ -951,10 +883,12 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   int64_t n_stages_max_allowed = max_n_copies;
   int64_t n_stages = std::min(n_stages_prefered, n_stages_max_allowed);
   int64_t n_prefetch = n_stages - 1L;
+  int64_t n_computation_groups = iop.threads_per_block <= 128 ? 2L : 1L;
   CircularBufferOptions circular_buffer_options{
       .type = WarpSpecialized(ParallelType::TIDy),
       .stage = n_stages,
-      .prefetch = n_prefetch};
+      .prefetch = n_prefetch,
+      .computation_groups = n_computation_groups};
   rparams->circular_buffer_options = circular_buffer_options;
 
   // Iteration unroll factor, limited by:
@@ -1854,10 +1788,15 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
     int64_t prefetch_distance = rparams->circular_buffer_options.prefetch;
     CircularBufferType circular_buffer_type =
         rparams->circular_buffer_options.type;
+    int64_t computation_groups =
+        rparams->circular_buffer_options.computation_groups;
     for (auto tv : tma_load_tvs) {
       if (tv->getComputeAtPosition() > 0) {
         tv->circularBuffer(
-            number_of_stages, prefetch_distance, circular_buffer_type);
+            number_of_stages,
+            prefetch_distance,
+            circular_buffer_type,
+            computation_groups);
       }
     }
   }

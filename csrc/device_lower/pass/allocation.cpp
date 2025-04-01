@@ -913,7 +913,7 @@ Expr* initializeMbarrier(
         DataType::UInt32,
         GpuLower::current()
             ->parallelDimensionMap()
-            .getNumComputeThreadsEachBlock());
+            .getNumComputeThreadsEachGroup());
   }
 
   // Initialize mbarrier for each circular buffer stage. Use the thread

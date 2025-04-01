@@ -70,6 +70,9 @@ class FusionInspector : private IterVisitor {
     auto out = ir_utils::getTvOutput(rop);
     if (out->getMemoryType() == MemoryType::Local &&
         (out->domain()->hasGridReduction() ||
+         GpuLower::current()
+                 ->circularBufferInfo()
+                 .getCircularBufferComputationGroups() > 1 ||
          std::any_of(
              out->getLoopDomain().begin(),
              out->getLoopDomain().end(),

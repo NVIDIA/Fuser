@@ -56,6 +56,7 @@ class AsyncCommit;
 class InitMagicZero;
 class UpdateMagicZero;
 class IfThenElse;
+class WarpGroupReduction;
 class GridReduction;
 class GroupedGridReduction;
 class GridBroadcast;
@@ -975,6 +976,42 @@ class IfThenElse final : public Expr {
 
   bool empty() const {
     return thenBody().empty() && elseBody().empty();
+  }
+};
+
+// Two warp groups:
+// bdimx = 128, bdimy = 2, bdimz = 1
+// reduction in y dimension
+// Use runtime func twoWarpGroupsReduction
+class WarpGroupReduction final : public ReductionOp {
+  static constexpr int num_reduction_op_attr = 4;
+
+ public:
+  using ReductionOp::ReductionOp;
+
+  WarpGroupReduction(
+      IrBuilderPasskey passkey,
+      BinaryOpType reduction_op_type,
+      Val* init,
+      Val* out,
+      Val* in,
+      Val* vect_factor,
+      Val* persistent_batch_size);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "WarpGroupReduction";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  Val* vect_factor() const {
+    return attributeVal(num_reduction_op_attr);
+  }
+  Val* persistent_batch_size() const {
+    return attributeVal(num_reduction_op_attr + 1);
   }
 };
 

@@ -81,6 +81,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         circular_buffer_loop_->iter_domain(), loop_type_);
     Val* start = circular_buffer_loop_->start();
     Val* stop = circular_buffer_loop_->stop();
+    Val* step = GpuLower::current()->kernel()->oneVal();
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
@@ -106,8 +107,23 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::LoadWarp: {
+        break;
+      }
       case CircularBufferLoopStage::ComputeWarp: {
+        int64_t compute_groups = GpuLower::current()
+                                     ->circularBufferInfo()
+                                     .getCircularBufferOptionsFor(
+                                         circular_buffer_loop_->iter_domain())
+                                     .computation_groups;
+        if (compute_groups > 1) {
+          // since we only use TIDx for computation, TIDy equals Warp Group
+          // Index. When this iteration domain is a reduction, needs to insert
+          // a block reduction across TIDy.
+          start = NamedScalar::getParallelIndex(ParallelType::TIDy);
+          step = SimplifyingIrBuilder::create<Val>(
+              compute_groups, DataType::Index);
+        }
         break;
       }
       default: {
@@ -120,7 +136,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         index,
         start,
         stop,
-        /*step=*/GpuLower::current()->kernel()->oneVal(),
+        step,
         /*vectorize=*/false,
         /*vectorize_shift=*/nullptr,
         circular_buffer_loop_->isUnrollRequired(),
@@ -1430,16 +1446,30 @@ class CircularBufferInserter : private kir::ExprMutator {
         circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
-    if (enable_register_sharing) {
-      // Terminate the warp group handling Load loop immediately after
-      // finishing its work.
-      kir::Return* ret = IrBuilder::create<kir::Return>();
-      warp_dispatch_ite->thenBody().push_back(ret);
-    }
+    // Terminate the warp group handling Load loop immediately after
+    // finishing its work.
+    kir::Return* ret = IrBuilder::create<kir::Return>();
+    warp_dispatch_ite->thenBody().push_back(ret);
 
     // Prefetch:
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+
+    // put this prefetch loop inside an if-then-else, only needs one warp group
+    bool has_multiple_compute_groups =
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferComputationGroups() > 1;
+    if (has_multiple_compute_groups) {
+      auto predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDy),
+          circular_buffer_loop->fusion()->zeroVal()));
+      kir::IfThenElse* prefetch_ite =
+          IrBuilder::create<kir::IfThenElse>(predicate_val);
+      prefetch_ite->thenBody().push_back(prefetch_loop);
+      warp_dispatch_ite->elseBody().push_back(prefetch_ite);
+    } else {
+      warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+    }
 
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
@@ -1447,6 +1477,51 @@ class CircularBufferInserter : private kir::ExprMutator {
     warp_dispatch_ite->elseBody().push_back(compute_loop);
 
     registerReplace(circular_buffer_loop, warp_dispatch_ite);
+
+    // Insert outer reduction
+    if (has_multiple_compute_groups) {
+      for (auto expr :
+           ir_utils::flattenScopedExprs(compute_loop->body().exprs())) {
+        if (auto rop = dynamic_cast<ReductionOp*>(expr)) {
+          if (auto tv = dynamic_cast<TensorView*>(rop->out())) {
+            if (!tv->getMaybeRootDomain().back()->isReduction()) {
+              std::cout << "Found outer reduction: " << rop->toString()
+                        << std::endl;
+              tv->printTransforms();
+              // create a WarpGroupReduction
+              int64_t ndims = tv->getLoopDomain().size();
+              auto vect_factor = tv->getLoopDomain().back()->extent();
+              auto persistent_batch_size =
+                  tv->getLoopDomain().at(ndims - 3)->extent();
+              std::cout << "vect_factor: " << vect_factor->toString()
+                        << std::endl;
+              std::cout << "persistent_batch_size: "
+                        << persistent_batch_size->toString() << std::endl;
+              NVF_ERROR(
+                  vect_factor->isConst(),
+                  "vect_factor should be const, got: ",
+                  vect_factor->toString());
+              NVF_ERROR(
+                  persistent_batch_size->isConst(),
+                  "persistent_batch_size should be const, got: ",
+                  persistent_batch_size->toString());
+              auto wg_redu =
+                  IrBuilder::createInContainer<kir::WarpGroupReduction>(
+                      tv->container(),
+                      rop->getReductionOpType(),
+                      rop->init(),
+                      rop->out(),
+                      rop->out(),
+                      vect_factor,
+                      persistent_batch_size);
+              std::cout << "WarpGroupReduction: " << wg_redu->toString()
+                        << std::endl;
+              registerInsertAfter(circular_buffer_loop, wg_redu);
+            }
+          }
+        }
+      }
+    }
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {

@@ -971,6 +971,17 @@ void IndexLowering::handleGridReduction(
   }
 }
 
+void IndexLowering::handle(const kir::WarpGroupReduction* wg_rop) {
+  auto wg_rop_copy = IrBuilder::create<kir::WarpGroupReduction>(
+      wg_rop->getReductionOpType(),
+      wg_rop->init(),
+      wg_rop->out(),
+      wg_rop->in(),
+      wg_rop->vect_factor(),
+      wg_rop->persistent_batch_size());
+  pushBack(wg_rop_copy);
+}
+
 void IndexLowering::handle(const WelfordOp* wop) {
   NVF_ERROR(ir_utils::isTvOp(wop));
 

@@ -152,7 +152,14 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
 void ParallelDimensionMap::setWarpSpecializeOn(ParallelType pt) {
   auto dim_it = dim_map_.find(pt);
   if (dim_it == dim_map_.end()) {
-    dim_map_[pt] = IrBuilder::create<Val>(2, DataType::Index);
+    int64_t compute_groups = GpuLower::current()
+                                 ->circularBufferInfo()
+                                 .getCircularBufferComputationGroups();
+    int64_t threads = compute_groups + 1;
+    std::cout << "Setting warp specialized on " << pt << " with threads "
+              << threads << std::endl;
+    dim_map_[pt] = IrBuilder::create<Val>(threads, DataType::Index);
+    compute_groups_ = compute_groups;
   } else {
     // Intentionally not using SimplifyingIrBuilder::addExpr here so that
     // we still have access to the pointer to the original IR node.
@@ -200,9 +207,13 @@ Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   return raw;
 }
 
-Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
+Val* ParallelDimensionMap::getNumComputeThreadsEachGroup() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
+    // TIDy is used for multiple groups
+    if (pt == ParallelType::TIDy && compute_groups_ > 1) {
+      continue;
+    }
     auto dim = getRawCompute(pt);
     if (dim == nullptr) {
       continue;
