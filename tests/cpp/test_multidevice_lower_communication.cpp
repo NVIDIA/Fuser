@@ -185,8 +185,8 @@ INSTANTIATE_TEST_SUITE_P(
     LowerScatterTest,
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
-            {{{0}, {0, 1}}, //
-             {{1}, {0, 1}}, //
+            {{{0}, {0, 1}},
+             {{1}, {0, 1}},
              {{0, 2}, {1, 2}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
