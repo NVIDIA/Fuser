@@ -20,12 +20,9 @@ namespace nvfuser {
 
 namespace {
 
-// Circular-buffering prefetches the future subregions of the tensor.
-// The subregion is defined by the axes inside of the CA position.
-// There must be at least one axis that is outside (left) of the CA position,
-// which defines the loop where prefetching is applied. Therefore,
-// the CA position must be larger than 0.
-int64_t getCircularBufferAxisPosition(const TensorView* tv) {
+// Returns the leftmost position between the first unroll axis and computeAt
+// position. Throws an error if the position is invalid for circular buffering.
+int64_t getUnrollOrComputeAtPosition(const TensorView* tv) {
   NVF_ERROR(
       tv->getComputeAtPosition() > 0,
       "Expected computeAt for circular buffered TensorView");
@@ -50,32 +47,27 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
       "Valid circular buffer axis not found due to Unroll. ",
       tv->toString());
 
-  // Ensure that the warp-specialized circular buffer loop is the outer-most
-  // for-loop if register sharing is enabled.
+  return unroll_or_ca_pos;
+}
+
+// Circular-buffering prefetches the future subregions of the tensor.
+// The subregion is defined by the axes inside of the CA position.
+// There must be at least one axis that is outside (left) of the CA position,
+// which defines the loop where prefetching is applied. Therefore,
+// the CA position must be larger than 0.
+int64_t getCircularBufferAxisPosition(const TensorView* tv) {
+  // For warp-specialized tensors, the outer-most loop is the circular buffer
+  // loop.
   if (std::holds_alternative<WarpSpecialized>(
           tv->circularBufferOptions().type) &&
       std::get<WarpSpecialized>(tv->circularBufferOptions().type)
           .num_registers.has_value()) {
-    // Skip parallelized or broadcast axes
-    for (int64_t i = 0; i < unroll_or_ca_pos; ++i) {
-      auto pt = tv->axis(i)->getParallelType();
-      if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
-        return i;
-      }
-    }
-    return (int64_t)tv->getLoopDomain().size();
+    return getOuterMostCircularBufferPosition(tv);
   }
 
-  int64_t valid_pos = (int64_t)tv->getLoopDomain().size();
-  // Skip parallelized or broadcast axes
-  for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
-    auto pt = tv->axis(i)->getParallelType();
-    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
-      valid_pos = i;
-      break;
-    }
-  }
-  return valid_pos;
+  // For pipelined tensors, the inner-most serial loop is the circular buffer
+  // loop.
+  return getInnermostCircularBufferPosition(tv);
 }
 
 // Initial inspection of a fusion to find and validate circular buffered tensors
@@ -396,6 +388,32 @@ IterDomain* getCircularBufferAxis(const TensorView* tv) {
     return nullptr;
   }
   return tv->axis(cb_axis);
+}
+
+int64_t getInnermostCircularBufferPosition(const TensorView* tv) {
+  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
+  int64_t valid_pos = (int64_t)tv->getLoopDomain().size();
+  // Skip parallelized or broadcast axes
+  for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
+    auto pt = tv->axis(i)->getParallelType();
+    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
+      valid_pos = i;
+      break;
+    }
+  }
+  return valid_pos;
+}
+
+int64_t getOuterMostCircularBufferPosition(const TensorView* tv) {
+  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
+  // Skip parallelized or broadcast axes
+  for (int64_t i = 0; i < unroll_or_ca_pos; ++i) {
+    auto pt = tv->axis(i)->getParallelType();
+    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
+      return i;
+    }
+  }
+  return (int64_t)tv->getLoopDomain().size();
 }
 
 } // namespace nvfuser

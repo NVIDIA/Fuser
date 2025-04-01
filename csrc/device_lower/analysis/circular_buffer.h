@@ -17,6 +17,15 @@ namespace nvfuser {
 
 IterDomain* getCircularBufferAxis(const TensorView* tv);
 
+// Returns the position of the circular buffer axis for warp-specialized tensors
+// with register sharing enabled. Returns the size of the loop domain if no
+// valid position is found.
+int64_t getOuterMostCircularBufferPosition(const TensorView* tv);
+
+// Returns the position of the circular buffer axis for non-warp-specialized
+// tensors. Returns the size of the loop domain if no valid position is found.
+int64_t getInnermostCircularBufferPosition(const TensorView* tv);
+
 void validateCircularBufferedTensor(const TensorView* tv);
 
 class CircularBufferInfo {
