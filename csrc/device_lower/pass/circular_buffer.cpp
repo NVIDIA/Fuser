@@ -370,22 +370,25 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // insert mbarrier::waitParity expressions to wait for the completion of the
   // load of the circular buffer tensor.
   void insertMBarrierWaitBeforeFirstRead() {
-    if (for_loop_stack_.size() == 1) {
-      NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
-      for (auto it = raw_mbarriers_to_wait_.begin();
-           it != raw_mbarriers_to_wait_.end();) {
-        auto wait = it->second;
-        // short-circuit: wait expression does not exist yet for mbarrier.
-        // This means: the mbarrier is used by the circular buffer for loop
-        // to wait for its loads. However, we have not encountered the first
-        // read of the circular buffer yet, so no need to wait right now.
-        if (wait == nullptr) {
-          ++it;
-          continue;
-        }
-        for_loop_stack_.back()->body().push_back(wait);
-        it = raw_mbarriers_to_wait_.erase(it);
+    // short-circuit: only insert mbarrier::waitParity when for_loop_stack_
+    // is at the insertion position.
+    if ((int64_t)for_loop_stack_.size() != insertion_position_) {
+      return;
+    }
+
+    for (auto it = raw_mbarriers_to_wait_.begin();
+         it != raw_mbarriers_to_wait_.end();) {
+      auto wait = it->second;
+      // short-circuit: wait expression does not exist yet for mbarrier.
+      // This means: the mbarrier is used by the circular buffer for loop
+      // to wait for its loads. However, we have not encountered the first
+      // read of the circular buffer yet, so no need to wait right now.
+      if (wait == nullptr) {
+        ++it;
+        continue;
       }
+      for_loop_stack_.back()->body().push_back(wait);
+      it = raw_mbarriers_to_wait_.erase(it);
     }
   }
 
