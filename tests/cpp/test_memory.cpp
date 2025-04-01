@@ -2900,7 +2900,7 @@ TEST_P(StMatrixTest, Regular) {
   }
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
-  mma_utils::scheduleStMatrixForMmaOutput(tv2, tile_m, tile_n);
+  mma_utils::scheduleLdStMatrixForMmaOutput(tv2, tile_m, tile_n);
 
   tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 

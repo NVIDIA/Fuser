@@ -148,7 +148,7 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const std::vector<ForLoop*>& for_loops) const {
   auto info = computeIndex(expr, index_ids, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, info.loop_domains, for_loops, info.index_map);
+      expr, as_consumer, info.loop_ids, for_loops, info.index_map);
 
   // Note that IDs of index_ids may be mapped as the traversal graph
   // is the AlmostExact graph.
@@ -200,7 +200,7 @@ Val* TensorIndexer::getLinearIndex(
       << std::endl;
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
-      expr, as_consumer, alloc_info, for_loops, override_index);
+      tv, expr, as_consumer, alloc_info, for_loops, override_index);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -255,10 +255,10 @@ IndexingInfo TensorIndexer::computeIndex(
     const Expr* expr,
     const std::vector<IterDomain*>& index_ids,
     const std::vector<ForLoop*>& for_loops) const {
-  const auto loop_domains = getLoopIds(expr, id_model_);
+  const auto loop_ids = getLoopIds(expr, id_model_);
   const ExprPath<ExprGroup> traversal_path = getIndexingPath(expr, index_ids);
   const std::unordered_map<ValGroup, Val*> initial_index_map =
-      getInitialIndexMap(loop_domains, for_loops);
+      getInitialIndexMap(loop_ids, for_loops);
 
   IdGraphIndexCompute index_compute(traversalGraph(), initial_index_map);
 
@@ -269,7 +269,7 @@ IndexingInfo TensorIndexer::computeIndex(
   std::unordered_map<ValGroup, ValGroups> loop_group_dependencies;
 
   // Initialize the loop dependency mappings
-  for (const auto& loop_domain : loop_domains) {
+  for (const auto& loop_domain : loop_ids) {
     const auto& traversal_graph_group = traversalGraph().toGroup(loop_domain);
     const auto& loop_graph_group =
         id_model_.idGraph(IdMappingMode::LOOP).toGroup(loop_domain);
@@ -304,7 +304,7 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   IndexingInfo info{
-      loop_domains, traversal_path, index_map, loop_group_dependencies};
+      loop_ids, index_ids, traversal_path, index_map, loop_group_dependencies};
   return info;
 }
 
@@ -630,8 +630,33 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
       {contig_strides.begin(), contig_strides.end()}};
 }
 
+ValGroups TensorIndexer::getUsedLoopGroups(
+    const IndexingInfo& index_info) const {
+  ValGroups used_loop_groups;
+  for (const auto& index_id : index_info.index_ids) {
+    const ValGroups& loop_groups = index_info.loop_group_dependencies.at(
+        traversalGraph().toGroup(index_id));
+    used_loop_groups.pushBack(loop_groups);
+  }
+  return used_loop_groups;
+}
+
+void TensorIndexer::ensureStaticIndexing(
+    const std::vector<ForLoop*>& for_loops,
+    const IndexingInfo& index_info) const {
+  const ValGroups used_loop_groups = getUsedLoopGroups(index_info);
+
+  for (auto for_loop : for_loops) {
+    if (used_loop_groups.has(id_model_.idGraph(IdMappingMode::LOOP)
+                                 .toGroup(for_loop->iter_domain()))) {
+      for_loop->requireUnroll();
+    }
+  }
+}
+
 std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
+        TensorView* tv,
         const Expr* expr,
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
@@ -650,7 +675,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   }
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(
-      expr, as_consumer, index_info.loop_domains, for_loops, index_map);
+      expr, as_consumer, index_info.loop_ids, for_loops, index_map);
 
   std::vector<ValGroup> contig_alloc_groups;
   std::vector<Val*> contig_strides;
@@ -686,29 +711,42 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     result.push_back(replaced_idx);
   }
 
+  // It's a bit confusing for the function named as "getContigIndexFor"
+  // to change the property of ForLoops, but the local variable of
+  // index_info is needed.
+  if (tv->getMemoryType() == MemoryType::Local) {
+    ensureStaticIndexing(for_loops, index_info);
+  }
+
   return {result, contig_strides};
 }
 
 bool TensorIndexer::isSupported(Fusion* fusion) {
   const auto all_tvs = fusion->allTvs();
 
-  auto printReason = [](const std::string& reason) -> void {
-    VERBOSE() << "TensorIndexer disabled due to: " << reason << "\n";
+  auto warn = [](const std::string& reason) -> void {
+#ifndef NDEBUG
+    TORCH_WARN("TensorIndexer disabled due to: ", reason);
+#endif // NDEBUG
   };
 
+  // The following conditions are those that are known to be
+  // unsupported. It may not be a complete list.
+
   if (fusion->hasManaged("loop_rotation")) {
-    printReason("loop rotation is not supported");
+    warn("loop rotation is not supported");
     return false;
   }
 
   for (const auto& tv : all_tvs) {
     std::stringstream reason;
 
-    if (auto loadstore = dynamic_cast<LoadStoreOp*>(tv->definition());
-        loadstore != nullptr &&
-        (loadstore->opType() == LoadStoreOpType::LdMatrix ||
-         loadstore->opType() == LoadStoreOpType::StMatrix)) {
-      reason << "LoadStoreOpType not supported: " << loadstore->toString();
+    if (auto gather = dynamic_cast<GatherOp*>(tv->definition());
+        gather != nullptr && !gather->exactSizes()) {
+      // take_along_axis is supported but generic gather is not
+      reason << "Non-exact gather not supported: " << gather->toString();
+    } else if (tv->hasComputeWith()) {
+      reason << "computeWith not supported: " << tv->toString();
     } else {
       for (const auto& id : tv->domain()->allIDs()) {
         if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
@@ -724,7 +762,7 @@ bool TensorIndexer::isSupported(Fusion* fusion) {
     }
 
     if (!reason.str().empty()) {
-      printReason(reason.str());
+      warn(reason.str());
       return false;
     }
   }

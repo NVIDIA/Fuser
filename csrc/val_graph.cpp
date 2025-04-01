@@ -348,7 +348,7 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       first->toString(),
       second->toString());
 
-  for (const auto i : c10::irange(first_vals.size())) {
+  for (const auto i : arange(first_vals.size())) {
     if (!disjointValSets().permissiveAreMapped(
             first_vals.at(i), second_vals.at(i))) {
       return false;
@@ -557,7 +557,7 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
       first->toString(),
       "\nand\n",
       second->toString());
-  for (auto out_i : c10::irange(first_ids.size())) {
+  for (auto out_i : arange(first_ids.size())) {
     mapVals(first_ids[out_i], second_ids[out_i]);
   }
 
@@ -623,8 +623,8 @@ void ValGraph::setUnmappable(const std::vector<Val*>& vals) {
   if (vals.size() < 2) {
     return;
   }
-  for (const auto i : c10::irange(vals.size() - 1)) {
-    for (const auto j : c10::irange(i + 1, vals.size())) {
+  for (const auto i : arange(vals.size() - 1)) {
+    for (const auto j : arange(i + 1, vals.size())) {
       setUnmappable(vals.at(i), vals.at(j));
     }
   }

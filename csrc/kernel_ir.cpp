@@ -311,7 +311,7 @@ const char* getPTXConstraints(Val* value) {
 
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+  for (auto i : arange((int64_t)(outputs().size()))) {
     std::string prefix;
     if (options().readable_outputs.count(i) > 0) {
       prefix = "+";
@@ -326,7 +326,7 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
 }
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : arange((int64_t)inputs().size())) {
     auto in = input(i);
     const char* constraint = nullptr;
     if (options().immediate_inputs.count(i) > 0) {
@@ -358,7 +358,7 @@ std::string Asm::parameters() const {
     } else if (std::holds_alternative<ArrayType>(dtype.type)) {
       auto type = std::get<ArrayType>(dtype.type);
       ss << "{";
-      for (auto i : c10::irange(type.size)) {
+      for (auto i : arange(type.size)) {
         if (i > 0) {
           ss << ", ";
         }
@@ -428,6 +428,9 @@ std::string Asm::utility() const {
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
       {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
+      {"ldmatrix.sync.aligned.x1.m8n8.shared.b16", "ldmatrix1"},
+      {"ldmatrix.sync.aligned.x2.m8n8.shared.b16", "ldmatrix2"},
+      {"ldmatrix.sync.aligned.x4.m8n8.shared.b16", "ldmatrix4"},
       {"stmatrix.sync.aligned.x1.m8n8.shared.b16", "stmatrix1"},
       {"stmatrix.sync.aligned.x2.m8n8.shared.b16", "stmatrix2"},
       {"stmatrix.sync.aligned.x4.m8n8.shared.b16", "stmatrix4"},
@@ -1140,7 +1143,7 @@ std::string GroupedGridReduction::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridReduction(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
@@ -1336,7 +1339,7 @@ GroupedGridWelford::GroupedGridWelford(
   addDataAttribute(ParallelTypeBitmap{});
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[1].size());
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[2].size());
-  for (auto i : c10::irange(reduction_buffers[0].size())) {
+  for (auto i : arange(reduction_buffers[0].size())) {
     addAttribute(reduction_buffers[0].at(i));
     addAttribute(reduction_buffers[1].at(i));
     addAttribute(reduction_buffers[2].at(i));
@@ -1390,7 +1393,7 @@ std::string GroupedGridWelford::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridWelford(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size) << outAvg(i)->toString() << " (Avg),\n";
     indent(ss, indent_size) << outVar(i)->toString() << " (Var),\n";
     indent(ss, indent_size) << outN(i)->toString() << " (Count)\n";
@@ -1682,7 +1685,7 @@ std::string RNGOp::toString(int indent_size) const {
   std::stringstream ss;
   ss << output(0)->toString() << " = " << getRNGOpType() << "("
      << input(0)->toString();
-  for (auto inp_i : c10::irange(1, inputs().size())) {
+  for (auto inp_i : arange(1, inputs().size())) {
     ss << ", " << input(inp_i)->toString();
   }
   ss << ")\n";
@@ -1692,7 +1695,7 @@ std::string RNGOp::toString(int indent_size) const {
 std::string RNGOp::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << getRNGOpType() << "(" << input(0)->toString();
-  for (auto inp_i : c10::irange(1, inputs().size())) {
+  for (auto inp_i : arange(1, inputs().size())) {
     ss << ", " << input(inp_i)->toString();
   }
   ss << ")";
