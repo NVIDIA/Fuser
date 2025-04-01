@@ -229,10 +229,9 @@ TEST_F(TMemTest, dtypes) {
               continue;
             }
             Val* alloc_size = expr->input(1);
-            Val* expected_size = IrBuilder::create<Val>(static_cast<int64_t>(
-                std::max<int64_t>(
-                    std::bit_ceil(static_cast<uint64_t>(vec_bytes / 4)), 32))),
-                    32);
+            Val* expected_size =
+                IrBuilder::create<Val>(static_cast<int64_t>(std::max<int64_t>(
+                    std::bit_ceil(static_cast<uint64_t>(vec_bytes / 4)), 32)));
             EXPECT_TRUE(
                 simplifyExpr(IrBuilder::eqExpr(alloc_size, expected_size))
                     ->isTrue());
