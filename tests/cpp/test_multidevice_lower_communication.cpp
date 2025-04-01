@@ -63,15 +63,18 @@ void assertIsCompiledToHostIrContainer(
     }                                                                 \
   } while (0)
 
+using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
+
 static constexpr int kTensorSize = 4;
 
 class LowerGatherTest
     : public MultiDeviceTest,
-      public testing::WithParamInterface<std::tuple<DeviceMesh, DeviceMesh, bool>> {};
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerGatherTest, ) {
   EnableOptionsGuard opt_guard;
-  const auto& [in_mesh, out_mesh, enable_host_ir_lowering] = GetParam();
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
 
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
@@ -109,14 +112,17 @@ TEST_P(LowerGatherTest, ) {
 INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerGatherTest,
-    // Create product of mesh configurations and HostIrLowering options
+    // Create product of InOutMesh configurations and HostIrLowering options
     testing::Combine(
-        testing::ValuesIn(std::vector<DeviceMesh>({{0, 1}, {0, 1}, {1, 2}})),
-        testing::ValuesIn(std::vector<DeviceMesh>({{0}, {1}, {0, 2}})),
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
-    [](const testing::TestParamInfo<std::tuple<DeviceMesh, DeviceMesh, bool>>& info) {
-      const auto& [in_mesh, out_mesh, enable_hir] = info.param;
+    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+      const auto& meshes = std::get<0>(info.param);
+      const auto& in_mesh = meshes.first;
+      const auto& out_mesh = meshes.second;
+      const auto enable_hir = std::get<1>(info.param);
 
       std::stringstream ss;
       ss << "InMesh";
@@ -134,11 +140,12 @@ INSTANTIATE_TEST_SUITE_P(
 
 class LowerScatterTest
     : public MultiDeviceTest,
-      public testing::WithParamInterface<std::tuple<DeviceMesh, DeviceMesh, bool>> {};
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerScatterTest, ) {
   EnableOptionsGuard opt_guard;
-  const auto& [in_mesh, out_mesh, enable_host_ir_lowering] = GetParam();
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
 
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
@@ -177,12 +184,17 @@ INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerScatterTest,
     testing::Combine(
-        testing::ValuesIn(std::vector<DeviceMesh>({{0}, {1}, {0, 2}})),
-        testing::ValuesIn(std::vector<DeviceMesh>({{0, 1}, {0, 1}, {1, 2}})),
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {0, 1}},
+             {{1}, {0, 1}},
+             {{0, 2}, {1, 2}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
-    [](const testing::TestParamInfo<std::tuple<DeviceMesh, DeviceMesh, bool>>& info) {
-      const auto& [in_mesh, out_mesh, enable_hir] = info.param;
+    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+      const auto& meshes = std::get<0>(info.param);
+      const auto& in_mesh = meshes.first;
+      const auto& out_mesh = meshes.second;
+      const auto enable_hir = std::get<1>(info.param);
 
       std::stringstream ss;
       ss << "InMesh";
@@ -200,11 +212,12 @@ INSTANTIATE_TEST_SUITE_P(
 
 class LowerSendRecvTest
     : public MultiDeviceTest,
-      public testing::WithParamInterface<std::tuple<DeviceMesh, DeviceMesh, bool>> {};
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerSendRecvTest, ) {
   EnableOptionsGuard opt_guard;
-  const auto& [in_mesh, out_mesh, enable_host_ir_lowering] = GetParam();
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
 
   if (enable_host_ir_lowering) {
     EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
@@ -245,12 +258,15 @@ INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerSendRecvTest,
     testing::Combine(
-        testing::ValuesIn(std::vector<DeviceMesh>({{0}, {1}, {1, 2}, {1, 2}})),
-        testing::ValuesIn(std::vector<DeviceMesh>({{1}, {0}, {0, 1}, {1, 0}})),
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
-    [](const testing::TestParamInfo<std::tuple<DeviceMesh, DeviceMesh, bool>>& info) {
-      const auto& [in_mesh, out_mesh, enable_hir] = info.param;
+    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+      const auto& meshes = std::get<0>(info.param);
+      const auto& in_mesh = meshes.first;
+      const auto& out_mesh = meshes.second;
+      const auto enable_hir = std::get<1>(info.param);
 
       std::stringstream ss;
       ss << "InMesh";
