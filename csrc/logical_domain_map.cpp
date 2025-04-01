@@ -174,7 +174,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
                                std::vector<IterDomain*> consumer_ids) {
     NVF_ERROR(producer_ids.size() == consumer_ids.size());
-    for (auto idx : c10::irange(consumer_ids.size())) {
+    for (auto idx : arange(consumer_ids.size())) {
       IterDomain* producer_id = producer_ids.at(idx);
       IterDomain* consumer_id = consumer_ids.at(idx);
       if (producer_id == nullptr) {
@@ -190,7 +190,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
         ? mma->axisMapping().a_axes
         : mma->axisMapping().b_axes;
     NVF_ERROR(operand_axes.size() == consumer_root.size());
-    for (size_t idx : c10::irange(operand_axes.size())) {
+    for (size_t idx : arange(operand_axes.size())) {
       int64_t operand_pos = operand_axes[idx];
       if (operand_pos == -1) {
         continue;
@@ -267,7 +267,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
     size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
     // Map N, H from any input (query/key/value)
-    for (auto idx : c10::irange(consumer_root.size())) {
+    for (auto idx : arange(consumer_root.size())) {
       if (idx < (2 + num_device_dim)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
@@ -316,7 +316,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     size_t num_device_dim =
         !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
                                                                            : 0;
-    for (auto idx : c10::irange(producer_logical.size())) {
+    for (auto idx : arange(producer_logical.size())) {
       // Map N, H from all producers to consumers
       // producer/consumer[2] = L/S
       // producer/consumer[3] = E/Ev
@@ -339,7 +339,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   output = [*, embedding_dim]
     auto ndims_out = consumer_root.size();
     if (producer_tv_->sameAs(op->in())) {
-      for (auto idx : c10::irange(ndims_out - 1)) {
+      for (auto idx : arange(ndims_out - 1)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }

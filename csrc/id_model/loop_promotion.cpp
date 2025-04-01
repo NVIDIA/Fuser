@@ -14,6 +14,8 @@
 #include <options.h>
 #include <val_graph_visitor.h>
 
+#include <algorithm>
+
 namespace nvfuser {
 
 std::string toString(const CoveredGroups& covered_groups) {
@@ -106,10 +108,8 @@ bool isEqualToOrSuperSetOf(
       covered_groups_y.begin(),
       covered_groups_y.end(),
       [&](const CoveredGroup& covered_group_y) {
-        return std::any_of(
-            covered_groups_x.begin(),
-            covered_groups_x.end(),
-            [&](const CoveredGroup& covered_group_x) {
+        return std::ranges::any_of(
+            covered_groups_x, [&](const CoveredGroup& covered_group_x) {
               return covered_group_x.isEqualToOrSuperSetOf(covered_group_y);
             });
       });
@@ -167,10 +167,9 @@ bool isDependencyOf(
     return true;
   }
 
-  if (std::any_of(
-          of->begin(), of->end(), [&](const CoveredGroup& covered_group) {
-            return isDependencyOf(dependency, covered_group);
-          })) {
+  if (std::ranges::any_of(*of, [&](const CoveredGroup& covered_group) {
+        return isDependencyOf(dependency, covered_group);
+      })) {
     return true;
   }
 
@@ -380,6 +379,29 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
     return buildWithNoBroadcast();
   }
 
+  // Keep track of IDs whose loop groups only have broadcast
+  // IDs. These IDs should not need to be promoted to non-broadcastg
+  // IDs. Note that we can't just remember these loop ValGroups as
+  // they might be replaced during the following analysis.
+  for (const auto& loop_group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    if (std::ranges::any_of(*loop_group, [](Val* val) {
+          return !val->as<IterDomain>()->isBroadcast();
+        })) {
+      continue;
+    }
+
+    // Currently, only exact-mapped loop groups are considered. This
+    // condition is required as we are going to replace promotion IDs
+    // with an arbitrary member ID.
+    if (idGraph(IdMappingMode::EXACT).toGroups(*loop_group).size() != 1) {
+      continue;
+    }
+
+    broadcast_only_loop_group_ids_.insert(
+        loop_group->begin(), loop_group->end());
+  }
+
   // Make an intersection of the exact and loop map. This will group together
   // entries in each loop group that are exact with each other. This provides a
   // better graph to do promotion and replays.
@@ -470,6 +492,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   if (loop_promotion_map_to_propagate.empty()) {
     auto final_loop_promotion_map = updateValGroupIdMap(
         initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
+    revertBroadcastOnlyLoopGroups(final_loop_promotion_map);
     sanityCheckLoopPromotionMap(final_loop_promotion_map);
     return final_loop_promotion_map;
   }
@@ -537,6 +560,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   final_loop_promotion_map = updateValGroupIdMap(
       final_loop_promotion_map, idGraph(IdMappingMode::LOOP));
 
+  revertBroadcastOnlyLoopGroups(final_loop_promotion_map);
   sanityCheckLoopPromotionMap(final_loop_promotion_map);
 
   if (callback_) {
@@ -692,10 +716,8 @@ Expr* findMatchingExpr(
   // iel_graph, it means the domain is just replayed and by definition
   // has no mapping with any existing domain, which means there's no
   // matching expr.
-  if (std::any_of(
-          maybe_promoted_inputs.begin(),
-          maybe_promoted_inputs.end(),
-          [&](IterDomain* maybe_promoted_input) -> bool {
+  if (std::ranges::any_of(
+          maybe_promoted_inputs, [&](IterDomain* maybe_promoted_input) -> bool {
             return !iel_graph.hasGroup(maybe_promoted_input);
           })) {
     return nullptr;
@@ -972,7 +994,7 @@ LoopPromotionMapBuilder::computeCoveredGroups(
 
     // Initialize broadcast groups to empty since broadcast domains
     // don't matter for indexing
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
+    if (std::ranges::any_of(*id_group, [&](Val* id) {
           return id->as<IterDomain>()->isBroadcast();
         })) {
       covered_group_map[id_group] = std::make_shared<CoveredGroups>();
@@ -980,12 +1002,6 @@ LoopPromotionMapBuilder::computeCoveredGroups(
   }
 
   ValGraphStmtSort exact_stmt_sort(exact_graph, input_groups_of_graph);
-#if 0
-  std::cerr << "Sorted exprs:\n";
-  for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
-    std::cerr << exact_expr->front()->toString();
-  }
-#endif
   for (const ExprGroup& exact_expr : exact_stmt_sort.exprs()) {
     const std::vector<ValGroup> input_groups =
         exact_graph.inputGroups(exact_expr);
@@ -1180,12 +1196,9 @@ VectorOfUniqueEntries<IterDomain*> LoopPromotionMapBuilder::
       // then it's a terminal ID
       bool all_outs_in_loop_group = true;
       for (auto use : uses_it->second) {
-        if (std::any_of(
-                use->outputs().begin(),
-                use->outputs().end(),
-                [&](Val* out) -> bool {
-                  return group != idGraph(IdMappingMode::LOOP).toGroup(out);
-                })) {
+        if (std::ranges::any_of(use->outputs(), [&](Val* out) -> bool {
+              return group != idGraph(IdMappingMode::LOOP).toGroup(out);
+            })) {
           all_outs_in_loop_group = false;
           break;
         }
@@ -1291,6 +1304,47 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::
   }
 
   return map;
+}
+
+void LoopPromotionMapBuilder::revertBroadcastOnlyLoopGroups(
+    std::unordered_map<ValGroup, IterDomain*>& loop_promotion_map) const {
+  // If a loop group originally only consisted of broadcast IDs
+  // and now is promoted to a non-broadcast ID, it should not need to
+  // be promoted.
+  for (auto& [loop_group, current_promotion_id] : loop_promotion_map) {
+    if (current_promotion_id->isBroadcast()) {
+      continue;
+    }
+
+    // As long as there's a single ID marked as broadcast only, this
+    // group originally consisted of broadcast IDs only. Note that,
+    // since new IDs were added as part of the promotion analysis, not
+    // all of the IDs are included in the broadcast only set.
+    IterDomain* original_broadcast_id = nullptr;
+    for (auto val : *loop_group) {
+      if (broadcast_only_loop_group_ids_.contains(val)) {
+        original_broadcast_id = val->as<IterDomain>();
+        break;
+      }
+    }
+    if (original_broadcast_id == nullptr) {
+      continue;
+    }
+
+    // Note that this promotion should be valid for the existing
+    // IDs that originate from the fusion, but the loop group also
+    // contains other non-broadcast IDs for loop promotion, e.g.,
+    // current_promotion_id. This replacement means those
+    // non-broadcast IDs are also promoted to the broadcast ID, which
+    // does not make sense. For example, in the case of
+    // IdModelTest.BroadcastOnlyNoLoopPromotion, the innermost loop ID
+    // of tv2 has no mapping in the original fusion, but its loop
+    // group gets additional IDs, iS17 and iS19, both of which are
+    // exact mapped with the innermost loop IDs of tv1 and tv3.
+    //
+    // TODO: Consider cleaning up the unused non-broadcast IDs.
+    current_promotion_id = original_broadcast_id;
+  }
 }
 
 } // namespace nvfuser

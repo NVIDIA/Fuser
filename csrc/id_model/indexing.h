@@ -152,6 +152,11 @@ class TensorIndexer {
       Val* index,
       const std::vector<ForLoop*>& for_loops) const;
 
+  // Check if a given fusion can be indexed with
+  // TensorIndexer. Returns fals if the fusion uses features that have
+  // only been implemented for the old indexer.
+  static bool isSupported(Fusion* fusion);
+
  private:
   // Build a map of loop groups to their index Vals. See the comment
   // on loop_index_map_.

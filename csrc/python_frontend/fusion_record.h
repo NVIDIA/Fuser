@@ -413,7 +413,7 @@ struct SliceOpRecord : RecordFunctor {
     const std::vector<Val*>& stride =
         fd.getFusionStateVector(args_.at(3).index);
     std::vector<Slice> vec_slice;
-    for (const auto idx : c10::irange(arg->domain()->noReductions().size())) {
+    for (const auto idx : arange(arg->domain()->noReductions().size())) {
       // NOTE: there's an extra move, we can use emplace_back if we go write
       // some constructors for Slice.
       Val* start_idx = start.at(idx);
@@ -794,7 +794,7 @@ struct BroadcastInDimOpRecord : RecordFunctor {
         arg->toString());
 
     std::vector<bool> is_broadcast_dim(output_ndims_, true);
-    for (const auto idx : c10::irange(broadcast_dims_.size())) {
+    for (const auto idx : arange(broadcast_dims_.size())) {
       if (idx > 0) {
         NVF_CHECK(
             broadcast_dims_[idx - 1] < broadcast_dims_[idx],
@@ -1327,7 +1327,7 @@ struct TensorRecord : RecordFunctor {
     auto rank = shape_.size();
     std::vector<bool> is_expand(rank);
 
-    for (const auto index : c10::irange(rank)) {
+    for (const auto index : arange(rank)) {
       // since contiguity_ vector is given to the corresponding order in alloc
       // domain, while is_expand is given to root domain, we need to map it
       // correctly with `contig_index` and `index`.
@@ -1489,7 +1489,7 @@ struct OutputRecord : RecordFunctor {
   //! | stride_order hash                              |
   size_t hash() const final {
     size_t stride_order_hash = 0;
-    for (auto i : c10::irange(stride_order_.size())) {
+    for (auto i : arange(stride_order_.size())) {
       stride_order_hash = (stride_order_hash << 4) | stride_order_[i];
     }
     return RecordFunctor::hash() | (stride_order_hash & 0xffffffff);
@@ -1617,7 +1617,7 @@ struct ReductionOpRecord : RecordFunctor {
     size_t axes_hash = 0;
     // Normally I would make a little endian hash of the axes but I do not
     // know the size of the tensor based on just the record information.
-    for (auto i : c10::irange(axes_.size())) {
+    for (auto i : arange(axes_.size())) {
       axes_hash |= (1 << axes_[i]);
     }
 
@@ -2163,7 +2163,7 @@ struct NormOpRecord : RecordFunctor {
     size_t axes_hash = 0;
     // Normally I would make a little endian hash of the axes but I do not
     // know the size of the tensor based on just the record information.
-    for (auto i : c10::irange(axes_.size())) {
+    for (auto i : arange(axes_.size())) {
       axes_hash |= (1 << axes_[i]);
     }
     return result | (static_cast<size_t>(keep_dim_) << 28) |
@@ -2484,7 +2484,7 @@ struct TensorSizesRecord : RecordFunctor {
   void operator()(FusionState& fd) final {
     auto arg = fd.getFusionState(args_.at(0).index)->as<TensorView>();
     auto sizes = shape(arg);
-    for (const auto idx : c10::irange(sizes.size())) {
+    for (const auto idx : arange(sizes.size())) {
       fd.setFusionState(outputs_.at(idx).index, sizes[idx]);
     }
   }
