@@ -173,8 +173,8 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
     }
     // Number of columns must be a power of 2 with a minimum of 32.
     constexpr int64_t unit_of_allocation = 32;
-    Val* unit_of_allocation_val = IrBuilder::create<Val>(
-        unit_of_allocation, DataType::UInt32);
+    Val* unit_of_allocation_val =
+        IrBuilder::create<Val>(unit_of_allocation, DataType::UInt32);
     region.num_columns =
         IrBuilder::maybeCastExpr(DataType::UInt32, region.num_columns);
     region.num_columns = SimplifyingIrBuilder::maxExpr(
