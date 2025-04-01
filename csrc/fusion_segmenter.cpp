@@ -1994,6 +1994,42 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   return std::make_pair(complete_to_segment_map, std::move(fusion_segment));
 }
 
+namespace {
+void simplifyConstantScalars(Fusion* fusion) {
+  FUSER_PERF_SCOPE("simplifyConstantScalars");
+
+  std::unordered_map<Val*, Val*> replace_const_scalars;
+
+  // Find all scalar expressions with constant inputs
+  for (auto expr : fusion->exprs()) {
+    auto has_const =
+        std::any_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
+          return v->isConstScalar();
+        });
+    auto has_non_const =
+        std::any_of(expr->inputs().begin(), expr->inputs().end(), [](Val* v) {
+          return !v->isConstScalar();
+        });
+    if (!(has_const && has_non_const)) {
+      continue;
+    }
+    for (auto const_scalar : ir_utils::filterByType<Val>(expr->inputs())) {
+      if (!const_scalar->isConstScalar()) {
+        continue;
+      }
+      // No definition
+      if (const_scalar->isConst()) {
+        continue;
+      }
+      auto value = const_scalar->evaluate();
+      replace_const_scalars[const_scalar] =
+          IrBuilder::create<Val>(value, const_scalar->getDataType().value());
+    }
+  }
+  ir_utils::replaceValue(fusion, replace_const_scalars);
+}
+} // namespace
+
 std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     const Fusion* fusion,
     const KernelArgumentHolder& inputs,
@@ -2566,13 +2602,9 @@ class FusionSegmentGuard : public NonCopyable {
 #endif
 };
 
-SchedulerType tryMerge(
+SchedulerType findScheduler(
     SegmentedFusion* segmented_fusion,
-    SchedulerRuntimeInfo& runtime_info,
-    SegmentedGroup* a,
-    SegmentedGroup* b = nullptr) {
-  FusionSegmentGuard fsg(segmented_fusion, a, b);
-
+    SchedulerRuntimeInfo& runtime_info) {
   NVF_ERROR(
       !segmented_fusion->completeFusion()->unordered_exprs().empty(),
       "We shouldn't attempt to merge empty fusions. "
@@ -2583,6 +2615,16 @@ SchedulerType tryMerge(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+    if (Schedule::canSchedule(
+            SchedulerType::ExprEval,
+            segmented_fusion->completeFusion(),
+            runtime_info)) {
+      scheduler_debug_utils::canScheduleMessage(
+          "***Accepted*** as: ", SchedulerType::ExprEval);
+      return SchedulerType::ExprEval;
+    }
+    scheduler_debug_utils::canScheduleMessage(
+        "***Rejected*** failed tryingToMergeSegmenterSet");
     return SchedulerType::None;
   }
   return Schedule::proposeHeuristics(
@@ -2592,23 +2634,18 @@ SchedulerType tryMerge(
 SchedulerType tryMerge(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info,
+    SegmentedGroup* a,
+    SegmentedGroup* b = nullptr) {
+  FusionSegmentGuard fsg(segmented_fusion, a, b);
+  return findScheduler(segmented_fusion, runtime_info);
+}
+
+SchedulerType tryMerge(
+    SegmentedFusion* segmented_fusion,
+    SchedulerRuntimeInfo& runtime_info,
     const std::vector<SegmentedGroup*>& segmented_groups) {
   FusionSegmentGuard fsg(segmented_fusion, segmented_groups);
-
-  NVF_ERROR(
-      !segmented_fusion->completeFusion()->unordered_exprs().empty(),
-      "We shouldn't attempt to merge empty fusions. "
-      "This might not indicate a bug, "
-      "but it's definitely a change of world view that we should be aware of.");
-
-  scheduler_debug_utils::canScheduleMessage(
-      "\n**Segmenter** Considering fusion:\n",
-      segmented_fusion->completeFusion());
-  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
-    return SchedulerType::None;
-  }
-  return Schedule::proposeHeuristics(
-      segmented_fusion->completeFusion(), runtime_info);
+  return findScheduler(segmented_fusion, runtime_info);
 }
 
 // This function is for cleanup and
@@ -3941,6 +3978,9 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     bool multi_device)
     : options_(options), runtime_inputs_(inputs) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::SegmentCandidateFinder");
+  // Remove constant scalar expressions so they don't get segmented to the expr
+  // eval executor.
+  simplifyConstantScalars(fusion.get());
   NVF_ERROR(
       !options_.only_segment_resharding_exprs ||
           (!options_.run_translate_welford &&
@@ -3975,38 +4015,34 @@ void SegmentCandidateFinder::buildInitialSegments() {
   // Need this for initialization of the DAG that is process
   std::unordered_map<Expr*, SegmentedGroup*> expr2group;
 
-  // Initialize DAG, convert each expr to a segment group
-  auto exprs = completeFusion()->exprs();
-  for (auto expr : exprs) {
-    if (!ir_utils::isScalarOp(expr)) {
-      auto new_group = segmented_fusion_->newGroup(expr);
-      expr2group.insert(std::make_pair(expr, new_group));
-    }
-  }
-
   // TODO(wujingyue): remove singleton groups that are forwarded. They are
   // useless and cause duplication.
   forwardInputs();
 
-  // Create edges between the Exprs. Mark inputs and outputs of the fusion.
+  // Initialize DAG, convert each expr to a segment group
+  auto exprs = completeFusion()->exprs();
   for (auto expr : exprs) {
-    // No group created for scalar ops
-    if (ir_utils::isScalarOp(expr)) {
+    if (excluded_inp_unary_exprs_.has(expr)) {
       continue;
     }
+    auto new_group = segmented_fusion_->newGroup(expr);
+    expr2group.insert(std::make_pair(expr, new_group));
+  }
 
+  // Create edges between the Exprs. Mark inputs and outputs of the fusion.
+  for (auto expr : exprs) {
     if (excluded_inp_unary_exprs_.has(expr)) {
       continue;
     }
 
     SegmentedGroup* expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
-      if (isFusionInput(inp)) {
+      if (input2group_.count(inp)) {
         expr_group->input_vals.push_back(inp);
-        auto aux_group = input2group_.at(inp);
-        auto new_edge = segmented_fusion_->newEdge(aux_group, expr_group, inp);
+        auto inp_group = input2group_.at(inp);
+        auto new_edge = segmented_fusion_->newEdge(inp_group, expr_group, inp);
         expr_group->producer_edges.push_back(new_edge);
-        aux_group->consumer_edges.push_back(new_edge);
+        inp_group->consumer_edges.push_back(new_edge);
         continue;
       }
 
@@ -4014,12 +4050,6 @@ void SegmentCandidateFinder::buildInitialSegments() {
       // isn't an "input" to the fusion. At least not one provided by an
       // external source.
       if (inp->definition() == nullptr) {
-        continue;
-      }
-
-      // No group created for scalar ops since they may need to be duplicated
-      //  to avoid scalar edges. They are handled in resolveScalarsInGroup
-      if (inp->isScalar()) {
         continue;
       }
 
@@ -4073,42 +4103,173 @@ void SegmentCandidateFinder::trySetUpMerge(
   candidate_it->group->merge_through_ = candidate_it->edge;
 }
 
+SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
+  SegmentedGroup* group = segmented_fusion_->newFusionInputGroup();
+  group->input_vals = IterVisitor::getInputsTo({forwarded_input});
+  NVF_ERROR(
+      group->input_vals.size() == 1,
+      "This should only be used for forwarded inputs which should only connect to inputs through unary operations.");
+  group->exprs_ = StmtSort::getExprsTo({forwarded_input});
+  group->output_vals.push_back(forwarded_input);
+  input2group_.insert({group->input_vals[0], group});
+  return group;
+}
+
 void SegmentCandidateFinder::resolveForwardedInputs() {
-  FUSER_PERF_SCOPE("SegmentCandidateFinder::resolveForwardedInputs");
-  for (Val* forwarded_input : forwarded_fusion_inputs_) {
-    if (forwarded_input->isFusionInput()) {
-      // Nothing to resolve.
-      continue;
+  for (auto [forwarded_val, inp] : forward_val_to_input_) {
+    // Cleanup forwarded_val group before processing
+    auto inp_group = input2group_.at(forwarded_val);
+
+    // This input group will have all the unary expresions in it
+    auto new_inp_group = createInputGroup(forwarded_val);
+
+    // Get consumers, use VectorOfUniqueEntries to avoid duplicate consumers.
+    GroupSet consumers;
+    for (SegmentedEdge* edge : inp_group->consumer_edges) {
+      consumers.pushBack(edge->to);
     }
 
-    if (forwarded_input->isScalar()) {
-      // Scalar forwarded inputs will be resolved after this loop.
-      // resolveNonscalarForwardedInput resolves only non-scalar ones because
-      // consumer_edges of a scalar input is always empty due to
-      // `removeScalarEdges`.
-      continue;
-    }
+    bool can_merge_all_consumers = true;
 
-    resolveNonscalarForwardedInput(forwarded_input);
-    // aux_group will be removed from segmented_fusion_ by
-    // cleanupForwardedInputs.
-  }
-
-  // Un-forward scalar inputs unconditionally.
-  for (SegmentedGroup* group : segmented_fusion_->groups()) {
-    std::vector<Val*> forwarded_scalar_inputs;
-    for (Val* input_val : group->inputs()) {
-      if (!input_val->isFusionInput() && input_val->isScalar()) {
-        forwarded_scalar_inputs.push_back(input_val);
+    for (auto consumer : consumers) {
+      // Connect consumer
+      for (auto edge : consumer->producer_edges) {
+        if (edge->val == forwarded_val) {
+          edge->from = new_inp_group;
+          new_inp_group->consumer_edges.push_back(edge);
+        }
       }
+      can_merge_all_consumers = can_merge_all_consumers &&
+          codeGenSupportedMerge(new_inp_group, consumer);
     }
 
-    group->input_vals = IterVisitor::getInputsTo(group->inputs());
-    auto input_exprs = StmtSort::getExprsTo(forwarded_scalar_inputs);
-    // Insert those expressions at the beginning of the group
-    group->exprs_.insert(
-        group->exprs_.begin(), input_exprs.begin(), input_exprs.end());
+    if (can_merge_all_consumers) {
+      // Need to duplicate the new_inp_group for each consumer and merge them in
+      // one by one
+      bool first_consumer = true;
+      for (auto consumer : consumers) {
+        if (first_consumer) {
+          first_consumer = false;
+          continue;
+        }
+
+        auto duplicate_inp_group = createInputGroup(forwarded_val);
+
+        for (auto edge : consumer->producer_edges) {
+          if (edge->val == forwarded_val) {
+            edge->from = duplicate_inp_group;
+            duplicate_inp_group->consumer_edges.push_back(edge);
+          }
+        }
+        to_merge_.push_back(duplicate_inp_group);
+        to_merge_.push_back(consumer);
+        mergeNodes();
+      }
+
+      to_merge_.push_back(new_inp_group);
+      to_merge_.push_back(consumers.vector()[0]);
+      auto merged_group = mergeNodes();
+      input2group_[inp] = merged_group;
+
+    } else {
+      // If !can_merge_all_consumers, then we just need to set a scheduler to
+      // the input group
+      new_inp_group->setSchedulerType(deriveSchedulerType(new_inp_group));
+      input2group_[inp] = new_inp_group;
+    }
+
+    input2group_.erase(forwarded_val);
+    std::unordered_set<SegmentedGroup*> groups_to_erase;
+    groups_to_erase.insert(inp_group);
+    eraseGroups(groups_to_erase);
   }
+  //   bool can_merge = true;
+  //   for (auto group : groups_to_resolve) {
+  //     group->input_vals.erase(
+  //         std::remove(
+  //             group->input_vals.begin(),
+  //             group->input_vals.end(),
+  //             forwarded_val),
+  //         group->input_vals.end());
+
+  //     auto new_edge =
+  //         segmented_fusion_->newEdge(new_inp_group, group, forwarded_val);
+  //     new_inp_group->consumer_edges.push_back(new_edge);
+  //     group->producer_edges.push_back(new_edge);
+  //     can_merge = codeGenSupportedMerge(new_inp_group, group);
+  //     new_inp_group->consumer_edges.pop_back();
+  //     group->producer_edges.pop_back();
+  //     edges().erase(std::find(edges().begin(), edges().end(), new_edge));
+  //   }
+  //   // if (!can_merge) {
+  //   //   new_groups.pop_front();
+  //   //   break;
+  //   // }
+  //   if (can_merge) {
+  //     for (auto group : groups_to_resolve) {
+  //       if (new_inp_group == nullptr) {
+  //         new_inp_group = segmented_fusion_->newGroup();
+  //         new_inp_group->input_vals.push_back(inp);
+  //         new_inp_group->output_vals.push_back(forwarded_val);
+  //         new_inp_group->exprs_.insert(
+  //             new_inp_group->exprs_.begin(), exprs.begin(), exprs.end());
+  //       }
+  //       auto new_edge =
+  //           segmented_fusion_->newEdge(new_inp_group, group, forwarded_val);
+  //       new_inp_group->consumer_edges.push_back(new_edge);
+  //       group->producer_edges.push_back(new_edge);
+  //       can_merge = codeGenSupportedMerge(new_inp_group, group);
+  //       new_inp_group->consumer_edges.pop_back();
+  //       group->producer_edges.pop_back();
+
+  //       to_merge_.push_back(new_inp_group);
+  //       to_merge_.push_back(group);
+  //       mergeNodes();
+  //       new_inp_group = nullptr;
+  //     }
+  //   } else {
+  //     // TODO: handle the case where can_merge is false
+  //   }
+
+  //   input2group_.erase(forwarded_val);
+  //   std::unordered_set<SegmentedGroup*> groups_to_erase;
+  //   groups_to_erase.insert(inp_group);
+  //   eraseGroups(groups_to_erase);
+  // }
+  // for(auto group : groups()) {
+  //   for(auto forward_val : group->input_vals) {
+  //     if(!forward_val_to_input_.count(forward_val)) {
+  //       continue;
+  //     }
+  //     Val* inp = forward_val_to_input_[forward_val];
+  //     group->input_vals.push_back(inp);
+  //     group->input_vals.erase(
+  //       std::remove(group->input_vals.begin(), group->input_vals.end(),
+  //       forward_val), group->input_vals.end()
+  //     );
+  //     auto exprs = DependencyCheck::getAllExprsBetween(
+  //       {inp},
+  //       {forward_val}
+  //     );
+  //     group->exprs_.insert(
+  //       group->exprs_.begin(),
+  //       exprs.begin(),
+  //       exprs.end()
+  //     );
+  //   }
+  // }
+
+  // for (Val* forwarded_input : forwarded_fusion_inputs_) {
+  //   std::cout<<"Forwarded input: "<<forwarded_input->toString()<<std::endl;
+  //   if (forwarded_input->isFusionInput()) {
+  //     // Nothing to resolve.
+  //     continue;
+  //   }
+
+  //   resolveForwardedInput(forwarded_input);
+  //   // inp_group will be removed from segmented_fusion_ by
+  //   // cleanupForwardedInputs.
+  // }
 }
 
 void SegmentCandidateFinder::findSegments() {
@@ -4138,10 +4299,6 @@ void SegmentCandidateFinder::findSegments() {
       group->setSchedulerType(deriveSchedulerType(group));
     }
   }
-
-  // Remove all scalar edges since they do not represent actual
-  //  dependency among segmented groups.
-  removeScalarEdges();
 
   // Run pre-merge heuristics
   MergeUpAndDownCast::run(this);
@@ -4193,9 +4350,38 @@ void SegmentCandidateFinder::findSegments() {
 
   validateIfDebug();
 
+  std::cout << "Before resolveForwardedInputs" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
+    }
+    for (auto out : group->output_vals) {
+      std::cout << "  Output: " << out->toString() << std::endl;
+    }
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
+    }
+  }
+
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-
+  std::cout << "After resolveForwardedInputs" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
+    }
+    for (auto out : group->output_vals) {
+      std::cout << "  Output: " << out->toString() << std::endl;
+    }
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
+    }
+  }
+  NVF_THROW("TMP");
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
   // from fusion inputs may be shared in multiple groups.
@@ -4206,6 +4392,25 @@ void SegmentCandidateFinder::findSegments() {
 
   finalize();
 
+  for (auto group : groups()) {
+    // I don't understand why but we're getting some duplicate inputs for the
+    // following segment: Group: pointwise{0} Inputs:
+    //   T0_g_float[iS0{2}, iS1{3}]
+    // Outputs:
+    //   T1_g_float[iS2{2}, iS3{3}]
+
+    // %kernel_math {
+    // T1_g_float[iS2{2}, iS3{3}]
+    //    = T0_g_float[iS0{2}, iS1{3}]
+    //    + T0_g_float[iS0{2}, iS1{3}];
+    // } // %kernel_math
+    // It's listing T0 as an input twice. For now WAR with deduplicating the
+    // inputs.
+    //
+    // TODO: Figure out what's happening in segmentation to make sure this
+    // doesn't happen.
+    group->input_vals = VectorOfUniqueEntries<Val*>(group->input_vals).vector();
+  }
   // run reset levels to validate the final graph is a DAG. reset levels will
   // fail if not.
   resetLevels();
@@ -4433,6 +4638,10 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
+  if (isResharding(unary_use)) {
+    return nullptr;
+  }
+
   // prevent forward to a SegmenterSet, which could cause unary op forward to a
   // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
   if (std::any_of(
@@ -4459,59 +4668,53 @@ void SegmentCandidateFinder::forwardInputs() {
 
   // "Terminating" outputs from the excluded input unary exprs, these will be
   // treated as complete fusion inputs.
-  VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
-    std::deque<UnaryOp*> to_visit;
     for (Val* inp : completeFusion()->inputs()) {
-      if (UnaryOp* unary_use = shouldForward(inp)) {
-        to_visit.push_back(unary_use);
+      if (!shouldForward(inp)) {
+        continue;
       }
-    }
+      Val* forward_val = inp;
+      while (shouldForward(forward_val)) {
+        auto next_val = forward_val->uses().front()->outputs()[0];
+        if (next_val->isFusionOutput()) {
+          break;
+        }
 
-    while (!to_visit.empty()) {
-      UnaryOp* uop = to_visit.front();
-      to_visit.pop_front();
+        // Don't forward if we can't generate a single schedule from input to
+        // next_val
+        FusionSegmentGuard fsg(
+            segmented_fusion_->completeFusion(),
+            std::vector<Val*>{inp},
+            std::vector<Val*>{next_val});
+        auto supported_merge =
+            findScheduler(segmented_fusion_.get(), runtimeInfo());
+        if (supported_merge == SchedulerType::None) {
+          break;
+        }
 
-      if (UnaryOp* unary_use = shouldForward(uop->out())) {
-        to_visit.push_back(unary_use);
-      } else {
-        // We cannot extend the chain of unary ops, so we finalize this chain by
-        // saving its output as a forwarded input.
-        forwarded_inputs.pushBack(uop->out());
+        excluded_inp_unary_exprs_.pushBack(
+            forward_val->uses().front()->as<UnaryOp>());
+        forward_val = next_val;
       }
-      // Either way, `uop` is excluded from merging until
-      // `resolveNonscalarForwardedInput` adds it back to one of the segments.
-      excluded_inp_unary_exprs_.pushBack(uop);
+      input_to_forward_val_[inp] = forward_val;
+      forward_val_to_input_[forward_val] = inp;
     }
   }
 
-  auto excluded_fusion_inputs = IterVisitor::getInputsTo(
-      {forwarded_inputs.begin(), forwarded_inputs.end()});
-
-  // List of vals to treat as complete fusion inputs for segmentation
-  forwarded_fusion_inputs_ = completeFusion()->inputs();
-
-  forwarded_fusion_inputs_.erase(
-      std::remove_if(
-          forwarded_fusion_inputs_.begin(),
-          forwarded_fusion_inputs_.end(),
-          [&excluded_fusion_inputs](Val* inp) {
-            return std::find(
-                       excluded_fusion_inputs.begin(),
-                       excluded_fusion_inputs.end(),
-                       inp) != excluded_fusion_inputs.end();
-          }),
-      forwarded_fusion_inputs_.end());
-
-  forwarded_fusion_inputs_.insert(
-      forwarded_fusion_inputs_.end(),
-      forwarded_inputs.begin(),
-      forwarded_inputs.end());
-
-  // Insert auxiliary groups to use group dependency on inputs as well
-  for (auto input : forwarded_fusion_inputs_) {
+  for (auto [inp, forward_val] : input_to_forward_val_) {
+    // TODO: Can forwarded_fusion_inputs_ be removed?
+    forwarded_fusion_inputs_.push_back(inp);
+    forwarded_fusion_inputs_.push_back(forward_val);
     auto new_group = segmented_fusion_->newFusionInputGroup();
-    input2group_.insert({input, new_group});
+    input2group_.insert({forward_val, new_group});
+  }
+
+  for (Val* inp : completeFusion()->inputs()) {
+    if (input_to_forward_val_.count(inp)) {
+      continue;
+    }
+    auto new_group = segmented_fusion_->newFusionInputGroup();
+    input2group_.insert({inp, new_group});
   }
 }
 
@@ -4590,181 +4793,25 @@ void SegmentCandidateFinder::finalMerge() {
   }
 }
 
-void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
-  std::vector<Val*> to_visit;
-  std::unordered_set<Val*> visited;
-
-  const auto processTV = [&to_visit](TensorView* tv) {
-    for (auto id : TensorDomain::noReductions(tv->getMaybeRootDomain())) {
-      to_visit.push_back(id->getMaybeExpandedExtent());
-    }
-    if (tv->domain()->hasRoot()) {
-      // traverse from root to logical and inspect all Expr attrs and outputs
-      std::vector<Val*> all_vals;
-      for (const auto id_expr : StmtSort::getExprsBetween(
-               {tv->getRootDomain().begin(), tv->getRootDomain().end()},
-               {tv->getLogicalDomain().begin(),
-                tv->getLogicalDomain().end()})) {
-        all_vals.insert(
-            all_vals.end(), id_expr->inputs().begin(), id_expr->inputs().end());
-        all_vals.insert(
-            all_vals.end(),
-            id_expr->outputs().begin(),
-            id_expr->outputs().end());
-        for (const auto attr : id_expr->attributes()) {
-          if (attr && attr->isVal()) {
-            all_vals.push_back(attr->asVal());
-          }
-        }
-        for (const auto val : all_vals) {
-          if (val->isScalar()) {
-            to_visit.push_back(val);
-          } else if (const auto id = dynamic_cast<IterDomain*>(val)) {
-            to_visit.push_back(id->getMaybeExpandedExtent());
-          }
-        }
-      }
-    }
-  };
-
-  // Segment TensorView inputs will have their logical extents available, so we
-  // avoid adding them as separate scalar inputs.
-  for (auto e : group->producer_edges) {
-    if (const auto tv = dynamic_cast<TensorView*>(e->val)) {
-      for (auto id : TensorDomain::noReductions(tv->getLogicalDomain())) {
-        visited.insert(id->getMaybeExpandedExtent());
-      }
-    }
-  }
-
-  // Collect all scalar uses in the group
-  for (auto expr : group->exprs()) {
-    for (auto input : expr->inputs()) {
-      if (input->isScalar()) {
-        to_visit.push_back(input);
-      } else if (auto tv = dynamic_cast<TensorView*>(input); tv &&
-                 std::none_of(group->producer_edges.begin(),
-                              group->producer_edges.end(),
-                              [&tv](SegmentedEdge* e) {
-                                return e->val == tv;
-                              })) {
-        // Intermediate group inputs (producer edges) will have their logical
-        // domain reassigned as the root domain, so there is no need to process
-        // them. Tensors computed inside this group will need processing,
-        // however, as their root->logical transforms must be computed in this
-        // group.
-        processTV(tv);
-      }
-    }
-    for (auto attr : expr->attributes()) {
-      auto attr_val = dynamic_cast<Val*>(attr);
-      if (!attr_val) {
-        continue;
-      }
-      if (attr_val->isScalar()) {
-        to_visit.push_back(attr_val);
-      } else if (auto tv = dynamic_cast<TensorView*>(attr_val)) {
-        processTV(tv);
-      }
-    }
-    for (auto output : expr->outputs()) {
-      // We must be able to compute output extents for expression, so here we
-      // ensure the scalars involved are all available to this group
-      if (auto tv = dynamic_cast<TensorView*>(output)) {
-        processTV(tv);
-      }
-    }
-  }
-
-  // Keep track of composite fusion inputs used in this group
-  std::unordered_set<Val*> input_set;
-  for (auto inp : group->input_vals) {
-    input_set.insert(inp);
-    if (auto tv = dynamic_cast<TensorView*>(inp)) {
-      for (IterDomain* id :
-           TensorDomain::noReductions(tv->getLogicalDomain())) {
-        // Extents of inputs will already be bound. This prevents adding them
-        // as redundant inputs.
-        input_set.insert(id->getMaybeExpandedExtent());
-      }
-    }
-  }
-
-  // Record and append all missing scalar exprs at the end.
-  std::vector<Expr*> exprs_to_add;
-
-  // Do a stack based traversal of the scalar ops to avoid
-  //  combinatorial duplication of exprs.
-  while (!to_visit.empty()) {
-    auto stack_top_val = to_visit.back();
-    if (visited.count(stack_top_val)) {
-      to_visit.pop_back();
-    } else if (stack_top_val->definition() == nullptr) {
-      // A scalar without def can be a scalar, a tensor dim,
-      //  or a composite fusion input
-      // The first two cases are handled in finalize(),
-      //  the last case needs to add new input_val to this group.
-      visited.insert(stack_top_val);
-      // If this is a composite fusion scalar input, make sure this group has it
-      if (stack_top_val->isFusionInput() && !input_set.count(stack_top_val)) {
-        group->input_vals.push_back(stack_top_val);
-        input_set.insert(stack_top_val);
-      }
-      to_visit.pop_back();
-    } else {
-      // A scalar with an actual definition
-      auto definition_expr = stack_top_val->definition();
-      bool all_inputs_visited = true;
-      // If any of the inputs are not visited, visit them first
-      for (auto input : definition_expr->inputs()) {
-        if (!visited.count(input)) {
-          all_inputs_visited = false;
-          to_visit.push_back(input);
-        }
-      }
-      // This node is ready to be visited
-      if (all_inputs_visited) {
-        // Collect the defining expr to insert into group
-        exprs_to_add.push_back(definition_expr);
-        visited.insert(stack_top_val);
-        to_visit.pop_back();
-      }
-    }
-  }
-
-  // Add all the defining expr to the group
-  for (auto expr : exprs_to_add) {
-    group->exprs_.push_back(expr);
-  }
-}
-
-SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
-  SegmentedGroup* group = segmented_fusion_->newGroup();
-  group->input_vals = IterVisitor::getInputsTo({forwarded_input});
-  group->exprs_ = StmtSort::getExprsTo({forwarded_input});
-  return group;
-}
-
-void SegmentCandidateFinder::resolveNonscalarForwardedInput(
-    Val* forwarded_input) {
-  SegmentedGroup* aux_group = input2group_.at(forwarded_input);
-  NVF_ERROR(aux_group->producer_edges.empty());
+void SegmentCandidateFinder::resolveForwardedInput(Val* forwarded_input) {
+  SegmentedGroup* inp_group = input2group_.at(forwarded_input);
+  NVF_ERROR(inp_group->producer_edges.empty());
 
   // use unordered_set to avoid duplicated group in consumers.
   // duplicated entry in consumer would make use call
   // codeGenSupportedMerge(input_group, consumer) twice. Where the second time
   // the connection has already been severed by mergeNodes().
   GroupSet consumers;
-  for (SegmentedEdge* edge : aux_group->consumer_edges) {
+  for (SegmentedEdge* edge : inp_group->consumer_edges) {
     consumers.pushBack(edge->to);
   }
-  aux_group->consumer_edges.clear();
+  inp_group->consumer_edges.clear();
 
   for (SegmentedGroup* consumer : consumers) {
     SegmentedGroup* input_group = createInputGroup(forwarded_input);
 
     for (SegmentedEdge*& edge : consumer->producer_edges) {
-      if (edge->from == aux_group && edge->val == forwarded_input) {
+      if (edge->from == inp_group && edge->val == forwarded_input) {
         edge->from = input_group;
         input_group->consumer_edges.push_back(edge);
       }
@@ -4779,33 +4826,22 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
       NVF_ERROR(to_merge_.empty());
       to_merge_.push_back(input_group);
       to_merge_.push_back(consumer);
-      mergeNodes();
+      auto merged_group = mergeNodes();
+      std::cout << "--------------------------------" << std::endl;
+      std::cout << toString(merged_group) << std::endl;
+      std::cout << "Inputs: " << std::endl;
+      for (auto inp : merged_group->input_vals) {
+        std::cout << toString(inp) << std::endl;
+      }
+      std::cout << "Exprs: " << std::endl;
+      for (auto expr : merged_group->exprs()) {
+        std::cout << toString(expr) << std::endl;
+      }
+      std::cout << "Outputs: " << std::endl;
+      for (auto out : merged_group->output_vals) {
+        std::cout << toString(out) << std::endl;
+      }
     }
-  }
-}
-
-void SegmentCandidateFinder::removeScalarEdges() {
-  FUSER_PERF_SCOPE("SegmentCandidateFinder::removeScalarEdges");
-  // Remove all scalar edges between groups
-  //  They may have been created by welford
-  //   translation.
-  //  we will not need them after scalar
-  //  resolution
-  auto remove_scalar_edges_from_vec = [](std::vector<SegmentedEdge*>& edges) {
-    edges.erase(
-        std::remove_if(
-            edges.begin(),
-            edges.end(),
-            [](SegmentedEdge* segmented_edge) {
-              return segmented_edge->val->isScalar();
-            }),
-        edges.end());
-  };
-
-  remove_scalar_edges_from_vec(edges());
-  for (auto group : groups()) {
-    remove_scalar_edges_from_vec(group->producer_edges);
-    remove_scalar_edges_from_vec(group->consumer_edges);
   }
 }
 
@@ -4831,11 +4867,6 @@ void SegmentCandidateFinder::finalize() {
 
   // Finalize connections between segmented groups
   segmented_fusion_->finalize();
-
-  // Resolve all the scalar expressions needed in each group
-  for (auto group : segmented_fusion_->groups()) {
-    resolveScalarsInGroup(group);
-  }
 
   for (auto group : segmented_fusion_->groups()) {
     revertPrivatizedUpcast(group);
@@ -4898,10 +4929,6 @@ void SegmentedFusion::validateDisjoint() const {
     }
 
     for (auto expr : group->exprs()) {
-      // Allow scalar exprs to exist in multiple groups
-      if (ir_utils::isScalarOp(expr)) {
-        continue;
-      }
       NVF_ERROR(
           exprs.insert(expr).second,
           "Duplicate expression detected: ",

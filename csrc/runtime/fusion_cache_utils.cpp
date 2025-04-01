@@ -171,6 +171,10 @@ void prepareRuntimeOrder(
     }
   }
 
+  for (auto group : segmented_fusion->groups()) {
+    std::cout << "Group: " << toString(group) << std::endl;
+    group->getFusion()->print();
+  }
   // Keep track of groups that has run
   std::vector<bool> group_ran(segmented_fusion->groups().size(), false);
 
@@ -181,6 +185,9 @@ void prepareRuntimeOrder(
     // Find the first segment with all inputs available to run
     for (const size_t group_i :
          c10::irange(segmented_fusion->groups().size())) {
+      if (group_ran[group_i]) {
+        continue;
+      }
       auto& group = segmented_fusion->groups()[group_i];
       if (group_ran[group_i]) {
         continue;
@@ -192,6 +199,7 @@ void prepareRuntimeOrder(
           [&available_input](Val* val) { return available_input.count(val); });
 
       if (ready_to_run) {
+        std::cout << "Running group: " << toString(group) << std::endl;
         runtime_workspace.group_run_order.push_back(group);
         const auto& group_outputs = group->outputs();
 
@@ -203,6 +211,23 @@ void prepareRuntimeOrder(
         one_ran = true;
       }
     }
+
+    for (const size_t group_i :
+         c10::irange(segmented_fusion->groups().size())) {
+      std::cout << "Checking: " << toString(segmented_fusion->groups()[group_i])
+                << std::endl;
+      auto& group = segmented_fusion->groups()[group_i];
+      if (group_ran[group_i]) {
+        continue;
+      }
+      const auto& group_inputs = group->inputs();
+      for (auto group_inp : group_inputs) {
+        if (!available_input.count(group_inp)) {
+          std::cout << "Not available: " << group_inp->toString() << std::endl;
+        }
+      }
+    }
+
     NVF_ERROR(
         one_ran,
         "Couldn't run all groups, something must have gone wrong in segmentation.");
