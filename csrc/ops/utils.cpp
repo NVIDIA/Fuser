@@ -147,14 +147,8 @@ IterType promoteIterType(IterType type1, IterType type2) {
   // Stride: Shold not appear here
   // VectorComponent: Converted to Iteration
 
-  NVF_ERROR(
-      type1 != IterType::Reduction,
-      "Invalid IterType: ",
-      type1)
-  NVF_ERROR(
-      type2 != IterType::Reduction,
-      "Invalid IterType: ",
-      type2);
+  NVF_ERROR(type1 != IterType::Reduction, "Invalid IterType: ", type1)
+  NVF_ERROR(type2 != IterType::Reduction, "Invalid IterType: ", type2);
 
   // Do not propagate GatherScatter and VectorComponent
   if (type1 == IterType::VectorComponent || type1 == IterType::GatherScatter) {
