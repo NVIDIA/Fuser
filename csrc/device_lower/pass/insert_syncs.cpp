@@ -1142,6 +1142,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // Establish all tma loads in LoadWarp are used by WgMma operations in
     // ComputeWarp.
     for (Expr* expr : warp_specialized_async_exprs_to_protect_) {
+      if (ir_utils::isCpAsyncBulkStore(expr)) {
+          continue;
+      }
       NVF_ERROR(std::all_of(
           expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
             return warp_specialized_async_inputs_in_current_scope_.count(val);

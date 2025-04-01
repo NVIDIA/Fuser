@@ -5271,7 +5271,7 @@ TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
 
   KernelExecutor ke;
   ke.compile(&fusion, inputs);
-  fusion.printKernel();
+  std::cout << ke.compiledKernel()->kernelString() << std::endl;
   /*
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
   auto cg_outputs = ke.run(inputs);
