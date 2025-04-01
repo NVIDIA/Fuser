@@ -100,6 +100,10 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->print(os);
   };
 
+  const std::unique_ptr<HostIrContainer>& getHostIrContainer() const {
+    return container_;
+  }
+
   const auto& getFusionExecutorCaches() {
     return fec_;
   };

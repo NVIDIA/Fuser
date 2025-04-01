@@ -200,70 +200,6 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 }
 
 namespace {
-/*
-std::vector<Expr*> toposortExprs(
-    SegmentedFusion* fusion,
-    SegmentedGroup* group) {
-
-  std::vector<Expr*> group_exprs = group->exprs();
-  
-  std::vector<Val*> input_vals;
-  std::unordered_set<Val*> input_set;
-  for (auto expr : group_exprs) {
-    for (auto input : expr->inputs()) {
-      if (!input->isFusionInput() && input_set.insert(input).second) {
-        input_vals.push_back(input);
-      }
-    }
-  }
-
-  for (auto input : group->inputs()) {
-    input_vals.push_back(input);
-  }
-
-  std::vector<Val*> output_vals;
-  std::unordered_set<Val*> output_set;
-  for (auto expr : group_exprs) {
-    for (auto output : expr->outputs()) {
-      if (output_set.insert(output).second) {
-        output_vals.push_back(output);
-      }
-    }
-  }
-
-  for (auto output : group->outputs()) {
-    output_vals.push_back(output);
-  }
-
-  std::vector<Expr*> exprs = StmtSort::getExprsBetween(input_vals, output_vals, true, true, true);
-  std::reverse(exprs.begin(), exprs.end());
-
-  NVF_CHECK(exprs.size() == group_exprs.size(), "Exprs should not have been lost during toposortExprs");
-  return exprs;
-}
-*/
-/*
-std::vector<Expr*> toposortExprs(
-    SegmentedFusion* fusion,
-    SegmentedGroup* group) {
-  std::vector<Expr*> sorted_exprs;
-  {
-    auto
-        [group_ir_cloner,
-         group_fusion] = fusion->makeFusion(group);
-    std::unordered_map<Expr*, Expr*> inverse_clone_map;
-    for (auto expr : group->exprs()) { // Sorts the exprs in the group
-      inverse_clone_map[group_ir_cloner.clone(expr)] = expr;
-    }
-    for (auto cloned_expr : group_fusion->exprs()) {
-      sorted_exprs.push_back(inverse_clone_map[cloned_expr]);
-    }
-  }
-  NVF_CHECK(sorted_exprs.size() == group->exprs().size(), "Exprs should not have been lost during toposortExprs");
-  return sorted_exprs;
-}
-*/
-
 std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group) {
   const std::vector<Expr*>& exprs = group->exprs();
   std::vector<Expr*> exprs_to_print(exprs.begin(), exprs.end());
@@ -307,7 +243,6 @@ std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group)
   NVF_CHECK(sorted_list.size() == group->exprs().size(), "Exprs should not have been lost during toposortExprs");
   return sorted_list;
 }
-
 } // namespace
 
 void FusionKernelRuntime::deserialize(
