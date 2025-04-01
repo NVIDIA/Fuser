@@ -228,7 +228,7 @@ TEST_F(TMemTest, dtypes) {
             } else {
               continue;
             }
-            Val* alloc_size = expr->input(0);
+            Val* alloc_size = expr->input(1);
             Val* expected_size = IrBuilder::create<Val>(static_cast<int64_t>(
                 std::bit_ceil(static_cast<uint64_t>(vec_bytes / 4))));
             EXPECT_TRUE(
@@ -446,7 +446,7 @@ TEST_P(TMemAllocationSize, CopyKernel) {
         } else {
           continue;
         }
-        Val* alloc_size = expr->input(0);
+        Val* alloc_size = expr->input(1);
         Val* expected_size = IrBuilder::create<Val>(static_cast<int64_t>(
             std::bit_ceil(static_cast<uint64_t>(num_cols))));
         EXPECT_TRUE(simplifyExpr(IrBuilder::eqExpr(alloc_size, expected_size))
