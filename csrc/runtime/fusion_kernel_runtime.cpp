@@ -200,14 +200,57 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 }
 
 namespace {
+/*
+std::vector<Expr*> toposortExprs(
+    SegmentedFusion* fusion,
+    SegmentedGroup* group) {
+
+  std::vector<Expr*> group_exprs = group->exprs();
+  
+  std::vector<Val*> input_vals;
+  std::unordered_set<Val*> input_set;
+  for (auto expr : group_exprs) {
+    for (auto input : expr->inputs()) {
+      if (!input->isFusionInput() && input_set.insert(input).second) {
+        input_vals.push_back(input);
+      }
+    }
+  }
+
+  for (auto input : group->inputs()) {
+    input_vals.push_back(input);
+  }
+
+  std::vector<Val*> output_vals;
+  std::unordered_set<Val*> output_set;
+  for (auto expr : group_exprs) {
+    for (auto output : expr->outputs()) {
+      if (output_set.insert(output).second) {
+        output_vals.push_back(output);
+      }
+    }
+  }
+
+  for (auto output : group->outputs()) {
+    output_vals.push_back(output);
+  }
+
+  std::vector<Expr*> exprs = StmtSort::getExprsBetween(input_vals, output_vals, true, true, true);
+  std::reverse(exprs.begin(), exprs.end());
+
+  NVF_CHECK(exprs.size() == group_exprs.size(), "Exprs should not have been lost during toposortExprs");
+  return exprs;
+}
+*/
+/*
 std::vector<Expr*> toposortExprs(
     SegmentedFusion* fusion,
     SegmentedGroup* group) {
   std::vector<Expr*> sorted_exprs;
   {
     auto
-        [/*IrCloner*/ group_ir_cloner,
-         /*std::unique_ptr<Fusion>*/ group_fusion] = fusion->makeFusion(group);
+        [group_ir_cloner,
+         group_fusion] = fusion->makeFusion(group);
     std::unordered_map<Expr*, Expr*> inverse_clone_map;
     for (auto expr : group->exprs()) { // Sorts the exprs in the group
       inverse_clone_map[group_ir_cloner.clone(expr)] = expr;
@@ -216,7 +259,53 @@ std::vector<Expr*> toposortExprs(
       sorted_exprs.push_back(inverse_clone_map[cloned_expr]);
     }
   }
+  NVF_CHECK(sorted_exprs.size() == group->exprs().size(), "Exprs should not have been lost during toposortExprs");
   return sorted_exprs;
+}
+*/
+
+std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group) {
+  const std::vector<Expr*>& exprs = group->exprs();
+  std::vector<Expr*> exprs_to_print(exprs.begin(), exprs.end());
+  std::unordered_set<Expr*> exprs_to_print_set(exprs.begin(), exprs.end());
+  std::unordered_set<Expr*> exprs_visited;
+  std::vector<Expr*> sorted_list;
+  while (!std::all_of(
+      exprs_to_print.begin(),
+      exprs_to_print.end(),
+      [&exprs_visited](auto expr) { return exprs_visited.count(expr); })) {
+    bool expr_added_to_sorted_list = false;
+    for (auto expr : exprs_to_print) {
+      if (!exprs_visited.count(expr)) {
+        bool add_this_expr = true;
+        // Check if any of the inputs of current
+        //  expression within the group
+        //  hasn't been visited
+        for (auto input : expr->inputs()) {
+          if (input->definition() &&
+              exprs_to_print_set.count(input->definition()) &&
+              !exprs_visited.count(input->definition())) {
+            add_this_expr = false;
+            break;
+          }
+        }
+
+        // Append the current group to sorted list
+        //  and mark visited
+        if (add_this_expr) {
+          expr_added_to_sorted_list = true;
+          exprs_visited.insert(expr);
+          sorted_list.push_back(expr);
+          break;
+        }
+      }
+    }
+    NVF_ERROR(
+        expr_added_to_sorted_list,
+        "group debug print failed, exprs within given vector not a DAG");
+  }
+  NVF_CHECK(sorted_list.size() == group->exprs().size(), "Exprs should not have been lost during toposortExprs");
+  return sorted_list;
 }
 
 } // namespace
@@ -467,20 +556,48 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     FusionGuard::setCurFusion(hic.get());
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      if (hic->hasKernelExecutor(run_order_id)) {
+      if (hic->hasKernelExecutor(group_to_run->groupId())) {
         auto in_clone = ir_cloner.clone(group_to_run->inputs());
         auto out_clone = ir_cloner.clone(group_to_run->outputs());
-        auto heuristic_params = schedulers().at(run_order_id).get();
+        auto heuristic_params = schedulers().at(group_to_run->groupId()).get();
         auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-            run_order_id,
+            group_to_run->groupId(),
             heuristic_params->lparams,
             heuristic_params->cparams,
             std::vector<Val*>{in_clone},
             std::vector<Val*>{out_clone});
         hic->pushBackTopLevelExprs(launch_kernel);
       } else {
+        NVF_CHECK(group_to_run->schedulerType() == SchedulerType::Communication ||
+                  group_to_run->schedulerType() == SchedulerType::ExprEval,
+                  "Expected SchedulerType::Communication or SchedulerType::ExprEval for group ", run_order_id, ", got ",
+                  group_to_run->schedulerType());
         if (group_to_run->schedulerType() == SchedulerType::Communication) {
           // TODO: Implement communication lowering
+          auto deviceid = Communicator::getInstance().deviceId();
+          NVF_ERROR(
+              group_to_run->exprs().size() == 1,
+              "Communication segments must contain only one Expr");
+          HostIrLower lower;
+          for (auto* expr :
+               lower.lower(ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+            // Allocate the recv buffers of communications
+            if (expr->isA<Communication>()) {
+              auto* communication = expr->as<Communication>();
+              TensorView* tv = communication->out();
+              if (tv->getDeviceMesh().has(deviceid)) {
+                auto* allocate =
+                    IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+                hic->pushBackTopLevelExprs(allocate);
+              }
+            }
+            hic->pushBackTopLevelExprs(expr);
+            if (expr->isA<Communication>()) {
+              auto wait =
+                  IrBuilder::create<hir::Wait>(expr->as<Communication>());
+              hic->pushBackTopLevelExprs(wait);
+            }
+          }
         } else {
           // push back segment's exprs into the container as top level
           // expressions
