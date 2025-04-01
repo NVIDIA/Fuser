@@ -46,6 +46,7 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 
   Fusion* fusion = id_model_.fusion();
+  FusionGuard fg(fusion);
 
   for (auto expr : fusion->exprs()) {
     if (!ir_utils::isTvOp(expr)) {
@@ -217,6 +218,13 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
+  // If this is an expr initializing a buffer for a reduction, there
+  // should be no loops for reduction domains
+  if (lower_utils::isReductionInitExpr(expr)) {
+    std::erase_if(
+        loop_domains, [](IterDomain* id) -> bool { return id->isReduction(); });
+  }
+
   for (auto& loop_id : loop_domains) {
     loop_id = getLoopPromotion(loop_id, id_model_);
   }
@@ -350,6 +358,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
+
+  if (predicate_domains.empty()) {
+    return {};
+  }
 
   const IndexingInfo& index_info =
       computeIndex(expr, predicate_domains, for_loops);
