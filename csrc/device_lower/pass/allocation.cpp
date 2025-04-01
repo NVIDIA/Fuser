@@ -359,7 +359,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
                          tv->getLoopDomain().end(),
                          allocation_domain) != tv->getLoopDomain().end();
       IterDomain* promotion_domain = nullptr;
-      NVF_ERROR(!allocation_domain->isBroadcast());
+      NVF_ERROR(!allocation_domain->isBroadcast() || tv->isFusionInput());
       if (is_loop) {
         promotion_domain = getLoopPromotion(allocation_domain, id_model);
       } else {
