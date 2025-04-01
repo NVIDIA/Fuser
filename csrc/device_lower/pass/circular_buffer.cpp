@@ -313,9 +313,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
+      int64_t insertion_position,
       const std::unordered_set<Expr*>& exclude = {}) {
     CloneTmaCircularBufferLoopAndInsertSync cloner(
-        circular_buffer_loop, circular_buffer_load_exprs, loop_type, exclude);
+        circular_buffer_loop,
+        circular_buffer_load_exprs,
+        loop_type,
+        insertion_position,
+        exclude);
     cloner.duplicate();
     return cloner.cloned_top_level_loop_;
   }
@@ -325,6 +330,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       ForLoop* circular_buffer_loop,
       const std::vector<Expr*>& circular_buffer_load_exprs,
       CircularBufferLoopStage loop_type,
+      int64_t insertion_position,
       const std::unordered_set<Expr*>& exclude)
       : CircularBufferLoopCloner(
             circular_buffer_loop,
@@ -336,7 +342,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
                 circular_buffer_loop_)),
         raw_mbarriers_to_wait_(getAllMbarriersToWait()),
         war_mbarriers_to_uses_(getAllWarMbarriersToUses()),
-        war_mbarriers_to_wait_(getAllMbarriersToWait()) {}
+        war_mbarriers_to_wait_(getAllMbarriersToWait()),
+        insertion_position_(insertion_position) {}
 
   bool hasCircularBufferLoad() const {
     return nvfuser::hasCircularBufferLoad(loop_type_);
@@ -446,7 +453,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
       // mbarrier_arrive_tx_ is active when we encounter a cpAsyncBulk load
       // operation on a circular buffer TensorView in IrVisitor. A single
       // mbarrier_arrive_tx is active for each TensorView.
-      if (mbarrier_arrive_tx_ == nullptr || for_loop_stack_.size() > 1) {
+      if (mbarrier_arrive_tx_ == nullptr ||
+          (int64_t)for_loop_stack_.size() > insertion_position_) {
         // Add cloned for_loop when mbarrier_arrive_tx_ is not active or
         // we are within a nested for-loop structure
         for_loop_stack_.back()->body().push_back(cloned_loop);
@@ -1076,6 +1084,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // ElectSync if-then-else for the cloned loop. We put all the circular buffer
   // load TMA operations under this if-then-else.
   kir::IfThenElse* elect_sync_if_then_else_ = nullptr;
+
+  // Insertion position of the cloned loop
+  int64_t insertion_position_;
 };
 
 using InsertionInfo = std::unordered_map<ForLoop*, std::vector<Expr*>>;
@@ -1263,7 +1274,11 @@ class CircularBufferInserter : private kir::ExprMutator {
           std::all_of(
               it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
           "In order to use warp specialization, all buffers must be loaded by TMA");
-      insertTmaWarpSpecialized(loop, it->second);
+      int64_t insertion_position =
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferInsertionPosition(loop->iter_domain());
+      insertTmaWarpSpecialized(loop, it->second, insertion_position);
     } else if (has_cp_async_bulk) {
       insertTmaPipelined(loop, it->second);
     } else {
@@ -1345,7 +1360,10 @@ class CircularBufferInserter : private kir::ExprMutator {
     if (hasPrefetch(circular_buffer_loop)) {
       // If there is no prefetch, then we don't need a prologue loop.
       ForLoop* prologue_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-          circular_buffer_loop, loads, CircularBufferLoopStage::Prolog);
+          circular_buffer_loop,
+          loads,
+          CircularBufferLoopStage::Prolog,
+          /*insertion_position=*/1);
       registerInsertBefore(circular_buffer_loop, prologue_loop);
     }
 
@@ -1353,7 +1371,10 @@ class CircularBufferInserter : private kir::ExprMutator {
     //  - Launch and wait
     //  - arrive_expect_tx, tma load operations, and mbarrier_wait
     ForLoop* main_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::Main);
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::Main,
+        /*insertion_position=*/1);
     registerReplace(circular_buffer_loop, main_loop);
 
     if (!hasPrefetch(circular_buffer_loop)) {
@@ -1374,13 +1395,15 @@ class CircularBufferInserter : private kir::ExprMutator {
         circular_buffer_loop,
         loads,
         CircularBufferLoopStage::Epilog,
+        /*insertion_position=*/1,
         expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
   }
 
   void insertTmaWarpSpecialized(
       ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads) {
+      const std::vector<Expr*>& loads,
+      int64_t insertion_position) {
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
@@ -1427,7 +1450,10 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::LoadWarp);
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::LoadWarp,
+        insertion_position);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
     if (enable_register_sharing) {
@@ -1443,7 +1469,10 @@ class CircularBufferInserter : private kir::ExprMutator {
 
     // Compute loop:
     ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop, loads, CircularBufferLoopStage::ComputeWarp);
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::ComputeWarp,
+        insertion_position);
     warp_dispatch_ite->elseBody().push_back(compute_loop);
 
     registerReplace(circular_buffer_loop, warp_dispatch_ite);

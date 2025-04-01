@@ -50,6 +50,37 @@ int64_t getUnrollOrComputeAtPosition(const TensorView* tv) {
   return unroll_or_ca_pos;
 }
 
+// Returns the position of the circular buffer axis for non-warp-specialized
+// tensors. Returns the size of the loop domain if no valid position is found.
+int64_t getInnermostCircularBufferPosition(const TensorView* tv) {
+  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
+  int64_t valid_pos = (int64_t)tv->getLoopDomain().size();
+  // Skip parallelized or broadcast axes
+  for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
+    auto pt = tv->axis(i)->getParallelType();
+    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
+      valid_pos = i;
+      break;
+    }
+  }
+  return valid_pos;
+}
+
+// Returns the position of the circular buffer axis for warp-specialized tensors
+// with register sharing enabled. Returns the size of the loop domain if no
+// valid position is found.
+int64_t getOuterMostCircularBufferPosition(const TensorView* tv) {
+  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
+  // Skip parallelized or broadcast axes
+  for (int64_t i = 0; i < unroll_or_ca_pos; ++i) {
+    auto pt = tv->axis(i)->getParallelType();
+    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
+      return i;
+    }
+  }
+  return (int64_t)tv->getLoopDomain().size();
+}
+
 // Circular-buffering prefetches the future subregions of the tensor.
 // The subregion is defined by the axes inside of the CA position.
 // There must be at least one axis that is outside (left) of the CA position,
@@ -227,6 +258,24 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
+
+  int64_t outer_most_circular_buffer_position =
+      getOuterMostCircularBufferPosition(tv);
+  int64_t inner_most_circular_buffer_position =
+      getInnermostCircularBufferPosition(tv);
+  NVF_ERROR(
+      outer_most_circular_buffer_position <=
+          inner_most_circular_buffer_position,
+      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position",
+      "but got ",
+      outer_most_circular_buffer_position,
+      " and ",
+      inner_most_circular_buffer_position);
+  int64_t for_loop_size = (inner_most_circular_buffer_position -
+                           outer_most_circular_buffer_position) +
+      1;
+  circular_buffer_insertion_position_[lower_utils::getConcreteLoopID(cb_axis)] =
+      for_loop_size;
 }
 
 void CircularBufferInfo::setCircularBufferOptions(
@@ -272,6 +321,22 @@ const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
   NVF_ERROR(
       maybe_depth_it != circular_buffer_options_.end(),
       "Prefetch distance not found");
+
+  return maybe_depth_it->second;
+}
+
+int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
+    IterDomain* circular_buffer_axis) const {
+  if (GpuLower::hasCurrent()) {
+    circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  }
+
+  auto maybe_depth_it =
+      circular_buffer_insertion_position_.find(circular_buffer_axis);
+
+  NVF_ERROR(
+      maybe_depth_it != circular_buffer_insertion_position_.end(),
+      "Circular buffer insertion position not found");
 
   return maybe_depth_it->second;
 }
@@ -388,32 +453,6 @@ IterDomain* getCircularBufferAxis(const TensorView* tv) {
     return nullptr;
   }
   return tv->axis(cb_axis);
-}
-
-int64_t getInnermostCircularBufferPosition(const TensorView* tv) {
-  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
-  int64_t valid_pos = (int64_t)tv->getLoopDomain().size();
-  // Skip parallelized or broadcast axes
-  for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
-    auto pt = tv->axis(i)->getParallelType();
-    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
-      valid_pos = i;
-      break;
-    }
-  }
-  return valid_pos;
-}
-
-int64_t getOuterMostCircularBufferPosition(const TensorView* tv) {
-  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
-  // Skip parallelized or broadcast axes
-  for (int64_t i = 0; i < unroll_or_ca_pos; ++i) {
-    auto pt = tv->axis(i)->getParallelType();
-    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
-      return i;
-    }
-  }
-  return (int64_t)tv->getLoopDomain().size();
 }
 
 } // namespace nvfuser

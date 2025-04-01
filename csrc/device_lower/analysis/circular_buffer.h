@@ -17,15 +17,6 @@ namespace nvfuser {
 
 IterDomain* getCircularBufferAxis(const TensorView* tv);
 
-// Returns the position of the circular buffer axis for warp-specialized tensors
-// with register sharing enabled. Returns the size of the loop domain if no
-// valid position is found.
-int64_t getOuterMostCircularBufferPosition(const TensorView* tv);
-
-// Returns the position of the circular buffer axis for non-warp-specialized
-// tensors. Returns the size of the loop domain if no valid position is found.
-int64_t getInnermostCircularBufferPosition(const TensorView* tv);
-
 void validateCircularBufferedTensor(const TensorView* tv);
 
 class CircularBufferInfo {
@@ -79,6 +70,9 @@ class CircularBufferInfo {
   const CircularBufferOptions& getCircularBufferOptionsFor(
       IterDomain* circular_buffered_id) const;
 
+  //! Get the circular buffer insertion position for the given axis.
+  int64_t getCircularBufferInsertionPosition(IterDomain* axis) const;
+
   std::string toString() const;
 
  private:
@@ -101,6 +95,10 @@ class CircularBufferInfo {
   //! Keeps track of which concrete loop map is realizing circular buffer
   //!  iterdomains.
   std::unordered_set<const IterDomain*> concrete_circular_buffered_loop_id_;
+
+  //! Keeps track of the circular buffer insertion position for each
+  //! circular buffer loop.
+  std::unordered_map<IterDomain*, int64_t> circular_buffer_insertion_position_;
 
   //! Keeps track of circular buffer loop stage depth and prefetch distance.
   //! Currently for each disjoint set of loop mapped iterdomains,
