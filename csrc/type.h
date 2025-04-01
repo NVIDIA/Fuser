@@ -612,6 +612,7 @@ enum class UnaryOpType {
   Tan,
   Tanh,
   Trunc,
+  BitCeil,
 
   // Tools to help debugging
   Print,

@@ -428,6 +428,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
     case UnaryOpType::BitwiseNot:
       return {~in};
       break;
+    case UnaryOpType::BitCeil:
+      return {static_cast<int64_t>(
+          std::bit_ceil(static_cast<uint64_t>(in.as<int64_t>())))};
+      break;
     case UnaryOpType::Erf:
       return {erf(in)};
       break;
