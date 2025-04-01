@@ -18,8 +18,8 @@
 #include <iostream>
 #include <sstream>
 
-#define VERBOSE() verbose(__LINE__)
-#define WARN() warn(__LINE__)
+#define VERBOSE() idModelDebugVerbose(__LINE__)
+#define WARN() idModelDebugWarn(__LINE__)
 
 namespace nvfuser {
 
@@ -116,11 +116,11 @@ class DebugStream {
   std::ostream& out_;
 };
 
-inline DebugStream verbose(int line) {
+inline DebugStream idModelDebugVerbose(int line) {
   return DebugStream() << "[DEBUG@" << line << "] ";
 }
 
-inline DebugStream warn(int line) {
+inline DebugStream idModelDebugWarn(int line) {
   return DebugStream() << "[WARN@" << line << "] ";
 }
 
