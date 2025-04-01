@@ -214,6 +214,33 @@ TEST_F(TMemTest, dtypes) {
         continue;
       }
 
+      // check allocation size of tcgen05.alloc calls
+      ke.registerLoweringHook([vec_bytes](GpuLower* lower) {
+        auto check_pass = [vec_bytes](const std::vector<Expr*>& exprs) {
+          bool found_alloc = false;
+          for (Expr* expr : ir_utils::flattenScopedExprs(exprs)) {
+            std::string str = expr->isA<kir::Asm>()
+                ? expr->as<kir::Asm>()->code()
+                : std::string();
+            if (str.find("tcgen05.alloc") != std::string::npos) {
+              EXPECT_FALSE(found_alloc);
+              found_alloc = true;
+            } else {
+              continue;
+            }
+            Val* alloc_size = expr->input(0);
+            Val* expected_size = IrBuilder::create<Val>(static_cast<int64_t>(
+                std::bit_ceil(static_cast<uint64_t>(vec_bytes / 4))));
+            EXPECT_TRUE(
+                simplifyExpr(IrBuilder::eqExpr(alloc_size, expected_size))
+                    ->isTrue());
+          }
+          EXPECT_TRUE(found_alloc);
+          return exprs;
+        };
+        lower->passes().push_back({"Check result", check_pass});
+      });
+
       ke.compile(&fusion);
 
       at::TensorOptions options = at::TensorOptions()
@@ -410,7 +437,7 @@ TEST_P(TMemAllocationSize, CopyKernel) {
   ke.registerLoweringHook([this](GpuLower* lower) {
     auto check_pass = [this](const std::vector<Expr*>& exprs) {
       bool found_alloc = false;
-      for (Expr* expr : exprs) {
+      for (Expr* expr : ir_utils::flattenScopedExprs(exprs)) {
         std::string str = expr->isA<kir::Asm>() ? expr->as<kir::Asm>()->code()
                                                 : std::string();
         if (str.find("tcgen05.alloc") != std::string::npos) {
