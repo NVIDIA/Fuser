@@ -14,6 +14,8 @@
 #include <options.h>
 #include <val_graph_visitor.h>
 
+#include <algorithm>
+
 namespace nvfuser {
 
 std::string toString(const CoveredGroups& covered_groups) {
@@ -106,10 +108,8 @@ bool isEqualToOrSuperSetOf(
       covered_groups_y.begin(),
       covered_groups_y.end(),
       [&](const CoveredGroup& covered_group_y) {
-        return std::any_of(
-            covered_groups_x.begin(),
-            covered_groups_x.end(),
-            [&](const CoveredGroup& covered_group_x) {
+        return std::ranges::any_of(
+            covered_groups_x, [&](const CoveredGroup& covered_group_x) {
               return covered_group_x.isEqualToOrSuperSetOf(covered_group_y);
             });
       });
@@ -167,10 +167,9 @@ bool isDependencyOf(
     return true;
   }
 
-  if (std::any_of(
-          of->begin(), of->end(), [&](const CoveredGroup& covered_group) {
-            return isDependencyOf(dependency, covered_group);
-          })) {
+  if (std::ranges::any_of(*of, [&](const CoveredGroup& covered_group) {
+        return isDependencyOf(dependency, covered_group);
+      })) {
     return true;
   }
 
@@ -386,7 +385,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // they might be replaced during the following analysis.
   for (const auto& loop_group :
        idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    if (std::any_of(loop_group->begin(), loop_group->end(), [](Val* val) {
+    if (std::ranges::any_of(*loop_group, [](Val* val) {
           return !val->as<IterDomain>()->isBroadcast();
         })) {
       continue;
@@ -717,10 +716,8 @@ Expr* findMatchingExpr(
   // iel_graph, it means the domain is just replayed and by definition
   // has no mapping with any existing domain, which means there's no
   // matching expr.
-  if (std::any_of(
-          maybe_promoted_inputs.begin(),
-          maybe_promoted_inputs.end(),
-          [&](IterDomain* maybe_promoted_input) -> bool {
+  if (std::ranges::any_of(
+          maybe_promoted_inputs, [&](IterDomain* maybe_promoted_input) -> bool {
             return !iel_graph.hasGroup(maybe_promoted_input);
           })) {
     return nullptr;
@@ -997,7 +994,7 @@ LoopPromotionMapBuilder::computeCoveredGroups(
 
     // Initialize broadcast groups to empty since broadcast domains
     // don't matter for indexing
-    if (std::any_of(id_group->begin(), id_group->end(), [&](Val* id) {
+    if (std::ranges::any_of(*id_group, [&](Val* id) {
           return id->as<IterDomain>()->isBroadcast();
         })) {
       covered_group_map[id_group] = std::make_shared<CoveredGroups>();
@@ -1199,12 +1196,9 @@ VectorOfUniqueEntries<IterDomain*> LoopPromotionMapBuilder::
       // then it's a terminal ID
       bool all_outs_in_loop_group = true;
       for (auto use : uses_it->second) {
-        if (std::any_of(
-                use->outputs().begin(),
-                use->outputs().end(),
-                [&](Val* out) -> bool {
-                  return group != idGraph(IdMappingMode::LOOP).toGroup(out);
-                })) {
+        if (std::ranges::any_of(use->outputs(), [&](Val* out) -> bool {
+              return group != idGraph(IdMappingMode::LOOP).toGroup(out);
+            })) {
           all_outs_in_loop_group = false;
           break;
         }
@@ -1322,10 +1316,10 @@ void LoopPromotionMapBuilder::revertBroadcastOnlyLoopGroups(
       continue;
     }
 
-    // As long as there's a single ID marked as broadcat only, this
+    // As long as there's a single ID marked as broadcast only, this
     // group originally consisted of broadcast IDs only. Note that,
     // since new IDs were added as part of the promotion analysis, not
-    // all of the IDs may not be included in the broadcast only set.
+    // all of the IDs are included in the broadcast only set.
     IterDomain* original_broadcast_id = nullptr;
     for (auto val : *loop_group) {
       if (broadcast_only_loop_group_ids_.contains(val)) {
