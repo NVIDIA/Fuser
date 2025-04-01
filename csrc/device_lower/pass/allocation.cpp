@@ -1702,7 +1702,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
                     std::vector<Val*>{
                         IrBuilder::create<kir::TensorIndex>(
                             region->address, expr->fusion()->zeroVal()),
-                        region->num_columns},
+                        GpuLower::current()->commonScalarMap().hoistScalar(
+                            region->num_columns, for_loops_)},
                     kir::Asm::Options{/*volatile=*/true});
                 first_warp->thenBody().push_back(tcgen05_dealloc_expr);
                 registerInsertAfter(expr, first_warp, current_scope);
