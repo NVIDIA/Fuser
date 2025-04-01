@@ -516,30 +516,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
             group_to_run->schedulerType());
         if (group_to_run->schedulerType() == SchedulerType::Communication) {
           // TODO: Implement communication lowering
-          auto deviceid = Communicator::getInstance().deviceId();
-          NVF_ERROR(
-              group_to_run->exprs().size() == 1,
-              "Communication segments must contain only one Expr");
-          HostIrLower lower;
-          for (auto* expr : lower.lower(
-                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
-            // Allocate the recv buffers of communications
-            if (expr->isA<Communication>()) {
-              auto* communication = expr->as<Communication>();
-              TensorView* tv = communication->out();
-              if (tv->getDeviceMesh().has(deviceid)) {
-                auto* allocate =
-                    IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-                hic->pushBackTopLevelExprs(allocate);
-              }
-            }
-            hic->pushBackTopLevelExprs(expr);
-            if (expr->isA<Communication>()) {
-              auto wait =
-                  IrBuilder::create<hir::Wait>(expr->as<Communication>());
-              hic->pushBackTopLevelExprs(wait);
-            }
-          }
         } else {
           // push back segment's exprs into the container as top level
           // expressions
