@@ -1092,7 +1092,7 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   FusionGuard fg(fusion.get());
   auto grad_out = makeContigTensor(2, dtype);
   auto input = makeContigTensor(2, dtype);
-  auto rstd = makeConcreteTensor({dim0, 1});
+  auto rstd = makeContigConcreteTensor({dim0, 1});
   auto weight = makeContigTensor(1, dtype);
   fusion->addInput(grad_out);
   fusion->addInput(input);

@@ -1821,6 +1821,21 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
       }
     }
 
+    // vectorized load of rms tensor
+    if (rparams->unroll_factor_iter_dom > 1) {
+      for (auto val : fusion->inputs()) {
+        if (auto tv = dynamic_cast<TensorView*>(val)) {
+          if (tv->hasBroadcast()) {
+            auto cached_tv = tv->cacheAfter();
+            cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
+            tv_inline_pos_map.emplace(cached_tv, 2);
+            std::cout << "tv: " << tv->toString() << std::endl;
+            std::cout << "cached_tv: " << cached_tv->toString() << std::endl;
+          }
+        }
+      }
+    }
+
     std::unordered_set<TensorView*> exclude_tvs;
     for (auto [k, v] : tv_inline_pos_map) {
       exclude_tvs.insert(k);
