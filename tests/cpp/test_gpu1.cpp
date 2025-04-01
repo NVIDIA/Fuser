@@ -2746,13 +2746,12 @@ TEST_F(NVFuserTest, BitCeilKernel) {
 
   auto input_cpu = input.cpu();
   auto expect_cpu = input_cpu.clone();
-  auto expect_span =
-      std::span(expect_cpu.data_ptr<uint64_t>(), expect_cpu.numel());
   auto input_span =
       std::span(input_cpu.data_ptr<uint64_t>(), input_cpu.numel());
-  for (const auto& [o, i] : views::zip(expect_span, input_span)) {
-    const_cast<uint64_t&>(o) = std::bit_ceil(i);
-  }
+  std::ranges::transform(
+      input_span, expect_cpu.data_ptr<uint64_t>(), [](uint64_t i) {
+        return std::bit_ceil(i);
+      });
 
   EXPECT_TRUE(cg_output.equal(expect_cpu.cuda()));
 }
@@ -2761,7 +2760,7 @@ TEST_F(NVFuserTest, BitCeilEval) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  for (auto _ : std::views::iota(0, 1024)) {
+  for ([[maybe_unused]] auto _ : std::views::iota(0, 1024)) {
     uint64_t value = std::rand() % 1000000;
     Val* v0 =
         IrBuilder::create<Val>(static_cast<int64_t>(value), DataType::Int);
