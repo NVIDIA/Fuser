@@ -255,14 +255,14 @@ void IndexCompute::handle(Merge* merge) {
           // I don't think reductions can be in here, but strictly matching the
           // logic in the indexing functions like
           // getNonGlobalConsumerStridedIndices
-          return id->isBroadcast() || id->isReduction() ;
+          return id->isBroadcast() || id->isReduction();
         })) {
       index_map_[*(input_ids.end() - 1)] = out_ind;
     } else {
       for (auto id_it = input_ids.rbegin(); id_it != input_ids.rend();
            id_it++) {
         auto id = *id_it;
-        if (id->isBroadcast() || id->isReduction() ) {
+        if (id->isBroadcast() || id->isReduction()) {
           continue;
         } else {
           index_map_[id] = out_ind;
@@ -1744,8 +1744,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
   for (const auto i : c10::irange(alloc_dom.size())) {
     // See a comment in indexing to allocation domains in
     // getGlobalProducerIndex.
-    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()
-        ) {
+    if (alloc_dom[i]->isReduction() || alloc_dom[i]->isBroadcast()) {
       continue;
     }
 
@@ -2000,7 +1999,7 @@ std::vector<Val*> Index::getNonGlobalConsumerStridedIndices(
     Val* stride = nullptr;
     for (const auto j : c10::irange(i + 1, alloc_dom.size())) {
       if (alloc_dom[j]->isBroadcast() || alloc_dom[j]->isReduction() ||
-          alloc_dom[j]->isDeviceDim() ) {
+          alloc_dom[j]->isDeviceDim()) {
         continue;
       }
 

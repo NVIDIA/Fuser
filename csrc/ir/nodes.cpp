@@ -5096,8 +5096,7 @@ Val* ForLoop::simplifiedStop() const {
 
 bool ForLoop::isTrivial() const {
   // These loops are not materialized
-  if (vectorize() || iter_domain()->isBroadcast() ||
-      iter_domain()->isMma() ||
+  if (vectorize() || iter_domain()->isBroadcast() || iter_domain()->isMma() ||
       iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
     return true;
   }
