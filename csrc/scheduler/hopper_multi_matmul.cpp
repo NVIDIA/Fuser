@@ -311,21 +311,17 @@ TensorView* HopperMultipleMatmulScheduler::cacheAfter(
 TensorView* HopperMultipleMatmulScheduler::cacheBefore(
     TensorView* orig,
     LoadStoreOpType op_type) {
-  const std::vector<IterDomain*> orig_alloc = orig->getMaybeAllocationDomain();
-
+  const std::vector<IterDomain*> orig_logical =
+      TensorDomain::noReductions(orig->getLogicalDomain());
   TensorView* c = orig->cacheBefore(op_type);
+  // after cacheBefore, the cached tensor c has a TensorDomain that is a copy of
+  // the original, and orig contains a TensorDomain with all new IterDomains.
 
-  const std::vector<IterDomain*> orig_logical = orig->getLogicalDomain();
-  const std::vector<IterDomain*> cache_logical =
-      TensorDomain::noReductions(c->getLogicalDomain());
-  // in split-K we do rFactor which gives us a full = sum(partial)
-  // where partial has root domain that matches the logical domain of the
-  // original tensor. The logical domain contains Iteration transforms of the
-  // Reduction axis in the original mma output.
-  NVF_ERROR(orig_logical.size() == cache_logical.size());
+  const std::vector<IterDomain*> new_logical = orig->getLogicalDomain();
+  NVF_ERROR(orig_logical.size() == new_logical.size());
   for (size_t i : c10::irange(orig_logical.size())) {
     ValGroup vg = graph_->toGroup(orig_logical[i]);
-    graph_->initializeVal(cache_logical[i], vg);
+    graph_->initializeVal(new_logical[i], vg);
   }
 
   return c;
