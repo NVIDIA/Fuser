@@ -289,9 +289,6 @@ std::vector<at::Tensor> reference_mha_backwards(
 } // namespace
 
 TEST_P(DistributedTransformerTest, MLP_Layer) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
-
   if ((4 * E) % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide 4*E=" << 4 * E;
@@ -357,8 +354,6 @@ TEST_P(DistributedTransformerTest, MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   // TODO: Reshapes that form device axes when D=1 get optimized away causing
   // failures. This won't be a problem after
   // https://github.com/NVIDIA/Fuser/issues/2563.
@@ -441,8 +436,6 @@ TEST_P(DistributedTransformerTest, Sequence_Parallel_MLP_Layer) {
 }
 
 TEST_P(DistributedTransformerTest, MultiheadAttention) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
@@ -505,8 +498,6 @@ TEST_P(DistributedTransformerTest, MultiheadAttention) {
 }
 
 TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
@@ -573,8 +564,6 @@ TEST_P(DistributedTransformerTest, MultiheadAttention_SP) {
 }
 
 TEST_P(DistributedTransformerTest, MLP_Backward) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   if ((4 * E) % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide 4*E=" << 4 * E;
@@ -649,8 +638,6 @@ TEST_P(DistributedTransformerTest, MLP_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, MHA_Backward) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
@@ -753,8 +740,6 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
 }
 
 TEST_P(DistributedTransformerTest, Forward_SP) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
@@ -829,8 +814,6 @@ TEST_P(DistributedTransformerTest, Forward_SP) {
 }
 
 TEST_P(DistributedTransformerTest, Forward) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
@@ -898,8 +881,6 @@ TEST_P(DistributedTransformerTest, Forward) {
 }
 
 TEST_P(DistributedTransformerTest, Backward) {
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering); //nick
   if (H % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide H=" << H;
