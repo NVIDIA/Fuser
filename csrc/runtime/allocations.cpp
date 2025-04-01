@@ -618,7 +618,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferAllocationShape(
 
   // Allocate the allocation domain
   for (const auto id : tv->getMaybeAllocationDomain()) {
-    if (id->isReduction() || id->isStride()) {
+    if (id->isReduction()) {
       continue;
     }
 

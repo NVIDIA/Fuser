@@ -193,10 +193,6 @@ class IterDomain : public Val {
     return getIterType() == IterType::GatherScatter;
   }
 
-  bool isStride() const {
-    return false;
-  }
-
   bool isVectorComponent() const {
     return getIterType() == IterType::VectorComponent;
   }

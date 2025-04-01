@@ -1056,7 +1056,7 @@ bool requiresDisabledParamCache(const kir::Kernel* kernel) {
     // See issue https://github.com/csarofeen/pytorch/issues/2002
     for (const auto id : logical_domain) {
       Val* extent = nullptr;
-      if (id->isReduction() || id->isStride() || id->isDeviceDim()) {
+      if (id->isReduction() || id->isDeviceDim()) {
         continue;
       } else if (id->isBroadcast() && id->hasExpandedExtent()) {
         extent = id->expandedExtent();

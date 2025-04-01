@@ -51,7 +51,7 @@ bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
   // - Reduction: Check the original ID, not the promotion, which may
   //   be a reduction ID even though the original ID is not a reduction
   return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
-      !id->isReduction() && !id->isStride();
+      !id->isReduction();
 }
 
 // Get the allocation stride of a given allocation domain

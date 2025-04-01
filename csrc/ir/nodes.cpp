@@ -2689,10 +2689,6 @@ IterDomain* IterDomain::merge(
       ", Inner: ",
       inner->toString());
 
-  NVF_CHECK(
-      !outer->isStride() && !inner->isStride(),
-      "No support for merging stride domains");
-
   // By default, if not specified, don't create rfactor
   // outputs. Reshape transformations should propagate the flag, which
   // should explicitly specify the flag
@@ -3501,7 +3497,7 @@ bool TensorDomain::hasViewLikeRFactor() const {
   // If there's an logical domain and no rfactor product is a reduction, this is
   // a view like rfactor
   return std::none_of(logical().begin(), logical().end(), [](IterDomain* id) {
-    return (id->isReduction() || id->isStride()) && id->isRFactorProduct();
+    return id->isReduction() && id->isRFactorProduct();
   });
 }
 
@@ -3706,7 +3702,7 @@ std::vector<IterDomain*> TensorDomain::noReductions(
       td.begin(),
       td.end(),
       std::back_inserter(noReductionDomain),
-      [](IterDomain* id) { return !id->isReduction() && !id->isStride(); });
+      [](IterDomain* id) { return !id->isReduction(); });
   return noReductionDomain;
 }
 
@@ -5101,7 +5097,7 @@ Val* ForLoop::simplifiedStop() const {
 bool ForLoop::isTrivial() const {
   // These loops are not materialized
   if (vectorize() || iter_domain()->isBroadcast() ||
-      iter_domain()->isStride() || iter_domain()->isMma() ||
+      iter_domain()->isMma() ||
       iter_domain()->isBulk() || iter_domain()->isDeviceDim()) {
     return true;
   }

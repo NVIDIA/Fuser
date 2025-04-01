@@ -1317,8 +1317,8 @@ class LoopIndexingPreferredPathCompute : public IterVisitor {
           GpuLower::current()->caMap()->getConcreteMappedID(
               mapped_id, IdMappingMode::EXACT);
       if (all_concrete_ids.count(concrete_original_id)) {
-        if (original_id->isBroadcast() || original_id->isReduction() ||
-            original_id->isStride()) {
+        if (original_id->isBroadcast() || original_id->isReduction()
+            ) {
           continue;
         }
         compute.preferred_path_.insert(concrete_original_id);

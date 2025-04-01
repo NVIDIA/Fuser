@@ -131,7 +131,7 @@ PrimDataType getTensorIndexType(TensorView* tv, ExpressionEvaluator& ee) {
   KernelIndexTypeCompute index_type_helper;
   for (auto i = tv->getLogicalDomain().size(); i > 0; --i) {
     auto id = tv->getLogicalDomain().at(i - 1);
-    if (id->isReduction() || id->isStride() || id->isBroadcast()) {
+    if (id->isReduction() || id->isBroadcast()) {
       continue;
     }
 
