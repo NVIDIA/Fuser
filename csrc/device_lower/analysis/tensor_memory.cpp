@@ -123,6 +123,20 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
   // Step 2: Compute the allocation information for tensor memory. That is, for
   // each partition, we create a Region object and fill in the necessary
   // information.
+
+  // Validate the number of columns. There is at most 512 columns.
+  auto validate_columns = [](Val* num_columns) {
+    constexpr int64_t max_columns = 512;
+    Val* max_columns_val = IrBuilder::create<Val>(max_columns);
+    GpuLower::current()->validate(
+        SimplifyingIrBuilder::leExpr(num_columns, max_columns_val),
+        "Not enough tensor memory columns: tried to allocate ",
+        num_columns->toInlineString(),
+        ", but only ",
+        max_columns,
+        " available.");
+  };
+
   Val* total_num_columns = fusion->zeroVal();
   using Region = TMemAlllocationInfo::Region;
   std::vector<Region>& regions = result.regions;
@@ -171,6 +185,10 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
           max_lanes,
           " available.");
     }
+
+    // Validate region.num_columns before rounding up for better error message
+    validate_columns(region.num_columns);
+
     // Number of columns must be a power of 2 with a minimum of 32.
     constexpr int64_t unit_of_allocation = 32;
     Val* unit_of_allocation_val =
@@ -182,16 +200,7 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
     total_num_columns =
         SimplifyingIrBuilder::addExpr(total_num_columns, region.num_columns);
   }
-  constexpr int64_t max_columns = 512;
-  Val* max_columns_val = IrBuilder::create<Val>(max_columns);
-  GpuLower::current()->validate(
-      SimplifyingIrBuilder::leExpr(total_num_columns, max_columns_val),
-      "Not enough tensor memory columns: tried to allocate ",
-      total_num_columns->toInlineString(),
-      ", but only ",
-      max_columns,
-      " available.");
-
+  validate_columns(total_num_columns);
   return result;
 }
 
