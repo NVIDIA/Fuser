@@ -56,7 +56,13 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
-using ComputeWithTest = NVFuserTest;
+class ComputeWithTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    //EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    NVFuserTest::SetUp();
+  }
+};
 
 namespace {
 

@@ -657,6 +657,17 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
     }
   }
 
+  if (updated && hasIdModel()) {
+    // TODO: Don't rebuild from complete scratch. Only the loop graph
+    // needs to be updated.
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+    id_model_->validateAndPropagatePType();
+  }
+
   return updated;
 }
 
