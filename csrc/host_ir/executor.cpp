@@ -16,12 +16,12 @@
 #include <ir/utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
+#include <preseg_passes/convert_op_to_communication.h>
 #include <options.h>
 #include <runtime/allocations.h>
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
-
 namespace nvfuser {
 
 HostIrExecutor::HostIrExecutor(
@@ -70,9 +70,8 @@ void HostIrExecutor::compile(Fusion* fusion) {
     std::vector<Expr*> exprs = fusion->exprs();
     DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
-      HostIrLower lower;
       std::vector<Expr*> communications =
-          lower.lower(cloner.clone(e), my_device_idx);
+          preseg_passes::ConvertOpToCommunication::ConvertSingleOpToCommunication(cloner.clone(e), my_device_idx, HostIrLowerParams());
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
