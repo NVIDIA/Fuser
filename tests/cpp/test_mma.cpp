@@ -543,7 +543,7 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
 
     tv3->setLoopDomain(s.as<IterDomain*>());
   }
-  mma_utils::scheduleStMatrixForMmaOutput(tv3, tile_m, tile_n);
+  mma_utils::scheduleLdStMatrixForMmaOutput(tv3, tile_m, tile_n);
   tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   mma_utils::scheduleTMAStoreForMmaOutput(tv4, swizzle);

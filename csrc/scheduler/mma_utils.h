@@ -248,9 +248,10 @@ class MmaSwizzler {
 //! shared memory to global memory.
 void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle);
 
-//! Schedules the copy operation of output of a Mma op which resided in the
-//! registers to shared memory.
-void scheduleStMatrixForMmaOutput(
+//! Schedules the loop domain of a TensorView to be compatible with LdMatrix or
+//! StMatrix. The loop domain of input TensorView must already be scheduled to
+//! match wgmma register accumulator.
+void scheduleLdStMatrixForMmaOutput(
     TensorView* tv,
     int64_t tile_m,
     int64_t tile_n);
