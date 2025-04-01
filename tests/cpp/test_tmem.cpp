@@ -360,4 +360,93 @@ TEST_F(TMemTest, InexactParallelType) {
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
 
+using AllocationSizeTestParams = int64_t; // num cols
+
+class TMemAllocationSize
+    : public TMemTest,
+      public ::testing::WithParamInterface<AllocationSizeTestParams> {
+ protected:
+  int64_t num_cols;
+
+  void SetUp() override {
+    TMemTest::SetUp();
+    num_cols = GetParam();
+  }
+};
+
+TEST_P(TMemAllocationSize, CopyKernel) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int64_t size = 32 * num_cols;
+
+  auto tv0 = makeContigConcreteTensor({size});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0); // register
+  auto tv2 = set(tv1); // tmem
+  auto tv3 = set(tv2); // register
+  auto tv4 = set(tv3); // gmem
+  fusion.addOutput(tv4);
+
+  tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv4->split(0, num_cols);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv4, {tv1, tv2, tv3});
+
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(1);
+
+  KernelExecutor ke;
+
+  // check allocation size of tcgen05.alloc calls
+  ke.registerLoweringHook([this](GpuLower* lower) {
+    auto check_pass = [this](const std::vector<Expr*>& exprs) {
+      bool found_alloc = false;
+      for (Expr* expr : exprs) {
+        std::string str = expr->isA<kir::Asm>() ? expr->as<kir::Asm>()->code()
+                                                : std::string();
+        if (str.find("tcgen05.alloc") != std::string::npos) {
+          EXPECT_FALSE(found_alloc);
+          found_alloc = true;
+        } else {
+          continue;
+        }
+        Val* alloc_size = expr->input(0);
+        Val* expected_size = IrBuilder::create<Val>(static_cast<int64_t>(
+            std::bit_ceil(static_cast<uint64_t>(num_cols))));
+        EXPECT_TRUE(simplifyExpr(IrBuilder::eqExpr(alloc_size, expected_size))
+                        ->isTrue());
+      }
+      EXPECT_TRUE(found_alloc);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+
+  ke.compile(&fusion);
+  auto t0 = at::randn(
+      {size}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+std::string allocationSizeTestName(
+    const ::testing::TestParamInfo<AllocationSizeTestParams>& info) {
+  return std::to_string(info.param) + "cols";
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TMemAllocationSize,
+    ::testing::Values(32, 33, 63, 64, 65, 127, 128, 129, 255, 256, 257),
+    allocationSizeTestName);
+
 } // namespace nvfuser
