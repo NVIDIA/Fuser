@@ -46,7 +46,6 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 
   Fusion* fusion = id_model_.fusion();
-  // ADD
   FusionGuard fg(fusion);
 
   for (auto expr : fusion->exprs()) {
