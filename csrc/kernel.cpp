@@ -369,7 +369,8 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
   // Index type must be resolved to either int32 or int64
   NVF_ERROR(
       index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32,
-        "Invalid index type: ", index_type_);
+      "Invalid index type: ",
+      index_type_);
 }
 
 // TODO(kir): Kernel IR validation

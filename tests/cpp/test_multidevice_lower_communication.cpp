@@ -28,11 +28,10 @@ void assertIsCompiledToHostIrContainer(
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
     EXPECT_EQ(runtime->getHostIrEvaluator()->canRun(), "");
-    auto hicExprs = runtime->
-                      getHostIrEvaluator()->
-                      getHostIrContainer()->
-                      topLevelExprs();
-    EXPECT_THAT(hicExprs,
+    auto hicExprs =
+        runtime->getHostIrEvaluator()->getHostIrContainer()->topLevelExprs();
+    EXPECT_THAT(
+        hicExprs,
         Contains(Property(&Expr::isA<Communication>, IsTrue())).Times(1))
         << "host ir container should only have one communication";
   } else {
@@ -185,9 +184,7 @@ INSTANTIATE_TEST_SUITE_P(
     LowerScatterTest,
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
-            {{{0}, {0, 1}},
-             {{1}, {0, 1}},
-             {{0, 2}, {1, 2}}})),
+            {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
     [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {

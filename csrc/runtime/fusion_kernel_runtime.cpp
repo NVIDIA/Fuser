@@ -200,7 +200,9 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
 }
 
 namespace {
-std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group) {
+std::vector<Expr*> toposortExprs(
+    SegmentedFusion* fusion,
+    SegmentedGroup* group) {
   const std::vector<Expr*>& exprs = group->exprs();
   std::vector<Expr*> exprs_to_print(exprs.begin(), exprs.end());
   std::unordered_set<Expr*> exprs_to_print_set(exprs.begin(), exprs.end());
@@ -240,7 +242,9 @@ std::vector<Expr*> toposortExprs(SegmentedFusion* fusion, SegmentedGroup* group)
         expr_added_to_sorted_list,
         "group debug print failed, exprs within given vector not a DAG");
   }
-  NVF_CHECK(sorted_list.size() == group->exprs().size(), "Exprs should not have been lost during toposortExprs");
+  NVF_CHECK(
+      sorted_list.size() == group->exprs().size(),
+      "Exprs should not have been lost during toposortExprs");
   return sorted_list;
 }
 } // namespace
@@ -503,10 +507,13 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
             std::vector<Val*>{out_clone});
         hic->pushBackTopLevelExprs(launch_kernel);
       } else {
-        NVF_CHECK(group_to_run->schedulerType() == SchedulerType::Communication ||
-                  group_to_run->schedulerType() == SchedulerType::ExprEval,
-                  "Expected SchedulerType::Communication or SchedulerType::ExprEval for group ", run_order_id, ", got ",
-                  group_to_run->schedulerType());
+        NVF_CHECK(
+            group_to_run->schedulerType() == SchedulerType::Communication ||
+                group_to_run->schedulerType() == SchedulerType::ExprEval,
+            "Expected SchedulerType::Communication or SchedulerType::ExprEval for group ",
+            run_order_id,
+            ", got ",
+            group_to_run->schedulerType());
         if (group_to_run->schedulerType() == SchedulerType::Communication) {
           // TODO: Implement communication lowering
           auto deviceid = Communicator::getInstance().deviceId();
@@ -514,8 +521,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               group_to_run->exprs().size() == 1,
               "Communication segments must contain only one Expr");
           HostIrLower lower;
-          for (auto* expr :
-               lower.lower(ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+          for (auto* expr : lower.lower(
+                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
             // Allocate the recv buffers of communications
             if (expr->isA<Communication>()) {
               auto* communication = expr->as<Communication>();
