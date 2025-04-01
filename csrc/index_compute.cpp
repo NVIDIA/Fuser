@@ -1611,6 +1611,7 @@ Val* Index::getLinearLogicalIndex(
       ir_utils::isCpAsyncBulkLoad(consumer_tv->definition()) ||
       GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
+    NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     auto per_dim_indices = indexer.getIndexFor(
         consumer_tv->definition(),
@@ -1641,6 +1642,7 @@ std::vector<Val*> Index::getConsumerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(consumer_tv) ||
       GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
+    NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
         consumer_tv->definition(),
@@ -1665,6 +1667,7 @@ std::vector<Val*> Index::getProducerPerDimLogicalIndex(
   if (!ir_utils::hasRootToLoopLinearTransformations(producer_tv) ||
       GpuLower::current()->idModelOptions().producerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
+    NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     const TensorIndexer& indexer = GpuLower::current()->tensorIndexer();
     return indexer.getIndexFor(
         consumer_tv->definition(),
@@ -2158,6 +2161,7 @@ kir::TensorIndex* Index::getProducerIndex(
       is_producer_tma_op || is_consumer_tma_op ||
       GpuLower::current()->idModelOptions().producerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
+    NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops, override_index);
     if (generate_pointer) {
@@ -2262,6 +2266,7 @@ kir::TensorIndex* Index::getConsumerIndex(
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
       GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {
+    NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition(), loops);
     if (generate_pointer) {
