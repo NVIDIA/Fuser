@@ -308,7 +308,7 @@ void TransformReplay::selfReplay(
     }
 
     // Pushing the mapped IDs and corresponding contiguity flags
-    for (size_t i : c10::irange(self_allocation.size())) {
+    for (size_t i : arange(self_allocation.size())) {
       IterDomain* id = self_allocation[i];
       if (id->isReduction()) {
         continue;
@@ -892,7 +892,7 @@ std::pair<TensorDomain*, int64_t> TransformReplay::replayCasP(
     std::vector<std::optional<bool>> new_contiguity;
     new_contiguity.reserve(producer_rank);
 
-    for (auto i : c10::irange(producer_rank)) {
+    for (auto i : arange(producer_rank)) {
       IterDomain* alloc_id = producer->getAllocationDomain()[i];
       // We won't find reduction IterDomains in the map. See
       // AllocationDomainTest.CacheBefore.
@@ -1350,7 +1350,7 @@ TensorDomain* fullReplay(
       old_domain->maybeRoot().size(),
       " vs ",
       new_root.size());
-  for (auto i : c10::irange(new_root.size())) {
+  for (auto i : arange(new_root.size())) {
     old_root_to_new[old_domain->maybeRoot()[i]] = new_root[i];
   }
   NVF_CHECK(

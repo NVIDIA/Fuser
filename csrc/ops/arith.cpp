@@ -566,6 +566,23 @@ TensorView* bitwise_not(TensorView* tv) {
   return unaryOp(UnaryOpType::BitwiseNot, tv);
 }
 
+// https://en.cppreference.com/w/cpp/numeric/bit_ceil
+Val* bitceil(Val* v) {
+  NVF_CHECK(
+      isIntegralType(v->dtype()),
+      "input must have integral or boolean type, but got ",
+      v->dtype());
+  return unaryOp(UnaryOpType::BitCeil, v);
+}
+
+TensorView* bitceil(TensorView* tv) {
+  NVF_CHECK(
+      isIntegralType(tv->dtype()),
+      "input must have integral or boolean type, but got ",
+      tv->dtype());
+  return unaryOp(UnaryOpType::BitCeil, tv);
+}
+
 // The output of abs(complex_tensor) are real numbers
 Val* abs(Val* v) {
   if (v->getDataType() == DataType::ComplexDouble) {
