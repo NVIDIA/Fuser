@@ -176,7 +176,8 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
     constexpr int64_t unit_of_allocation = 32;
     Val* unit_of_allocation_val = IrBuilder::create<Val>(unit_of_allocation);
     region.num_columns = SimplifyingIrBuilder::maxExpr(
-        unit_of_allocation_val, region.num_columns);
+        unit_of_allocation_val,
+        IrBuilder::bitCeilExpr(region.num_columns));
     total_num_columns =
         SimplifyingIrBuilder::addExpr(total_num_columns, region.num_columns);
     region.num_columns =
