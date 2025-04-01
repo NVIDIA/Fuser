@@ -9102,6 +9102,60 @@ TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
   }
 }
 
+TEST_F(NVFuserTest, FusionScalarUnarySegmentation_CUDA) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Create input tensor
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  // Create 3 scalar symbolic inputs
+  auto s0 = IrBuilder::create<Val>(DataType::Double);
+  auto s1 = IrBuilder::create<Val>(DataType::Double);
+  auto s2 = IrBuilder::create<Val>(DataType::Double);
+  fusion->addInput(s0);
+  fusion->addInput(s1);
+  fusion->addInput(s2);
+
+  // Complex scalar operations
+  // (((s0 * s1) / s2) + (s0 * s2)) - (s1 * s1) / (s0 + s2) =
+  auto scalar_op1 = mul(s0, s1);
+  auto scalar_op2 = div(scalar_op1, s2);
+  auto scalar_op3 = add(scalar_op2, mul(s0, s2));
+  auto scalar_op4 = sub(scalar_op3, mul(s1, s1));
+  auto scalar_final = div(scalar_op4, add(s0, s2));
+
+  // Three unary operations on input to create intermediate
+  auto tv1 = unaryOp(UnaryOpType::Neg, tv0);
+  auto tv2 = unaryOp(UnaryOpType::Abs, tv1);
+  auto tv3 = unaryOp(UnaryOpType::Relu, tv2);
+
+  // Combine scalar computation with tensor
+  auto tv4 = mul(tv3, scalar_final);
+
+  // Basic normalization
+  auto tv5 = sum(tv4, {0}, true);
+  auto output0 = add(tv5, tv4);
+  fusion->addOutput(output0);
+
+  // Full normalization to induce segmentation
+  auto tv6 = sum(tv4, {0, 1}, true);
+  auto output1 = add(tv6, tv4);
+  fusion->addOutput(output1);
+
+  double d0 = 2.0;
+  double d1 = 0.5;
+  double d2 = 1.0;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({128, 64}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, d0, d1, d2});
+  testValidate(fusion.get(), cg_outputs, {t0, d0, d1, d2}, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
