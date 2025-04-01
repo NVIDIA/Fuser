@@ -231,16 +231,11 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
 
-  // ADD
   // If this is an expr initializing a buffer for a reduction, there
   // should be no loops for reduction domains
   if (lower_utils::isReductionInitExpr(expr)) {
-    loop_domains.erase(
-        std::remove_if(
-            loop_domains.begin(),
-            loop_domains.end(),
-            [](IterDomain* id) -> bool { return id->isReduction(); }),
-        loop_domains.end());
+    std::erase_if(
+        loop_domains, [](IterDomain* id) -> bool { return id->isReduction(); });
   }
 
   for (auto& loop_id : loop_domains) {
