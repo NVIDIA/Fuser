@@ -398,7 +398,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
     // Only insert arrive on the top-level loop
-    if (for_loop_stack_.size() != 1) {
+    if ((int64_t)for_loop_stack_.size() != insertion_position_) {
       return;
     }
     NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
