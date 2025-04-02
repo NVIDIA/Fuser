@@ -20,6 +20,13 @@ namespace nvfuser {
 
 namespace {
 
+bool isWithinComputeWarp(const std::vector<ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
+    return fl->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp;
+  });
+}
+
 // Tensor memory is similar to shared memory because they are both
 // shared between threads in a block. In that sense, we can consider
 // tensor memory as special type of shared memory. In this file, we use
@@ -288,6 +295,7 @@ class WarSyncInserter : private kir::ExprMutator {
 
     // WAR Sync is necessary in this loop, register its insertion.
     if (insert_sync) {
+      // TODO: bool use_bar_sync = isWithinComputeWarp(for_loops_);
       auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
       kir::ExprMutator::registerInsertAfter(
           for_loop->body().exprs().back(), sync_expr, &for_loop->body());
@@ -537,6 +545,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         sync_expr = IrBuilder::create<kir::GridSync>(
             sync_bitmap, maybe_alloc->buffer());
       } else {
+        // TODO: bool use_bar_sync = isWithinComputeWarp(for_loops_);
         sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
       }
 
@@ -878,9 +887,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   }
 
  private:
-  //! Number of for loops opened by WarAsyncWaitInserter
-  std::vector<ForLoop*> for_loop_stack_;
-
   //! The for loop where wgmma operations are inserted into ComputeWarp
   int64_t compute_warp_insertion_position_ = -1;
 
@@ -1015,12 +1021,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // async_exprs_to_protect_ so that we know we need to protect it.
     auto async_op_type = ir_utils::getAsyncOpType(expr);
     if (async_op_type != AsyncOpType::NotAsync) {
-      bool within_compute_warp =
-          std::any_of(for_loops_.begin(), for_loops_.end(), [](ForLoop* fl) {
-            return fl->circularBufferLoopStage() ==
-                CircularBufferLoopStage::ComputeWarp;
-          });
-      if (within_compute_warp) {
+      if (isWithinComputeWarp(for_loops_)) {
         warp_specialized_async_exprs_to_protect_.insert(expr);
       } else {
         async_exprs_to_protect_.insert(expr);
@@ -1141,7 +1142,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // TODO: Create direct scan for wgmma operations in nested for loops.
     if (for_loop->body().exprs().size() == 1 &&
         !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>()) {
-      for_loop_stack_.pop_back();
       return;
     }
 
@@ -1192,12 +1192,10 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     warp_specialized_async_inputs_in_current_scope_.clear();
     warp_specialized_async_exprs_to_protect_.clear();
     active_compute_for_loop_ = nullptr;
-    for_loop_stack_.pop_back();
   }
 
   void handle(ForLoop* for_loop) final {
     // Push loop scope information
-    for_loop_stack_.push_back(for_loop);
     auto prev_within_iter_loop_ = within_iter_loop_;
     within_iter_loop_ = within_iter_loop_ || !for_loop->isTrivial();
     auto prev_async_inputs = openScope();
@@ -1220,7 +1218,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Short-circuit: special handling of ComputeWarp for-loop
     // Add wgmma commit_group and wait_group
-    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size()) {
+    if (compute_warp_insertion_position_ == (int64_t)for_loops_.size()) {
       return handleComputeWarp(for_loop);
     }
 
@@ -1289,7 +1287,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // Pop for loop scope information
     within_iter_loop_ = prev_within_iter_loop_;
     closeScope(prev_async_inputs);
-    for_loop_stack_.pop_back();
   }
 };
 
