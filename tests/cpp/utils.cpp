@@ -65,6 +65,8 @@ NVFuserTest::~NVFuserTest() {
   // Make sure profiler is unset in case it was set during test
   ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
   ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 }
 
 void NVFuserTest::captureStdout() {
