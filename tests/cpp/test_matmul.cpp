@@ -5470,7 +5470,6 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
       }
 
      private:
-      kir::Kernel* kernel_;
       ForLoop* wait_loop_ = nullptr;
       bool next_expr_must_be_sync_ = false;
       bool passed_ = true;
