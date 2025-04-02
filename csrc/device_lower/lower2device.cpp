@@ -511,6 +511,7 @@ void GpuLower::analysis(Fusion* fusion) {
     id_model_->validateAndPropagatePType();
   }
 
+  // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
