@@ -2089,7 +2089,7 @@ Generator<int> nTo2N(int n) {
   }
 }
 
-// Generator that yields integers from 0 to 2*n - 1
+// Generator that yields integers from m to m + 2*n - 1
 Generator<int> mTo2NplusM(int n, int m) {
   for (auto x : zeroToN(n)) {
     co_yield x + m;

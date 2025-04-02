@@ -858,23 +858,23 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
   using handle_type = std::coroutine_handle<promise_type>;
   using stored_type = Yielded<T>;
 
-  Generator(handle_type h) : coro_(h) {}
-  Generator(Generator&& other) noexcept : coro_(other.coro_) {
-    other.coro_ = nullptr;
+  Generator(handle_type h) : coroutine_(h) {}
+  Generator(Generator&& other) noexcept : coroutine_(other.coroutine_) {
+    other.coroutine_ = nullptr;
   }
   Generator& operator=(Generator&& other) noexcept {
     if (this != &other) {
-      if (coro_) {
-        coro_.destroy();
+      if (coroutine_) {
+        coroutine_.destroy();
       }
-      coro_ = other.coro_;
-      other.coro_ = nullptr;
+      coroutine_ = other.coroutine_;
+      other.coroutine_ = nullptr;
     }
     return *this;
   }
   ~Generator() {
-    if (coro_) {
-      coro_.destroy();
+    if (coroutine_) {
+      coroutine_.destroy();
     }
   }
   Generator(const Generator&) = delete;
@@ -887,7 +887,7 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
     using iterator_category = std::input_iterator_tag;
 
     iterator() = default;
-    explicit iterator(handle_type h) : coro(h) {
+    explicit iterator(handle_type h) : coroutine(h) {
       ++(*this);
     }
 
@@ -900,14 +900,14 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
     }
 
     iterator& operator++() {
-      coro.resume();
-      if (coro.done()) {
-        if (coro.promise().exception) {
-          std::rethrow_exception(coro.promise().exception);
+      coroutine.resume();
+      if (coroutine.done()) {
+        if (coroutine.promise().exception) {
+          std::rethrow_exception(coroutine.promise().exception);
         }
         value.reset();
       } else {
-        value = std::ref(coro.promise().current_value);
+        value = std::ref(coroutine.promise().current_value);
       }
       return *this;
     }
@@ -930,19 +930,19 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
       return it != s;
     }
 
-    handle_type coro = nullptr;
+    handle_type coroutine = nullptr;
     std::optional<stored_type> value;
   };
 
   iterator begin() const {
-    return iterator{coro_};
+    return iterator{coroutine_};
   }
   std::default_sentinel_t end() const {
     return {};
   }
 
  private:
-  handle_type coro_;
+  handle_type coroutine_;
 
  public:
   struct promise_type {
