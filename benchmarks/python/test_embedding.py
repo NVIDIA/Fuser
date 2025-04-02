@@ -135,17 +135,15 @@ def test_embedding_bwd_baseline_benchmark(
 
     indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
     grads = torch.randn((seq_length, vocab_hidden[1]), device="cuda", dtype=dtype)
-    embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype)
+    embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype, requires_grad=True)
 
     # Compile the fwd fn for torchcompile
     fwd_fn = with_executor(executor, embedding)
     fwd_inputs = [indices, embedding_table]
     outputs = fwd_fn(fwd_inputs)
 
-    # Manually compute IOBytes: See PR #1725
     run_benchmark(
         benchmark,
         unary_bwd_torch,
-        [outputs[0], grads, *fwd_inputs],
-        #iobytes=rmsnorm_bwd_iobytes(size, dtype),
+        [outputs, grads, *fwd_inputs],
     )
