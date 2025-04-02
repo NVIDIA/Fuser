@@ -38,8 +38,6 @@ NVFuserTest::NVFuserTest() {
   // random seed. Otherwise, use zero. If a test fails, this seed will be
   // printed.
   std::srand(getCRandomSeed());
-
-  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
 }
 
 void NVFuserTest::SetUp() {
@@ -47,6 +45,9 @@ void NVFuserTest::SetUp() {
   if (!deviceMajorMinorCheck(6)) {
     GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
   }
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
 }
 
 NVFuserTest::~NVFuserTest() {
