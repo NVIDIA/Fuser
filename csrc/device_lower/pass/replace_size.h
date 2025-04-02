@@ -21,4 +21,23 @@ namespace nvfuser {
 // tensors to reference the runtime structure containing sizes.
 void replaceSymbolicSizes(Fusion*);
 
+// Going to generate a map of tensor view root domain extents to reduce the
+// number used during lowering. For example if we have:
+//
+// T2[i0, i1] = T1[i0, i1] + T2[i2, i3]
+//
+// We know it would be safe to use:
+//
+// T2[i0, i1] = T1[i0, i1] + T2[i0, i1]
+//
+// And that way we don't generate T2.size[0] and T2.size[1], instead we will
+// reuse T1.size[0] and T1.size[1]
+// This is important when doing CSE as T2 and T1 would otherwise look like
+// they're using different values, even though we know they're the same
+//
+// There's some duplicate logic here that's in computeAt map, but it's not so
+// concice there to pull out. May want to consider making this mapping its own
+// class especially as it may be useful during scheduling.
+std::unordered_map<Val*, Val*> getSimplificationMap(Fusion* fusion);
+
 } // namespace nvfuser
