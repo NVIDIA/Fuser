@@ -3388,6 +3388,8 @@ TEST_F(NVFuserTest, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionInsertMagicZero1_CUDA) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
