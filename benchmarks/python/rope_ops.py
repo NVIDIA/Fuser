@@ -11,14 +11,15 @@ from functools import partial
 from .model_configs import configs
 
 SEQ_LENGTHS = (
-  None,
-  1024,
-  2048,
-  4096,
-  8192,
-  12288,
-  16384,
+    None,
+    1024,
+    2048,
+    4096,
+    8192,
+    12288,
+    16384,
 )
+
 
 def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.Tensor:
     head_size = x.size(-1)
