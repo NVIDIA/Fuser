@@ -39,7 +39,7 @@ ContigIDGroups::ContigIDGroups(
       " != ",
       alloc_contiguity_.size());
 
-  for (const auto index_domain_i : c10::irange(alloc_domains_.size())) {
+  for (const auto index_domain_i : arange(alloc_domains_.size())) {
     IterDomain* index_domain = alloc_domains_.at(index_domain_i);
     NVF_ERROR(
         !index_domain->isBroadcast(),
@@ -117,7 +117,7 @@ void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Contiguity doesn't matter for predicates
   if (is_indexing_pass) {
     VectorOfUniqueEntries<IterDomain*> alloc_ids = alloc_ids_it->second;
-    for (auto alloc_id_i : c10::irange(alloc_domains_.size())) {
+    for (auto alloc_id_i : arange(alloc_domains_.size())) {
       auto alloc_id = alloc_domains_[alloc_id_i];
       if (alloc_ids.erase(alloc_id) == 0) {
         continue;

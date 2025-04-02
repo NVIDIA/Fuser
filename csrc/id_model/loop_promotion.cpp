@@ -808,7 +808,7 @@ Expr* findMatchingExpr(
         maybe_promoted_inputs.size() ==
         maybe_promoted_input_use->inputs().size());
     bool all_inputs_match = true;
-    for (const auto inp_i : c10::irange(maybe_promoted_inputs.size())) {
+    for (const auto inp_i : arange(maybe_promoted_inputs.size())) {
       all_inputs_match = all_inputs_match &&
           iel_graph.disjointValSets().strictAreMapped(
               maybe_promoted_inputs[inp_i],
@@ -998,7 +998,7 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
         "Unexpected non IterDomain outputs found: ",
         promoted_expr->toString());
 
-    for (const auto i : c10::irange(out_groups.size())) {
+    for (const auto i : arange(out_groups.size())) {
       // Promote if necessary, if the output is already in the same exact map
       // it doesn't need a promotion.
       if (idGraph(IdMappingMode::EXACT)

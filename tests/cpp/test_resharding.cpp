@@ -535,7 +535,7 @@ TEST_F(ReshardingTest, InsertResharding_Before) {
 
   c = outputs[0]->as<TensorView>();
   std::vector<TensorView*> inputs(c->definition()->inputs().size());
-  for (auto i : c10::irange(c->definition()->inputs().size())) {
+  for (auto i : arange(c->definition()->inputs().size())) {
     inputs[i] = c->definition()->input(i)->as<TensorView>();
   }
   EXPECT_TRUE(getTvsWithDifferentSharding(c, inputs).empty());

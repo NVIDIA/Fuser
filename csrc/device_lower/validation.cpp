@@ -70,11 +70,11 @@ class ValidateSiblings : public IterVisitor {
           ". Sibling: ",
           sibling->toString());
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         validateParallelTypes(ref_output->axis(i), sibling->axis(i));
       }
 
-      for (const auto i : c10::irange(ref_root.size())) {
+      for (const auto i : arange(ref_root.size())) {
         id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
       }
 
@@ -83,7 +83,7 @@ class ValidateSiblings : public IterVisitor {
               sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         NVF_ERROR(
             replay.strictAreMapped(ref_output->axis(i), sibling->axis(i)),
             "Matching sibling ID not found. Expr: ",
@@ -735,7 +735,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
 
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
       IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
@@ -1095,7 +1095,7 @@ void validateSwizzle(Fusion* fusion) {
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
-    for (const auto id_idx : c10::irange(tv->nDims())) {
+    for (const auto id_idx : arange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
       auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {

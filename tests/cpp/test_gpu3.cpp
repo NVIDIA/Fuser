@@ -773,7 +773,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   for (auto tv : fusion.allTvs()) {
     if (tv != tv1 || tv != tv3) {
-      for (auto i : c10::irange(tv->nDims())) {
+      for (auto i : arange(tv->nDims())) {
         if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
           tv->axis(i)->parallelize(ParallelType::Serial);
         }
@@ -1992,7 +1992,7 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
           ref->nDims() == sibling->nDims(),
           "Invalid sibling: ",
           sibling->toString());
-      for (const auto i : c10::irange(ref->nDims())) {
+      for (const auto i : arange(ref->nDims())) {
         NVF_CHECK(
             ref->axis(i)->getParallelType() ==
                 sibling->axis(i)->getParallelType(),
@@ -3434,7 +3434,7 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   fusion.addInput(tv2);
 
   std::vector<IterDomain*> domain1(3, nullptr);
-  for (const auto i : c10::irange(3)) {
+  for (const auto i : arange(3)) {
     if (i == 0) {
       domain1[i] = IterDomainBuilder(
                        FusionGuard::getCurFusion()->zeroVal(),
@@ -8411,7 +8411,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   // tv2 and tv3 have non-concretized broadcasts. Make sure they are
   // moved to the innermost position of the loop domain
   for (auto tv : {tv2, tv3}) {
-    for (const auto i : c10::irange(2)) {
+    for (const auto i : arange(2)) {
       auto broadcast_domain = tv->getLogicalDomain().at(i);
       ASSERT_TRUE(broadcast_domain->isBroadcast());
       EXPECT_EQ(

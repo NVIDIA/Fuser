@@ -363,7 +363,7 @@ ValGraph& IdModel::buildExactGraph() {
                 c_tv->getMaybeRootDomain().size(),
             "Multiple outputs with mismatched TV domains is not supported.");
 
-        for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+        for (auto domain_i : arange(c_tv->getMaybeRootDomain().size())) {
           auto c_id = c_tv->getMaybeRootDomain()[domain_i];
           auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
           graph.mapVals(o_id, c_id);
@@ -744,7 +744,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
           all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
               producer_tv->getLoopDomain().begin(),
               producer_tv->getLoopDomain().begin() +
-                  producer_tv->getComputeAtPosition());
+                  producer_tv->getComputePosition(consumer_tv));
         }
         info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
 
@@ -777,7 +777,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
         auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
         info.ordered_sibling_ids.pushBack(
             {all_consumer_ids.begin(), all_consumer_ids.end()});
-        for (const auto i : c10::irange(1, consumer_tvs.size())) {
+        for (const auto i : arange(1, consumer_tvs.size())) {
           auto consumer_tv_i = consumer_tvs.vector().at(i);
           auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
 
@@ -931,6 +931,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   }
 }
 
+void IdModel::removeGraph(IdMappingMode mode) {
+  id_graphs_.erase(mode);
+}
+
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
@@ -938,7 +942,7 @@ ValGraph IdModel::buildIntersection(
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
-    for (auto id0_i : c10::irange(set_size)) {
+    for (auto id0_i : arange(set_size)) {
       Val* id0 = group0->vector()[id0_i];
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
         Val* id1 = group0->vector()[id1_i];
@@ -983,7 +987,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       })) {
     // Inputs have mismatched type, replace new_inputs
     auto tmp_inputs = new_inputs;
-    for (const auto i : c10::irange(new_inputs.size())) {
+    for (const auto i : arange(new_inputs.size())) {
       new_inputs.at(i) = IterDomainBuilder(tmp_inputs.at(i))
                              .iter_type(IterType::Iteration)
                              .build();
