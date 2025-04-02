@@ -50,7 +50,7 @@ class CircularBufferInfo {
   ForLoop* getCircularBufferLoop(
       const TensorView* tv,
       const std::vector<ForLoop*>& loops,
-      bool ignore_prologue = false);
+      bool ignore_prologue = false) const;
 
   //! Get the circular-buffered tensors for the given loop/axis.
   std::unordered_set<const TensorView*> getCircularBufferTvs(
@@ -72,6 +72,13 @@ class CircularBufferInfo {
 
   //! Get the circular buffer insertion position for the given axis.
   int64_t getCircularBufferInsertionPosition(IterDomain* axis) const;
+
+  //! Get the linearized index used for selecting the circular buffering stage
+  //! and calculating mbarrier parity. mbarriers are active across nested
+  //! for-loops.
+  Val* getLinearizeIndex(
+      TensorView* circular_buffer_tv,
+      const std::vector<ForLoop*>& loops) const;
 
   std::string toString() const;
 

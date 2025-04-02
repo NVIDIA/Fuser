@@ -341,6 +341,32 @@ int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
   return maybe_depth_it->second;
 }
 
+Val* CircularBufferInfo::getLinearizeIndex(
+    TensorView* circular_buffer_tv,
+    const std::vector<ForLoop*>& loops) const {
+  ForLoop* circular_buffer_loop =
+      getCircularBufferLoop(circular_buffer_tv, loops);
+  int64_t insertion_position =
+      getCircularBufferInsertionPosition(circular_buffer_loop->iter_domain());
+  NVF_ERROR((int64_t)loops.size() >= insertion_position);
+
+  Val* index = GpuLower::current()->kernel()->zeroVal();
+  Val* extent = GpuLower::current()->kernel()->oneVal();
+  for (int64_t i = insertion_position; i >= 0; --i) {
+    if (loops[i]->iter_domain()->isParallelized() ||
+        loops[i]->iter_domain()->isBroadcast()) {
+      continue;
+    }
+    index = SimplifyingIrBuilder::addExpr(
+        index,
+        SimplifyingIrBuilder::mulExpr(
+            loops[i]->indexOrStartIfTrivial(), extent));
+    extent = SimplifyingIrBuilder::mulExpr(
+        extent, loops[i]->iter_domain()->extent());
+  }
+  return index;
+}
+
 ForLoop* CircularBufferInfo::getCircularBufferLoop(
     IterDomain* axis,
     const std::vector<ForLoop*>& loops,
@@ -362,7 +388,7 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
 ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,
-    bool ignore_prologue) {
+    bool ignore_prologue) const {
   IterDomain* axis = getCircularBufferAxis(tv);
 
   if (axis == nullptr) {
