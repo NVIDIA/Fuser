@@ -917,6 +917,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   }
 }
 
+void IdModel::removeGraph(IdMappingMode mode) {
+  id_graphs_.erase(mode);
+}
+
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,

@@ -667,14 +667,11 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
     }
   }
 
+  // The Loop graph needs to be updated as the compute positions of
+  // the updated tensors differ
   if (updated && hasIdModel()) {
-    // TODO: Don't rebuild from complete scratch. Only the loop graph
-    // needs to be updated.
-    id_model_ = std::make_unique<IdModel>(
-        fusion_,
-        /*build_graphs=*/true,
-        /*allow_self_mapping=*/false,
-        /*validate=*/false);
+    id_model_->removeGraph(IdMappingMode::LOOP);
+    id_model_->buildGraph(IdMappingMode::LOOP);
     id_model_->validateAndPropagatePType();
   }
 
