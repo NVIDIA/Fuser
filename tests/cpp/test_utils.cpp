@@ -18,6 +18,7 @@
 #include <scheduler/vectorize_helper.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <utils.h>
 
 #include <cstdlib>
 #include <filesystem>
@@ -117,8 +118,9 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
   for (auto index : c10::irange(num_merged_dim)) {
-    EXPECT_TRUE(logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
-        inputs[index]));
+    EXPECT_TRUE(
+        logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
+            inputs[index]));
   }
 }
 
@@ -2072,4 +2074,84 @@ TEST_F(TestCpp23BackPort, Enumerate) {
   // bidirectional
 }
 
+namespace {
+
+// Generator that yields integers from 0 to n-1
+Generator<int> count(int n) {
+  for (int i = 0; i < n; ++i) {
+    co_yield i;
+  }
+}
+
+// Generator that yields integers from n to 2*n - 1
+Generator<int> count2(int n) {
+  for (int i = n; i < 2 * n; ++i) {
+    co_yield i;
+  }
+}
+
+// Generator that yields integers from 0 to 2*n - 1
+Generator<int> count3(int n, int m) {
+  for (auto x : count(n)) {
+    co_yield x + m;
+  }
+  for (auto x : count2(n)) {
+    co_yield x + m;
+  }
+}
+
+// Generator that yields references
+Generator<int&> items(std::vector<int>& v) {
+  for (auto& x : v) {
+    co_yield x;
+  }
+}
+
+} // namespace
+
+TEST_F(NVFuserTest, Generator1) {
+  static_assert(std::ranges::view<decltype(count(10))>);
+  std::vector<int> generated;
+  for (auto x : count(10) |
+           std::views::filter([](int x) { return x % 2 == 0; }) |
+           std::views::transform([](int x) { return x * x; })) {
+    generated.push_back(x);
+  }
+  std::vector<int> expect{0, 4, 16, 36, 64};
+  EXPECT_EQ(generated, expect);
+}
+
+TEST_F(NVFuserTest, Generator2) {
+  static_assert(std::ranges::view<decltype(count3(10, 10))>);
+  std::vector<int> generated;
+  for (auto x : count3(10, 10)) {
+    generated.push_back(x);
+  }
+  std::vector<int> expect{10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
+                          20, 21, 22, 23, 24, 25, 26, 27, 28, 29};
+  EXPECT_EQ(generated, expect);
+}
+
+TEST_F(NVFuserTest, Generator3) {
+  std::vector<int> v{0, 0, 0, 0, 0};
+  for (auto&& [i, x] : enumerate(items(v))) {
+    x = i * 10;
+  }
+  std::vector<int> expect{0, 10, 20, 30, 40};
+  EXPECT_EQ(v, expect);
+}
+
+TEST_F(NVFuserTest, Generator4) {
+  auto one2five = []() -> Generator<int> {
+    for (int i = 1; i <= 5; ++i) {
+      co_yield i;
+    }
+  };
+  std::vector<int> v;
+  for (auto x : one2five()) {
+    v.push_back(x);
+  }
+  std::vector<int> expect{1, 2, 3, 4, 5};
+  EXPECT_EQ(v, expect);
+}
 } // namespace nvfuser

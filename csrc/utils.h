@@ -21,6 +21,7 @@
 #include <c10/core/thread_pool.h>
 
 #include <concepts>
+#include <coroutine>
 #include <deque>
 #include <iterator>
 #include <memory>
@@ -842,5 +843,135 @@ using views::enumerate;
 using views::zip;
 
 #endif // C++23
+
+// Helper: turn T into reference_wrapper<U> if T is reference
+template <typename T>
+using Yielded = std::conditional_t<
+    std::is_reference_v<T>,
+    std::reference_wrapper<std::remove_reference_t<T>>,
+    T>;
+
+template <typename T>
+class Generator : public std::ranges::view_interface<Generator<T>> {
+ public:
+  struct promise_type;
+  using handle_type = std::coroutine_handle<promise_type>;
+  using stored_type = Yielded<T>;
+
+  Generator(handle_type h) : coro_(h) {}
+  Generator(Generator&& other) noexcept : coro_(other.coro_) {
+    other.coro_ = nullptr;
+  }
+  Generator& operator=(Generator&& other) noexcept {
+    if (this != &other) {
+      if (coro_) {
+        coro_.destroy();
+      }
+      coro_ = other.coro_;
+      other.coro_ = nullptr;
+    }
+    return *this;
+  }
+  ~Generator() {
+    if (coro_) {
+      coro_.destroy();
+    }
+  }
+  Generator(const Generator&) = delete;
+  Generator& operator=(const Generator&) = delete;
+
+  struct iterator {
+    using value_type = std::remove_reference_t<T>;
+    using reference = T;
+    using difference_type = std::ptrdiff_t;
+    using iterator_category = std::input_iterator_tag;
+
+    iterator() = default;
+    explicit iterator(handle_type h) : coro(h) {
+      ++(*this);
+    }
+
+    reference operator*() const {
+      if constexpr (std::is_reference_v<T>) {
+        return value->get(); // unwrap reference_wrapper<T>
+      } else {
+        return *value;
+      }
+    }
+
+    iterator& operator++() {
+      coro.resume();
+      if (coro.done()) {
+        if (coro.promise().exception) {
+          std::rethrow_exception(coro.promise().exception);
+        }
+        value.reset();
+      } else {
+        value = std::ref(coro.promise().current_value);
+      }
+      return *this;
+    }
+
+    iterator operator++(int) {
+      auto tmp = *this;
+      ++(*this);
+      return tmp;
+    }
+    bool operator==(std::default_sentinel_t) const {
+      return !value.has_value();
+    }
+    bool operator!=(std::default_sentinel_t) const {
+      return value.has_value();
+    }
+    friend bool operator==(std::default_sentinel_t s, const iterator& it) {
+      return it == s;
+    }
+    friend bool operator!=(std::default_sentinel_t s, const iterator& it) {
+      return it != s;
+    }
+
+    handle_type coro = nullptr;
+    std::optional<stored_type> value;
+  };
+
+  iterator begin() const {
+    return iterator{coro_};
+  }
+  std::default_sentinel_t end() const {
+    return {};
+  }
+
+ private:
+  handle_type coro_;
+
+ public:
+  struct promise_type {
+    std::optional<stored_type> current_value;
+    std::exception_ptr exception;
+
+    auto get_return_object() {
+      return Generator{handle_type::from_promise(*this)};
+    }
+    std::suspend_always initial_suspend() {
+      return {};
+    }
+    std::suspend_always final_suspend() noexcept {
+      return {};
+    }
+    std::suspend_always yield_value(T value) {
+      if constexpr (std::is_reference_v<T>) {
+        current_value = std::ref(value); // wraps T& as reference_wrapper
+      } else {
+        current_value = std::move(value);
+      }
+      return {};
+    }
+
+    void return_void() {}
+    void unhandled_exception() {
+      exception = std::current_exception();
+    }
+  };
+};
 
 } // namespace nvfuser
