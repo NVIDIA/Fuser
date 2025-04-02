@@ -5428,7 +5428,7 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
       }
 
      private:
-      SyncChecker(kir::Kernel* kernel) : kernel_(kernel) {
+      SyncChecker(kir::Kernel* kernel) {
         kir::IrVisitor::handle(kernel->topLevelExprs());
       }
 
