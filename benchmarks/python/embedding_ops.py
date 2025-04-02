@@ -6,6 +6,13 @@ import torch
 from .model_configs import configs
 
 
+# (vocab, hidden) configurations seen in models.
+EMBEDDING_CONFIGS = [
+    (152064, 3584),  # hf_qwen2
+    (32064, 3072),  # hf_phi3
+    (131072, 5120),  # hf_mistral_nemo
+]
+
 class EmbeddingBase:
     def __init__(self, model_name, dtype):
         self.config = configs[model_name]()
