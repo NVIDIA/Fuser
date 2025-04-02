@@ -14,8 +14,17 @@ EMBEDDING_CONFIGS = [
 ]
 
 SEQ_LENGTHS = [
-    1024, 2048, 3072, 4096, 8192, 12288, 16384, 20480, 24576,
+    1024,
+    2048,
+    3072,
+    4096,
+    8192,
+    12288,
+    16384,
+    20480,
+    24576,
 ]
+
 
 class EmbeddingBase:
     def __init__(self, model_name, dtype):
