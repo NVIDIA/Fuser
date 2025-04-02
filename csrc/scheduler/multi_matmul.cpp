@@ -204,7 +204,8 @@ void MultipleMatmulScheduler::cacheInputsAndOutputs(bool skip_intermediates) {
   if (auto it = tensor_roles_.find(MatmulTensorRole::EPILOGUE_INPUT);
       it != tensor_roles_.end()) {
     for (TensorView* tv : it->second) {
-      tv->cacheAfter();
+      TensorView* tv_cache = tv->cacheAfter();
+      cached_epilogue_inputs_.emplace_back(tv, tv_cache);
     }
   }
 

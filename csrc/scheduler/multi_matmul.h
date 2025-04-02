@@ -80,6 +80,8 @@ class MultipleMatmulScheduler {
   int64_t num_local_batch_dims_ = 0;
   int64_t num_device_and_batch_dims_ = 0;
 
+  std::vector<std::pair<TensorView*, TensorView*>> cached_epilogue_inputs_;
+
   std::vector<TensorView*> as_, bs_, acw_smems_, bcw_smems_, mma_results_,
       splitk_sums_, smem_epilogues_;
 };

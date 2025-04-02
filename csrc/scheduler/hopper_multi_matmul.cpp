@@ -501,47 +501,36 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   // else this is just mma_results_
   std::vector<TensorView*> propagate_to =
       splitk_sums_.empty() ? mma_results_ : splitk_sums_;
-  if (tensor_roles_.count(MatmulTensorRole::EPILOGUE_INPUT)) {
-    const std::vector<TensorView*>& c_tvs =
-        tensor_roles_.at(MatmulTensorRole::EPILOGUE_INPUT);
-    for (TensorView* c : c_tvs) {
-      // cacheInputsAndOutputs creates a cache_after for each epilogue input
-      NVF_ERROR(c->uses().size() == 1);
-      TensorView* cache_tv = ir_utils::consumerTvsOf(c).at(0);
-      NVF_ERROR(
-          cache_tv->definition() != nullptr &&
-          cache_tv->definition()->isA<LoadStoreOp>());
+  for (auto& [c, c_cache] : cached_epilogue_inputs_) {
+    bool load_with_ldmatrix =
+        params_->use_ldst_matrix && dataTypeSize(c_cache->dtype()) == 2;
+    bool is_2d_epilogue_input =
+        TensorDomain::noBroadcasts(c_cache->domain()->logical()).size() == 2;
+    if (load_with_ldmatrix && is_2d_epilogue_input &&
+        params_->async_gmem_load_operands) {
+      // Schedule TMA load into shared memory for epilogue input
+      c_cache->definition()->as<LoadStoreOp>()->setOpType(
+          LoadStoreOpType::CpAsyncBulkTensorTile);
+      c_cache->setMemoryType(MemoryType::Shared);
 
-      bool load_with_ldmatrix =
-          params_->use_ldst_matrix && dataTypeSize(cache_tv->dtype()) == 2;
-      bool is_2d_epilogue_input =
-          TensorDomain::noBroadcasts(cache_tv->domain()->logical()).size() == 2;
-      if (load_with_ldmatrix && is_2d_epilogue_input &&
-          params_->async_gmem_load_operands) {
-        // Schedule TMA load into shared memory for epilogue input
-        cache_tv->definition()->as<LoadStoreOp>()->setOpType(
-            LoadStoreOpType::CpAsyncBulkTensorTile);
-        cache_tv->setMemoryType(MemoryType::Shared);
+      // Apply the default scheduling that is common to all register
+      // TensorViews after wgmma.
+      blockTileTensors({c_cache});
+      parallelizeBlocks({c_cache});
+      transformLikeMmaOutputWithoutK(c_cache);
 
-        // Apply the default scheduling that is common to all register
-        // TensorViews after wgmma.
-        blockTileTensors({cache_tv});
-        parallelizeBlocks({cache_tv});
-        transformLikeMmaOutputWithoutK(cache_tv);
+      // Swizzle to avoid shared memory bank conflicts
+      MmaInputSmemSwizzle swizzle_type =
+          mma_utils::tmaSwizzleSharedMemory(c_cache);
+      c_cache->applyMmaSwizzleForTMALoad(swizzle_type);
 
-        // Swizzle to avoid shared memory bank conflicts
-        MmaInputSmemSwizzle swizzle_type =
-            mma_utils::tmaSwizzleSharedMemory(cache_tv);
-        cache_tv->applyMmaSwizzleForTMALoad(swizzle_type);
-
-        tma_load_epilogue_inputs.push_back(cache_tv);
-        // Do not propagate any other changes to TMA load.
-        propagate_to.push_back(cache_tv);
-      } else {
-        cached_tvs.push_back(cache_tv);
-        // Propagate changes to the cache_after tensor if not using TMA load.
-        propagate_to.push_back(c);
-      }
+      tma_load_epilogue_inputs.push_back(c_cache);
+      // Do not propagate any other changes to TMA load.
+      propagate_to.push_back(c_cache);
+    } else {
+      cached_tvs.push_back(c_cache);
+      // Propagate changes to the cache_after tensor if not using TMA load.
+      propagate_to.push_back(c);
     }
   }
 
