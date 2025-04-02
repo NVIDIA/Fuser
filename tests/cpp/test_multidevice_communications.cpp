@@ -17,6 +17,8 @@
 #include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
+#include <ops/all_ops.h>
+
 
 #include <iostream>
 
@@ -407,6 +409,95 @@ TEST_P(CommunicationTest, ReduceScatter) {
         unsharded_input_tensor.sum({0}).slice(0, device_id, device_id + 1);
     validate(output_tensor, ref);
   }
+}
+
+TEST_P(CommunicationTest, AllgatherLoopSplit_NonContiguous) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+
+  TensorView* tv0 = makeConcreteTensor({5, d*3});
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+  reorderDIDToFront(tv0);
+
+  TensorView* tv1 = permute(tv0, {{1, 0}});
+  tv1->outer_split(0, d);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  TensorView* tv2 = set(tv1);
+  tv2->outer_split(0, d);
+  tv2->axis(0)->parallelize(ParallelType::Serial);
+
+  TensorView* tv3 = permute(tv2, {{0, 1}});
+  tv3->outer_split(1, d);
+  tv3->axis(1)->parallelize(ParallelType::Serial);
+  tv3->reorder({{1, 0}, {2, 1}, {0, 2}});
+
+  for (auto tv : {tv0, tv1, tv2, tv3}) {
+    tv->setDeviceMesh(full_mesh_);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv3);
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d*3}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, tv0);
+  
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {unsharded_in_tensor},
+      __LINE__,
+      __FILE__);    
+}
+
+TEST_P(CommunicationTest, AllgatherLoopSplit_Contiguous) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+
+  TensorView* tv0 = makeConcreteTensor({d*3, 5});
+  TensorView* tv1 = set(tv0);  
+  TensorView* tv2 = permute(tv1, {{1, 0}});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv2);
+
+  tv0->outer_split(0, d);
+  TransformPropagator propagator(tv0);
+  SetSelector selector({tv1, tv2});
+  MaxLogicalDomainInfoSpanningTree(tv0, &selector).traverse(&propagator);
+  
+  tv0->setDeviceMesh(full_mesh_);
+  shardAllLike(tv0, {tv1, tv2});
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  for (auto tv : fusion->allTvs()) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  at::Tensor unsharded_in_tensor = at::randn({d*3, 5}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, tv0);
+  
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {unsharded_in_tensor.transpose(0, 1)},
+      __LINE__,
+      __FILE__);    
 }
 
 INSTANTIATE_TEST_SUITE_P(
