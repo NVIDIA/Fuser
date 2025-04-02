@@ -55,8 +55,6 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2pBased) {
 
   torch::cuda::synchronize();
 
-  std::cout << "======PRINTING=====\n\nOutput: " << output << "\n\nExpected: " << unsharded_input << std::endl;
-
   EXPECT_TRUE(torch::allclose(output, unsharded_input, 1e-2, 1e-2))
       << "Output: " << output << "\nExpected: " << unsharded_input;
 }

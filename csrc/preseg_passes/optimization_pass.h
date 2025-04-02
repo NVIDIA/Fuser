@@ -8,6 +8,7 @@
 #pragma once
 #include <debug.h>
 #include <exceptions.h>
+#include <host_ir/container.h>
 #include <instrumentation.h>
 #include <ir/interface_nodes.h>
 #include <ir/utils.h>
@@ -60,10 +61,13 @@ class OptimizationPass {
     // TODO: skip the logging of the pass where the fusion has not been changed.
     if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
       debug() << "Fusion after pass: " << DerivedClass::name() << std::endl;
-      fusion->printMath();
+      if (fusion->isA<hir::HostIrContainer>()) {
+        fusion->as<hir::HostIrContainer>()->print(debug());
+      } else {
+        fusion->printMath();
+      }
       debug() << "========================================" << std::endl;
     }
-
 #ifndef NDEBUG
     // cycle detection is only enabled on debug run
     NVF_ERROR(
