@@ -482,9 +482,30 @@ class CloneTmaCircularBufferLoopAndInsertSync
     insertWarMBarrierArriveAfterLastRead();
   }
 
+  // mbarriers are active across nested for-loops. The linearized index is used
+  // for selecting the circular buffering stage and calculating mbarrier parity.
+  Val* linearizeIndex() const {
+    NVF_ERROR((int64_t)for_loop_stack_.size() >= insertion_position_);
+    Val* index = GpuLower::current()->kernel()->zeroVal();
+    Val* extent = GpuLower::current()->kernel()->oneVal();
+    for (int64_t i = insertion_position_; i >= 0; --i) {
+      if (for_loop_stack_[i]->iter_domain()->isParallelized() ||
+          for_loop_stack_[i]->iter_domain()->isBroadcast()) {
+        continue;
+      }
+      index = SimplifyingIrBuilder::addExpr(
+          index,
+          SimplifyingIrBuilder::mulExpr(
+              for_loop_stack_[i]->indexOrStartIfTrivial(), extent));
+      extent = SimplifyingIrBuilder::mulExpr(
+          extent, for_loop_stack_[i]->iter_domain()->extent());
+    }
+    return index;
+  }
+
   // Current compute index: loop_index
   Val* currentComputeIndex() const {
-    return cloned_top_level_loop_->indexOrStartIfTrivial();
+    return linearizeIndex();
   }
 
   // Current compute stage: loop_index % stages
@@ -517,8 +538,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
             circular_buffer_loop_->iter_domain());
 
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::addExpr(
-            cloned_top_level_loop_->indexOrStartIfTrivial(), opt.prefetch + 1),
+        SimplifyingIrBuilder::addExpr(linearizeIndex(), opt.prefetch + 1),
         IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         current_load_stage, for_loop_stack_);
@@ -535,12 +555,12 @@ class CloneTmaCircularBufferLoopAndInsertSync
             .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
             .prefetch;
     if (loop_type_ == CircularBufferLoopStage::Main) {
-      auto current_load_index = SimplifyingIrBuilder::addExpr(
-          cloned_top_level_loop_->indexOrStartIfTrivial(), prefetch);
+      auto current_load_index =
+          SimplifyingIrBuilder::addExpr(linearizeIndex(), prefetch);
       return GpuLower::current()->commonScalarMap().hoistScalar(
           current_load_index, for_loop_stack_);
     }
-    return cloned_top_level_loop_->indexOrStartIfTrivial();
+    return linearizeIndex();
   }
 
   // Current load stage: currentLoadIndex() % stages
