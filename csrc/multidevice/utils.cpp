@@ -46,7 +46,7 @@ int64_t allocationIndex(TensorView* tv, IterDomain* id) {
       return index;
     }
     if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-        !loop_id->isBroadcast() && loop_id->getParallelType() == ParallelType::Stream) {
+        !loop_id->isBroadcast() && loop_id->getParallelType() != ParallelType::Stream) {
       index++;
     }
   }
