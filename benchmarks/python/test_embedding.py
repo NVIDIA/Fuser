@@ -106,13 +106,16 @@ def test_embedding_fwd_baseline_benchmark(
     dtype: torch.dtype,
     executor: str,
 ):
+    kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
+    if executor == "thunder":
+        kwargs["nv_enable_embedding"] = True
     
     indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
     embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype)
 
-    benchmark_fn = with_executor(executor, embedding)
+    benchmark_fn = with_executor(executor, embedding, **kwargs)
     run_benchmark(
         benchmark,
         benchmark_fn,
@@ -130,15 +133,18 @@ def test_embedding_bwd_baseline_benchmark(
     dtype: torch.dtype,
     executor: str,
 ):
+    kwargs = {}
     if executor == "torchcompile":
         clear_dynamo_cache()
+    if executor == "thunder":
+        kwargs["nv_enable_embedding"] = True
 
     indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
     grads = torch.randn((seq_length, vocab_hidden[1]), device="cuda", dtype=dtype)
     embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype, requires_grad=True)
 
     # Compile the fwd fn for torchcompile
-    fwd_fn = with_executor(executor, embedding)
+    fwd_fn = with_executor(executor, embedding, **kwargs)
     fwd_inputs = [indices, embedding_table]
     outputs = fwd_fn(fwd_inputs)
 
