@@ -83,7 +83,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
   }
 
   ASSERT_EQ(ref_unsharded_outputs.size(), outputs.size());
-  for (int i : c10::irange(fusion->outputs().size())) {
+  for (int i : arange(fusion->outputs().size())) {
     ASSERT_TRUE(fusion->outputs().at(i)->isA<TensorView>());
     auto output_tv = fusion->outputs().at(i)->as<TensorView>();
     if (!output_tv->getDeviceMesh().has(communicator_->deviceId())) {
@@ -104,7 +104,7 @@ void PipelineTest::validate(bool validate_with_prescribed_values) {
 // with given (possibly sharded) inputs
 void PipelineTest::executeAndValidate(bool validate_with_prescribed_values) {
   ASSERT_EQ(unsharded_args.size(), fusion->inputs().size());
-  for (int i : c10::irange(fusion->inputs().size())) {
+  for (int i : arange(fusion->inputs().size())) {
     ASSERT_TRUE(fusion->inputs().at(i)->isA<TensorView>());
     args.push(shardTensor(
         unsharded_args[i].as<at::Tensor>(),

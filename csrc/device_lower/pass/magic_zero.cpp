@@ -136,7 +136,7 @@ void protectNonPredicateIndexWithMagicZero(
 
   // Search for proper magic zero insertion point,
   //  prefer innermost.
-  for (auto idx : c10::irange(loops.size())) {
+  for (auto idx : arange(loops.size())) {
     auto loop = loops[idx];
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domains[idx], IdMappingMode::EXACT);

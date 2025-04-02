@@ -47,6 +47,7 @@ void TensorIndexer::buildLoopIndexMap() {
   }
 
   Fusion* fusion = id_model_.fusion();
+  FusionGuard fg(fusion);
 
   for (auto expr : fusion->exprs()) {
     if (!ir_utils::isTvOp(expr)) {
@@ -192,7 +193,7 @@ Val* TensorIndexer::getLinearIndex(
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
-  for (const auto i : c10::irange(contig_indices.size())) {
+  for (const auto i : arange(contig_indices.size())) {
     Val* stride = contig_strides.at(i);
     linear_index = SimplifyingIrBuilder::addExpr(
         linear_index,
@@ -225,6 +226,13 @@ std::vector<IterDomain*> TensorIndexer::getLoopDomains(const Expr* expr) const {
   // Assume consumer-based indexing. Needs to revisit for ops like
   // scatter
   auto loop_domains = ir_utils::getTvOutput(expr)->getLoopDomain();
+
+  // If this is an expr initializing a buffer for a reduction, there
+  // should be no loops for reduction domains
+  if (lower_utils::isReductionInitExpr(expr)) {
+    std::erase_if(
+        loop_domains, [](IterDomain* id) -> bool { return id->isReduction(); });
+  }
 
   for (auto& loop_id : loop_domains) {
     loop_id = getLoopPromotion(loop_id, id_model_);
@@ -359,6 +367,10 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
 
   const std::vector<IterDomain*>& predicate_domains =
       getPredicateDomains(tv, expr);
+
+  if (predicate_domains.empty()) {
+    return {};
+  }
 
   const IndexingInfo& index_info =
       computeIndex(expr, predicate_domains, for_loops);
@@ -594,7 +606,7 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
   std::unordered_set<ValGroup> already_indexed_domains;
   std::deque<ValGroup> contig_alloc_groups;
   std::deque<Val*> contig_strides;
-  for (const auto i : c10::irange(alloc_info.ids.size())) {
+  for (const auto i : arange(alloc_info.ids.size())) {
     // Traverse back from the innermost domains so that the right
     // stride val is picked up for each contiguous domain
     auto i1 = alloc_info.ids.size() - 1 - i;
@@ -700,7 +712,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   std::vector<Val*> result;
   result.reserve(contig_alloc_groups.size());
 
-  for (const auto i : c10::irange(contig_alloc_groups.size())) {
+  for (const auto i : arange(contig_alloc_groups.size())) {
     const auto& contig_domain_group = contig_alloc_groups.at(i);
     auto idx_it = index_map.find(contig_domain_group);
     NVF_ERROR(
@@ -743,6 +755,55 @@ Val* TensorIndexer::protectIndexWithMagicZero(
   }
 
   return index;
+}
+
+bool TensorIndexer::isSupported(Fusion* fusion) {
+  const auto all_tvs = fusion->allTvs();
+
+  auto warn = [](const std::string& reason) -> void {
+#ifndef NDEBUG
+    TORCH_WARN("TensorIndexer disabled due to: ", reason);
+#endif // NDEBUG
+  };
+
+  // The following conditions are those that are known to be
+  // unsupported. It may not be a complete list.
+
+  if (fusion->hasManaged("loop_rotation")) {
+    warn("loop rotation is not supported");
+    return false;
+  }
+
+  for (const auto& tv : all_tvs) {
+    std::stringstream reason;
+
+    if (auto gather = dynamic_cast<GatherOp*>(tv->definition());
+        gather != nullptr && !gather->exactSizes()) {
+      // take_along_axis is supported but generic gather is not
+      reason << "Non-exact gather not supported: " << gather->toString();
+    } else if (tv->hasComputeWith()) {
+      reason << "computeWith not supported: " << tv->toString();
+    } else {
+      for (const auto& id : tv->domain()->allIDs()) {
+        if (auto swizzle2d = dynamic_cast<Swizzle2D*>(id->definition())) {
+          reason << "Swizzle2D not supported: " << swizzle2d->toString();
+          break;
+        } else if (ir_utils::isIndexedConsumerID(tv, id)) {
+          reason << "Indirect indexing of consumer ID not supported: "
+                 << tv->toString() << ", " << id->toString() << ", "
+                 << tv->definition()->toString();
+          break;
+        }
+      }
+    }
+
+    if (!reason.str().empty()) {
+      warn(reason.str());
+      return false;
+    }
+  }
+
+  return true;
 }
 
 } // namespace nvfuser

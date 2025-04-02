@@ -797,7 +797,7 @@ class VectorizationCalculator {
     int64_t vec_size = scheduler_utils::maxVectorizationWidth(inner_dims_numel);
 
     // Account for misaligned rows due to outer strides
-    for (size_t i : c10::irange(inner_dim_pos)) {
+    for (size_t i : arange(inner_dim_pos)) {
       if (sizes.at(i) == 1) {
         // outer size-1 dimensions don't affect vectorizability
         continue;
@@ -1133,7 +1133,7 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
         }
         if (op->isA<ReductionOp>()) {
           bool found_reduction = false;
-          for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+          for (size_t dim : arange((size_t)pattern.output->nDims())) {
             if (found_reduction &&
                 !pattern.output->axis((int64_t)dim)->isReduction()) {
               return "Mul+Sum patterns can only be translated to MmaOp "
@@ -1259,7 +1259,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
   std::vector<int64_t> broadcast_pos;
   std::vector<int64_t> nonbroadcast_pos;
 
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : arange(number_of_inner_pos)) {
     auto axis_idx = i - number_of_inner_pos;
     auto id = tv->axis(axis_idx);
     if (id->isBroadcast()) {
@@ -1274,7 +1274,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
       combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
 
   std::unordered_map<int64_t, int64_t> order_map;
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : arange(number_of_inner_pos)) {
     order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
   }
 
