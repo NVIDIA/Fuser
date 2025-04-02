@@ -149,7 +149,7 @@ void validateCircularBufferedTensor(const TensorView* tv) {
           tv->circularBufferOptions().type) &&
       std::get<WarpSpecialized>(tv->circularBufferOptions().type)
           .num_registers.has_value()) {
-    for (int64_t axis : c10::irange((int64_t)tv->getLoopDomain().size())) {
+    for (int64_t axis : arange((int64_t)tv->getLoopDomain().size())) {
       // short-circuit: only check IterDomains to the left of the circular
       // buffer position
       if (axis >= circular_buffer_pos) {

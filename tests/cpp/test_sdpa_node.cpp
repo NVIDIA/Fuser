@@ -105,7 +105,7 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
       // Idx=2: producer_ids[2]=L/S, consumer_ids [2] = L
       // Idx=3: prodcuer_ids[3] = E/Ev, consumer_idx[3] = Ev
 
-      for (auto idx : c10::irange(consumer_ids.size())) {
+      for (auto idx : arange(consumer_ids.size())) {
         if (idx < (2 + num_device_dim)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
@@ -187,7 +187,7 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
           producer->sameAs(sdpa_op->key());
       bool consumer_has_e = consumer->sameAs(sdpa_op->grad_query()) ||
           consumer->sameAs(sdpa_op->grad_key());
-      for (auto idx : c10::irange(producer_ids.size())) {
+      for (auto idx : arange(producer_ids.size())) {
         if (idx < 2 + num_device_dim) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
@@ -401,7 +401,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
       };
 
       auto consumer_root = consumer_tv->getMaybeRootDomain();
-      for (auto idx : c10::irange(consumer_tv->nDims())) {
+      for (auto idx : arange(consumer_tv->nDims())) {
         // Mapping for N, H exists from Q/K/V to any output.
         if (idx < 2) {
           EXPECT_TRUE(

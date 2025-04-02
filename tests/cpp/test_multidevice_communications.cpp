@@ -78,7 +78,7 @@ TEST_P(CommunicationTest, Gather) {
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor =
       at::empty({communicator_->size(), kTensorSize}, tensor_options);
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
         at::arange(kTensorSize, tensor_options).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
@@ -112,7 +112,7 @@ TEST_P(CommunicationTest, Allgather) {
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor =
       at::empty({communicator_->size(), kTensorSize}, tensor_options);
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
         at::arange(kTensorSize, tensor_options).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
@@ -148,7 +148,7 @@ TEST_P(CommunicationTest, Scatter) {
   }
   at::Tensor output_tensor = at::empty({1, kTensorSize}, tensor_options);
 
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     if (communicator_->deviceId() == kRoot) {
       input_tensor.copy_(
           at::arange(kTensorSize, tensor_options).unsqueeze(0) +
@@ -185,7 +185,7 @@ TEST_P(CommunicationTest, Broadcast) {
     input_tensor = at::empty({kTensorSize}, tensor_options);
   }
   at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     if (communicator_->deviceId() == kRoot) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
     }
@@ -241,7 +241,7 @@ TEST_P(CommunicationTest, SendRecv) {
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), GetParam());
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     if (rank == sender) {
       input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
     }
@@ -277,7 +277,7 @@ TEST_P(CommunicationTest, SendRecvToSelf) {
 
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), GetParam());
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(at::arange(kTensorSize, tensor_options) + repetition);
 
     postSingleCommunication(
@@ -304,7 +304,7 @@ TEST_P(CommunicationTest, Reduce) {
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
 
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
         at::arange(kTensorSize, tensor_options).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
@@ -342,7 +342,7 @@ TEST_P(CommunicationTest, Allreduce) {
 
   at::Tensor input_tensor = at::empty({1, kTensorSize}, tensor_options);
   at::Tensor output_tensor = at::empty({kTensorSize}, tensor_options);
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     input_tensor.copy_(
         at::arange(kTensorSize, tensor_options).unsqueeze(0) +
         (communicator_->deviceId() + 1) * repetition);
@@ -385,7 +385,7 @@ TEST_P(CommunicationTest, ReduceScatter) {
       unsharded_input_tensor.slice(0, device_id, device_id + 1);
   at::Tensor output_tensor = at::empty({1, kTensorSize}, tensor_options);
 
-  for (auto repetition : c10::irange(kNumRepetitions)) {
+  for (auto repetition : arange(kNumRepetitions)) {
     std::ignore = repetition;
 
     // Create a tensor with integer values to avoid rounding error so we can

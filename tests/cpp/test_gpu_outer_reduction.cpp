@@ -517,7 +517,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Make sure the vectorized domain placed at the innermost position
   int64_t vec_id_cur_pos = -1;
   std::unordered_map<int64_t, int64_t> vec_reorder_map;
-  for (const auto i : c10::irange(reduction_tv_rf->nDims())) {
+  for (const auto i : arange(reduction_tv_rf->nDims())) {
     auto id = reduction_tv_rf->axis(i);
     if (id->getParallelType() == ParallelType::Vectorize) {
       vec_id_cur_pos = i;

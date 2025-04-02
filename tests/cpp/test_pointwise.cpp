@@ -198,7 +198,7 @@ TEST_F(PointwiseTest, VectorizeStrideMisalignedBase) {
     //  First, find required size of align=0 tensor. Allocate this much plus
     //  align elements. Then slice and view as aligned tensor.
     int64_t alloc_size = 1l;
-    for (auto i : c10::irange(shape.size())) {
+    for (auto i : arange(shape.size())) {
       alloc_size += (shape.at(i) - 1) * stride.at(i);
     }
     alloc_size += align;

@@ -79,7 +79,7 @@ TensorView* layerNormWithCachedStats(
       (int64_t)TensorDomain::noReductions(x->getLogicalDomain()).size();
   const int64_t kOuterNumDims = kNumberOfDims - norm_shape.size();
   std::vector<bool> outer_broadcast_mask(kNumberOfDims, false);
-  for (const auto idx : c10::irange(kOuterNumDims)) {
+  for (const auto idx : arange(kOuterNumDims)) {
     outer_broadcast_mask[idx] = true;
   }
 
@@ -178,7 +178,7 @@ MhaResult DistributedTransformer::mha(
   TensorView* qkv_cat =
       reshape(linear0, {D, B * S, 3 * E / D}, {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
-  for (auto i : c10::irange(3)) {
+  for (auto i : arange(3)) {
     qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
     qkv[i] = transpose(qkv[i], 2, 3);
   }
@@ -303,7 +303,7 @@ std::vector<TensorView*> DistributedTransformer::mha_backwards(
       {D, B * S, 3 * E / D},
       {D, B, S, 3 * E / D});
   std::vector<TensorView*> qkv = chunk(qkv_cat, 3, -1);
-  for (auto i : c10::irange(3)) {
+  for (auto i : arange(3)) {
     qkv[i] = reshape(qkv[i], {D, B, S, E / D}, {D, B, S, H / D, E / H});
     qkv[i] = transpose(qkv[i], 2, 3);
     qkv[i] = castOp(dtype, qkv[i]);

@@ -624,7 +624,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
       tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
-  for (const auto i : c10::irange(tv->nDims())) {
+  for (const auto i : arange(tv->nDims())) {
     NVF_CHECK(ref[i]->sameAs(tv->axis(i - 1)));
   }
 
@@ -633,7 +633,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
       tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
-  for (const auto i : c10::irange(tv->nDims())) {
+  for (const auto i : arange(tv->nDims())) {
     NVF_CHECK(ref[i]->sameAs(tv->axis(i - 1)));
   }
 
@@ -643,7 +643,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv->reorder(shift_right);
   NVF_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
-  for (const auto i : c10::irange(1, tv->nDims())) {
+  for (const auto i : arange(1, tv->nDims())) {
     NVF_CHECK(ref[i - 1]->sameAs(tv->axis(i)));
   }
 
@@ -4739,7 +4739,7 @@ TEST_F(NVFuserTest, FusionReductionMultiConsumer_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionComputeAtExprOrder1_CUDA) {
-  for (const auto i : c10::irange(2)) {
+  for (const auto i : arange(2)) {
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -6229,10 +6229,10 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   const size_t kOuterNumDims = kM - kN;
 
   std::vector<int64_t> outer_shape;
-  for (const auto idx : c10::irange(kOuterNumDims)) {
+  for (const auto idx : arange(kOuterNumDims)) {
     outer_shape.push_back(shape[idx]);
   }
-  for (const auto i : c10::irange(kOuterNumDims, kM)) {
+  for (const auto i : arange(kOuterNumDims, kM)) {
     (void)i; // Suppress unused variable warning
     outer_shape.push_back(1);
   }
@@ -6300,10 +6300,10 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
   const size_t kOuterNumDims = kM - kN;
 
   std::vector<int64_t> outer_shape;
-  for (const auto idx : c10::irange(kOuterNumDims)) {
+  for (const auto idx : arange(kOuterNumDims)) {
     outer_shape.push_back(shape[idx]);
   }
-  for (const auto i : c10::irange(kOuterNumDims, kM)) {
+  for (const auto i : arange(kOuterNumDims, kM)) {
     (void)i; // Suppress unused variable warning
     outer_shape.push_back(1);
   }

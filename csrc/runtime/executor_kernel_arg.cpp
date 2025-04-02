@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
-
 // Extract size and strides
 #include <runtime/allocations.h>
 #include <runtime/fusion_executor_cache.h>

@@ -92,6 +92,12 @@ Val* IrBuilder::bitwiseNotExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::bitCeilExpr(Val* val) {
+  auto result = create<Val>(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCeil, result, val);
+  return result;
+}
+
 Val* IrBuilder::derefExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
   auto result = create<Val>(*(std::get<PointerType>(val->dtype().type).type));

@@ -60,6 +60,7 @@ class IrBuilder {
   NVF_API static Val* negExpr(Val* val);
   NVF_API static Val* logicalNotExpr(Val* val);
   static Val* bitwiseNotExpr(Val* val);
+  NVF_API static Val* bitCeilExpr(Val* val);
   NVF_API static Val* absExpr(Val* val);
   static Val* setExpr(Val* val);
   static Val* maybeCastExpr(DataType dtype, Val* val);

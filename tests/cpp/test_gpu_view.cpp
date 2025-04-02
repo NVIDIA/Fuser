@@ -245,7 +245,7 @@ void reductionViewAddFusion(
     const auto kAxis = (kReductionAxis < 0)
         ? (kReductionAxis + input_shape.size())
         : kReductionAxis;
-    for (auto i : c10::irange(input_shape.size())) {
+    for (auto i : arange(input_shape.size())) {
       if (reshape_before_reduction || i != kAxis) {
         reshape_shape.push_back(input_shape[i]);
       }
@@ -1317,7 +1317,7 @@ TEST_F(GpuViewTest, FusionPwiseViewSchedule) {
     MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
   }
 
-  for (auto i : c10::irange(tv5->nDims() - 1)) {
+  for (auto i : arange(tv5->nDims() - 1)) {
     (void)i; // Suppress unused variable warning
     tv5->merge(0);
   }

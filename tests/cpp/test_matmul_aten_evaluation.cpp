@@ -88,7 +88,7 @@ void checkMatmulOpIdMapping(
   // exists (is not negative) and is not Broadcast before checking mapping.
   int batch_ndims =
       output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - red_dims;
-  for (int64_t i : c10::irange(batch_ndims)) {
+  for (int64_t i : arange(batch_ndims)) {
     int64_t i_a = A->nDims() - 3 - i;
     int64_t i_b = B->nDims() - 3 - i;
     int64_t i_out = batch_ndims - 1 - i;
@@ -122,7 +122,7 @@ void checkLinearOpIdMapping(
   ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 2 + red_dims);
 
   // Check that the first input_size - 1 dims are mapped for input
-  for (auto i : c10::irange(input->nDims() - 1)) {
+  for (auto i : arange(input->nDims() - 1)) {
     if (!input->axis(i)->isBroadcast()) {
       EXPECT_TRUE(checkMapped(vg, input->axis(i), output->axis(i)));
     }

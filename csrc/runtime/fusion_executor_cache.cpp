@@ -7,8 +7,6 @@
 // clang-format on
 #include <runtime/fusion_executor_cache.h>
 
-#include <c10/util/irange.h>
-
 #include <dynamic_transform.h>
 #include <fusion.h>
 #include <logical_domain_map.h>
@@ -90,7 +88,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   // fusion.
   NVF_ERROR(fusion->outputs().size() == outputs.size());
   KernelArgumentHolder unaliased_outputs;
-  for (auto out_index : c10::irange(outputs.size())) {
+  for (auto out_index : arange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];
     if (!fusion->getOutputAlias(out).hide_output) {
       unaliased_outputs.push(outputs[out_index]);
@@ -364,7 +362,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
 
-    for (auto kernel_idx : c10::irange(device_runtimes.size())) {
+    for (auto kernel_idx : arange(device_runtimes.size())) {
       auto kernel_runtime_ptr = device_runtimes.at(kernel_idx).get();
       fb_device_runtimes.push_back(kernel_runtime_ptr->serialize(builder));
 
@@ -505,7 +503,7 @@ void FusionExecutorCache::deserialize(
   }
 
   // 2. Rebuild input id to kernel cache
-  for (auto idx : c10::irange(buffer->kernel_cache_keys()->size())) {
+  for (auto idx : arange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_values()->Get(idx);
     id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));

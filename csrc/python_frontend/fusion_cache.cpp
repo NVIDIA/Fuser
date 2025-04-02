@@ -93,6 +93,7 @@ BinaryBuffer openFusionCache(std::string filename) {
       std::fread(buffer.data(), sizeof(uint8_t), file_size, file_handle);
   NVF_CHECK(
       read_status == file_size, "Failed to read entire FusionCache buffer.\n");
+  std::fclose(file_handle);
   return buffer;
 }
 
@@ -767,7 +768,7 @@ void FusionCache::deserialize(std::string filename) {
   // 2. Deserialize fusions: (Fusion) and structure: (TrieNode) fields
   int64_t num_fusions = 0;
   for (const auto i :
-       c10::irange(fusion_cache_buffer->auto_gen_schedules()->size())) {
+       arange(fusion_cache_buffer->auto_gen_schedules()->size())) {
     num_fusions = std::max(
         num_fusions,
         fusion_cache_buffer->auto_gen_schedules()->Get(i)->fusion_id() + 1);
@@ -875,7 +876,7 @@ void FusionCache::deserialize(std::string filename) {
 
   std::atomic<bool> detect_exception_in_thread_pool{false};
   // Deserialize terminal_nodes field in the FusionCache table
-  for (auto idx : c10::irange(fusion_cache_buffer->terminal_nodes()->size())) {
+  for (auto idx : arange(fusion_cache_buffer->terminal_nodes()->size())) {
     auto node_idx = fusion_cache_buffer->terminal_nodes()->Get(idx);
     auto trie_node = bfs_order.at(node_idx);
     terminal_nodes_.push_back(trie_node);

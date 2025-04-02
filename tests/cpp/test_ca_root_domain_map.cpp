@@ -62,9 +62,9 @@ void checkIdMapped(
   NVF_ERROR(root0.size() == should_map0.size());
   NVF_ERROR(root1.size() == should_map1.size());
   size_t idx0 = 0;
-  for (const auto i : c10::irange(root0.size())) {
+  for (const auto i : arange(root0.size())) {
     size_t idx1 = 0;
-    for (const auto j : c10::irange(root1.size())) {
+    for (const auto j : arange(root1.size())) {
       if (should_map0[i] && should_map1[j] && idx0 == idx1) {
         checkIdMapped(map, v0, root0[i], v1, root1[j], true);
       } else {

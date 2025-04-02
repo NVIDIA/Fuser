@@ -365,7 +365,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // How much would this transfer cost if it was done as a 1-D schedule
     int64_t transfer_size_1d = 1;
 
-    for (const auto i : c10::irange(ref_loop.size())) {
+    for (const auto i : arange(ref_loop.size())) {
       transfer_size_1d = transfer_size_1d * elem_counts[i] * dtype_sum;
     }
 
@@ -376,7 +376,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
-      for (const auto break_point_i : c10::irange((int64_t)ref_loop.size())) {
+      for (const auto break_point_i : arange((int64_t)ref_loop.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
                 view_disjoint_sets, break_point_i)) {
@@ -386,7 +386,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         // Number of elements in the right side of reference tv with
         // break_point_i
         int64_t cur_right_elem_count = 1;
-        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
+        for (const auto right_i : arange(break_point_i, ref_loop.size())) {
           cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
         }
 
@@ -404,12 +404,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         int64_t cur_transfer_size = 1;
         int64_t right_transfer_size = 1;
 
-        for (const auto left_i : c10::irange(break_point_i)) {
+        for (const auto left_i : arange(break_point_i)) {
           cur_transfer_size =
               cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
         }
 
-        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
+        for (const auto right_i : arange(break_point_i, ref_loop.size())) {
           right_transfer_size =
               right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
         }

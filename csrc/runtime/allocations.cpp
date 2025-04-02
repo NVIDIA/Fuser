@@ -151,7 +151,7 @@ std::pair<std::vector<int64_t>, std::vector<int64_t>> inferShape(
 
   std::vector<int64_t> concrete_sizes(symbolic_sizes.size(), 0);
 
-  for (const auto i : c10::irange(symbolic_sizes.size())) {
+  for (const auto i : arange(symbolic_sizes.size())) {
     auto symbolic_size = symbolic_sizes.at(i);
     const auto inferred_val = expr_eval.evaluate(symbolic_size);
     NVF_ERROR(
@@ -241,7 +241,7 @@ KernelArgumentHolder allocateOutputs(
 
   KernelArgumentHolder out_tensors;
   out_tensors.resize(output_infos.size());
-  for (auto out_idx : c10::irange(output_infos.size())) {
+  for (auto out_idx : arange(output_infos.size())) {
     auto out_info = output_infos.at(out_idx);
     if (output_alias_to_input_map.at(out_idx) == -1) {
       auto alloc_tensor = at::native::empty_strided_cuda(
@@ -341,7 +341,7 @@ class ForwardTraverseFromAllocToLogical {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), in_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);
@@ -395,7 +395,7 @@ class ForwardTraverseFromAllocToLogical {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -488,7 +488,7 @@ class BackwardTraverseFromAllocToLogical {
       tensor_ = tensor_.permute(dims);
     }
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == left) {
         new_shape.emplace_back(-1);
       } else if (i != left + 1) {
@@ -522,7 +522,7 @@ class BackwardTraverseFromAllocToLogical {
     // view tensor
     int64_t dim = std::distance(frontier_.begin(), out_it);
     std::vector<int64_t> new_shape;
-    for (auto i : c10::irange(tensor_.dim())) {
+    for (auto i : arange(tensor_.dim())) {
       if (i == dim) {
         new_shape.emplace_back(-1);
         new_shape.emplace_back(factor);

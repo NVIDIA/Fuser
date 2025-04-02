@@ -229,11 +229,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
     auto a = IrBuilder::maybeRefCastExpr(a_type, mma->inA());
     auto b = IrBuilder::maybeRefCastExpr(b_type, mma->inB());
 
-    for (auto in : c10::irange(split_n)) {
+    for (auto in : arange(split_n)) {
       auto acc =
           split_n == 1 ? accumulator : IrBuilder::getItemExpr(accumulator, in);
       auto bb = split_n == 1 ? b : IrBuilder::getItemExpr(b, in);
-      for (auto ik : c10::irange(split_k)) {
+      for (auto ik : arange(split_k)) {
         auto aa = split_k == 1 ? a : IrBuilder::getItemExpr(a, ik);
         auto bbb = split_k == 1 ? bb : IrBuilder::getItemExpr(bb, ik);
         auto mma_asm = IrBuilder::create<kir::Asm>(

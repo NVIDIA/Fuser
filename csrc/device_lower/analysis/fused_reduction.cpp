@@ -255,7 +255,7 @@ class FusionTransformer {
     NVF_ERROR(
         info.reductions().size() == 1, "Horizontal fusion not supported yet");
 
-    for (const auto i : c10::irange(info.reductions().size())) {
+    for (const auto i : arange(info.reductions().size())) {
       const auto expr = info.reductions().at(i);
       const auto with_broadcast = info.withBroadcast().at(i);
       Expr* fused_expr = nullptr;

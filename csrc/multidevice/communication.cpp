@@ -310,7 +310,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
   if (my_device_index == communication->root()) {
     output_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(communication->team().size())) {
+    for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
           !communication->in()->getDeviceMesh().has(communication->root())) {
         output_tensors[0].push_back(input_tensor);
@@ -363,7 +363,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
   if (my_device_index == communication->root()) {
     input_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(communication->team().size())) {
+    for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
           !communication->out()->getDeviceMesh().has(communication->root())) {
         input_tensors.front().push_back(output_tensor);

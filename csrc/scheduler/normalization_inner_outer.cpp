@@ -62,7 +62,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
     if (scheduler_utils::isFastestDimReduction(tv)) {
       const auto& logical = tv->getLogicalDomain();
       ref_broadcast_mask.reserve(logical.size());
-      for (const auto i : c10::irange(logical.size())) {
+      for (const auto i : arange(logical.size())) {
         ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
       }
       break;

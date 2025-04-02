@@ -162,7 +162,7 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
     // explicitly set the loop domain such that no promotion would
     // happen, thus avoiding hitting the assertion down below.
     ExprGroups resize_groups = local_graph.toGroups(resize_exprs);
-    for (const auto i : c10::irange(resize_groups.size() - 1)) {
+    for (const auto i : arange(resize_groups.size() - 1)) {
       const auto resize_i = resize_groups.at(i);
       std::vector<ValGraphBFS::NodeType> other_resizes{
           resize_groups.begin() + i + 1, resize_groups.end()};
@@ -208,7 +208,7 @@ std::optional<IndexingTraversal::ExprPath> IndexingTraversal::
   // of the producer and the consumer.  In that case, find an ID out
   // of the global group that is mapped in the local graph.
   ValGroups from_groups;
-  for (const auto i : c10::irange(from_ids.size())) {
+  for (const auto i : arange(from_ids.size())) {
     auto from_id = from_ids.at(i);
     if (local_graph.hasGroup(from_id)) {
       from_groups.pushBack(local_graph.toGroup(from_id));

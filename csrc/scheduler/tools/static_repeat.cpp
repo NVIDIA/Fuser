@@ -80,7 +80,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   // one iter domain can be repeated
   IterDomain* broadcast_id = nullptr;
   int64_t broadcast_pos = -1;
-  for (const auto i : c10::irange(broadcast_out->getLogicalDomain().size())) {
+  for (const auto i : arange(broadcast_out->getLogicalDomain().size())) {
     if (broadcast->getBroadcastDimFlags().at(i)) {
       if (broadcast_id != nullptr) {
         // Multiple broadcast IDs not supported
@@ -97,7 +97,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
 
   // Check if and only if the broadcast ID is expanded
   IterDomain* expanded_id = nullptr;
-  for (const auto i : c10::irange(broadcast_out->getLogicalDomain().size())) {
+  for (const auto i : arange(broadcast_out->getLogicalDomain().size())) {
     auto p_id = broadcast_out->getLogicalDomain().at(i);
     auto c_id = expand_out->getLogicalDomain().at(i);
     if (p_id == broadcast_id && c_id->isBroadcast() &&

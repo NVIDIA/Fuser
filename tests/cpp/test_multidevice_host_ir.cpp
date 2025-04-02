@@ -396,7 +396,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
 
   constexpr int64_t kNumberOfIterations = 2;
   constexpr int64_t kNumberOfWarmupIterations = 1;
-  for (auto i : c10::irange(kNumberOfIterations)) {
+  for (auto i : arange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
     }
@@ -456,7 +456,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
 
   constexpr int64_t kNumberOfIterations = 2;
   constexpr int64_t kNumberOfWarmupIterations = 1;
-  for (auto i : c10::irange(kNumberOfIterations)) {
+  for (auto i : arange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
     }

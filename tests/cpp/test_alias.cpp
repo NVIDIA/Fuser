@@ -405,7 +405,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
       const auto* ke =
           runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
-      for (auto i : c10::irange(group->outputs().size())) {
+      for (auto i : arange(group->outputs().size())) {
         if (storesToOutput(ke, i)) {
           num_stores++;
         }
@@ -483,7 +483,7 @@ TEST_F(AliasTest, Issue1452) {
       const auto& ke =
           runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
-      for (auto i : c10::irange(group->outputs().size())) {
+      for (auto i : arange(group->outputs().size())) {
         if (storesToOutput(ke, i)) {
           num_stores++;
         }

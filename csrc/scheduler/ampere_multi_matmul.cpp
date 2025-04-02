@@ -540,7 +540,7 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToSmem(
     int64_t vec_size) {
   // Use cp.async as requested in scheduler params.
   smem_operands.resize(operands.size(), nullptr);
-  for (size_t i : c10::irange(operands.size())) {
+  for (size_t i : arange(operands.size())) {
     TensorView* operand = operands[i];
     CacheOp cache_op = CacheOp::Unspecified;
     if (params_->async_gmem_load_operands) {
@@ -577,7 +577,7 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
     const std::vector<TensorView*>& tv_smems,
     std::vector<TensorView*>& tv_rs) {
   tv_rs.resize(tv_smems.size(), nullptr);
-  for (size_t i : c10::irange(tv_smems.size())) {
+  for (size_t i : arange(tv_smems.size())) {
     TensorView* tv_smem = tv_smems[i];
     TensorView*& tv_r = tv_rs[i];
 
@@ -606,7 +606,7 @@ void AmpereMultipleMatmulScheduler::swizzleBlockTiles(
   if (params_->grid_swizzle_factor != 1) {
     // Find position of outer M and N dims in schedule_.tiled
     int64_t Mo_pos = -1, No_pos = -1;
-    for (size_t i : c10::irange(outer_dim_roles.size())) {
+    for (size_t i : arange(outer_dim_roles.size())) {
       if (outer_dim_roles[i] == MatmulDimRole::M) {
         Mo_pos = (int64_t)i;
       } else if (outer_dim_roles[i] == MatmulDimRole::N) {
@@ -677,7 +677,7 @@ TensorView* AmpereMultipleMatmulScheduler::cacheAfter(
   if (propagate_allocation_domain) {
     const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
     NVF_ERROR(orig_alloc.size() == cache_alloc.size());
-    for (size_t i : c10::irange(orig_alloc.size())) {
+    for (size_t i : arange(orig_alloc.size())) {
       ValGroup vg = graph_->toGroup(orig_alloc[i]);
       graph_->initializeVal(cache_alloc[i], vg);
     }
@@ -691,7 +691,7 @@ TensorView* AmpereMultipleMatmulScheduler::cacheAfter(
   // original tensor. The logical domain contains Iteration transforms of the
   // Reduction axis in the original mma output.
   NVF_ERROR(orig_logical.size() == cache_logical.size());
-  for (size_t i : c10::irange(orig_logical.size())) {
+  for (size_t i : arange(orig_logical.size())) {
     ValGroup vg = graph_->toGroup(orig_logical[i]);
     graph_->initializeVal(cache_logical[i], vg);
   }
@@ -764,7 +764,7 @@ std::vector<std::vector<MatmulDimRole>> AmpereMultipleMatmulScheduler::
 
     if (params_->splitk_factor > 1) {
       // Outer K dimension in tv is in same position found in merged_roles
-      for (size_t i : c10::irange(merged_roles.size())) {
+      for (size_t i : arange(merged_roles.size())) {
         if (merged_roles[i] == MatmulDimRole::K) {
           tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
         }
@@ -802,7 +802,7 @@ void AmpereMultipleMatmulScheduler::scheduleMmaOperands(
     std::vector<TensorView*>& tvs,
     const std::optional<MmaOperand> operand_type) {
   auto all_merged_roles = blockTileTensors(tvs);
-  for (size_t i : c10::irange(tvs.size())) {
+  for (size_t i : arange(tvs.size())) {
     TensorView*& operand = tvs[i];
     std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
@@ -842,7 +842,7 @@ void AmpereMultipleMatmulScheduler::scheduleMmaOperands(
 
 void AmpereMultipleMatmulScheduler::scheduleMmaResults() {
   auto all_merged_roles = blockTileTensors(mma_results_);
-  for (size_t i : c10::irange(mma_results_.size())) {
+  for (size_t i : arange(mma_results_.size())) {
     TensorView*& mma_result = mma_results_[i];
     std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 

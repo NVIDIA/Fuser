@@ -8,7 +8,6 @@
 #include <device_lower/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -977,7 +976,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   std::array<TensorView*, 2> inputs = {
       ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
-  for (auto i : c10::irange(2)) {
+  for (auto i : arange(2)) {
     auto in_tv = inputs.at(i);
     if (in_tv->getMemoryType() == MemoryType::Local) {
       layout[i] = UnitDim::K;

@@ -43,7 +43,7 @@ SchedulerRuntimeInfo::SchedulerRuntimeInfo(
         *expression_evaluator_);
   }
 
-  for (auto inp_i : c10::irange(static_cast<int64_t>(args.size()))) {
+  for (auto inp_i : arange(static_cast<int64_t>(args.size()))) {
     auto fusion_inp = complete_fusion_->inputs().at(inp_i);
     auto input_tv = dynamic_cast<TensorView*>(fusion_inp);
     // Note: we are skipping CpuScalar tensor here

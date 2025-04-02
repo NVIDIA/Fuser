@@ -324,7 +324,7 @@ void parallelizeAllLike(
     if (tv->isFusionInput() && !parallelize_inputs) {
       continue;
     }
-    for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
+    for (const auto i : arange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
@@ -514,7 +514,7 @@ TensorView* getBufferProjectableBroadcastsTv(
       // dimension in the consumer, otherwise it is not a valid broadcast after
       // reduction.
       bool is_broadcast_after_reduction = true;
-      for (auto i : c10::irange(reduction_tv->nDims())) {
+      for (auto i : arange(reduction_tv->nDims())) {
         if (reduction_tv->axis(i)->isReduction() &&
             !tv->axis(i)->isBroadcast()) {
           is_broadcast_after_reduction = false;
@@ -855,7 +855,7 @@ getScopePersistenceFactors(
       projectable_buffer_inputs.begin(),
       projectable_buffer_inputs.end());
 
-  for (auto persistent_buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto persistent_buffer_i : arange(persistent_buffers.size())) {
     auto persistent_buffer = persistent_buffers[persistent_buffer_i];
     // All expressions between tv and its resolution points must have tv's
     // persistent buffer allocated. This is an optimistic view on how many
@@ -900,7 +900,7 @@ getScopePersistenceFactors(
   // Offset into the bool vector
   size_t bool_vector_offset = persistent_buffers.size();
   for (auto projectable_persistent_buffer_i :
-       c10::irange(projectable_persistent_buffers.size())) {
+       arange(projectable_persistent_buffers.size())) {
     auto projectable_persistent_buffer =
         projectable_persistent_buffers[projectable_persistent_buffer_i];
     auto inputs = ir_utils::inputTvsOf(projectable_persistent_buffer);
@@ -1047,7 +1047,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
-  for (auto buffer_i : c10::irange(all_buffers.size())) {
+  for (auto buffer_i : arange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
     persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
@@ -1057,7 +1057,7 @@ PersistentBufferSizeReturn persistentBufferSize(
   std::vector<bool> persistent_mask(all_buffers.size(), false);
   std::unordered_set<TensorView*> persistent_buffer_set(
       persistent_buffers.begin(), persistent_buffers.end());
-  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto buffer_i : arange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     const auto& producers = ir_utils::producerTvsOf(buffer);
     if (!canProjectToPersistentProducer(
@@ -1068,7 +1068,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   // Buffers involved in projected to inputs
   std::vector<bool> projected_mask(all_buffers.size(), true);
-  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto buffer_i : arange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     // Not a projectable buffer, or an input of a projectable buffer
     if (std::find(
@@ -1093,7 +1093,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     // that are both a persistent buffer and an input to a projectable
     // buffer
     std::unordered_set<TensorView*> active_buffers;
-    for (auto buffer_i : c10::irange(sizes.size())) {
+    for (auto buffer_i : arange(sizes.size())) {
       if (mask0[buffer_i] && mask1[buffer_i] &&
           active_buffers.count(all_buffers[buffer_i]) == 0) {
         buffer_size += sizes[buffer_i];
@@ -1506,7 +1506,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getMaybeRootDomain().size())) {
+    for (auto i : arange(from->getMaybeRootDomain().size())) {
       if (from_id == from->getMaybeRootDomain()[i]) {
         mapped_root_ids_[to] = to->getMaybeRootDomain()[i];
         break;
@@ -1517,7 +1517,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getLogicalDomain().size())) {
+    for (auto i : arange(from->getLogicalDomain().size())) {
       if (from_id == from->getLogicalDomain()[i]) {
         mapped_logical_ids_[to] = to->getLogicalDomain()[i];
         return;
@@ -1758,7 +1758,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
-    for (const auto ref_i : c10::irange(ref_root_domain.size())) {
+    for (const auto ref_i : arange(ref_root_domain.size())) {
       auto ref_id = ref_root_domain[ref_i];
 
       if (ref_id->isBroadcast()) {
@@ -1817,7 +1817,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
       bool lhs = false;
       auto dtype_size =
           dataTypeSize(in_out_tv->getDataType().value(), index_type);
-      for (auto mapped_axes_i : c10::irange(mapped_axes.size())) {
+      for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
@@ -2185,7 +2185,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   }
 
   std::unordered_map<int64_t, int64_t> old2new;
-  for (auto id_i : c10::irange((int64_t)tv->getLoopDomain().size())) {
+  for (auto id_i : arange((int64_t)tv->getLoopDomain().size())) {
     auto loop_id = tv->axis(id_i);
     auto find_it =
         std::find(reordered_ids.begin(), reordered_ids.end(), loop_id);
@@ -2217,7 +2217,7 @@ std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
   }
   std::unordered_map<IterDomain*, int64_t> alloc_index;
   std::unordered_map<IterDomain*, int64_t> rfactor_index;
-  for (auto i : c10::irange((int64_t)alloc_dom.size())) {
+  for (auto i : arange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
     rfactor_index[loop_dom[i]] = i;
   }
@@ -2308,7 +2308,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
         bool has_reachable_loop_id = false;
         for (auto loop_idx :
-             c10::irange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
+             arange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
           if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
             continue;
           }
@@ -2544,7 +2544,7 @@ void promoteProducerMemoryTypes(
                              .getReplay();
 
     for (const auto i :
-         c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
+         arange(producer->nDims() - producer->getComputeAtPosition())) {
       auto producer_non_ca_id =
           producer->axis((i + producer->getComputeAtPosition()));
       auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
@@ -2698,7 +2698,7 @@ void moveNonConcretizedBroadcastInnermost(
 
   for (auto tv : fusion->allTvs()) {
     std::vector<int64_t> broadcast_to_move;
-    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    for (const auto i : arange(tv->getLoopDomain().size())) {
       auto loop_id = tv->getLoopDomain().at(i);
       if (!loop_id->isBroadcast()) {
         continue;
@@ -2745,7 +2745,7 @@ void moveNonConcretizedBroadcastInnermost(
 int64_t reorderDevicesToOuter(TensorView* tv) {
   int64_t reorder_pos = 0;
   std::unordered_map<int64_t, int64_t> old2new;
-  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+  for (const auto i : arange(tv->getLoopDomain().size())) {
     if (tv->axis((int64_t)i)->isDeviceDim()) {
       old2new.emplace((int64_t)i, reorder_pos);
       ++reorder_pos;
@@ -2805,7 +2805,7 @@ void reorderTensorLike(
 
   // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
-  for (const auto i : c10::irange(tv_loop_domain.size())) {
+  for (const auto i : arange(tv_loop_domain.size())) {
     const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
@@ -2814,7 +2814,7 @@ void reorderTensorLike(
       ++new_id_pos;
     }
   }
-  for (const auto i : c10::irange(tv_loop_domain.size())) {
+  for (const auto i : arange(tv_loop_domain.size())) {
     const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);

@@ -2268,7 +2268,7 @@ TEST_P(MatmulSchedulerTestWithLayout, StridedInputs) {
               // increasing the other stride to the next highest multiple of 8
               std::vector<int64_t> new_strides(t.ndimension(), 0);
               int64_t linear_size = 1;
-              for (size_t i : c10::irange(t.ndimension())) {
+              for (size_t i : arange(t.ndimension())) {
                 new_strides[i] = t.stride((int64_t)i);
                 if (new_strides[i] != 1) {
                   // Pad contiguous dimension by modifying other stride. This

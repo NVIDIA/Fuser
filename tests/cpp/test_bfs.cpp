@@ -579,7 +579,7 @@ using FindAllExprsTest = NVFuserTest;
 #define VALIDATE_EXPR_PATH(actual, ref)                             \
   do {                                                              \
     ASSERT_EQ(actual.size(), ref.size());                           \
-    for (const auto i : c10::irange(actual.size())) {               \
+    for (const auto i : arange(actual.size())) {                    \
       EXPECT_EQ(actual.at(i).first, ref.at(i).first)                \
           << "Mismathed expr at " << i                              \
           << ". Expected: " << nvfuser::toString(ref.at(i).first)   \

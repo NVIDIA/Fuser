@@ -177,7 +177,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
         consumer, producer, -1, pairwise_logical_map);
     auto p2c_replay_map = replay_CasP.getReplay();
 
-    for (const auto producer_pos : c10::irange(producer->nDims())) {
+    for (const auto producer_pos : arange(producer->nDims())) {
       // If the producer position is mismatching with the consumer, then we can
       // not inline into this position, otherwise the max producer position of
       // the consumer will become invalid and expression sort will fail.
@@ -236,7 +236,7 @@ size_t MaxPosCalculator::getMaxProducerPosFromConsumer(
     }
 
     auto consumer_it = consumer->getLoopDomain().begin();
-    for (const auto producer_pos : c10::irange(producer->nDims())) {
+    for (const auto producer_pos : arange(producer->nDims())) {
       auto p_id = producer->getLoopDomain().at(producer_pos);
       // When p_id is a reduction, skip and continue to the next
       // position. Since a producer reduction domain is never allowed

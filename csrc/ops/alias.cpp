@@ -103,7 +103,7 @@ TensorView* tryStaticReshape(
     const std::vector<IterDomain*>& inp_dom,
     const std::vector<Val*>& new_sizes) {
   std::vector<int64_t> inp_sizes(inp_dom.size());
-  for (const auto i : c10::irange(inp_dom.size())) {
+  for (const auto i : arange(inp_dom.size())) {
     IterDomain* id = inp_dom[i];
     Val* id_size = id->getMaybeExpandedExtent();
     if (!id_size->isConstInt()) {
@@ -113,7 +113,7 @@ TensorView* tryStaticReshape(
   }
 
   std::vector<int64_t> out_sizes(new_sizes.size());
-  for (const auto i : c10::irange(new_sizes.size())) {
+  for (const auto i : arange(new_sizes.size())) {
     Val* id_size = new_sizes[i];
     if (!id_size->isConstInt()) {
       return nullptr;
@@ -150,7 +150,7 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
   // domain.
   std::vector<IterDomain*> logical_domain(new_sizes.size(), nullptr);
   bool found_neg_one = false;
-  for (const auto i : c10::irange(new_sizes.size())) {
+  for (const auto i : arange(new_sizes.size())) {
     auto new_size = new_sizes.at(i);
     if (new_size->isConstScalar() && new_size->evaluate().as<int64_t>() == -1) {
       // It is usually safe to use the provided scalars as the output shapes.
@@ -164,10 +164,10 @@ TensorView* reshape(TensorView* inp_tv, const std::vector<Val*>& new_sizes) {
 
       Val* numel = FusionGuard::getCurFusion()->oneVal();
       Val* other_new_numel = FusionGuard::getCurFusion()->oneVal();
-      for (const auto j : c10::irange(inp_dom.size())) {
+      for (const auto j : arange(inp_dom.size())) {
         numel = SimplifyingIrBuilder::mulExpr(numel, inp_dom.at(j)->extent());
       }
-      for (const auto j : c10::irange(new_sizes.size())) {
+      for (const auto j : arange(new_sizes.size())) {
         if (i == j) {
           continue;
         }
@@ -285,7 +285,7 @@ TensorView* squeeze(
       x->toString());
 
   std::vector<IterDomain*> out_domain;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : arange(ndims)) {
     auto id = x_dom[idx];
     if (to_squeeze[idx]) {
       if (!id->isSymbolic()) {
@@ -435,7 +435,7 @@ TensorView* transpose(TensorView* x, int64_t dim0, int64_t dim1) {
       dim1 >= 0 && dim1 <= ndims, "Invalid transpose dimension 1: ", dim1);
 
   std::vector<int64_t> new2old(ndims);
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     if (i == dim0) {
       new2old[i] = dim1;
     } else if (i == dim1) {
@@ -524,7 +524,7 @@ TensorView* pad(
   std::vector<Val*> normalized_pad_widths;
 
   // Fill zero for non padded dimensions
-  for (const auto i : c10::irange(num_non_padded_dims)) {
+  for (const auto i : arange(num_non_padded_dims)) {
     (void)i;
     normalized_pad_widths.push_back(FusionGuard::getCurFusion()->zeroVal());
     normalized_pad_widths.push_back(FusionGuard::getCurFusion()->zeroVal());
@@ -532,7 +532,7 @@ TensorView* pad(
 
   // torch.pad has padding widths of inner dimensions before outer
   // dimensions
-  for (const auto i : c10::irange(num_padded_dims)) {
+  for (const auto i : arange(num_padded_dims)) {
     auto left_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2);
     auto right_pad = pad_widths.at(num_padded_dims * 2 - (i + 1) * 2 + 1);
     normalized_pad_widths.push_back(maybeCastOp(DataType::Index, left_pad));
@@ -542,7 +542,7 @@ TensorView* pad(
   // Indicates if any dimension is actually padded. Can be false even
   // when non-empty padding width vector is passed
   bool is_padded_any = false;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : arange(ndims)) {
     auto inp_root_id = inp_dom.at(idx);
     IterDomain* out_root_id = nullptr;
     IterDomain* out_rf_id = nullptr;
@@ -651,7 +651,7 @@ TensorView* cat(
 
   Val* concat_ext = nullptr;
 
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : arange(inputs.size())) {
     auto input_dim_extent =
         inp_doms.at(i).at(cat_dim)->getMaybeExpandedExtent();
     concat_ext = SimplifyingIrBuilder::addExpr(concat_ext, input_dim_extent);
@@ -664,10 +664,10 @@ TensorView* cat(
   Val* left_pad = FusionGuard::getCurFusion()->zeroVal();
   Val* right_pad = concat_ext;
   std::vector<Val*> resized_inputs(inputs.size());
-  for (const auto input_idx : c10::irange(inputs.size())) {
+  for (const auto input_idx : arange(inputs.size())) {
     const auto& inp_dom = inp_doms.at(input_idx);
     std::vector<Val*> pad_widths(ndims * 2);
-    for (const auto dim : c10::irange(ndims)) {
+    for (const auto dim : arange(ndims)) {
       auto inp_root_id = inp_dom.at(dim);
       Val* left_pad_i = nullptr;
       Val* right_pad_i = nullptr;
@@ -866,7 +866,7 @@ TensorView* slice(
   std::vector<Slice> normalized_ranges(ndims);
 
   bool needs_real_slicing = false;
-  for (const auto idx : c10::irange(ndims)) {
+  for (const auto idx : arange(ndims)) {
     IterDomain* inp_root_id = inp_dom[idx];
     Val* inp_root_size = inp_root_id->getMaybeExpandedExtent();
     Slice range = normalize_slice_range(ranges.at(idx), inp_root_size);
@@ -950,7 +950,7 @@ std::vector<TensorView*> chunk(
   std::vector<TensorView*> slices;
   slices.reserve(chunks);
   std::vector<Slice> ranges(num_dims);
-  for (auto i : c10::irange(chunks)) {
+  for (auto i : arange(chunks)) {
     ranges[dim].start = ranges[dim].stop;
     ranges[dim].stop =
         (i == chunks - 1 ? nullptr
@@ -1040,7 +1040,7 @@ TensorView* expand(TensorView* inp, const std::vector<Val*>& expanded_sizes) {
   bool expanded = false;
 
   std::vector<IterDomain*> out_domain;
-  for (auto i : c10::irange(inp_domain.size())) {
+  for (auto i : arange(inp_domain.size())) {
     auto inp_id = inp_domain[i];
     auto out_id_builder = IterDomainBuilder(inp_id);
     maybe_expanded_sizes[i] = inp_domain[i]->extent();
@@ -1136,7 +1136,7 @@ TensorView* expand_as(TensorView* inp, TensorView* other) {
   std::vector<IterDomain*> out_domain;
   std::vector<Val*> maybe_expanded_sizes;
   bool expanded = false;
-  for (auto i : c10::irange(inp_domain.size())) {
+  for (auto i : arange(inp_domain.size())) {
     auto inp_id = inp_domain[i];
     auto other_id = other_domain[i];
 
@@ -1198,7 +1198,7 @@ TensorView* repeat(
 
   bool has_repetition_of_broadcast = false;
   auto intermediate_tv = inp_tv;
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     if (repeat_times.at(i) == 1) {
       continue;
     }
@@ -1239,7 +1239,7 @@ TensorView* repeat(
   std::vector<std::optional<bool>> new_contiguity;
   new_contiguity.reserve(ndims);
 
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     auto inp_id = intermediate_tv->getLogicalDomain().at(i);
     IterDomain* new_id = nullptr;
 

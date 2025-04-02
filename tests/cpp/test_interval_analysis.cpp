@@ -101,7 +101,7 @@ class RangeChecker {
     });
 
     // Iterate over all input combinations
-    for (size_t i : c10::irange(num_combos)) {
+    for (size_t i : arange(num_combos)) {
       ExpressionEvaluator expr_eval;
 
       // All the input combinations are enumerated
@@ -115,7 +115,7 @@ class RangeChecker {
       //  y = (j % (ny*nz)) / nz + min_y
       //  z = j % nz + min_z
       int64_t num_inner_combos = num_combos;
-      for (size_t inp_num : c10::irange(inputs.size())) {
+      for (size_t inp_num : arange(inputs.size())) {
         const BoundedInt& inp_bound = input_bounds_.at(inputs.at(inp_num));
         int64_t next_offset = i % num_inner_combos;
         num_inner_combos /= inp_bound.max - inp_bound.min + 1L;

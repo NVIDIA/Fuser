@@ -191,7 +191,7 @@ class WarSyncInserter : private kir::ExprMutator {
     auto fl_i = std::distance(for_loops_.begin(), fl_it) + 1;
 
     // Start at that index and see if there's syncs within that for loop
-    for (auto i : c10::irange(fl_i, sync_hit_.size())) {
+    for (auto i : arange(fl_i, sync_hit_.size())) {
       if (sync_hit_[i]) {
         return true;
       }

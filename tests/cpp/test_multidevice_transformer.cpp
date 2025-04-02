@@ -66,7 +66,7 @@ void validate(
   ASSERT_THAT(expected_outputs, SizeIs(num_outputs));
   ASSERT_THAT(atols, SizeIs(num_outputs));
 
-  for (const auto i : c10::irange(num_outputs)) {
+  for (const auto i : arange(num_outputs)) {
     // allclose can catch this as well. However, it would throw an exception,
     // not showing which output was problematic.
     NVF_ERROR(

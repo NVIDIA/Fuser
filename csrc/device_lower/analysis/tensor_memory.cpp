@@ -50,7 +50,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
   std::vector<IterDomain*> column;
   const auto& raw_allocation_domain = tv->getMaybeAllocationDomain();
   const int64_t dimsep = tv->getTMemDimSepPos();
-  for (int64_t i : c10::irange((int64_t)raw_allocation_domain.size())) {
+  for (int64_t i : arange((int64_t)raw_allocation_domain.size())) {
     std::vector<IterDomain*>& target = i < dimsep ? lane : column;
     IterDomain* id = raw_allocation_domain[i];
     ParallelType p_type = id->getParallelType();
@@ -123,6 +123,20 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
   // Step 2: Compute the allocation information for tensor memory. That is, for
   // each partition, we create a Region object and fill in the necessary
   // information.
+
+  // Validate the number of columns. There is at most 512 columns.
+  auto validate_columns = [](Val* num_columns) {
+    constexpr int64_t max_columns = 512;
+    Val* max_columns_val = IrBuilder::create<Val>(max_columns);
+    GpuLower::current()->validate(
+        SimplifyingIrBuilder::leExpr(num_columns, max_columns_val),
+        "Not enough tensor memory columns: tried to allocate ",
+        num_columns->toInlineString(),
+        ", but only ",
+        max_columns,
+        " available.");
+  };
+
   Val* total_num_columns = fusion->zeroVal();
   using Region = TMemAlllocationInfo::Region;
   std::vector<Region>& regions = result.regions;
@@ -147,7 +161,12 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
       std::tie(
           covered_tensor.lane_allocation, covered_tensor.column_allocation) =
           getTMemAllocation(tv);
-      Val* num_columns = productOfExtents(covered_tensor.column_allocation);
+      // Each column is 4 bytes.
+      Val* num_columns = SimplifyingIrBuilder::ceilDivExpr(
+          SimplifyingIrBuilder::mulExpr(
+              productOfExtents(covered_tensor.column_allocation),
+              IrBuilder::create<Val>(dataTypeSize(tv->dtype()))),
+          IrBuilder::create<Val>(4));
       covered_tensor.lane_offset = tv->fusion()->zeroVal(DataType::UInt16);
       covered_tensor.column_offset =
           IrBuilder::maybeCastExpr(DataType::UInt16, region.num_columns);
@@ -166,25 +185,22 @@ TMemAlllocationInfo computeTMemAlllocationInfo(Fusion* fusion) {
           max_lanes,
           " available.");
     }
+
+    // Validate region.num_columns before rounding up for better error message
+    validate_columns(region.num_columns);
+
+    // Number of columns must be a power of 2 with a minimum of 32.
     constexpr int64_t unit_of_allocation = 32;
-    Val* unit_of_allocation_val = IrBuilder::create<Val>(unit_of_allocation);
-    region.num_columns = SimplifyingIrBuilder::maxExpr(
-        unit_of_allocation_val, region.num_columns);
-    total_num_columns =
-        SimplifyingIrBuilder::addExpr(total_num_columns, region.num_columns);
+    Val* unit_of_allocation_val =
+        IrBuilder::create<Val>(unit_of_allocation, DataType::UInt32);
     region.num_columns =
         IrBuilder::maybeCastExpr(DataType::UInt32, region.num_columns);
+    region.num_columns = SimplifyingIrBuilder::maxExpr(
+        unit_of_allocation_val, IrBuilder::bitCeilExpr(region.num_columns));
+    total_num_columns =
+        SimplifyingIrBuilder::addExpr(total_num_columns, region.num_columns);
   }
-  constexpr int64_t max_columns = 512;
-  Val* max_columns_val = IrBuilder::create<Val>(max_columns);
-  GpuLower::current()->validate(
-      SimplifyingIrBuilder::leExpr(total_num_columns, max_columns_val),
-      "Not enough tensor memory columns: tried to allocate ",
-      total_num_columns->toInlineString(),
-      ", but only ",
-      max_columns,
-      " available.");
-
+  validate_columns(total_num_columns);
   return result;
 }
 

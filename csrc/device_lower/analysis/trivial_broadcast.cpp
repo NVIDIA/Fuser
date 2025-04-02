@@ -79,7 +79,7 @@ void ConcretizedBroadcastDomains::handle(TensorView* tv) {
 void ConcretizedBroadcastDomains::handle(BroadcastOp* bop) {
   // Create a new entry for each of new broadcast domains
   auto out = bop->out()->as<TensorView>();
-  for (const auto i : c10::irange(out->getLogicalDomain().size())) {
+  for (const auto i : arange(out->getLogicalDomain().size())) {
     if (bop->getBroadcastDimFlags().at(i)) {
       auto new_bcast_id = out->getLogicalDomain().at(i);
       broadcast_origin_map_.emplace(

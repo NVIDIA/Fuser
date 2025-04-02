@@ -107,7 +107,7 @@ void isContiguous(TensorView* tv) {
   EXPECT_TRUE(tv->hasAllocation());
   auto contiguity = tv->getContiguity();
   auto alloc_domain = tv->getAllocationDomain();
-  for (auto i : c10::irange(contiguity.size())) {
+  for (auto i : arange(contiguity.size())) {
     // TODO: This should eventually check that DeviceDim domains also has no
     // value.
     if (alloc_domain[i]->isReduction() || alloc_domain[i]->isBroadcast()) {

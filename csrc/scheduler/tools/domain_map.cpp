@@ -453,7 +453,7 @@ IterDomain* TransposeDomainMap::getMappedAllocDimIn(
   // Find the id mapped to `Allocation Domain`
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   IterDomain* mapped_id = nullptr;
-  for (auto i : c10::irange(alloc_dom.size())) {
+  for (auto i : arange(alloc_dom.size())) {
     if (ca_map_.areMapped(alloc_dom[i], root_dim, IdMappingMode::INNERMOST)) {
       mapped_id = alloc_dom[i];
       break;
@@ -527,7 +527,7 @@ int64_t TransposeDomainMap::getInnerLeafDim(
 
   // Find the position of the loop id
   const auto& dom = tv->getLoopDomain();
-  for (auto i : c10::irange(dom.size())) {
+  for (auto i : arange(dom.size())) {
     if (dom[i] == mapped_id) {
       return static_cast<int64_t>(i);
     }

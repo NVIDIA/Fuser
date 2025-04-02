@@ -5436,7 +5436,7 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
         auto actual_tv0_logial_indices =
             Index::getProducerPerDimLogicalIndex(tv0, tv1, for_loops_, {});
         ASSERT_EQ(actual_tv0_logial_indices.size(), tv0_logical_indices.size());
-        for (const auto i : c10::irange(tv0_logical_indices.size())) {
+        for (const auto i : arange(tv0_logical_indices.size())) {
           EXPECT_TRUE(
               actual_tv0_logial_indices[i]->sameAs(tv0_logical_indices[i]))
               << "Validation failure of " << tv0->toString() << " as producer"

@@ -83,10 +83,10 @@ PostOnStream::PostOnStream(
         this->outputs().size() ==
         host_op->as<HostUnit>()->fusion_to_execute()->outputs().size());
     // TODO: harden the assert checks with smth like
-    // for (int i : c10::irange(inputs.size())) {
+    // for (int i : arange(inputs.size())) {
     //     NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
     // }
-    // for (int i : c10::irange(outputs.size())) {
+    // for (int i : arange(outputs.size())) {
     //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
     // }
   }

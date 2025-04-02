@@ -69,7 +69,7 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
   // Now that all the dependent tensors have the uniform, exact-mapped
   // loop domains, we just need to propagte the specific Resize ops of
   // this tensor.
-  for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
+  for (const auto i : arange(consumer_tv->getLogicalDomain().size())) {
     auto out_logical_id = consumer_tv->getLogicalDomain().at(i);
     auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
     if (resize == nullptr) {
