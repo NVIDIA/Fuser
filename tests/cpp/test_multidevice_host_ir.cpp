@@ -354,10 +354,6 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 using OverlapDistributedMatmulTest = MultiDeviceTest;
 
 TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
-  // Disable StreamParallelType pass temporarily as proper stream lowering gets
-  // implemented
-  preseg_passes::OptimizationPassGuard<preseg_passes::StreamParallelType> guard(
-      false);
 
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
@@ -414,9 +410,6 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
 }
 
 TEST_F(OverlapDistributedMatmulTest, AG_linear) {
-  // Disable StreamParallelType pass tempor
-  preseg_passes::OptimizationPassGuard<preseg_passes::StreamParallelType> guard(
-      false);
 
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;

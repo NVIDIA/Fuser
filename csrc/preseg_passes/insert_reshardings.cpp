@@ -16,6 +16,7 @@
 #include <ir/utils.h>
 #include <multidevice/utils.h>
 #include <ops/alias.h>
+#include <scheduler/utils.h>
 
 namespace nvfuser::preseg_passes {
 namespace {
@@ -27,6 +28,14 @@ namespace {
 // multi-output expressions if they don't require resharding.
 bool shouldReshardAfter(Expr* expr) {
   return expr->inputs().size() == 1 && expr->outputs().size() == 1;
+}
+
+void propagateParallelization(TensorView* ref, std::vector<TensorView*> tvs) {
+  shardAllLike(ref, tvs);
+  if (!tvs.empty()) {
+    scheduler_utils::parallelizeAllLike(
+        ref, tvs, {ParallelType::Stream});
+  }
 }
 
 void insertReshardingsBefore(Fusion* fusion) {
@@ -70,7 +79,7 @@ void insertReshardingsBefore(Fusion* fusion) {
       new_inputs.push_back(new_input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
     }
-    shardAllLike(output, new_inputs);
+    propagateParallelization(output, new_inputs);
   }
 }
 
@@ -109,8 +118,8 @@ void insertReshardingsAfter(Fusion* fusion) {
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
-      shardAllLike(output, {new_output});
-      shardAllLike(input, {output});
+      propagateParallelization(output, {new_output});
+      propagateParallelization(input, {output});
     }
   }
 }

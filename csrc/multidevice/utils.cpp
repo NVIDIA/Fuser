@@ -36,7 +36,7 @@ NVF_API bool distributedEnabled() {
 namespace {
 
 // Returns the position where an axis is allocated in a tv, skipping trivial
-// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
+// dimensions (i.e. DID, reduction and broadcast) and Stream axis. Returns -1 if id is not in
 // tv's loop domain WAR: today we assume that the loop domain match with the
 // actual allocation, but this will have to change in the future.
 int64_t allocationIndex(TensorView* tv, IterDomain* id) {
@@ -46,7 +46,7 @@ int64_t allocationIndex(TensorView* tv, IterDomain* id) {
       return index;
     }
     if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-        !loop_id->isBroadcast()) {
+        !loop_id->isBroadcast() && loop_id->getParallelType() == ParallelType::Stream) {
       index++;
     }
   }

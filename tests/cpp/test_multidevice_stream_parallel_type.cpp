@@ -21,11 +21,6 @@ using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
 
 TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2pBased) {
 
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> guard(
-      false);
-
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> guard2(
-      false);
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

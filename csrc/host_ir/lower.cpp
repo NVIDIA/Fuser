@@ -60,27 +60,6 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
       return false;
     }
     return ldst->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set;
-  } else if (auto* matmul = dynamic_cast<MatmulOp*>(expr)) {
-    // For now we only support out = matmul(a,b) when b, out are fully
-    // replicated, a is sharded on axis 1, and out i stream-parallelized on axis
-    // 0.
-    return !isSharded(matmul->inB()) && !isSharded(matmul->out()) &&
-        matmul->inA()->axis(0)->getParallelType() == ParallelType::Serial &&
-        getShardedLogicalAxis(matmul->inA(), ParallelType::DIDx) == 1 &&
-        matmul->out()->axis(0)->getParallelType() == ParallelType::Stream;
-  } else if (auto* linear = dynamic_cast<LinearOp*>(expr)) {
-    // For now we only support out = linear(a, b, bias) when b, bias, and out
-    // are fully replicated, a is sharded on axis 1, and out i
-    // stream-parallelized on axis 0.
-    auto* a = linear->inA()->as<TensorView>();
-    auto* b = linear->inB()->as<TensorView>();
-    auto* bias = linear->bias()->as<TensorView>();
-    auto* out = linear->out()->as<TensorView>();
-    return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
-        !isSharded(out) &&
-        a->axis(0)->getParallelType() == ParallelType::Serial &&
-        getShardedLogicalAxis(a, ParallelType::DIDx) == 1 &&
-        out->axis(0)->getParallelType() == ParallelType::Stream;
   }
   return false;
 }
