@@ -1095,7 +1095,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
   // Next, check if any pair is invalid to map.
   const auto num_keys = domains.size();
   const std::vector<DomainKey> domains_vec({domains.begin(), domains.end()});
-  for (const auto i : c10::irange(num_keys)) {
+  for (const auto i : arange(num_keys)) {
     const auto& key_i = domains_vec[i];
     // If no invalid keys found for key_i, it can be skipped.
     const auto invalid_key_map_it = invalid_key_map.find(key_i);
@@ -1108,7 +1108,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
 
     // If any other key in domains is identified mappable with any of
     // the keys in this set, the mapping with key_i is invalid.
-    for (const auto j : c10::irange(i + 1, num_keys)) {
+    for (const auto j : arange(i + 1, num_keys)) {
       const auto& key_j = domains_vec[j];
       if (std::any_of(
               invalid_keys_for_i.begin(),

@@ -225,7 +225,7 @@ void FusionKernelRuntime::deserialize(
   };
 
   // 1. Deserialize KernelExecutor objects
-  for (auto idx : c10::irange(executors_.size())) {
+  for (auto idx : arange(executors_.size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
     // Create and schedule Fusion for this SegmentedGroup
@@ -290,7 +290,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     }
 
     std::unordered_map<Val*, PolymorphicValue> tensor_map;
-    for (const auto i : c10::irange(args.size())) {
+    for (const auto i : arange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
     auto outputs = hie_->runWithInput(tensor_map);
@@ -521,7 +521,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
-  for (int64_t group_id : c10::irange(num_groups)) {
+  for (int64_t group_id : arange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
     // Create fusion for this segmented group
@@ -609,7 +609,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   auto scheduler_list_length = heuristics_->heuristicsList().size();
   NVF_ERROR(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
-  for (const auto i : c10::irange(scheduler_list_length)) {
+  for (const auto i : arange(scheduler_list_length)) {
     auto& heuristic_params = heuristics_->heuristicsList()[i];
     heuristic_params->lparams = update_heuristics->heuristicsList()[i]->lparams;
   }
@@ -637,7 +637,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
   auto group_cache_id = args.getCacheId();
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   kernel_time_ms_ = 0;
-  for (auto run_order_id : c10::irange(num_groups)) {
+  for (auto run_order_id : arange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
