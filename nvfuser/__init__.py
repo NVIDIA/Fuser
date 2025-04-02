@@ -26,6 +26,11 @@ from . import contrib  # noqa: F401
 
 logger = logging.getLogger("nvfuser")
 
+try:
+    from . import _C_DIRECT as direct  # noqa: F401
+except Exception as err:
+    logger.exception("Unable to import direct bindings api")
+
 
 # Register automatic serialization of Nvfuser cache hierarchy and cuda kernels.
 def enable_automatic_serialization():

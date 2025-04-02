@@ -12,6 +12,7 @@ namespace direct_bindings {
 
 void initNvFuserDirectBindings(PyObject* module) {
   auto direct_bindings = py::handle(module).cast<py::module>();
+  bindFusionIr(direct_bindings);
 }
 
 } // namespace direct_bindings
