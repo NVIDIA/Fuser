@@ -721,6 +721,38 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
+  auto expand_by_id_model = [](DisjointSets<IterDomain*>& nodes,
+                               IdMappingMode mode) {
+    if (!GpuLower::hasCurrent() || !GpuLower::current()->hasIdModel()) {
+      return;
+    }
+
+    const ValGraph& exact_graph = GpuLower::current()->idModel().idGraph(mode);
+    for (const auto& exact_vals :
+         exact_graph.disjointValSets().disjointSets()) {
+      if (exact_vals->empty()) {
+        continue;
+      }
+      IterDomain* first_id = nullptr;
+      for (const auto& val : *exact_vals) {
+        auto id = val->as<IterDomain>();
+        if (!nodes.mappingExists(id)) {
+          continue;
+        }
+        if (first_id == nullptr) {
+          first_id = id;
+          continue;
+        } else if (!nodes.strictAreMapped(first_id, id)) {
+          // std::cerr << "IdModel map: " << first_id->toString() << ", "
+          //<< id->toString() << "\n";
+          nodes.mapEntries(first_id, id);
+        }
+      }
+    }
+  };
+
+  expand_by_id_model(exact_nodes_, IdMappingMode::EXACT);
+
   innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
@@ -763,6 +795,8 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
     }
   }
+
+  expand_by_id_model(almost_exact_nodes_, IdMappingMode::ALMOSTEXACT);
 
   self_mapping_info_ = findFirstSelfMapping(fusion, *this);
 }

@@ -494,12 +494,6 @@ void GpuLower::analysis(Fusion* fusion) {
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 
-  // Build what's refered to as the compute at map. This map contains the
-  // mappings of all iteration domains across the fusion. There are three types
-  // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
-  // information.
-  compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
-
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
@@ -510,6 +504,12 @@ void GpuLower::analysis(Fusion* fusion) {
         /*validate=*/false);
     id_model_->validateAndPropagatePType();
   }
+
+  // Build what's refered to as the compute at map. This map contains the
+  // mappings of all iteration domains across the fusion. There are three types
+  // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
+  // information.
+  compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
