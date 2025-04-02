@@ -37,7 +37,6 @@
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include <c10/util/irange.h>
 
 #include <cmath>
 #include <cstring>

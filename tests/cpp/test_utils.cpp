@@ -88,7 +88,7 @@ TEST_F(NVFuserTest, FusionSplitDims) {
   scheduler_utils::splitDims(
       tv, {{0, p(2)}, {0, p(1)}, {3, p(6)}, {6, p(10)}}, dims);
   EXPECT_EQ(tv->nDims(), 11);
-  for (auto i : c10::irange(11)) {
+  for (auto i : arange(11)) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluate(), p(i));
   }
   std::vector<int64_t> expect{0, 3, 4, 5, 7, 8, 9};
@@ -109,7 +109,7 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   std::vector<int64_t> expect_shape{
       p(0), p(1), p(2) * p(3) * p(7) * p(8) * p(9), p(4), p(5), p(6), p(10)};
   EXPECT_EQ(tv->nDims(), expect_shape.size());
-  for (auto i : c10::irange(expect_shape.size())) {
+  for (auto i : arange(expect_shape.size())) {
     EXPECT_EQ(tv->axis(i)->extent()->evaluate(), expect_shape[i]);
   }
   std::vector<int64_t> expect_dims{0, 1, 2, 2, 3, 4, 5, 2, 2, 2, 6};
@@ -117,10 +117,9 @@ TEST_F(NVFuserTest, FusionMergeDims) {
   auto logical_domain = tv->getLogicalDomain();
   auto num_merged_dim = to_merge.size();
   auto inputs = IterVisitor::getInputsTo({tv->axis(2)});
-  for (auto index : c10::irange(num_merged_dim)) {
-    EXPECT_TRUE(
-        logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
-            inputs[index]));
+  for (auto index : arange(num_merged_dim)) {
+    EXPECT_TRUE(logical_domain[to_merge[num_merged_dim - 1 - index]]->sameAs(
+        inputs[index]));
   }
 }
 
@@ -1016,7 +1015,7 @@ TEST_F(VectorizeHelperTest, SpanningTree) {
   inputs.push_back(bcast_inp);
   auto bcast = broadcast(bcast_inp, {false, true});
 
-  for (auto i : c10::irange(10)) {
+  for (auto i : arange(10)) {
     auto resolution_inp = makeContigConcreteTensor({2, 2});
     inputs.push_back(resolution_inp);
     auto intermediate = add(bcast, resolution_inp);
@@ -1638,7 +1637,7 @@ TEST_F(NVFuserTest, ProveLinearAndGetStride) {
 TEST_F(NVFuserTest, ProveLinearAndGetStrideWithMissingDependency) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  for (auto _ : c10::irange(100)) {
+  for (auto _ : arange(100)) {
     (void)_;
     // [16, 8, 2, 4]
     auto id16 =
