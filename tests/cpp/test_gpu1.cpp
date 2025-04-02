@@ -2724,6 +2724,52 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
   }
 }
 
+TEST_F(NVFuserTest, BitCeilKernel) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::UInt64);
+  fusion.addInput(tv0);
+  TensorView* tv1 = bitceil(tv0);
+  fusion.addOutput(tv1);
+
+  inlineMost();
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kUInt64).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 1000000, {1024}, options);
+  at::Tensor cg_output = at::empty({1024}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  ke.run({input}, {cg_output});
+
+  auto input_cpu = input.cpu();
+  auto expect_cpu = input_cpu.clone();
+  auto input_span =
+      std::span(input_cpu.data_ptr<uint64_t>(), input_cpu.numel());
+  std::ranges::transform(
+      input_span, expect_cpu.data_ptr<uint64_t>(), [](uint64_t i) {
+        return std::bit_ceil(i);
+      });
+
+  EXPECT_TRUE(cg_output.equal(expect_cpu.cuda()));
+}
+
+TEST_F(NVFuserTest, BitCeilEval) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  for ([[maybe_unused]] auto _ : std::views::iota(0, 1024)) {
+    uint64_t value = std::rand() % 1000000;
+    Val* v0 =
+        IrBuilder::create<Val>(static_cast<int64_t>(value), DataType::Int);
+    Val* v1 = bitceil(v0);
+    uint64_t result = (uint64_t)v1->evaluate();
+    EXPECT_EQ(std::bit_ceil(value), result);
+  }
+}
+
 // Start off simple, block on the outer dim
 // block stride + thread all reduce + unrolling on inner dim
 TEST_F(NVFuserTest, FusionReduction1_CUDA) {
