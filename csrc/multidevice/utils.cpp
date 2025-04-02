@@ -14,6 +14,7 @@
 #include <instrumentation.h>
 #include <ir/container.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -367,6 +368,14 @@ bool haveDifferentShardings(
   // If device mesh are different, the Expr is resharding
   if (producer->getDeviceMesh() != consumer->getDeviceMesh()) {
     return true;
+  }
+
+  // Special handling of SelectOp for a quick fix
+  // TODO: work on a proper implementation
+  if (consumer->definition()->isA<SelectOp>()) {
+    auto* select_op = consumer->definition()->as<SelectOp>();
+    NVF_ERROR(select_op->input(0) == producer, "SelectOp input 0 is not producer");
+    return select_op->getIndexedID()->isDeviceDim();
   }
 
   // The rest of this function tries to do the following: for each pair of
