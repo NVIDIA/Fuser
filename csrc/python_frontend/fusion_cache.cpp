@@ -93,6 +93,7 @@ BinaryBuffer openFusionCache(std::string filename) {
       std::fread(buffer.data(), sizeof(uint8_t), file_size, file_handle);
   NVF_CHECK(
       read_status == file_size, "Failed to read entire FusionCache buffer.\n");
+  std::fclose(file_handle);
   return buffer;
 }
 
