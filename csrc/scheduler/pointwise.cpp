@@ -347,7 +347,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   auto& view_disjoint_sets = broadcast_info.get().view_disjoint_set_ids;
   auto& broadcast_byte_multiples = broadcast_info.get().broadcast_multiples;
-  NVF_ERROR(broadcast_byte_multiples.size() == ref_loop.size());
+  NVF_ERROR(broadcast_byte_multiples.size() == largest_out->getLogicalDomain().size());
 
   int64_t dtype_sum = 0;
   for (auto inp : ir_utils::filterByType<TensorView>(fusion->inputs())) {
