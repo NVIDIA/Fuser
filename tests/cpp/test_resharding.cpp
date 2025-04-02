@@ -676,4 +676,36 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool(),
         testing::Bool()));
 
+using ReshardingSelectOpTest = NVFuserTest;
+
+TEST_F(ReshardingSelectOpTest, NonResharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* tv0 = makeContigTensor(3);
+  auto* tv1 = select(tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
+
+  DeviceMesh mesh({0});
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  EXPECT_FALSE(isResharding(tv1->definition()));
+}
+
+TEST_F(ReshardingSelectOpTest, Resharding) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  auto* tv0 = makeContigTensor(3);
+  auto* tv1 = select(tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
+
+  DeviceMesh mesh({0});
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_TRUE(isResharding(tv1->definition()));
+}
+
 } // namespace nvfuser
