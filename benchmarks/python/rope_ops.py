@@ -36,7 +36,7 @@ def apply_rope(x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor) -> torch.T
     return roped.to(dtype=x.dtype)
 
 
-def llama_hf(config_str, seq_length=None):
+def llama_hf(seq_length=None, *, config_str):
     class LitGPTRope(torch.nn.Module):
         def __init__(self, config):
             super(LitGPTRope, self).__init__()
