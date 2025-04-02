@@ -5,8 +5,14 @@ import pytest
 
 import torch
 
+from .core import (
+    run_benchmark,
+    clear_dynamo_cache,
+    unary_bwd_torch,
+    with_executor,
+    DEFAULT_EXECUTORS,
+)
 from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-from .core import run_benchmark, with_executor, unary_bwd_torch, clear_dynamo_cache
 from .embedding_ops import embedding_setup, EMBEDDING_CONFIGS
 from .torch_ops import embedding
 
