@@ -2076,25 +2076,25 @@ TEST_F(TestCpp23BackPort, Enumerate) {
 namespace {
 
 // Generator that yields integers from 0 to n-1
-Generator<int> count(int n) {
+Generator<int> zeroToN(int n) {
   for (int i = 0; i < n; ++i) {
     co_yield i;
   }
 }
 
 // Generator that yields integers from n to 2*n - 1
-Generator<int> count2(int n) {
+Generator<int> nTo2N(int n) {
   for (int i = n; i < 2 * n; ++i) {
     co_yield i;
   }
 }
 
 // Generator that yields integers from 0 to 2*n - 1
-Generator<int> count3(int n, int m) {
-  for (auto x : count(n)) {
+Generator<int> mTo2NplusM(int n, int m) {
+  for (auto x : zeroToN(n)) {
     co_yield x + m;
   }
-  for (auto x : count2(n)) {
+  for (auto x : nTo2N(n)) {
     co_yield x + m;
   }
 }
@@ -2109,9 +2109,9 @@ Generator<int&> items(std::vector<int>& v) {
 } // namespace
 
 TEST_F(NVFuserTest, Generator1) {
-  static_assert(std::ranges::view<decltype(count(10))>);
+  static_assert(std::ranges::view<decltype(zeroToN(10))>);
   std::vector<int> generated;
-  for (auto x : count(10) |
+  for (auto x : zeroToN(10) |
            std::views::filter([](int x) { return x % 2 == 0; }) |
            std::views::transform([](int x) { return x * x; })) {
     generated.push_back(x);
@@ -2121,9 +2121,9 @@ TEST_F(NVFuserTest, Generator1) {
 }
 
 TEST_F(NVFuserTest, Generator2) {
-  static_assert(std::ranges::view<decltype(count3(10, 10))>);
+  static_assert(std::ranges::view<decltype(mTo2NplusM(10, 10))>);
   std::vector<int> generated;
-  for (auto x : count3(10, 10)) {
+  for (auto x : mTo2NplusM(10, 10)) {
     generated.push_back(x);
   }
   std::vector<int> expect{10, 11, 12, 13, 14, 15, 16, 17, 18, 19,
@@ -2153,4 +2153,21 @@ TEST_F(NVFuserTest, Generator4) {
   std::vector<int> expect{1, 2, 3, 4, 5};
   EXPECT_EQ(v, expect);
 }
+
+TEST_F(NVFuserTest, Generator5) {
+  auto excepted_exception = []() -> Generator<int> {
+    co_yield 1;
+    throw std::runtime_error("Hello, world!");
+    co_yield 2;
+  };
+  auto run_generator = [&]() {
+    for (auto x : excepted_exception()) {
+      EXPECT_EQ(x, 1);
+    }
+  };
+  EXPECT_THAT(
+      run_generator,
+      ::testing::ThrowsMessage<std::runtime_error>("Hello, world!"));
+}
+
 } // namespace nvfuser
