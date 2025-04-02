@@ -1,0 +1,64 @@
+// clang-format off
+/*
+* SPDX-FileCopyrightText: Copyright (c) 2023-present NVIDIA CORPORATION & AFFILIATES.
+* All rights reserved.
+* SPDX-License-Identifier: BSD-3-Clause
+*/
+// clang-format on
+#include <cuda_profiler_api.h>
+#include <fusion.h>
+#include <host_ir/container.h>
+#include <host_ir/executor.h>
+#include <ir/all_nodes.h>
+#include <ops/all_ops.h>
+#include <preseg_passes/reorder_sharded_axis.h>
+#include <tests/cpp/multidevice.h>
+
+namespace nvfuser {
+
+
+using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
+
+TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2pBased) {
+
+  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> guard(
+      false);
+
+  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> guard2(
+      false);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = set(tv0);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  const DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::Stream);
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+
+  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container->topLevelExprs().size(), 2);
+  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
+
+  auto options = at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
+  at::Tensor unsharded_input = at::rand({4, communicator_->size()}, options);
+  at::Tensor input = shardTensor(unsharded_input, /*axis=*/1, mesh);
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
+
+  torch::cuda::synchronize();
+
+  std::cout << "======PRINTING=====\n\nOutput: " << output << "\n\nExpected: " << unsharded_input << std::endl;
+
+  EXPECT_TRUE(torch::allclose(output, unsharded_input, 1e-2, 1e-2))
+      << "Output: " << output << "\nExpected: " << unsharded_input;
+}
+
+} // namespace nvfuser

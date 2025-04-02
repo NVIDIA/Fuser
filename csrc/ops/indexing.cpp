@@ -43,6 +43,9 @@ TensorView* select(
   auto td = IrBuilder::create<TensorDomain>(
       new_root, TensorDomain::getContiguityFilledWith(new_root, true));
   auto out = IrBuilder::create<TensorView>(td, *tv->getDataType());
+  if (tv->hasDeviceMesh()) {
+    out->setDeviceMesh(tv->getDeviceMesh());
+  }
   IrBuilder::create<SelectOp>(out, tv, dim, index);
   return out;
 }
