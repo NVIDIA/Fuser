@@ -95,10 +95,10 @@ class TensorIndexer {
   // Grab all for-loops whose indices are actually used in the given
   // index val. Note that IndexingInfo.loop_group_dependencies can be
   // used to find loop IDs that are connected to the index IDs, but
-  // that doesn't always mean correponding loop indicex are actually
+  // that doesn't always mean corresponding loop indices are actually
   // used in an index Val. For example, unswitch predicates replace loop indices
   // with (N - 1), where N is the extent of an unswitched ID. This
-  // funciton only grabs for-loops whose indices are indeed used.
+  // function only grabs for-loops whose indices are indeed used.
   std::vector<ForLoop*> getUsedForLoopsOf(
       Val* index,
       const std::vector<ForLoop*>& for_loops) const;
