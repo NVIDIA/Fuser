@@ -2698,7 +2698,10 @@ void IndexLowering::handle(const kir::AllocTMem* alloc) {
   auto address_tv = alloc->address()->as<TensorView>();
   const auto address = IrBuilder::create<kir::TensorIndex>(
       address_tv, IrBuilder::baseAddressExpr(address_tv));
-  pushBack(IrBuilder::create<kir::AllocTMem>(address, alloc->numColumns()));
+  pushBack(IrBuilder::create<kir::AllocTMem>(
+      address,
+      GpuLower::current()->commonScalarMap().hoistScalar(
+          alloc->numColumns(), for_loops_)));
   GpuLower::current()->propagateExprInfo(alloc, back());
 }
 
