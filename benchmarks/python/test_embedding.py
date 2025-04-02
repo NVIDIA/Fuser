@@ -12,7 +12,7 @@ from .core import (
     with_executor,
     DEFAULT_EXECUTORS,
 )
-from .global_params import FLOAT_DTYPES, PROMOTE_DTYPES
+from .global_params import FLOAT_DTYPES
 from .embedding_ops import embedding_setup, EMBEDDING_CONFIGS, SEQ_LENGTHS
 from .torch_ops import embedding
 
