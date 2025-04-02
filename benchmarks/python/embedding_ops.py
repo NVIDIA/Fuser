@@ -13,6 +13,10 @@ EMBEDDING_CONFIGS = [
     (131072, 5120),  # hf_mistral_nemo
 ]
 
+SEQ_LENGTHS = [
+    1024, 2048, 3072, 4096, 8192, 12288, 16384, 20480, 24576,
+]
+
 class EmbeddingBase:
     def __init__(self, model_name, dtype):
         self.config = configs[model_name]()
