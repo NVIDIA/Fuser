@@ -12,8 +12,8 @@ from .core import (
     with_executor,
     DEFAULT_EXECUTORS,
 )
-from .global_params import generate_input_sizes, FLOAT_DTYPES, PROMOTE_DTYPES
-from .embedding_ops import embedding_setup, EMBEDDING_CONFIGS
+from .global_params import FLOAT_DTYPES, PROMOTE_DTYPES
+from .embedding_ops import embedding_setup, EMBEDDING_CONFIGS, SEQ_LENGTHS
 from .torch_ops import embedding
 
 
@@ -96,12 +96,12 @@ def test_embedding_bwd_benchmark(
     )
 
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
-@pytest.mark.parametrize("seq_length", generate_input_sizes(dims=1))
+@pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
 @pytest.mark.parametrize("vocab_hidden", EMBEDDING_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_embedding_fwd_baseline_benchmark(
     benchmark,
-    seq_length: tuple,
+    seq_length: int,
     vocab_hidden: tuple,
     dtype: torch.dtype,
     executor: str,
@@ -109,7 +109,7 @@ def test_embedding_fwd_baseline_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
     
-    indices = torch.randint(0, vocab_hidden[0], seq_length, device="cuda")
+    indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
     embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype)
 
     benchmark_fn = with_executor(executor, embedding)
@@ -120,12 +120,12 @@ def test_embedding_fwd_baseline_benchmark(
     )
 
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
-@pytest.mark.parametrize("seq_length", generate_input_sizes(dims=1))
+@pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
 @pytest.mark.parametrize("vocab_hidden", EMBEDDING_CONFIGS)
 @pytest.mark.parametrize("dtype", FLOAT_DTYPES)
 def test_embedding_bwd_baseline_benchmark(
     benchmark,
-    seq_length: tuple,
+    seq_length: int,
     vocab_hidden: tuple,
     dtype: torch.dtype,
     executor: str,
@@ -133,8 +133,8 @@ def test_embedding_bwd_baseline_benchmark(
     if executor == "torchcompile":
         clear_dynamo_cache()
 
-    indices = torch.randint(0, vocab_hidden[0], seq_length, device="cuda")
-    grads = torch.randn((seq_length[0], vocab_hidden[1]), device="cuda", dtype=dtype)
+    indices = torch.randint(0, vocab_hidden[0], (seq_length,), device="cuda")
+    grads = torch.randn((seq_length, vocab_hidden[1]), device="cuda", dtype=dtype)
     embedding_table = torch.randn(vocab_hidden, device="cuda", dtype=dtype)
 
     # Compile the fwd fn for torchcompile
