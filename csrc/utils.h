@@ -851,6 +851,8 @@ using Yielded = std::conditional_t<
     std::reference_wrapper<std::remove_reference_t<T>>,
     T>;
 
+// Writing yield in C++20 just like Python:
+// See NVFuserTest.Generator[1-5] for usage examples
 template <typename T>
 class Generator : public std::ranges::view_interface<Generator<T>> {
  public:
