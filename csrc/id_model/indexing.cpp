@@ -193,7 +193,7 @@ Val* TensorIndexer::getLinearIndex(
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
-  for (const auto i : c10::irange(contig_indices.size())) {
+  for (const auto i : arange(contig_indices.size())) {
     Val* stride = contig_strides.at(i);
     linear_index = SimplifyingIrBuilder::addExpr(
         linear_index,
@@ -606,7 +606,7 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
   std::unordered_set<ValGroup> already_indexed_domains;
   std::deque<ValGroup> contig_alloc_groups;
   std::deque<Val*> contig_strides;
-  for (const auto i : c10::irange(alloc_info.ids.size())) {
+  for (const auto i : arange(alloc_info.ids.size())) {
     // Traverse back from the innermost domains so that the right
     // stride val is picked up for each contiguous domain
     auto i1 = alloc_info.ids.size() - 1 - i;
@@ -712,7 +712,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   std::vector<Val*> result;
   result.reserve(contig_alloc_groups.size());
 
-  for (const auto i : c10::irange(contig_alloc_groups.size())) {
+  for (const auto i : arange(contig_alloc_groups.size())) {
     const auto& contig_domain_group = contig_alloc_groups.at(i);
     auto idx_it = index_map.find(contig_domain_group);
     NVF_ERROR(

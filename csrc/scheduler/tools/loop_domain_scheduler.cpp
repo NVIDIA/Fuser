@@ -282,7 +282,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
   // Find missing IDs.
   bool has_missing_ids = false;
-  for (const auto i : c10::irange(ref_loop_dom_.size())) {
+  for (const auto i : arange(ref_loop_dom_.size())) {
     const auto& ref_id_group = ref_id_groups_.at((int64_t)i);
     if (all_id_groups.has(ref_id_group)) {
       // This loop ID already exists.

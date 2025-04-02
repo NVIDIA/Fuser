@@ -50,7 +50,7 @@ std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getTMemAllocation(
   std::vector<IterDomain*> column;
   const auto& raw_allocation_domain = tv->getMaybeAllocationDomain();
   const int64_t dimsep = tv->getTMemDimSepPos();
-  for (int64_t i : c10::irange((int64_t)raw_allocation_domain.size())) {
+  for (int64_t i : arange((int64_t)raw_allocation_domain.size())) {
     std::vector<IterDomain*>& target = i < dimsep ? lane : column;
     IterDomain* id = raw_allocation_domain[i];
     ParallelType p_type = id->getParallelType();
