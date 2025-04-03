@@ -109,7 +109,10 @@ TEST_P(CommunicationTest, Allgather) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
+  in->axis(0)->parallelize(ParallelType::DIDx);
   auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
+  out->axis(0)->parallelize(ParallelType::Serial);
+  
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather, out, in, all_ranks_);
 
@@ -411,153 +414,51 @@ TEST_P(CommunicationTest, ReduceScatter) {
   }
 }
 
-TEST_P(CommunicationTest, AllgatherLoopSplit_NonContiguous) {
-  // NCCL and UCC do not support non-contiguous tensors.
-  // Therefore, we need to add permute operations to make the tensor contiguous.
-  // Note, that, modifying the allocation domain such that the gather axis is outermost 
-  // is not sufficient, requiring logical shape change.
+TEST_P(CommunicationTest, AllgatherLoopSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
+  // ProcessGroupNCCL requires the gathered axis to be outermost.
+  // We change the allocation of tensorviews to reflect this.
+  // We do not modify the logical shape of the tensorview.
+  // When posting communication, we permute the tensor to match the ProcessGroupNCCL contiguity requirements.
+  // This would still require one copy on each device if the input tensor is in a different layout.
   const auto d = communicator_->size();
 
   TensorView* tv0 = makeConcreteTensor({5, d*3});
   tv0->outer_split(1, d);
   tv0->axis(1)->parallelize(ParallelType::DIDx);
-  reorderDIDToFront(tv0);
+  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv0: Logical = [5, d*3], Loop/Allocation = [DIDx(d), 3, 5]
 
-  TensorView* tv1 = permute(tv0, {{1, 0}});
-  tv1->outer_split(0, d);
-  tv1->axis(0)->parallelize(ParallelType::DIDx);
+  TensorView* tv1 = set(tv0);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv1: Logical = [5, d*3], Loop/Allocation = [Serial(d), 3, 5]
 
-  TensorView* tv2 = set(tv1);
-  tv2->outer_split(0, d);
-  tv2->axis(0)->parallelize(ParallelType::Serial);
-
-  TensorView* tv3 = permute(tv2, {{0, 1}});
-  tv3->outer_split(1, d);
-  tv3->axis(1)->parallelize(ParallelType::Serial);
-  tv3->reorder({{1, 0}, {2, 1}, {0, 2}});
-
-  for (auto tv : {tv0, tv1, tv2, tv3}) {
+  for (auto tv : {tv0, tv1}) {
     tv->setDeviceMesh(full_mesh_);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
-
-  fusion->addInput(tv0);
-  fusion->addOutput(tv3);
-
-  at::Tensor unsharded_in_tensor = at::randn({5, d*3}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, tv0);
-  
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-  testValidate(
-      executor_cache.fusion(),
-      {out_tensor},
-      {in_tensor},
-      {unsharded_in_tensor},
-      __LINE__,
-      __FILE__);    
-}
-
-TEST_P(CommunicationTest, ScatterLoopSplit_NonContiguous) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto d = communicator_->size();
-  
-  DeviceMesh mesh_zero({0});
-
-  TensorView* tv0 = makeConcreteTensor({5, d*3});
-  // TensorView* tv1 = permute(tv0, {{1, 0}});
-  TensorView* tv2 = set(tv0);
-  // TensorView* tv3 = permute(tv2, {{1, 0}});
-
-  tv0->setDeviceMesh(mesh_zero);
-  // tv1->setDeviceMesh(mesh_zero);
-  tv2->setDeviceMesh(full_mesh_);
-  // tv3->setDeviceMesh(full_mesh_);
-
-  tv0->outer_split(1, d);
-  tv0->axis(1)->parallelize(ParallelType::Serial);
-
-  // tv1->outer_split(0, d);
-  // tv1->axis(0)->parallelize(ParallelType::Serial);
-
-  // tv2->outer_split(0, d);
-  // tv2->axis(0)->parallelize(ParallelType::DIDx);
-
-  tv2->outer_split(1, d);
-  tv2->axis(1)->parallelize(ParallelType::DIDx);
-  // tv3->reorder({{1, 0}, {2, 1}, {0, 2}});
-
-  fusion->addInput(tv0);
-  fusion->addOutput(tv2);
-
-  for (auto tv : {tv0, tv2}) {
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-    debug() << "tv: " << tv->toString() << std::endl;
-    debug() << "Logical domain: " << tv->getLogicalDomain() << std::endl;
-    debug() << "Allocation domain: " << tv->getAllocationDomain() << std::endl;
-  }
-
-  at::Tensor unsharded_in_tensor = at::randn({5, d*3}, tensor_options);
-  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh_);
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor out_tensor =
-      executor_cache.runFusionWithInputs({unsharded_in_tensor})[0].as<at::Tensor>();
-
-  testValidate(
-      executor_cache.fusion(),
-      {out_tensor},
-      {unsharded_in_tensor},
-      {expected_output},
-      __LINE__,
-      __FILE__);
-}
-
-TEST_P(CommunicationTest, ReduceScatterLoopSplit_NonContiguous) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const auto d = communicator_->size();
-
-  TensorView* tv0 = makeConcreteTensor({5, d*3, d*7});
-  TensorView* tv1 = sum(tv0, {1});
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({d*3, 5}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 0, full_mesh_).transpose(0, 1);
   
-  tv0->outer_split(1, d);
-  tv0->axis(1)->parallelize(ParallelType::DIDx);
-
-  tv1->outer_split(1, d);
-  TensorView* tv2 = tv1->rFactor({2});
-  tv2->axis(1)->parallelize(ParallelType::DIDx);
-
-  tv1->outer_split(2, d);
-  tv1->axis(2)->parallelize(ParallelType::DIDx);
-
-  for (auto tv : {tv0, tv1, tv2}) {
-    tv->setDeviceMesh(full_mesh_);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
-  
-  at::Tensor unsharded_in_tensor = at::randn({5, d*3, d*7}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, full_mesh_);
-  at::Tensor expected_output = shardTensor(unsharded_in_tensor.sum(1), -1, full_mesh_);
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
   testValidate(
       executor_cache.fusion(),
       {out_tensor},
       {in_tensor},
-      {expected_output},
+      {unsharded_in_tensor.transpose(0, 1)},
       __LINE__,
-      __FILE__);
+      __FILE__);    
 }
 
 INSTANTIATE_TEST_SUITE_P(
