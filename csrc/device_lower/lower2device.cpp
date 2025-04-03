@@ -511,6 +511,7 @@ void GpuLower::analysis(Fusion* fusion) {
     id_model_->validateAndPropagatePType();
   }
 
+  // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
@@ -665,6 +666,14 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
         compute_at_map_->updateComputeWith(tv);
       }
     }
+  }
+
+  // The Loop graph needs to be updated as the compute positions of
+  // the updated tensors differ
+  if (updated && hasIdModel()) {
+    id_model_->removeGraph(IdMappingMode::LOOP);
+    id_model_->buildGraph(IdMappingMode::LOOP);
+    id_model_->validateAndPropagatePType();
   }
 
   return updated;
