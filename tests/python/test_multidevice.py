@@ -60,6 +60,41 @@ def test_pointwise(multidevice_test):
 
 
 @pytest.mark.mpi
+def test_sharded_inner_and_outer(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+
+    class Model(FusionDefinition):
+        def definition(self):
+            x = self.define_tensor(
+                (-1, -1), contiguity=False, dtype=DataType.Float
+            )
+            y = self.define_tensor(
+                (-1, -1), contiguity=False, dtype=DataType.Float
+            )
+            z = self.ops.add(x, y)
+            self.add_output(z)
+
+            self.x = x
+            self.y = y
+
+        def multidevice_schedule(self):
+            self.sched._set_device_mesh(self.x, mesh)
+            self.sched.parallelize(self.x, 0, nvfuser.ParallelType.mesh_x)
+
+            self.sched._set_device_mesh(self.y, mesh)
+            self.sched.parallelize(self.y, 1, nvfuser.ParallelType.mesh_x)
+
+    unsharded = torch.randn(d, d)
+    x = multidevice_test.shard_tensor(unsharded, 0, mesh)
+    y = multidevice_test.shard_tensor(unsharded, 1, mesh)
+
+    fd = Model()
+    (out,), _ = fd.execute([x, y])
+    torch.testing.assert_close(output.cpu(), unsharded * 2)
+
+
+@pytest.mark.mpi
 def test_linear(multidevice_test):
     class Model(FusionDefinition):
         def __init__(self, num_devices, batch, sequence, hidden):
