@@ -697,6 +697,34 @@ std::vector<Expr*> getAllSwizzlesBetween(
   return all_swizzles;
 }
 
+bool isTMAOrMMASmemTv(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared &&
+      ((tv->definition() != nullptr &&
+        ir_utils::isCpAsyncBulk(tv->definition())) ||
+       std::ranges::any_of(
+           tv->uses(), [](Expr* e) { return e->isA<MmaOp>(); }));
+}
+
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  const auto& alloc_domain = tv->getMaybeRootDomain();
+  const auto& loop_domain = tv->getLoopDomain();
+  auto exprs = StmtSort::getExprsBetween(
+      {alloc_domain.begin(), alloc_domain.end()},
+      {loop_domain.begin(), loop_domain.end()});
+  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
+  if (swizzle_exprs.empty()) {
+    return MmaInputSmemSwizzle::None;
+  }
+  NVF_ERROR(
+      swizzle_exprs.size() < 2,
+      "expected 2 or less swizzle expressions in mma input, got ",
+      swizzle_exprs.size());
+  auto swizzle = *swizzle_exprs.begin();
+  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+  return getSwizzleFromBytes(
+      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+}
+
 } // namespace ir_utils
 
 namespace lower_utils {
