@@ -730,9 +730,6 @@ void IterDomainGraph::build(Fusion* fusion) {
     const ValGraph& exact_graph = GpuLower::current()->idModel().idGraph(mode);
     for (const auto& exact_vals :
          exact_graph.disjointValSets().disjointSets()) {
-      if (exact_vals->empty()) {
-        continue;
-      }
       IterDomain* first_id = nullptr;
       for (const auto& val : *exact_vals) {
         auto id = val->as<IterDomain>();
@@ -741,7 +738,6 @@ void IterDomainGraph::build(Fusion* fusion) {
         }
         if (first_id == nullptr) {
           first_id = id;
-          continue;
         } else if (!nodes.strictAreMapped(first_id, id)) {
           // std::cerr << "IdModel map: " << first_id->toString() << ", "
           //<< id->toString() << "\n";
@@ -752,6 +748,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   };
 
   expand_by_id_model(exact_nodes_, IdMappingMode::EXACT);
+  expand_by_id_model(permissive_nodes_, IdMappingMode::EXACT);
 
   innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
