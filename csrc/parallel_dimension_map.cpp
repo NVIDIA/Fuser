@@ -200,6 +200,14 @@ Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   return raw;
 }
 
+Val* ParallelDimensionMap::getRawLoad(ParallelType pt) const {
+  Val* raw = getRaw(pt);
+  if (warp_specialized_types_.count(pt)) {
+    return GpuLower::current()->kernel()->oneVal();
+  }
+  return raw;
+}
+
 Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {

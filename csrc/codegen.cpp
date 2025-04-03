@@ -1273,6 +1273,17 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  std::string genLoadBlockDim() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    NVF_ERROR(pdim_map.hasWarpSpecialization());
+    ss << "dim3(" << genInlineOrOne(pdim_map.getRawLoad(ParallelType::TIDx))
+       << ", " << genInlineOrOne(pdim_map.getRawLoad(ParallelType::TIDy))
+       << ", " << genInlineOrOne(pdim_map.getRawLoad(ParallelType::TIDz))
+       << ")";
+    return ss.str();
+  }
+
   std::string genComputeBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
@@ -3543,7 +3554,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
     } else if (sync->isLoadWarpSync()) {
-      NVF_THROW("blockSync in LoadWarp is not yet supported!");
+      ArgumentBuilder template_args;
+      template_args.arg(isAligned());
+      ArgumentBuilder func_args;
+      func_args.arg(genLoadBlockDim());
+      indent() << genCall("block_sync::sync", template_args, func_args)
+               << ";\n";
     } else if (sync->isComputeWarpSync()) {
       ArgumentBuilder template_args;
       template_args.arg(isAligned());
