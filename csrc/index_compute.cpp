@@ -2267,11 +2267,20 @@ kir::TensorIndex* Index::getConsumerIndex(
     const std::unordered_map<int, Val*>& override_index,
     bool generate_pointer,
     DataType as_type) {
+  // Indexing ldmatrix-produced tensor is not yet supported by TensorIndexer
+  bool is_consumer_stmatrix_op =
+      std::ranges::any_of(consumer->uses(), [](Expr* consumer_use) {
+        return consumer_use->isA<LoadStoreOp>() &&
+            consumer_use->as<LoadStoreOp>()->opType() ==
+            LoadStoreOpType::StMatrix;
+      });
+
   Val* index = nullptr;
-  if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
-      ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
-      GpuLower::current()->idModelOptions().consumerIndex() ||
-      GpuLower::current()->tmemInfo().hasTMemTensor()) {
+  if ((!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
+       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
+       GpuLower::current()->idModelOptions().consumerIndex() ||
+       GpuLower::current()->tmemInfo().hasTMemTensor()) &&
+      !is_consumer_stmatrix_op) {
     NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         consumer, consumer->definition(), loops);
