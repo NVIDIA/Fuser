@@ -1148,12 +1148,10 @@ INSTANTIATE_TEST_SUITE_P(
     mmaSSParamsGenerator(kAllHopperMacros),
     testNameSS);
 
-// using Blackwell1CTAM64SS = SSTest<BlackwellBase>;
-// using Blackwell1CTAM128SS = SSTest<BlackwellBase>;
-// using Blackwell2CTAM128SS = SSTest<BlackwellBase>;
-// using Blackwell2CTAM128SS = SSTest<BlackwellBase>;
-
-using Blackwell1CTAM128SS = SSTest<NVFuserTest>;
+using Blackwell1CTAM64SS = SSTest<BlackwellBase>;
+using Blackwell1CTAM128SS = SSTest<BlackwellBase>;
+using Blackwell2CTAM128SS = SSTest<BlackwellBase>;
+using Blackwell2CTAM128SS = SSTest<BlackwellBase>;
 
 TEST_P(Blackwell1CTAM128SS, SingleTile) {
   Fusion fusion;
