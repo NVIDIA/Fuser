@@ -131,15 +131,19 @@ void HopperMultipleMatmulScheduler::run() {
   // and dimension roles for all tensors in the fusion
   findPatterns();
   translatePatterns();
+  // We use the tensor roles to cache operands and epilogue inputs differently
+  findRoles();
 
   // Clears memory spaces on intermediate tensors, calls
   // cache{After,Before,Fork} on inputs and outputs.
   // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
   cacheInputsAndOutputs(/*skip_intermediates=*/true);
 
-  // We wait until we are done caching tensors to find roles, since this
-  // requires building an IdModel, which would not be updated during the cache
-  // calls.
+  // We need to find roles again after caching, since we will need to rebuild
+  // the IdModel.
+  // TODO: update the val graph on the fly in cacheInputsAndOutputs using
+  // cacheAfter and missing cacheFork and cacheBefore utilities instead of doing
+  // a full rebuild here
   findRoles();
 
   inspectPrologues();
