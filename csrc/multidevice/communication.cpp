@@ -9,6 +9,7 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -328,15 +329,39 @@ c10::intrusive_ptr<c10d::Work> postGather(
       output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
+
+std::vector<int64_t> getContiguityPermutation(const at::Tensor& tensor) {
+  auto strides = tensor.strides();
+  std::vector<int64_t> dims(strides.size());
+  std::iota(dims.begin(), dims.end(), 0);
+  std::sort(dims.begin(), dims.end(), [&](int64_t a, int64_t b) {
+    return strides.at(a) > strides.at(b);
+  });
+  return dims;
+}
+
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  
+  auto sharded_axis = getShardedLogicalAxis(communication->in(), ParallelType::DIDx);
+  NVF_ERROR(sharded_axis >= 0, "Sharded axis is expected to be non-negative: ", sharded_axis);
+
   auto splits =
-      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
+      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/sharded_axis);
   assertBuffersHaveSameSize({input_tensor}, splits);
+  
+  // For example,tensor with shape [m, n, k] and strides [1, k*m, m]
+  // is permute to [n, k, m] to match the ProcessGroupNCCL contiguity requirements.
+  
+  if (!input_tensor.is_contiguous()) {
+    auto dims = getContiguityPermutation(input_tensor);
+    input_tensor = input_tensor.permute(dims);
+    output_tensor = output_tensor.permute(dims);
+  }
 
   // allgather primitive in c10d induces extra buffering time to copy out the
   // received tensors into user buffer. It is therefore always preferable to use
@@ -359,9 +384,10 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 
   std::vector<std::vector<at::Tensor>> input_tensors;
   std::vector<at::Tensor> output_tensors({output_tensor});
+  int64_t scattered_axis = getShardedLogicalAxis(communication->out(), ParallelType::DIDx);
   
   if (my_device_index == communication->root()) {
-    auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/0);
+    auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/scattered_axis);
     if (!output_has_root) {
       output_tensors[0] = at::empty_like(splits.at(0));
     }
