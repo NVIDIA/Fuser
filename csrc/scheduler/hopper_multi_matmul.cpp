@@ -175,7 +175,7 @@ void HopperMultipleMatmulScheduler::swizzleBlockTiles(
   if (params_->grid_swizzle_factor != 1) {
     // Find position of outer M and N dims in schedule_.tiled
     int64_t Mo_pos = -1, No_pos = -1;
-    for (size_t i : c10::irange(outer_dim_roles.size())) {
+    for (size_t i : arange(outer_dim_roles.size())) {
       if (outer_dim_roles[i] == MatmulDimRole::M) {
         Mo_pos = (int64_t)i;
       } else if (outer_dim_roles[i] == MatmulDimRole::N) {
@@ -246,7 +246,7 @@ TensorView* HopperMultipleMatmulScheduler::cacheAfter(
   if (propagate_allocation_domain) {
     const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
     NVF_ERROR(orig_alloc.size() == cache_alloc.size());
-    for (size_t i : c10::irange(orig_alloc.size())) {
+    for (size_t i : arange(orig_alloc.size())) {
       ValGroup vg = graph_->toGroup(orig_alloc[i]);
       graph_->initializeVal(cache_alloc[i], vg);
     }
@@ -260,7 +260,7 @@ TensorView* HopperMultipleMatmulScheduler::cacheAfter(
   // original tensor. The logical domain contains Iteration transforms of the
   // Reduction axis in the original mma output.
   NVF_ERROR(orig_logical.size() == cache_logical.size());
-  for (size_t i : c10::irange(orig_logical.size())) {
+  for (size_t i : arange(orig_logical.size())) {
     ValGroup vg = graph_->toGroup(orig_logical[i]);
     graph_->initializeVal(cache_logical[i], vg);
   }
@@ -333,7 +333,7 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
 
     if (params_->splitk_factor > 1) {
       // Outer K dimension in tv is in same position found in merged_roles
-      for (size_t i : c10::irange(merged_roles.size())) {
+      for (size_t i : arange(merged_roles.size())) {
         if (merged_roles[i] == MatmulDimRole::K) {
           tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
         }
@@ -453,7 +453,7 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
   // Schedule mma results and propagate forward
   auto all_merged_roles = blockTileTensors(mma_results_);
   parallelizeBlocks(mma_results_);
-  for (size_t i : c10::irange(mma_results_.size())) {
+  for (size_t i : arange(mma_results_.size())) {
     TensorView*& mma_result = mma_results_[i];
     const std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 

@@ -7,7 +7,6 @@
 // clang-format on
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 #include <multidevice/utils.h>
 #include <scheduler/ampere_multi_matmul.h>
 #include <scheduler/hopper_multi_matmul.h>
@@ -29,7 +28,7 @@ void MultipleMatmulScheduler::translatePatterns() {
     if (!isAmpere(params_->mma_macro) && !isTuring(params_->mma_macro) &&
         pattern.output->definition()->isA<ReductionOp>()) {
       bool found_reduction = false;
-      for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+      for (size_t dim : arange((size_t)pattern.output->nDims())) {
         NVF_ERROR(
             !found_reduction ||
                 !pattern.output->axis((int64_t)dim)->isReduction(),

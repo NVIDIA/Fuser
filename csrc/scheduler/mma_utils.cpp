@@ -416,7 +416,7 @@ void makeTile(
 
   // Number of tiled inner dimensions after we split.
   const auto split_tile_dimension_size = 2 * num_split_axes;
-  for (auto idx : c10::irange(split_tile_dimension_size)) {
+  for (auto idx : arange(split_tile_dimension_size)) {
     // We want to reorder as follows:
     //           Before                               After
     //                                      vvv group0 vvv  vvv group1 vvv
@@ -452,7 +452,7 @@ void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   // axes if tile_sizes.size() < 3
   std::vector<std::unordered_set<MatmulDimRole>> axis_roles(tv->nDims());
   NVF_ERROR(axis_roles.size() >= tile_sizes.size());
-  for (size_t i : c10::irange(tile_sizes.size())) {
+  for (size_t i : arange(tile_sizes.size())) {
     size_t pos = axis_roles.size() - tile_sizes.size() + i;
     switch (i) {
       case 0:
@@ -691,7 +691,7 @@ void checkDimSize(
   NVF_ERROR(
       axis.size() == expect.size(),
       "CheckDimSize: Mismatched axis and expect size");
-  for (auto axis_index : c10::irange(axis.size())) {
+  for (auto axis_index : arange(axis.size())) {
     NVF_ERROR(
         ((axis[axis_index] + tv->nDims()) >= 0) &&
             (axis[axis_index] < tv->nDims()),
@@ -759,7 +759,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   std::vector<IterDomain*> result;
 
-  for (auto id_idx : c10::irange(a_domain.size())) {
+  for (auto id_idx : arange(a_domain.size())) {
     // checks if this id should be included in the result
     bool include_this_id = false;
     bool is_broadcast_in_a = a_domain[id_idx]->isBroadcast();
@@ -1180,7 +1180,7 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     const std::vector<ValGroup>& ordering) {
   std::unordered_map<int64_t, int64_t> old2new;
 
-  for (size_t i : c10::irange(tv->nDims())) {
+  for (size_t i : arange(tv->nDims())) {
     IterDomain* id = tv->axis((int64_t)i);
     const ValGroup& g = graph.toGroup(id);
     auto order_it = std::find(ordering.begin(), ordering.end(), g);
@@ -2083,7 +2083,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
   std::unordered_map<ValGroup, MatmulDimRole> dim_roles;
   NVF_ERROR(mapping_a.size() == out_logical.size());
   NVF_ERROR(mapping_a.size() == mapping_b.size());
-  for (size_t i : c10::irange(out_logical.size())) {
+  for (size_t i : arange(out_logical.size())) {
     IterDomain* id_out = out_logical[i];
     const ValGroup& g = graph.toGroup(id_out);
 
@@ -2666,7 +2666,7 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
 std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
   std::ostringstream ss;
   ss << "AbstractMatmulTensor (" << abten.size() << "):" << std::endl;
-  for (size_t i : c10::irange(abten.size())) {
+  for (size_t i : arange(abten.size())) {
     const AbstractId& abs_id = abten[(int64_t)i];
     const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i).value();
     ss << "  " << (role.has_value() ? toString(role.value()) : "no role");
