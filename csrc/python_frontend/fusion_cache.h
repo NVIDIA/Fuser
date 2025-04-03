@@ -127,7 +127,7 @@ class FusionSchedules {
   std::vector<int64_t> outputs_fid_;
   //! Map Fusion Val to its corresponding FusionDefinition index
   std::unordered_map<const Val*, int64_t> map_value_to_fid_;
-  //! stores the executor if FusionDefinition::use_multidevice_executor is true
+  //! stores the executor if FusionDefinition::use_multidevice_executor_ is true
   std::unique_ptr<MultiDeviceExecutor> multi_device_executor;
 
  private:

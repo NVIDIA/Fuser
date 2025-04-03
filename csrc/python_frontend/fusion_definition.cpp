@@ -65,7 +65,8 @@ const char* dtypeToPyString(PrimDataType t) {
 FusionDefinition::FusionDefinition(
     std::optional<size_t> id,
     size_t max_length,
-    bool use_multidevice_executor)
+    bool use_multidevice_executor,
+    CommunicatorBackend backend_type)
     : FusionState(),
       max_length_(max_length),
       fusion_id_(id),
@@ -75,7 +76,8 @@ FusionDefinition::FusionDefinition(
       user_sched_(nullptr),
       ops(this),
       sched(this),
-      use_multidevice_executor_(use_multidevice_executor) {}
+      use_multidevice_executor_(use_multidevice_executor),
+      backend_type_(backend_type) {}
 
 FusionCache* FusionDefinition::fusionCache() const {
   NVF_ERROR(fusion_cache_ != nullptr, "FusionCache pointer is null!");
@@ -448,8 +450,12 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
   if (user_sched == nullptr) {
     if (use_multidevice_executor_) {
       if (scheds->multi_device_executor == nullptr) {
+        MultiDeviceExecutorParams params;
+        params.lower.communicator_backend = backend_type_;
         scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
-            std::make_unique<Fusion>(*scheds->preschedFusion()));
+            std::make_unique<Fusion>(*scheds->preschedFusion()),
+            Communicator::getInstance(),
+            std::move(params));
       }
       outputs = scheds->multi_device_executor->runWithInput(args);
     } else {
