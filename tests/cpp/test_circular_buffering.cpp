@@ -185,6 +185,7 @@ class CircularBufferingTest : public NVFuserFixtureParamTest<StageAndPrefetch> {
     number_of_stages = std::get<0>(GetParam());
     prefetch_distance = std::get<1>(GetParam());
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
