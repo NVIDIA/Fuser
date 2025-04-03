@@ -9,6 +9,7 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -385,9 +386,10 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 
   std::vector<std::vector<at::Tensor>> input_tensors;
   std::vector<at::Tensor> output_tensors({output_tensor});
+  int64_t scattered_axis = getShardedLogicalAxis(communication->out(), ParallelType::DIDx);
   
   if (my_device_index == communication->root()) {
-    auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/0);
+    auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/scattered_axis);
     if (!output_has_root) {
       output_tensors[0] = at::empty_like(splits.at(0));
     }
