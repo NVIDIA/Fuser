@@ -2560,6 +2560,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   Val* a = nullptr;
   Val* b = nullptr;
   const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
+  auto constructMatrixDescriptor = constructHopperMatrixDescriptor;
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
