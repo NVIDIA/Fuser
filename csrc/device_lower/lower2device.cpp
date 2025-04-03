@@ -509,6 +509,8 @@ void GpuLower::analysis(Fusion* fusion) {
   // mappings of all iteration domains across the fusion. There are three types
   // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
   // information.
+  //
+  // Depends on IdModel
   compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
 
   resolveComputeWith(fusion_);
