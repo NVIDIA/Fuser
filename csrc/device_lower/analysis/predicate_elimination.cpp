@@ -23,6 +23,16 @@ namespace nvfuser {
 
 namespace {
 
+// Tensor memory is similar to shared memory because they are both
+// shared between threads in a block. In that sense, we can consider
+// tensor memory as special type of shared memory. In this file, we use
+// the term "shared memory", "smem" to refer to both shared and tensor
+// memories.
+bool isSharedMemory(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared ||
+      tv->getMemoryType() == MemoryType::Tensor;
+}
+
 // Warp primitives are currently limited to un-predicated usage,
 //   predicating these ops will require extra steps to ensure that
 //   the whole warp will get the same value.
@@ -31,13 +41,14 @@ void assertOnWarpOps(const Expr* expr) {
   // Allow predicates for general LdMatrix usage.
   if (ir_utils::isLdMatrixOp(expr)) {
     const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-    NVF_ERROR(ldst->in()->isA<TensorView>());
-    TensorView* in_tv = ldst->in()->as<TensorView>();
+    TensorView* in_tv = ir_utils::getTv(ldst->in());
+    NVF_ERROR(in_tv != nullptr);
+
     NVF_ERROR(in_tv->definition() != nullptr);
     bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
 
-    NVF_ERROR(ldst->out()->isA<TensorView>());
-    TensorView* out_tv = ldst->out()->as<TensorView>();
+    TensorView* out_tv = ir_utils::getTv(ldst->out());
+    NVF_ERROR(out_tv != nullptr);
     bool any_mma_uses =
         std::any_of(out_tv->uses().begin(), out_tv->uses().end(), [](Expr* e) {
           return e->isA<MmaOp>();
@@ -205,8 +216,7 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
   //  when the predicate around shared mem cannot be removed.
   for (auto consumer : ir_utils::filterByType<TensorView>(expr->outputs())) {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
-      if (producer->getMemoryType() == MemoryType::Shared ||
-          consumer->getMemoryType() == MemoryType::Shared) {
+      if (isSharedMemory(producer) || isSharedMemory(consumer)) {
         if (needSharedMemPredicate(producer, consumer)) {
           RECORD_AND_RETURN(true);
         }
@@ -395,8 +405,7 @@ class PredicateChcker : public IterVisitor {
   void dispatch(Expr* expr) final {
     const bool needs_predicate_smem_access =
         needsPredicateSharedMemAccess(expr);
-    needs_predicate_ = predicateIntDiv(expr) ||
-        predicateMisalignedVectorize(expr) || needs_predicate_smem_access ||
+    needs_predicate_ = predicateIntDiv(expr) || needs_predicate_smem_access ||
         predicateProducerConsumerPair(expr) ||
         predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
@@ -467,7 +476,7 @@ class PredicateChcker : public IterVisitor {
         "Was expecting matching number of inputs and outputs for expression: ",
         expr->toString());
 
-    for (auto i : c10::irange(tv_inputs.size())) {
+    for (auto i : arange(tv_inputs.size())) {
       const auto root_p2c =
           PairwiseLogicalDomainMap(tv_inputs[i], tv_outputs[i])
               .mapProducerToConsumer();
@@ -475,28 +484,6 @@ class PredicateChcker : public IterVisitor {
         auto p_id = entry.first;
         auto c_id = entry.second;
         if (p_id->hasExpandedExtent() && c_id->isReduction()) {
-          RECORD_AND_RETURN(true);
-        }
-      }
-    }
-    RECORD_AND_RETURN(false);
-  }
-
-  // Skip if MisalignedVectorize is involved for now. This could be
-  // relaxed.
-  bool predicateMisalignedVectorize(Expr* expr) const {
-    DEBUG_PRINT_SCOPE(expr);
-    std::vector<const std::vector<Val*>*> inputs_and_outputs = {
-        &(expr->inputs()), &(expr->outputs())};
-    for (const auto& inputs_or_outputs : inputs_and_outputs) {
-      for (auto tv : ir_utils::filterByType<TensorView>(*inputs_or_outputs)) {
-        if (std::any_of(
-                tv->getLoopDomain().begin(),
-                tv->getLoopDomain().end(),
-                [](IterDomain* axis) {
-                  return axis->getParallelType() ==
-                      ParallelType::MisalignedVectorize;
-                })) {
           RECORD_AND_RETURN(true);
         }
       }
@@ -525,7 +512,7 @@ class PredicateChcker : public IterVisitor {
   //  lower index pass.
   std::vector<Val*> getZeroLoopIds(const TensorView* tv) const {
     std::vector<Val*> zero_loop_ids;
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto loop_id = tv->axis(i);
       if (ir_utils::isMemorySharedAcross(
               tv->getMemoryType(), loop_id->getParallelType())) {
@@ -698,7 +685,7 @@ class PredicateChcker : public IterVisitor {
 
   // Welford. See FusionPredicateElimination5.
   void handle(WelfordOp* wop) final {
-    for (const auto i : c10::irange(3)) {
+    for (const auto i : arange(3)) {
       auto init = wop->getInitVals()[i];
 
       // Welford input can be a scalar. Predicate is required unless
@@ -749,8 +736,7 @@ class PredicateChcker : public IterVisitor {
   }
 
   void handle(GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
       auto input = grouped_rop->input(i)->as<TensorView>();
       auto input_def = input->definition();
       // When input_def is null, input must be an input to the fusion,
@@ -813,8 +799,8 @@ class PredicateChcker : public IterVisitor {
 
   void handle(GroupedWelfordOp* grouped_wop) final {
     for (const auto expr_idx :
-         c10::irange(grouped_wop->numHorizontallyGroupedExprs())) {
-      for (const auto val_idx : c10::irange(3)) {
+         arange(grouped_wop->numHorizontallyGroupedExprs())) {
+      for (const auto val_idx : arange(3)) {
         auto init = grouped_wop->initVals().at(expr_idx).get(val_idx);
 
         // Welford input can be a scalar. Predicate is required unless
@@ -952,7 +938,7 @@ void PredicateElimination::dispatch(Expr* expr) {
 
   // Ensure all inputs have some values set at the out-of-bound
   // regions
-  for (const auto i : c10::irange(expr->inputs().size())) {
+  for (const auto i : arange(expr->inputs().size())) {
     auto input = dynamic_cast<TensorView*>(expr->inputs()[i]);
     if (input == nullptr) {
       continue;

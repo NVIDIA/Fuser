@@ -19,7 +19,6 @@
 #include <ops/arith.h>
 #include <transform_iter.h>
 
-#include <c10/util/irange.h>
 #include <device_lower/utils.h>
 
 namespace nvfuser {
@@ -246,7 +245,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   auto unswitch_protected_loop_ids =
       getUnswitchProtectedParallelLoopIds(expr, loops, unswitched_loop);
 
-  for (const auto i : c10::irange(loops.size())) {
+  for (const auto i : arange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.
@@ -706,7 +705,10 @@ Val* PredicateCompute::getInlinePredicate(
 
   // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
   // itself is sufficient to predicate the accesses.
-  if (ir_utils::isCpAsyncBulk(expr)) {
+  // TMem ld/st accesses TMem in a very specific pattern and can not be
+  // predicated like accesses to general memory types, we do not have a good
+  // way to predicate the accesses yet, so we just skip the predicate for now.
+  if (ir_utils::isCpAsyncBulk(expr) || ir_utils::isLdStTMem(expr)) {
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
@@ -771,7 +773,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   Val* cond = preds[0];
-  for (const auto i : c10::irange(1, preds.size())) {
+  for (const auto i : arange(1, preds.size())) {
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 

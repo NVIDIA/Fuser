@@ -42,8 +42,8 @@ namespace debugging {
 // looks like.
 void setAsIdentity(at::Tensor tensor) {
   tensor.zero_();
-  for (auto i : c10::irange(tensor.size(0))) {
-    for (auto j : c10::irange(tensor.size(1))) {
+  for (auto i : arange(tensor.size(0))) {
+    for (auto j : arange(tensor.size(1))) {
       if (i == j) {
         tensor[i][j] = 1;
       }
@@ -58,8 +58,8 @@ void setAsIdentity(at::Tensor tensor) {
 // This makes the tensor easier to read if you print it out.
 void setAsARange(at::Tensor tensor) {
   tensor.zero_();
-  for (auto i : c10::irange(tensor.size(0))) {
-    for (auto j : c10::irange(tensor.size(1))) {
+  for (auto i : arange(tensor.size(0))) {
+    for (auto j : arange(tensor.size(1))) {
       tensor[i][j] = i * tensor.size(1) + j;
     }
   }
@@ -543,7 +543,7 @@ TEST_P(HopperRSStmatrix, SingleTileWithTMALoadStoreStMatrix) {
 
     tv3->setLoopDomain(s.as<IterDomain*>());
   }
-  mma_utils::scheduleStMatrixForMmaOutput(tv3, tile_m, tile_n);
+  mma_utils::scheduleLdStMatrixForMmaOutput(tv3, tile_m, tile_n);
   tv3->axis(-1)->parallelize(ParallelType::Vectorize);
 
   mma_utils::scheduleTMAStoreForMmaOutput(tv4, swizzle);

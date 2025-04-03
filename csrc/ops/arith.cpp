@@ -21,7 +21,6 @@
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Float8_e5m2.h>
 #include <c10/util/Half.h>
-#include <c10/util/irange.h>
 
 #include <cfloat>
 
@@ -563,6 +562,23 @@ TensorView* bitwise_not(TensorView* tv) {
     return logical_not(tv);
   }
   return unaryOp(UnaryOpType::BitwiseNot, tv);
+}
+
+// https://en.cppreference.com/w/cpp/numeric/bit_ceil
+Val* bitceil(Val* v) {
+  NVF_CHECK(
+      isIntegralType(v->dtype()),
+      "input must have integral or boolean type, but got ",
+      v->dtype());
+  return unaryOp(UnaryOpType::BitCeil, v);
+}
+
+TensorView* bitceil(TensorView* tv) {
+  NVF_CHECK(
+      isIntegralType(tv->dtype()),
+      "input must have integral or boolean type, but got ",
+      tv->dtype());
+  return unaryOp(UnaryOpType::BitCeil, tv);
 }
 
 // The output of abs(complex_tensor) are real numbers
@@ -1175,7 +1191,7 @@ TensorView* newForReduction(
       "). Keep in mind reductions are relative to root domains, not modified views.");
 
   auto reduced_axis_iter = axes_set.begin();
-  for (const auto dim : c10::irange(orig_domain.size())) {
+  for (const auto dim : arange(orig_domain.size())) {
     bool is_reduction = false;
     if (reduced_axis_iter != axes_set.end() && *reduced_axis_iter == dim) {
       is_reduction = true;
@@ -1304,7 +1320,7 @@ TensorView* maybeFullInsteadOfReduction(
       std::vector<IterDomain*> new_root;
       new_root.reserve(keep_dim ? ndims : ndims - axes.size());
       int cur_pos = 0;
-      for (auto j : c10::irange(ndims)) {
+      for (auto j : arange(ndims)) {
         bool is_reduction = cur_pos < (int)axes.size() && axes.at(cur_pos) == j;
         if (is_reduction) {
           cur_pos++;
@@ -1987,7 +2003,7 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, (int64_t)logical.size())) {
+  for (const auto i : arange(leading_dims, (int64_t)logical.size())) {
     if (sum_to_size[i - leading_dims]->isOneInt() &&
         !logical[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
@@ -2034,7 +2050,7 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, (int64_t)logical.size())) {
+  for (const auto i : arange(leading_dims, (int64_t)logical.size())) {
     if (sum_to_size[i - leading_dims] == 1 &&
         !logical[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;

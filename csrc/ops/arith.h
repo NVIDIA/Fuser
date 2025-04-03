@@ -379,6 +379,9 @@ NVF_API TensorView* trunc(TensorView*);
 // bitwise_not
 NVF_API Val* bitwise_not(Val*);
 NVF_API TensorView* bitwise_not(TensorView*);
+// bitceil
+NVF_API Val* bitceil(Val*);
+NVF_API TensorView* bitceil(TensorView*);
 // imag
 NVF_API Val* imag(Val*);
 NVF_API TensorView* imag(TensorView*);
