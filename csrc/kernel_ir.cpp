@@ -31,6 +31,13 @@ inline const char* boolLiteral(bool value) {
   return value ? "true" : "false";
 }
 
+inline const char* optionalBoolLiteral(std::optional<bool> optional_value) {
+  if (!optional_value.has_value()) {
+    return "std::nullopt";
+  }
+  return boolLiteral(optional_value.value());
+}
+
 } // namespace
 
 Predicate::Predicate(
@@ -547,18 +554,26 @@ std::string AllocTMem::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocTMem)
 
-BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
+BlockSync::BlockSync(
+    IrBuilderPasskey passkey,
+    bool war_sync,
+    std::optional<bool> optional_compute_or_load_sync)
+    : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(war_sync);
+  addDataAttribute(optional_compute_or_load_sync);
 }
 
 std::string BlockSync::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "BLOCKSYNC(war_hazard="
-                          << boolLiteral(isWarHazardSync()) << ")\n";
+                          << boolLiteral(isWarHazardSync())
+                          << ", optional_compute_or_load_sync="
+                          << optionalBoolLiteral(warpSpecializedState())
+                          << ")\n";
   return ss.str();
 }
 

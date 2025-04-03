@@ -3542,6 +3542,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
+    } else if (sync->isLoadWarpSync()) {
+      NVF_THROW("blockSync in LoadWarp is not yet supported!");
+    } else if (sync->isComputeWarpSync()) {
+      ArgumentBuilder template_args;
+      template_args.arg(isAligned());
+      ArgumentBuilder func_args;
+      func_args.arg(genComputeBlockDim());
+      indent() << genCall("block_sync::sync", template_args, func_args)
+               << ";\n";
     } else {
       indent() << "__barrier_sync(0);\n";
     }

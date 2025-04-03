@@ -20,11 +20,28 @@ namespace nvfuser {
 
 namespace {
 
+bool isWithinLoadWarp(const std::vector<ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::LoadWarp;
+  });
+}
+
 bool isWithinComputeWarp(const std::vector<ForLoop*> for_loops) {
   return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
     return fl->circularBufferLoopStage() ==
         CircularBufferLoopStage::ComputeWarp;
   });
+}
+
+std::optional<bool> isOptionalLoadOrComputeSync(
+    const std::vector<ForLoop*> for_loops) {
+  if (isWithinLoadWarp(for_loops)) {
+    return false;
+  } else if (isWithinComputeWarp(for_loops)) {
+    return true;
+  } else {
+    return std::nullopt;
+  }
 }
 
 // Tensor memory is similar to shared memory because they are both
@@ -295,8 +312,8 @@ class WarSyncInserter : private kir::ExprMutator {
 
     // WAR Sync is necessary in this loop, register its insertion.
     if (insert_sync) {
-      // TODO: bool use_bar_sync = isWithinComputeWarp(for_loops_);
-      auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+      auto sync_expr = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/true, isOptionalLoadOrComputeSync(for_loops_));
       kir::ExprMutator::registerInsertAfter(
           for_loop->body().exprs().back(), sync_expr, &for_loop->body());
       handle(sync_expr);
@@ -545,8 +562,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         sync_expr = IrBuilder::create<kir::GridSync>(
             sync_bitmap, maybe_alloc->buffer());
       } else {
-        // TODO: bool use_bar_sync = isWithinComputeWarp(for_loops_);
-        sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
+        sync_expr = IrBuilder::create<kir::BlockSync>(
+            /*war_sync=*/false, isOptionalLoadOrComputeSync(for_loops_));
       }
 
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
