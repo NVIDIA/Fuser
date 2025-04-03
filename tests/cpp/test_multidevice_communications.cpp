@@ -499,6 +499,62 @@ TEST_P(CommunicationTest, AllgatherLoopSplit_Contiguous) {
       __FILE__);    
 }
 
+TEST_P(CommunicationTest, Scatter_NonContiguous) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const auto d = communicator_->size();
+  
+  DeviceMesh mesh_zero({0});
+
+  TensorView* tv0 = makeConcreteTensor({5, d*3});
+  TensorView* tv1 = permute(tv0, {{1, 0}});
+  TensorView* tv2 = set(tv1);
+  TensorView* tv3 = permute(tv2, {{1, 0}});
+
+  tv0->setDeviceMesh(mesh_zero);
+  tv1->setDeviceMesh(mesh_zero);
+  tv2->setDeviceMesh(full_mesh_);
+  tv3->setDeviceMesh(full_mesh_);
+
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::Serial);
+
+  tv1->outer_split(0, d);
+  tv1->axis(0)->parallelize(ParallelType::Serial);
+
+  tv2->outer_split(0, d);
+  tv2->axis(0)->parallelize(ParallelType::DIDx);
+
+  tv3->outer_split(1, d);
+  tv3->axis(1)->parallelize(ParallelType::DIDx);
+  tv3->reorder({{1, 0}, {2, 1}, {0, 2}});
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv3);
+
+  for (auto tv : {tv0, tv1, tv2, tv3}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+    debug() << "tv: " << tv->toString() << std::endl;
+    debug() << "Logical domain: " << tv->getLogicalDomain() << std::endl;
+    debug() << "Allocation domain: " << tv->getAllocationDomain() << std::endl;
+  }
+
+  at::Tensor unsharded_in_tensor = at::randn({5, d*3}, tensor_options);
+  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 1, full_mesh_);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({unsharded_in_tensor})[0].as<at::Tensor>();
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {unsharded_in_tensor},
+      {expected_output},
+      __LINE__,
+      __FILE__);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicationTest,
