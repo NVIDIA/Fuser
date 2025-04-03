@@ -7,7 +7,6 @@
 // clang-format on
 #include <runtime/fusion_kernel_runtime.h>
 #include <tests/cpp/validator.h>
-
 #include <validator_utils.h>
 
 namespace nvfuser {
@@ -61,7 +60,7 @@ void testValidate(
       " vs ",
       aten_inputs.size());
 
-  for (auto i : c10::irange(fusion->inputs().size())) {
+  for (auto i : arange(fusion->inputs().size())) {
     if (fusion->inputs()[i]->isA<TensorView>()) {
       NVF_ERROR(aten_inputs[i].is<at::Tensor>(), "Mismatch of tensor inputs.");
 
@@ -77,7 +76,7 @@ void testValidate(
     }
   }
 
-  for (auto i : c10::irange(non_hidden_outputs.size())) {
+  for (auto i : arange(non_hidden_outputs.size())) {
     Val* out = non_hidden_outputs[i];
     NVF_ERROR(out->isA<TensorView>());
     TensorView* out_tv = out->as<TensorView>();

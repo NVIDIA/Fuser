@@ -2,6 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import pytest
 import transformers
 import torch
 from contextlib import contextmanager
@@ -24,6 +25,7 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
+@pytest.mark.skip(reason="flaky on CI due to download timeout: http://nv/eCm")
 def test_transformer_layer():
     config = transformers.AutoConfig.from_pretrained(
         "deepseek-ai/deepseek-v3", trust_remote_code=True

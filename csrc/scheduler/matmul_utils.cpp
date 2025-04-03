@@ -797,7 +797,7 @@ class VectorizationCalculator {
     int64_t vec_size = scheduler_utils::maxVectorizationWidth(inner_dims_numel);
 
     // Account for misaligned rows due to outer strides
-    for (size_t i : c10::irange(inner_dim_pos)) {
+    for (size_t i : arange(inner_dim_pos)) {
       if (sizes.at(i) == 1) {
         // outer size-1 dimensions don't affect vectorizability
         continue;
@@ -1042,6 +1042,13 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
   if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
+    // Disable stmatrix unless the problem size is divisible by 16x16, which is
+    // the hardcoded stmatrix size we use currently. See
+    // See https://github.com/NVIDIA/Fuser/issues/3963
+    mparams->use_ldst_matrix =
+        problem_shape[(size_t)MatmulDimRole::M] % 16L == 0L &&
+        problem_shape[(size_t)MatmulDimRole::N] % 16L == 0;
+
     // Always promote smem reuse for Hopper. This is needed because we use TMA
     // which has higher alignment requirements, so it's important that we place
     // our TMA buffers at an offset that's a multiple of 64 (like 0) if
@@ -1115,18 +1122,26 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       Expr* op = pattern.output->definition();
       if (device_prop->major >= 9) {
         for (TensorView* operand : {pattern.A, pattern.B}) {
-          if (!operand->isFusionInput() &&
-              (operand->definition() == nullptr ||
-               !operand->definition()->isA<LoadStoreOp>() ||
-               !operand->definition()->input(0)->isFusionInput() ||
-               operand->hasRoot())) {
-            return "Operand " + operand->toString() +
-                " must be a fusion input or non-permuting LoadStoreOp of an input on Hopper";
+          // Check that the prologue is trivial
+          TensorView* tv = operand;
+          while (!tv->isFusionInput()) {
+            Expr* def = tv->definition();
+            NVF_ERROR(
+                def != nullptr,
+                "Unexpected undefined tensor ",
+                tv->toString(),
+                " which is not a fusion input");
+            if (!def->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp>()) {
+              return "Operand " + operand->toString() +
+                  " must have only trivial prologue ops (set, broadcast, squeeze) but found " +
+                  def->toString();
+            }
+            tv = ir_utils::getTvInput(def);
           }
         }
         if (op->isA<ReductionOp>()) {
           bool found_reduction = false;
-          for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+          for (size_t dim : arange((size_t)pattern.output->nDims())) {
             if (found_reduction &&
                 !pattern.output->axis((int64_t)dim)->isReduction()) {
               return "Mul+Sum patterns can only be translated to MmaOp "
@@ -1252,7 +1267,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
   std::vector<int64_t> broadcast_pos;
   std::vector<int64_t> nonbroadcast_pos;
 
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : arange(number_of_inner_pos)) {
     auto axis_idx = i - number_of_inner_pos;
     auto id = tv->axis(axis_idx);
     if (id->isBroadcast()) {
@@ -1267,7 +1282,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
       combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
 
   std::unordered_map<int64_t, int64_t> order_map;
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : arange(number_of_inner_pos)) {
     order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
   }
 

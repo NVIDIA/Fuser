@@ -964,7 +964,7 @@ TEST_P(CircularBufferingTest, NoSync) {
 auto StagesAndPrefetches() {
   std::vector<StageAndPrefetch> values;
   for (int64_t i : {2, 5, 9}) {
-    for (int64_t j : c10::irange(-i, i)) {
+    for (int64_t j : arange(-i, i)) {
       values.emplace_back(i, j);
     }
   }
@@ -2132,7 +2132,7 @@ auto tmaCircularBufferingParams() {
       LoadStoreOpType::CpAsyncBulk, LoadStoreOpType::CpAsyncBulkTensorTile};
   std::vector<TmaCircularBufferingParams> values;
   for (int64_t i : {2, 4}) {
-    for (int64_t j : c10::irange(-i, i)) {
+    for (int64_t j : arange(-i, i)) {
       for (int64_t m : {128, 500, 1024}) {
         for (int64_t n : {1024, 2048}) {
           for (auto tma_load_type : tma_types) {

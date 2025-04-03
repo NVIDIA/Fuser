@@ -400,7 +400,8 @@ class NVF_API Val : public Statement {
   NVFUSER_DECLARE_CLONE
 
  protected:
-  friend Fusion;
+  friend class Fusion;
+  friend class IrContainer;
 
   // NOLINTNEXTLINE(cppcoreguidelines-non-private-member-variables-in-classes)
   const ValType vtype_;

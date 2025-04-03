@@ -55,21 +55,9 @@ void checkLoopDomainEquivalence(
 
 } // namespace
 
-class ResizeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserTest::SetUp();
-  }
-};
+using ResizeTest = NVFuserTest;
 
-class ResizeSchedulerTest : public NVFuserFixtureParamTest<bool> {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserFixtureParamTest<bool>::SetUp();
-  }
-};
+using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
 
 using testing::Each;
 using testing::HasSubstr;
@@ -826,7 +814,7 @@ TEST_F(ResizeTest, Cat7) {
     FusionGuard fg(&fusion);
 
     std::vector<TensorView*> inputs;
-    for (const auto i : c10::irange(num_tensors_to_concat)) {
+    for (const auto i : arange(num_tensors_to_concat)) {
       (void)i;
       // concrete shapes to avoid dynamic Fusion
       auto shape = base_shape;
@@ -854,7 +842,7 @@ TEST_F(ResizeTest, Cat7) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     KernelArgumentHolder aten_inputs;
-    for (const auto i : c10::irange(num_tensors_to_concat)) {
+    for (const auto i : arange(num_tensors_to_concat)) {
       auto shape = base_shape;
       shape[concat_dim] = 10 + (i % 5);
       aten_inputs.push(at::randn(shape, options));
@@ -2384,7 +2372,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
                      ->definition()
                      ->inputs()[1]
                      ->as<TensorView>();
-  for (auto i : c10::irange(expected_itertypes.size())) {
+  for (auto i : arange(expected_itertypes.size())) {
     EXPECT_EQ(conc_t2->axis(i)->getIterType(), expected_itertypes.at(i));
   }
 
@@ -3001,7 +2989,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
 
-  for (const auto i : c10::irange(3)) {
+  for (const auto i : arange(3)) {
     auto slice_out_ref = t0.index(
         {at::indexing::Slice(0, at::indexing::None),
          at::indexing::Slice(0, at::indexing::None),
@@ -5626,7 +5614,7 @@ TEST_F(ResizeTest, TraversalForInliningPosition) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto tv0 = makeContigConcreteTensor({16});
   fusion.addInput(tv0);
@@ -5727,7 +5715,7 @@ TEST_F(ResizeTest, Repro3801) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto T13 = makeContigConcreteTensor({1, 16});
   fusion.addInput(T13);
@@ -5961,7 +5949,7 @@ TEST_F(ResizeTest, AvoidCachingSliceInput) {
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
   EXPECT_EQ(num_segments, 3) << "Expect 3 segments, got: " << num_segments;
-  for (const auto i : c10::irange(kernel_runtime->executors().size())) {
+  for (const auto i : arange(kernel_runtime->executors().size())) {
     const auto& exec = kernel_runtime->executors().at(i);
     if (!exec->isA<KernelExecutor>()) {
       continue;

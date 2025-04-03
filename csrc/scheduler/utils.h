@@ -241,6 +241,10 @@ struct PersistentBufferInfo {
   std::vector<TensorView*> persistent_buffers;
   std::unordered_set<IterDomain*> unmappable_dims;
 
+  // Tensors with unmappable dims that cannot be persistent due to
+  // broadcast inling
+  std::vector<TensorView*> non_persistent_buffers;
+
   // Persistent buffers are needed until the path through the reduction -
   // broadcast chain is resolved by any other chain using the persistent buffer
   // that is not going through a reduction. This assumes all reduction paths
@@ -808,5 +812,14 @@ void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
 // recompute buffer_tv from its producer to save register/smem usage. Fusion
 // input is skipped as it is handled by project to inputs.
 TensorView* getUpCastInputOf(const TensorView* buffer_tv);
+
+//! Given an input TV, try and schedule trivial ops as global to global ops that
+//! will be skipped at lowering by modifying their allocation domains and memory
+//! types. Returns the last resulting global consumer of the given TV: its
+//! definition and those of all its producers will be skipped during lowering
+//! with the tensor producer alias mechanism.
+//! See device_lower/analysis/tensor_producer_aliases.h
+TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
+
 } // namespace scheduler_utils
 } // namespace nvfuser
