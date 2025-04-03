@@ -179,7 +179,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   // For register sharing, require contiguous 128 threads calling the same
   // setreg instruction.
   // Not used: 1, Const: n, Dynamic: -1
-  auto getThreadsCountInDim = [&](ParallelType pt) {
+  auto get_threads_count_in_dim = [&](ParallelType pt) {
     if (!dim_map_.contains(pt)) {
       return (int64_t)1;
     }
