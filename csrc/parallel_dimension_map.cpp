@@ -190,7 +190,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
     // dynamic dimensions since we can't guarantee the number of threads is
     // divisible by 128. We may allow this in the future and delegate this
     // check to a point where the launch parameters are known.
-    return (int64_t)-1;
+    return -1LL;
   };
   // Warp specialization with register sharing on parallel type pt
   // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
