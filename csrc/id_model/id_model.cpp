@@ -714,10 +714,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->loop();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
-
       // Broadcast forwarding is not applied when the loop domain is
       // not fully derived from the logical domain. In that case, the
       // loop promotion analysis effectively does nothing, however, we
@@ -725,28 +721,33 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // well as p2c_ca_permissive_maps are required. Since no
       // promotion analysis is done, only loop IDs need to be
       // considered.
-
-      if (ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv)) {
-        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-            {producer_logical.begin(), producer_logical.end()},
-            {producer_domain.begin(),
-             producer_domain.begin() + producer_tv->getComputeAtPosition()});
-        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            ca_deps_filter.begin(), ca_deps_filter.end());
-      } else {
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            producer_tv->getLoopDomain().begin(),
-            producer_tv->getLoopDomain().begin() +
-                producer_tv->getComputeAtPosition());
-      }
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+      auto fully_derived =
+          ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv);
 
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Grab all iteration domains in producer that its compute at iter
+        // domains depend on.
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
+        if (fully_derived) {
+          auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+              {producer_logical.begin(), producer_logical.end()},
+              {producer_domain.begin(),
+               producer_domain.begin() +
+                   producer_tv->getComputePosition(consumer_tv)});
+          auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              ca_deps_filter.begin(), ca_deps_filter.end());
+        } else {
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              producer_tv->getLoopDomain().begin(),
+              producer_tv->getLoopDomain().begin() +
+                  producer_tv->getComputePosition(consumer_tv));
+        }
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = producer_tv->domain()->allIDs();
         auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
@@ -914,6 +915,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   } else {
     return buildGraph(mode);
   }
+}
+
+void IdModel::removeGraph(IdMappingMode mode) {
+  id_graphs_.erase(mode);
 }
 
 ValGraph IdModel::buildIntersection(
