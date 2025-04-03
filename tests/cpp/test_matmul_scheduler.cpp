@@ -2896,10 +2896,18 @@ class AllocationDomainTest
   // see issue https://github.com/NVIDIA/Fuser/issues/1810
   AllocationDomainTest() : optimization_guard_(false) {
     MatMulTileOptions gemm_tile;
-    gemm_tile.cta_tile = GemmTile(128, 128, 32);
-    gemm_tile.warp_tile = GemmTile(64, 64, 32);
 
-    mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    if (cudaArchGuardShouldSkip(7, 5, 9, 0)) {
+      // Hopper or above
+      gemm_tile.cta_tile = GemmTile(128, 256, 64);
+      gemm_tile.warp_tile = GemmTile(64, 128, 64);
+      mparams.mma_macro = MmaMacro::Hopper_64_128_16;
+    } else {
+      // Ampere
+      gemm_tile.cta_tile = GemmTile(128, 128, 32);
+      gemm_tile.warp_tile = GemmTile(64, 64, 32);
+      mparams.mma_macro = MmaMacro::Ampere_16_8_16;
+    }
     mparams.supported_vec_size = {8, 8, 4};
     mparams.tile_sizes = gemm_tile;
     mparams.async_gmem_load_operands = true;
@@ -2953,7 +2961,7 @@ class AllocationDomainTest
 // [M, K] and [K, N], and all possible combinations of allocation domains.
 // Please note that inpout in B is transposed prior to creating a Mma op.
 TEST_P(AllocationDomainTest, BasicMatmul) {
-  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 9, 0);
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(7, 5, 10, 0);
   bool a_m_inner = std::get<0>(GetParam());
   bool b_k_inner = std::get<1>(GetParam());
 
@@ -3389,7 +3397,7 @@ class HopperMatmulSchedulerTest
 
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
   const auto& [A, B] =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+      matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   inputs = {A, B};
 
   TensorView* tv0 = nullptr;
@@ -3447,7 +3455,7 @@ TEST_P(HopperMatmulSchedulerTest, FusedMultiplySum) {
 // run on hopper.
 TEST_P(HopperMatmulSchedulerTest, FusedMultiplySumBiasNeg) {
   const auto& [A, B] =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+      matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   const auto& C = matmulAtInput2D(
       layout, TensorMatmulPos::Bias, data_type_to_aten(dtype), M, N, K);
   inputs = {A, B, C};
