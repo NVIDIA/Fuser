@@ -904,6 +904,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   }
 
  private:
+  //! Number of for loops opened by WarAsyncWaitInserter
+  std::vector<ForLoop*> for_loop_stack_;
+
   //! The for loop where wgmma operations are inserted into ComputeWarp
   int64_t compute_warp_insertion_position_ = -1;
 
@@ -1038,7 +1041,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     // async_exprs_to_protect_ so that we know we need to protect it.
     auto async_op_type = ir_utils::getAsyncOpType(expr);
     if (async_op_type != AsyncOpType::NotAsync) {
-      if (isWithinComputeWarp(for_loops_)) {
+      if (isWithinComputeWarp(for_loop_stack_)) {
         warp_specialized_async_exprs_to_protect_.insert(expr);
       } else {
         async_exprs_to_protect_.insert(expr);
@@ -1157,8 +1160,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Short-circuit: no wgmma expressions to protect in computeWarp.
     // TODO: Create direct scan for wgmma operations in nested for loops.
-    if (for_loop->body().exprs().size() == 1 &&
+    if (for_loop->body().exprs().size() < 1 ||
         !for_loop->body().exprs().back()->isA<kir::MBarrierArrive>()) {
+      for_loop_stack_.pop_back();
       return;
     }
 
@@ -1209,11 +1213,13 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     warp_specialized_async_inputs_in_current_scope_.clear();
     warp_specialized_async_exprs_to_protect_.clear();
     active_compute_for_loop_ = nullptr;
+    for_loop_stack_.pop_back();
   }
 
   void handle(ForLoop* for_loop) final {
     // Push loop scope information
     auto prev_within_iter_loop_ = within_iter_loop_;
+    for_loop_stack_.push_back(for_loop);
     within_iter_loop_ = within_iter_loop_ || !for_loop->isTrivial();
     auto prev_async_inputs = openScope();
 
@@ -1235,7 +1241,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Short-circuit: special handling of ComputeWarp for-loop
     // Add wgmma commit_group and wait_group
-    if (compute_warp_insertion_position_ == (int64_t)for_loops_.size()) {
+    if (compute_warp_insertion_position_ == (int64_t)for_loop_stack_.size()) {
       return handleComputeWarp(for_loop);
     }
 
@@ -1303,6 +1309,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Pop for loop scope information
     within_iter_loop_ = prev_within_iter_loop_;
+    for_loop_stack_.pop_back();
     closeScope(prev_async_inputs);
   }
 };
