@@ -8,7 +8,6 @@
 #include <device_lower/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -1001,7 +1000,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   std::array<TensorView*, 2> inputs = {
       ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
-  for (auto i : c10::irange(2)) {
+  for (auto i : arange(2)) {
     auto in_tv = inputs.at(i);
     if (in_tv->getMemoryType() == MemoryType::Local) {
       layout[i] = UnitDim::K;
@@ -1330,7 +1329,7 @@ Val* extent(const Composition<Projection>& comp) {
   return std::accumulate(
       comp.begin(),
       comp.end(),
-      static_cast<Val*>(nullptr),
+      FusionGuard::getCurFusion()->oneVal(),
       [](Val* acc, const auto& g) {
         return SimplifyingIrBuilder::mulExpr(acc, extent(g));
       });
@@ -1515,8 +1514,6 @@ Projection propagate(
     const ExprGroup& eg,
     Direction direction) {
   // Just recursively propagate subtree.
-  auto from = fromGroups(id_graph, eg, direction);
-  auto to = toGroups(id_graph, eg, direction);
   auto propagated = propagate(*part.what, id_graph, eg, direction);
   if (!propagated.hasValue()) {
     return {};
@@ -1650,6 +1647,9 @@ Val* proveLinearAndGetStrideAfterPropagation(
 Val* proveLinearAndGetStrideAfterPropagation(
     const Composition<Projection>& comp,
     const ValGroups& domain) {
+  if (comp.empty()) {
+    return FusionGuard::getCurFusion()->zeroVal();
+  }
   auto it = search(domain, comp);
   if (it == domain.end()) {
     return nullptr;
@@ -1749,7 +1749,6 @@ PartOf<Projection> cancelCommonFactors(const PartOf<Projection>& part) {
   if (new_inner_extent->isOne()) {
     new_inner_extent = nullptr;
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),
@@ -1838,7 +1837,6 @@ PartOf<Projection> trimRedundant(const PartOf<Projection>& part) {
   while (count < (int64_t)dq.size()) {
     dq.pop_front();
   }
-  NVF_ERROR(!dq.empty());
   if (dq.size() == 1) {
     return PartOf<Projection>{
         std::make_shared<Projection>(dq.front()),

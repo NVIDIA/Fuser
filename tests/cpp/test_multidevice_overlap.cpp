@@ -181,7 +181,6 @@ class OverlapTest : public MultiDeviceTest {
 
 class CollectiveBasedOverlapTest : public OverlapTest {
  protected:
-  at::Tensor tc_locally_reduced_;
   void SetUp() override {
     OverlapTest::SetUp();
     if (!communicator_->is_available()) {
@@ -210,6 +209,8 @@ class CollectiveBasedOverlapTest : public OverlapTest {
          params.N});
     return tc_unsharded_expected_reshaped.select(1, my_device_index_);
   }
+
+  at::Tensor tc_locally_reduced_;
 };
 
 // clang-format off
@@ -276,11 +277,10 @@ TEST_F(
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(params.number_of_streams, my_device_index_);
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     initializeIO();
 
-    for (auto j : c10::irange(params.S)) {
+    for (auto j : arange(params.S)) {
       int64_t stream_index = j % streams.size();
       setCurrentCUDAStream(streams.at(stream_index));
 
@@ -407,8 +407,7 @@ TEST_F(
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     initializeIO();
     std::unordered_map<Val*, PolymorphicValue> inputs = {
         {tva, ta_},
@@ -476,12 +475,11 @@ TEST_F(
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(params.number_of_streams, my_device_index_);
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     initializeIO();
 
-    for (auto i : c10::irange(number_of_rings_)) {
-      for (auto j : c10::irange(number_of_steps_per_ring_)) {
+    for (auto i : arange(number_of_rings_)) {
+      for (auto j : arange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
 
@@ -655,8 +653,7 @@ TEST_F(
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
     initializeIO();
@@ -768,11 +765,10 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningATenImplementation) {
   std::vector<c10::cuda::CUDAStream> streams =
       createStreams(params.number_of_streams, my_device_index_);
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     initializeIO();
 
-    for (auto j : c10::irange(params.S)) {
+    for (auto j : arange(params.S)) {
       int64_t stream_index = j % streams.size();
       setCurrentCUDAStream(streams.at(stream_index));
 
@@ -922,8 +918,7 @@ TEST_F(AllgatherOverlapTest, AllgatherBasedPipeliningHostIrImplementation) {
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     initializeIO();
     std::unordered_map<Val*, PolymorphicValue> inputs = {
         {tva, ta_},
@@ -1056,13 +1051,12 @@ TEST_F(
   const auto recv_rank = (my_device_index_ - 1 + number_of_steps_per_ring_) %
       number_of_steps_per_ring_;
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     initializeIO();
     c10::intrusive_ptr<c10d::Work> comms_req = nullptr;
 
-    for (auto i : c10::irange(number_of_rings_)) {
-      for (auto j : c10::irange(number_of_steps_per_ring_)) {
+    for (auto i : arange(number_of_rings_)) {
+      for (auto j : arange(number_of_steps_per_ring_)) {
         int64_t stream_index = (i + j) % streams.size();
         setCurrentCUDAStream(streams.at(stream_index));
 
@@ -1255,8 +1249,7 @@ TEST_F(
 
   hir::HostIrEvaluator hie(std::move(hic), communicator_);
 
-  for ([[maybe_unused]] const auto& _ :
-       c10::irange(params.number_of_iterations)) {
+  for ([[maybe_unused]] const auto& _ : arange(params.number_of_iterations)) {
     // I don't know why but this seems necessary...
     at::manual_seed(getATenRandomSeed());
 

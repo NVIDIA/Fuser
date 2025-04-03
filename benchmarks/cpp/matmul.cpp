@@ -544,7 +544,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 static std::vector<long int> splitKNs(long int tileN = 128) {
   const long int numSMs = getNumSMs();
   std::vector<long int> Ns;
-  for (long int N : c10::irange(numSMs + 1)) {
+  for (long int N : arange(numSMs + 1)) {
     if (N > 0 && numSMs % N == 0) {
       Ns.push_back(N * tileN);
     }

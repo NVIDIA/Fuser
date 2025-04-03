@@ -18,7 +18,6 @@
 #include <sstream>
 
 namespace nvfuser {
-
 class LowerToInlinePtx : public kir::ExprMutator {
  private:
   // create a new predicate with the inverted value, used for cpAsync
@@ -131,7 +130,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       std::stringstream ptx_ss;
       ptx_ss << "tcgen05.ld.sync.aligned."
              << tmem_info.load_data_path.at(ir_utils::getTvInput(ldst)) << ".x"
-             << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ir_utils::getTMemLdStVectorizeSize(ir_utils::getTvOutput(ldst))
              << ".b32";
       registerReplace(
           ldst,
@@ -152,7 +151,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
       std::stringstream ptx_ss;
       ptx_ss << "tcgen05.st.sync.aligned."
              << tmem_info.store_data_path.at(ir_utils::getTvOutput(ldst))
-             << ".x" << ir_utils::getVectorizeSize(ir_utils::getTvOutput(ldst))
+             << ".x"
+             << ir_utils::getTMemLdStVectorizeSize(ir_utils::getTvOutput(ldst))
              << ".b32";
       registerReplace(
           ldst,
@@ -227,11 +227,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
     auto a = IrBuilder::maybeRefCastExpr(a_type, mma->inA());
     auto b = IrBuilder::maybeRefCastExpr(b_type, mma->inB());
 
-    for (auto in : c10::irange(split_n)) {
+    for (auto in : arange(split_n)) {
       auto acc =
           split_n == 1 ? accumulator : IrBuilder::getItemExpr(accumulator, in);
       auto bb = split_n == 1 ? b : IrBuilder::getItemExpr(b, in);
-      for (auto ik : c10::irange(split_k)) {
+      for (auto ik : arange(split_k)) {
         auto aa = split_k == 1 ? a : IrBuilder::getItemExpr(a, ik);
         auto bbb = split_k == 1 ? bb : IrBuilder::getItemExpr(bb, ik);
         auto mma_asm = IrBuilder::create<kir::Asm>(
