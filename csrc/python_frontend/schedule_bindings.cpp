@@ -485,6 +485,10 @@ void bindSchedule(py::class_<FusionDefinition>& fusion_def) {
         NVF_CHECK(
             self.validUse(),
             "Attempting to use a SchedOperators Op prior to definition!");
+        EnableOptionsGuard eog;
+        EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMatmul);
+        DisableOptionsGuard dog;
+        DisableOptionsGuard::getCurOptions().set(DisableOption::MatmulExprEval);
         UserSchedule* sched = self.fusion_definition->userSchedule();
         HeuristicParams* parameters =
             sched->computeHeuristics(SchedulerType::Matmul);
