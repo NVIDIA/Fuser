@@ -660,6 +660,33 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
   reference_tv->reorder(reorder_map);
 
+  // If all reduction dimensions are constants, move the first reduction dim
+  // to the left of the vectorization dim to reduce register usage.
+  // For example, in a thread-local outer reduction, we want to transform:
+  //   [..., iV{8}, rS{7}, rUS{1}, rUR{4}]
+  // to:
+  //   [..., rS{7}, iV{8}, rUR{4}, rUS{1}]
+  // This way, each thread only needs to cache 8 × 4 elements instead of
+  // 8 × 7 × 4 elements.
+  // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
+  if (std::all_of(domain.begin(), domain.end(), [](IterDomain* id) {
+        return !id->isReduction() || id->extent()->isConstScalar();
+      })) {
+    auto redu_iter =
+        std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {
+          return id->isReduction() && id->extent()->isConstScalar();
+        });
+    auto vect_iter =
+        std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {
+          return id->getParallelType() == ParallelType::Vectorize;
+        });
+    if (redu_iter != domain.end() && vect_iter != domain.end()) {
+      int64_t first_reduction_axis = redu_iter - domain.begin();
+      int64_t vectorization_axis = vect_iter - domain.begin();
+      reference_tv->reorder({{first_reduction_axis, vectorization_axis}});
+    }
+  }
+
   std::vector<int64_t> rfactor_axes;
   std::vector<int64_t> rfactor_axes_no_unswitch;
   size_t reduction_dims = 0;
