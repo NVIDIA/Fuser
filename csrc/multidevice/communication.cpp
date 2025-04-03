@@ -399,7 +399,6 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
-  std::vector<at::Tensor> output_tensors({output_tensor});
 
   return backend->scatter(
       output_tensors,
