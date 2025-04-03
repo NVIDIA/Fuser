@@ -19,7 +19,7 @@ std::enable_if_t<sizeof(To) == sizeof(From), To> bit_cast(
 
 } // namespace std
 
-// Intentionally not supporting signed integers to stay
+// Intentionally not supporting signed integers to stay consistent with
 // https://en.cppreference.com/w/cpp/numeric/bit_ceil
 __device__ __forceinline__ unsigned int bit_ceil(unsigned int x) {
   if (x == 0) {
