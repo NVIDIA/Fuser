@@ -20,6 +20,57 @@
 namespace nvfuser {
 namespace {
 
+// Set a minimum workload for each thread to take advantage of low
+// intra-threads communication cost.
+// Tuned for layer_norm backward on A100, still works fine on H100.
+int64_t getMinimumBatch(int64_t inner_dim_numel, int64_t outer_dim_numel) {
+  if (inner_dim_numel >= 3072l) {
+    if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
+      return 3l;
+    } else {
+      return 4l;
+    }
+  } else if (inner_dim_numel >= 2048l) {
+    return 2l;
+  }
+  return 1l;
+}
+
+// Set a reasonable range for threads per block based on the number of
+// elements in the inner dimension after vectorization.
+// Start from 128 or a smaller number if inner dim is small.
+std::vector<int64_t> getPossibleThreadsPerBlock(
+    int64_t outer_dim_numel,
+    int64_t inner_dim_numel,
+    int64_t vect_factor,
+    int64_t hp_threads_per_block_min,
+    int64_t hp_threads_per_block_max) {
+  const int64_t after_vect = inner_dim_numel / vect_factor;
+  const int64_t batch_min = getMinimumBatch(inner_dim_numel, outer_dim_numel);
+  int64_t threads_per_block_min = hp_threads_per_block_min;
+  threads_per_block_min = std::min(threads_per_block_min, after_vect);
+  threads_per_block_min = scheduler_utils::roundUpPow2(threads_per_block_min);
+
+  // star max threads per block from min threads per block
+  int64_t threads_per_block_max = threads_per_block_min;
+  // increase to cover the whole inner dim
+  threads_per_block_max =
+      std::max(threads_per_block_max, ceilDiv(after_vect, batch_min));
+  // round up to power of 2
+  threads_per_block_max = scheduler_utils::roundUpPow2(threads_per_block_max);
+  // don't go beyond the maximum threads per block
+  threads_per_block_max =
+      std::min(threads_per_block_max, hp_threads_per_block_max);
+
+  std::vector<int64_t> res;
+  for (auto threads_per_block = threads_per_block_max;
+       threads_per_block >= threads_per_block_min;
+       threads_per_block /= 2) {
+    res.push_back(threads_per_block);
+  }
+  return res;
+}
+
 // The roundup is due to the fact that the shared memory buffer is allocated
 // as: ceilDiv(dim_size / vectorize_factor, threads_per_block).
 // Let after_vect = dim_size / vectorize_factor;
@@ -31,15 +82,11 @@ int64_t roundUpSharedMemory(
     int64_t tv_buffer_size,
     int64_t data_type_size,
     int64_t vectorize_factor,
-    int64_t threads_per_block_min,
-    int64_t threads_per_block_max,
-    int64_t threads_per_block_step) {
+    const std::vector<int64_t>& possible_threads_per_block) {
   int64_t dim_size = tv_buffer_size / data_type_size;
   int64_t after_vect = dim_size / vectorize_factor;
   int64_t max_smem = 0;
-  for (int64_t threads_per_block = threads_per_block_min;
-       threads_per_block <= threads_per_block_max;
-       threads_per_block += threads_per_block_step) {
+  for (auto threads_per_block : possible_threads_per_block) {
     int64_t n_batch = ceilDiv(after_vect, threads_per_block);
     max_smem = std::max(
         max_smem,
@@ -186,6 +233,8 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache,
     const std::vector<TensorView*>& reduction_tvs,
+    const int64_t outer_dim_numel,
+    const int64_t inner_dim_numel,
     const int64_t vectorize_factor,
     const int64_t threads_per_block_min,
     const int64_t threads_per_block_max) {
@@ -268,6 +317,12 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   std::unordered_map<TensorView*, std::pair<int64_t, int64_t>>
       required_size_regs_smem_map;
   int64_t total_smem_buffer_size = 0;
+  auto possible_threads_per_block = getPossibleThreadsPerBlock(
+      outer_dim_numel,
+      inner_dim_numel,
+      vectorize_factor,
+      threads_per_block_min,
+      threads_per_block_max);
   for (auto buffer : buffers) {
     int64_t buffer_size_regs = scheduler_utils::getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
@@ -275,9 +330,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
         buffer_size_regs,
         dataTypeSize(buffer->getDataType().value()),
         vectorize_factor,
-        threads_per_block_min,
-        threads_per_block_max,
-        dev_prop->warpSize);
+        possible_threads_per_block);
     required_size_regs_smem_map[buffer] =
         std::make_pair(buffer_size_regs, buffer_size_smem);
     total_smem_buffer_size += buffer_size_smem;
@@ -285,6 +338,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   buffer_params.smem_buffer_size = total_smem_buffer_size;
   buffer_params.regs_buffer_size =
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
+
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
     buffer_params.smem_persistent_buffers = buffers;
@@ -436,22 +490,6 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
     }
   };
 
-  // Set a minimum workload for each thread to take advantage of low
-  // intra-threads communication cost.
-  // Tuned for layer_norm backward on A100, still works fine on H100.
-  auto getMinimumBatch = [&]() -> int64_t {
-    if (inner_dim_numel >= 3072l) {
-      if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
-        return 3l;
-      } else {
-        return 4l;
-      }
-    } else if (inner_dim_numel >= 2048l) {
-      return 2l;
-    }
-    return 1l;
-  };
-
   // Estimate register usage per thread based on buffer size.
   // Assuming a constant register overhead for non-buffer related usage,
   // and all the register buffers are stored in registers.
@@ -594,32 +632,16 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   // Use the maximum vectorization factor
   const int64_t vect_factor = (int64_t)vectorize_factor;
 
-  // Set a reasonable range for threads per block based on the number of
-  // elements in the inner dimension after vectorization.
-  // Start from 128 or a smaller number if inner dim is small.
-  const int64_t after_vect = inner_dim_numel / vect_factor;
-  const int64_t batch_min = getMinimumBatch();
-  int64_t threads_per_block_min = hp_threads_per_block_min;
-  threads_per_block_min = std::min(threads_per_block_min, after_vect);
-  threads_per_block_min = scheduler_utils::roundUpPow2(threads_per_block_min);
-
-  // star max threads per block from min threads per block
-  int64_t threads_per_block_max = threads_per_block_min;
-  // increase to cover the whole inner dim
-  threads_per_block_max =
-      std::max(threads_per_block_max, ceilDiv(after_vect, batch_min));
-  // round up to power of 2
-  threads_per_block_max = scheduler_utils::roundUpPow2(threads_per_block_max);
-  // don't go beyond the maximum threads per block
-  threads_per_block_max =
-      std::min(threads_per_block_max, hp_threads_per_block_max);
-
+  const auto& possible_threads_per_block = getPossibleThreadsPerBlock(
+      outer_dim_numel,
+      inner_dim_numel,
+      vectorize_factor,
+      hp_threads_per_block_min,
+      hp_threads_per_block_max);
   // Store all the possible heuristics based on different threads per block.
   // Vectorizaton is fixed at the maximum value.
   std::vector<InnerOuterParams> iop_candidates;
-  for (auto threads_per_block = threads_per_block_max;
-       threads_per_block >= threads_per_block_min;
-       threads_per_block /= 2) {
+  for (auto threads_per_block : possible_threads_per_block) {
     iop_candidates.emplace_back(
         getHeuristicsGivenVectThreads(vect_factor, threads_per_block));
   }
@@ -842,6 +864,8 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
       runtime_info,
       data_cache,
       reduction_tvs,
+      properties.total_iteration_numel,
+      properties.total_reduction_numel,
       hp.vectorize_factor,
       hp.threads_per_block_min,
       hp.threads_per_block_max);
@@ -1371,6 +1395,8 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
       runtime_info,
       data_cache,
       reduction_tvs,
+      properties.total_iteration_numel,
+      properties.total_reduction_numel,
       hp.vectorize_factor,
       hp.threads_per_block_min,
       hp.threads_per_block_max);
@@ -1381,7 +1407,12 @@ bool InnerOuterPersistentKernelScheduler::canScheduleRunTime(
   if (!buffer_params.has_enough_regs_and_smem) {
     scheduler_debug_utils::canScheduleRejectReason(
         schedulerType(),
-        "not enough registers or shared memory for persistence");
+        "not enough registers or shared memory for persistence, smem_buffer ",
+        buffer_params.smem_buffer_size,
+        ", regs_buffer ",
+        buffer_params.regs_buffer_size,
+        ", device smem ",
+        at::cuda::getCurrentDeviceProperties()->sharedMemPerMultiprocessor);
     return false;
   }
 
