@@ -21,6 +21,9 @@ using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
 
 TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
 
+  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> guard(
+      false);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
