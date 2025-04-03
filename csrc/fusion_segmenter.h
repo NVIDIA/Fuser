@@ -98,13 +98,13 @@ class SegmentedGroup {
 
   //! Checks if this group takes original fusion's input
   bool isInputGroup() {
-    return !input_vals.empty();
+    return !input_vals_.empty();
   };
 
   //! Checks if this group is used any where in the segmented fusion
   bool isConnected() const {
     return !producer_edges.empty() || !consumer_edges.empty() ||
-        !output_vals.empty();
+        !output_vals_.empty();
   }
 
   //! returns the id assigned by segment pass
@@ -114,12 +114,12 @@ class SegmentedGroup {
 
   //! Returns inputs that this group shares with the original fusion
   const auto& inputs() const {
-    return input_vals;
+    return input_vals_;
   }
 
   //! Returns outputs that this group shares with the original fusion
   const auto& outputs() const {
-    return output_vals;
+    return output_vals_;
   }
 
   //! Returns the schedule heuristic associated with this group
@@ -175,10 +175,10 @@ class SegmentedGroup {
   std::vector<SegmentedEdge*> consumer_edges;
 
   //! Composite Fusion inputs in this group
-  std::vector<Val*> input_vals;
+  std::vector<Val*> input_vals_;
 
   //! Composite Fusion outputs in this group
-  std::vector<Val*> output_vals;
+  std::vector<Val*> output_vals_;
 
   bool isMerged() const {
     return merged_;
