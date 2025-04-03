@@ -1,0 +1,188 @@
+..
+    Copyright (c) 2022-2025, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+
+    See LICENSE for license information.
+
+Common API
+==========
+
+This section documents the common API components of nvFuser.
+
+Statement
+---------
+
+.. autoclass:: nvfuser.direct.Statement
+   :members:
+   :undoc-members:
+
+   Statement represents a base class for all statements in the nvFuser IR.
+   It provides methods for:
+   
+   - Accessing statement properties
+   - Managing statement dependencies
+   - Querying statement type and attributes
+
+Val
+---
+
+.. autoclass:: nvfuser.direct.Val
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   Val represents a value in the nvFuser IR. It provides methods for:
+   
+   - Accessing value properties and type
+   - Managing value dependencies
+   - Querying value attributes and constraints
+
+Expr
+----
+
+.. autoclass:: nvfuser.direct.Expr
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   Expr represents an expression in the nvFuser IR. It provides methods for:
+   
+   - Accessing expression operands
+   - Managing expression dependencies
+   - Querying expression type and attributes
+
+IterDomain
+----------
+
+.. autoclass:: nvfuser.direct.IterDomain
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   IterDomain represents an iteration domain in the nvFuser IR. It provides methods for:
+   
+   - Accessing domain properties (extent, start, stop)
+   - Managing domain dependencies
+   - Querying domain attributes and constraints
+
+TensorDomain
+-----------
+
+.. autoclass:: nvfuser.direct.TensorDomain
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   TensorDomain represents a tensor domain in the nvFuser IR. It provides methods for:
+   
+   - Accessing domain dimensions
+   - Managing domain properties
+   - Querying domain attributes and constraints
+
+TensorView
+---------
+
+.. autoclass:: nvfuser.direct.TensorView
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+   TensorView represents a tensor in the fusion definition. It provides methods for:
+   
+   - Accessing tensor properties (domain, axes, etc.)
+   - Performing operations on tensors
+   - Managing tensor memory and scheduling
+
+TensorViewBuilder
+---------------
+
+.. autoclass:: nvfuser.direct.TensorViewBuilder
+   :members:
+   :undoc-members:
+
+   TensorViewBuilder provides a fluent interface for creating TensorView objects with specific properties.
+
+FusionExecutorCache
+-----------------
+
+.. autoclass:: nvfuser.direct.FusionExecutorCache
+   :members:
+   :undoc-members:
+
+   FusionExecutorCache manages the compilation and execution of fusion definitions.
+   It provides methods for:
+   
+   - Compiling fusions
+   - Executing fusions with input tensors
+   - Accessing compiled kernels and IR
+
+KernelExecutor
+------------
+
+.. autoclass:: nvfuser.direct.KernelExecutor
+   :members:
+   :undoc-members:
+
+   KernelExecutor provides a lower-level interface for executing compiled kernels.
+   It allows for:
+   
+   - Manual kernel compilation
+   - Direct kernel execution
+   - Access to kernel properties and scheduling information
+
+Direct Fusion Definition
+-----------------------
+
+.. autoclass:: nvfuser.direct._DirectFusionDefinition
+   :members:
+   :undoc-members:
+
+   The DirectFusionDefinition class provides a low-level interface for defining nvFuser operations.
+   It exposes two main components:
+
+   - ``ops``: Contains the operators for defining fusion operations
+   - ``sched``: Contains the scheduling operators for optimizing the fusion
+
+Abstract Tensor
+--------------
+
+.. autoclass:: nvfuser.direct._DirectFusionDefinition.ScheduleOperators.AbstractTensor
+   :members:
+   :undoc-members:
+
+   AbstractTensor represents an abstract tensor in the nvFuser IR. It provides methods for:
+
+   - Accessing tensor properties (domain, axes, etc.)
+   - Performing operations on tensors
+   - Managing tensor memory and scheduling
+
+Data Types
+---------
+
+.. autoclass:: nvfuser.DataType
+   :members:
+
+   DataType enum defines the supported data types in nvFuser.
+
+Memory Types
+-----------
+
+.. autoclass:: nvfuser.MemoryType
+   :members:
+
+   MemoryType enum defines the different memory types available for tensor storage.
+
+Parallel Types
+------------
+
+.. autoclass:: nvfuser.ParallelType
+   :members:
+
+   ParallelType enum defines the different parallelization strategies available for tensor operations.
+
+Scheduler Types
+-------------
+
+.. autoclass:: nvfuser.SchedulerType
+   :members:
+
+   SchedulerType enum defines the different scheduling strategies available for optimizing fusion execution.
