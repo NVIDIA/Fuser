@@ -497,7 +497,8 @@ Val* createElectSyncPredicate(bool use_first_warp = true) {
   Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-  // TIDx < 32 or TIDx >= blockDim.x - 32
+  // If TIDx is used for both computation and TMA load, we should select a
+  // thread from the last warp along TIDx.
   auto select_warp = use_first_warp
       ? IrBuilder::ltExpr(
             NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size)
@@ -654,34 +655,33 @@ Val* createMultipleExpressionElectSync(
       }
     }
     return conditional;
-  } else {
-    // If not specialized on TIDx, load branch has full size of bdimx,
-    // we can use the first warp, otherwise should use the last warp.
-    bool use_first_warp = load_warp_on != ParallelType::TIDx;
-    Val* conditional = createElectSyncPredicate(use_first_warp);
-    for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-      if (!pdim_map.has(pt)) {
-        continue;
-      }
-      if (load_warp_on != pt) {
-        // Not specialized on pt, use the first thread.
-        conditional = SimplifyingIrBuilder::logicalAndExpr(
-            conditional,
-            IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
-      } else {
-        // Specialized on pt, use the last thread.
-        Val* raw =
-            GpuLower::current()->parallelDimensionMap().get(load_warp_on);
-        conditional = SimplifyingIrBuilder::logicalAndExpr(
-            conditional,
-            IrBuilder::eqExpr(
-                NamedScalar::getParallelIndex(pt),
-                IrBuilder::subExpr(
-                    raw, IrBuilder::create<Val>(1, DataType::Index))));
-      }
-    }
-    return conditional;
   }
+
+  // If not specialized on TIDx, load branch has full size of bdimx,
+  // we can use the first warp, otherwise should use the last warp.
+  bool use_first_warp = load_warp_on != ParallelType::TIDx;
+  Val* conditional = createElectSyncPredicate(use_first_warp);
+  for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+    if (!pdim_map.has(pt)) {
+      continue;
+    }
+    if (load_warp_on != pt) {
+      // Not specialized on pt, use the first thread.
+      conditional = SimplifyingIrBuilder::logicalAndExpr(
+          conditional,
+          IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+    } else {
+      // Specialized on pt, use the last thread.
+      Val* raw = GpuLower::current()->parallelDimensionMap().get(load_warp_on);
+      conditional = SimplifyingIrBuilder::logicalAndExpr(
+          conditional,
+          IrBuilder::eqExpr(
+              NamedScalar::getParallelIndex(pt),
+              IrBuilder::subExpr(
+                  raw, IrBuilder::create<Val>(1, DataType::Index))));
+    }
+  }
+  return conditional;
 }
 
 } // namespace
