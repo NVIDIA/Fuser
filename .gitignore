@@ -18,6 +18,9 @@ nvfuser/cmake
 *.egg-info/
 **/__pycache__
 */*.so
+.lake
+lake-manifest.json
+lean-toolchain
 
 # Editor temporaries
 *.swa
