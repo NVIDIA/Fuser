@@ -966,17 +966,16 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
     // Gather all async inputs in load warp
     TensorView* out_tv = ir_utils::getTvOutput(expr);
-    if (out_tv != nullptr) {
-      auto circular_buffer_loop =
-          GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
-              out_tv, for_loops_);
-      if (circular_buffer_loop != nullptr &&
-          circular_buffer_loop->circularBufferLoopStage() ==
-              CircularBufferLoopStage::LoadWarp) {
-        auto use_async_ops = getUseAsyncOpTypes(out_tv);
-        if (!use_async_ops.empty()) {
-          warp_specialized_async_inputs_in_current_scope_.emplace(out_tv);
-        }
+    NVF_ERROR(out_tv != nullptr);
+    auto circular_buffer_loop =
+        GpuLower::current()->circularBufferInfo().getCircularBufferLoop(
+            out_tv, for_loops_);
+    if (circular_buffer_loop != nullptr &&
+        circular_buffer_loop->circularBufferLoopStage() ==
+            CircularBufferLoopStage::LoadWarp) {
+      auto use_async_ops = getUseAsyncOpTypes(out_tv);
+      if (!use_async_ops.empty()) {
+        warp_specialized_async_inputs_in_current_scope_.emplace(out_tv);
       }
     }
 
