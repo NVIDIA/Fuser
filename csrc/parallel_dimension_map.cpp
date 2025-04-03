@@ -181,7 +181,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   // Not used: 1, Const: n, Dynamic: -1
   auto get_threads_count_in_dim = [&](ParallelType pt) {
     if (!dim_map_.contains(pt)) {
-      return (int64_t)1;
+      return 1LL;
     }
     if (dim_map_.at(pt)->isConstScalar()) {
       return dim_map_.at(pt)->value().as<int64_t>();
