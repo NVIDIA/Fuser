@@ -178,21 +178,22 @@ int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
-  IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
-  if (alloc_id == nullptr) {
+      mapDeviceParallelTypeToId(tv->getLoopDomain());
+
+  IterDomain* loop_id = getOrDefault(parallel_type_to_id, parallel_type);
+  if (loop_id == nullptr) {
     return -1;
   }
 
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = alloc_id;
+  IterDomain* id = loop_id;
   while (logical_id_to_axis.count(id) == 0) {
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
         "Failed to find a non-reduction logical IterDomain that produces ",
-        alloc_id);
+        loop_id);
     if (auto* split = dynamic_cast<Split*>(def)) {
       // Returning just which tensor axis is sharded isn't sufficient to let
       // shardTensor, a user of this function, know how to shard the tensor.
@@ -274,7 +275,7 @@ at::Tensor shardTensor(
   auto extent = tensor.size(axis);
   auto nslices = mesh.size();
   NVF_CHECK(
-      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
+      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh: ", extent, " % ", nslices);
   auto stride = extent / nslices;
   // TODO: returning slice 0 temporarily when device is not in the mesh.
   i = (i < 0) ? 0 : i;
