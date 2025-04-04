@@ -148,10 +148,9 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        ite->elseBody().empty(),
-        "Pass does not support conditional flow,",
-        " needs to be done before conditional execution is lowered.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::ExprMutator::handle(ite);
   }
 
