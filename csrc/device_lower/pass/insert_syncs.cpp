@@ -321,8 +321,12 @@ class WarSyncInserter : private kir::ExprMutator {
 
     // WAR Sync is necessary in this loop, register its insertion.
     if (insert_sync) {
+      // Temporarily add the current for-loop to for_loops to check for warp
+      // specialization
+      for_loops_.push_back(for_loop);
       auto sync_expr = IrBuilder::create<kir::BlockSync>(
           /*war_sync=*/true, isOptionalLoadOrComputeSync(for_loops_));
+      for_loops_.pop_back();
       kir::ExprMutator::registerInsertAfter(
           for_loop->body().exprs().back(), sync_expr, &for_loop->body());
       handle(sync_expr);
