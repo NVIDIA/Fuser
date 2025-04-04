@@ -1619,9 +1619,9 @@ Val* Index::getLinearLogicalIndex(
         consumer_tv->getLogicalDomain(),
         loops);
     Val* stride = consumer_tv->fusion()->oneVal();
-    for (const auto i : arange(consumer_tv->getLogicalDomain().size())) {
+    for (const auto [i, logical_id] :
+         enumerate(consumer_tv->getLogicalDomain()) | std::views::reverse) {
       auto per_dim_index = per_dim_indices.at(i);
-      auto logical_id = consumer_tv->getLogicalDomain().at(i);
       auto per_dim_strided_index =
           SimplifyingIrBuilder::mulExpr(per_dim_index, stride);
       per_dim_indices.at(i) = per_dim_strided_index;
