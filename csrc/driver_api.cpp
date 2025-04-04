@@ -5,15 +5,20 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <iostream>
+
+#include <cuda.h>
+#include <cuda_runtime.h>
+
+#include <cuda_utils.h>
 #include <driver_api.h>
+#include <exceptions.h>
 #include <sys_utils.h>
 #include <utils.h>
 
-#include <cuda.h>
-
-#include <iostream>
-
-#include <exceptions.h>
+namespace nvfuser {
+PFN_cuStreamWriteValue32 cuStreamWriteValue32;
+} // namespace nvfuser
 
 namespace {
 
@@ -21,6 +26,12 @@ class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
  public:
   CUDADriverAPIDynamicLoader() {
     setFilename("libcuda.so");
+
+    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#using-the-runtime-api
+    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(
+        "cuStreamWriteValue32",
+        reinterpret_cast<void**>(&nvfuser::cuStreamWriteValue32),
+        cudaEnableDefault));
   }
 } loader;
 
