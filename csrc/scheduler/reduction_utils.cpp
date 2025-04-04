@@ -660,17 +660,19 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
   reference_tv->reorder(reorder_map);
 
-  // If all reduction dimensions are constants, move the first reduction dim
-  // to the left of the vectorization dim to reduce register usage.
-  // For example, in a thread-local outer reduction, we want to transform:
+  // If all reduction dimensions are constants and not parallelized by threads
+  // or blocks, move the first reduction dim to the left of the vectorization
+  // dim to reduce register usage. For example, in a thread-local outer
+  // reduction, we want to transform:
   //   [..., iV{8}, rS{7}, rUS{1}, rUR{4}]
   // to:
-  //   [..., rS{7}, iV{8}, rUR{4}, rUS{1}]
+  //   [..., rS{7}, iV{8}, rUS{1}, rUR{4}]
   // This way, each thread only needs to cache 8 × 4 elements instead of
   // 8 × 7 × 4 elements.
   // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
   if (std::all_of(domain.begin(), domain.end(), [](IterDomain* id) {
-        return !id->isReduction() || id->extent()->isConstScalar();
+        return !id->isReduction() ||
+            (id->extent()->isConstScalar() && !id->isThread());
       })) {
     auto redu_iter =
         std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {

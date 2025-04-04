@@ -2644,19 +2644,26 @@ TEST_F(OuterReductionTest, ThreadLocalSerialReduction) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(args);
 
-  // Check the compute position of the bool tensor, tv2, is at the top of the
-  // kernel.
+  // If thread local reduction is used on the tested GPU, the reduction tv
+  // should be:  [..., rS{7}, iV{x}, rUS{1}, rUR{x}]
   auto runtime = executor_cache.getMostRecentKernelRuntime();
-  Fusion* scheduled_fusion = runtime->executors()
-                                 .back()
-                                 ->as<KernelExecutor>()
-                                 ->compiledKernel()
-                                 ->kernel();
-  // reduction tv should be:  [..., rS{7}, iV{8}, rUR{4}, rUS{1}]
-  auto redu_tv = scheduler_utils::getReductionTvs(scheduled_fusion).at(0);
-  EXPECT_TRUE(redu_tv->axis(-4)->isReduction())
-      << "Expected redu tv is [..., rS{7}, iV{8}, rUR{4}, rUS{1}], got: "
-      << redu_tv->toString();
+  for (auto& params : runtime->schedulerHeuristics()->heuristicsList()) {
+    if (!params->isA<ReductionParams>()) {
+      continue;
+    }
+    if (!params->as<ReductionParams>()->cross_block_outer_reduction) {
+      Fusion* scheduled_fusion = runtime->executors()
+                                     .back()
+                                     ->as<KernelExecutor>()
+                                     ->compiledKernel()
+                                     ->kernel();
+      auto redu_tv = scheduler_utils::getReductionTvs(scheduled_fusion).at(0);
+      EXPECT_TRUE(redu_tv->axis(-4)->isReduction())
+          << "Expected redu tv is [..., rS{7}, iV{x}, rUS{1}, rUR{x}], got: "
+          << redu_tv->toString();
+    }
+  }
+
   testValidate(
       &fusion_copy, outputs, {at_t4, at_t21, at_t52}, __LINE__, __FILE__);
 }
