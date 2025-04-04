@@ -352,7 +352,7 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   // We assume that the gathered axis is outermost in allocation and after permutation will be the first dimension.
   // The other alternative is to use `getShardedLogicalAxis` to find the sharded axis and split on that.
   // This is not always possible since manual IRs like Manual/MultiDeviceHostIrTest.SingleFusionSingleComm_withoutShardingAnnotations
-  // do not have sharding annotations.
+  // do not have sharding annotations. This will be ensured by `reorderShardedAxis` and `makeShardingContiguous` presegmentation pass.
 
   auto splits =
       at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
