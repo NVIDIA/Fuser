@@ -385,15 +385,15 @@ c10::intrusive_ptr<c10d::Work> postScatter(
 
   std::vector<std::vector<at::Tensor>> input_tensors;
   std::vector<at::Tensor> output_tensors({output_tensor});
-
+  
+  if (my_device_index == communication->root()) {
   // Presegmentation should ensure outermost allocation of scattered axis required for correct results.
   // Scatter does not require the input_tensor.is_contiguous() to be true so we do not permute the input tensor.
 
   // Get contiguity permutation to find the scattered axis.
   auto dims = getContiguityPermutation(input_tensor);
-  auto scattered_axis = dims.at(0);
-  
-  if (my_device_index == communication->root()) {
+  int64_t scattered_axis = dims.at(0);
+
     auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/scattered_axis);
     if (!output_has_root) {
       output_tensors[0] = at::empty_like(splits.at(0));
