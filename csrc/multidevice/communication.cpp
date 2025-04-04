@@ -9,7 +9,6 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
-#include <multidevice/utils.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -347,21 +346,25 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
   
-  auto sharded_axis = getShardedLogicalAxis(communication->in(), ParallelType::DIDx);
-  NVF_ERROR(sharded_axis >= 0, "Sharded axis is expected to be non-negative: ", sharded_axis);
-
-  auto splits =
-      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/sharded_axis);
-  assertBuffersHaveSameSize({input_tensor}, splits);
-  
   // For example,tensor with shape [m, n, k] and strides [1, k*m, m]
   // is permute to [n, k, m] to match the ProcessGroupNCCL contiguity requirements.
-  
   if (!input_tensor.is_contiguous()) {
     auto dims = getContiguityPermutation(input_tensor);
     input_tensor = input_tensor.permute(dims);
+  }
+  if (!output_tensor.is_contiguous()) {
+    auto dims = getContiguityPermutation(output_tensor);
     output_tensor = output_tensor.permute(dims);
   }
+
+  // We assume that the gathered axis is outermost in allocation and after permutation will be the first dimension.
+  // The other alternative is to use `getShardedLogicalAxis` to find the sharded axis and split on that.
+  // This is not always possible since manual IRs like Manual/MultiDeviceHostIrTest.SingleFusionSingleComm_withoutShardingAnnotations
+  // do not have sharding annotations.
+
+  auto splits =
+      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize({input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
   // received tensors into user buffer. It is therefore always preferable to use
