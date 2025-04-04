@@ -139,8 +139,8 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
-  const std::unique_ptr<hir::HostIrEvaluator>& getHostIrEvaluator() const {
-    return hie_;
+  const hir::HostIrEvaluator& getHostIrEvaluator() const {
+    return *hie_.get();
   };
 
  private:
