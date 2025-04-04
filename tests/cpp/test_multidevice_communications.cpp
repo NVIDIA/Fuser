@@ -109,10 +109,7 @@ TEST_P(CommunicationTest, Allgather) {
   FusionGuard fg(&container);
   auto* in = makeContigTensor(2);
   in->setDeviceMesh(full_mesh_);
-  in->axis(0)->parallelize(ParallelType::DIDx);
   auto* out = ops::newValLike(in, in->dtype())->as<TensorView>();
-  out->axis(0)->parallelize(ParallelType::Serial);
-  
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather, out, in, all_ranks_);
 
