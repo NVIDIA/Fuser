@@ -428,6 +428,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
+    case UnaryOpType::BitCeil:
+      return "bit_ceil";
     case UnaryOpType::LogicalNot:
       return "logical_not";
     case UnaryOpType::BitwiseNot:

@@ -302,7 +302,7 @@ std::vector<IterDomain*> mapLinearOpIterDomains(
 
     // Fill *_wb from the front.
     out_index = 0;
-    for (auto in_index : c10::irange(in_r_index)) {
+    for (auto in_index : arange(in_r_index)) {
       mapping[out_index] = input_domain[in_index];
       out_index++;
     }
@@ -454,7 +454,7 @@ std::vector<IterDomain*> newOutputDomain(
 
   std::vector<IterDomain*> out_domain(getLogicalDomain(tvs[0]).size(), nullptr);
 
-  for (const auto dim_i : c10::irange(out_domain.size())) {
+  for (const auto dim_i : arange(out_domain.size())) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
     for (auto* tv : tvs) {
@@ -502,7 +502,7 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
     }
   }
 
-  for (const auto i : c10::irange(vals.size())) {
+  for (const auto i : arange(vals.size())) {
     if (vals[i]->getValType().value() == ValType::TensorView) {
       auto tv = vals[i]->as<TensorView>();
       out_vals[i] = maybe_broadcast_inner_to_rank(tv, n_dims);

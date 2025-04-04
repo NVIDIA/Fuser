@@ -32,7 +32,7 @@ class IdGraphIndexCompute : public OptOutDispatch {
     current_direction_ = Direction::Undefined;
   }
 
-  const std::unordered_map<ValGroup, Val*> indexMap() const {
+  const std::unordered_map<ValGroup, Val*>& indexMap() const {
     return index_map_;
   }
 

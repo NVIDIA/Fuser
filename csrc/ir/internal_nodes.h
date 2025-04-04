@@ -978,7 +978,7 @@ class GroupedReductionOp : public Expr {
     auto size = numHorizontallyGroupedExprs();
     std::vector<Val*> result;
     result.reserve(size);
-    for (auto i : c10::irange(2, 2 + size)) {
+    for (auto i : arange(2, 2 + size)) {
       result.emplace_back(attribute(i)->as<Val>());
     }
     return result;
@@ -1277,7 +1277,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = outputs().size() / 3;
     result.reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result.emplace_back(outAvg(i), outVar(i), outN(i));
     }
     return result;
@@ -1287,7 +1287,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = inputs().size() / 3;
     result.reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result.emplace_back(inAvg(i), inVar(i), inN(i));
     }
     return result;
@@ -1297,7 +1297,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = inputs().size() / 3;
     result.reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result.emplace_back(initAvg(i), initVar(i), initN(i));
     }
     return result;
@@ -1471,6 +1471,18 @@ class NVF_API MmaOp : public Expr {
 
   bool isHopper() const {
     return nvfuser::isHopper(macro());
+  }
+
+  bool isBlackwell1CTA() const {
+    return nvfuser::isBlackwell1CTA(macro());
+  }
+
+  bool isBlackwell2CTA() const {
+    return nvfuser::isBlackwell2CTA(macro());
+  }
+
+  bool isBlackwell() const {
+    return nvfuser::isBlackwell(macro());
   }
 
   void setMacro(MmaMacro options);

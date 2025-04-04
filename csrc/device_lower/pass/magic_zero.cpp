@@ -106,18 +106,20 @@ Val* maybeUnwrapMagicZero(Val* val) {
 }
 
 bool needsMagicZero(ForLoop* loop, IterDomain* reference_domain, Val* ind) {
-  if (ind->isConstScalar()) {
-    return false;
-  }
-
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
     return false;
   }
 
-  bool ref_dom_simple =
-      reference_domain == nullptr || reference_domain->definition() != nullptr;
-  bool ind_simple =
-      ind == nullptr || (ind->definition() != nullptr && !ind->isZeroInt());
+  NVF_ERROR(ind != nullptr);
+  NVF_ERROR(reference_domain != nullptr);
+
+  if (ind->isConstScalar()) {
+    return false;
+  }
+
+  bool ref_dom_simple = reference_domain->definition() != nullptr;
+  bool ind_simple = ind->definition() != nullptr && !ind->isZeroInt();
+
   return loop->isUnrolled() && (!ref_dom_simple || !ind_simple);
 }
 
@@ -134,7 +136,7 @@ void protectNonPredicateIndexWithMagicZero(
 
   // Search for proper magic zero insertion point,
   //  prefer innermost.
-  for (auto idx : c10::irange(loops.size())) {
+  for (auto idx : arange(loops.size())) {
     auto loop = loops[idx];
     auto concrete_loop_id = GpuLower::current()->caMap()->getConcreteMappedID(
         loop_domains[idx], IdMappingMode::EXACT);

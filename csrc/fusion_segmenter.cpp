@@ -227,7 +227,7 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   std::vector<bool> can_merge(neighbors.size(), true);
 
   // Find neighbors with a level that is only 1 differant than this groups level
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : arange(neighbors.size())) {
     if (std::abs(neighbors[i].group->level_ - level_) > 1) {
       can_merge[i] = false;
     }
@@ -236,7 +236,7 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   // Check neighbor of neighbors we're considering, if any of them are merged
   // with another node, make sure the resulting edge wouldn't have a level
   // difference of 1
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : arange(neighbors.size())) {
     if (!can_merge[i]) {
       continue;
     }
@@ -270,7 +270,7 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   }
 
   std::vector<NeighborGroup> merge_candidates;
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : arange(neighbors.size())) {
     if (can_merge[i]) {
       merge_candidates.push_back(neighbors[i]);
     }
@@ -379,7 +379,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
       [](auto expr_a, auto expr_b) -> bool {
         return expr_a->name() < expr_b->name();
       });
-  for (const auto i : c10::irange(expr_to_print.size())) {
+  for (const auto i : arange(expr_to_print.size())) {
     os << expr_to_print[i]->name();
     if (i + 1 != expr_to_print.size()) {
       os << ", ";
@@ -607,7 +607,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   }
 
   // Create segmented edges
-  for (auto idx : c10::irange(buffer->edges()->size())) {
+  for (auto idx : arange(buffer->edges()->size())) {
     auto se_fb = buffer->edges()->Get(idx);
     newEdge(
         groups_.at(se_fb->from_segmented_group()),
@@ -616,7 +616,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
   }
 
   // Deserialize segmented groups
-  for (auto idx : c10::irange(buffer->groups()->size())) {
+  for (auto idx : arange(buffer->groups()->size())) {
     auto sg_fb = buffer->groups()->Get(idx);
     groups_.at(idx)->deserialize(sg_fb, vals, exprs, groups_, edges_);
   }
@@ -1115,7 +1115,7 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
 
   auto expr_to_print = groupExprPrintSorting(group->exprs());
 
-  for (const auto i : c10::irange(expr_to_print.size())) {
+  for (const auto i : arange(expr_to_print.size())) {
     os << expr_to_print[i]->toString();
     os << "(" << expr_to_print[i]->name() << ")" << std::endl;
   }
@@ -1600,7 +1600,7 @@ GroupSet GroupDependencyAnalysis::getCommonProducersOf(
 
   // Get intersection of producers
   GroupSet common_producers = *(known_producers_of_.at(groups[0]));
-  for (const auto i : c10::irange(1, groups.size())) {
+  for (const auto i : arange(1, groups.size())) {
     common_producers = groupSetIntersection(
         common_producers, *(known_producers_of_.at(groups[i])));
   }
@@ -1768,7 +1768,7 @@ std::ostream& operator<<(
 
   // Do a reverse look up to check the order of sorted groups
   std::unordered_map<SegmentedGroup*, size_t> group_order;
-  for (const auto i : c10::irange(sorted_groups_to_print.size())) {
+  for (const auto i : arange(sorted_groups_to_print.size())) {
     group_order[sorted_groups_to_print[i]] = i;
   }
 
@@ -1864,7 +1864,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
       // consistently with the mapping from the old TensorView logical domain to
       // its allocation domain
       std::unordered_map<IterDomain*, IterDomain*> old_to_new;
-      for (const auto i : c10::irange(logical.size())) {
+      for (const auto i : arange(logical.size())) {
         old_to_new.emplace(logical[i], new_logical_domain[i]);
       }
 
@@ -1920,7 +1920,7 @@ void eraseInputDistinctRootDomains(Fusion* fusion) {
     // Remove reduction domains from new_td
     if (new_td->hasReduction()) {
       std::vector<std::optional<bool>> no_red_contiguity;
-      for (size_t i : c10::irange(new_td->maybeAllocation().size())) {
+      for (size_t i : arange(new_td->maybeAllocation().size())) {
         if (new_td->maybeAllocation()[i]->isReduction()) {
           continue;
         }
@@ -2940,7 +2940,7 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
     // If only average is used from welford, we should still translate, but we
     // might not detect persistence if variance isn't actually used/marked as an
     // output in the test.
-    for (auto outs_i : c10::irange(welford_avgs.size())) {
+    for (auto outs_i : arange(welford_avgs.size())) {
       auto avg = welford_avgs[outs_i];
       auto var = welford_vars[outs_i];
       if (avg->uses().empty()) {
@@ -3005,7 +3005,7 @@ void TranslateApplicableWelford::translateSingleWelford(WelfordOp* welford) {
   //  counting.
   Val* num_features = IrBuilder::create<Val>(1.0);
   std::vector<bool> broadcast_mask(in_logical.size(), false);
-  for (const auto i : c10::irange((int64_t)in_logical.size())) {
+  for (const auto i : arange((int64_t)in_logical.size())) {
     if (out_logical.at(i)->isReduction()) {
       red_axes.push_back(i);
       broadcast_mask[i] = true;
@@ -3119,7 +3119,7 @@ class CombineReductions {
       // Merge one pair of reduction groups at a time, and need
       //  the pass to update dependency info along the way to avoid cycles
       for (const auto first_group_index :
-           c10::irange(groups_with_reductions_.size())) {
+           arange(groups_with_reductions_.size())) {
         if (merged_groups) {
           // Need to break and re-enter this loop because
           // groups_with_reductions_ will be updated
@@ -3131,8 +3131,8 @@ class CombineReductions {
         auto first_group_signature =
             group_reduction_signature_map_.at(first_group);
 
-        for (const auto second_group_index : c10::irange(
-                 first_group_index + 1, groups_with_reductions_.size())) {
+        for (const auto second_group_index :
+             arange(first_group_index + 1, groups_with_reductions_.size())) {
           if (merged_groups) {
             // Need to break and re-enter this loop because
             // groups_with_reductions_ will be updated
@@ -3480,7 +3480,7 @@ class CombineReductions {
         return false;
       }
 
-      for (const auto i : c10::irange(reduction_axes_.size())) {
+      for (const auto i : arange(reduction_axes_.size())) {
         if (reduction_axes_[i] != reduction_signature->reduction_axes_[i]) {
           return false;
         }
@@ -3531,7 +3531,7 @@ class CombineReductions {
       auto& root_domain = out_tv->getLogicalDomain();
       root_domain_size_ = root_domain.size();
 
-      for (const auto i : c10::irange(root_domain_size_)) {
+      for (const auto i : arange(root_domain_size_)) {
         if (root_domain[i]->isReduction()) {
           reduction_axes_.push_back(i);
         }
@@ -4219,7 +4219,7 @@ void SegmentCandidateFinder::privatizeUpcast() {
       continue;
     }
 
-    for (const auto i : c10::irange(expr->inputs().size())) {
+    for (const auto i : arange(expr->inputs().size())) {
       auto maybe_upcast_out_tv = dynamic_cast<TensorView*>(expr->input(i));
       if (maybe_upcast_out_tv == nullptr) {
         continue;

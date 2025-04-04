@@ -150,7 +150,7 @@ KernelArgumentHolder HostIrExecutor::run(
   }
 
   // Evaluate outputs that are marked as Evaluate
-  for (auto out_idx : c10::irange(host_ir_container_->outputs().size())) {
+  for (auto out_idx : arange(host_ir_container_->outputs().size())) {
     auto out = host_ir_container_->outputs()[out_idx];
     auto alias_info = host_ir_container_->getOutputAlias(out);
     if (alias_info.type == AllocationType::Evaluate) {

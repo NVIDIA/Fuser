@@ -25,7 +25,6 @@
 #include <transform_view.h>
 #include <type.h>
 
-#include <c10/util/irange.h>
 #include <torch/nn/options/embedding.h>
 
 #include <complex>
@@ -53,7 +52,7 @@ std::string FullOp::toString(int indent_size) const {
   indent(ss, indent_size) << output(0)->toString() << "\n";
   indent_size++;
   indent(ss, indent_size) << " = full({";
-  for (auto i : c10::irange(inputs().size())) {
+  for (auto i : arange(inputs().size())) {
     if (i == inputs().size() - 1) {
       ss << "}";
     }
@@ -74,7 +73,7 @@ std::vector<PolymorphicValue> FullOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   std::vector<int64_t> shape;
-  for (auto i : c10::irange(inputs.size() - 1)) {
+  for (auto i : arange(inputs.size() - 1)) {
     shape.push_back(inputs.at(i).as<int64_t>());
   }
   DataType dtype = getFillValue()->getDataType().value();
@@ -428,6 +427,10 @@ std::vector<PolymorphicValue> UnaryOp::evaluate(
       break;
     case UnaryOpType::BitwiseNot:
       return {~in};
+      break;
+    case UnaryOpType::BitCeil:
+      return {static_cast<int64_t>(
+          std::bit_ceil(static_cast<uint64_t>(in.as<int64_t>())))};
       break;
     case UnaryOpType::Erf:
       return {erf(in)};
@@ -1012,7 +1015,7 @@ StructConstruct::StructConstruct(
 std::string StructConstruct::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << " = { ";
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : arange((int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -1025,7 +1028,7 @@ std::string StructConstruct::toString(int indent_size) const {
 std::string StructConstruct::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << "{ ";
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : arange((int64_t)inputs().size())) {
     if (i > 0) {
       ss << ", ";
     }
@@ -1045,7 +1048,7 @@ std::vector<PolymorphicValue> StructConstruct::evaluate(
       " inputs");
   PolymorphicValue struct_ =
       std::get<StructType>(output(0)->dtype().type).create();
-  for (int64_t i : c10::irange((int64_t)inputs.size())) {
+  for (int64_t i : arange((int64_t)inputs.size())) {
     struct_->*attribute<std::string>(i) = inputs.at(i);
   }
   return {std::move(struct_)};
@@ -1242,7 +1245,7 @@ BroadcastOp::BroadcastOp(
 
     auto out_size = is_broadcast_dims.size();
     auto num_new_broadcasts = 0;
-    for (const auto i : c10::irange(out_size)) {
+    for (const auto i : arange(out_size)) {
       if (is_broadcast_dims[i]) {
         num_new_broadcasts++;
         auto id = out_dom[i];
@@ -1346,7 +1349,7 @@ SqueezeOp::SqueezeOp(
 
   int64_t in_size = (int64_t)is_squeeze_dims.size();
   auto num_removed_broadcasts = 0;
-  for (const auto i : c10::irange(is_squeeze_dims.size())) {
+  for (const auto i : arange(is_squeeze_dims.size())) {
     if (is_squeeze_dims[i]) {
       num_removed_broadcasts++;
       auto id = in_dom[i];
@@ -1411,7 +1414,7 @@ std::vector<PolymorphicValue> SqueezeOp::evaluate(
       (int64_t)is_squeeze_dims.size() == in.dim(),
       "The dimensions of input tensor and does not match with is_squeeze_dims");
   at::Tensor out = in;
-  for (int64_t i : c10::irange((int64_t)is_squeeze_dims.size())) {
+  for (int64_t i : arange((int64_t)is_squeeze_dims.size())) {
     if (is_squeeze_dims[i]) {
       if (in.stride(i) == 0) {
         // If the input dimension is expanded in this dimension, undo the expand
@@ -1448,7 +1451,7 @@ void SqueezeOp::checkConcretization(Val* old_val, Val* new_val) const {
       " but expected ",
       old_tv->getLogicalDomain().size());
   auto flags = getSqueezeDimFlags();
-  for (auto i : c10::irange(flags.size())) {
+  for (auto i : arange(flags.size())) {
     if (!flags.at(i)) {
       continue;
     }
@@ -1531,7 +1534,7 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
       "Evaluation for rFactored reductions is not supported.");
 
   std::vector<int64_t> reduction_axes;
-  for (const auto i : c10::irange(int64_t(output->getLogicalDomain().size()))) {
+  for (const auto i : arange(int64_t(output->getLogicalDomain().size()))) {
     auto ax = output->getLogicalDomain().at(i);
     if (ax->isReduction()) {
       reduction_axes.push_back(i);
@@ -1587,7 +1590,7 @@ std::string GroupedReductionOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedReductionOp(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
@@ -1617,7 +1620,7 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
   const auto num_reductions = numHorizontallyGroupedExprs();
   std::vector<PolymorphicValue> grouped_reduction_out;
   grouped_reduction_out.reserve(num_reductions);
-  for (const auto i : c10::irange(num_reductions)) {
+  for (const auto i : arange(num_reductions)) {
     const auto& in_tensor = inputs.at(i).as<at::Tensor>();
     const auto out_tv = output(i)->as<TensorView>();
     NVF_ERROR(
@@ -1625,8 +1628,7 @@ std::vector<PolymorphicValue> GroupedReductionOp::evaluate(
         "Evaluation for rFactored reductions is not supported.");
 
     std::vector<int64_t> reduction_axes;
-    for (const auto id :
-         c10::irange(int64_t(out_tv->getLogicalDomain().size()))) {
+    for (const auto id : arange(int64_t(out_tv->getLogicalDomain().size()))) {
       auto ax = out_tv->getLogicalDomain().at(id);
       if (ax->isReduction()) {
         reduction_axes.push_back(id);
@@ -1677,7 +1679,7 @@ std::vector<WelfordTriplet> WelfordTriplet::clone(
     const std::vector<WelfordTriplet>& src,
     IrCloner* ir_cloner) {
   std::vector<WelfordTriplet> cloned(src.size());
-  for (const auto i : c10::irange(src.size())) {
+  for (const auto i : arange(src.size())) {
     cloned.at(i) = src.at(i).clone(ir_cloner);
   }
   return cloned;
@@ -1846,7 +1848,7 @@ std::vector<PolymorphicValue> WelfordOp::evaluate(
 
   int64_t N = 1;
   std::vector<int64_t> reduction_axes;
-  for (const auto i : c10::irange(int64_t(out_tv->getLogicalDomain().size()))) {
+  for (const auto i : arange(int64_t(out_tv->getLogicalDomain().size()))) {
     auto ax = out_tv->getLogicalDomain().at(i);
     if (ax->isReduction()) {
       reduction_axes.push_back(i);
@@ -1882,7 +1884,7 @@ GroupedWelfordOp::GroupedWelfordOp(
       ", Given: ",
       init_vals.size());
 
-  for (const auto i : c10::irange(num_grouped_ops)) {
+  for (const auto i : arange(num_grouped_ops)) {
     // Check output type
     NVF_ERROR(
         output_vals[i].avg()->getValType().value() == ValType::TensorView ||
@@ -1958,7 +1960,7 @@ GroupedWelfordOp::GroupedWelfordOp(
   }
 
   addDataAttribute(is_allreduce);
-  for (const auto i : c10::irange(num_grouped_ops)) {
+  for (const auto i : arange(num_grouped_ops)) {
     addOutput(output_vals[i].avg());
     addOutput(output_vals[i].var());
     addOutput(output_vals[i].N());
@@ -1975,7 +1977,7 @@ std::string GroupedWelfordOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedWelford(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size) << outAvg(i)->toString() << " (Avg),\n";
     indent(ss, indent_size) << outVar(i)->toString() << " (Var),\n";
     indent(ss, indent_size) << outN(i)->toString() << " (Count)\n";
@@ -2001,7 +2003,7 @@ std::string GroupedWelfordOp::toInlineString(int indent_size) const {
 }
 
 int GroupedWelfordOp::getExprIndexOfOutput(Val* output_val) const {
-  for (const auto expr_idx : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto expr_idx : arange(numHorizontallyGroupedExprs())) {
     if (outputVals().at(expr_idx).getNameOf(output_val).has_value()) {
       return (int)expr_idx;
     }
@@ -2026,7 +2028,7 @@ MmaOp::AxisMapping MmaOp::AxisMapping::trivialMapping(size_t dimension) {
   AxesData a_axes, b_axes;
   a_axes.reserve(dimension);
   b_axes.reserve(dimension);
-  for (size_t i : c10::irange(dimension)) {
+  for (size_t i : arange(dimension)) {
     a_axes.push_back((int64_t)i);
     b_axes.push_back((int64_t)i);
   }
@@ -2142,7 +2144,7 @@ std::vector<PolymorphicValue> ExpandOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
   std::vector<int64_t> expanded_size;
-  for (auto i : c10::irange(1, inputs.size())) {
+  for (auto i : arange(1, inputs.size())) {
     expanded_size.push_back((int64_t)inputs.at(i));
   }
   return {in.expand(expanded_size)};
@@ -2167,7 +2169,7 @@ RepeatOp::RepeatOp(IrBuilderPasskey passkey, TensorView* out, TensorView* in)
       "Output should not have reduction IDs.");
 
   bool repetition_found = false;
-  for (const auto i : c10::irange(in_domain.size())) {
+  for (const auto i : arange(in_domain.size())) {
     if (in_domain.at(i)->isBroadcast() && !out_domain.at(i)->isBroadcast()) {
       NVF_ERROR(!in_domain.at(i)->hasExpandedExtent());
       NVF_ERROR(in_domain.at(i)->extent()->isOneInt());
@@ -2209,7 +2211,7 @@ std::vector<PolymorphicValue> RepeatOp::evaluate(
   multipliers.reserve(out()->getLogicalDomain().size());
   const auto c2p =
       PairwiseLogicalDomainMap(in(), out()).mapConsumerToProducer();
-  for (const auto i : c10::irange(out()->getLogicalDomain().size())) {
+  for (const auto i : arange(out()->getLogicalDomain().size())) {
     auto out_id = out()->getLogicalDomain().at(i);
     auto inp_id = c2p.at(out_id);
     auto out_extent = ee.evaluate(out_id->extent()).as<int64_t>();
@@ -3074,7 +3076,7 @@ void validateContiguity(
       contiguity.size(),
       " but needed one of size ",
       allocation_domain.size());
-  for (auto i : c10::irange(contiguity.size())) {
+  for (auto i : arange(contiguity.size())) {
     bool expect_null =
         (allocation_domain.at(i)->isBroadcast() ||
          allocation_domain.at(i)->isReduction());
@@ -3186,7 +3188,7 @@ TensorDomain::TensorDomain(
         "stride_order is not a valid: " + toDelimitedString(stride_order));
 
     allocation_domain_.resize(rank, nullptr);
-    for (auto i : c10::irange(rank)) {
+    for (auto i : arange(rank)) {
       allocation_domain_[rank - 1 - stride_order[i]] = logical_domain_[i];
     }
   }
@@ -3360,31 +3362,31 @@ bool TensorDomain::sameAs(const Statement* const other) const {
     return false;
   }
 
-  for (const auto i : c10::irange(nDims())) {
+  for (const auto i : arange(nDims())) {
     if (!(axis(i)->sameAs(other_td->axis(i)))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(root().size())) {
+  for (const auto i : arange(root().size())) {
     if (!(root()[i]->sameAs(other_td->root()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(logical().size())) {
+  for (const auto i : arange(logical().size())) {
     if (!(logical()[i]->sameAs(other_td->logical()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(allocation().size())) {
+  for (const auto i : arange(allocation().size())) {
     if (!(allocation()[i]->sameAs(other_td->allocation()[i]))) {
       return false;
     }
   }
 
-  for (const auto i : c10::irange(loop().size())) {
+  for (const auto i : arange(loop().size())) {
     if (!(loop()[i]->sameAs(other_td->loop()[i]))) {
       return false;
     }
@@ -3444,7 +3446,7 @@ void TensorDomain::setContiguity(
   NVF_ERROR(
       maybeAllocation().size() == contig.size(),
       "Invalid size of contiguity vector");
-  for (auto i : c10::irange(contig.size())) {
+  for (auto i : arange(contig.size())) {
     NVF_CHECK(
         maybeAllocation().at(i)->isBroadcast() != contig.at(i).has_value(),
         "The contiguity of a broadcast dimension must be None. "
@@ -3463,7 +3465,7 @@ std::vector<int64_t> TensorDomain::strideOrder() const {
   std::vector<int64_t> stride_order;
   stride_order.reserve(logical_domain_.size());
 
-  for (size_t logical_idx : c10::irange(logical_domain_.size())) {
+  for (size_t logical_idx : arange(logical_domain_.size())) {
     IterDomain* logical_id = logical_domain_.at(logical_idx);
     auto alloc_iter = std::find(
         allocation_domain_.begin(), allocation_domain_.end(), logical_id);
@@ -3806,7 +3808,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   std::vector<IterDomain*> new_root_domain;
   new_root_domain.reserve(inp_domain.size());
-  for (auto i : c10::irange((int64_t)inp_domain.size())) {
+  for (auto i : arange((int64_t)inp_domain.size())) {
     bool is_rfactor_dim = i >= start_dim && i <= end_dim;
     auto inp_id = inp_domain[i];
     auto out_id = IterDomainBuilder(inp_id)
@@ -3826,12 +3828,12 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
 
   std::vector<IterDomain*> logical_domain;
   logical_domain.reserve(new_root_domain.size() - (end_dim - start_dim));
-  for (auto i : c10::irange(start_dim)) {
+  for (auto i : arange(start_dim)) {
     logical_domain.push_back(new_root_domain[i]);
   }
 
   IterDomain* merged_id = new_root_domain[start_dim];
-  for (auto i : c10::irange(start_dim + 1, end_dim + 1)) {
+  for (auto i : arange(start_dim + 1, end_dim + 1)) {
     IterDomain* new_merged_id =
         IterDomainBuilder(
             merged_id->container()->zeroVal(),
@@ -3843,7 +3845,7 @@ TensorDomain* TensorDomain::flatten(int64_t start_dim, int64_t end_dim) {
   }
   logical_domain.push_back(merged_id);
 
-  for (auto i : c10::irange(end_dim + 1, inp_domain.size())) {
+  for (auto i : arange(end_dim + 1, inp_domain.size())) {
     logical_domain.push_back(new_root_domain[i]);
   }
 
@@ -3896,11 +3898,11 @@ std::vector<IterDomain*> TensorDomain::allIDs() const {
 
   // We only care about IDs on the shortest path between domains
   std::unordered_multimap<IterDomain*, IterDomain*> out2in;
-  for (auto i : c10::irange(all_domains.size() - 1)) {
+  for (auto i : arange(all_domains.size() - 1)) {
     if (all_domains[i]->empty()) {
       continue;
     }
-    for (auto j : c10::irange(i + 1, all_domains.size())) {
+    for (auto j : arange(i + 1, all_domains.size())) {
       if (all_domains[j]->empty()) {
         continue;
       }
@@ -4288,7 +4290,7 @@ std::string PadOp::toInlineString(int indent_size) const {
 std::vector<int64_t> PadOp::getPaddedAxes() const {
   auto num_dims = (int64_t)out()->as<TensorView>()->getLogicalDomain().size();
   std::vector<int64_t> padded_axes;
-  for (const auto i : c10::irange(num_dims)) {
+  for (const auto i : arange(num_dims)) {
     auto [left_pad, right_pad] = getPadWidths(i);
     // Filter out non-padded dimension
     if (left_pad->isZeroInt() && right_pad->isZeroInt()) {
@@ -4402,7 +4404,7 @@ std::vector<Slice> SliceOp::getRanges() const {
   auto ndims = num_range_vals / 3;
   std::vector<Slice> ranges(ndims);
   auto range_val_it = getRangeInputBegin();
-  for (const auto i : c10::irange(ndims)) {
+  for (const auto i : arange(ndims)) {
     ranges.at(i) = Slice{
         .start = *range_val_it,
         .stop = *(range_val_it + 1),
@@ -4419,7 +4421,7 @@ std::vector<PolymorphicValue> SliceOp::evaluate(
   std::vector<at::indexing::TensorIndex> ranges;
   auto ranges_offset = getRangeInputOffset();
   auto num_dims = in.dim();
-  for (const auto i : c10::irange(num_dims)) {
+  for (const auto i : arange(num_dims)) {
     auto start = (int64_t)inputs.at(ranges_offset + 3 * i);
     auto stop = (int64_t)inputs.at(ranges_offset + 3 * i + 1);
     auto step = (int64_t)inputs.at(ranges_offset + 3 * i + 2);
@@ -4575,7 +4577,7 @@ int64_t getRFactorDeviceDimensionIndex(const TensorView* tv) {
   // an at::Tensor axis.
   auto logical = TensorDomain::noReductions(tv->getLogicalDomain());
   int64_t rfactor_did_idx = -1;
-  for (auto idx : c10::irange(static_cast<int64_t>(logical.size()))) {
+  for (auto idx : arange(static_cast<int64_t>(logical.size()))) {
     IterDomain* id = logical.at(idx);
     if (id->isRFactorProduct() && id->isDeviceDim()) {
       NVF_ERROR(
@@ -4659,7 +4661,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
                                 int64_t num_device_dims) -> void {
     // Record the initial shape for the error message.
     std::vector<int64_t> shape = t.sizes().vec();
-    for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+    for ([[maybe_unused]] auto _ : arange(num_device_dims)) {
       NVF_CHECK(
           t.size(0) == 1,
           "When the weight is >2D, expect its preceding dimensions and "
@@ -4684,7 +4686,7 @@ std::vector<PolymorphicValue> LinearOp::evaluate(
     out_tensor = at::linear(in, weight);
   }
 
-  for ([[maybe_unused]] auto _ : c10::irange(num_device_dims)) {
+  for ([[maybe_unused]] auto _ : arange(num_device_dims)) {
     out_tensor = out_tensor.unsqueeze(0);
   }
 
@@ -5347,7 +5349,7 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   }
 
   std::vector<at::Tensor> bwd_inputs;
-  for (auto idx : c10::irange(6)) {
+  for (auto idx : arange(6)) {
     auto in_tensor = inputs.at(idx).as<at::Tensor>();
     // Removing the size 1 from sharded axis from tensors.
     if (first_dim_is_did) {

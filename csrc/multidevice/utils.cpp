@@ -6,8 +6,6 @@
  */
 // clang-format on
 
-#include <c10/util/irange.h>
-
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <host_ir/lower.h>
@@ -209,7 +207,7 @@ int64_t getShardedLoopAxis(
       isParallelTypeDeviceDim(parallel_type),
       "Expect a DID but found: ",
       parallel_type);
-  for (int64_t i : c10::irange(tv->nDims())) {
+  for (int64_t i : arange(tv->nDims())) {
     if (tv->getLoopDomain()[i]->isDeviceDim()) {
       return i;
     }
@@ -737,7 +735,7 @@ void reorderDIDToFront(TensorView* tv) {
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
 
-  for (auto pos : c10::irange(tv->nDims())) {
+  for (auto pos : arange(tv->nDims())) {
     if (tv->axis(pos)->isDeviceDim()) {
       order_map[pos] = current_pos;
       current_pos++;

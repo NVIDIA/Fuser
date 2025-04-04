@@ -70,11 +70,11 @@ class ValidateSiblings : public IterVisitor {
           ". Sibling: ",
           sibling->toString());
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         validateParallelTypes(ref_output->axis(i), sibling->axis(i));
       }
 
-      for (const auto i : c10::irange(ref_root.size())) {
+      for (const auto i : arange(ref_root.size())) {
         id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
       }
 
@@ -83,7 +83,7 @@ class ValidateSiblings : public IterVisitor {
               sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         NVF_ERROR(
             replay.strictAreMapped(ref_output->axis(i), sibling->axis(i)),
             "Matching sibling ID not found. Expr: ",
@@ -735,7 +735,7 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
 
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
       IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
@@ -943,16 +943,23 @@ void validateMmaTensors(MmaOp* mma) {
 
   // Note: this check will be relaxed in a follow up.
   auto validate_operand = [mma](const TensorView* tv, MmaOperand operand) {
-    if (mma->isHopper()) {
+    if (mma->isHopper() || mma->isBlackwell()) {
       if (operand == MmaOperand::B) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Shared,
-            "Only supporting smem input for Hopper mma input B");
-      } else {
+            "Only supporting smem input for Hopper/Blackwell mma input B");
+      } else if (mma->isHopper()) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Local ||
                 tv->getMemoryType() == MemoryType::Shared,
             "Only supporting register or shared memory input for Hopper mma input A");
+      } else if (mma->isBlackwell()) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Tensor ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting tensor or shared memory input for Blackwell mma input A");
+      } else {
+        NVF_THROW("Should not reach here");
       }
     } else {
       NVF_ERROR(
@@ -1093,7 +1100,7 @@ void validateSwizzle(Fusion* fusion) {
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
-    for (const auto id_idx : c10::irange(tv->nDims())) {
+    for (const auto id_idx : arange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
       auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {
