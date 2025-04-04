@@ -9,6 +9,7 @@
 #include <gtest/gtest.h>
 
 #include <cuda_utils.h>
+#include <driver_api.h>
 #include <tests/cpp/utils.h>
 
 namespace nvfuser {

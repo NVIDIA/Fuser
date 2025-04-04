@@ -57,7 +57,6 @@
 #include <sstream>
 #include "parallel_dimension_map.h"
 
-#include <driver_api.h>
 namespace nvfuser {
 
 using namespace at::indexing;
