@@ -2,6 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 import torch
+import torch.nn.functional as F
 
 from .model_configs import configs
 
