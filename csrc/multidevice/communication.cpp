@@ -378,24 +378,35 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
+  
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  bool output_has_root = output_device_mesh.has(communication->root());
+  auto root_relative_index = communication->getRootRelativeIndex();
+
+  std::vector<std::vector<at::Tensor>> input_tensors;
   std::vector<at::Tensor> output_tensors({output_tensor});
 
-  auto root_relative_index = communication->getRootRelativeIndex();
-  std::vector<std::vector<at::Tensor>> input_tensors;
+  // Presegmentation should ensure outermost allocation of scattered axis required for correct results.
+  // Scatter does not require the input_tensor.is_contiguous() to be true so we do not permute the input tensor.
+
+  // Get contiguity permutation to find the scattered axis.
+  auto dims = getContiguityPermutation(input_tensor);
+  auto scattered_axis = dims.at(0);
+  
   if (my_device_index == communication->root()) {
+    auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/scattered_axis);
+    if (!output_has_root) {
+      output_tensors[0] = at::empty_like(splits.at(0));
+    }
     input_tensors.resize(1);
     int64_t j = 0;
     for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
+          !output_has_root) {
         input_tensors.front().push_back(output_tensor);
         continue;
       }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
+      input_tensors.front().push_back(splits.at(j));
       j++;
     }
 
