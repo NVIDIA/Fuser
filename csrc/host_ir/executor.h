@@ -100,6 +100,10 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->print(os);
   };
 
+  const HostIrContainer& getHostIrContainer() const {
+    return *container_.get();
+  }
+
   const auto& getFusionExecutorCaches() {
     return fec_;
   };

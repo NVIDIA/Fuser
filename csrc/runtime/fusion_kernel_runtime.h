@@ -139,6 +139,10 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
+  const hir::HostIrEvaluator& getHostIrEvaluator() const {
+    return *hie_.get();
+  };
+
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
   //! added back to the arguments, so they can be used as inputs to successive
