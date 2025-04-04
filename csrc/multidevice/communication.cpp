@@ -328,12 +328,40 @@ c10::intrusive_ptr<c10d::Work> postGather(
       output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
+
+std::vector<int64_t> getContiguityPermutation(const at::Tensor& tensor) {
+  auto strides = tensor.strides();
+  std::vector<int64_t> dims(strides.size());
+  std::iota(dims.begin(), dims.end(), 0);
+  std::sort(dims.begin(), dims.end(), [&](int64_t a, int64_t b) {
+    return strides.at(a) > strides.at(b);
+  });
+  return dims;
+}
+
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  
+  // For example,tensor with shape [m, n, k] and strides [1, k*m, m]
+  // is permute to [n, k, m] to match the ProcessGroupNCCL contiguity requirements.
+  if (!input_tensor.is_contiguous()) {
+    auto dims = getContiguityPermutation(input_tensor);
+    input_tensor = input_tensor.permute(dims);
+  }
+  if (!output_tensor.is_contiguous()) {
+    auto dims = getContiguityPermutation(output_tensor);
+    output_tensor = output_tensor.permute(dims);
+  }
+
+  // We assume that the gathered axis is outermost in allocation and after permutation will be the first dimension.
+  // The other alternative is to use `getShardedLogicalAxis` to find the sharded axis and split on that.
+  // This is not always possible since manual IRs like Manual/MultiDeviceHostIrTest.SingleFusionSingleComm_withoutShardingAnnotations
+  // do not have sharding annotations. This will be ensured by `reorderShardedAxis` and `makeShardingContiguous` presegmentation pass.
+
   auto splits =
       at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({input_tensor}, splits);
@@ -352,24 +380,35 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
-  std::vector<at::Tensor> output_tensors({output_tensor});
-
+  
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  bool output_has_root = output_device_mesh.has(communication->root());
   auto root_relative_index = communication->getRootRelativeIndex();
+
   std::vector<std::vector<at::Tensor>> input_tensors;
+  std::vector<at::Tensor> output_tensors({output_tensor});
+  
   if (my_device_index == communication->root()) {
+  // Presegmentation should ensure outermost allocation of scattered axis required for correct results.
+  // Scatter does not require the input_tensor.is_contiguous() to be true so we do not permute the input tensor.
+
+  // Get contiguity permutation to find the scattered axis.
+  auto dims = getContiguityPermutation(input_tensor);
+  int64_t scattered_axis = dims.at(0);
+
+    auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/scattered_axis);
+    if (!output_has_root) {
+      output_tensors[0] = at::empty_like(splits.at(0));
+    }
     input_tensors.resize(1);
     int64_t j = 0;
     for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
+          !output_has_root) {
         input_tensors.front().push_back(output_tensor);
         continue;
       }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
+      input_tensors.front().push_back(splits.at(j));
       j++;
     }
 
