@@ -1200,15 +1200,17 @@ void IdModel::allocateLoopIndexVariables() {
 
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             loop_group->front()->as<IterDomain>())) {
-      // Allocate index variable for each stage of the circular buffered loop.
+      // Allocate index variable for each stage of the circular
+      // buffered loop.
+      auto indices = std::make_unique<CircularBufferIndices>();
+      for (auto i :
+           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+        indices->emplace(
+            static_cast<CircularBufferLoopStage>(i),
+            IrBuilder::create<Val>(DataType::Index));
+      }
       circular_buffered_loop_index_variable_map_[loop_group] =
-          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
-              {{CircularBufferLoopStage::Prolog,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Main,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Epilog,
-                IrBuilder::create<Val>(DataType::Index)}}));
+          std::move(indices);
       continue;
     }
 
