@@ -15,7 +15,7 @@ namespace nvfuser {
 
 using DriverApiTest = NVFuserTest;
 
-TEST_F(DriverApiTest, cuStreamWriteValue32) {
+TEST_F(DriverApiTest, WriteValue) {
   constexpr cuuint32_t value = 3;
   CUdeviceptr pDevice;
   cudaStream_t stream;
