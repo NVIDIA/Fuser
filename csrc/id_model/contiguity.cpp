@@ -7,7 +7,6 @@
 // clang-format on
 #include <device_lower/lower2device.h>
 #include <id_model/contiguity.h>
-#include <id_model/indexing_utils.h>
 #include <id_model/utils.h>
 
 namespace nvfuser {
@@ -87,14 +86,8 @@ ContigIDGroups::ContigIDGroups(
 void ContigIDGroups::handle(Merge* merge, Direction direction) {
   // Only forward direction is supported for now
   if (direction != Direction::Forward) {
-    indexing_utils::verbose()
-        << "Backward merge not supported: " << merge->toString() << std::endl;
     return;
   }
-
-  indexing_utils::verbose()
-      << "ContigIDGroups::handle: " << merge->toString()
-      << "predicate pass: " << is_predicate_pass_ << std::endl;
 
   const bool is_indexing_pass = !is_predicate_pass_;
 

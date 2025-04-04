@@ -361,14 +361,6 @@ class AllocationDomainSetup : private kir::IrVisitor {
       IterDomain* promotion_domain = nullptr;
       if (is_loop) {
         promotion_domain = getLoopPromotion(allocation_domain, id_model);
-        if (allocation_domain->isBroadcast() &&
-            !promotion_domain->isBroadcast()) {
-          std::cerr << allocation_domain->toString()
-                    << " of " << tv->toString()
-                    << " promoted to: " << promotion_domain->toString()
-                    << "\n";
-          NVF_ERROR(false);
-        }
       } else {
         promotion_domain = allocation_domain;
       }

@@ -288,10 +288,6 @@ class IdModel : public PolymorphicBase {
   std::unordered_map<ValGroup, IterDomain*> buildLoopPromotionMap(
       const StatefulInliningInfo& info);
 
-  // TODO:
-  // Update the LOOP ID disjoint sets with resolved computeWith
-  void updateComputeWith(TensorView* compute_with_tv);
-
   // Errors if self mapping occurs
   void assertNoSelfMapping(const ValGraph& graph) const;
 

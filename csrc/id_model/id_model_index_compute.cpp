@@ -7,16 +7,12 @@
 // clang-format on
 
 #include <id_model/id_model_index_compute.h>
-#include <id_model/utils.h>
 #include <swizzle.h>
 
 namespace nvfuser {
 
 void IdGraphIndexCompute::handle(Split* split) {
   const bool is_forward = isForward(split);
-
-  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
-            << "): " << split->toString();
 
   auto inner_extent = split->inner()->extent();
 
@@ -52,10 +48,6 @@ void IdGraphIndexCompute::handle(Split* split) {
 void IdGraphIndexCompute::handle(Merge* merge) {
   const bool is_forward = isForward(merge);
 
-  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
-            << "): " << merge->toString();
-
-  // TODO: use getMaybeExpandedExtent?
   auto inner_ext = merge->inner()->extent();
 
   if (is_forward) {
@@ -109,9 +101,6 @@ void IdGraphIndexCompute::handle(Swizzle* swizzle) {
 
 void IdGraphIndexCompute::handle(Resize* resize) {
   const bool is_forward = isForward(resize);
-
-  VERBOSE() << "IdGraphIndexCompute handle (" << (is_forward ? "fwd" : "bwd")
-            << "): " << resize->toString();
 
   auto left_expand = resize->leftExpand();
 
