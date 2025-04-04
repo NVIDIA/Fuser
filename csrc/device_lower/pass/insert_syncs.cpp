@@ -191,7 +191,7 @@ class WarSyncInserter : private kir::ExprMutator {
     auto fl_i = std::distance(for_loops_.begin(), fl_it) + 1;
 
     // Start at that index and see if there's syncs within that for loop
-    for (auto i : c10::irange(fl_i, sync_hit_.size())) {
+    for (auto i : arange(fl_i, sync_hit_.size())) {
       if (sync_hit_[i]) {
         return true;
       }
@@ -304,8 +304,7 @@ class WarSyncInserter : private kir::ExprMutator {
   WarMemoryInfo& getMemInfo(TensorView* tv) {
     auto maybe_aliased_tv = alloc_map_.getRealBuffer(tv);
     auto alloc_it = smem_allocations_.find(maybe_aliased_tv);
-    auto ca_loop =
-        lower_utils::getAllocInformation(tv, for_loops_).init_for_loop;
+    auto ca_loop = lower_utils::getAllocPosInfo(tv, for_loops_).init_for_loop;
     if (alloc_it == smem_allocations_.end()) {
       WarMemoryInfo mem_info;
       mem_info.ca_loop = ca_loop;
@@ -1238,8 +1237,14 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             for_loop->circularBufferLoopStage() ==
                 CircularBufferLoopStage::Main) {
           NVF_ERROR(num_exprs > 1);
-          NVF_ERROR(for_loop->body().exprs().back()->isA<kir::BlockSync>());
-          --pos;
+          if (for_loop->body().exprs().back()->isA<kir::BlockSync>()) {
+            --pos;
+          } else {
+            // Insert a sync if there is not one already
+            auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+            kir::ExprMutator::registerInsertAfter(
+                for_loop->body().exprs().back(), sync_expr, &for_loop->body());
+          }
         }
 
         Expr* expr = for_loop->body().exprs().at(pos);

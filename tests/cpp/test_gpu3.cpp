@@ -773,7 +773,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   for (auto tv : fusion.allTvs()) {
     if (tv != tv1 || tv != tv3) {
-      for (auto i : c10::irange(tv->nDims())) {
+      for (auto i : arange(tv->nDims())) {
         if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
           tv->axis(i)->parallelize(ParallelType::Serial);
         }
@@ -1992,7 +1992,7 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
           ref->nDims() == sibling->nDims(),
           "Invalid sibling: ",
           sibling->toString());
-      for (const auto i : c10::irange(ref->nDims())) {
+      for (const auto i : arange(ref->nDims())) {
         NVF_CHECK(
             ref->axis(i)->getParallelType() ==
                 sibling->axis(i)->getParallelType(),
@@ -3388,6 +3388,8 @@ TEST_F(NVFuserTest, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionInsertMagicZero1_CUDA) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3432,7 +3434,7 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   fusion.addInput(tv2);
 
   std::vector<IterDomain*> domain1(3, nullptr);
-  for (const auto i : c10::irange(3)) {
+  for (const auto i : arange(3)) {
     if (i == 0) {
       domain1[i] = IterDomainBuilder(
                        FusionGuard::getCurFusion()->zeroVal(),
@@ -6783,51 +6785,6 @@ TEST_F(NVFuserTest, DoublePrecisionNorm_CUDA) {
       executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-// delete intermediate tensors between segments to reduce memory usage of large
-// segmented graphs
-TEST_F(NVFuserTest, FusionClearGmemBetweenSegments_CUDA) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  std::vector<int64_t> input_shape{32, 64, 8, 128};
-  auto tv0 = TensorViewBuilder()
-                 .ndims(input_shape.size())
-                 .dtype(DataType::Double)
-                 .build();
-  fusion->addInput(tv0);
-  auto tv1 = add(tv0, IrBuilder::create<Val>(1.0));
-  auto tv2 = sum(tv1, {0}); // Group 0
-  auto tv3 = sum(tv2, {-1}); // Group 1
-  auto output = sum(tv3, {0}); // Group 2
-  fusion->addOutput(output);
-
-  auto options = at::TensorOptions().dtype(at::kDouble).device(at::kCUDA, 0);
-  at::Tensor at_x = at::randn(input_shape, options);
-  FusionExecutorCache executor_cache(std::move(fusion));
-  auto outputs = executor_cache.runFusionWithInputs({at_x});
-  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
-  auto args_num = optimized_fusion->getArgsNumAfterSegmentRuns();
-
-  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen");
-  NVF_CHECK(
-      optimized_fusion->fusionSegments()->groups().size() == 3,
-      "segmentation didn't happen as expected");
-  // group-0: tv1 -> tv2
-  // group-1: tv2 -> tv3
-  // group-2: tv3 -> tv4
-  // -----------without args erase------------------------
-  // after group-0, args: {t0, 32, 64, 8, 128, t2}
-  // after group-1, args: {t0, 32, 64, 8, 128, t2, t3}
-  // after group-2, args: {t0, 32, 64, 8, 128, t2, t3, t4}
-  // -----------with args erase---------------------------
-  // after group-0, args: {t0, 32, 64, 8, 128, t2}
-  // after group-1, args: {t0, 32, 64, 8, 128, t3} (t2 is erased)
-  // after group-2, args: {t0, 32, 64, 8, 128, t4} (t3 is erased)
-  NVF_CHECK(
-      args_num[1] == args_num[0] && args_num[2] == args_num[0],
-      "unused intermediate args should be deleted");
-  testValidate(executor_cache.fusion(), outputs, {at_x}, __LINE__, __FILE__);
-}
-
 // Test nan propagation during min/max with floats and doubles
 TEST_F(NVFuserTest, FusionMinMaxNanPropagation_CUDA) {
   for (auto dtype : {DataType::Float, DataType::Double}) {
@@ -8454,7 +8411,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   // tv2 and tv3 have non-concretized broadcasts. Make sure they are
   // moved to the innermost position of the loop domain
   for (auto tv : {tv2, tv3}) {
-    for (const auto i : c10::irange(2)) {
+    for (const auto i : arange(2)) {
       auto broadcast_domain = tv->getLogicalDomain().at(i);
       ASSERT_TRUE(broadcast_domain->isBroadcast());
       EXPECT_EQ(

@@ -85,7 +85,7 @@ void forward_transformer(
   auto fec = model.forward(dtype, sequence_parallel);
 
   auto start = std::chrono::high_resolution_clock::now();
-  for (auto i : c10::irange(num_itrs + warmup_itrs)) {
+  for (auto i : arange(num_itrs + warmup_itrs)) {
     if (i == warmup_itrs) {
       cudaDeviceSynchronize();
       start = std::chrono::high_resolution_clock::now();
@@ -182,7 +182,7 @@ void backward_transformer(Communicator* communicator, bool profile) {
 
   cudaSetDevice(communicator->deviceId());
   auto start = std::chrono::high_resolution_clock::now();
-  for (auto i : c10::irange(num_itrs + warmup_itrs)) {
+  for (auto i : arange(num_itrs + warmup_itrs)) {
     if (i == warmup_itrs) {
       cudaDeviceSynchronize();
       start = std::chrono::high_resolution_clock::now();

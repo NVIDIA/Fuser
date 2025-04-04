@@ -158,7 +158,7 @@ void mapAllocationDomain(
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
       target_logical_domain.size(), nullptr);
-  for (auto i : c10::irange(target_logical_domain.size())) {
+  for (auto i : arange(target_logical_domain.size())) {
     // sharp-edges 1
     // preserves non-mapped reduction id in its original position
     if (target_logical_domain[i]->isReduction() &&
@@ -254,7 +254,7 @@ void mapAllocationDomain(
 //   `target->getLogicalDomain()`, which would gives `target` similar innermost
 //   dimensions as with `ref`. For details on the propagation rule see Note [
 //   Allocation Order Mapping ]
-void inferenceAllocationOrder(
+void inferAllocationOrder(
     Fusion* fusion,
     const std::vector<TensorView*>& srcs,
     const std::vector<TensorView*>& dsts) {
@@ -419,7 +419,7 @@ void AllocationDomainPass::runPass(Fusion* fusion) {
     dsts.push_back(output);
   }
   // propagate allocation domain from sources to destinations
-  inferenceAllocationOrder(fusion, srcs, dsts);
+  inferAllocationOrder(fusion, srcs, dsts);
 
   SdpaPropagator sdpa_propagator;
   for (Expr* e : fusion->exprs()) {

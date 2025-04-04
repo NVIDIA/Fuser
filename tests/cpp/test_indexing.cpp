@@ -5436,7 +5436,7 @@ TEST_F(IndexingTest, PerDimLogicalIndices) {
         auto actual_tv0_logial_indices =
             Index::getProducerPerDimLogicalIndex(tv0, tv1, for_loops_, {});
         ASSERT_EQ(actual_tv0_logial_indices.size(), tv0_logical_indices.size());
-        for (const auto i : c10::irange(tv0_logical_indices.size())) {
+        for (const auto i : arange(tv0_logical_indices.size())) {
           EXPECT_TRUE(
               actual_tv0_logial_indices[i]->sameAs(tv0_logical_indices[i]))
               << "Validation failure of " << tv0->toString() << " as producer"
@@ -5930,6 +5930,50 @@ TEST_F(IndexingTest, Rng) {
   at::Tensor randn_sample = at::randn({1}, options);
 
   testValidate(&fusion, outputs, {1}, {randn_sample}, __LINE__, __FILE__);
+}
+
+// Loops should be annotated with "pragma unroll" when their indices
+// are used for indexing of register tensors. This is one example a
+// loop may not be unrolled.
+TEST_F(IndexingTest, StaticIndexing) {
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = set(tv1);
+  fusion.addOutput(tv2);
+
+  tv1->split(0, 4);
+  tv2->split(0, 4);
+
+  tv1->inlineAt(1);
+  // Unswitched loops are not unrolled by default. This should be
+  // overridden because tv1 is a register tensor.
+  tv1->axis(1)->parallelize(ParallelType::Unswitch);
+
+  // Check if tv1's innermost loop is required to be unrolled
+  class Validator : public kir::IrVisitor {
+   public:
+    using kir::IrVisitor::handle;
+
+    void handle(LoadStoreOp* ldst) override {
+      if (ir_utils::getTvOutput(ldst)->name() == 1) {
+        ASSERT_FALSE(for_loops_.empty());
+        EXPECT_TRUE(for_loops_.back()->isUnrollRequired());
+      }
+    }
+  };
+
+  GpuLower lower(&fusion);
+  kir::Kernel* kernel = lower.run();
+  Validator validator;
+  validator.handle(kernel->topLevelExprs());
 }
 
 } // namespace nvfuser

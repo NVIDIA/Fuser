@@ -363,7 +363,7 @@ ValGraph& IdModel::buildExactGraph() {
                 c_tv->getMaybeRootDomain().size(),
             "Multiple outputs with mismatched TV domains is not supported.");
 
-        for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+        for (auto domain_i : arange(c_tv->getMaybeRootDomain().size())) {
           auto c_id = c_tv->getMaybeRootDomain()[domain_i];
           auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
           graph.mapVals(o_id, c_id);
@@ -714,10 +714,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->loop();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
-
       // Broadcast forwarding is not applied when the loop domain is
       // not fully derived from the logical domain. In that case, the
       // loop promotion analysis effectively does nothing, however, we
@@ -725,28 +721,33 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // well as p2c_ca_permissive_maps are required. Since no
       // promotion analysis is done, only loop IDs need to be
       // considered.
-
-      if (ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv)) {
-        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-            {producer_logical.begin(), producer_logical.end()},
-            {producer_domain.begin(),
-             producer_domain.begin() + producer_tv->getComputeAtPosition()});
-        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            ca_deps_filter.begin(), ca_deps_filter.end());
-      } else {
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            producer_tv->getLoopDomain().begin(),
-            producer_tv->getLoopDomain().begin() +
-                producer_tv->getComputeAtPosition());
-      }
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+      auto fully_derived =
+          ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv);
 
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Grab all iteration domains in producer that its compute at iter
+        // domains depend on.
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
+        if (fully_derived) {
+          auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+              {producer_logical.begin(), producer_logical.end()},
+              {producer_domain.begin(),
+               producer_domain.begin() +
+                   producer_tv->getComputePosition(consumer_tv)});
+          auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              ca_deps_filter.begin(), ca_deps_filter.end());
+        } else {
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              producer_tv->getLoopDomain().begin(),
+              producer_tv->getLoopDomain().begin() +
+                  producer_tv->getComputePosition(consumer_tv));
+        }
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = producer_tv->domain()->allIDs();
         auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
@@ -776,7 +777,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
         auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
         info.ordered_sibling_ids.pushBack(
             {all_consumer_ids.begin(), all_consumer_ids.end()});
-        for (const auto i : c10::irange(1, consumer_tvs.size())) {
+        for (const auto i : arange(1, consumer_tvs.size())) {
           auto consumer_tv_i = consumer_tvs.vector().at(i);
           auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
 
@@ -916,6 +917,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   }
 }
 
+void IdModel::removeGraph(IdMappingMode mode) {
+  id_graphs_.erase(mode);
+}
+
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
@@ -923,7 +928,7 @@ ValGraph IdModel::buildIntersection(
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
-    for (auto id0_i : c10::irange(set_size)) {
+    for (auto id0_i : arange(set_size)) {
       Val* id0 = group0->vector()[id0_i];
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
         Val* id1 = group0->vector()[id1_i];
@@ -968,7 +973,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       })) {
     // Inputs have mismatched type, replace new_inputs
     auto tmp_inputs = new_inputs;
-    for (const auto i : c10::irange(new_inputs.size())) {
+    for (const auto i : arange(new_inputs.size())) {
       new_inputs.at(i) = IterDomainBuilder(tmp_inputs.at(i))
                              .iter_type(IterType::Iteration)
                              .build();

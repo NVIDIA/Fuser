@@ -248,9 +248,10 @@ class MmaSwizzler {
 //! shared memory to global memory.
 void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle);
 
-//! Schedules the copy operation of output of a Mma op which resided in the
-//! registers to shared memory.
-void scheduleStMatrixForMmaOutput(
+//! Schedules the loop domain of a TensorView to be compatible with LdMatrix or
+//! StMatrix. The loop domain of input TensorView must already be scheduled to
+//! match wgmma register accumulator.
+void scheduleLdStMatrixForMmaOutput(
     TensorView* tv,
     int64_t tile_m,
     int64_t tile_n);
@@ -333,12 +334,7 @@ struct MatmulPattern {
   //! there is a MatmulOp instead, this function modifies the fusion to insert
   //! an MmaOp. TensorViews A and B are unchanged, but this->output might be
   //! updated to reflect the replacement tensor.
-  //!
-  //! If avoid_intermediates is true, this function will set intermediate
-  //! tensors between the fusion inputs and MmaOp as Global and rearrange their
-  //! allocation domains to match the input tensor in order to guarantee that
-  //! their definitions do not appear in the generated kernel.
-  TranslationResult translateToMmaOp(bool avoid_intermediates = false);
+  TranslationResult translateToMmaOp();
 
   //! Given an IdModel, map groups of IterDomains to dimension roles
   //! (MatmulDimRole). Note that ValGroup is a shared_ptr to a

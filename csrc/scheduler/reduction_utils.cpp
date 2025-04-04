@@ -312,7 +312,7 @@ TensorView* scheduleReductionTV(
   if (is_outer_grid_persistence) {
     int64_t vec_id_cur_pos = -1;
     std::unordered_map<int64_t, int64_t> vec_reorder_map;
-    for (const auto i : c10::irange(reduction_rf_tv->nDims())) {
+    for (const auto i : arange(reduction_rf_tv->nDims())) {
       auto id = reduction_rf_tv->axis(i);
       if (id->getParallelType() == ParallelType::Vectorize) {
         vec_id_cur_pos = i;
@@ -339,7 +339,7 @@ std::vector<int64_t> addBackBroadcasts(
   // convert non-broadcast positions to raw positions
   std::vector<int64_t> axes;
   int64_t non_broadcast_pos = 0;
-  for (const auto i : c10::irange(tv->nDims())) {
+  for (const auto i : arange(tv->nDims())) {
     if (tv->axis(i)->isBroadcast()) {
       continue;
     }
@@ -371,7 +371,7 @@ void propagateRFactor(
   // position in other reduction TVs.
   std::unordered_set<int64_t> non_broadcast_rfactor_axes_ir;
   int64_t non_broadcast_pos_ir = 0;
-  for (const auto i : c10::irange(reference_tv->nDims())) {
+  for (const auto i : arange(reference_tv->nDims())) {
     if (reference_tv->axis(i)->isBroadcast()) {
       continue;
     }
@@ -478,7 +478,7 @@ void clearUnrollVectorizationAddGroupReduction(
     if (unroll_vectorizable_cached_tvs.count(tv) != 0) {
       continue;
     }
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       if (use_grouped_reduction &&
           std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
@@ -490,8 +490,7 @@ void clearUnrollVectorizationAddGroupReduction(
         }
       } else if (
           id->getParallelType() == ParallelType::Unroll ||
-          id->getParallelType() == ParallelType::Vectorize ||
-          id->getParallelType() == ParallelType::MisalignedVectorize) {
+          id->getParallelType() == ParallelType::Vectorize) {
         tv->axis(i)->parallelize(ParallelType::Serial);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
           sibling->axis(i)->parallelize(ParallelType::Serial);
@@ -527,10 +526,7 @@ void propagateParallelization(
       reference_tv,
       -1,
       selected_tvs,
-      allParallelTypesExcept(
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize}));
+      allParallelTypesExcept({ParallelType::Unroll, ParallelType::Vectorize}));
 
   if (is_unroll_or_vectorization) {
     if (!unroll_vectorizable_cached_tvs.empty()) {
@@ -540,9 +536,7 @@ void propagateParallelization(
           -1,
           {unroll_vectorizable_cached_tvs.begin(),
            unroll_vectorizable_cached_tvs.end()},
-          {ParallelType::Unroll,
-           ParallelType::Vectorize,
-           ParallelType::MisalignedVectorize});
+          {ParallelType::Unroll, ParallelType::Vectorize});
     }
     // If reference shouldn't be unrolled, clear that parallel type.
     // In the case of outer grid persistence, replace Vector with Group.
@@ -565,8 +559,7 @@ int idPos(const IterDomain* id) {
   // Reduction and unrolled
   if (id->isReduction() &&
       (id->getParallelType() == ParallelType::Unroll ||
-       id->getParallelType() == ParallelType::Vectorize ||
-       id->getParallelType() == ParallelType::MisalignedVectorize)) {
+       id->getParallelType() == ParallelType::Vectorize)) {
     return inner_most;
   }
   inner_most--;
@@ -598,8 +591,7 @@ int idPos(const IterDomain* id) {
   // Iter and unrolled
   if (!id->isReduction() &&
       (id->getParallelType() == ParallelType::Unroll ||
-       id->getParallelType() == ParallelType::Vectorize ||
-       id->getParallelType() == ParallelType::MisalignedVectorize)) {
+       id->getParallelType() == ParallelType::Vectorize)) {
     return inner_most;
   }
   inner_most--;
@@ -660,10 +652,10 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   std::sort(domain.begin(), domain.end(), placedBefore);
   std::unordered_map<int64_t, int64_t> reorder_map;
   std::unordered_map<IterDomain*, int64_t> domain_pos;
-  for (auto axis_i : c10::irange(static_cast<int64_t>(domain.size()))) {
+  for (auto axis_i : arange(static_cast<int64_t>(domain.size()))) {
     domain_pos[domain[axis_i]] = axis_i;
   }
-  for (int64_t old_i : c10::irange(reference_tv->nDims())) {
+  for (int64_t old_i : arange(reference_tv->nDims())) {
     reorder_map[old_i] = domain_pos.at(reference_tv->axis(old_i));
   }
   reference_tv->reorder(reorder_map);
@@ -671,7 +663,7 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   std::vector<int64_t> rfactor_axes;
   std::vector<int64_t> rfactor_axes_no_unswitch;
   size_t reduction_dims = 0;
-  for (int64_t axis_i : c10::irange(reference_tv->nDims())) {
+  for (int64_t axis_i : arange(reference_tv->nDims())) {
     auto id = reference_tv->axis(axis_i);
     if (!id->isReduction()) {
       continue;
@@ -743,7 +735,7 @@ class PersistentBufferProjector {
     // Iterate through projected buffers, tracking which index it corresponds
     // too since there's a resolution point entry for every buffer.
     const auto& reduction_tvs = scheduler_utils::getReductionTvs(fusion_);
-    for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+    for (auto buffer_i : arange(persistent_buffers.size())) {
       auto buffer = persistent_buffers[buffer_i];
       if (std::find(
               projectable_persistent_buffers.begin(),
@@ -825,7 +817,7 @@ class PersistentBufferProjector {
         // register usage.
         // TODO: extend to allow non-cast ops in the recomputation.
         auto consumers = ir_utils::consumerTvsOf(buffer);
-        for (auto i : c10::irange(1, consumers.size())) {
+        for (auto i : arange(1, consumers.size())) {
           ir_utils::replaceValInExprInputs(
               consumers.at(i)->definition(),
               buffer,

@@ -70,11 +70,11 @@ class ValidateSiblings : public IterVisitor {
           ". Sibling: ",
           sibling->toString());
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         validateParallelTypes(ref_output->axis(i), sibling->axis(i));
       }
 
-      for (const auto i : c10::irange(ref_root.size())) {
+      for (const auto i : arange(ref_root.size())) {
         id_map[ref_root[i]] = sibling->getMaybeRootDomain().at(i);
       }
 
@@ -83,7 +83,7 @@ class ValidateSiblings : public IterVisitor {
               sibling->getLoopDomain(), ref_output->getLoopDomain(), id_map)
               .getIterDomainEquivalence();
 
-      for (const auto i : c10::irange(ref_ndims)) {
+      for (const auto i : arange(ref_ndims)) {
         NVF_ERROR(
             replay.strictAreMapped(ref_output->axis(i), sibling->axis(i)),
             "Matching sibling ID not found. Expr: ",
@@ -229,84 +229,6 @@ void validateIr(Fusion* fusion) {
 }
 
 namespace {
-
-// Check contiguity for all allocation domains associated with Misaligned
-// Vectorize ParallelType
-void checkContiguity(
-    const std::unordered_set<IterDomain*>& dep_alloc_ids,
-    TensorView* tv) {
-  NVF_ERROR(tv->getMemoryType() == MemoryType::Global);
-
-  for (const auto idx : c10::irange(tv->getMaybeAllocationDomain().size())) {
-    auto alloc = tv->getMaybeAllocationDomain()[idx];
-    if (dep_alloc_ids.find(alloc) != dep_alloc_ids.end()) {
-      NVF_ERROR(
-          !alloc->isBroadcast(),
-          "Misaligned vectorization prohibits merging broadcast domains.",
-          "Issue found in, ",
-          tv);
-      NVF_ERROR(
-          tv->domain()->contiguity().at(idx).value_or(false),
-          "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
-          "Issue found in, ",
-          tv);
-    }
-  }
-}
-
-// Check all allocation iter domains that are the dependencies of the
-// vectorization iter domain,
-// making sure they're contiguous. Map these domains to producer and make sure
-// they are also contiguous in producer. Producer-consumer relationship is
-// assumed to be through a set operation.
-void checkContiguity(
-    const std::unordered_set<IterDomain*>& consumer_alloc_ids,
-    TensorView* consumer,
-    TensorView* producer) {
-  // This seems not quite right, shouldn't we be able to reverse this?
-  NVF_ERROR(consumer->getMemoryType() == MemoryType::Local);
-  NVF_ERROR(producer->getMemoryType() == MemoryType::Global);
-
-  // TODO: we should use BestEffortReplay to find the correct c2p map for
-  // allocation domain when it is different from logical domain.
-  // This logic is outdated, but it's only for MisalignedVectorize,
-  // which is not actively used.
-  NVF_ERROR(
-      !consumer->hasAllocation() && !producer->hasAllocation(),
-      "Misaligned vectorization for allocation domain is not supported.");
-  auto alloc_c2p =
-      PairwiseLogicalDomainMap(producer, consumer).mapConsumerToProducer();
-
-  std::unordered_map<IterDomain*, std::optional<bool>>
-      producer_domain_contiguity;
-  for (const auto idx :
-       c10::irange(producer->getMaybeAllocationDomain().size())) {
-    auto alloc = producer->getMaybeAllocationDomain().at(idx);
-    auto contiguity = producer->domain()->contiguity().at(idx);
-    producer_domain_contiguity.insert({alloc, contiguity});
-  }
-
-  for (auto consumer_alloc : consumer_alloc_ids) {
-    auto producer_alloc = alloc_c2p.at(consumer_alloc);
-    NVF_ERROR(
-        producer_domain_contiguity.find(producer_alloc) !=
-        producer_domain_contiguity.end());
-
-    NVF_ERROR(
-        !consumer_alloc->isBroadcast() || !producer_alloc->isBroadcast(),
-        "Misaligned vectorization prohibits merging broadcast domains.",
-        "Issue found in, ",
-        consumer);
-
-    NVF_ERROR(alloc_c2p.find(consumer_alloc) != alloc_c2p.end());
-
-    NVF_ERROR(
-        producer_domain_contiguity.at(producer_alloc).value_or(false),
-        "Cannot merge non-contiguous allocation domains with misaligned vectorization.",
-        "Issue found in, ",
-        consumer);
-  }
-}
 
 class VectorizeValidator : public OptInDispatch {
  private:
@@ -550,17 +472,6 @@ class VectorizeValidator : public OptInDispatch {
       const std::unordered_set<IterDomain*>& dep_alloc_ids,
       TensorView* tv,
       std::string name) {
-    if (vec_alloc_id->getParallelType() == ParallelType::MisalignedVectorize) {
-      if (tv->getMemoryType() == MemoryType::Global) {
-        checkContiguity(dep_alloc_ids, tv);
-      } else if (tv->definition()->isA<LoadStoreOp>()) {
-        auto input = tv->definition()->input(0);
-        NVF_ERROR(input->isA<TensorView>());
-        auto input_tv = input->as<TensorView>();
-        checkContiguity(dep_alloc_ids, tv, input_tv);
-      }
-    }
-
     // Contiguity is based on logical domain.
     IterDomain* last_alloc_dim = nullptr;
     size_t last_alloc_dim_pos = 0;
@@ -688,6 +599,7 @@ class VectorizeValidator : public OptInDispatch {
     // Except for TMem, allow half2, float2, float4 and same sized vtypes.
     std::vector<int64_t> allowed_vector_sizes = {2, 4, 8, 16};
     // TMem can vectorize up to 512 bytes.
+    bool is_tmem = false;
     if (auto ldst = dynamic_cast<LoadStoreOp*>(tv_def); ldst != nullptr &&
         (ldst->opType() == LoadStoreOpType::LdTMem ||
          ldst->opType() == LoadStoreOpType::StTMem)) {
@@ -696,6 +608,7 @@ class VectorizeValidator : public OptInDispatch {
       allowed_vector_sizes.push_back(128);
       allowed_vector_sizes.push_back(256);
       allowed_vector_sizes.push_back(512);
+      is_tmem = true;
     }
 
     NVF_CHECK(
@@ -705,7 +618,9 @@ class VectorizeValidator : public OptInDispatch {
             vector_size) != allowed_vector_sizes.end(),
         "Tried to vectorize a dim resulting in a word size of ",
         vector_size,
-        " however, vector sizes only upto and including 16 bytes are supported.");
+        " however, vector sizes only upto and including ",
+        is_tmem ? "512 bytes" : "16 bytes",
+        " are supported.");
 
     auto consumer_vectorized_id = getAndValidateVectorizedIdInAllocationDomain(
         v_id, tv, "consumer", tv_def);
@@ -819,9 +734,8 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
   std::vector<Val*> used_vals = fusion->usedMathVals();
   for (auto* tv : ir_utils::filterByType<TensorView>(used_vals)) {
     bool has_vectorize_dim = false;
-    bool has_misaligned_vectorize_dim = false;
 
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       IterDomain* id = tv->axis(i);
       IterDomain* concrete_id = lower_utils::getConcreteLoopID(id);
 
@@ -840,18 +754,6 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
             tv,
             "\n");
         has_vectorize_dim = true;
-      }
-
-      if (ptype == ParallelType::MisalignedVectorize) {
-        NVF_ERROR(
-            tv->getMaxComputePosition() == 0 ||
-                tv->getMaxComputePosition() == tv->nDims() - 1,
-            "Only allow misaligned vectorization in the -2 computeAt position.");
-        NVF_ERROR(
-            tv->getMemoryType() == MemoryType::Local ||
-                tv->getMemoryType() == MemoryType::Global,
-            "Only allow misaligned vectorization between global and local memory.");
-        has_misaligned_vectorize_dim = true;
       }
 
       // ParallelType::Group is used for both reduction and normalization.
@@ -889,9 +791,9 @@ void validateAndCollectVectorizeInfo(Fusion* fusion) {
     }
     // Validate the vectorized domain maps to the innermost domain of
     // tv. Note that we don't need to validate its producer tv as
-    // both Vectorize and MisalignedVectorize can only be used with
+    // Vectorize can only be used with
     // UnaryOp::Set.
-    if (has_vectorize_dim || has_misaligned_vectorize_dim) {
+    if (has_vectorize_dim) {
       VectorizeValidator::validate(tv);
     }
   }
@@ -1041,16 +943,23 @@ void validateMmaTensors(MmaOp* mma) {
 
   // Note: this check will be relaxed in a follow up.
   auto validate_operand = [mma](const TensorView* tv, MmaOperand operand) {
-    if (mma->isHopper()) {
+    if (mma->isHopper() || mma->isBlackwell()) {
       if (operand == MmaOperand::B) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Shared,
-            "Only supporting smem input for Hopper mma input B");
-      } else {
+            "Only supporting smem input for Hopper/Blackwell mma input B");
+      } else if (mma->isHopper()) {
         NVF_ERROR(
             tv->getMemoryType() == MemoryType::Local ||
                 tv->getMemoryType() == MemoryType::Shared,
             "Only supporting register or shared memory input for Hopper mma input A");
+      } else if (mma->isBlackwell()) {
+        NVF_ERROR(
+            tv->getMemoryType() == MemoryType::Tensor ||
+                tv->getMemoryType() == MemoryType::Shared,
+            "Only supporting tensor or shared memory input for Blackwell mma input A");
+      } else {
+        NVF_THROW("Should not reach here");
       }
     } else {
       NVF_ERROR(
@@ -1191,7 +1100,7 @@ void validateSwizzle(Fusion* fusion) {
 void validateAndConvertIterDomainGrouping(Fusion* fusion) {
   for (auto tv : fusion->allTvs()) {
     bool is_grouped = false;
-    for (const auto id_idx : c10::irange(tv->nDims())) {
+    for (const auto id_idx : arange(tv->nDims())) {
       const auto id = tv->axis(id_idx);
       auto ptype = lower_utils::getConcreteLoopID(id)->getParallelType();
       if (ptype != ParallelType::Group) {

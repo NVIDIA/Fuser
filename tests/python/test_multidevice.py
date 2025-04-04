@@ -117,12 +117,13 @@ def test_linear(multidevice_test):
 def test_linear_loop_split(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
+    e = 768
 
     class Model(FusionDefinition):
         def definition(self):
-            self.inp = self.define_tensor([-1, -1, -1])
-            self.weight = self.define_tensor([-1, -1])
-            self.bias = self.define_tensor([-1])
+            self.inp = self.define_tensor([-1, -1, e])
+            self.weight = self.define_tensor([d * e, e])
+            self.bias = self.define_tensor([d * e])
             self.out = self.ops.linear(self.inp, self.weight, self.bias)
             self.add_output(self.out)
 
@@ -144,7 +145,7 @@ def test_linear_loop_split(multidevice_test):
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
-    b, s, e = 2, 1024, 768
+    b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(d * e, e)
     sharded_weight_tensor = multidevice_test.shard_tensor(
@@ -221,11 +222,12 @@ def test_matmul_allreduce(multidevice_test):
 def test_matmul_loop_split(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
+    e = 768
 
     class Model(FusionDefinition):
         def definition(self):
-            self.inp = self.define_tensor([-1, -1, -1])
-            self.weight = self.define_tensor([-1, -1])
+            self.inp = self.define_tensor([-1, -1, e])
+            self.weight = self.define_tensor([e, d * e])
             self.out = self.ops.matmul(self.inp, self.weight)
             self.add_output(self.out)
 
@@ -246,7 +248,7 @@ def test_matmul_loop_split(multidevice_test):
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
-    b, s, e = 2, 1024, 768
+    b, s = 2, 1024
     inp_tensor = torch.randn(b, s, e, device="cuda")
     unsharded_weight_tensor = torch.randn(e, d * e)
     sharded_weight_tensor = multidevice_test.shard_tensor(
@@ -269,14 +271,15 @@ def test_matmul_loop_split(multidevice_test):
 def test_matmul_allreduce_loop_split(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
+    e = 8
 
     class Model(FusionDefinition):
         def definition(self) -> None:
             self.inp = self.define_tensor(
-                [-1, -1], contiguity=True, dtype=DataType.Half
+                [-1, d * e], contiguity=True, dtype=DataType.Half
             )
             self.weight = self.define_tensor(
-                [-1, -1], contiguity=True, dtype=DataType.Half
+                [d * e, e], contiguity=True, dtype=DataType.Half
             )
             self.out = self.ops.matmul(self.inp, self.weight)
             self.add_output(self.out)
@@ -306,7 +309,7 @@ def test_matmul_allreduce_loop_split(multidevice_test):
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
-    b, s, e = 1, 4, 8
+    b, s = 1, 4
     unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half)
     unsharded_weight = torch.randn(d * e, e, dtype=torch.half)
     sharded_inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
@@ -456,6 +459,9 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
 def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
+    h, e = 12, 768
+    if h % d != 0:
+        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
     class Model(FusionDefinition):
         def __init__(self, qkv_format: QkvFormat):
@@ -471,7 +477,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
             self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
-                    shape=[-1, -1, -1, -1],
+                    shape=[-1, h, -1, e // h],
                     dtype=DataType.BFloat16,
                     stride_order=stride_order,
                 )
@@ -538,9 +544,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             for t in output_tvs:
                 self.sched.set_allocation_as_loop(t)
 
-    b, s, h, e = 2, 1024, 12, 768
-    if h % d != 0:
-        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
+    b, s = 2, 1024
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
