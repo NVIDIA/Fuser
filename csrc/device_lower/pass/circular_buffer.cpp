@@ -1386,13 +1386,26 @@ class CircularBufferInserter : private kir::ExprMutator {
             circular_buffer_loop->iter_domain());
     ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
 
-    kir::IfThenElse* warp_dispatch_ite = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-            NamedScalar::getParallelIndex(warp_specialize_on),
-            IrBuilder::subExpr(
-                GpuLower::current()->parallelDimensionMap().get(
-                    warp_specialize_on),
-                circular_buffer_loop->fusion()->oneVal()))));
+    // Create warp_dispatch_ite, the predicate is either
+    // Tid == bdim - 1 or Tid >= bdim - padded
+    int64_t warp_specialization_pad =
+        GpuLower::current()
+            ->parallelDimensionMap()
+            .getWarpSpecializationPaddedVal(warp_specialize_on);
+    kir::Predicate* predicate_val = nullptr;
+    Val* raw =
+        GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
+    Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
+        raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+    if (warp_specialization_pad == 1) {
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    } else {
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    }
+    kir::IfThenElse* warp_dispatch_ite =
+        IrBuilder::create<kir::IfThenElse>(predicate_val);
 
     // Set default value
     auto& circular_buffer_options =
