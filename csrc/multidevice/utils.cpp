@@ -372,7 +372,8 @@ bool haveDifferentShardings(
   // TODO: work on a proper implementation
   if (consumer->definition()->isA<SelectOp>()) {
     auto* select_op = consumer->definition()->as<SelectOp>();
-    NVF_ERROR(select_op->input(0) == producer, "SelectOp input 0 is not producer");
+    NVF_ERROR(
+        select_op->input(0) == producer, "SelectOp input 0 is not producer");
     return select_op->getIndexedID()->isDeviceDim();
   }
 
