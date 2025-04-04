@@ -9,7 +9,6 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <multidevice/communication.h>
-#include <multidevice/utils.h>
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
 #include <torch/csrc/distributed/c10d/ProcessGroupNCCL.hpp>
 #endif
@@ -349,6 +348,15 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   auto splits = at::tensor_split(
       flattened_output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({flattened_input_tensor}, splits);
+
+  // We assume that the gathered axis is outermost in allocation and after permutation will be the first dimension.
+  // The other alternative is to use `getShardedLogicalAxis` to find the sharded axis and split on that.
+  // This is not always possible since manual IRs like Manual/MultiDeviceHostIrTest.SingleFusionSingleComm_withoutShardingAnnotations
+  // do not have sharding annotations.
+
+  auto splits =
+      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize({input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
   // received tensors into user buffer. It is therefore always preferable to use

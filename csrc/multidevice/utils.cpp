@@ -191,13 +191,13 @@ int64_t getShardedLogicalAxis(
 
   std::unordered_map<IterDomain*, int64_t> logical_id_to_axis =
       mapIterDomainToTensorAxis(tv->getLogicalDomain());
-  IterDomain* id = loop_id;
+  IterDomain* id = alloc_id;
   while (logical_id_to_axis.count(id) == 0) {
     Expr* def = id->definition();
     NVF_ERROR(
         def != nullptr,
         "Failed to find a non-reduction logical IterDomain that produces ",
-        loop_id);
+        alloc_id);
     if (auto* split = dynamic_cast<Split*>(def)) {
       // Returning just which tensor axis is sharded isn't sufficient to let
       // shardTensor, a user of this function, know how to shard the tensor.
@@ -281,7 +281,7 @@ at::Tensor shardTensor(
   auto extent = tensor.size(axis);
   auto nslices = mesh.size();
   NVF_CHECK(
-      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh: ", extent, " % ", nslices);
+      extent % nslices == 0, "Sharded axis must be evenly divisble by mesh");
   auto stride = extent / nslices;
   // TODO: returning slice 0 temporarily when device is not in the mesh.
   i = (i < 0) ? 0 : i;
