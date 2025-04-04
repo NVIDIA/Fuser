@@ -2138,6 +2138,77 @@ Val* Index::getProducerStridedIndices(
   }
 }
 
+namespace {
+
+bool shouldUseTensorIndexer(
+    const TensorView* producer,
+    const TensorView* consumer,
+    const std::unordered_set<ForLoop*>& rotated_loops) {
+  // Check if TensorIndexer is definitely required
+  auto is_tensor_indexer_required = [&]() -> bool {
+    bool is_producer_tma_op = producer->definition() != nullptr &&
+        producer->definition()->isA<LoadStoreOp>() &&
+        ir_utils::isCpAsyncBulkLoad(producer->definition());
+    bool is_consumer_tma_op = consumer->definition() != nullptr &&
+        consumer->definition()->isA<LoadStoreOp>() &&
+        ir_utils::isCpAsyncBulkLoad(consumer->definition());
+
+    return !ir_utils::hasRootToLoopLinearTransformations(producer) ||
+        (consumer->definition()->isA<MmaOp>() &&
+         isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
+        is_producer_tma_op || is_consumer_tma_op ||
+        GpuLower::current()->tmemInfo().hasTMemTensor();
+  };
+
+  // Check if TensorIndexer is supported.
+  auto is_tensor_indexer_supported = [&](bool assert) -> bool {
+    bool is_producer_ldmatrix_op = producer->definition() != nullptr &&
+        producer->definition()->isA<LoadStoreOp>() &&
+        producer->definition()->as<LoadStoreOp>()->opType() ==
+            LoadStoreOpType::LdMatrix;
+    bool is_producer_stmatrix_op_with_no_alloc_domain =
+        producer->definition() != nullptr &&
+        producer->definition()->isA<LoadStoreOp>() &&
+        producer->definition()->as<LoadStoreOp>()->opType() ==
+            LoadStoreOpType::StMatrix &&
+        !producer->hasAllocation();
+
+    if (assert) {
+      NVF_ERROR(
+          !is_producer_ldmatrix_op,
+          "TensorIndexer required but not supported as the producer is produced by ldmatrix: ",
+          producer->definition()->toString());
+      NVF_ERROR(
+          !is_producer_stmatrix_op_with_no_alloc_domain,
+          "TensorIndexer required but not supported as the producer is produced by stmatrix and it does not have allocation domain: ",
+          producer->definition()->toString());
+      NVF_ERROR(
+          rotated_loops.empty(),
+          "TensorIndexer required but not supported as loop rotation is used");
+    }
+
+    return !is_producer_ldmatrix_op &&
+        !is_producer_stmatrix_op_with_no_alloc_domain && rotated_loops.empty();
+  };
+
+  // TensorIndexer is always used if it's required
+  if (is_tensor_indexer_required()) {
+    // Make sure it's supported
+    is_tensor_indexer_supported(/*assert=*/true);
+    return true;
+  }
+
+  // If opted in, TensorIndexer is used as long as it's supported
+  if (GpuLower::current()->idModelOptions().producerIndex() &&
+      is_tensor_indexer_supported(/*assert=*/false)) {
+    return true;
+  }
+
+  return false;
+}
+
+} // namespace
+
 // Producer is the inputs of an expression
 kir::TensorIndex* Index::getProducerIndex(
     TensorView* producer,
@@ -2148,31 +2219,8 @@ kir::TensorIndex* Index::getProducerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  bool is_producer_tma_op = producer->definition() != nullptr &&
-      producer->definition()->isA<LoadStoreOp>() &&
-      ir_utils::isCpAsyncBulkLoad(producer->definition());
-  bool is_consumer_tma_op = consumer->definition() != nullptr &&
-      consumer->definition()->isA<LoadStoreOp>() &&
-      ir_utils::isCpAsyncBulkLoad(consumer->definition());
-  // Indexing ldmatrix-produced tensor is not yet supported by TensorIndexer
-  bool is_producer_ldmatrix_op = producer->definition() != nullptr &&
-      producer->definition()->isA<LoadStoreOp>() &&
-      producer->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::LdMatrix;
-  // Indexing stmatrix-produced tensor is not yet supported by TensorIndexer
-  bool is_producer_stmatrix_op = producer->definition() != nullptr &&
-      producer->definition()->isA<LoadStoreOp>() &&
-      producer->definition()->as<LoadStoreOp>()->opType() ==
-          LoadStoreOpType::StMatrix;
 
-  if ((!ir_utils::hasRootToLoopLinearTransformations(producer) ||
-       (consumer->definition()->isA<MmaOp>() &&
-        isHopper(consumer->definition()->as<MmaOp>()->macro())) ||
-       is_producer_tma_op || is_consumer_tma_op ||
-       GpuLower::current()->idModelOptions().producerIndex() ||
-       GpuLower::current()->tmemInfo().hasTMemTensor()) &&
-      !is_producer_ldmatrix_op && !is_producer_stmatrix_op) {
-    NVF_ERROR(rotated_loops.empty(), "Loop rotation is not supported");
+  if (shouldUseTensorIndexer(producer, consumer, rotated_loops)) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops, override_index);
     if (generate_pointer) {
