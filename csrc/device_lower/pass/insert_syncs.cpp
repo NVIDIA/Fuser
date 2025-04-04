@@ -43,7 +43,7 @@ std::optional<bool> isOptionalLoadOrComputeSync(
   bool contains_load_warp = isWithinLoadWarp(for_loops);
   bool contains_compute_warp = isWithinComputeWarp(for_loops);
   NVF_ERROR(
-      contains_load_warp || contains_compute_warp,
+      !contains_load_warp || !contains_compute_warp,
       "The list of for-loops contains both LoadWarp and ComputeWarp stages.");
   if (isWithinLoadWarp(for_loops)) {
     return false;
