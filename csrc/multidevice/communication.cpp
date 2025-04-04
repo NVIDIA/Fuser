@@ -328,12 +328,40 @@ c10::intrusive_ptr<c10d::Work> postGather(
       output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
+
+std::vector<int64_t> getContiguityPermutation(const at::Tensor& tensor) {
+  auto strides = tensor.strides();
+  std::vector<int64_t> dims(strides.size());
+  std::iota(dims.begin(), dims.end(), 0);
+  std::sort(dims.begin(), dims.end(), [&](int64_t a, int64_t b) {
+    return strides.at(a) > strides.at(b);
+  });
+  return dims;
+}
+
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  
+  // For example,tensor with shape [m, n, k] and strides [1, k*m, m]
+  // is permute to [n, k, m] to match the ProcessGroupNCCL contiguity requirements.
+  if (!input_tensor.is_contiguous()) {
+    auto dims = getContiguityPermutation(input_tensor);
+    input_tensor = input_tensor.permute(dims);
+  }
+  if (!output_tensor.is_contiguous()) {
+    auto dims = getContiguityPermutation(output_tensor);
+    output_tensor = output_tensor.permute(dims);
+  }
+
+  // We assume that the gathered axis is outermost in allocation and after permutation will be the first dimension.
+  // The other alternative is to use `getShardedLogicalAxis` to find the sharded axis and split on that.
+  // This is not always possible since manual IRs like Manual/MultiDeviceHostIrTest.SingleFusionSingleComm_withoutShardingAnnotations
+  // do not have sharding annotations. This will be ensured by `reorderShardedAxis` and `makeShardingContiguous` presegmentation pass.
+
   auto splits =
       at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({input_tensor}, splits);
