@@ -56,6 +56,14 @@ namespace nvfuser {
 
 using namespace at::indexing;
 
+class ComputeWithTest : public NVFuserTest {
+ protected:
+  void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+    NVFuserTest::SetUp();
+  }
+};
+
 namespace {
 
 // Check if a lowered TensorView that corresponds to a given fusion
@@ -114,7 +122,7 @@ void checkComputeWith(
 
 } // namespace
 
-TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
+TEST_F(ComputeWithTest, ComputeWith1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -172,7 +180,7 @@ TEST_F(NVFuserTest, FusionComputeWith1_CUDA) {
 }
 
 // StoreAt with 1D softmax
-TEST_F(NVFuserTest, FusionComputeWith2_CUDA) {
+TEST_F(ComputeWithTest, ComputeWith2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -228,7 +236,7 @@ TEST_F(NVFuserTest, FusionComputeWith2_CUDA) {
   testValidate(&fusion, cg_outputs, {t0}, {aten_output}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
+TEST_F(ComputeWithTest, ComputeWith3) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -270,7 +278,7 @@ TEST_F(NVFuserTest, FusionComputeWith3_CUDA) {
 
 // Compute a tensor that has siblings with a consumer. All of the
 // siblings are computed with the same consumer.
-TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
+TEST_F(ComputeWithTest, ComputeWith4) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -316,7 +324,7 @@ TEST_F(NVFuserTest, FusionComputeWith4_CUDA) {
 
 // Compute a tensor with a consumer that has siblings. The tensor is
 // computed with all of the siblings.
-TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
+TEST_F(ComputeWithTest, ComputeWith5) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -354,7 +362,7 @@ TEST_F(NVFuserTest, FusionComputeWith5_CUDA) {
 }
 
 // Testing inlining with a fusion with an outer persistent grid welford
-TEST_F(NVFuserTest, FusionComputeWith6_CUDA) {
+TEST_F(ComputeWithTest, ComputeWith6) {
   std::vector<bool> bcast_pattern{true, true, true, false};
   std::vector<int64_t> reduction_dims{2, 1, 0};
 

@@ -721,6 +721,39 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
+  // Adds more mappings from IdModel if available
+  auto expand_by_id_model = [](DisjointSets<IterDomain*>& nodes,
+                               IdMappingMode mode) {
+    if (!GpuLower::hasCurrent() || !GpuLower::current()->hasIdModel()) {
+      return;
+    }
+
+    const ValGraph& graph = GpuLower::current()->idModel().idGraph(mode);
+    for (const auto& vg : graph.disjointValSets().disjointSets()) {
+      IterDomain* first_id = nullptr;
+      for (const auto& val : *vg) {
+        auto id = val->as<IterDomain>();
+        if (!nodes.mappingExists(id)) {
+          continue;
+        }
+        if (first_id == nullptr) {
+          first_id = id;
+        } else if (!nodes.strictAreMapped(first_id, id)) {
+          nodes.mapEntries(first_id, id);
+        }
+      }
+    }
+  };
+
+  // Expand the exact sets with the IdModel exact graph so that
+  // the legacy and new indexers would produce less mismatching
+  // results.
+  expand_by_id_model(exact_nodes_, IdMappingMode::EXACT);
+  // Expand the permissive sets with the IdModel exact graph. The
+  // permissive IdModel graph may be used instead, but the exact graph
+  // seems sufficient to fill the gap with IdModel
+  expand_by_id_model(permissive_nodes_, IdMappingMode::EXACT);
+
   innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
@@ -763,6 +796,8 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
     }
   }
+
+  expand_by_id_model(almost_exact_nodes_, IdMappingMode::ALMOSTEXACT);
 
   self_mapping_info_ = findFirstSelfMapping(fusion, *this);
 }

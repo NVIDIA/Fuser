@@ -555,6 +555,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_bfs.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
@@ -567,7 +568,6 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp

@@ -1205,4 +1205,14 @@ TEST_F(ExprSimplifierTest, OrderTransitivity) {
 #undef EXPECT_VALUE_TRUE
 }
 
+// This was not evaluated away because i5 is a loop index variable
+// starting with a non-zero value.
+//
+// ((((i0 * 32) + (((i5 + nvfuser_zero) * 4) + 0)) >= 0)
+TEST_F(ExprSimplifierTest, NonZeroLoopIndexStart) {
+  EXPECT_TRUE(simplifyExpr("( i5 * 4 ) >= 0 "_, {}, {"5 <= i5 && i5 < 8"_})
+                  ->value()
+                  .as<bool>());
+}
+
 } // namespace nvfuser

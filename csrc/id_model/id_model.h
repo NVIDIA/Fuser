@@ -214,6 +214,9 @@ class IdModel : public PolymorphicBase {
   // Build a graph if not already built
   ValGraph& maybeBuildGraph(IdMappingMode mode);
 
+  // Remove a graph if already built
+  void removeGraph(IdMappingMode mode);
+
   // Iterates over all IterDomains in id_definitions_ and calls initializeVal on
   // a new ValGraph and returns it.
   ValGraph initializeIdGraph(bool propagate_through_exprs = true) const;

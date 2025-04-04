@@ -1459,12 +1459,12 @@ bool isNonNegativeHelper(Val* value, const Context& context) {
     }
   }
   for (const auto& [a, b] : context.getKnownLessThan()) {
-    if (a->isZero() && b->sameAs(value)) {
+    if (a->isConst() && a->value() >= 0 && b->sameAs(value)) {
       return true;
     }
   }
   for (const auto& [a, b] : context.getKnownLessEqual()) {
-    if (a->isZero() && b->sameAs(value)) {
+    if (a->isConst() && a->value() >= 0 && b->sameAs(value)) {
       return true;
     }
   }
