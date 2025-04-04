@@ -416,10 +416,10 @@ void SegmentedGroup::finalize() {
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   os << toString(group->schedulerType()) << "\n";
-  os << "Inputs: \n";
-  for (auto inp : group->input_vals_) {
-    os << "  " << toString(inp) << std::endl;
-  }
+  // os << "Inputs: \n";
+  // for (auto inp : group->input_vals_) {
+  //   os << "  " << toString(inp) << std::endl;
+  // }
   auto expr_to_print = group->exprs();
   os << "{";
   std::sort(
@@ -436,14 +436,14 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   }
   os << "}\n";
 
-  os << "Exprs: \n";
-  for (auto expr : expr_to_print) {
-    os << "  " << toString(expr) << std::endl;
-  }
-  os << "Outputs: \n";
-  for (auto out : group->output_vals_) {
-    os << "  " << toString(out) << std::endl;
-  }
+  // os << "Exprs: \n";
+  // for (auto expr : expr_to_print) {
+  //   os << "  " << toString(expr) << std::endl;
+  // }
+  // os << "Outputs: \n";
+  // for (auto out : group->output_vals_) {
+  //   os << "  " << toString(out) << std::endl;
+  // }
   if (group->isMerged()) {
     os << " (merged)";
   }
@@ -2275,8 +2275,8 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
       }
     }
 
-    std::cout << "Merging:\n  " << toString(group1) << "\n  "
-              << toString(group2) << std::endl;
+    // std::cout << "Merging:\n  " << toString(group1) << "\n  "
+    //           << toString(group2) << std::endl;
 
     clean_up_groups_.emplace(group1);
     clean_up_groups_.emplace(group2);
@@ -2370,8 +2370,8 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
       clean_up_edges_.insert(
           disconnected_edges.begin(), disconnected_edges.end());
     }
-    std::cout << "Joined group:\n  " << toString(joined_group) << std::endl;
-    std::cout << "Fourth" << std::endl;
+    // std::cout << "Joined group:\n  " << toString(joined_group) << std::endl;
+    // std::cout << "Fourth" << std::endl;
     joined_group->setSchedulerType(deriveSchedulerType(joined_group));
 
     if (group_dependency_) {
@@ -2534,7 +2534,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
       groups().end());
 
   clean_up_edges_.clear();
-  std::cout << "Fifth" << std::endl;
+  // std::cout << "Fifth" << std::endl;
   joined_group->setSchedulerType(deriveSchedulerType(joined_group));
   return joined_group;
 }
@@ -2757,8 +2757,8 @@ SchedulerType findScheduler(
       "but it's definitely a change of world view that we should be aware of.");
 
   // Enable scheduler verbose logging for this function
-  DebugDumpOptionsGuard debug_dump_guard;
-  debug_dump_guard.getCurOptions().set(DebugDumpOption::SchedulerVerbose);
+  // DebugDumpOptionsGuard debug_dump_guard;
+  // debug_dump_guard.getCurOptions().set(DebugDumpOption::SchedulerVerbose);
 
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
@@ -4242,6 +4242,9 @@ void SegmentCandidateFinder::trySetUpMerge(
   candidate_it->group->merged_ = true;
   candidate_it->group->merge_with_ = group;
   candidate_it->group->merge_through_ = candidate_it->edge;
+
+  std::cout << "Yes, Merge:\n  " << toString(group) << "\n  "
+            << toString(candidate_it->group) << std::endl;
 }
 
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
@@ -4299,20 +4302,20 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
         connectGroups(duplicate_inp_group, consumer, segmented_fusion_.get());
         to_merge_.push_back(duplicate_inp_group);
         to_merge_.push_back(consumer);
-        std::cout << "MergeNodes first" << std::endl;
+        // std::cout << "MergeNodes first" << std::endl;
         mergeNodes();
       }
 
       to_merge_.push_back(new_inp_group);
       to_merge_.push_back(consumers.vector()[0]);
-      std::cout << "MergeNodes second" << std::endl;
+      // std::cout << "MergeNodes second" << std::endl;
       auto merged_group = mergeNodes();
       input2group_[inp] = merged_group;
 
     } else {
       // If !can_merge_all_consumers, then we just need to set a scheduler to
       // the input group
-      std::cout << "First" << std::endl;
+      // std::cout << "First" << std::endl;
       new_inp_group->setSchedulerType(deriveSchedulerType(new_inp_group));
       input2group_[inp] = new_inp_group;
     }
@@ -4331,15 +4334,15 @@ void SegmentCandidateFinder::findSegments() {
 
   validateIfDebug();
 
-  std::cout << "\nComplete Fusion after buildInitialSegments:" << std::endl;
-  segmented_fusion_->completeFusion()->printMath();
+  // std::cout << "\nComplete Fusion after buildInitialSegments:" << std::endl;
+  // segmented_fusion_->completeFusion()->printMath();
 
-  std::cout << "\nForwarded Inputs Map:" << std::endl;
-  for (const auto& [forwarded_val, input_val] : forward_val_to_input_) {
-    std::cout << "Forwarded: " << forwarded_val->toString()
-              << " -> Input: " << input_val->toString() << std::endl;
-  }
-  std::cout << std::endl;
+  // std::cout << "\nForwarded Inputs Map:" << std::endl;
+  // for (const auto& [forwarded_val, input_val] : forward_val_to_input_) {
+  //   std::cout << "Forwarded: " << forwarded_val->toString()
+  //             << " -> Input: " << input_val->toString() << std::endl;
+  // }
+  // std::cout << std::endl;
 
   auto has_welford_ops =
       ir_utils::hasOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
@@ -4358,7 +4361,7 @@ void SegmentCandidateFinder::findSegments() {
   for (auto group : groups()) {
     if (!group->outputs().empty()) {
       // Set SchedulerType in case single reduction kernels were left out
-      std::cout << "Second" << std::endl;
+      // std::cout << "Second" << std::endl;
       group->setSchedulerType(deriveSchedulerType(group));
     }
   }
@@ -4397,7 +4400,7 @@ void SegmentCandidateFinder::findSegments() {
         merged_nodes = false;
       }
 
-      std::cout << "MergeNodes third" << std::endl;
+      // std::cout << "MergeNodes third" << std::endl;
       mergeNodes();
 
       validateIfDebug();
@@ -4414,37 +4417,37 @@ void SegmentCandidateFinder::findSegments() {
 
   validateIfDebug();
 
-  std::cout << "Before resolveForwardedInputs" << std::endl;
-  for (auto group : groups()) {
-    std::cout << "======================" << std::endl;
-    std::cout << "Group: " << toString(group) << std::endl;
-    for (auto inp : group->input_vals_) {
-      std::cout << "  Input: " << inp->toString() << std::endl;
-    }
-    for (auto out : group->output_vals_) {
-      std::cout << "  Output: " << out->toString() << std::endl;
-    }
-    for (auto expr : group->exprs()) {
-      std::cout << "  Expr: " << expr->toString() << std::endl;
-    }
-  }
+  // std::cout << "Before resolveForwardedInputs" << std::endl;
+  // for (auto group : groups()) {
+  //   std::cout << "======================" << std::endl;
+  //   std::cout << "Group: " << toString(group) << std::endl;
+  //   for (auto inp : group->input_vals_) {
+  //     std::cout << "  Input: " << inp->toString() << std::endl;
+  //   }
+  //   for (auto out : group->output_vals_) {
+  //     std::cout << "  Output: " << out->toString() << std::endl;
+  //   }
+  //   for (auto expr : group->exprs()) {
+  //     std::cout << "  Expr: " << expr->toString() << std::endl;
+  //   }
+  // }
 
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-  std::cout << "After resolveForwardedInputs" << std::endl;
-  for (auto group : groups()) {
-    std::cout << "======================" << std::endl;
-    std::cout << "Group: " << toString(group) << std::endl;
-    for (auto inp : group->input_vals_) {
-      std::cout << "  Input: " << inp->toString() << std::endl;
-    }
-    for (auto out : group->output_vals_) {
-      std::cout << "  Output: " << out->toString() << std::endl;
-    }
-    for (auto expr : group->exprs()) {
-      std::cout << "  Expr: " << expr->toString() << std::endl;
-    }
-  }
+  // std::cout << "After resolveForwardedInputs" << std::endl;
+  // for (auto group : groups()) {
+  //   std::cout << "======================" << std::endl;
+  //   std::cout << "Group: " << toString(group) << std::endl;
+  //   for (auto inp : group->input_vals_) {
+  //     std::cout << "  Input: " << inp->toString() << std::endl;
+  //   }
+  //   for (auto out : group->output_vals_) {
+  //     std::cout << "  Output: " << out->toString() << std::endl;
+  //   }
+  //   for (auto expr : group->exprs()) {
+  //     std::cout << "  Expr: " << expr->toString() << std::endl;
+  //   }
+  // }
   NVF_THROW("TMP");
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
@@ -4855,7 +4858,7 @@ void SegmentCandidateFinder::finalMerge() {
     } else {
       NVF_ERROR(
           to_merge_.size() == 2, "merging more than 2 nodes in final iter");
-      std::cout << "MergeNodes fourth" << std::endl;
+      // std::cout << "MergeNodes fourth" << std::endl;
       mergeNodes();
     }
   }
@@ -4894,22 +4897,22 @@ void SegmentCandidateFinder::resolveForwardedInput(Val* forwarded_input) {
       NVF_ERROR(to_merge_.empty());
       to_merge_.push_back(input_group);
       to_merge_.push_back(consumer);
-      std::cout << "MergeNodes fifth" << std::endl;
-      auto merged_group = mergeNodes();
-      std::cout << "--------------------------------" << std::endl;
-      std::cout << toString(merged_group) << std::endl;
-      std::cout << "Inputs: " << std::endl;
-      for (auto inp : merged_group->input_vals_) {
-        std::cout << toString(inp) << std::endl;
-      }
-      std::cout << "Exprs: " << std::endl;
-      for (auto expr : merged_group->exprs()) {
-        std::cout << toString(expr) << std::endl;
-      }
-      std::cout << "Outputs: " << std::endl;
-      for (auto out : merged_group->output_vals_) {
-        std::cout << toString(out) << std::endl;
-      }
+      // std::cout << "MergeNodes fifth" << std::endl;
+      // auto merged_group = mergeNodes();
+      //   std::cout << "--------------------------------" << std::endl;
+      //   std::cout << toString(merged_group) << std::endl;
+      //   std::cout << "Inputs: " << std::endl;
+      //   for (auto inp : merged_group->input_vals_) {
+      //     std::cout << toString(inp) << std::endl;
+      //   }
+      //   std::cout << "Exprs: " << std::endl;
+      //   for (auto expr : merged_group->exprs()) {
+      //     std::cout << toString(expr) << std::endl;
+      //   }
+      //   std::cout << "Outputs: " << std::endl;
+      //   for (auto out : merged_group->output_vals_) {
+      //     std::cout << toString(out) << std::endl;
+      //   }
     }
   }
 }
@@ -4943,7 +4946,7 @@ void SegmentCandidateFinder::finalize() {
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
-    std::cout << "Third" << std::endl;
+    // std::cout << "Third" << std::endl;
     g->setSchedulerType(deriveSchedulerType(g));
     g->finalize();
   }
