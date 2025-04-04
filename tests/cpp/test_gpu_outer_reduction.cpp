@@ -2651,7 +2651,7 @@ TEST_F(OuterReductionTest, ThreadLocalSerialReduction) {
     if (!params->isA<ReductionParams>()) {
       continue;
     }
-    if (!params->as<ReductionParams>()->cross_block_outer_reduction) {
+    if (!params->as<ReductionParams>()->cross_block_inner_reduction) {
       Fusion* scheduled_fusion = runtime->executors()
                                      .back()
                                      ->as<KernelExecutor>()
