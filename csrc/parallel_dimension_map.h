@@ -43,8 +43,10 @@ class ParallelDimensionMap {
 
   //! Get the "compute" parallel dimension on the given ParallelType. In case
   //! of no warp specialization, this is the same as getRaw(pt). If we are doing
-  //! warp specialization on pt, the result is getRaw(pt) - 1, because the last
-  //! of pt is used for loading circular buffer tensors.
+  //! warp specialization on pt without register sharing, the result is
+  //! getRaw(pt) - 1, because the last of pt is used for loading circular buffer
+  //! tensors. If register sharing is also used, difference padded threads are
+  //! required for different cta shapes.
   Val* getRawCompute(ParallelType pt) const;
 
   int64_t getWarpSpecializationPaddedVal(ParallelType pt) const;
