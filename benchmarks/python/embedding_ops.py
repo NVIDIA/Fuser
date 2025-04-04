@@ -1,14 +1,13 @@
 # SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
-import torch
 import torch.nn.functional as F
 
-from .model_configs import configs
 
 def embedding(inputs: list):
     indices, embedding_table = inputs
     return F.embedding(indices, embedding_table)
+
 
 # (vocab, hidden) configurations seen in models.
 EMBEDDING_CONFIGS = [
