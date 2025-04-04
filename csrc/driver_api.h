@@ -37,6 +37,7 @@ namespace nvfuser {
 #if (CUDA_VERSION >= 12000)
 #define ALL_DRIVER_API_WRAPPER(fn)   \
   ALL_DRIVER_API_WRAPPER_CUDA11(fn); \
+  fn(cuStreamWriteValue32_v2);       \
   fn(cuTensorMapEncodeTiled)
 #else
 #define ALL_DRIVER_API_WRAPPER ALL_DRIVER_API_WRAPPER_CUDA11
