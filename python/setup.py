@@ -39,7 +39,7 @@
 #     Specify in which directory to build nvfuser. If not specified, the default build directory is "./build".
 #
 #   --install-dir=<ABSOLUTE PATH>
-#     Specify in which directory to install nvfuser. If not specified, the default install directory is "./nvfuser".
+#     Specify in which directory to install nvfuser. If not specified, the default install directory is "./python/nvfuser".
 #
 #   -version-tag=TAG
 #     Specify the tag for build nvfuser version, this is used for pip wheel
@@ -175,7 +175,7 @@ class clean(setuptools.Command):
     def run(self):
         import glob
 
-        with open(".gitignore", "r") as f:
+        with open("../.gitignore", "r") as f:
             ignores = f.read()
             for entry in ignores.split("\n"):
                 # ignore comment in .gitignore
@@ -358,7 +358,7 @@ def cmake():
         cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
     if BUILD_WITH_SYSTEM_NVTX:
         cmd_str.append("-DUSE_SYSTEM_NVTX=ON")
-    cmd_str.append(".")
+    cmd_str.append("..")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
     subprocess.check_call(cmd_str)
