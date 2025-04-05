@@ -74,6 +74,9 @@ void TensorIndexer::buildLoopIndexMap() {
       }
 
       loop_index_map_[loop_group] = loop_index;
+      indexing_utils::verbose()
+          << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
+          << loop_index->toInlineString() << std::endl;
     }
   }
 }
@@ -186,10 +189,10 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  const auto& alloc_info = getIndexAllocationInfo(tv);
+  const auto alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
-      expr, as_consumer, alloc_info, for_loops, override_index);
+      tv, expr, as_consumer, alloc_info, for_loops, override_index);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -459,6 +462,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       const ValGroup& contig_domain_group = contig_domains_it->second;
       if (already_indexed_domains.find(contig_domain_group) !=
           already_indexed_domains.end()) {
+        indexing_utils::verbose()
+            << "Already indexed: " << predicate_domain->toString() << std::endl;
         continue;
       }
       already_indexed_domains.emplace(contig_domain_group);
@@ -670,6 +675,7 @@ void TensorIndexer::ensureStaticIndexing(
 
 std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
+        TensorView* tv,
         const Expr* expr,
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
@@ -687,8 +693,19 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
   }
   const auto& index_map = index_info.index_map;
-  const auto& replacement_map = getIndexReplacementMap(
+  auto replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_ids, for_loops, index_map);
+
+  // War for MmaOp
+  if (expr->isA<MmaOp>() && tv->getMemoryType() == MemoryType::Local &&
+      !as_consumer) {
+    for (const auto loop_id : index_info.loop_ids) {
+      if (isParallelTypeThread(loop_id->getParallelType())) {
+        Val* loop_index = getLoopIndex(loop_id, for_loops);
+        replacement_map.emplace(loop_index, expr->fusion()->zeroVal());
+      }
+    }
+  }
 
   std::vector<ValGroup> contig_alloc_groups;
   std::vector<Val*> contig_strides;

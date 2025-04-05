@@ -833,12 +833,24 @@ ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
+  if (!tv_exprs_.empty()) {
+    std::stringstream ss;
+    tv_exprs_.at(0)->fusion()->print(ss);
+    VERBOSE() << ss.str();
+  }
+
   const StatefulInliningInfo inlining_info =
       buildStatefulInliningInfo(tv_exprs_, idGraph(IdMappingMode::PERMISSIVE));
 
   initializeLoopGraph(inlining_info);
 
   validateLoopGraphHasNoSelfMappedLeafDomains();
+
+  VERBOSE() << "Initial loop graph:\n";
+  for (const auto& group :
+       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
+    VERBOSE() << nvfuser::toString(group) << std::endl;
+  }
 
   loop_promotion_map_ = LoopPromotionMapBuilder::get(
       *this,
@@ -856,6 +868,8 @@ ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
 }
 
 void IdModel::buildAllGraphs() {
+  VERBOSE() << "*** Building all graphs ***\n";
+
   if (tvs_.empty()) {
     return;
   }
