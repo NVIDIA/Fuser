@@ -436,10 +436,10 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
   }
   os << "}\n";
 
-  // os << "Exprs: \n";
-  // for (auto expr : expr_to_print) {
-  //   os << "  " << toString(expr) << std::endl;
-  // }
+  os << "  Exprs:\n";
+  for (auto expr : expr_to_print) {
+    os << "    " << toString(expr) << std::endl;
+  }
   // os << "Outputs: \n";
   // for (auto out : group->output_vals_) {
   //   os << "  " << toString(out) << std::endl;
@@ -2089,9 +2089,9 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     SegmentCandidateFinderOptions options,
     bool multi_device) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-    debug() << "Segment the fusion (Original Fusion Un-modified): "
-            << std::endl;
-    fusion->printMath();
+    // debug() << "Segment the fusion (Original Fusion Un-modified): "
+    //         << std::endl;
+    // fusion->printMath();
   }
   SegmentCandidateFinder scf(std::move(fusion), inputs, options, multi_device);
   return std::move(scf.segmented_fusion_);
@@ -2620,7 +2620,14 @@ class FusionSegmentGuard : public NonCopyable {
 
     auto new_inputs = getAllInputs(a, b);
     auto new_outputs = getAllOutputs(a, b);
-
+    std::cout << "New inputs: " << std::endl;
+    for (auto input : new_inputs) {
+      std::cout << input->toString() << std::endl;
+    }
+    std::cout << "New outputs: " << std::endl;
+    for (auto output : new_outputs) {
+      std::cout << output->toString() << std::endl;
+    }
     narrowToNewSegment(new_inputs, new_outputs);
   }
 
@@ -2749,7 +2756,7 @@ class FusionSegmentGuard : public NonCopyable {
 SchedulerType findScheduler(
     SegmentedFusion* segmented_fusion,
     SchedulerRuntimeInfo& runtime_info) {
-  segmented_fusion->completeFusion()->printMath();
+  // segmented_fusion->completeFusion()->printMath();
   NVF_ERROR(
       !segmented_fusion->completeFusion()->unordered_exprs().empty(),
       "We shouldn't attempt to merge empty fusions. "
@@ -2763,11 +2770,14 @@ SchedulerType findScheduler(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
+  std::cout << "\n\nFUSION:" << std::endl;
+  segmented_fusion->completeFusion()->printMath();
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
     if (Schedule::canSchedule(
             SchedulerType::ExprEval,
             segmented_fusion->completeFusion(),
             runtime_info)) {
+      std::cout << "Scheduler found: ExprEval" << std::endl;
       scheduler_debug_utils::canScheduleMessage(
           "***Accepted*** as: ", SchedulerType::ExprEval);
       return SchedulerType::ExprEval;
@@ -2776,8 +2786,10 @@ SchedulerType findScheduler(
         "***Rejected*** failed tryingToMergeSegmenterSet");
     return SchedulerType::None;
   }
-  return Schedule::proposeHeuristics(
+  auto heuristic = Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
+  std::cout << "Scheduler found: " << heuristic << std::endl;
+  return heuristic;
 }
 
 SchedulerType tryMerge(
@@ -2785,6 +2797,11 @@ SchedulerType tryMerge(
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
     SegmentedGroup* b = nullptr) {
+  std::cout << "\n\nTRYING TO MERGE:" << std::endl;
+  std::cout << toString(a) << std::endl;
+  if (b) {
+    std::cout << toString(b) << std::endl;
+  }
   FusionSegmentGuard fsg(segmented_fusion, a, b);
   return findScheduler(segmented_fusion, runtime_info);
 }
@@ -4086,6 +4103,9 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     SegmentedGroup* group1,
     SegmentedGroup* group2) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::codeGenSupportedMerge");
+  std::cout << "Checking supported merge:\n"
+            << toString(group1) << "\n"
+            << toString(group2) << std::endl;
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
