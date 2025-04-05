@@ -2126,7 +2126,7 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
 
 namespace {
 
-void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
+void applySplitTransform(const Split* split, std::vector<IterDomain*>& ids) {
   auto find_it =
           std::find(ids.begin(), ids.end(), split->in());
   if (find_it == ids.end()) {
@@ -2138,7 +2138,7 @@ void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
   ids.insert(ids.begin() + pos, split->outer());
 }
 
-void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
+void applyMergeTransform(const Merge* merge, std::vector<IterDomain*>& ids) {
   auto find_it_0 =
         std::find(ids.begin(), ids.end(), merge->outer());
   auto find_it_1 =
@@ -2151,24 +2151,24 @@ void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
   NVF_ERROR(
       find_it_0 != ids.end() && find_it_1 != ids.end(),
       "Error in transformations of ",
-      tv->toString(),
+      ids,
       "\nTransformations before rfactor should not mix with transformations after rfactor.");
   auto pos0 = std::distance(ids.begin(), find_it_0);
   auto pos1 = std::distance(ids.begin(), find_it_1);
-    if (pos0 > pos1) {
-      std::swap(pos0, pos1);
-    }
-    // Should be impossible.
-    NVF_ERROR(
-        pos0 != pos1,
-        "Didn't expect merge inputs to be the same iteration domain:\n",
-        merge->toString());
+  if (pos0 > pos1) {
+    std::swap(pos0, pos1);
+  }
+  // Should be impossible.
+  NVF_ERROR(
+      pos0 != pos1,
+      "Didn't expect merge inputs to be the same iteration domain:\n",
+      merge->toString());
 
   ids.erase(ids.begin() + pos0);
   ids[--pos1] = merge->out();
 }
 
-void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
+void applyResizeTransform(const Resize* resize, std::vector<IterDomain*>& ids) {
   auto find_it =
       std::find(ids.begin(), ids.end(), resize->in());
   if (find_it == ids.end()) {
@@ -2178,65 +2178,52 @@ void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
   *find_it = resize->out();
 }
 
-std::unordered_map<int64_t, int64_t> createReorderMap(std::vector<IterDomain*>& orig_domain, std::vector<IterDomain*>& new_domain) {
-  std::unordered_map<int64_t, int64_t> old2new;
-  for (auto idx : c10::irange((int64_t)orig_domain.size())) {
-    auto orig_id = orig_domain.at(idx);
-    auto find_it = std::find(new_domain.begin(), new_domain.end(), orig_id);
-    NVF_ERROR(
-        find_it != new_domain.end(),
-        "Reordering map creation failed, uninitialized iterdomain,",
-        " likely something is wrong with the transformations between the logical and loop domain.");
-    int64_t new_pos = (int64_t)std::distance(new_domain.begin(), find_it);
-    old2new[idx] = new_pos;
-  }
-  return old2new;
-}
+} // namespace
 
-// simply update this vector of id's as progressing through the transformation
+// Update the vector of ids_to_transform as progressing through the transformation
 // expressions. We'll always insert the result of split in the location of the
 // input, and insert the merge result in the position of the inner dimension.
-void reorderDomain(TensorView* tv, std::vector<IterDomain*>& ids) {
-  FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprsTo(
-      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+// After transformations, ids_to_reorder should be a permutation of ids_to_transform.
+// Returns a reorder map from ids_to_reorder to ids_to_transform.
+std::unordered_map<int64_t, int64_t> createReorderMapUnderTransforms(
+    const std::vector<IterDomain*>& ids_to_reorder,
+    std::vector<IterDomain*>& ids_to_transform,
+    const std::vector<Expr*>& transform_exprs) {
   for (const auto* expr : transform_exprs) {
     if (const Split* split = dynamic_cast<const Split*>(expr)) {
-      applySplitTransform(split, ids);
+      applySplitTransform(split, ids_to_transform);
     } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      applyMergeTransform(merge, ids);
+      applyMergeTransform(merge, ids_to_transform);
     } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
-      applyResizeTransform(resize, ids);
+      applyResizeTransform(resize, ids_to_transform);
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
-}
 
   std::unordered_map<int64_t, int64_t> old2new;
-  for (auto id_i : arange((int64_t)tv->getLoopDomain().size())) {
-    auto loop_id = tv->axis(id_i);
-    auto find_it =
-        std::find(reordered_ids.begin(), reordered_ids.end(), loop_id);
+  for (auto idx : c10::irange((int64_t)ids_to_reorder.size())) {
+    auto orig_id = ids_to_reorder.at(idx);
+    auto find_it = std::find(ids_to_transform.begin(), ids_to_transform.end(), orig_id);
     NVF_ERROR(
-        find_it != reordered_ids.end(),
-        "Reordering map creation failed, uninitialized iterdomain,",
+        find_it != ids_to_transform.end(),
+        "Reordering map creation failed, uninitialized iterdomain, ",
+        orig_id->toString(),
         " likely something is wrong with the transformations between the logical and loop domain.");
-    int64_t new_pos = (int64_t)std::distance(reordered_ids.begin(), find_it);
-    int64_t old_pos = id_i;
-    old2new[old_pos] = new_pos;
+    int64_t new_pos = (int64_t)std::distance(ids_to_transform.begin(), find_it);
+    old2new[idx] = new_pos;
   }
-  auto reordered_ids = tv->getAllocationDomain();
-  reorderDomain(tv, reordered_ids);
-  return createReorderMap(tv->getLoopDomain(), reordered_ids);
+  return old2new;
 }
 
 // Returns a map reordering the loop domain of the tensor view as the logical domain
 std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
-  auto reordered_ids = tv->getLoopDomain();
-  reorderDomain(tv, reordered_ids);
-  return createReorderMap(tv->getLoopDomain(), reordered_ids);
+  FusionGuard fg(tv->fusion());
+  auto transform_exprs = StmtSort::getExprsTo(
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  auto ids_to_transform = tv->getLogicalDomain();
+  return createReorderMapUnderTransforms(tv->getLoopDomain(), ids_to_transform, transform_exprs);
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(

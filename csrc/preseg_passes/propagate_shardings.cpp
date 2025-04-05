@@ -276,9 +276,18 @@ int64_t shardViewOp(ViewOp* view_op, std::unordered_map<int64_t, int64_t>& new2o
   return num_reshape_shardings;
 }
 
-void reorderLoopDomainAsLogicalMap(std::vector<TensorView*> tvs) {
+void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
+  // Use maybeAllocationDomain to transform
+  // Transform using exprs between logical and loop and get the map
   for (auto tv : tvs) {
-    auto reorder_map = scheduler_utils::domainReorderAsLogicalMap(tv);
+    auto alloc_dom = tv->getMaybeAllocationDomain();
+    std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
+        {alloc_dom.begin(), alloc_dom.end()},
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    auto reorder_map = scheduler_utils::createReorderMapUnderTransforms(
+        /*ids_to_reorder=*/tv->getLoopDomain(),
+        /*ids_to_transform=*/alloc_dom,
+        /*transform_exprs=*/transform_exprs);
     tv->reorder(reorder_map);
   }
 }
@@ -303,8 +312,23 @@ std::unordered_map<int64_t, int64_t> selectiveReorderDIDToFront(TensorView* tv, 
   return new2old;
 }
 
+// Updates the set of parallel types seen on the output.
+void updateOutputParallelTypes(TensorView* tv, std::unordered_set<ParallelType>& output_parallel_types) {
+  for (auto id: tv->getLoopDomain()) {
+    if (id->isDeviceDim()) {
+      output_parallel_types.insert(id->getParallelType());
+    }
+  }
+}
+
 } // namespace
 
+
+// This presegmentation pass propagates shardings from fusion inputs to downstream tensorviews.
+// 1. Forward propagating DID loop splits and parallelization from inputs to outputs that don't have a mesh using TransformPropagator
+// 2. Reshape is handled manually since the DID loop split transforms conflict with the reshape root-to-logical transforms if using TransformPropagator
+// 3. Back-propagating device meshes to ensure all TensorViews have consistent meshes. This also splits and parallelizes unsharded inputs based on outputs. See `MultiDevicePresegPassesTest.ResidualAdd` for an example.
+// 4. Reorders the loop domain as the allocation order. Ideally, loop domain should follow logical domain and allocation domain should follow any stride order specified/inferred. However, we currently require loop domain to be the same as allocation domain.
 void PropagateShardingsPass::runPass(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
 
@@ -353,25 +377,20 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh);
 
-      for (auto idx : c10::irange(num_device_dims)) {
-        output_parallel_types.insert(ref_input->axis(idx)->getParallelType());
-      }
+      updateOutputParallelTypes(ref_input, output_parallel_types);
+
       // Undo the reordering of the DID axis so it is in the correct order again.
       ref_input->reorder(new2old);
     }
 
-    // Reorder the loop as logical domain since the transform propagator may
+    // Reorder the loop domain since the transform propagator may
     // have reordered the iterdomains in loop domain. For example: Consider
     // linear op: in = [b, m, k] weight = [DIDx(d), n/d, k] After
     // transformation, the loop domain of linear output is [DIDx(d), n/d, b,
-    // m, r{k}].
-    // Due to the restriction that the allocation domain is the same as the loop domain,
-    // we reorder it as allocation domain in the interim. Ideally, this should follow logical domain
-    // and DIDx axis at the front.
-    reorderLoopDomainAsLogicalMap(outputs_without_mesh);
-    // TODO: Do we reorder to front here or reorder_sharded_axis?
-
-    // TODO: Propagate AllocationDomain.
+    // m, r{k}]. Since, we set allocation to be the same as loop, we reorder it as allocation domain in the interim.
+    // Ideally, this should follow logical domain and DIDx axis at the front.
+    // The allocation domain should follow any stride order specified/inferred.
+    reorderLoopAsAllocation(outputs_without_mesh);
   }
 
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
@@ -410,9 +429,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     }
 
     // All outputs of an expression are uniformly sharded so we pick the first
-    // one.
-    // TODO: Do we need to worry about the case where the outputs are not
-    // uniformly sharded? The relevant exprs are Welford and SDPA.
+    // one. Multi-output expressions are Welford and SDPA.
     TensorView* ref_output = *i_output;
     std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, {});
     int64_t did_pos = new2old.size();
@@ -427,12 +444,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*allow_p2c=*/false);
     MaxLogicalDomainInfoSpanningTree(ref_output, &selector)
         .traverse(&propagator);
-    reorderAllAsLogicalMap(unsharded_inputs);
     shardAllLike(ref_output, unsharded_inputs);
 
-    // Temporarily undo the reordering. This is only needed temporarily while we fix the other preseg passes.
-    // TODO: Remove this once the other preseg passes are fixed and reorder to front.
     ref_output->reorder(new2old);
+    reorderLoopAsAllocation(unsharded_inputs);
   }
 
   validateMeshes(fusion);

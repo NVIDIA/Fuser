@@ -167,51 +167,6 @@ TEST_F(MultiDevicePresegPassesTest, SliceReshapePermute) {
       __FILE__);
 }
 
-// TODO: Enable this test once the insert_reshardings preseg pass is fixed.
-TEST_F(MultiDevicePresegPassesTest, DISABLED_MHALinear) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-
-  const int d = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(d);
-  const int64_t b = 2, s = 3, h = 128; //,a=8;
-
-  TensorView* inp = makeConcreteTensor({b, d * s, h}, DataType::Half);
-  TensorView* weight = makeConcreteTensor({3 * d * h, h}, DataType::Half);
-  TensorView* out = linear(inp, weight);
-
-  fusion->addInput(inp);
-  fusion->addInput(weight);
-  fusion->addOutput(out);
-
-  inp->setDeviceMesh(mesh);
-  weight->setDeviceMesh(mesh);
-  inp->split(1, d, /*inner_split=*/false);
-  inp->axis(1)->parallelize(ParallelType::DIDx);
-  weight->split(0, d, /*inner_split=*/false);
-  weight->axis(0)->parallelize(ParallelType::DIDx);
-
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  for (auto* tv : fusion->allTvs()) {
-    reorderDIDToFront(tv);
-    tv->setAllocationDomain(tv->getLoopDomain(), true);
-  }
-  NVF_CHECK(getShardedLogicalAxis(out, ParallelType::DIDx) == 2);
-  at::Tensor inp_tensor =
-      at::randn({b, d * s, h}, tensor_options.dtype(at::kHalf));
-  at::Tensor sharded_inp = shardTensor(inp_tensor, 1, mesh);
-
-  at::Tensor weight_tensor =
-      at::randn({3 * d * h, h}, tensor_options.dtype(at::kHalf));
-  at::Tensor sharded_weight = shardTensor(weight_tensor, 0, mesh);
-
-  FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor nvf_out =
-      executor_cache.runFusionWithInputs({sharded_inp, sharded_weight})[0]
-          .as<at::Tensor>();
-}
-
 namespace {
 at::Tensor reference_mha(at::Tensor inp, at::Tensor weight) {
   at::Tensor linear0_out = at::linear(inp, weight);
