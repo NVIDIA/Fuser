@@ -435,10 +435,9 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     // stream-parallelized on axis 0.
     auto* a = linear->inA()->as<TensorView>();
     auto* b = linear->inB()->as<TensorView>();
-    auto* bias = linear->bias()->as<TensorView>();
     auto* out = linear->out()->as<TensorView>();
-    return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
-        !isSharded(out) &&
+    return !isSharded(b) &&
+        !(linear->has_bias() && isSharded(linear->bias())) && !isSharded(out) &&
         a->axis(0)->getParallelType() == ParallelType::Serial &&
         getShardedLogicalAxis(a, ParallelType::DIDx) == 1 &&
         out->axis(0)->getParallelType() == ParallelType::Stream;
