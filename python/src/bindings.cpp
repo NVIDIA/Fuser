@@ -1,0 +1,17 @@
+// clang-format off
+/*
+ * SPDX-FileCopyrightText: Copyright (c) 2025-present NVIDIA CORPORATION & AFFILIATES.
+ * All rights reserved.
+ * SPDX-License-Identifier: BSD-3-Clause
+ */
+// clang-format on
+
+#include <bindings.h>
+
+namespace python {
+
+void initNvFuserPythonBindings(PyObject* module) {
+  auto python_bindings = py::handle(module).cast<py::module>();
+}
+
+} // namespace python
