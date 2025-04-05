@@ -86,6 +86,7 @@ class TensorIndexer {
 
   // Get the contig indices of the given ID groups with their strides
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
+      TensorView* tv,
       const Expr* expr,
       bool as_consumer,
       const AllocationDomainInfo& alloc_info,
