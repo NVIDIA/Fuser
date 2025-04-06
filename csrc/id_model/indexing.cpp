@@ -431,11 +431,11 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   auto protectPredicatesWithMagicZero = [&](PredicateInfo& info) {
     if (info.startPredicate() != nullptr) {
       info.startPredicate() =
-          protectIndcesWithMagicZero({info.startPredicate()}, for_loops);
+          protectIndicesWithMagicZero({info.startPredicate()}, for_loops).at(0);
     }
     if (info.stopPredicate() != nullptr) {
       info.stopPredicate() =
-          protectIndcesWithMagicZero({info.stopPredicate()}, for_loops);
+          protectIndicesWithMagicZero({info.stopPredicate()}, for_loops).at(0);
     }
   };
 
