@@ -53,27 +53,26 @@ def test_allreduce(multidevice_test):
     class Model(FusionDefinition):
         def definition(self):
             self.inp = self.define_tensor(
-                (-1, -1, -1), contiguity=True, dtype=DataType.Float
+                (-1, -1), contiguity=True, dtype=DataType.Float
             )
-            self.out = self.ops.sum(self.inp, [1])
+            self.out = self.ops.sum(self.inp, [0])
             self.add_output(self.out)
 
         def multidevice_schedule(self):
             for tv in [self.inp, self.out]:
                 self.sched._set_device_mesh(tv, mesh)
-                self.sched.split(tv, 1, d, False)
-                self.sched.parallelize(tv, 1, nvfuser.ParallelType.mesh_x)
+                self.sched.split(tv, 0, d, False)
+                self.sched.parallelize(tv, 0, nvfuser.ParallelType.mesh_x)
                 self.sched.set_allocation_as_loop(tv)
 
-    m = 2
-    k = d * 3
-    n = 5
-    unsharded = torch.randn(m, k, n)
-    sharded = multidevice_test.shard_tensor(unsharded, 1, mesh)
+    m = d * 2
+    n = 3
+    unsharded = torch.randn(m, n)
+    sharded = multidevice_test.shard_tensor(unsharded, 0, mesh)
 
     fd = Model()
     outputs, _ = fd.execute([sharded])
-    torch.testing.assert_close(outputs[0].cpu(), unsharded.sum(1))
+    torch.testing.assert_close(outputs[0].cpu(), unsharded.sum(0))
 
 
 @pytest.mark.mpi
