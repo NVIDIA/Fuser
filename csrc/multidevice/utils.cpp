@@ -96,6 +96,10 @@ bool isSharded(const TensorView* tv) {
       continue;
     }
 
+    if (alloc_id->isReduction()) {
+      continue;
+    }
+
     // Only one axis can be sharded on DIDx.
     NVF_ERROR(
         !is_sharded,
