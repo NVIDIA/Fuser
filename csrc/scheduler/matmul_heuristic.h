@@ -311,10 +311,11 @@ class MatmulParams : public HeuristicParams {
   bool promote_prologue_smem_reuse = false;
 
   //! If use_smem_epilogue==false, this has no effect. Otherwise, it enables
-  //! storing the result to shared memory using stmatrix instructions. Note that
-  //! stmatrix is never used on outputs whose dtype is not 16-bits in size
-  //! regardless of this setting.
-  bool use_stmatrix = true;
+  //! storing the mma result to shared memory using stmatrix and loading
+  //! epilogue inputs to registers using ldmatrix instructions. Note that
+  //! stmatrix nor ldmatrix are never used on TensorViews whose dtype is fp16
+  //! or bf16.
+  bool use_ldst_matrix = true;
 
   //! Whether to do single-kernel split-K. If this is >1, we will rfactor the K
   //! axis and perform a grid reduction before the epilogue.

@@ -24,7 +24,8 @@
 namespace nvfuser {
 
 struct IndexingInfo {
-  std::vector<IterDomain*> loop_domains;
+  std::vector<IterDomain*> loop_ids;
+  std::vector<IterDomain*> index_ids;
   // Indexing traversal path from loop domains
   ExprPath<ExprGroup> traversal_path;
   // Index mappings of ID groups along the traversal path
@@ -81,7 +82,8 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const std::vector<IterDomain*>& index_ids,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<ForLoop*>& loops,
+      bool use_magic_zero = false) const;
 
   // Get the contig indices of the given ID groups with their strides
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
@@ -90,6 +92,22 @@ class TensorIndexer {
       const AllocationDomainInfo& alloc_info,
       const std::vector<ForLoop*>& loops,
       const std::unordered_map<IterDomain*, Val*>& override_index) const;
+
+  // Grab all for-loops whose indices are actually used in the given
+  // index vals. Note that IndexingInfo.loop_group_dependencies can be
+  // used to find loop IDs that are connected to the index IDs, but
+  // that doesn't always mean corresponding loop indices are actually
+  // used in an index Val. For example, unswitch predicates replace loop indices
+  // with (N - 1), where N is the extent of an unswitched ID. This
+  // function only grabs for-loops whose indices are indeed used.
+  std::vector<ForLoop*> getUsedForLoopsOf(
+      const std::vector<Val*>& indices,
+      const std::vector<ForLoop*>& for_loops) const;
+
+  // Add "pragma unroll" to for-loops whose loop indices are used for
+  // the given indexing. This is meant to be used for register tensors.
+  void ensureStaticIndexing(const std::vector<ForLoop*>& loops, Val* index)
+      const;
 
   // The AlmostExact graph is used since size-1 splits and merges
   // should not affect actual index exprs.
@@ -124,6 +142,21 @@ class TensorIndexer {
   ExprPath<ExprGroup> getIndexingPath(
       const Expr* expr,
       const std::vector<IterDomain*>& index_ids) const;
+
+  // Protect the index of the innermost loop with magic zero.
+  //
+  // NOTE: This just follows how the original indexer adds magic zero
+  // to indices.
+  //
+  // TODO: Revisit if this is still necessary.
+  std::vector<Val*> protectIndicesWithMagicZero(
+      const std::vector<Val*>& indices,
+      const std::vector<ForLoop*>& for_loops) const;
+
+  // Check if a given fusion can be indexed with
+  // TensorIndexer. Returns fals if the fusion uses features that have
+  // only been implemented for the old indexer.
+  static bool isSupported(Fusion* fusion);
 
  private:
   // Build a map of loop groups to their index Vals. See the comment

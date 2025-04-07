@@ -281,7 +281,7 @@ void IndexLowering::handle(const ArrayConstruct* aop) {
 
 void IndexLowering::handle(const StructConstruct* sop) {
   std::vector<std::pair<std::string, Val*>> lowered_named_inputs;
-  for (auto i : c10::irange(sop->inputs().size())) {
+  for (auto i : arange(sop->inputs().size())) {
     lowered_named_inputs.emplace_back(
         sop->fieldName(i), lowerSrcIndex(sop->inputs().at(i), sop->out()));
   }
@@ -832,7 +832,7 @@ void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
   std::vector<Val*> indexed_outputs(grouped_rop->numHorizontallyGroupedExprs());
   std::vector<Val*> indexed_inputs(grouped_rop->numHorizontallyGroupedExprs());
 
-  for (const auto i : c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
     indexed_outputs.at(i) = lowerDstIndex(grouped_rop->output(i));
     indexed_inputs.at(i) =
         lowerSrcIndex(grouped_rop->input(i), grouped_rop->output(i));
@@ -843,8 +843,7 @@ void IndexLowering::handle(const GroupedReductionOp* grouped_rop) {
   } else if (has_block_reduce) {
     handleBlockReduction(grouped_rop, indexed_outputs, indexed_inputs);
   } else {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
       pushBack(IrBuilder::create<BinaryOp>(
           grouped_rop->getReductionOpType(i),
           indexed_outputs.at(i),
@@ -1156,12 +1155,12 @@ void IndexLowering::handle(const GroupedWelfordOp* grouped_wop) {
   auto output_vals = grouped_wop->outputVals();
   auto input_vals = grouped_wop->inputVals();
 
-  for (const auto i : c10::irange(grouped_wop->numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(grouped_wop->numHorizontallyGroupedExprs())) {
     const auto& output = output_vals.at(i);
     const auto& input = input_vals.at(i);
     WelfordTriplet indexed_output;
     WelfordTriplet indexed_input;
-    for (const auto j : c10::irange(3)) {
+    for (const auto j : arange(3)) {
       indexed_output.get(j) = lowerDstIndex(output.get(j));
       indexed_input.get(j) = lowerSrcIndex(input.get(j), output.get(j));
     }
@@ -2113,6 +2112,14 @@ Val* indexTMemLdSt(
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, lane_index);
 
   Val* column_index = get_index_for(column_allocation_domain);
+  // The column_index above is in the unit of items, but the PTX instruction
+  // of TMem load/store is in the unit of 4 bytes.
+  column_index = SimplifyingIrBuilder::divExpr(
+      SimplifyingIrBuilder::mulExpr(
+          column_index,
+          IrBuilder::create<Val>(
+              dataTypeSize(consumer_tv->dtype()), DataType::Index)),
+      IrBuilder::create<Val>(4, DataType::Index));
   column_index =
       SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
 
@@ -2235,20 +2242,19 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
       bool is_ldst_tmem = ldst->opType() == LoadStoreOpType::LdTMem ||
           ldst->opType() == LoadStoreOpType::StTMem;
       if (is_ldst_tmem) {
-        // TODO: support other types
         NVF_ERROR(
-            dataTypeSize(ldst->in()->dtype()) == 4,
-            "For now, we only support 32-bit types in tmem");
-        NVF_ERROR(
-            dataTypeSize(ldst->out()->dtype()) == 4,
-            "For now, we only support 32-bit types in tmem");
+            ldst->in()->dtype() == ldst->out()->dtype(),
+            "TMem load/store must have the same type for input and output");
         // According to the specification of tcgen05.{ld,st}, the register
         // operand must be viewed as a vector of 32-bit elements.
         // See:
         // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensor-memory-and-register-load-store-instructions
         as_type = ArrayType{
-            std::make_shared<DataType>(ldst->in()->dtype()),
-            (size_t)ir_utils::getVectorizeSize(ldst->out()->as<TensorView>())};
+            std::make_shared<DataType>(
+                dataTypeSize(ldst->in()->dtype()) == 4 ? ldst->in()->dtype()
+                                                       : DataType::UInt32),
+            (size_t)ir_utils::getTMemLdStVectorizeSize(
+                ldst->out()->as<TensorView>())};
       }
       if (auto tv = dynamic_cast<TensorView*>(ldst->in());
           tv != nullptr && tv->getMemoryType() == MemoryType::Tensor) {
@@ -2284,30 +2290,33 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
 // Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-shared-memory-descriptor
 static Val* matrixDescriptorEncode(Val* x) {
-  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt64, x);
-  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt64);
-  auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
-  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt64);
+  Val* x_cast = IrBuilder::maybeCastExpr(DataType::UInt64, x);
+  Val* mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt64);
+  Val* x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
+  Val* shift = IrBuilder::create<Val>(0x4, DataType::UInt64);
   return IrBuilder::rShiftExpr(x_and, shift);
 }
 
-static Val* constructMatrixDescriptor(
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-shared-memory-descriptor
+static Val* constructHopperMatrixDescriptor(
     Val* start_address,
     Val* leading_dim_byte_offset,
     Val* stride_dim_byte_offset,
     Val* matrix_base_offset,
     MmaInputSmemSwizzle swizzle) {
-  auto or0 = matrixDescriptorEncode(start_address);
-  auto or1 = IrBuilder::lShiftExpr(
+  Val* or0 = matrixDescriptorEncode(start_address);
+  Val* or1 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(leading_dim_byte_offset),
       IrBuilder::create<Val>(16, DataType::UInt64));
-  auto or2 = IrBuilder::lShiftExpr(
+  Val* or2 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(stride_dim_byte_offset),
       IrBuilder::create<Val>(32, DataType::UInt64));
-  auto or3 = IrBuilder::lShiftExpr(
+  Val* or3 = IrBuilder::lShiftExpr(
       matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
-  auto or4 = IrBuilder::lShiftExpr(
+  Val* or4 = IrBuilder::lShiftExpr(
       IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt64),
       IrBuilder::create<Val>(62, DataType::UInt64));
   return IrBuilder::bitwiseOrExpr(
@@ -2551,6 +2560,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   Val* a = nullptr;
   Val* b = nullptr;
   const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
+  auto constructMatrixDescriptor = constructHopperMatrixDescriptor;
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
@@ -2691,7 +2701,10 @@ void IndexLowering::handle(const kir::AllocTMem* alloc) {
   auto address_tv = alloc->address()->as<TensorView>();
   const auto address = IrBuilder::create<kir::TensorIndex>(
       address_tv, IrBuilder::baseAddressExpr(address_tv));
-  pushBack(IrBuilder::create<kir::AllocTMem>(address, alloc->numColumns()));
+  pushBack(IrBuilder::create<kir::AllocTMem>(
+      address,
+      GpuLower::current()->commonScalarMap().hoistScalar(
+          alloc->numColumns(), for_loops_)));
   GpuLower::current()->propagateExprInfo(alloc, back());
 }
 
@@ -2889,7 +2902,7 @@ void IndexLowering::handle(const CatOp* cat) {
 
   Val* result = nullptr;
   BinaryOp* expr = nullptr;
-  for (const auto i : c10::irange(cat->inputs().size())) {
+  for (const auto i : arange(cat->inputs().size())) {
     auto inp = lowerSrcIndex(cat->input(i), cat->output(0));
     if (result == nullptr) {
       result = inp;

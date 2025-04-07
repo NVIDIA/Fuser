@@ -28,6 +28,7 @@ class GatherTest : public NVFuserTest {
   void SetUp() override {
     // To make the tests using std::rand deterministic
     std::srand(0);
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -87,13 +88,6 @@ TEST_F(GatherTest, GatherAllRankAllSelectedDim) {
                                            : gather(tv1, dim, tv_idx);
         fusion.addOutput(tv_out);
 
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
-
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
             randomIndexVector(input_dims, 1, rank, is_take_along, dim);
@@ -129,13 +123,6 @@ TEST_F(GatherTest, GatherAddMul) {
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
@@ -176,13 +163,6 @@ TEST_F(GatherTest, AddGatherSumAdd) {
                                     : gather(tv_lookup, dim, tv_index);
 
         fusion.addOutput(tv_out);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
@@ -234,13 +214,6 @@ TEST_F(GatherTest, GatherSumAdd) {
 
         fusion.addOutput(tv_out);
 
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
-
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
             randomIndexVector(input_dims, 1, rank, is_take_along, dim);
@@ -282,13 +255,6 @@ TEST_F(GatherTest, GatherAddMulHugeSize) {
         auto tv_add = add(tv_gather, tv_gather);
         auto tv_out = mul(tv_gather, tv_add);
         fusion.addOutput(tv_out);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto input_dims = randomVector(2, max_dim_size, rank);
         auto index_dims =
@@ -392,8 +358,6 @@ TEST_F(GatherTest, TakeAlongBroadcastIndex) {
     auto tv5 = add(tv4, tv2);
     fusion.addOutput(tv5);
 
-    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
-
     std::vector<int64_t> input_dims{10, 11, 12};
     std::vector<int64_t> index_dims{index_dim};
     std::vector<int64_t> out_dims = input_dims;
@@ -453,13 +417,6 @@ TEST_F(GatherTest, GatherBroadcastInput) {
         auto tv4 = takeAlongAxis(tv0, tv3, 1);
         auto tv5 = add(tv4, tv2);
         fusion.addOutput(tv5);
-
-        if (is_take_along) {
-          EnableOptionsGuard::getCurOptions().set(
-              EnableOption::IdModel, {"all"});
-        } else {
-          EnableOptionsGuard::getCurOptions().unset(EnableOption::IdModel);
-        }
 
         auto options =
             at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -567,7 +524,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorPointwise2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({99, 101});
@@ -637,7 +593,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({100, 100});
@@ -675,7 +630,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorReduction3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape_before_gather({100, 100});
@@ -753,7 +707,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization1) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({32, 1024});
@@ -843,7 +796,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalization3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape_before_gather({100, 100});
@@ -931,7 +883,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorNormalizationAndReduction2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape({32, 1024});
@@ -976,7 +927,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose1) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   // Make sure the shape is large enough to trigger the Transpose
@@ -1023,7 +973,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose2) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   // Make sure the shape is large enough to trigger the Transpose
@@ -1063,7 +1012,6 @@ TEST_F(GatherTest, TakeAlongAxisIntermediateTensorTranspose3) {
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   std::vector<int64_t> shape_before(
@@ -1107,7 +1055,6 @@ TEST_F(GatherTest, TakeAlongAxisCrossEntropyLoss) {
   auto fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
 
-  EnableOptionsGuard opt_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::MemoryPromotion);
 
   auto tv0 = makeContigTensor(2);

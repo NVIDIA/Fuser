@@ -68,9 +68,11 @@ void HostIrExecutor::compile(Fusion* fusion) {
     }
   } else {
     std::vector<Expr*> exprs = fusion->exprs();
+    DeviceIdxType my_device_idx = communicator_ ? communicator_->deviceId() : 0;
     for (Expr* e : exprs) {
       HostIrLower lower;
-      std::vector<Expr*> communications = lower.lower(cloner.clone(e));
+      std::vector<Expr*> communications =
+          lower.lower(cloner.clone(e), my_device_idx);
       for (auto* communication : communications) {
         host_ir_container_->pushBackTopLevelExprs(communication);
       }
@@ -149,7 +151,7 @@ KernelArgumentHolder HostIrExecutor::run(
   }
 
   // Evaluate outputs that are marked as Evaluate
-  for (auto out_idx : c10::irange(host_ir_container_->outputs().size())) {
+  for (auto out_idx : arange(host_ir_container_->outputs().size())) {
     auto out = host_ir_container_->outputs()[out_idx];
     auto alias_info = host_ir_container_->getOutputAlias(out);
     if (alias_info.type == AllocationType::Evaluate) {
@@ -338,7 +340,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
               launch_kernel->compile_params());
 
   // Store the outputs in the context
-  for (auto output_idx : c10::irange(outputs.size())) {
+  for (auto output_idx : arange(outputs.size())) {
     expr_evaluator_.bind(
         launch_kernel->outputs().at(output_idx), outputs[output_idx]);
   }
@@ -405,7 +407,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 
   // Store the outputs in the context
-  for (auto output_idx : c10::irange(outputs.size())) {
+  for (auto output_idx : arange(outputs.size())) {
     expr_evaluator_.bind(
         post_ir->outputs().at(output_idx), outputs[output_idx]);
   }
