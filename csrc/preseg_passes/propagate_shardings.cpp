@@ -84,6 +84,35 @@ int64_t numDeviceDims(TensorView* tv) {
       std::mem_fn(&IterDomain::isDeviceDim));
 }
 
+
+// Sort the given tvs by the number of device dimensions in descending order.
+// Break ties by the total number of dimensions.
+// Only includes TensorViews that have a device mesh.
+template <typename Range>
+std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {  
+  // Filter out TVs without a device mesh
+  std::vector<TensorView*> tvs_with_mesh;
+  std::copy_if(
+      tvs.begin(),
+      tvs.end(),
+      std::back_inserter(tvs_with_mesh),
+      std::mem_fn(&TensorView::hasDeviceMesh));
+      
+  // Then sort the filtered TVs
+  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(),
+    [](auto a, auto b) { 
+      int64_t a_device_dims = numDeviceDims(a);
+      int64_t b_device_dims = numDeviceDims(b);
+      if (a_device_dims != b_device_dims) {
+        return a_device_dims > b_device_dims;
+      }
+      // Break ties by the total number of dimensions
+      return a->nDims() > b->nDims();
+    });
+      
+  return tvs_with_mesh;
+}
+
 // Order the inputs of the expression based on their priority.
 // For linear op, we use weights and bias before input.
 // For matmul op, we use weights before input.
@@ -102,13 +131,7 @@ std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
   }
 
   // Sort inputs by number of device dimensions in descending order
-  std::vector<TensorView*> sorted_inputs(inputs.begin(), inputs.end());
-  std::sort(
-      sorted_inputs.begin(),
-      sorted_inputs.end(),
-      [&](TensorView* a, TensorView* b) {
-        return numDeviceDims(a) > numDeviceDims(b);
-      });
+  std::vector<TensorView*> sorted_inputs = sortTvsByDeviceDims(inputs);
 
   return sorted_inputs;
 }
@@ -397,40 +420,43 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // if any of them has one. This is needed in addition to the forward
   // propagation for ops that don't take any TensorView operands, e.g.,
   // `uniform` used in dropout. See MultiDeviceTest.BackpropMeshes for an
-  // example.
+  // example. For non-fusion inputs, we also propagate shardings from outputs to inputs.
+  // See MultiDevicePresegPassesTest.ResidualAdd for an example.
   for (auto i_expr = exprs.rbegin(); i_expr != exprs.rend(); i_expr++) {
     Expr* expr = *i_expr;
 
+    const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
+    std::vector<TensorView*> sorted_outputs = sortTvsByDeviceDims(outputs);
+    // All outputs of an expression (Welford, SDPA) should be uniformly sharded.
+    // We pick the most parallel output as the reference. 
+    // This is to avoid picking seed/offset tvs in SDPA.
+
+    if (sorted_outputs.empty()) {
+      continue;
+    }
+
+    TensorView* ref_output = sorted_outputs.front();
+
+    // For fusion inputs, only check if they have a device mesh. We do not modify their sharding.
+    // For non-fusion inputs, check both device mesh and device dims.
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::vector<TensorView*> unsharded_inputs;
-    // Find all inputs that are not fusion inputs and have no device mesh or
-    // no device dimensions. Fusion inputs should already have device mesh set.
-    // We should not modify the shardings for the fusion inputs.
-    std::copy_if(
-        inputs.begin(),
-        inputs.end(),
-        std::back_inserter(unsharded_inputs),
-        [](TensorView* tv) {
-          return !tv->isFusionInput() && (!tv->hasDeviceMesh() ||
-              numDeviceDims(tv) == 0);
-        });
+    for (auto* tv : inputs) {
+      if (tv->isFusionInput()) {
+        if (!tv->hasDeviceMesh()) {
+          tv->setDeviceMesh(ref_output->getDeviceMesh());
+        }
+        continue;
+      }
+      if (!tv->hasDeviceMesh() || numDeviceDims(tv) == 0) {
+        unsharded_inputs.push_back(tv);
+      }
+    }
 
     if (unsharded_inputs.empty()) {
       continue;
     }
 
-    const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    auto i_output = std::find_if(
-        outputs.begin(),
-        outputs.end(),
-        std::mem_fn(&TensorView::hasDeviceMesh));
-    if (i_output == outputs.end()) {
-      continue;
-    }
-
-    // All outputs of an expression are uniformly sharded so we pick the first
-    // one. Multi-output expressions are Welford and SDPA.
-    TensorView* ref_output = *i_output;
     std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, {});
     int64_t did_pos = new2old.size();
 

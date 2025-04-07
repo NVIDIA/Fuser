@@ -265,39 +265,5 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
       __LINE__,
       __FILE__);
 }
-
-TEST_F(MultiDevicePresegPassesTest, ReplayAllocation) {
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  const int d = communicator_->size();
-  auto mesh = DeviceMesh::createForNumDevices(d);
-
-  TensorView* tv0 = makeConcreteTensor({d*b, s});
-  TensorView* tv1 = makeConcreteTensor({d*b, s});
-  TensorView* tv2 = add(tv0, tv1);
-
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  fusion->addOutput(tv2);
-
-  for (auto* tv: {tv0, tv1, tv2}) {
-    tv->setAllocationDomain({tv->axis(1), tv->axis(0)}, true);
-    tv->setDeviceMesh(mesh);
-    tv->split(0, d, /*inner_split=*/false);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
-  }
-
-  preseg_passes::OptimizationPass<
-      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
-  debug() << tv2->domain()->toString(0, false) << std::endl;
-  auto transforms = DependencyCheck::getAllExprsBetween({tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()}, {tv2->getAllocationDomain().begin(), tv2->getAllocationDomain().end()});
-  debug() << "transforms: " << transforms.size() << std::endl;
-  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
-  auto transforms_updated = DependencyCheck::getAllExprsBetween({tv2->getLogicalDomain().begin(), tv2->getLogicalDomain().end()}, {tv2->getAllocationDomain().begin(), tv2->getAllocationDomain().end()});
-  debug() << "transforms_updated: " << transforms_updated.size() << std::endl;
-  for (auto* expr: transforms_updated) {
-    debug() << expr->toString() << std::endl;
-  }
-}
   
 } // namespace nvfuser
