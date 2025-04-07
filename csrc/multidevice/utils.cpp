@@ -135,12 +135,13 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   std::unordered_map<IterDomain*, int64_t> id_to_axis;
   int64_t axis = 0;
   for (auto* id : domain) {
-    // Reduction IterDomains are not materialized as an at::Tensor axis.
     if (id->isReduction()) {
-      continue;
+      // Reduction IterDomains are not materialized as an at::Tensor axis.
+      id_to_axis[id] = -1;
+    } else {
+      id_to_axis[id] = axis;
+      axis++;
     }
-    id_to_axis[id] = axis;
-    axis++;
   }
   return id_to_axis;
 }

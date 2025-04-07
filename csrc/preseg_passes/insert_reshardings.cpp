@@ -121,6 +121,31 @@ void InsertReshardingsPass::runPass(Fusion* fusion) {
   // insertReshardingsBefore is used.
   insertReshardingsAfter(fusion);
   insertReshardingsBefore(fusion);
+
+  for (TensorView* tv : fusion->allTvs()) {
+    Expr* def = tv->definition();
+    if (def == nullptr || !def->isA<ReductionOp>()) {
+      continue;
+    }
+
+    std::vector<int64_t> rfactor_axes;
+    rfactor_axes.reserve(tv->nDims());
+
+    for (auto&& [i, loop_id] : enumerate(tv->getLoopDomain())) {
+      if (loop_id->isReduction()) {
+        if (std::count(
+                tv->getLogicalDomain().begin(),
+                tv->getLogicalDomain().end(),
+                loop_id) == 0) {
+          if (!loop_id->isParallelized()) {
+            rfactor_axes.push_back(i);
+          }
+        }
+      }
+    }
+
+    tv->rFactor(rfactor_axes);
+  }
 }
 
 } // namespace nvfuser::preseg_passes
