@@ -88,15 +88,22 @@ int64_t numDeviceDims(TensorView* tv) {
 // Sort the given tvs by the number of device dimensions in descending order.
 // Break ties by the total number of dimensions.
 // Only includes TensorViews that have a device mesh.
+
 template <typename Range>
-std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {  
-  // Filter out TVs without a device mesh
+std::vector<TensorView*> filterTvsWithMesh(const Range& tvs) {
   std::vector<TensorView*> tvs_with_mesh;
   std::copy_if(
       tvs.begin(),
       tvs.end(),
       std::back_inserter(tvs_with_mesh),
-      std::mem_fn(&TensorView::hasDeviceMesh));
+      [](TensorView* tv) { return tv != nullptr && tv->hasDeviceMesh(); });
+  return tvs_with_mesh;
+}
+
+template <typename Range>
+std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {  
+  // Filter out TVs without a device mesh
+  std::vector<TensorView*> tvs_with_mesh = filterTvsWithMesh(tvs);
       
   // Then sort the filtered TVs
   std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(),
@@ -122,12 +129,12 @@ std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
   const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
   if (LinearOp* linear_op = dynamic_cast<LinearOp*>(expr)) {
     // Use weights and bias before input.
-    return {linear_op->inB(), linear_op->bias(), linear_op->inA()};
+    return filterTvsWithMesh(std::vector<TensorView*>({linear_op->inB(), linear_op->bias(), linear_op->inA()}));
   }
 
   if (MatmulOp* matmul_op = dynamic_cast<MatmulOp*>(expr)) {
     // Use weights before input.
-    return {matmul_op->inB(), matmul_op->inA()};
+    return filterTvsWithMesh(std::vector<TensorView*>({matmul_op->inB(), matmul_op->inA()}));
   }
 
   // Sort inputs by number of device dimensions in descending order
@@ -301,12 +308,13 @@ int64_t shardViewOp(ViewOp* view_op, std::unordered_map<int64_t, int64_t>& new2o
 
 void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
   // Use maybeAllocationDomain to transform
-  // Transform using exprs between logical and loop and get the map
+  // Transform using exprs between logical and loop and get the map.
   for (auto tv : tvs) {
     auto alloc_dom = tv->getMaybeAllocationDomain();
     std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
         {alloc_dom.begin(), alloc_dom.end()},
         {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+    NVF_ERROR(std::all_of(transform_exprs.begin(), transform_exprs.end(), [](Expr* expr) { return expr->isA<Split>(); }), "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
     auto reorder_map = scheduler_utils::createReorderMapUnderTransforms(
         /*ids_to_reorder=*/tv->getLoopDomain(),
         /*ids_to_transform=*/alloc_dom,
@@ -365,14 +373,16 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     const auto& reference_inputs = getOrderedReferenceInputs(expr);
 
+    if (reference_inputs.empty()) {
+      continue;
+    }
+
     std::unordered_set<ParallelType> output_parallel_types;
 
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
       // Skip if the input has no device mesh or is nullptr.
-      if (ref_input == nullptr || !ref_input->hasDeviceMesh()) {
-        continue;
-      }
+      NVF_ERROR(ref_input != nullptr && ref_input->hasDeviceMesh(), "Reference input ", ref_input, " has no device mesh.");
 
       // Reorder the DID axis to the front only if it does not have a parallel type
       // already seen on the output.
@@ -436,6 +446,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     }
 
     TensorView* ref_output = sorted_outputs.front();
+    NVF_ERROR(ref_output != nullptr && ref_output->hasDeviceMesh(), "Reference output ", ref_output, " has no device mesh.");
 
     // For fusion inputs, only check if they have a device mesh. We do not modify their sharding.
     // For non-fusion inputs, check both device mesh and device dims.

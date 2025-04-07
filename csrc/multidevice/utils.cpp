@@ -571,22 +571,13 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(
-    TensorView* ref,
-    std::vector<TensorView*> tvs,
-    bool parallelize_inputs) {
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-
   if (!tvs.empty()) {
     scheduler_utils::parallelizeAllLike(
-        ref,
-        /*pos=*/-1,
-        /*selected_tvs=*/tvs,
-        /*selected_parallel_types=*/{ParallelType::DIDx, ParallelType::Serial},
-        /*propagate_padding=*/false,
-        /*parallelize_inputs=*/parallelize_inputs);
+        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
   }
 
   // parallelAllLke, tries to DID-parallelize
@@ -721,7 +712,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   return ret;
 }
 
-int64_t reorderDIDToFront(TensorView* tv) {
+void reorderDIDToFront(TensorView* tv) {
   // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
@@ -734,7 +725,6 @@ int64_t reorderDIDToFront(TensorView* tv) {
   }
 
   tv->reorder(order_map);
-  return current_pos;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(

@@ -62,10 +62,7 @@ bool haveDifferentShardings(
 bool isInnerResharding(Expr* expr);
 
 // Shards all tensors in tvs like reference
-void shardAllLike(
-    TensorView* ref,
-    std::vector<TensorView*> tvs,
-    bool parallelize_inputs = false);
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs);
 
 // Shards all TVs between from and to AND between TVs created inside a fusion
 // and to. This is required for (1) expressions like rng_uniform that create a
@@ -121,7 +118,7 @@ at::Tensor shardTensor(
     DeviceIdxType device_id);
 
 // Reorders a TensorView so that the DID parallelized axis are in front.
-int64_t reorderDIDToFront(TensorView*);
+void reorderDIDToFront(TensorView*);
 
 // Given a TensorView and the shape of a sharded tensor of which certain
 // dimensions are partially allocated, returns the global shape that'll be used
