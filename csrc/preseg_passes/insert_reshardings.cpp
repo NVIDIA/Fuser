@@ -117,17 +117,7 @@ void insertReshardingsAfter(Fusion* fusion) {
 } // namespace
 
 void InsertReshardingsPass::runPass(Fusion* fusion) {
-  // shouldReshardAfter selects whether insertReshardingsAfter or
-  // insertReshardingsBefore is used.
-  insertReshardingsAfter(fusion);
-  insertReshardingsBefore(fusion);
-
   for (TensorView* tv : fusion->allTvs()) {
-    Expr* def = tv->definition();
-    if (def == nullptr || !def->isA<ReductionOp>()) {
-      continue;
-    }
-
     std::vector<int64_t> rfactor_axes;
     rfactor_axes.reserve(tv->nDims());
 
@@ -148,6 +138,11 @@ void InsertReshardingsPass::runPass(Fusion* fusion) {
       tv->rFactor(rfactor_axes);
     }
   }
+
+  // shouldReshardAfter selects whether insertReshardingsAfter or
+  // insertReshardingsBefore is used.
+  insertReshardingsAfter(fusion);
+  insertReshardingsBefore(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

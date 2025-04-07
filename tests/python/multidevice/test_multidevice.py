@@ -129,8 +129,6 @@ def test_row_parallel_linear(multidevice_test):
         def multidevice_schedule(self):
             for t in [self.inp, self.weight, self.out]:
                 self.sched._set_device_mesh(t, mesh)
-
-            for t in [self.inp, self.weight]:
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
                 self.sched.set_allocation_as_loop(t)
