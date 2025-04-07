@@ -42,8 +42,8 @@ namespace debugging {
 // looks like.
 void setAsIdentity(at::Tensor tensor) {
   tensor.zero_();
-  for (auto i : c10::irange(tensor.size(0))) {
-    for (auto j : c10::irange(tensor.size(1))) {
+  for (auto i : arange(tensor.size(0))) {
+    for (auto j : arange(tensor.size(1))) {
       if (i == j) {
         tensor[i][j] = 1;
       }
@@ -58,8 +58,8 @@ void setAsIdentity(at::Tensor tensor) {
 // This makes the tensor easier to read if you print it out.
 void setAsARange(at::Tensor tensor) {
   tensor.zero_();
-  for (auto i : c10::irange(tensor.size(0))) {
-    for (auto j : c10::irange(tensor.size(1))) {
+  for (auto i : arange(tensor.size(0))) {
+    for (auto j : arange(tensor.size(1))) {
       tensor[i][j] = i * tensor.size(1) + j;
     }
   }
@@ -633,15 +633,16 @@ INSTANTIATE_TEST_SUITE_P(
     mmaHopperRSParamsGenerator(),
     testNameHopperRS);
 
-using HopperMmaSSTestParams = std::tuple<
+using MmaSSTestParams = std::tuple<
     MmaMacro,
     PrimDataType,
     MmaLayout,
     MmaInputSmemSwizzle,
     MmaInputSmemSwizzle>;
 
-class HopperSS : public HopperBase,
-                 public ::testing::WithParamInterface<HopperMmaSSTestParams> {
+template <typename Base>
+class SSTest : public Base,
+               public ::testing::WithParamInterface<MmaSSTestParams> {
  protected:
   MmaLayout layout;
   MmaMacro macro;
@@ -650,7 +651,7 @@ class HopperSS : public HopperBase,
   MmaInputSmemSwizzle swizzle_b;
 
   void SetUp() override {
-    HopperBase::SetUp();
+    Base::SetUp();
 
     macro = std::get<0>(GetParam());
     dtype = std::get<1>(GetParam());
@@ -660,12 +661,14 @@ class HopperSS : public HopperBase,
   }
 };
 
+using HopperSS = SSTest<HopperBase>;
+
 TEST_P(HopperSS, SingleTile) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto shapes = matmulAtInputShape3DHopperSS(
-      getM(macro), getN(macro), getK(macro), layout);
+  auto shapes =
+      matmulAtInputShape3DSS(getM(macro), getN(macro), getK(macro), layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);
@@ -762,7 +765,7 @@ TEST_P(HopperSS, SingleTile) {
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
-  auto inputs = matmulAtInput3DHopperSS(
+  auto inputs = matmulAtInput3DSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
@@ -783,8 +786,8 @@ TEST_P(HopperSS, SingleTileTransposed) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
-  auto shapes = matmulAtInputShape3DHopperSS(
-      getM(macro), getN(macro), getK(macro), layout);
+  auto shapes =
+      matmulAtInputShape3DSS(getM(macro), getN(macro), getK(macro), layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
   auto tv1 = makeConcreteTensor(shapes.second, dtype);
@@ -891,7 +894,7 @@ TEST_P(HopperSS, SingleTileTransposed) {
     tv2->setLoopDomain(s.as<IterDomain*>());
   }
 
-  auto inputs = matmulAtInput3DHopperSS(
+  auto inputs = matmulAtInput3DSS(
       getM(macro), getN(macro), getK(macro), layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
@@ -911,7 +914,7 @@ TEST_P(HopperSS, MultipleTile) {
 
   constexpr int64_t num_tiles = 2;
 
-  auto shapes = matmulAtInputShape3DHopperSS(
+  auto shapes = matmulAtInputShape3DSS(
       num_tiles * getM(macro),
       num_tiles * getN(macro),
       num_tiles * getK(macro),
@@ -1066,7 +1069,7 @@ TEST_P(HopperSS, MultipleTile) {
 
   inlineMost();
 
-  auto inputs = matmulAtInput3DHopperSS(
+  auto inputs = matmulAtInput3DSS(
       num_tiles * getM(macro),
       num_tiles * getN(macro),
       num_tiles * getK(macro),
@@ -1084,8 +1087,7 @@ TEST_P(HopperSS, MultipleTile) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
-std::string testNameHopperSS(
-    const testing::TestParamInfo<HopperMmaSSTestParams>& info) {
+std::string testNameSS(const testing::TestParamInfo<MmaSSTestParams>& info) {
   std::ostringstream os;
   auto macro = std::get<0>(info.param);
   auto dtype = std::get<1>(info.param);
@@ -1097,19 +1099,19 @@ std::string testNameHopperSS(
   return os.str();
 }
 
-auto mmaHopperSSParamsGenerator() {
+auto mmaSSParamsGenerator(const auto& all_macros) {
   // A very simple PRNG:
   // https://en.wikipedia.org/wiki/Lehmer_random_number_generator
   uint32_t lcg_parkmiller = 1;
   // Only select 1/dilute of the params, 1 means not diluting
   const uint32_t dilute = std::stoi(getNvFuserEnv("MMA_TEST_DILUTE", "8"));
-  std::vector<HopperMmaSSTestParams> params;
+  std::vector<MmaSSTestParams> params;
   std::unordered_set<MmaMacro> macros;
   std::unordered_set<PrimDataType> dtypes;
   std::unordered_set<MmaLayout> layouts;
   std::unordered_set<MmaInputSmemSwizzle> swizzle_as;
   std::unordered_set<MmaInputSmemSwizzle> swizzle_bs;
-  for (auto macro : kAllHopperMacros) {
+  for (auto macro : all_macros) {
     for (auto dtype : all_dtypes) {
       for (auto layout : kAllSupportedMmaLayout) {
         for (auto swizzle_a : kAllSmemSwizzleModes) {
@@ -1143,7 +1145,7 @@ auto mmaHopperSSParamsGenerator() {
 INSTANTIATE_TEST_SUITE_P(
     MmaTest,
     HopperSS,
-    mmaHopperSSParamsGenerator(),
-    testNameHopperSS);
+    mmaSSParamsGenerator(kAllHopperMacros),
+    testNameSS);
 
 } // namespace nvfuser

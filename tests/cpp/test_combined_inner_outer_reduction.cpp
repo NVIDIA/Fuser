@@ -180,10 +180,10 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
+    for (const auto idx : arange(kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
+    for (const auto idx : arange(kOuterNumDims, kM)) {
       // just to avoid unused variable warning
       outer_shape.push_back(1 + idx - idx);
     }
@@ -330,10 +330,10 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
+    for (const auto idx : arange(kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
+    for (const auto idx : arange(kOuterNumDims, kM)) {
       // just to avoid unused variable warning
       outer_shape.push_back(1 + idx - idx);
     }
