@@ -17,6 +17,7 @@ class Expr;
 class Fusion;
 class TensorView;
 class IterDomain;
+class Resize;
 class ViewOp;
 
 namespace scheduler_tools {
@@ -31,7 +32,9 @@ namespace scheduler_tools {
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom,
-    bool update_loop_domain_only = false);
+    bool update_loop_domain_only = false,
+    std::optional<std::unordered_map<TensorView*, std::unordered_set<Resize*>>>
+        valid_resizes = std::nullopt);
 
 // Replay a transform expr on the loop domain of each of the given
 // tensors. If the replay direction is specified, the expr is replayed
