@@ -144,7 +144,9 @@ void InsertReshardingsPass::runPass(Fusion* fusion) {
       }
     }
 
-    tv->rFactor(rfactor_axes);
+    if (!rfactor_axes.empty()) {
+      tv->rFactor(rfactor_axes);
+    }
   }
 }
 
