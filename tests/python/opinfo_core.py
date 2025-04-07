@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 # Owner(s): ["module: nvfuser"]
 
-from utils import (
+from nvfuser.testing.utils import (
     all_dtypes_except_reduced,
     ArgumentType,
     torch_to_python_dtype_map,
