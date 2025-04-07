@@ -384,17 +384,10 @@ c10::intrusive_ptr<c10d::Work> postScatter(
   auto root_relative_index = communication->getRootRelativeIndex();
 
   std::vector<std::vector<at::Tensor>> input_tensors;
-  std::vector<at::Tensor> output_tensors({output_tensor});
+  std::vector<at::Tensor> output_tensors({output_tensor.as_strided({output_tensor.numel()}, {1})});
   
   if (my_device_index == communication->root()) {
-  // Presegmentation should ensure outermost allocation of scattered axis required for correct results.
-  // Scatter does not require the input_tensor.is_contiguous() to be true so we do not permute the input tensor.
-
-  // Get contiguity permutation to find the scattered axis.
-  auto dims = getContiguityPermutation(input_tensor);
-  int64_t scattered_axis = dims.at(0);
-
-    auto splits = at::tensor_split(input_tensor, output_device_mesh.size(), /*dim=*/scattered_axis);
+    auto splits = at::tensor_split(input_tensor.as_strided({input_tensor.numel()}, {1}), output_device_mesh.size(), /*dim=*/0);
     if (!output_has_root) {
       output_tensors[0] = at::empty_like(splits.at(0));
     }
@@ -408,10 +401,10 @@ c10::intrusive_ptr<c10d::Work> postScatter(
       }
       input_tensors.front().push_back(splits.at(j));
       j++;
-    }
+  }
 
-    assertBufferCount(input_tensors[0], communication->team().size());
-    assertBuffersHaveSameSize(input_tensors[0], output_tensors);
+  assertBufferCount(input_tensors[0], communication->team().size());
+  assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
   return backend->scatter(
