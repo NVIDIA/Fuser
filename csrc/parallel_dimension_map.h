@@ -43,9 +43,13 @@ class ParallelDimensionMap {
 
   //! Get the "compute" parallel dimension on the given ParallelType. In case
   //! of no warp specialization, this is the same as getRaw(pt). If we are doing
-  //! warp specialization on pt, the result is getRaw(pt) - 1, because the last
-  //! of pt is used for loading circular buffer tensors.
+  //! warp specialization on pt without register sharing, the result is
+  //! getRaw(pt) - 1, because the last of pt is used for loading circular buffer
+  //! tensors. If register sharing is also used, difference padded threads are
+  //! required for different cta shapes.
   Val* getRawCompute(ParallelType pt) const;
+
+  int64_t getWarpSpecializationPaddedVal(ParallelType pt) const;
 
   //! Get the number of threads per each CTA used for computation. When there is
   //! no warp specialization, the result is trivial: it is just the product of
@@ -78,7 +82,7 @@ class ParallelDimensionMap {
   //! If we are doing warp specialization on pt, then we need to increase
   //! the parallel dimension size of pt by one, where the extra one is used
   //! as the load warp. In this case, pt becomes non-exact.
-  void setWarpSpecializeOn(ParallelType pt);
+  void adjustMappingsForWarpSpecialization();
 
  private:
   //! Maps from parallel types to dimensions, which are constant if
@@ -90,6 +94,10 @@ class ParallelDimensionMap {
 
   //! Set of parallel types that we are doing warp specialization on
   std::unordered_set<ParallelType> warp_specialized_types_;
-};
 
+  //! warp specialization with register sharing, keep track of
+  //! the parallel type and the threads padding
+  std::optional<ParallelType> ws_with_register_sharing_pt_;
+  std::optional<int64_t> ws_with_register_sharing_pad_val_;
+};
 } // namespace nvfuser
