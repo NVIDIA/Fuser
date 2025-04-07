@@ -131,10 +131,7 @@ bool isTV(const Val* val) {
 
 // Check if we're a TensorView op that we can generate code for.
 bool isTvOp(const Expr* expr) {
-  if (std::any_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [](Val* v) { return isTV(v); }) &&
+  if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
           UnaryOp,
           BinaryOp,
@@ -955,7 +952,6 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   if (isAmpere(expr->macro()) || isTuring(expr->macro())) {
     return {UnitDim::K, UnitDim::K};
   }
-  NVF_ERROR(isHopper(expr->macro()));
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   std::array<UnitDim, 2> layout;

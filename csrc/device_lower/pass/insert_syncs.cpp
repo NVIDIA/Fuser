@@ -148,10 +148,9 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        ite->elseBody().empty(),
-        "Pass does not support conditional flow,",
-        " needs to be done before conditional execution is lowered.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::ExprMutator::handle(ite);
   }
 
@@ -1237,8 +1236,14 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             for_loop->circularBufferLoopStage() ==
                 CircularBufferLoopStage::Main) {
           NVF_ERROR(num_exprs > 1);
-          NVF_ERROR(for_loop->body().exprs().back()->isA<kir::BlockSync>());
-          --pos;
+          if (for_loop->body().exprs().back()->isA<kir::BlockSync>()) {
+            --pos;
+          } else {
+            // Insert a sync if there is not one already
+            auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+            kir::ExprMutator::registerInsertAfter(
+                for_loop->body().exprs().back(), sync_expr, &for_loop->body());
+          }
         }
 
         Expr* expr = for_loop->body().exprs().at(pos);
