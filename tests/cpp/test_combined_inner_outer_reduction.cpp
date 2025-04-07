@@ -1039,13 +1039,19 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
 using TmaWarpSpecializedParams = std::tuple<DataType, int64_t, int64_t>;
 class TmaWarpSpecializedTest
     : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
+ public:
   void SetUp() override {
-    EnableOptionsGuard opt_guard;
+    opt_guard_ = std::make_unique<EnableOptionsGuard>();
     EnableOptionsGuard::getCurOptions().set(
         EnableOption::WarpSpecializedPersistent);
     NVFuserTest::SetUp();
   }
+
+ protected:
+  // This keeps the guard alive until all TmaWarpSpecializedTests are done.
+  std::unique_ptr<EnableOptionsGuard> opt_guard_;
 };
+
 TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto [dtype, dim0, dim1] = GetParam();
@@ -1077,6 +1083,7 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
 TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto [dtype, dim0, dim1] = GetParam();
@@ -1086,7 +1093,7 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   FusionGuard fg(fusion.get());
   auto grad_out = makeContigTensor(2, dtype);
   auto input = makeContigTensor(2, dtype);
-  auto rstd = makeConcreteTensor({dim0, 1});
+  auto rstd = makeContigConcreteTensor({dim0, 1});
   auto weight = makeContigTensor(1, dtype);
   fusion->addInput(grad_out);
   fusion->addInput(input);
