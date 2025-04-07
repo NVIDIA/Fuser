@@ -21,6 +21,7 @@
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -138,6 +139,11 @@ KernelArgumentHolder HostIrExecutor::run(
         out_idx < (int64_t)host_ir_container_->outputs().size(),
         "Output tensor not found in fusion outputs");
     auto out_tensor = output_args[out_idx].as<at::Tensor>();
+
+    inferAndValidateAllocationSizesAndStrides(
+        out_tensor, communication->out(), expr_eval);
+    inferAndValidateAllocationSizesAndStrides(
+        in_tensor, communication->in(), expr_eval);
 
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication,
