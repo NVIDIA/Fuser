@@ -354,9 +354,11 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   // This is not always possible since manual IRs like Manual/MultiDeviceHostIrTest.SingleFusionSingleComm_withoutShardingAnnotations
   // do not have sharding annotations. This will be ensured by `reorderShardedAxis` and `makeShardingContiguous` presegmentation pass.
 
+  auto flattened_output_tensor = output_tensor.as_strided({output_tensor.numel()}, {1});
+  auto flattened_input_tensor = input_tensor.as_strided({input_tensor.numel()}, {1});
   auto splits =
-      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
-  assertBuffersHaveSameSize({input_tensor}, splits);
+      at::tensor_split(flattened_output_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize({flattened_input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
   // received tensors into user buffer. It is therefore always preferable to use
