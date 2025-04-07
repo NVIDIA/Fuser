@@ -122,7 +122,7 @@ void ArgumentManager::setLastUsedSegmentID(
     for (auto run_order_id : arange(1l, num_groups)) {
       auto group_to_run = group_run_order.at(run_order_id);
       // set/update life of vals in inputs of this group
-      for (auto val : group_to_run->inputs()) {
+      for (auto val : group_to_run->inputsTmp()) {
         // skip fusion inputs and outputs, they may be used by other fusions
         // or code
         if (!val->isFusionInput() && !val->isFusionOutput()) {
@@ -132,7 +132,7 @@ void ArgumentManager::setLastUsedSegmentID(
       // set/update life of vals in outputs of this group
       // skip the last group since its outputs are always the global outputs
       if (run_order_id < num_groups - 1) {
-        for (auto val : group_to_run->outputs()) {
+        for (auto val : group_to_run->outputsTmp()) {
           // skip fusion inputs and outputs, they may be used by other fusions
           // or code
           if (!val->isFusionInput() && !val->isFusionOutput()) {
@@ -184,7 +184,7 @@ void prepareRuntimeOrder(
       if (group_ran[group_i]) {
         continue;
       }
-      const auto& group_inputs = group->inputs();
+      const auto& group_inputs = group->inputsTmp();
       bool ready_to_run = std::all_of(
           group_inputs.begin(),
           group_inputs.end(),
@@ -192,7 +192,7 @@ void prepareRuntimeOrder(
 
       if (ready_to_run) {
         runtime_workspace.group_run_order.push_back(group);
-        const auto& group_outputs = group->outputs();
+        const auto& group_outputs = group->outputsTmp().vector();
 
         // Insert graph segment output to tensor map
         for (const size_t group_out_i : arange(group_outputs.size())) {

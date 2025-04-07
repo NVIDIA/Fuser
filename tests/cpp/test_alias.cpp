@@ -405,7 +405,7 @@ TEST_F(AliasTest, NotAllOutputsAlias_Pointwise) {
       const auto* ke =
           runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
-      for (auto i : arange(group->outputs().size())) {
+      for (auto i : arange(group->outputsTmp().size())) {
         if (storesToOutput(ke, i)) {
           num_stores++;
         }
@@ -483,7 +483,7 @@ TEST_F(AliasTest, Issue1452) {
       const auto& ke =
           runtime->executors().at(group->groupId())->as<KernelExecutor>();
       int num_stores = 0;
-      for (auto i : arange(group->outputs().size())) {
+      for (auto i : arange(group->outputsTmp().size())) {
         if (storesToOutput(ke, i)) {
           num_stores++;
         }
@@ -1275,8 +1275,8 @@ TEST_F(AliasTest, Bookend_InputsAndOutputs) {
           HeuristicIs(SchedulerType::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      EXPECT_THAT(group->inputs(), SizeIs(1));
-      EXPECT_THAT(group->outputs(), SizeIs(1));
+      EXPECT_THAT(group->inputsTmp(), SizeIs(1));
+      EXPECT_THAT(group->outputsTmp(), SizeIs(1));
     }
   }
 }
@@ -1306,8 +1306,8 @@ TEST_F(AliasTest, Bookend_IntermediateTensors) {
           HeuristicIs(SchedulerType::PointWise)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      EXPECT_THAT(group->inputs(), SizeIs(1));
-      EXPECT_THAT(group->outputs(), SizeIs(1));
+      EXPECT_THAT(group->inputsTmp(), SizeIs(1));
+      EXPECT_THAT(group->outputsTmp(), SizeIs(1));
     }
   }
 }
@@ -1346,8 +1346,8 @@ TEST_F(AliasTest, Bookend_AliasesOfSameTensor) {
       Contains(HeuristicIs(SchedulerType::PointWise)).Times(1));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      EXPECT_THAT(group->inputs(), SizeIs(1));
-      EXPECT_THAT(group->outputs(), SizeIs(1));
+      EXPECT_THAT(group->inputsTmp(), SizeIs(1));
+      EXPECT_THAT(group->outputsTmp(), SizeIs(1));
     }
   }
 }
@@ -1385,8 +1385,8 @@ TEST_F(AliasTest, Bookend_ReuseSegmentSet) {
           HeuristicIs(SchedulerType::ExprEval)));
   for (SegmentedGroup* group : runtime->fusionSegments()->groups()) {
     if (group->schedulerType() == SchedulerType::PointWise) {
-      EXPECT_THAT(group->inputs(), SizeIs(1));
-      EXPECT_THAT(group->outputs(), SizeIs(1));
+      EXPECT_THAT(group->inputsTmp(), SizeIs(1));
+      EXPECT_THAT(group->outputsTmp(), SizeIs(1));
     }
   }
 }

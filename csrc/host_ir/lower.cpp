@@ -628,7 +628,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   FusionGuard fg(hic.get());
   IrCloner ir_cloner(hic.get());
   auto clone =
-      [&ir_cloner](const std::vector<Val*>& vals) -> std::vector<Val*> {
+      [&ir_cloner](
+          const VectorOfUniqueEntries<Val*>& vals) -> std::vector<Val*> {
     std::vector<Val*> cloned_vals(vals.size());
     std::transform(
         vals.begin(), vals.end(), cloned_vals.begin(), [&ir_cloner](Val* val) {
@@ -673,7 +674,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       auto host_unit = IrBuilder::create<hir::HostUnit>(
           staged_fusion->makeFusion(group).second);
       auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
-          host_unit, clone(group->inputs()), clone(group->outputs()));
+          host_unit, clone(group->inputsTmp()), clone(group->outputsTmp()));
       hic->pushBackTopLevelExprs(post_on_stream);
     }
   }

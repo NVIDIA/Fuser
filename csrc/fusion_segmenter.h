@@ -31,16 +31,19 @@ class SegmentCandidateFinder;
 // A directed edge on DAG,
 // Wrapper for values, edges between segmented groups which are made up
 // of Exprs. Multiple edges can exist between segmented groups.
+// Segmented Edge Use: Core edge data structure definition
 struct SegmentedEdge {
   SegmentedEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val)
       : from(from), to(to), val(val) {}
 
+  // Segmented Edge Use: Edge connection points and value
   SegmentedGroup* from;
   SegmentedGroup* to;
   Val* val;
 
   void print() const;
 
+  // Segmented Edge Use: Edge comparison operators
   bool operator==(const SegmentedEdge& other) const {
     return from == other.from && to == other.to && val == other.val;
   }
@@ -95,13 +98,13 @@ class SegmentedGroup {
   }
 
   //! Returns inputs that this group shares with the original fusion
-  const auto& inputs() const {
-    return input_vals_.vector();
+  const auto& inputsTmp() const {
+    return input_vals_;
   }
 
   //! Returns outputs that this group shares with the original fusion
-  const auto& outputs() const {
-    return output_vals_.vector();
+  const auto& outputsTmp() const {
+    return output_vals_;
   }
 
   //! Returns the schedule heuristic associated with this group
@@ -150,11 +153,12 @@ class SegmentedGroup {
   bool isFusionInputGroup() const;
 
  public:
-  //! "Ancestor nodes", towards inputs of segmentedDAG
+  // Segmented Edge Use: Edge containers in group
   std::vector<SegmentedEdge*> producer_edges;
-
-  //! "Descendent nodes", towards outputs of segmentedDAG
   std::vector<SegmentedEdge*> consumer_edges;
+
+  VectorOfUniqueEntries<SegmentedGroup*> producer_groups_;
+  VectorOfUniqueEntries<SegmentedGroup*> consumer_groups_;
 
   //! Inputs of this group, they could be composite fusion inputs, or inputs
   //! from other groups
@@ -384,7 +388,7 @@ class SegmentedFusion {
   //! Unique name for segmented fusion
   size_t segmented_fusion_name_;
 
-  //! States representing segmentation
+  // Segmented Edge Use: Main edge container
   std::vector<SegmentedEdge*> edges_;
   std::vector<SegmentedGroup*> groups_;
 
@@ -402,10 +406,8 @@ class SegmentedFusion {
     std::unordered_map<SegmentedEdge*, int64_t> edges_map() const;
 
    private:
-    using GroupPtr = std::unique_ptr<SegmentedGroup>;
-    using EdgePtr = std::unique_ptr<SegmentedEdge>;
-    std::vector<GroupPtr> groups_;
-    std::vector<EdgePtr> edges_;
+    std::vector<std::unique_ptr<SegmentedGroup>> groups_;
+    std::vector<std::unique_ptr<SegmentedEdge>> edges_;
     SegmentedFusion* owning_fusion_;
   };
   Impl impl_;
