@@ -1617,7 +1617,8 @@ Val* Index::getLinearLogicalIndex(
         consumer_tv->definition(),
         /*as_consumer=*/true,
         consumer_tv->getLogicalDomain(),
-        loops);
+        loops,
+        /*use_magic_zero=*/true);
     Val* stride = consumer_tv->fusion()->oneVal();
     for (const auto [i, logical_id] :
          enumerate(consumer_tv->getLogicalDomain()) | std::views::reverse) {
