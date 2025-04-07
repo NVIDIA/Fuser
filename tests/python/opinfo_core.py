@@ -50,12 +50,12 @@ class SampleInput:
         return f"[SampleInput args={self.args} kwargs={self.kwargs}]"
 
     def jax(self):
-        from utils import JAX_AVAILABLE
+        from nvfuser.testing.utils import JAX_AVAILABLE
 
         assert JAX_AVAILABLE
 
         import jax.numpy as jnp
-        from utils import torch_to_jax_dtype_map
+        from nvfuser.testing.utils import torch_to_jax_dtype_map
 
         def to_jax(t):
             if isinstance(t, torch.Tensor):
