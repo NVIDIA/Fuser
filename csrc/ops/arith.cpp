@@ -2261,4 +2261,29 @@ TensorView* tensor(Val* val) {
   return out;
 }
 
+TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
+  const std::vector<IterDomain*> logical_dom =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+
+  dim = wrapDim(dim, (int64_t)logical_dom.size());
+
+  IterDomain* scan_id = logical_dom.at((size_t)dim);
+
+  // Special case: scanning along broadcast dimension is no-op
+  if (scan_id->isBroadcast()) {
+    if (scan_id->hasExpandedExtent()) {
+      NVF_THROW(
+          "Closed-form scan of expanded dimension is not yet implemented");
+    }
+    return set(tv);
+  }
+
+  TensorView* out = ops::newOutputTV({tv}, tv->dtype());
+
+  IrBuilder::createInContainer<PrefixSumOp>(
+      tv->container(), out, tv, discount_factor, dim);
+
+  return out;
+}
+
 } // namespace nvfuser

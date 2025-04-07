@@ -5512,4 +5512,52 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
           .scale_grad_by_freq(scale_grad_by_freq)
           .sparse(sparse))};
 }
+
+PrefixSumOp::PrefixSumOp(
+    IrBuilderPasskey passkey,
+    TensorView* output,
+    TensorView* input,
+    Val* discount_factor,
+    int64_t dim)
+    : Expr(passkey) {
+  addOutput(output);
+  addInput(input);
+  if (discount_factor != nullptr) {
+    addInput(discount_factor);
+  }
+  addDataAttribute(dim);
+}
+
+std::string PrefixSumOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << ",\n";
+  indent(ss, indent_size + 1) << " = scan(" << in()->toString();
+  indent(ss, indent_size + 1) << ",\n        " << scanDim();
+  if (discountFactor() != nullptr) {
+    indent(ss, indent_size + 1)
+        << ",\n        " << discountFactor()->toString();
+  }
+  ss << ")\n";
+  return ss.str();
+}
+
+std::string PrefixSumOp::toInlineString(int indent_size) const {
+  NVF_THROW("Tensor op can not be printed inline");
+}
+
+std::vector<PolymorphicValue> PrefixSumOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  auto input = inputs.at(0).as<at::Tensor>();
+
+  if (discountFactor() == nullptr) {
+    return {at::cumsum(input, scanDim())};
+  } else {
+    // auto discount_factor = inputs.at(1).as<at::Tensor>();
+    NVF_THROW("Evaluation of discounted prefixSum not yet implemented");
+  }
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(PrefixSumOp)
+
 } // namespace nvfuser

@@ -101,6 +101,7 @@ class Val;
   f(ViewOp);                      \
   f(CatOp);                       \
   f(PadOp);                       \
+  f(PrefixSumOp);                 \
   f(SliceOp);                     \
   f(Split);                       \
   f(Merge);                       \

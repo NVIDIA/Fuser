@@ -712,4 +712,33 @@ NVF_API TensorView* tensor(const std::vector<T>& vals) {
   return tensor(IrBuilder::arrayExpr(vals));
 }
 
+//! Computes an inclusive prefix sum of a tensor in a single dimension.
+//!
+//! Given a 1D input tensor x and discount factor f, this computes the output
+//! recursively via
+//!
+//!   y = prefixSum(x, 0, f)
+//!
+//!   y[0] = x[0]
+//!   y[i] = f*y[i-1] + x[i] for 0 < i < n
+//!
+//! Note that the discount factor can also be a TensorView, in which case we
+//! compute
+//!
+//!   y[0] = x[0]
+//!   y[i] = f[i]*y[i-1] + x[i] for 0 < i < n
+//!
+//! Notice that the first discount factor in the scanned dimension is ignored.
+//!
+//! If `discount_factor` is null, then we compute the regular prefix sum:
+//!
+//!   y[0] = x[0]
+//!   y[i] = y[i-1] + x[i] for 0 < i < n
+//!
+//! If the dimension being scanned is an expanded broadcast, we throw an error.
+NVF_API TensorView* prefixSum(
+    TensorView* tv,
+    int64_t dim,
+    Val* discount_factor = nullptr);
+
 } // namespace nvfuser

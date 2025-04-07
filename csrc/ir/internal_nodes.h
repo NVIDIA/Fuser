@@ -2812,4 +2812,45 @@ class EmbeddingFwdOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
+class PrefixSumOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  PrefixSumOp(
+      IrBuilderPasskey,
+      TensorView* output,
+      TensorView* input,
+      Val* discount_factor,
+      int64_t dim);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "PrefixSumOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+
+  TensorView* out() const {
+    return output(0)->as<TensorView>();
+  }
+
+  TensorView* in() const {
+    return input(0)->as<TensorView>();
+  }
+
+  Val* discountFactor() const {
+    return inputs().size() > 1 ? input(1) : nullptr;
+  }
+
+  int64_t scanDim() const {
+    return attribute<int64_t>(0);
+  }
+
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+};
+
 } // namespace nvfuser
