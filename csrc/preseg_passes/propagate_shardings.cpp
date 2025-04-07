@@ -84,7 +84,6 @@ int64_t numDeviceDims(TensorView* tv) {
       std::mem_fn(&IterDomain::isDeviceDim));
 }
 
-
 // Sort the given tvs by the number of device dimensions in descending order.
 // Break ties by the total number of dimensions.
 // Only includes TensorViews that have a device mesh.
@@ -101,22 +100,21 @@ std::vector<TensorView*> filterTvsWithMesh(const Range& tvs) {
 }
 
 template <typename Range>
-std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {  
+std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {
   // Filter out TVs without a device mesh
   std::vector<TensorView*> tvs_with_mesh = filterTvsWithMesh(tvs);
-      
+
   // Then sort the filtered TVs
-  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(),
-    [](auto a, auto b) { 
-      int64_t a_device_dims = numDeviceDims(a);
-      int64_t b_device_dims = numDeviceDims(b);
-      if (a_device_dims != b_device_dims) {
-        return a_device_dims > b_device_dims;
-      }
-      // Break ties by the total number of dimensions
-      return a->nDims() > b->nDims();
-    });
-      
+  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(), [](auto a, auto b) {
+    int64_t a_device_dims = numDeviceDims(a);
+    int64_t b_device_dims = numDeviceDims(b);
+    if (a_device_dims != b_device_dims) {
+      return a_device_dims >= b_device_dims;
+    }
+    // Break ties by the total number of dimensions
+    return a->nDims() >= b->nDims();
+  });
+
   return tvs_with_mesh;
 }
 
@@ -129,12 +127,14 @@ std::vector<TensorView*> getOrderedReferenceInputs(Expr* expr) {
   const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
   if (LinearOp* linear_op = dynamic_cast<LinearOp*>(expr)) {
     // Use weights and bias before input.
-    return filterTvsWithMesh(std::vector<TensorView*>({linear_op->inB(), linear_op->bias(), linear_op->inA()}));
+    return filterTvsWithMesh(std::vector<TensorView*>(
+        {linear_op->inB(), linear_op->bias(), linear_op->inA()}));
   }
 
   if (MatmulOp* matmul_op = dynamic_cast<MatmulOp*>(expr)) {
     // Use weights before input.
-    return filterTvsWithMesh(std::vector<TensorView*>({matmul_op->inB(), matmul_op->inA()}));
+    return filterTvsWithMesh(
+        std::vector<TensorView*>({matmul_op->inB(), matmul_op->inA()}));
   }
 
   // Sort inputs by number of device dimensions in descending order
@@ -190,7 +190,9 @@ void splitLike(
 
 // Returns the number of DID axis on reshaped ids that were propagated to the
 // consumer.
-int64_t shardViewOp(ViewOp* view_op, std::unordered_map<int64_t, int64_t>& new2old) {
+int64_t shardViewOp(
+    ViewOp* view_op,
+    std::unordered_map<int64_t, int64_t>& new2old) {
   // This implementation asserts that only one sharding is applied on the
   // reshaped ids. Inner split is not supported. The cases are:
   // 1. Split reshape: [h] -> [a, h/a]. Sharding on h is applied to a in
@@ -314,7 +316,12 @@ void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
     std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
         {alloc_dom.begin(), alloc_dom.end()},
         {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-    NVF_ERROR(std::all_of(transform_exprs.begin(), transform_exprs.end(), [](Expr* expr) { return expr->isA<Split>(); }), "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
+    NVF_ERROR(
+        std::all_of(
+            transform_exprs.begin(),
+            transform_exprs.end(),
+            [](Expr* expr) { return expr->isA<Split>(); }),
+        "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
     auto reorder_map = scheduler_utils::createReorderMapUnderTransforms(
         /*ids_to_reorder=*/tv->getLoopDomain(),
         /*ids_to_transform=*/alloc_dom,
@@ -325,14 +332,18 @@ void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
 
 // Reorder the DID axis to the front only if it does not have a parallel type
 // already seen on the output (existing_parallel_types).
-// Returns a map from the new position to the old position to undo the reordering later.
-std::unordered_map<int64_t, int64_t> selectiveReorderDIDToFront(TensorView* tv, std::unordered_set<ParallelType> existing_parallel_types) {
+// Returns a map from the new position to the old position to undo the
+// reordering later.
+std::unordered_map<int64_t, int64_t> selectiveReorderDIDToFront(
+    TensorView* tv,
+    std::unordered_set<ParallelType> existing_parallel_types) {
   std::unordered_map<int64_t, int64_t> old2new;
   std::unordered_map<int64_t, int64_t> new2old;
   int64_t current_pos = 0;
 
   for (auto pos : c10::irange(tv->nDims())) {
-    if (tv->axis(pos)->isDeviceDim() && !existing_parallel_types.count(tv->axis(pos)->getParallelType())) {
+    if (tv->axis(pos)->isDeviceDim() &&
+        !existing_parallel_types.count(tv->axis(pos)->getParallelType())) {
       old2new[pos] = current_pos;
       new2old[current_pos] = pos;
       current_pos++;
@@ -344,8 +355,10 @@ std::unordered_map<int64_t, int64_t> selectiveReorderDIDToFront(TensorView* tv, 
 }
 
 // Updates the set of parallel types seen on the output.
-void updateOutputParallelTypes(TensorView* tv, std::unordered_set<ParallelType>& output_parallel_types) {
-  for (auto id: tv->getLoopDomain()) {
+void updateOutputParallelTypes(
+    TensorView* tv,
+    std::unordered_set<ParallelType>& output_parallel_types) {
+  for (auto id : tv->getLoopDomain()) {
     if (id->isDeviceDim()) {
       output_parallel_types.insert(id->getParallelType());
     }
@@ -354,12 +367,19 @@ void updateOutputParallelTypes(TensorView* tv, std::unordered_set<ParallelType>&
 
 } // namespace
 
-
-// This presegmentation pass propagates shardings from fusion inputs to downstream tensorviews.
-// 1. Forward propagating DID loop splits and parallelization from inputs to outputs that don't have a mesh using TransformPropagator
-// 2. Reshape is handled manually since the DID loop split transforms conflict with the reshape root-to-logical transforms if using TransformPropagator
-// 3. Back-propagating device meshes to ensure all TensorViews have consistent meshes. This also splits and parallelizes unsharded inputs based on outputs. See `MultiDevicePresegPassesTest.ResidualAdd` for an example.
-// 4. Reorders the loop domain as the allocation order. Ideally, loop domain should follow logical domain and allocation domain should follow any stride order specified/inferred. However, we currently require loop domain to be the same as allocation domain.
+// This presegmentation pass propagates shardings from fusion inputs to
+// downstream tensorviews.
+// 1. Forward propagating DID loop splits and parallelization from inputs to
+// outputs that don't have a mesh using TransformPropagator
+// 2. Reshape is handled manually since the DID loop split transforms conflict
+// with the reshape root-to-logical transforms if using TransformPropagator
+// 3. Back-propagating device meshes to ensure all TensorViews have consistent
+// meshes. This also splits and parallelizes unsharded inputs based on outputs.
+// See `MultiDevicePresegPassesTest.ResidualAdd` for an example.
+// 4. Reorders the loop domain as the allocation order. Ideally, loop domain
+// should follow logical domain and allocation domain should follow any stride
+// order specified/inferred. However, we currently require loop domain to be the
+// same as allocation domain.
 void PropagateShardingsPass::runPass(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
 
@@ -382,18 +402,24 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // Propagate shardings from reference inputs in order.
     for (auto* ref_input : reference_inputs) {
       // Skip if the input has no device mesh or is nullptr.
-      NVF_ERROR(ref_input != nullptr && ref_input->hasDeviceMesh(), "Reference input ", ref_input, " has no device mesh.");
+      NVF_ERROR(
+          ref_input != nullptr && ref_input->hasDeviceMesh(),
+          "Reference input ",
+          ref_input,
+          " has no device mesh.");
 
-      // Reorder the DID axis to the front only if it does not have a parallel type
-      // already seen on the output.
-      std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_input, output_parallel_types);
+      // Reorder the DID axis to the front only if it does not have a parallel
+      // type already seen on the output.
+      std::unordered_map<int64_t, int64_t> new2old =
+          selectiveReorderDIDToFront(ref_input, output_parallel_types);
 
       // This restricts the transform propagation to the DID axis.
       int64_t num_device_dims = new2old.size();
 
       if (ViewOp* view_op = dynamic_cast<ViewOp*>(expr)) {
         // Propagation of reshape will return how many DID axis were propagated.
-        // They are reordered behind non-propagated DID axis and the new2old map is updated.
+        // They are reordered behind non-propagated DID axis and the new2old map
+        // is updated.
         int64_t num_reshape_shardings = shardViewOp(view_op, new2old);
         num_device_dims = num_device_dims - num_reshape_shardings;
       }
@@ -412,7 +438,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
       updateOutputParallelTypes(ref_input, output_parallel_types);
 
-      // Undo the reordering of the DID axis so it is in the correct order again.
+      // Undo the reordering of the DID axis so it is in the correct order
+      // again.
       ref_input->reorder(new2old);
     }
 
@@ -420,9 +447,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // have reordered the iterdomains in loop domain. For example: Consider
     // linear op: in = [b, m, k] weight = [DIDx(d), n/d, k] After
     // transformation, the loop domain of linear output is [DIDx(d), n/d, b,
-    // m, r{k}]. Since, we set allocation to be the same as loop, we reorder it as allocation domain in the interim.
-    // Ideally, this should follow logical domain and DIDx axis at the front.
-    // The allocation domain should follow any stride order specified/inferred.
+    // m, r{k}]. Since, we set allocation to be the same as loop, we reorder it
+    // as allocation domain in the interim. Ideally, this should follow logical
+    // domain and DIDx axis at the front. The allocation domain should follow
+    // any stride order specified/inferred.
     reorderLoopAsAllocation(outputs_without_mesh);
   }
 
@@ -430,15 +458,15 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // if any of them has one. This is needed in addition to the forward
   // propagation for ops that don't take any TensorView operands, e.g.,
   // `uniform` used in dropout. See MultiDeviceTest.BackpropMeshes for an
-  // example. For non-fusion inputs, we also propagate shardings from outputs to inputs.
-  // See MultiDevicePresegPassesTest.ResidualAdd for an example.
+  // example. For non-fusion inputs, we also propagate shardings from outputs to
+  // inputs. See MultiDevicePresegPassesTest.ResidualAdd for an example.
   for (auto i_expr = exprs.rbegin(); i_expr != exprs.rend(); i_expr++) {
     Expr* expr = *i_expr;
 
     const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     std::vector<TensorView*> sorted_outputs = sortTvsByDeviceDims(outputs);
     // All outputs of an expression (Welford, SDPA) should be uniformly sharded.
-    // We pick the most parallel output as the reference. 
+    // We pick the most parallel output as the reference.
     // This is to avoid picking seed/offset tvs in SDPA.
 
     if (sorted_outputs.empty()) {
@@ -446,10 +474,15 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     }
 
     TensorView* ref_output = sorted_outputs.front();
-    NVF_ERROR(ref_output != nullptr && ref_output->hasDeviceMesh(), "Reference output ", ref_output, " has no device mesh.");
+    NVF_ERROR(
+        ref_output != nullptr && ref_output->hasDeviceMesh(),
+        "Reference output ",
+        ref_output,
+        " has no device mesh.");
 
-    // For fusion inputs, only check if they have a device mesh. We do not modify their sharding.
-    // For non-fusion inputs, check both device mesh and device dims.
+    // For fusion inputs, only check if they have a device mesh. We do not
+    // modify their sharding. For non-fusion inputs, check both device mesh and
+    // device dims.
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::vector<TensorView*> unsharded_inputs;
     for (auto* tv : inputs) {
@@ -468,7 +501,8 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, {});
+    std::unordered_map<int64_t, int64_t> new2old =
+        selectiveReorderDIDToFront(ref_output, {});
     int64_t did_pos = new2old.size();
 
     // Note: We do not have to manually shard for reshape here.
