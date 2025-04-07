@@ -16,11 +16,9 @@
 
 namespace nvfuser {
 
-
 using MultiDeviceStreamParallelTypeTest = MultiDeviceTest;
 
 TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(2);
@@ -28,7 +26,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  const DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  const DeviceMesh mesh =
+      DeviceMesh::createForNumDevices(communicator_->size());
   tv0->setDeviceMesh(mesh);
   tv1->setDeviceMesh(mesh);
   tv0->axis(1)->parallelize(ParallelType::DIDx);
@@ -41,7 +40,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
 
-  auto options = at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
+  auto options =
+      at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
   at::Tensor unsharded_input = at::rand({4, communicator_->size()}, options);
   at::Tensor input = shardTensor(unsharded_input, /*axis=*/1, mesh);
   auto output =
@@ -52,7 +52,6 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
 }
 
 TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* tv0 = makeContigTensor(3);
@@ -60,7 +59,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  const DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  const DeviceMesh mesh =
+      DeviceMesh::createForNumDevices(communicator_->size());
   tv0->setDeviceMesh(mesh);
   tv1->setDeviceMesh(mesh);
   tv0->axis(1)->parallelize(ParallelType::DIDx);
@@ -73,7 +73,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
 
-  auto options = at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
+  auto options =
+      at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
   at::Tensor unsharded_input = at::rand({4, communicator_->size(), 8}, options);
   at::Tensor input = shardTensor(unsharded_input, /*axis=*/1, mesh);
   auto output =
@@ -92,7 +93,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  const DeviceMesh mesh = DeviceMesh::createForNumDevices(communicator_->size());
+  const DeviceMesh mesh =
+      DeviceMesh::createForNumDevices(communicator_->size());
   tv0->setDeviceMesh(mesh);
   tv1->setDeviceMesh(mesh);
   tv0->axis(1)->parallelize(ParallelType::DIDx);
@@ -106,8 +108,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
 
-  auto options = at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
-  at::Tensor unsharded_input = at::rand({4, communicator_->size(), communicator_->size(), 8}, options);
+  auto options =
+      at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
+  at::Tensor unsharded_input =
+      at::rand({4, communicator_->size(), communicator_->size(), 8}, options);
   at::Tensor input = shardTensor(unsharded_input, /*axis=*/1, mesh);
   auto output =
       executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();

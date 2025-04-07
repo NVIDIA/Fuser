@@ -33,8 +33,7 @@ bool shouldReshardAfter(Expr* expr) {
 void propagateParallelization(TensorView* ref, std::vector<TensorView*> tvs) {
   shardAllLike(ref, tvs);
   if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::Stream});
+    scheduler_utils::parallelizeAllLike(ref, tvs, {ParallelType::Stream});
   }
 }
 

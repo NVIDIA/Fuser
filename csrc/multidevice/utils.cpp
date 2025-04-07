@@ -350,7 +350,8 @@ bool haveDifferentShardings(
   // TODO: work on a proper implementation
   if (consumer->definition()->isA<SelectOp>()) {
     auto* select_op = consumer->definition()->as<SelectOp>();
-    NVF_ERROR(select_op->input(0) == producer, "SelectOp input 0 is not producer");
+    NVF_ERROR(
+        select_op->input(0) == producer, "SelectOp input 0 is not producer");
     return select_op->getIndexedID()->isDeviceDim();
   }
 
@@ -548,7 +549,8 @@ bool isInnerResharding(Expr* expr) {
           shard_additions.size() + shard_deletions.size() <= 1,
           "Resharding expr can only support one axis")
 
-      // process the output. Check if the resharding axis is in the first axis that is not a broadcast, reduction, or stream
+      // process the output. Check if the resharding axis is in the first axis
+      // that is not a broadcast, reduction, or stream
       if (!shard_additions.empty()) {
         int64_t index = 0;
         for (auto* loop_id : output->getLoopDomain()) {
@@ -559,13 +561,17 @@ bool isInnerResharding(Expr* expr) {
             break;
           }
           if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-              !loop_id->isBroadcast() && loop_id->getParallelType() != ParallelType::Stream) {
+              !loop_id->isBroadcast() &&
+              loop_id->getParallelType() != ParallelType::Stream) {
             index++;
           }
         }
       }
 
-      // process the input. Check if the resharding axis is in the first axis that is not a broadcast, reduction, or mapping to a consumer's stream axis (because in this case, the expr is going to be placed in a host for-loop and will operate on tiles)
+      // process the input. Check if the resharding axis is in the first axis
+      // that is not a broadcast, reduction, or mapping to a consumer's stream
+      // axis (because in this case, the expr is going to be placed in a host
+      // for-loop and will operate on tiles)
       auto pairwise_map =
           PairwiseLogicalDomainMap(input, output).mapBroadcast(false);
       const auto c2p_map = pairwise_map.mapProducerToConsumer();
@@ -579,7 +585,10 @@ bool isInnerResharding(Expr* expr) {
             break;
           }
           if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-              !loop_id->isBroadcast() && (c2p_map.count(loop_id) == 0 || c2p_map.at(loop_id)->getParallelType() != ParallelType::Stream)) {
+              !loop_id->isBroadcast() &&
+              (c2p_map.count(loop_id) == 0 ||
+               c2p_map.at(loop_id)->getParallelType() !=
+                   ParallelType::Stream)) {
             index++;
           }
         }

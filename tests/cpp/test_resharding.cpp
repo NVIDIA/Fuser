@@ -682,7 +682,8 @@ TEST_F(ReshardingSelectOpTest, NonResharding) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto* tv0 = makeContigTensor(3);
-  auto* tv1 = select(tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
+  auto* tv1 = select(
+      tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
 
   DeviceMesh mesh({0});
   tv0->setDeviceMesh(mesh);
@@ -697,7 +698,8 @@ TEST_F(ReshardingSelectOpTest, Resharding) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   auto* tv0 = makeContigTensor(3);
-  auto* tv1 = select(tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
+  auto* tv1 = select(
+      tv0, /*dim=*/0, /*index=*/IrBuilder::create<Val>(0, DataType::Int));
 
   DeviceMesh mesh({0});
   tv0->setDeviceMesh(mesh);

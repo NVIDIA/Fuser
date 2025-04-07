@@ -177,8 +177,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       hic.get());
 
   preseg_passes::ConvertOpToCommunication::setParams(params_);
-  preseg_passes::OptimizationPass<preseg_passes::ConvertOpToCommunication>::runPass(
-      hic.get());
+  preseg_passes::OptimizationPass<
+      preseg_passes::ConvertOpToCommunication>::runPass(hic.get());
 
   return hic;
 }

@@ -11,10 +11,10 @@
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
-#include <multidevice/communication.h>
 #include <ir/internal_base_nodes.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/communication.h>
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
@@ -310,7 +310,10 @@ TODO:
    sources
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
-std::vector<Expr*> ConvertOpToCommunication::ConvertSingleOpToCommunication(Expr* c, DeviceIdxType my_device_idx, const HostIrLowerParams& params) {
+std::vector<Expr*> ConvertOpToCommunication::ConvertSingleOpToCommunication(
+    Expr* c,
+    DeviceIdxType my_device_idx,
+    const HostIrLowerParams& params) {
   FusionGuard fg(c->fusion());
 
   std::vector<Expr*> comms;
@@ -389,16 +392,19 @@ void ConvertOpToCommunication::runPass(Fusion* fusion) {
   NVF_CHECK(hic, "Expected HostIrContainer");
   DeviceIdxType my_device_index = Communicator::getInstance().deviceId();
 
-  auto handle_top_level_expr = [&](Expr* top_level_expr, std::vector<Expr*>& new_top_level_exprs) {
+  auto handle_top_level_expr = [&](Expr* top_level_expr,
+                                   std::vector<Expr*>& new_top_level_exprs) {
     if (!isResharding(top_level_expr)) {
       return new_top_level_exprs.push_back(top_level_expr);
     }
-    for (auto* expr : ConvertSingleOpToCommunication(top_level_expr, my_device_index, params_)) {
+    for (auto* expr : ConvertSingleOpToCommunication(
+             top_level_expr, my_device_index, params_)) {
       // Allocate the recv buffers of communications
       if (expr->isA<Communication>()) {
         auto* communication = expr->as<Communication>();
         TensorView* tv = communication->out();
-        if (tv->getDeviceMesh().has(my_device_index) && hic->alias().count(tv) == 0) {
+        if (tv->getDeviceMesh().has(my_device_index) &&
+            hic->alias().count(tv) == 0) {
           auto* allocate =
               IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
           new_top_level_exprs.push_back(allocate);
@@ -430,8 +436,6 @@ void ConvertOpToCommunication::runPass(Fusion* fusion) {
     }
   }
   hic->resetTopLevelExprs(new_top_level_exprs);
-
-
 }
 
 } // namespace nvfuser::preseg_passes

@@ -13,10 +13,15 @@
 
 namespace nvfuser::preseg_passes {
 
-class ConvertOpToCommunication : public OptimizationPass<ConvertOpToCommunication> {
+class ConvertOpToCommunication
+    : public OptimizationPass<ConvertOpToCommunication> {
   friend class OptimizationPass<ConvertOpToCommunication>;
+
  public:
-  static std::vector<Expr*> ConvertSingleOpToCommunication(Expr* c, DeviceIdxType my_device_idx, const HostIrLowerParams& params);
+  static std::vector<Expr*> ConvertSingleOpToCommunication(
+      Expr* c,
+      DeviceIdxType my_device_idx,
+      const HostIrLowerParams& params);
 
   static void setParams(const HostIrLowerParams& params) {
     params_ = params;
