@@ -348,11 +348,19 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
         tv->reorder(
             {{num_device_and_batch_dims_, num_device_and_batch_dims_ + 1}});
       }
+      // (M, N)
+      tv->split(num_device_and_batch_dims_ + 1, 8);
+      // (M, N/8, 8)
+      tv->split(num_device_and_batch_dims_, 16);
+      // (M/16, 16, N/8, 8)
+      tv->reorder(
+          {{num_device_and_batch_dims_ + 1, num_device_and_batch_dims_ + 2},
+           {num_device_and_batch_dims_ + 2, num_device_and_batch_dims_ + 1}});
+      // (M/16, N/8, 16, 8)
+      tv->merge(num_device_and_batch_dims_ + 2, num_device_and_batch_dims_ + 3);
+      // (M/16, N/8, 128)
       tv->merge(num_device_and_batch_dims_, num_device_and_batch_dims_ + 1);
-
-      const int64_t num_sms =
-          at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
-      tv->split(num_device_and_batch_dims_, num_sms);
+      // (M/16) * (N/8), 128)
     }
   }
   return all_merged_roles;
@@ -765,39 +773,33 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         break;
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        if (params_->tiling_strategy ==
-            MatmulParams::TilingStrategy::OneTilePerCTA) {
-          int64_t num_math_warp_groups = 1L;
-          NVF_ERROR(!mma_results_.empty());
-          for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
-            if (id->getParallelType() == ParallelType::TIDy) {
-              num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
-            }
+        int64_t num_math_warp_groups = 1L;
+        NVF_ERROR(!mma_results_.empty());
+        for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+          if (id->getParallelType() == ParallelType::TIDy) {
+            num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
           }
-          if (num_math_warp_groups != 2) {
-            // Disable register sharing when there is only one math warp group.
-            // In such case we will have 128 math threads and 128 dma threads,
-            // for a total of 256 threads per CTA. The register file size on
-            // Hopper is 64K registers, which is filled when a 256-thread CTA
-            // has 256 registers per thread. Since 256 is already the maximum
-            // number of registers per thread even with register sharing, there
-            // is no point in doing register sharing to try and increase it.
-            //
-            // When there is more than one math warp group, we also disable
-            // register sharing, since we don't currently compute the number of
-            // register properly in that case.
-            cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
-          } else {
-            constexpr int64_t num_registers_load_warp = 40;
-            constexpr int64_t num_registers_compute_warp = 232;
-            cb_type = (CircularBufferType)WarpSpecialized(
-                ParallelType::TIDy,
-                std::make_pair(
-                    num_registers_load_warp, num_registers_compute_warp));
-          }
-        } else {
-          // Persistent kernels cannot yet use register sharing
+        }
+        if (num_math_warp_groups != 2) {
+          // Disable register sharing when there is only one math warp group.
+          // In such case we will have 128 math threads and 128 dma threads,
+          // for a total of 256 threads per CTA. The register file size on
+          // Hopper is 64K registers, which is filled when a 256-thread CTA
+          // has 256 registers per thread. Since 256 is already the maximum
+          // number of registers per thread even with register sharing, there
+          // is no point in doing register sharing to try and increase it.
+          //
+          // When there is more than one math warp group, we also disable
+          // register sharing, since we don't currently compute the number of
+          // register properly in that case.
           cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        } else {
+          constexpr int64_t num_registers_load_warp = 40;
+          constexpr int64_t num_registers_compute_warp = 232;
+          cb_type = (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_load_warp, num_registers_compute_warp));
         }
         break;
       }
