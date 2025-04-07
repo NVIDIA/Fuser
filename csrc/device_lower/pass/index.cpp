@@ -2922,4 +2922,25 @@ void IndexLowering::handle(const CatOp* cat) {
   GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
+void IndexLowering::handle(const PrefixSumOp* psop) {
+  const auto in = lowerSrcIndex(psop->in(), psop->out());
+  const auto out = lowerDstIndex(psop->out());
+
+  // TODO: use different index that subtracts
+  auto prev_sum = IrBuilder::create<kir::TensorIndex>(
+      psop->out()->as<TensorView>(), out->index());
+
+  if (Val* f = psop->discountFactor()) {
+    Val* f_indexed = f;
+    if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
+      f_indexed = lowerSrcIndex(f_tv, psop->out());
+    }
+    prev_sum = mul(f_indexed, prev_sum);
+  }
+  // TODO: add a where expression
+  add(prev_sum, in);
+
+  GpuLower::current()->propagateExprInfo(psop, expr);
+}
+
 } // namespace nvfuser
