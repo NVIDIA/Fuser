@@ -510,7 +510,12 @@ bool haveDifferentShardings(
       if (p_index == nullptr && c_index == nullptr) {
         return true;
       }
+
       if (p_index == nullptr || c_index == nullptr) {
+        return false;
+      }
+
+      if (c_id->isReduction()) {
         return false;
       }
 
