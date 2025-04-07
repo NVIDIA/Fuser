@@ -20,12 +20,9 @@ namespace nvfuser {
 
 namespace {
 
-// Circular-buffering prefetches the future subregions of the tensor.
-// The subregion is defined by the axes inside of the CA position.
-// There must be at least one axis that is outside (left) of the CA position,
-// which defines the loop where prefetching is applied. Therefore,
-// the CA position must be larger than 0.
-int64_t getCircularBufferAxisPosition(const TensorView* tv) {
+// Returns the leftmost position between the first unroll axis and computeAt
+// position. Throws an error if the position is invalid for circular buffering.
+int64_t getUnrollOrComputeAtPosition(const TensorView* tv) {
   NVF_ERROR(
       tv->getComputeAtPosition() > 0,
       "Expected computeAt for circular buffered TensorView");
@@ -50,6 +47,13 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
       "Valid circular buffer axis not found due to Unroll. ",
       tv->toString());
 
+  return unroll_or_ca_pos;
+}
+
+// Returns the position of the circular buffer axis for non-warp-specialized
+// tensors. Returns the size of the loop domain if no valid position is found.
+int64_t getInnerMostCircularBufferPosition(const TensorView* tv) {
+  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
   int64_t valid_pos = (int64_t)tv->getLoopDomain().size();
   // Skip parallelized or broadcast axes
   for (int64_t i = unroll_or_ca_pos - 1; i >= 0; --i) {
@@ -60,6 +64,41 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
     }
   }
   return valid_pos;
+}
+
+// Returns the position of the circular buffer axis for warp-specialized tensors
+// with register sharing enabled. Returns the size of the loop domain if no
+// valid position is found.
+int64_t getOuterMostCircularBufferPosition(const TensorView* tv) {
+  const int64_t unroll_or_ca_pos = getUnrollOrComputeAtPosition(tv);
+  // Skip parallelized or broadcast axes
+  for (int64_t i = 0; i < unroll_or_ca_pos; ++i) {
+    auto pt = tv->axis(i)->getParallelType();
+    if (!isParallelTypeThread(pt) && !tv->axis(i)->isBroadcast()) {
+      return i;
+    }
+  }
+  return (int64_t)tv->getLoopDomain().size();
+}
+
+// Circular-buffering prefetches the future subregions of the tensor.
+// The subregion is defined by the axes inside of the CA position.
+// There must be at least one axis that is outside (left) of the CA position,
+// which defines the loop where prefetching is applied. Therefore,
+// the CA position must be larger than 0.
+int64_t getCircularBufferAxisPosition(const TensorView* tv) {
+  // For warp-specialized tensors, the outer-most loop is the circular buffer
+  // loop.
+  if (std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type) &&
+      std::get<WarpSpecialized>(tv->circularBufferOptions().type)
+          .num_registers.has_value()) {
+    return getOuterMostCircularBufferPosition(tv);
+  }
+
+  // For pipelined tensors, the inner-most serial loop is the circular buffer
+  // loop.
+  return getInnerMostCircularBufferPosition(tv);
 }
 
 // Initial inspection of a fusion to find and validate circular buffered tensors
@@ -219,6 +258,42 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
+
+  // short-circuit: insertion position is only for warp specialization with
+  // register sharing
+  if (!std::holds_alternative<WarpSpecialized>(
+          tv->circularBufferOptions().type) ||
+      !std::get<WarpSpecialized>(tv->circularBufferOptions().type)
+           .num_registers.has_value()) {
+    circular_buffer_insertion_position_[lower_utils::getConcreteLoopID(
+        cb_axis)] = 1;
+    return;
+  }
+
+  // The outer_most position is the cloned for-loop for warp specialization.
+  // The inner_most position is the default cloned for-loop.
+  // When inner_most position is used for cloning, the insertion point
+  // for mbarrier synchronization is 1 or the cloned for-loop.
+  // When outer_most != inner_most position, then the mbarrier synchronization
+  // is still placed at inner_most for-loop. The insertion_point is the
+  // number of nested for-loops relative to the outer_most position.
+  int64_t outer_most_circular_buffer_position =
+      getOuterMostCircularBufferPosition(tv);
+  int64_t inner_most_circular_buffer_position =
+      getInnerMostCircularBufferPosition(tv);
+  NVF_ERROR(
+      outer_most_circular_buffer_position <=
+          inner_most_circular_buffer_position,
+      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position",
+      "but got ",
+      outer_most_circular_buffer_position,
+      " and ",
+      inner_most_circular_buffer_position);
+  int64_t insertion_position = (inner_most_circular_buffer_position -
+                                outer_most_circular_buffer_position) +
+      1;
+  circular_buffer_insertion_position_[lower_utils::getConcreteLoopID(cb_axis)] =
+      insertion_position;
 }
 
 void CircularBufferInfo::setCircularBufferOptions(
@@ -268,13 +343,73 @@ const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
   return maybe_depth_it->second;
 }
 
+int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
+    IterDomain* circular_buffer_axis) const {
+  if (GpuLower::hasCurrent()) {
+    circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  }
+
+  auto maybe_depth_it =
+      circular_buffer_insertion_position_.find(circular_buffer_axis);
+
+  NVF_ERROR(
+      maybe_depth_it != circular_buffer_insertion_position_.end(),
+      "Circular buffer insertion position not found");
+
+  return maybe_depth_it->second;
+}
+
+Val* CircularBufferInfo::getLinearizeIndex(
+    TensorView* circular_buffer_tv,
+    const std::vector<ForLoop*>& loops) const {
+  ForLoop* circular_buffer_loop =
+      getCircularBufferLoop(circular_buffer_tv, loops);
+  int64_t insertion_position =
+      getCircularBufferInsertionPosition(circular_buffer_loop->iter_domain());
+  bool is_warp_specialized_register_sharing =
+      std::holds_alternative<WarpSpecialized>(
+          circular_buffer_tv->circularBufferOptions().type) &&
+      std::get<WarpSpecialized>(
+          circular_buffer_tv->circularBufferOptions().type)
+          .num_registers.has_value();
+  int64_t offset = (is_warp_specialized_register_sharing)
+      ? getOuterMostCircularBufferPosition(circular_buffer_tv)
+      : getInnerMostCircularBufferPosition(circular_buffer_tv);
+  return getLinearizeIndex(loops, insertion_position, offset);
+}
+
+Val* CircularBufferInfo::getLinearizeIndex(
+    const std::vector<ForLoop*>& loops,
+    int64_t insertion_position,
+    int64_t start) const {
+  // Insertion position is the number of for-loops in the nested for-loop
+  // structure. end is the last for-loop while start is the first for-loop.
+  int64_t end = insertion_position - 1 + start;
+  NVF_ERROR((int64_t)loops.size() >= end);
+  Val* index = GpuLower::current()->kernel()->zeroVal();
+  Val* extent = GpuLower::current()->kernel()->oneVal();
+  for (int64_t i = end; i >= start; --i) {
+    if (loops[i]->iter_domain()->isParallelized() ||
+        loops[i]->iter_domain()->isBroadcast()) {
+      continue;
+    }
+    index = SimplifyingIrBuilder::addExpr(
+        index,
+        SimplifyingIrBuilder::mulExpr(
+            loops[i]->indexOrStartIfTrivial(), extent));
+    extent = SimplifyingIrBuilder::mulExpr(
+        extent, loops[i]->iter_domain()->extent());
+  }
+  return index;
+}
+
 ForLoop* CircularBufferInfo::getCircularBufferLoop(
     IterDomain* axis,
     const std::vector<ForLoop*>& loops,
     bool ignore_prologue) {
   auto loop_it = std::find_if(loops.begin(), loops.end(), [&](const auto loop) {
     return GpuLower::current()->caMap()->areMapped(
-               loop->iter_domain(), axis, IdMappingMode::EXACT) &&
+               loop->iter_domain(), axis, IdMappingMode::LOOP) &&
         (!ignore_prologue ||
          loop->circularBufferLoopStage() != CircularBufferLoopStage::Prolog);
   });
@@ -289,7 +424,7 @@ ForLoop* CircularBufferInfo::getCircularBufferLoop(
 ForLoop* CircularBufferInfo::getCircularBufferLoop(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,
-    bool ignore_prologue) {
+    bool ignore_prologue) const {
   IterDomain* axis = getCircularBufferAxis(tv);
 
   if (axis == nullptr) {
