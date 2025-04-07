@@ -674,7 +674,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       auto host_unit = IrBuilder::create<hir::HostUnit>(
           staged_fusion->makeFusion(group).second);
       auto post_on_stream = IrBuilder::create<hir::PostOnStream>(
-          host_unit, clone(group->inputsTmp()), clone(group->outputsTmp()));
+          host_unit, clone(group->inputs()), clone(group->outputs()));
       hic->pushBackTopLevelExprs(post_on_stream);
     }
   }

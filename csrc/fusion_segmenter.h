@@ -98,12 +98,12 @@ class SegmentedGroup {
   }
 
   //! Returns inputs that this group shares with the original fusion
-  const auto& inputsTmp() const {
+  const auto& inputs() const {
     return input_vals_;
   }
 
   //! Returns outputs that this group shares with the original fusion
-  const auto& outputsTmp() const {
+  const auto& outputs() const {
     return output_vals_;
   }
 

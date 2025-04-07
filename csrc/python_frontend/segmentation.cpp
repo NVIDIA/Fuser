@@ -168,8 +168,8 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
   // Step 4) Create map from segment fusion indices to original fusion indices.
   // Step 4a) Get FusionDefinition index for cloned inputs and outputs. Map them
   // to their original fusion indices.
-  const auto& cloned_inputs = sg->inputsTmp();
-  const auto& cloned_outputs = sg->outputsTmp();
+  const auto& cloned_inputs = sg->inputs();
+  const auto& cloned_outputs = sg->outputs();
 
   std::vector<int64_t> original_python_index;
   original_python_index.reserve(cloned_inputs.size() + cloned_outputs.size());
@@ -338,7 +338,7 @@ void SegmentationState::prepareGroupOrder() {
         continue;
       }
 
-      const auto& group_inputs = group->inputsTmp();
+      const auto& group_inputs = group->inputs();
       bool ready_to_run = std::all_of(
           group_inputs.begin(),
           group_inputs.end(),
@@ -353,7 +353,7 @@ void SegmentationState::prepareGroupOrder() {
       group_run_order_.push_back(group);
 
       // Mark all outputs of SegmentedGroup as ready.
-      const auto& group_outputs = group->outputsTmp();
+      const auto& group_outputs = group->outputs();
       for (size_t group_out_i : arange(group_outputs.size())) {
         available_input.insert(group_outputs.at(group_out_i));
       }

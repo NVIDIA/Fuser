@@ -497,9 +497,9 @@ bool isSerializableSegmentedGroup(
     return exprs_to_id_map.at(e) < initial_exprs_size;
   };
   bool all_serializable_inputs =
-      std::all_of(sg->inputsTmp().begin(), sg->inputsTmp().end(), check_value);
-  bool all_serializable_outputs = std::all_of(
-      sg->outputsTmp().begin(), sg->outputsTmp().end(), check_value);
+      std::all_of(sg->inputs().begin(), sg->inputs().end(), check_value);
+  bool all_serializable_outputs =
+      std::all_of(sg->outputs().begin(), sg->outputs().end(), check_value);
   bool all_serializable_exprs =
       std::all_of(sg->exprs().begin(), sg->exprs().end(), check_expr);
   return (
@@ -878,10 +878,10 @@ ProducerConsumerRelationship getProducerConsumerRelationship(
       sg1 != nullptr && sg2 != nullptr,
       "sg1 and sg2 must not be null for this function.");
 
-  auto& sg1_inputs = sg1->inputsTmp();
-  auto& sg1_outputs = sg1->outputsTmp();
-  auto& sg2_outputs = sg2->outputsTmp();
-  auto& sg2_inputs = sg2->inputsTmp();
+  auto& sg1_inputs = sg1->inputs();
+  auto& sg1_outputs = sg1->outputs();
+  auto& sg2_outputs = sg2->outputs();
+  auto& sg2_inputs = sg2->inputs();
 
   if (sg2_inputs.computeIntersect(sg1_outputs).size() > 0) {
     NVF_ERROR(
@@ -945,10 +945,10 @@ VectorOfUniqueEntries<Val*> getAllInputs(
     const std::vector<SegmentedGroup*>& segmented_groups) {
   VectorOfUniqueEntries<Val*> all_inputs;
   for (auto group : segmented_groups) {
-    all_inputs.pushBack(group->inputsTmp());
+    all_inputs.pushBack(group->inputs());
   }
   for (auto group : segmented_groups) {
-    for (auto out : group->outputsTmp()) {
+    for (auto out : group->outputs()) {
       all_inputs.erase(out);
     }
   }
@@ -959,10 +959,10 @@ VectorOfUniqueEntries<Val*> getAllOutputs(
     const std::vector<SegmentedGroup*>& segmented_groups) {
   VectorOfUniqueEntries<Val*> all_outputs;
   for (auto group : segmented_groups) {
-    all_outputs.pushBack(group->outputsTmp());
+    all_outputs.pushBack(group->outputs());
   }
   for (auto group : segmented_groups) {
-    for (auto inp : group->inputsTmp()) {
+    for (auto inp : group->inputs()) {
       all_outputs.erase(inp);
     }
   }
@@ -1065,12 +1065,12 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   os << std::endl;
   os << "group id: " << group->groupId() << std::endl;
   os << "inputs:" << std::endl;
-  std::vector<Val*> input_vec = group->inputsTmp().vector();
+  std::vector<Val*> input_vec = group->inputs().vector();
   for (auto input : sort_val_by_name(input_vec)) {
     indent(os, 1) << input << " " << input->getDataType().value() << std::endl;
   }
   os << "outputs:" << std::endl;
-  std::vector<Val*> output_vec = group->outputsTmp().vector();
+  std::vector<Val*> output_vec = group->outputs().vector();
   for (auto output : sort_val_by_name(output_vec)) {
     indent(os, 1) << output << " " << output->getDataType().value()
                   << std::endl;
@@ -1937,7 +1937,7 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
   }
 
   std::vector<TensorView*> view_tvs;
-  for (auto inp : sg->inputsTmp()) {
+  for (auto inp : sg->inputs()) {
     auto clone_tv = complete_to_segment_map.clone(inp);
     fusion_segment->addInput(clone_tv);
     if (inp->isDefinitionType<ViewOp>()) {
@@ -1948,11 +1948,11 @@ std::pair<IrCloner, std::unique_ptr<Fusion>> SegmentedFusion::makeFusion(
 
   // note, we would want to keep output consistent and not artificially drop
   // duplicates.
-  for (auto out : sg->outputsTmp()) {
+  for (auto out : sg->outputs()) {
     fusion_segment->addOutput(complete_to_segment_map.clone(out));
   }
 
-  // Replace all vals that are logical extents in fusion_segment->inputsTmp()
+  // Replace all vals that are logical extents in fusion_segment->inputs()
   // with new Vals so that they can be bound to the segment inputs.
   eraseInputDistinctRootDomains(fusion_segment.get());
 
@@ -2870,7 +2870,7 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
   //  one set for in_progress copy and one set
   //  for `test copy`
   if (group != nullptr) {
-    auto original_inputs = group->inputsTmp();
+    auto original_inputs = group->inputs();
     test_group_inputs_.clear();
     test_group_outputs_.clear();
     std::transform(
@@ -2880,7 +2880,7 @@ bool TranslateApplicableWelford::wouldTranslateToPersistent(
         [&original_to_test_map](Val* in) {
           return original_to_test_map.clone(in);
         });
-    auto original_outputs = group->outputsTmp();
+    auto original_outputs = group->outputs();
     std::transform(
         original_outputs.begin(),
         original_outputs.end(),
@@ -4051,7 +4051,7 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
       }
     }
 
-    group->input_vals_ = IterVisitor::getInputsTo(group->inputsTmp().vector());
+    group->input_vals_ = IterVisitor::getInputsTo(group->inputs().vector());
     auto input_exprs = StmtSort::getExprsTo(forwarded_scalar_inputs);
     // Insert those expressions at the beginning of the group
     group->exprs_.insert(
@@ -4081,7 +4081,7 @@ void SegmentCandidateFinder::findSegments() {
   validateIfDebug();
 
   for (auto group : groups()) {
-    if (!group->outputsTmp().empty()) {
+    if (!group->outputs().empty()) {
       // Set SchedulerType in case single reduction kernels were left out
       group->setSchedulerType(deriveSchedulerType(group));
     }
