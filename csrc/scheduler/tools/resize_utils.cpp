@@ -36,19 +36,15 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
       "Unexpected resize tensor op: ",
       resize_tensor_op->toString());
 
-  Fusion* fusion = resize_tensor_op->fusion();
-
   auto producer_tv = resize_tensor_op->input(0)->as<TensorView>();
   auto consumer_tv = resize_tensor_op->output(0)->as<TensorView>();
 
-  auto all_dep_vals = DependencyCheck::getAllValsBetween(
-      {fusion->inputs().begin(), fusion->inputs().end()}, {producer_tv});
+  auto all_dep_stmts = StmtSort::getStmtsTo({producer_tv});
 
   std::vector<TensorView*> tvs_to_schedule;
-  tvs_to_schedule.reserve(all_dep_vals.size());
-  for (auto val : all_dep_vals) {
-    if (val->isA<TensorView>() && !val->isFusionInput()) {
-      tvs_to_schedule.push_back(val->as<TensorView>());
+  for (auto tv : ir_utils::filterByType<TensorView>(all_dep_stmts)) {
+    if (!tv->isFusionInput()) {
+      tvs_to_schedule.push_back(tv);
     }
   }
 
@@ -89,8 +85,8 @@ std::unordered_map<TensorView*, ResizeExclusivityInfo> getNonExclusiveResizeInfo
 
   std::unordered_map<TensorView*, ResizeExclusivityInfo> non_exclusive_resizes;
 
-  std::unordered_set<Val*> inputs{
-      fusion->inputs().begin(), fusion->inputs().end()};
+  const auto inputs_vec = InputsOf::outputs(fusion->outputs());
+  std::unordered_set<Val*> inputs{inputs_vec.begin(), inputs_vec.end()};
 
   auto get_root_to_logical_resizes =
       [&exact_graph](TensorView* tv) -> ValGroups {
