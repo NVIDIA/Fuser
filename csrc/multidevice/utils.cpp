@@ -518,7 +518,13 @@ bool haveDifferentShardings(
         return false;
       }
 
+      // iDIDx{i0} => rDIDx{i0} triggers an allreduce even though the two `i0`s
+      // are equivalent.
       if (c_id->isReduction()) {
+        NVF_ERROR(
+            !p_id->isReduction(),
+            "Reduction IterDomains in the producer's logical shouldn't be mapped: ",
+            p_id);
         return false;
       }
 
