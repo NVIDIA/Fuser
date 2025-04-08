@@ -707,16 +707,18 @@ bool isTMAOrMMASmemTv(TensorView* tv) {
 
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  const auto& alloc_domain = id_graph.toGroups(tv->getMaybeRootDomain());
-  const auto& loop_domain =
-      id_graph.toGroups((ir_utils::isCpAsyncBulkLoad(tv->definition())
-                             ? tv
-                             : ir_utils::getTvOutput(tv->uses().at(0)))
-                            ->getLoopDomain());
+  const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+  const auto& from_domain = id_graph.toGroups(
+      ir_utils::isCpAsyncBulkLoad(tv->definition())
+          ? ir_utils::getTvInput(tv->definition())->getMaybeAllocationDomain()
+          : ir_utils::isCpAsyncBulkStore(tv->uses().at(0))
+          ? ir_utils::getTvOutput(tv->uses().at(0))->getMaybeAllocationDomain()
+          : ir_utils::getTvOutput(tv->uses().at(0))->getLoopDomain());
   auto exprs = ValGraphBFS::getExprGroupsBetween(
                    id_graph,
-                   {alloc_domain.begin(), alloc_domain.end()},
-                   {loop_domain.begin(), loop_domain.end()})
+                   {from_domain.begin(), from_domain.end()},
+                   {to_domain.begin(), to_domain.end()},
+                   false)
                    .first;
   for (const auto& [eg, dir] : exprs) {
     auto expr = eg->front();

@@ -774,11 +774,7 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
               num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
             }
           }
-          NVF_ERROR(
-              num_math_warp_groups <= 2,
-              "There can be at most two compute warp groups for register ",
-              "sharing with warp specialization");
-          if (num_math_warp_groups == 1) {
+          if (num_math_warp_groups != 2) {
             // Disable register sharing when there is only one math warp group.
             // In such case we will have 128 math threads and 128 dma threads,
             // for a total of 256 threads per CTA. The register file size on
@@ -786,6 +782,10 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
             // has 256 registers per thread. Since 256 is already the maximum
             // number of registers per thread even with register sharing, there
             // is no point in doing register sharing to try and increase it.
+            //
+            // When there is more than one math warp group, we also disable
+            // register sharing, since we don't currently compute the number of
+            // register properly in that case.
             cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
           } else {
             constexpr int64_t num_registers_load_warp = 40;

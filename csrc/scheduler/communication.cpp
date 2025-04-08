@@ -21,9 +21,32 @@ namespace nvfuser {
 //! Check if the given fusion is a single communication expression
 bool CommunicationScheduler::canScheduleCompileTime(Fusion* fusion) {
   const std::vector<Expr*>& exprs = fusion->exprs();
-  return (
-      exprs.size() == 1 && isResharding(exprs[0]) &&
-      HostIrLower::canLower(exprs[0]));
+  if (exprs.size() != 1) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Expected only one expression but found: ",
+        exprs.size());
+    return false;
+  }
+  Expr* e = exprs[0];
+
+  if (!isResharding(e)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Expected the expression to be resharding: ",
+        e->toString());
+    return false;
+  }
+
+  if (!HostIrLower::canLower(e)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        schedulerType(),
+        "Failed to lower the expression to host IR: ",
+        e->toString());
+    return false;
+  }
+
+  return true;
 }
 
 bool CommunicationScheduler::canScheduleRunTime(
