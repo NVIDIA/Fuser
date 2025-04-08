@@ -173,7 +173,8 @@ KernelArgumentHolder HostIrExecutor::run(
         communicator_->deviceId(),
         backend,
         in_tensor,
-        out_tensor);
+        out_tensor,
+        expr_eval);
     if (work != nullptr) {
       work->wait();
     }
@@ -513,7 +514,8 @@ void HostIrEvaluator::handle(Communication* communication) {
       communicator_->deviceId(),
       backend,
       input_tensor,
-      output_tensor);
+      output_tensor,
+      expr_evaluator_);
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
