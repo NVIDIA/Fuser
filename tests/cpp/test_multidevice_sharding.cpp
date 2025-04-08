@@ -774,6 +774,7 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
 
   // Loop split and parallelize input
   tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
   tv0->split(-2, d, /*inner_split=*/false);
   tv0->axis(-3)->parallelize(ParallelType::DIDx);
   // in: loop domain: {b, s, DIDx{d}, h, e}
@@ -954,10 +955,7 @@ void propagateShardings(Fusion* fusion, int64_t num_devices) {
     SetSelector selector(
         std::unordered_set<TensorView*>(output_tvs.begin(), output_tvs.end()));
     MaxLogicalDomainInfoSpanningTree(input_tv, &selector).traverse(&propagator);
-    scheduler_utils::parallelizeAllLike(
-        input_tv,
-        /*pos=*/-1,
-        /*selected_tv=*/output_tvs);
+    shardAllLike(input_tv, output_tvs);
   }
 }
 
