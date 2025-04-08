@@ -9,6 +9,7 @@ cmake_policy(SET CMP0063 NEW) # make symbol visibility always apply
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
+set(NVFUSER_DIRECT_BINDINGS "${NVFUSER_ROOT}/direct_bindings_api")
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
@@ -541,6 +542,88 @@ if(BUILD_PYTHON)
     Python::Module
   )
   install(TARGETS nvfuser DESTINATION lib)
+endif()
+
+# ------------------------------------------------
+# build nvfuser direct bindings api python library
+# ------------------------------------------------
+if(BUILD_PYTHON_DIRECT)
+  # nvfuser direct bindings API sources
+  set(NVFUSER_DIRECT_BINDINGS_SRCS)
+  list(APPEND NVFUSER_DIRECT_BINDINGS_SRCS
+    ${NVFUSER_DIRECT_BINDINGS}/direct_bindings_extension.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/direct_bindings.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/fusion_definition.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/ir.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/ops.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/python_translate.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/python_translate_utils.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/runtime.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/schedule.cpp
+    ${NVFUSER_DIRECT_BINDINGS}/internal_utils.cpp
+  )
+  add_library(nvf_py_direct_internal OBJECT ${NVFUSER_DIRECT_BINDINGS_SRCS})
+
+  # NOTE: For any future extension, change DIRECT_BINDINGS_EXTENSION to another
+  # name other than EXTENSION_NAME.
+  target_compile_definitions(nvf_py_direct_internal PRIVATE
+    "-DTORCH_CUDA_BUILD_MAIN_LIB"
+    "-DC10_BUILD_MAIN_LIB=1"
+    DIRECT_BINDINGS_EXTENSION=_C_DIRECT
+  )
+
+  add_library(nvfuser_next MODULE $<TARGET_OBJECTS:nvf_py_direct_internal>)
+  target_compile_definitions(nvfuser_next PRIVATE
+    "-DTORCH_CUDA_BUILD_MAIN_LIB"
+    "-DC10_BUILD_MAIN_LIB=1"
+    DIRECT_BINDINGS_EXTENSION=_C_DIRECT
+  )
+
+  if(NOT MSVC)
+    target_compile_options(nvf_py_direct_internal PRIVATE -Wall -Wno-unused-function)
+    target_compile_options(nvf_py_direct_internal PRIVATE -Werror)
+    set(NVF_LIB_SUFFIX ".so")
+  else()
+    set(NVF_LIB_SUFFIX ".pyd")
+  endif()
+
+  set_target_properties(nvf_py_direct_internal PROPERTIES
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
+  set_target_properties(nvfuser_next PROPERTIES
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    SUFFIX ${NVF_LIB_SUFFIX}
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
+
+  target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_DIRECT_BINDINGS})
+  target_link_libraries(nvf_py_direct_internal PRIVATE
+    codegen_internal
+    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+    pybind11::pybind11 pybind11::headers
+  )
+
+  target_link_libraries(nvfuser_next PRIVATE
+    nvf_py_direct_internal
+    codegen_internal
+    Python::Module
+  )
+  install(TARGETS nvfuser_next DESTINATION lib)
 endif()
 
 set(JIT_TEST_SRCS)
