@@ -699,10 +699,10 @@ std::vector<Expr*> getAllSwizzlesBetween(
 
 bool isTMAOrMMASmemTv(TensorView* tv) {
   return tv->getMemoryType() == MemoryType::Shared &&
-      ((tv->definition() != nullptr &&
-        ir_utils::isCpAsyncBulk(tv->definition())) ||
-       std::ranges::any_of(
-           tv->uses(), [](Expr* e) { return e->isA<MmaOp>(); }));
+      (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||
+       std::ranges::any_of(tv->uses(), [](Expr* e) {
+         return e->isA<MmaOp>() || ir_utils::isCpAsyncBulkStore(e);
+       }));
 }
 
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
