@@ -59,11 +59,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
               wait->ptx(),
               std::vector<Val*>{},
               std::vector<Val*>{IrBuilder::create<Val>(wait->keepStages())},
-              kir::Asm::Options{
-                  /*volatile=*/true,
-                  /*memory=*/wait->memory(),
-                  /*readable_outputs=*/{},
-                  /*immediate_inputs=*/{0}}));
+              kir::Asm::Options{/*volatile=*/true,
+                                /*memory=*/wait->memory(),
+                                /*readable_outputs=*/{},
+                                /*immediate_inputs=*/{0}}));
     }
   }
 
@@ -122,11 +121,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
                   ldst->in(),
                   IrBuilder::create<Val>(vec_size),
                   invertedPredicate(ldst->predicate())},
-              kir::Asm::Options{
-                  /*volatile=*/true,
-                  /*memory=*/false,
-                  /*readable_outputs=*/{},
-                  /*immediate_inputs=*/{2}}));
+              kir::Asm::Options{/*volatile=*/true,
+                                /*memory=*/false,
+                                /*readable_outputs=*/{},
+                                /*immediate_inputs=*/{2}}));
     } else if (ldst->opType() == LoadStoreOpType::LdTMem) {
       const auto& tmem_info = GpuLower::current()->tmemInfo();
       std::stringstream ptx_ss;
@@ -258,13 +256,41 @@ class LowerToInlinePtx : public kir::ExprMutator {
     } else {
       inst_ss << ".f16.f16";
     }
+
+    // Set use_input_acc false when all the reduction loop indicies are at the
+    // start of the loop, otherwise set it to true.
+    Val* use_input_acc = mma->fusion()->trueVal();
+    std::vector<IterDomain*> reduction_ids;
+    for (IterDomain* id : ir_utils::getTvOutput(mma)->getLoopDomain()) {
+      if (id->isReduction()) {
+        reduction_ids.push_back(id);
+      }
+    }
+    for (auto fl : for_loops_) {
+      if (fl->isTrivial() ||
+          std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
+            return GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(fl->iter_domain(), id);
+          })) {
+        continue;
+      }
+      Val* loop_index = GpuLower::current()->tensorIndexer().getLoopIndex(
+          fl->iter_domain(), for_loops_);
+      use_input_acc = SimplifyingIrBuilder::logicalAndExpr(
+          use_input_acc, SimplifyingIrBuilder::eqExpr(loop_index, fl->start()));
+    }
+    use_input_acc = SimplifyingIrBuilder::logicalNotExpr(use_input_acc);
+
     bool a_on_smem =
         mma->inA()->as<kir::TensorIndex>()->view()->getMemoryType() ==
         MemoryType::Shared;
     std::vector<Val*> inputs{
         a_on_smem ? mma->inA()->as<kir::TensorIndex>()->index() : mma->inA(),
         mma->inB()->as<kir::TensorIndex>()->index(),
-        /*scaleD=*/IrBuilder::create<Val>(true),
+        /*scaleD=*/use_input_acc,
         /*scaleA=*/IrBuilder::create<Val>(1, DataType::Int32),
         /*scaleB=*/IrBuilder::create<Val>(1, DataType::Int32)};
     auto layout = lower_utils::getMmaLayout(mma);
@@ -288,11 +314,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
             inst_ss.str(),
             std::vector<Val*>{mma->out()},
             inputs,
-            kir::Asm::Options{
-                /*volatile=*/true,
-                /*memory=*/false,
-                /*readable_outputs=*/{0},
-                /*immediate_inputs=*/{3, 4, 5, 6}}));
+            kir::Asm::Options{/*volatile=*/true,
+                              /*memory=*/false,
+                              /*readable_outputs=*/{0},
+                              /*immediate_inputs=*/{3, 4, 5, 6}}));
     registerRemove(mma);
   }
 
@@ -336,11 +361,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
             ptx,
             std::vector<Val*>{},
             std::vector<Val*>{maxnreg->numberOfRegisters()},
-            kir::Asm::Options{
-                /*volatile=*/true,
-                /*memory=*/false,
-                /*readable_outputs=*/{},
-                /*immediate_inputs=*/{0}}));
+            kir::Asm::Options{/*volatile=*/true,
+                              /*memory=*/false,
+                              /*readable_outputs=*/{},
+                              /*immediate_inputs=*/{0}}));
   }
 
   void handle(kir::AllocTMem* alloc) final {
