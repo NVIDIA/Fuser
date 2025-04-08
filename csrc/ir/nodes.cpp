@@ -5551,10 +5551,49 @@ std::vector<PolymorphicValue> PrefixSumOp::evaluate(
   auto input = inputs.at(0).as<at::Tensor>();
 
   if (discountFactor() == nullptr) {
+    NVF_ERROR(inputs.size() == 1);
     return {at::cumsum(input, scanDim())};
   } else {
     // auto discount_factor = inputs.at(1).as<at::Tensor>();
-    NVF_THROW("Evaluation of discounted prefixSum not yet implemented");
+    NVF_ERROR(inputs.size() == 2);
+
+    const PolymorphicValue& df = inputs.at(1);
+
+    NVF_ERROR(df.hasValue());
+
+    at::Tensor out = at::zeros_like(input);
+    at::Tensor cur;
+    std::vector<at::indexing::TensorIndex> slice_pos;
+    slice_pos.reserve((size_t)input.dim());
+    for ([[maybe_unused]] int64_t i : arange(input.dim())) {
+      slice_pos.push_back(at::indexing::Slice());
+    }
+    for (int64_t i : arange(input.size(scanDim()))) {
+      slice_pos.at((size_t)scanDim()) = at::indexing::TensorIndex((int64_t)i);
+
+      at::Tensor next_slice = input.index(slice_pos);
+
+      if (i == 0) {
+        cur = next_slice;
+      } else {
+        if (df.is<double>()) {
+          cur *= df.as<double>();
+        } else if (df.is<int64_t>()) {
+          cur *= df.as<int64_t>();
+        } else if (df.is<at::Tensor>()) {
+          // TODO: handle case where scanDim() is broadcast in discount factor
+          cur *= df.as<at::Tensor>().index(slice_pos);
+        } else {
+          NVF_THROW("Unhandled discount factor type");
+        }
+
+        cur += next_slice;
+      }
+
+      out.index(slice_pos).copy_(cur);
+    }
+
+    return {out};
   }
 }
 

@@ -2278,7 +2278,15 @@ TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
     return set(tv);
   }
 
-  TensorView* out = ops::newOutputTV({tv}, tv->dtype());
+  TensorView* out = nullptr;
+  if (discount_factor == nullptr) {
+    out = ops::newOutputTV({tv}, tv->dtype());
+  } else {
+    DataType dtype = promoteType(tv->dtype(), discount_factor->dtype());
+    tv = maybeCastOp(dtype, tv);
+    discount_factor = maybeCastOp(dtype, discount_factor);
+    out = ops::newOutputTV({tv, discount_factor}, dtype);
+  }
 
   IrBuilder::createInContainer<PrefixSumOp>(
       tv->container(), out, tv, discount_factor, dim);
