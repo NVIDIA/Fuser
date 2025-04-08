@@ -1322,8 +1322,10 @@ class AllocationInserter : public kir::ExprMutator {
     //    inval mbarrier
     //    block_sync
     //
-    // The circular buffer case is handled in handle(ForLoop* fl) and the
+    // * The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
+    // * Assume that the tma load is in ComputeWarp if it is not circular
+    // buffered.
     if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
@@ -1338,10 +1340,12 @@ class AllocationInserter : public kir::ExprMutator {
               DataType::UInt32,
               lower_utils::getNumThreadsInTensorView(
                   expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>();
+      auto sync_init = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
-      auto sync_inval = IrBuilder::create<kir::BlockSync>();
+      auto sync_inval = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
