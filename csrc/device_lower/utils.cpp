@@ -706,23 +706,27 @@ bool isTMAOrMMASmemTv(TensorView* tv) {
 }
 
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getMaybeRootDomain();
-  const auto& loop_domain = tv->getLoopDomain();
-  auto exprs = StmtSort::getExprsBetween(
+  auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+  const auto& alloc_domain = id_graph.toGroups(tv->getMaybeRootDomain());
+  const auto& loop_domain = id_graph.toGroups(
+      (ir_utils::isCpAsyncBulkLoad(tv->definition())
+          ? tv
+          : ir_utils::getTvOutput(tv->uses().at(0)))->getLoopDomain());
+  auto exprs = ValGraphBFS::getExprGroupsBetween(
+      id_graph,
       {alloc_domain.begin(), alloc_domain.end()},
-      {loop_domain.begin(), loop_domain.end()});
-  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
-  if (swizzle_exprs.empty()) {
-    return MmaInputSmemSwizzle::None;
+      {loop_domain.begin(), loop_domain.end()}).first;
+  for (const auto& [eg, dir] : exprs) {
+    auto expr = eg->front();
+    if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
+      NVF_ERROR(
+          swizzle->swizzleType() == SwizzleType::XOR,
+          "expect xor swizzle");
+      return getSwizzleFromBytes(
+          swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+    }
   }
-  NVF_ERROR(
-      swizzle_exprs.size() < 2,
-      "expected 2 or less swizzle expressions in mma input, got ",
-      swizzle_exprs.size());
-  auto swizzle = *swizzle_exprs.begin();
-  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
-  return getSwizzleFromBytes(
-      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+  return MmaInputSmemSwizzle::None;
 }
 
 } // namespace ir_utils
