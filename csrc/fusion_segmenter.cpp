@@ -1038,52 +1038,6 @@ std::vector<SegmentedEdge*> getAllEdges(
   return unique_edges;
 }
 
-// A sorting utility used for debug printing only
-//  sorts the given vector of expressions in topological
-//  order, with equal cases respecting the original order
-//  in the vector.
-std::vector<Expr*> groupExprPrintSorting(const std::vector<Expr*>& exprs) {
-  std::vector<Expr*> exprs_to_print(exprs.begin(), exprs.end());
-  std::unordered_set<Expr*> exprs_to_print_set(exprs.begin(), exprs.end());
-  std::unordered_set<Expr*> exprs_visited;
-  std::vector<Expr*> sorted_list;
-  while (!std::all_of(
-      exprs_to_print.begin(),
-      exprs_to_print.end(),
-      [&exprs_visited](auto expr) { return exprs_visited.count(expr); })) {
-    bool expr_added_to_sorted_list = false;
-    for (auto expr : exprs_to_print) {
-      if (!exprs_visited.count(expr)) {
-        bool add_this_expr = true;
-        // Check if any of the inputs of current
-        //  expression within the group
-        //  hasn't been visited
-        for (auto input : expr->inputs()) {
-          if (input->definition() &&
-              exprs_to_print_set.count(input->definition()) &&
-              !exprs_visited.count(input->definition())) {
-            add_this_expr = false;
-            break;
-          }
-        }
-
-        // Append the current group to sorted list
-        //  and mark visited
-        if (add_this_expr) {
-          expr_added_to_sorted_list = true;
-          exprs_visited.insert(expr);
-          sorted_list.push_back(expr);
-          break;
-        }
-      }
-    }
-    NVF_ERROR(
-        expr_added_to_sorted_list,
-        "group debug print failed, exprs within given vector not a DAG");
-  }
-  return sorted_list;
-}
-
 // Utility function to list all expressions in a group
 void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
   IrPrinter irp(os);
@@ -1113,11 +1067,9 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
 
   os << std::endl << std::endl;
 
-  auto expr_to_print = groupExprPrintSorting(group->exprs());
-
-  for (const auto i : arange(expr_to_print.size())) {
-    os << expr_to_print[i]->toString();
-    os << "(" << expr_to_print[i]->name() << ")" << std::endl;
+  for (Expr* e : group->orderedExprs()) {
+    os << e->toString();
+    os << "(" << e->name() << ")" << std::endl;
   }
   os << "}" << std::endl << std::endl;
 }
@@ -2642,6 +2594,68 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 }
 
 } // namespace
+
+std::vector<Expr*> SegmentedGroup::orderedExprs() const {
+  // The time complexity is O((V+E)LogV) where V is the number of nodes and E
+  // is the number of edges. LogV is due to the use of std::priority_queue to
+  // break ties by the original order.
+  std::unordered_map<Expr*, int64_t> original_order;
+  for (auto&& [i, e] : enumerate(exprs())) {
+    original_order[e] = i;
+  }
+
+  const std::unordered_set<Expr*> exprs_to_sort(exprs().begin(), exprs().end());
+
+  std::vector<Expr*> ordered_exprs;
+  ordered_exprs.reserve(exprs().size());
+
+  auto compare_by_original_order = [&original_order](Expr* a, Expr* b) {
+    return original_order.at(a) < original_order.at(b);
+  };
+  std::priority_queue<
+      Expr*,
+      std::vector<Expr*>,
+      decltype(compare_by_original_order)>
+      to_visit(compare_by_original_order);
+
+  std::unordered_map<Expr*, int64_t> num_producers;
+  for (Expr* e : exprs()) {
+    int64_t& n = num_producers[e];
+    for (Val* in : e->inputs()) {
+      Expr* def = in->definition();
+      // Exprs in a SegmentedGroup come from the complete fusion, so the
+      // producer/consumer of an Expr may be outside the group. Therefore, we
+      // check exprs_to_sort.count.
+      if (exprs_to_sort.count(def) > 0) {
+        n++;
+      }
+    }
+
+    if (n == 0) {
+      to_visit.push(e);
+    }
+  }
+
+  while (!to_visit.empty()) {
+    Expr* e = to_visit.top();
+    to_visit.pop();
+
+    ordered_exprs.push_back(e);
+
+    for (Val* out : e->outputs()) {
+      for (Expr* user : out->uses()) {
+        if (exprs_to_sort.count(user) > 0 && (--num_producers[user]) == 0) {
+          to_visit.emplace(user);
+        }
+      }
+    }
+  }
+
+  NVF_ERROR_EQ(
+      ordered_exprs.size(), exprs().size(), "exprs() doesn't form a DAG.");
+
+  return ordered_exprs;
+}
 
 std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
     getMaybeHeuristicParams(SchedulerRuntimeInfo& runtime_info) {
