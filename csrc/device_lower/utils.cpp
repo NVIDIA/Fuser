@@ -708,20 +708,21 @@ bool isTMAOrMMASmemTv(TensorView* tv) {
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   const auto& alloc_domain = id_graph.toGroups(tv->getMaybeRootDomain());
-  const auto& loop_domain = id_graph.toGroups(
-      (ir_utils::isCpAsyncBulkLoad(tv->definition())
-          ? tv
-          : ir_utils::getTvOutput(tv->uses().at(0)))->getLoopDomain());
+  const auto& loop_domain =
+      id_graph.toGroups((ir_utils::isCpAsyncBulkLoad(tv->definition())
+                             ? tv
+                             : ir_utils::getTvOutput(tv->uses().at(0)))
+                            ->getLoopDomain());
   auto exprs = ValGraphBFS::getExprGroupsBetween(
-      id_graph,
-      {alloc_domain.begin(), alloc_domain.end()},
-      {loop_domain.begin(), loop_domain.end()}).first;
+                   id_graph,
+                   {alloc_domain.begin(), alloc_domain.end()},
+                   {loop_domain.begin(), loop_domain.end()})
+                   .first;
   for (const auto& [eg, dir] : exprs) {
     auto expr = eg->front();
     if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
       NVF_ERROR(
-          swizzle->swizzleType() == SwizzleType::XOR,
-          "expect xor swizzle");
+          swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
       return getSwizzleFromBytes(
           swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
     }
