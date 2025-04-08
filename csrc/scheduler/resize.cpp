@@ -245,37 +245,6 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
   return params;
 }
 
-namespace {
-
-std::unordered_map<TensorView*, std::unordered_set<Resize*>>
-getValidResizesToPropagate(Fusion* fusion) {
-  std::unordered_map<TensorView*, std::unordered_set<Resize*>> valid_resizes;
-
-  for (auto tv_op : scheduler_tools::getResizeBasedOps(fusion)) {
-    std::cerr << tv_op->toString();
-    auto tv_out = ir_utils::getTvOutput(tv_op);
-    auto rf_exprs = DependencyCheck::getAllExprsBetween(
-        {tv_out->getRootDomain().begin(), tv_out->getRootDomain().end()},
-        {tv_out->getLogicalDomain().begin(), tv_out->getLogicalDomain().end()});
-    NVF_ERROR(
-        rf_exprs.size() == 1 && rf_exprs.at(0)->isA<Resize>(),
-        "Expected to have only one Resize op. ",
-        toDelimitedString(rf_exprs));
-    auto resize = rf_exprs.at(0)->as<Resize>();
-
-    // Note: getAllValsBetween with fusion->inputs() do not grab
-    // tensors created inside the fusion
-    auto all_dep_stmts = StmtSort::getStmtsTo({tv_out});
-    for (auto dep_tv : ir_utils::filterByType<TensorView>(all_dep_stmts)) {
-      valid_resizes[dep_tv].insert(resize);
-    }
-  }
-
-  return valid_resizes;
-}
-
-} // namespace
-
 void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   FUSER_PERF_SCOPE("ResizeScheduler::schedule");
 
@@ -450,8 +419,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor] or
   // [..., I0/bdimx(BIDx), bdimx(TIDx), vec_factor]
 
-  const auto valid_resizes_to_propagate = getValidResizesToPropagate(fusion);
-
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled to workaround the resize propagation
   // issue. This may not work if there's a tensor that is reshaped
@@ -491,19 +458,16 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::scheduleLoopDomainsLike(
         pre_repeat_tvs,
         non_repeated_loop,
-        /*update_loop_domain_only=*/true,
-        valid_resizes_to_propagate);
+        /*update_loop_domain_only=*/true);
     scheduler_tools::scheduleLoopDomainsLike(
         post_repeat_tvs,
         ref_tv->getLoopDomain(),
-        /*update_loop_domain_only=*/true,
-        valid_resizes_to_propagate);
+        /*update_loop_domain_only=*/true);
   } else {
     scheduler_tools::scheduleLoopDomainsLike(
         fusion->allTvs(),
         ref_tv->getLoopDomain(),
-        /*update_loop_domain_only=*/true,
-        valid_resizes_to_propagate);
+        /*update_loop_domain_only=*/true);
   }
 
   if (vec_factor > 1) {

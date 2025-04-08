@@ -11,7 +11,6 @@
 #include <id_model/schedule.h>
 #include <ir/internal_nodes.h>
 #include <ir/utils.h>
-#include <iter_visitor.h>
 #include <scheduler/tools/loop_domain_scheduler.h>
 #include <val_graph_visitor.h>
 
@@ -181,13 +180,9 @@ class LoopDomainScheduler {
  public:
   LoopDomainScheduler(
       std::vector<IterDomain*> ref_loop_dom,
-      bool update_loop_domain_only = false,
-      std::optional<
-          std::unordered_map<TensorView*, std::unordered_set<Resize*>>>
-          valid_resizes = std::nullopt)
+      bool update_loop_domain_only = false)
       : ref_loop_dom_(std::move(ref_loop_dom)),
-        update_loop_domain_only_(update_loop_domain_only),
-        valid_resizes_(valid_resizes) {
+        update_loop_domain_only_(update_loop_domain_only) {
     NVF_ERROR(!ref_loop_dom_.empty());
 
     Fusion* fusion = ref_loop_dom_.front()->fusion();
@@ -254,8 +249,6 @@ class LoopDomainScheduler {
   // If true, uses the current loop domain as the starting domain and
   // updates it to make it look like the given reference loop domain
   bool update_loop_domain_only_ = false;
-  std::optional<std::unordered_map<TensorView*, std::unordered_set<Resize*>>>
-      valid_resizes_;
   std::unique_ptr<IdModel> id_model_;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
@@ -361,67 +354,6 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
   tv->setLoopDomain(loop_domain);
 }
 
-namespace {
-
-class ValGraphBFSWithResizeRestriction : public ValGraphBFS {
- public:
-  ValGraphBFSWithResizeRestriction(
-      const ValGraph& graph,
-      const std::unordered_set<Resize*>& valid_resizes,
-      std::vector<NodeType> from_groups,
-      std::vector<NodeType> to_groups,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined)
-      : ValGraphBFS(
-            graph,
-            from_groups,
-            to_groups,
-            require_all_to_visited,
-            allowed_direction),
-        valid_resizes_(valid_resizes) {}
-
-  bool excludeFromTraversal(const NodeType& group) const override {
-    if (const ExprGroup* eg = std::get_if<ExprGroup>(&group)) {
-      if ((*eg)->empty()) {
-        return false;
-      }
-      auto resize = dynamic_cast<Resize*>((*eg)->front());
-      if (resize == nullptr) {
-        return false;
-      }
-      if (std::none_of((*eg)->begin(), (*eg)->end(), [&](Expr* expr) -> bool {
-            return valid_resizes_.find(expr->as<Resize>()) !=
-                valid_resizes_.end();
-          })) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  static std::pair<ValGraphBFSWithResizeRestriction::ExprPath, bool>
-  getExprGroupsBetween(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& to,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined,
-      const std::unordered_set<Resize*>& valid_resizes = {}) {
-    return getExprsBetween<ValGraphBFSWithResizeRestriction>(
-        from.vector(),
-        to.vector(),
-        require_all_to_visited,
-        allowed_direction,
-        graph,
-        valid_resizes);
-  }
-
- private:
-  const std::unordered_set<Resize*>& valid_resizes_;
-};
-
-} // namespace
-
 // The replay path of a tensor is a path from the reference loop
 // domain to the root domain of the tensor. This path is used to
 // augment the tensor with a new loop domain as specified by the
@@ -482,24 +414,13 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
           [&](const ValGroup& tv_target_domain) {
             return all_ancestors_of_ref_.has(tv_target_domain);
           })) {
-    if (!valid_resizes_.has_value()) {
-      return ValGraphBFS::getExprGroupsBetween(
-                 graph(),
-                 ref_id_groups_,
-                 tv_target_domains,
-                 /*require_all_to_visited=*/true,
-                 Direction::Backward)
-          .first;
-    } else {
-      return ValGraphBFSWithResizeRestriction::getExprGroupsBetween(
-                 graph(),
-                 ref_id_groups_,
-                 tv_target_domains,
-                 /*require_all_to_visited=*/true,
-                 Direction::Backward,
-                 getOrDefault(*valid_resizes_, tv))
-          .first;
-    }
+    return ValGraphBFS::getExprGroupsBetween(
+               graph(),
+               ref_id_groups_,
+               tv_target_domains,
+               /*require_all_to_visited=*/true,
+               Direction::Backward)
+        .first;
   }
 
   // In the case of the update mode, the path from the reference is
@@ -556,15 +477,12 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom,
-    bool update_loop_domain_only,
-    std::optional<std::unordered_map<TensorView*, std::unordered_set<Resize*>>>
-        valid_resizes) {
+    bool update_loop_domain_only) {
   if (tvs.empty()) {
     return;
   }
 
-  LoopDomainScheduler scheduler(
-      ref_loop_dom, update_loop_domain_only, valid_resizes);
+  LoopDomainScheduler scheduler(ref_loop_dom, update_loop_domain_only);
 
   for (auto tv : tvs) {
     // Loop domain of fusion inputs should have no meaning
