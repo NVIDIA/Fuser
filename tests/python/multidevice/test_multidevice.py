@@ -7,13 +7,12 @@ import torch
 from enum import Enum, auto
 from torch.nn.attention import SDPBackend
 
-import multidevice_fixtures
+import fixtures
 import nvfuser
-import utils
 from nvfuser import DataType, FusionDefinition
-from utils import create_sdpa_rng_tensors, define_sdpa_rng_state
+from nvfuser.testing.utils import create_sdpa_rng_tensors, define_sdpa_rng_state
 
-multidevice_test = multidevice_fixtures.multidevice_test
+multidevice_test = fixtures.multidevice_test
 
 
 @pytest.mark.mpi
@@ -329,7 +328,7 @@ class QkvFormat(Enum):
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
@@ -451,7 +450,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
@@ -1005,7 +1004,7 @@ def _assert_shape_dtype(
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
@@ -1592,7 +1591,7 @@ class TransformerBackwardFusion(FusionDefinition):
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
