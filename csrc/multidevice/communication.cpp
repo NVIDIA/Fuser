@@ -334,15 +334,18 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  
-  // input and output tensors maybe strided (tensor with shape [m, n, k] and strides [1, k*m, m]), so we flatten them to match the ProcessGroupNCCL contiguity requirements.
-  // Presegmentation pass `makeReshardingContiguous` ensures that the tvs are contiguous
-  // and HostIrExecutor validates the tensor against the tv allocation domain.
+  // input and output tensors maybe strided (tensor with shape [m, n, k] and
+  // strides [1, k*m, m]), so we flatten them to match the ProcessGroupNCCL
+  // contiguity requirements. Presegmentation pass `makeReshardingContiguous`
+  // ensures that the tvs are contiguous and HostIrExecutor validates the tensor
+  // against the tv allocation domain.
 
-  auto flattened_output_tensor = output_tensor.as_strided({output_tensor.numel()}, {1});
-  auto flattened_input_tensor = input_tensor.as_strided({input_tensor.numel()}, {1});
-  auto splits =
-      at::tensor_split(flattened_output_tensor, communication->team_size(), /*dim=*/0);
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto splits = at::tensor_split(
+      flattened_output_tensor, communication->team_size(), /*dim=*/0);
   assertBuffersHaveSameSize({flattened_input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
@@ -350,7 +353,8 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   // _allgather_base, which does not perform any extra copy at the cost of
   // assuming that the receive buffers are placed contiguously. See #2384 for an
   // illustration.
-  return backend->_allgather_base(flattened_output_tensor, flattened_input_tensor, {});
+  return backend->_allgather_base(
+      flattened_output_tensor, flattened_input_tensor, {});
 }
 
 c10::intrusive_ptr<c10d::Work> postScatter(
