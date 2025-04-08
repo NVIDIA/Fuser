@@ -38,7 +38,7 @@ bool isWithinComputeWarp(const std::vector<ForLoop*> for_loops) {
 // Return true if any for loop is ComputeWarp.
 // Return false if any for loop is LoadWarp.
 // Return std:nullopt if none of the for loops are a warp specialized stage.
-std::optional<bool> isOptionalLoadOrComputeSync(
+std::optional<bool> isOptionalComputeSync(
     const std::vector<ForLoop*> for_loops) {
   bool contains_load_warp = isWithinLoadWarp(for_loops);
   bool contains_compute_warp = isWithinComputeWarp(for_loops);
@@ -325,7 +325,7 @@ class WarSyncInserter : private kir::ExprMutator {
       // specialization
       for_loops_.push_back(for_loop);
       auto sync_expr = IrBuilder::create<kir::BlockSync>(
-          /*war_sync=*/true, isOptionalLoadOrComputeSync(for_loops_));
+          /*war_sync=*/true, isOptionalComputeSync(for_loops_));
       for_loops_.pop_back();
       kir::ExprMutator::registerInsertAfter(
           for_loop->body().exprs().back(), sync_expr, &for_loop->body());
@@ -576,7 +576,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
             sync_bitmap, maybe_alloc->buffer());
       } else {
         sync_expr = IrBuilder::create<kir::BlockSync>(
-            /*war_sync=*/false, isOptionalLoadOrComputeSync(for_loops_));
+            /*war_sync=*/false, isOptionalComputeSync(for_loops_));
       }
 
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
