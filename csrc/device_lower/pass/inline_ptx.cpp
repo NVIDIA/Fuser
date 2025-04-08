@@ -333,9 +333,9 @@ class LowerToInlinePtx : public kir::ExprMutator {
             SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
             SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
 
-    // Switch between C = A * B and C = A * B + C. For now, we always use the
-    // former, because we do not have a good way to zero out the accumulator
-    // yet.
+    // Switch between C = A * B and C = A * B + C.
+    // TODO: For now, we always use the former, because we do not have a good
+    // way to zero out the accumulator yet.
     Val* enable_input_d = IrBuilder::create<Val>(false, DataType::Bool);
 
     // Do MMA
