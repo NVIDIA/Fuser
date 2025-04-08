@@ -2344,6 +2344,7 @@ class FusionSegmentGuard : public NonCopyable {
       std::vector<Val*> outputs)
       : fusion_(fusion) {
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
+    std::cout << "FusionSegmentGuard Enter 0" << std::endl;
     NVF_ERROR(fusion_ != nullptr);
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
@@ -2356,6 +2357,7 @@ class FusionSegmentGuard : public NonCopyable {
   FusionSegmentGuard(SegmentedFusion* segmented_fusion)
       : segmented_fusion_(segmented_fusion),
         fusion_(segmented_fusion->completeFusion()) {
+    std::cout << "FusionSegmentGuard Enter 1" << std::endl;
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
@@ -2372,6 +2374,7 @@ class FusionSegmentGuard : public NonCopyable {
       SegmentedGroup* b = nullptr)
       : segmented_fusion_(segmented_fusion),
         fusion_(segmented_fusion->completeFusion()) {
+    std::cout << "FusionSegmentGuard Enter 2" << std::endl;
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
@@ -2403,6 +2406,7 @@ class FusionSegmentGuard : public NonCopyable {
       const std::vector<SegmentedGroup*>& segmented_groups)
       : segmented_fusion_(segmented_fusion),
         fusion_(segmented_fusion->completeFusion()) {
+    std::cout << "FusionSegmentGuard Enter 3" << std::endl;
     FUSER_PERF_SCOPE("Segmenter::FusionSegmentGuard");
 #ifndef NDEBUG
     num_original_exprs_ = fusion_->exprs().size();
@@ -2423,6 +2427,7 @@ class FusionSegmentGuard : public NonCopyable {
 
   // NOLINTNEXTLINE(bugprone-exception-escape)
   ~FusionSegmentGuard() {
+    std::cout << "FusionSegmentGuard Exit" << std::endl;
     FUSER_PERF_SCOPE("~Segmenter::FusionSegmentGuard");
 
     if (fusion_ == nullptr) {
@@ -2457,6 +2462,9 @@ class FusionSegmentGuard : public NonCopyable {
   void narrowToNewSegment(
       const std::vector<Val*>& new_inputs,
       const std::vector<Val*>& new_outputs) {
+    std::cout << "Narrow to new segment" << std::endl;
+    std::cout << "Inputs: " << new_inputs << std::endl;
+    std::cout << "Outputs: " << new_outputs << std::endl;
     NVF_ERROR(fusion_ != nullptr);
 
     old_inputs_ = fusion_->inputs();
@@ -2477,6 +2485,7 @@ class FusionSegmentGuard : public NonCopyable {
     for (auto new_out : new_outputs) {
       fusion_->addOutputInternal(new_out);
     }
+    fusion_->printMath();
   }
 
   void restoreOriginalSegment() {
@@ -2525,6 +2534,22 @@ SchedulerType tryMerge(
     SegmentedGroup* a,
     SegmentedGroup* b = nullptr) {
   FusionSegmentGuard fsg(segmented_fusion, a, b);
+  if (b != nullptr) {
+    std::cout << "Try merge" << std::endl;
+    FusionSegmentGuard fsg(segmented_fusion, a, b);
+    std::cout << "Merge: " << toString(a) << std::endl;
+    std::cout << "  " << a->input_vals_.vector() << std::endl;
+    for (auto expr : a->exprs()) {
+      std::cout << "  " << toString(expr) << std::endl;
+    }
+    std::cout << "  " << a->output_vals_.vector() << std::endl;
+    std::cout << "With : " << toString(b) << std::endl;
+    std::cout << "  " << b->input_vals_.vector() << std::endl;
+    for (auto expr : b->exprs()) {
+      std::cout << "  " << toString(expr) << std::endl;
+    }
+    std::cout << "  " << b->output_vals_.vector() << std::endl;
+  }
 
   NVF_ERROR(
       !segmented_fusion->completeFusion()->unordered_exprs().empty(),
@@ -3955,7 +3980,12 @@ void SegmentCandidateFinder::buildInitialSegments() {
     }
 
     SegmentedGroup* expr_group = expr2group.at(expr);
-    expr_group->input_vals_.pushBack(expr->inputs());
+
+    for (auto inp : expr->inputs()) {
+      if (!inp->isConst()) {
+        expr_group->input_vals_.pushBack(inp);
+      }
+    }
     expr_group->output_vals_.pushBack(expr->outputs());
     for (auto inp : expr->inputs()) {
       if (isFusionInput(inp)) {
@@ -4064,7 +4094,9 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
 
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::findSegments");
-
+  std::cout << "findSegments" << std::endl;
+  std::cout << "Complete fusion: " << std::endl;
+  segmented_fusion_->completeFusion()->printMath();
   buildInitialSegments();
 
   validateIfDebug();
@@ -4164,6 +4196,7 @@ void SegmentCandidateFinder::findSegments() {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegmentsDrawing)) {
     segmented_fusion_->draw();
   }
+  std::cout << "findSegments Exit" << std::endl;
 }
 
 void SegmentCandidateFinder::privatizeUpcast() {
