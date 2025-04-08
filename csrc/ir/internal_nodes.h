@@ -2816,6 +2816,8 @@ class PrefixSumOp : public Expr {
  public:
   using Expr::Expr;
 
+  // NOTE: We translate these nodes to other nodes during indexing, so we should
+  // never expect to receive TensorIndex arguments here
   PrefixSumOp(
       IrBuilderPasskey,
       TensorView* output,

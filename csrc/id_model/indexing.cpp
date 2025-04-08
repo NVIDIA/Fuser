@@ -690,7 +690,7 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   }
   auto index_info = computeIndex(expr, indexed_ids, for_loops);
   for (const auto& [indexed_id, index] : override_index) {
-    index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
+    index_info.index_map[traversalGraph().toGroup(indexed_id)] = index;
   }
   const auto& index_map = index_info.index_map;
   const auto& replacement_map = getIndexReplacementMap(

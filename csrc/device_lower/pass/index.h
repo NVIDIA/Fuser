@@ -66,6 +66,7 @@ class IndexLowering : private OptOutConstDispatch {
   void handle(const PadOp*) final;
   void handle(const SliceOp*) final;
   void handle(const CatOp*) final;
+  void handle(const PrefixSumOp*) final;
 
   void handle(const kir::Asm*) final;
   void handle(const ForLoop*) final;
