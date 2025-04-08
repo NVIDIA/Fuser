@@ -707,7 +707,7 @@ bool isTMAOrMMASmemTv(TensorView* tv) {
 
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  const auto& alloc_domain = id_graph.toGroups(tv->getMaybeRootDomain());
+  const auto& alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
   const auto& loop_domain =
       id_graph.toGroups((ir_utils::isCpAsyncBulkLoad(tv->definition())
                              ? tv
