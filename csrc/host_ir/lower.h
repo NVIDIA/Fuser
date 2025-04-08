@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -35,8 +36,13 @@ class HostIrLower {
       std::unique_ptr<Fusion> fusion,
       DeviceIdxType my_device_index);
 
+  static bool isLoweredAsStandaloneHostOp(Expr* expr);
+
+  static bool ShouldMergeSegmentedGroups(
+      SegmentedGroup* group1,
+      SegmentedGroup* group2);
+
  private:
-  std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);
   const HostIrLowerParams params_;
 };
 
