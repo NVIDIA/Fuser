@@ -6005,6 +6005,7 @@ TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
   EXPECT_EQ(tv6->getLoopDomain().back()->extent()->evaluate(), 2);
 }
 
+// Repro of issue #4202
 TEST_F(ResizeTest, PropagateResizeThroughMultiplePaths) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -6030,8 +6031,6 @@ TEST_F(ResizeTest, PropagateResizeThroughMultiplePaths) {
   auto tv7 = add(tv4, tv6);
 
   fusion.addOutput(tv7);
-
-  fusion.print();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({size}, options);

@@ -39,6 +39,8 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
   auto producer_tv = resize_tensor_op->input(0)->as<TensorView>();
   auto consumer_tv = resize_tensor_op->output(0)->as<TensorView>();
 
+  // Note: DependencyCheck::getAllValsBetween with fusion inputs fails
+  // to grab factory-created tensors (#4202)
   auto all_dep_stmts = StmtSort::getStmtsTo({producer_tv});
 
   std::vector<TensorView*> tvs_to_schedule;
@@ -85,6 +87,8 @@ std::unordered_map<TensorView*, ResizeExclusivityInfo> getNonExclusiveResizeInfo
 
   std::unordered_map<TensorView*, ResizeExclusivityInfo> non_exclusive_resizes;
 
+  // Start with both fusion inputs and factory-created tensors. Fusion
+  // inputs are not enough (#4202).
   const auto inputs_vec = InputsOf::outputs(fusion->outputs());
   std::unordered_set<Val*> inputs{inputs_vec.begin(), inputs_vec.end()};
 
