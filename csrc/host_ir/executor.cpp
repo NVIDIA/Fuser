@@ -89,6 +89,45 @@ bool HostIrExecutor::isCompiled() const {
   return (bool)host_ir_container_;
 }
 
+namespace {
+// Validates the sizes and strides of the input and output tensors
+// against the tensorviews and posts the communication.
+c10::intrusive_ptr<c10d::Work> validateAndPostSingleCommunication(
+    Communication* communication,
+    DeviceIdxType my_device_index,
+    c10d::Backend* backend,
+    at::Tensor input_tensor,
+    at::Tensor output_tensor,
+    const ExpressionEvaluator& expr_eval) {
+  if (input_tensor.defined()) {
+    inferAndValidateAllocationSizesAndStrides(
+        input_tensor, communication->in(), expr_eval);
+  }
+  if (output_tensor.defined()) {
+    inferAndValidateAllocationSizesAndStrides(
+        output_tensor, communication->out(), expr_eval);
+  }
+  return postSingleCommunication(
+      communication, my_device_index, backend, input_tensor, output_tensor);
+}
+
+c10::intrusive_ptr<c10d::Work> validateAndPostSingleCommunication(
+    P2PCommunication* communication,
+    DeviceIdxType my_device_index,
+    DeviceIdxType peer,
+    c10d::Backend* backend,
+    at::Tensor buffer,
+    const ExpressionEvaluator& expr_eval) {
+  if (buffer.defined()) {
+    inferAndValidateAllocationSizesAndStrides(
+        buffer, communication->buffer(), expr_eval);
+  }
+  return postSingleCommunication(
+      communication, my_device_index, peer, backend, buffer);
+}
+
+} // namespace
+
 KernelArgumentHolder HostIrExecutor::run(
     KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
@@ -140,17 +179,13 @@ KernelArgumentHolder HostIrExecutor::run(
         "Output tensor not found in fusion outputs");
     auto out_tensor = output_args[out_idx].as<at::Tensor>();
 
-    inferAndValidateAllocationSizesAndStrides(
-        out_tensor, communication->out(), expr_eval);
-    inferAndValidateAllocationSizesAndStrides(
-        in_tensor, communication->in(), expr_eval);
-
-    c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
+    c10::intrusive_ptr<c10d::Work> work = validateAndPostSingleCommunication(
         communication,
         communicator_->deviceId(),
         backend,
         in_tensor,
-        out_tensor);
+        out_tensor,
+        expr_eval);
     if (work != nullptr) {
       work->wait();
     }
@@ -432,12 +467,14 @@ void HostIrEvaluator::handle(Communication* communication) {
   CommunicatorBackend backend_type = communication->backend();
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), backend_type);
-  works_[communication] = postSingleCommunication(
+
+  works_[communication] = validateAndPostSingleCommunication(
       communication,
       communicator_->deviceId(),
       backend,
       input_tensor,
-      output_tensor);
+      output_tensor,
+      expr_evaluator_);
 }
 
 void HostIrEvaluator::handle(P2PCommunication* communication) {
@@ -448,12 +485,13 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
   at::Tensor buffer =
       getKnownTensorOrUndefined(communication->buffer(), expr_evaluator_);
 
-  works_[communication] = postSingleCommunication(
+  works_[communication] = validateAndPostSingleCommunication(
       communication,
       communicator_->deviceId(),
       expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
       communicator_->getWorld(communication->backend()),
-      buffer);
+      buffer,
+      expr_evaluator_);
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
