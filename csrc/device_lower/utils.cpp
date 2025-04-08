@@ -717,7 +717,8 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   auto exprs = ValGraphBFS::getExprGroupsBetween(
                    id_graph,
                    {from_domain.begin(), from_domain.end()},
-                   {to_domain.begin(), to_domain.end()})
+                   {to_domain.begin(), to_domain.end()},
+                   false)
                    .first;
   for (const auto& [eg, dir] : exprs) {
     auto expr = eg->front();
