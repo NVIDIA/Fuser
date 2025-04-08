@@ -8,8 +8,6 @@
 #include <id_model/id_model.h>
 #include <id_model/loop_promotion.h>
 #include <id_model/to_string.h>
-#include <id_model/utils.h>
-#include <ir/graphviz.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
 #include <logical_domain_map.h>
@@ -17,7 +15,6 @@
 #include <val_graph_visitor.h>
 
 #include <algorithm>
-#include <fstream>
 
 namespace nvfuser {
 
@@ -456,13 +453,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
     callback_->postStep2(iel_promotion_map, iel_graph);
   }
 
-  {
-    VERBOSE() << "Step 2 results:\n";
-    for (const auto& [g, id] : iel_promotion_map) {
-      VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
-    }
-  }
-
   // Step 3: Determine the promotion of each loop graph based on the
   // IEL promotion map. For each loop group, examine all the IEL
   // promotions and find the most representative one that captures all
@@ -470,13 +460,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   const std::unordered_map<ValGroup, IterDomain*> initial_loop_promotion_map =
       projectIELPromotionToLoopGraph(
           iel_graph, iel_promotion_map, loop_graph, inlining_info_);
-
-  {
-    VERBOSE() << "Step 3 results:\n";
-    for (const auto& [g, id] : initial_loop_promotion_map) {
-      VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
-    }
-  }
 
   if (callback_) {
     callback_->postStep3(initial_loop_promotion_map);
@@ -511,20 +494,7 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
         initial_loop_promotion_map, idGraph(IdMappingMode::LOOP));
     revertBroadcastOnlyLoopGroups(final_loop_promotion_map);
     sanityCheckLoopPromotionMap(final_loop_promotion_map);
-    {
-      VERBOSE() << "Final results:\n";
-      for (const auto& [g, id] : final_loop_promotion_map) {
-        VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
-      }
-    }
     return final_loop_promotion_map;
-  }
-
-  {
-    VERBOSE() << "Promotin map to propgate in Step 4:\n";
-    for (const auto& [g, id] : loop_promotion_map_to_propagate) {
-      VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
-    }
   }
 
   std::unordered_map<ValGroup, IterDomain*> final_iel_promotion_map;
@@ -534,13 +504,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
       loop_graph,
       loop_promotion_map_to_propagate);
 
-  {
-    VERBOSE() << "Step 4 results:\n";
-    for (const auto& [g, id] : final_iel_promotion_map) {
-      VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
-    }
-  }
-
   if (callback_) {
     callback_->postStep4(final_iel_promotion_map, iel_graph);
   }
@@ -549,13 +512,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
   // final IEL promotion map
   auto final_loop_promotion_map = projectIELPromotionToLoopGraph(
       iel_graph, final_iel_promotion_map, loop_graph, inlining_info_);
-
-  {
-    VERBOSE() << "Step 5 results:\n";
-    for (const auto& [g, id] : final_loop_promotion_map) {
-      VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
-    }
-  }
 
   // The promotion map produced in Step 5 only includes those are
   // further propagated at Step 4, so the correct mappings produced at
@@ -609,13 +565,6 @@ std::unordered_map<ValGroup, IterDomain*> LoopPromotionMapBuilder::build() {
 
   if (callback_) {
     callback_->postStep5(final_loop_promotion_map);
-  }
-
-  {
-    VERBOSE() << "Final results:\n";
-    for (const auto& [g, id] : final_loop_promotion_map) {
-      VERBOSE() << nvfuser::toString(g) << " -> " << id->name() << "\n";
-    }
   }
 
   return final_loop_promotion_map;
@@ -915,17 +864,6 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
     const std::vector<ValGroup> iel_inp_groups =
         iel_graph.inputGroups(iel_expr);
 
-    VERBOSE() << "IEL expr: " << iel_expr->front()->toString();
-    std::stringstream ss;
-    for (auto expr : *iel_expr) {
-      ss << " {";
-      for (auto inp : expr->inputs()) {
-        ss << " " << inp->name();
-      }
-      ss << "}";
-    }
-    VERBOSE() << "All inputs: " << ss.str() << "\n";
-
     // Check if any inputs need promotion indicating this expr group needs to
     // be replayed with promoted inputs
     bool an_input_was_promoted = false;
@@ -958,9 +896,6 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
         if (inp_loop_promo_it != loop_graph_promotion_map.end()) {
           maybe_promoted_inputs.push_back(inp_loop_promo_it->second);
           an_input_was_promoted = true;
-          VERBOSE() << "Propagating loop promotion: "
-                    << nvfuser::toString(iel_inp_group) << " -> "
-                    << inp_loop_promo_it->second->toString() << std::endl;
           continue;
         }
       }
@@ -986,7 +921,6 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
       promoted_expr =
           id_model_.addReplayAs(maybe_promoted_inputs, iel_expr->front());
       replayed = true;
-      VERBOSE() << "Replayed expr: " << promoted_expr->toString();
     }
 
     // Mark outputs as having a promoted iter domain
@@ -1005,14 +939,10 @@ void LoopPromotionMapBuilder::propagatePromotionsInIELGraph(
               .disjointValSets()
               .strictAreMapped(
                   promoted_expr->output(i), out_groups[i]->front())) {
-        VERBOSE() << "Output not promoted as exacltlly mapped: "
-                  << nvfuser::toString(out_groups[i]) << std::endl;
         continue;
       }
       iel_promotion_map[out_groups[i]] =
           promoted_expr->output(i)->as<IterDomain>();
-      VERBOSE() << "Propagated to: " << nvfuser::toString(out_groups[i])
-                << " -> " << promoted_expr->output(i)->toString() << std::endl;
       // Explicitly map loop map since expr propagation doesn't happen
       if (replayed) {
         idGraph(IdMappingMode::LOOP)

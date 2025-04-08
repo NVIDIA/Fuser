@@ -833,24 +833,12 @@ ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
   maybeBuildGraph(IdMappingMode::EXACT);
   maybeBuildGraph(IdMappingMode::PERMISSIVE);
 
-  if (!tv_exprs_.empty()) {
-    std::stringstream ss;
-    tv_exprs_.at(0)->fusion()->print(ss);
-    VERBOSE() << ss.str();
-  }
-
   const StatefulInliningInfo inlining_info =
       buildStatefulInliningInfo(tv_exprs_, idGraph(IdMappingMode::PERMISSIVE));
 
   initializeLoopGraph(inlining_info);
 
   validateLoopGraphHasNoSelfMappedLeafDomains();
-
-  VERBOSE() << "Initial loop graph:\n";
-  for (const auto& group :
-       idGraph(IdMappingMode::LOOP).disjointValSets().disjointSets()) {
-    VERBOSE() << nvfuser::toString(group) << std::endl;
-  }
 
   loop_promotion_map_ = LoopPromotionMapBuilder::get(
       *this,
@@ -868,8 +856,6 @@ ValGraph& IdModel::buildLoopGraph(bool force_full_loop_promotion_analysis) {
 }
 
 void IdModel::buildAllGraphs() {
-  VERBOSE() << "*** Building all graphs ***\n";
-
   if (tvs_.empty()) {
     return;
   }
@@ -1200,17 +1186,15 @@ void IdModel::allocateLoopIndexVariables() {
 
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             loop_group->front()->as<IterDomain>())) {
-      // Allocate index variable for each stage of the circular
-      // buffered loop.
-      auto indices = std::make_unique<CircularBufferIndices>();
-      for (auto i :
-           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
-        indices->emplace(
-            static_cast<CircularBufferLoopStage>(i),
-            IrBuilder::create<Val>(DataType::Index));
-      }
+      // Allocate index variable for each stage of the circular buffered loop.
       circular_buffered_loop_index_variable_map_[loop_group] =
-          std::move(indices);
+          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
+              {{CircularBufferLoopStage::Prolog,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::Main,
+                IrBuilder::create<Val>(DataType::Index)},
+               {CircularBufferLoopStage::Epilog,
+                IrBuilder::create<Val>(DataType::Index)}}));
       continue;
     }
 
