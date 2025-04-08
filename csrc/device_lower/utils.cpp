@@ -710,7 +710,7 @@ MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
   const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
   const auto& from_domain = id_graph.toGroups(
       ir_utils::isCpAsyncBulkLoad(tv->definition())
-          ? tv->definition()->inputs().at(0)->getMaybeAllocationDomain()
+          ? ir_utils::getTvInput(tv->definition())->getMaybeAllocationDomain()
           : ir_utils::isCpAsyncBulkStore(tv->uses().at(0))
           ? ir_utils::getTvOutput(tv->uses().at(0))->getMaybeAllocationDomain()
           : ir_utils::getTvOutput(tv->uses().at(0))->getLoopDomain());
