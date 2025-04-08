@@ -17,8 +17,6 @@
 #include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
-#include <ops/all_ops.h>
-
 
 #include <iostream>
 
@@ -418,11 +416,11 @@ TEST_P(CommunicationTest, AllgatherLoopSplit) {
   // ProcessGroupNCCL requires the gathered axis to be outermost.
   // We change the allocation of tensorviews to reflect this.
   // We do not modify the logical shape of the tensorview.
-  // When posting communication, we permute the tensor to match the ProcessGroupNCCL contiguity requirements.
-  // This would still require one copy on each device if the input tensor is in a different layout.
+  // This would still require one copy on each device if the input tensor is in
+  // a different layout.
   const auto d = communicator_->size();
 
-  TensorView* tv0 = makeConcreteTensor({5, d*3});
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
   tv0->outer_split(1, d);
   tv0->axis(1)->parallelize(ParallelType::DIDx);
   tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
@@ -442,9 +440,10 @@ TEST_P(CommunicationTest, AllgatherLoopSplit) {
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  at::Tensor unsharded_in_tensor = at::randn({d*3, 5}, tensor_options);
-  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 0, full_mesh_).transpose(0, 1);
-  
+  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options);
+  at::Tensor in_tensor =
+      shardTensor(unsharded_in_tensor, 0, full_mesh_).transpose(0, 1);
+
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
@@ -455,7 +454,7 @@ TEST_P(CommunicationTest, AllgatherLoopSplit) {
       {in_tensor},
       {unsharded_in_tensor.transpose(0, 1)},
       __LINE__,
-      __FILE__);    
+      __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(
