@@ -2610,7 +2610,9 @@ std::vector<Expr*> SegmentedGroup::orderedExprs() const {
   ordered_exprs.reserve(exprs().size());
 
   auto compare_by_original_order = [&original_order](Expr* a, Expr* b) {
-    return original_order.at(a) < original_order.at(b);
+    // std::priority_queue implements a max heap, so this comparor returns true
+    // when RHS is originally ordered before LHS.
+    return original_order.at(a) > original_order.at(b);
   };
   std::priority_queue<
       Expr*,
@@ -2645,7 +2647,7 @@ std::vector<Expr*> SegmentedGroup::orderedExprs() const {
     for (Val* out : e->outputs()) {
       for (Expr* user : out->uses()) {
         if (exprs_to_sort.count(user) > 0 && (--num_producers[user]) == 0) {
-          to_visit.emplace(user);
+          to_visit.push(user);
         }
       }
     }
