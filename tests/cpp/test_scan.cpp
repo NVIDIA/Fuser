@@ -9,6 +9,7 @@
 
 #include <fusion.h>
 #include <ops/arith.h>
+#include <options.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
@@ -19,6 +20,8 @@ using ScanTest = NVFuserTest;
 
 // Simple test case for defining a scan
 TEST_F(ScanTest, Concrete1D) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
