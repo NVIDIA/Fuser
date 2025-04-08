@@ -699,34 +699,45 @@ std::vector<Expr*> getAllSwizzlesBetween(
 
 bool isTMAOrMMASmemTv(TensorView* tv) {
   return tv->getMemoryType() == MemoryType::Shared &&
-      ((tv->definition() != nullptr &&
-        ir_utils::isCpAsyncBulk(tv->definition())) ||
-       std::ranges::any_of(
-           tv->uses(), [](Expr* e) { return e->isA<MmaOp>(); }));
+      (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||
+       std::ranges::any_of(tv->uses(), [](Expr* e) {
+         return e->isA<MmaOp>() || ir_utils::isCpAsyncBulkStore(e);
+       }));
 }
 
 MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
-  const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
-  const auto& from_domain = id_graph.toGroups(
-      ir_utils::isCpAsyncBulkLoad(tv->definition())
-          ? ir_utils::getTvInput(tv->definition())->getMaybeAllocationDomain()
-          : ir_utils::isCpAsyncBulkStore(tv->uses().at(0))
-          ? ir_utils::getTvOutput(tv->uses().at(0))->getMaybeAllocationDomain()
-          : ir_utils::getTvOutput(tv->uses().at(0))->getLoopDomain());
-  auto exprs = ValGraphBFS::getExprGroupsBetween(
-                   id_graph,
-                   {from_domain.begin(), from_domain.end()},
-                   {to_domain.begin(), to_domain.end()},
-                   false)
-                   .first;
-  for (const auto& [eg, dir] : exprs) {
-    auto expr = eg->front();
-    if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
-      NVF_ERROR(
-          swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
-      return getSwizzleFromBytes(
-          swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+  // Output of TMA load
+  if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+    return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
+  }
+  for (auto use : tv->uses()) {
+    // Input of TMA store
+    if (ir_utils::isCpAsyncBulkStore(use)) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      return GpuLower::current()->consumerToTMAInfo().at(consumer_tv).swizzle();
+    }
+
+    // Input of MmaOp
+    if (use->isA<MmaOp>()) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+      const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+      const auto& from_domain = id_graph.toGroups(consumer_tv->getLoopDomain());
+      auto exprs = ValGraphBFS::getExprGroupsBetween(
+                       id_graph,
+                       {from_domain.begin(), from_domain.end()},
+                       {to_domain.begin(), to_domain.end()},
+                       false)
+                       .first;
+      for (const auto& [eg, dir] : exprs) {
+        auto expr = eg->front();
+        if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
+          NVF_ERROR(
+              swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+          return getSwizzleFromBytes(
+              swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+        }
+      }
     }
   }
   return MmaInputSmemSwizzle::None;
