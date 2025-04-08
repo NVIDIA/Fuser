@@ -2535,11 +2535,14 @@ SchedulerType tryMerge(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
-  if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
+  auto proposal = Schedule::proposeHeuristics(
+      segmented_fusion->completeFusion(), runtime_info);
+  if (b != nullptr &&
+      tryingToMergeSegmenterSet(segmented_fusion->completeFusion()) &&
+      proposal != SchedulerType::ExprEval) {
     return SchedulerType::None;
   }
-  return Schedule::proposeHeuristics(
-      segmented_fusion->completeFusion(), runtime_info);
+  return proposal;
 }
 
 SchedulerType tryMerge(
