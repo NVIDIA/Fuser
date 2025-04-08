@@ -32,13 +32,14 @@ TEST_F(ScanTest, Concrete1D) {
 
   fusion->addOutput(tv1);
 
-  fusion->printMath();
-
   tv0->cacheAfter();
   tv1->cacheBefore();
-  inlineMost();
-
-  fusion->printMath();
+  // Caching works fine, but once we inline we wind up not allocating the scan
+  // ID, meaning the index is just 0, and there's no replacement. This actually
+  // gives us the correct result in this test but it's not pretty, so I'd like
+  // to handle such cases more gracefully.
+  // TODO: Handle cases when the scan ID is inlined away.
+  // inlineMost();
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32}, options);
