@@ -121,7 +121,6 @@ def test_linear_loop_split(multidevice_test):
     torch.testing.assert_close(out_tensor, expected_out_tensor, rtol=1.3e-6, atol=1e-3)
 
 
-
 @pytest.mark.mpi
 def test_matmul_allreduce(multidevice_test):
     d, b, s, e = multidevice_test.size, 1, 4, 8
@@ -275,6 +274,3 @@ def test_matmul_allreduce_loop_split(multidevice_test):
     (out,), _ = fd.execute([sharded_inp, sharded_weight])
 
     torch.testing.assert_close(out.cpu(), expected_out, rtol=1e-3, atol=1e-2)
-
-
-
