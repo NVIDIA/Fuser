@@ -462,8 +462,7 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       // PredicateIndexingTest.NonTrivialSizeOneDomain for a concrete
       // example.
       if (!split->in()->extent()->isZeroInt() &&
-          !(split->in()->extent()->isOneInt() &&
-            !split->factor()->isOneInt())) {
+          !split->in()->extent()->isOneInt()) {
         // Even when the factor is not known to be 1, as long as the
         // input and output have the same extent, they should be
         // mapped. This happens, for example, split 32 by 32 -> 1, 32.
