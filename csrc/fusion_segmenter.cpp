@@ -276,43 +276,6 @@ std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
   return merge_candidates;
 }
 
-void SegmentedGroup::clearTraversalInfo() {
-  level_ = -1;
-  merge_with_ = nullptr;
-  merge_through_ = nullptr;
-  merged_ = false;
-}
-
-std::vector<Val*> SegmentedGroup::edgesToVals(
-    const std::vector<SegmentedEdge*>& se_v) {
-  std::vector<Val*> ret_v;
-  ret_v.reserve(se_v.size());
-
-  std::transform(
-      se_v.cbegin(),
-      se_v.cend(),
-      std::back_inserter(ret_v),
-      [](SegmentedEdge* se) { return se->val; });
-  return ret_v;
-}
-
-template <typename PREDICATE>
-void insertUniquePredicated(
-    std::vector<Val*>& v,
-    const std::vector<SegmentedEdge*>& e,
-    PREDICATE pred) {
-  VectorOfUniqueEntries<Val*> to_add;
-  for (auto edge : e) {
-    to_add.pushBack(edge->val);
-  }
-
-  std::copy_if(
-      to_add.vector().begin(),
-      to_add.vector().end(),
-      std::back_inserter(v),
-      [pred](Val* val) { return pred(val); });
-}
-
 // TODO: Reevaluate what's being done in finalize
 void SegmentedGroup::finalize() {
   // Make sure all inputs and outputs of the group are now in input and output
@@ -2127,6 +2090,41 @@ void SegmentCandidateFinder::eraseGroups(
       groups().end());
 }
 
+std::vector<SegmentedEdge*> SegmentedFusion::getEdgesBetween(
+    const SegmentedGroup* producer,
+    const SegmentedGroup* consumer) const {
+  std::vector<SegmentedEdge*> edges_between;
+
+  // Look through producer's consumer edges
+  for (auto edge : producer->consumer_edges) {
+    if (edge->to == consumer) {
+      edges_between.push_back(edge);
+    }
+  }
+
+  // Look through consumer's producer edges
+  for (auto edge : consumer->producer_edges) {
+    if (edge->from == producer) {
+      // Don't add duplicates
+      if (std::find(edges_between.begin(), edges_between.end(), edge) ==
+          edges_between.end()) {
+        edges_between.push_back(edge);
+      }
+    }
+  }
+
+  return edges_between;
+}
+
+void SegmentedFusion::connectGroups(
+    SegmentedGroup* from,
+    SegmentedGroup* to,
+    Val* val) {
+  auto new_edge = newEdge(from, to, val);
+  from->consumer_edges.push_back(new_edge);
+  to->producer_edges.push_back(new_edge);
+}
+
 SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::mergeNodes");
   SegmentedGroup* last_merged = nullptr;
@@ -3706,27 +3704,6 @@ class MergeUpAndDownCast {
 
 namespace {
 
-//! Returns true if group1 and group2 are an immediate producer-consumer pair.
-bool areDirectlyConnected(SegmentedGroup* group1, SegmentedGroup* group2) {
-  // Check if group1 is a immediate consumer of group2
-  if (std::any_of(
-          group1->producer_edges.begin(),
-          group1->producer_edges.end(),
-          [group2](SegmentedEdge* edge) { return edge->from == group2; })) {
-    return true;
-  }
-
-  // Check if group1 is a immediate producer of group2
-  if (std::any_of(
-          group1->consumer_edges.begin(),
-          group1->consumer_edges.end(),
-          [group2](SegmentedEdge* edge) { return edge->to == group2; })) {
-    return true;
-  }
-
-  return false;
-}
-
 //! Allow the segmentation algorithm to prefer certain exprs to merge
 class PreferredMergeCandidatePicker {
  public:
@@ -3836,7 +3813,8 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     SegmentedGroup* group2) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::codeGenSupportedMerge");
   NVF_ERROR(
-      areDirectlyConnected(group1, group2),
+      !segmented_fusion_->getEdgesBetween(group1, group2).empty() ||
+          !segmented_fusion_->getEdgesBetween(group2, group1).empty(),
       "only support testing immediate producer-consumer groups");
   if (options_.only_segment_resharding_exprs) {
     for (auto group : {group1, group2}) {
@@ -3939,9 +3917,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
       if (isFusionInput(inp)) {
         expr_group->input_vals_.pushBack(inp);
         auto aux_group = input2group_.at(inp);
-        auto new_edge = segmented_fusion_->newEdge(aux_group, expr_group, inp);
-        expr_group->producer_edges.push_back(new_edge);
-        aux_group->consumer_edges.push_back(new_edge);
+        segmented_fusion_->connectGroups(aux_group, expr_group, inp);
         continue;
       }
 
@@ -3959,9 +3935,7 @@ void SegmentCandidateFinder::buildInitialSegments() {
       }
 
       auto def_group = expr2group.at(inp->definition());
-      auto new_edge = segmented_fusion_->newEdge(def_group, expr_group, inp);
-      expr_group->producer_edges.push_back(new_edge);
-      def_group->consumer_edges.push_back(new_edge);
+      segmented_fusion_->connectGroups(def_group, expr_group, inp);
     }
     for (auto out : expr->outputs()) {
       if (out->isFusionOutput()) {
