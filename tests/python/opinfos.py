@@ -53,7 +53,7 @@ from opinfo_input_generators import (
     triu_input_generator,
     triu_error_generator,
 )
-from utils import (
+from nvfuser.testing.utils import (
     bool_int_dtypes,
     complex_dtypes,
     full_precision_float_dtypes,
@@ -61,10 +61,9 @@ from utils import (
     int_float_dtypes,
     float_complex_dtypes,
     ArgumentType,
+    JAX_AVAILABLE,
 )
 from functools import partial
-
-from utils import JAX_AVAILABLE
 
 if JAX_AVAILABLE:
     import jax

@@ -763,25 +763,6 @@ class AllocationInfoMap : private kir::IrVisitor {
     collectLivenessInfoOfExpr(expr);
   }
 
-  std::optional<MmaInputSmemSwizzle> getTmaSwizzle(TensorView* tv) {
-    bool is_tma_load = tv->definition() != nullptr &&
-        ir_utils::isCpAsyncBulk(tv->definition());
-    if (is_tma_load) {
-      return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
-    }
-
-    for (Expr* e : tv->uses()) {
-      if (ir_utils::isCpAsyncBulk(e)) {
-        TensorView* consumer_tv = ir_utils::getTvOutput(e);
-        return GpuLower::current()
-            ->consumerToTMAInfo()
-            .at(consumer_tv)
-            .swizzle();
-      }
-    }
-    return std::nullopt;
-  }
-
   void handle(ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
     if (!for_loop->isTrivial()) {
@@ -869,9 +850,8 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
 
-    std::optional<MmaInputSmemSwizzle> tma_swizzle = getTmaSwizzle(tv);
-    alloc_info->alignment = (tma_swizzle.has_value())
-        ? getSharedMemoryByteAlignment(tma_swizzle.value())
+    alloc_info->alignment = (ir_utils::isTMAOrMMASmemTv(tv))
+        ? getSharedMemoryByteAlignment(ir_utils::getSwizzleMode(tv))
         : 16;
 
     // record short cuts

@@ -2800,6 +2800,7 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -2853,6 +2854,7 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 

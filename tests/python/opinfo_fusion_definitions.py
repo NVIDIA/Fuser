@@ -6,7 +6,7 @@
 import torch
 
 from opinfo_core import OpInfo
-from utils import ArgumentType, is_tensor
+from nvfuser.testing.utils import ArgumentType, is_tensor
 
 from nvfuser import FusionDefinition
 from nvfuser.pytorch_utils import (

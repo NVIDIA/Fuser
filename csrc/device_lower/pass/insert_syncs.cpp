@@ -20,6 +20,40 @@ namespace nvfuser {
 
 namespace {
 
+// Determine if any for loop is a LoadWarp circular buffering stage
+bool isWithinLoadWarp(const std::vector<ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::LoadWarp;
+  });
+}
+
+// Determine if any for loop is a ComputeWarp circular buffering stage
+bool isWithinComputeWarp(const std::vector<ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
+    return fl->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp;
+  });
+}
+
+// Return true if any for loop is ComputeWarp.
+// Return false if any for loop is LoadWarp.
+// Return std:nullopt if none of the for loops are a warp specialized stage.
+std::optional<bool> isOptionalComputeSync(
+    const std::vector<ForLoop*> for_loops) {
+  bool contains_load_warp = isWithinLoadWarp(for_loops);
+  bool contains_compute_warp = isWithinComputeWarp(for_loops);
+  NVF_ERROR(
+      !contains_load_warp || !contains_compute_warp,
+      "The list of for-loops contains both LoadWarp and ComputeWarp stages.");
+  if (isWithinLoadWarp(for_loops)) {
+    return false;
+  } else if (isWithinComputeWarp(for_loops)) {
+    return true;
+  } else {
+    return std::nullopt;
+  }
+}
+
 // Tensor memory is similar to shared memory because they are both
 // shared between threads in a block. In that sense, we can consider
 // tensor memory as special type of shared memory. In this file, we use
@@ -287,7 +321,12 @@ class WarSyncInserter : private kir::ExprMutator {
 
     // WAR Sync is necessary in this loop, register its insertion.
     if (insert_sync) {
-      auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+      // Temporarily add the current for-loop to for_loops to check for warp
+      // specialization
+      for_loops_.push_back(for_loop);
+      auto sync_expr = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/true, isOptionalComputeSync(for_loops_));
+      for_loops_.pop_back();
       kir::ExprMutator::registerInsertAfter(
           for_loop->body().exprs().back(), sync_expr, &for_loop->body());
       handle(sync_expr);
@@ -536,7 +575,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         sync_expr = IrBuilder::create<kir::GridSync>(
             sync_bitmap, maybe_alloc->buffer());
       } else {
-        sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
+        sync_expr = IrBuilder::create<kir::BlockSync>(
+            /*war_sync=*/false, isOptionalComputeSync(for_loops_));
       }
 
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);

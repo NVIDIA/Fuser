@@ -2,7 +2,7 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import multidevice_fixtures
+import fixtures
 import nvfuser
 import pytest
 import torch
@@ -16,7 +16,7 @@ from torch.distributed.tensor.placement_types import Placement, Shard, Replicate
 from typing import Callable, cast
 
 
-multidevice_test = multidevice_fixtures.multidevice_test
+multidevice_test = fixtures.multidevice_test
 
 
 @pytest.fixture(scope="module")

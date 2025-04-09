@@ -488,7 +488,10 @@ class BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit BlockSync(IrBuilderPasskey passkey, bool war_sync = false);
+  explicit BlockSync(
+      IrBuilderPasskey passkey,
+      bool war_sync = false,
+      std::optional<bool> optional_compute_or_load_sync = std::nullopt);
 
   const char* getOpString() const override {
     return "BlockSync";
@@ -502,6 +505,20 @@ class BlockSync final : public Expr {
   // TODO: war_sync_ is only used for testing/validation purposes.
   bool isWarHazardSync() const {
     return attribute<bool>(0);
+  }
+
+  std::optional<bool> warpSpecializedState() const {
+    return attribute<std::optional<bool>>(1);
+  }
+
+  bool isComputeWarpSync() const {
+    return attribute<std::optional<bool>>(1).value_or(false);
+  }
+
+  bool isLoadWarpSync() const {
+    auto optional_compute_or_load_sync = attribute<std::optional<bool>>(1);
+    return optional_compute_or_load_sync.has_value() &&
+        !optional_compute_or_load_sync.value();
   }
 };
 

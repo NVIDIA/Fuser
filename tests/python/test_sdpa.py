@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 from functools import partial
 from nvfuser import FusionDefinition, DataType, FusionCache
-from utils import NVFuserTest, is_pre_ampere, define_sdpa_rng_state
+from nvfuser.testing.utils import NVFuserTest, is_pre_ampere, define_sdpa_rng_state
 
 
 @pytest.mark.skipif(

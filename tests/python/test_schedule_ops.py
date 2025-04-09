@@ -6,7 +6,7 @@
 from typing import Callable
 
 import torch
-from utils import is_pre_volta, is_pre_hopper
+from nvfuser.testing.utils import is_pre_volta, is_pre_hopper
 from torch.testing._internal.common_utils import TestCase
 from torch.testing._internal.jit_utils import RUN_CUDA
 import pytest
