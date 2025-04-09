@@ -463,12 +463,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // async mma pipeline has not been flushed yet.
         flush_async_mma_pipeline_ = false;
       }
-    } else if (ir_utils::isCpAsyncBulkStore(expr)) {
-      // Add a fence before TMA store so that writes in the generic proxy is
-      // visible to the async proxy.
-      auto scope = scope_.empty() ? nullptr : scope_.back();
-      auto fence_async = IrBuilder::create<kir::FenceAsyncProxy>();
-      registerInsertBefore(expr, fence_async, scope);
     }
 
     // Insert sync exprs after async ops. For example, insert
@@ -561,6 +555,20 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
+        return;
+      }
+
+      if (ir_utils::getAsyncOpType(expr) == AsyncOpType::CpAsyncBulk) {
+        // Add a fence before TMA store so that writes in the generic proxy is
+        // visible to the async proxy.
+        Expr* sync_expr = IrBuilder::create<kir::BlockSync>(
+            /*war_sync=*/false, isOptionalComputeSync(for_loops_));
+        insertSyncExpr(last_writes, expr, sync_expr, nullptr);
+        insertSyncExpr(
+            last_writes,
+            sync_expr,
+            IrBuilder::create<kir::FenceAsyncProxy>(),
+            nullptr);
         return;
       }
 
