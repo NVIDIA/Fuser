@@ -62,7 +62,7 @@ Val* getStrideOfGlobalMemoryTensor(TensorView* tv, int64_t alloc_dim) {
   // alloc_stride arrays do not.
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   int64_t stride_dim = -1;
-  for (const auto i : c10::irange(alloc_dim + 1)) {
+  for (const auto i : arange(alloc_dim + 1)) {
     if (alloc_dom.at(i)->isReduction()) {
       continue;
     }
@@ -220,14 +220,14 @@ class AllocationDomainSetup : private kir::IrVisitor {
         contiguity = tv->domain()->contiguity();
       } else {
         std::unordered_set<IterDomain*> exclude_ca_ids;
-        for (auto i : c10::irange(allocation_pos)) {
+        for (auto i : arange(allocation_pos)) {
           auto ca_id = tv->axis(i);
           if (!ir_utils::isMemorySharedAcross(
                   tv->getMemoryType(), ca_id->getParallelType())) {
             exclude_ca_ids.insert(ca_id);
           }
         }
-        for (auto i : c10::irange(tv->getAllocationDomain().size())) {
+        for (auto i : arange(tv->getAllocationDomain().size())) {
           auto id = tv->getAllocationDomain()[i];
           if (exclude_ca_ids.find(id) == exclude_ca_ids.end()) {
             if (ir_utils::isMemoryPartitionedAcross(
@@ -256,7 +256,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
         allocation_domains = tv->getLogicalDomain();
         contiguity = tv->domain()->contiguity();
       } else {
-        for (const auto i : c10::irange(tv->nDims())) {
+        for (const auto i : arange(tv->nDims())) {
           auto loop_id = tv->getLoopDomain().at(i);
           auto pt = loop_id->getParallelType();
 
@@ -370,7 +370,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     // Compute the strides from innermost to outermost domains
     std::vector<Val*> strides(allocation_domains.size(), nullptr);
     Val* cur_contig_stride = tv->fusion()->oneVal();
-    for (const auto i : c10::irange(allocation_domains.size())) {
+    for (const auto i : arange(allocation_domains.size())) {
       auto dim = allocation_domains.size() - i - 1;
       auto allocation_domain = allocation_domains.at(dim);
       auto promotion_domain = promoted_allocation_domains.at(dim);
@@ -402,7 +402,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
     std::vector<IterDomain*> actual_allocation_domains;
     std::vector<Val*> actual_strides;
     std::vector<bool> actual_contiguity;
-    for (const auto i : c10::irange(allocation_domains.size())) {
+    for (const auto i : arange(allocation_domains.size())) {
       auto allocation_domain = allocation_domains.at(i);
       auto promotion_domain = promoted_allocation_domains.at(i);
       if (!mayRequireAllocation(tv, allocation_domain)) {
@@ -1020,7 +1020,7 @@ class AllocationInserter : public kir::ExprMutator {
     info.alloc_pos = loop_alloc_info.alloc_pos;
 
     auto next_fl = [](ForLoop* fl, const std::vector<ForLoop*> fls) {
-      for (auto i : c10::irange(fls.size())) {
+      for (auto i : arange(fls.size())) {
         if (fl == fls[i]) {
           if (i + 1 < fls.size()) {
             return fls[i + 1];
@@ -1068,8 +1068,7 @@ class AllocationInserter : public kir::ExprMutator {
     }
 
     std::vector<IterDomain*> init_dims;
-    for (const auto axis_i :
-         c10::irange(info.alloc_pos, info.buffer->nDims())) {
+    for (const auto axis_i : arange(info.alloc_pos, info.buffer->nDims())) {
       if (info.buffer->axis(axis_i)->isReduction() ||
           info.buffer->axis(axis_i)->isBroadcast()) {
         continue;
@@ -1180,7 +1179,7 @@ class AllocationInserter : public kir::ExprMutator {
 
     // Found where the allocation needs to be inserted
 
-    for (const auto i : c10::irange(expr->outputs().size())) {
+    for (const auto i : arange(expr->outputs().size())) {
       auto out = expr->output(i);
       if (!out->isA<TensorView>()) {
         continue;
@@ -1202,7 +1201,17 @@ class AllocationInserter : public kir::ExprMutator {
             "Reduction should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedReductionOp>()->initVal(i);
       } else if (expr->isA<MmaOp>()) {
-        init = expr->as<MmaOp>()->init();
+        MmaOp* mma = expr->as<MmaOp>();
+        init = mma->init();
+        if (mma->isBlackwell()) {
+          // For Blackwell mma, we can choose between C = A x B or C = C + A x
+          // B. So there is no need to initialize the output tensor.
+          // TODO: we should do the same for Hopper
+          NVF_ERROR(
+              init == nullptr || init->isZero(),
+              "Blackwell mma should not have a non-zero initialization value.");
+          init = nullptr;
+        }
       } else if (expr->isA<WelfordOp>()) {
         NVF_ERROR(
             default_val == nullptr,
@@ -1323,8 +1332,10 @@ class AllocationInserter : public kir::ExprMutator {
     //    inval mbarrier
     //    block_sync
     //
-    // The circular buffer case is handled in handle(ForLoop* fl) and the
+    // * The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
+    // * Assume that the tma load is in ComputeWarp if it is not circular
+    // buffered.
     if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
@@ -1339,10 +1350,12 @@ class AllocationInserter : public kir::ExprMutator {
               DataType::UInt32,
               lower_utils::getNumThreadsInTensorView(
                   expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>();
+      auto sync_init = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
-      auto sync_inval = IrBuilder::create<kir::BlockSync>();
+      auto sync_inval = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
@@ -1702,7 +1715,8 @@ std::vector<Expr*> insertTMemRegionAllocsAndDeallocs(
                     std::vector<Val*>{
                         IrBuilder::create<kir::TensorIndex>(
                             region->address, expr->fusion()->zeroVal()),
-                        region->num_columns},
+                        GpuLower::current()->commonScalarMap().hoistScalar(
+                            region->num_columns, for_loops_)},
                     kir::Asm::Options{/*volatile=*/true});
                 first_warp->thenBody().push_back(tcgen05_dealloc_expr);
                 registerInsertAfter(expr, first_warp, current_scope);

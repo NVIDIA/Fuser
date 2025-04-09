@@ -22,8 +22,6 @@
 #include <scheduler/tools/resize_utils.h>
 #include <val_graph_visitor.h>
 
-#include <c10/util/irange.h>
-
 #include <unordered_set>
 
 namespace nvfuser {
@@ -537,7 +535,7 @@ ContiguousInnerDimensionsMapper::computeInfoC2P(
   }
 
   std::vector<IterDomain*> producer_logical_ids;
-  for (auto i : c10::irange(clear_pos, (int64_t)from_ids.size())) {
+  for (auto i : arange(clear_pos, (int64_t)from_ids.size())) {
     auto from_id = from_ids[i];
     auto c2p_it = c2p_map.find(from_id);
     if (c2p_it != c2p_map.end() &&
@@ -590,7 +588,7 @@ ContiguousInnerDimensionsMapper::computeInfoP2C(
   if (!from->isFusionInput() && from->hasReduction()) {
     // Find the last reduction dimension in the logical domain.
     int64_t clear_pos = -1;
-    for (auto i : c10::irange((int64_t)from->getLogicalDomain().size())) {
+    for (auto i : arange((int64_t)from->getLogicalDomain().size())) {
       if (from->getLogicalDomain()[i]->isReduction()) {
         clear_pos = i;
       }
@@ -751,7 +749,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   if (contiguity.size() == of_tv_alloc.size() &&
       contiguity.size() != of_tv_alloc_no_reductions.size()) {
     std::vector<std::optional<bool>> new_contiguity;
-    for (auto i : c10::irange(of_tv_alloc.size())) {
+    for (auto i : arange(of_tv_alloc.size())) {
       if (!of_tv_alloc[i]->isReduction()) {
         new_contiguity.push_back(contiguity[i]);
       }
@@ -777,7 +775,7 @@ Val* ContiguousInnerDimensionsMapper::getContigMergeOfInnerSize(
   // vectorize dimension.
   size_t projected_dims_i = projected_dims.size();
 
-  for (auto i : c10::irange(of_tv_alloc_no_reductions_size)) {
+  for (auto i : arange(of_tv_alloc_no_reductions_size)) {
     if (projected_dims_i == 0) {
       break;
     }

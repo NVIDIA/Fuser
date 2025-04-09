@@ -654,20 +654,20 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // As mentioned above, we don't know any relationship between tv0
   // and tv1, so they should not be mapped.
-  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
+  for (const auto i : arange(tv0->getLogicalDomain().size())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
         tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i)));
   }
 
   // Thus, the outputs of the reshape ops are not mapped either
-  for (const auto i : c10::irange(tv2->nDims())) {
+  for (const auto i : arange(tv2->nDims())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
         tv2->axis(i), tv3->axis(i)));
   }
 
   // Now, suppose we can say the inputs are exactly mapped. We
   // can manually add mappings:
-  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
+  for (const auto i : arange(tv0->getLogicalDomain().size())) {
     exact_graph.mapVals(
         tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i));
   }
@@ -676,7 +676,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   // intermediate and loop domains.
 
   // Check the root domains.
-  for (const auto i : c10::irange(tv2->getRootDomain().size())) {
+  for (const auto i : arange(tv2->getRootDomain().size())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv2->getRootDomain().at(i), tv3->getRootDomain().at(i)));
   }
@@ -689,7 +689,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // The next operation is split. Its outputs, which are the loop
   // domains, should be mapped too.
-  for (const auto i : c10::irange(tv2->nDims())) {
+  for (const auto i : arange(tv2->nDims())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv2->axis(i), tv3->axis(i)));
   }
