@@ -66,7 +66,7 @@ import sys
 
 import setuptools
 import setuptools.command.build_ext
-from setuptools import Extension, setup
+from setuptools import Extension, setup, find_packages
 
 # pick args used by this script
 CMAKE_ONLY = False
@@ -418,8 +418,6 @@ def main():
             "include/nvfuser/host_ir/*.h",
             "include/nvfuser/id_model/*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
-            "contrib/*",
-            "contrib/nn/*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
             # "bin/test_nvfuser",
@@ -431,7 +429,7 @@ def main():
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-            packages=["nvfuser"],
+            packages=find_packages(),
             ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={

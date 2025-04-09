@@ -813,12 +813,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
     // Initial reduction that still uses mma to combine
     //  the input.
     IrBuilder::create<MmaOp>(
-        producer,
-        mma->inA(),
-        mma->inB(),
-        mma->init(),
-        mma->axisMapping(),
-        mma->macro());
+        producer, mma->inA(), mma->inB(), mma->init(), mma->macro());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.
