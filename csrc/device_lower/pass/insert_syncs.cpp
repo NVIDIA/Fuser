@@ -1291,6 +1291,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         }
         it = async_exprs_to_protect_.erase(it);
       }
+
       // Actually insert these wait expressions.
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
         auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
