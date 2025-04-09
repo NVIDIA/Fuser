@@ -278,7 +278,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
         continue;
       }
       // The Epilogue loop is never the first iteration.
-      if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilogue) {
+      if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
         use_input_acc = mma->fusion()->falseVal();
       }
       Val* loop_index = GpuLower::current()->tensorIndexer().getLoopIndex(
