@@ -12,8 +12,6 @@
 
 #include <dispatch.h>
 
-#include <c10/util/irange.h>
-
 #include <iostream>
 
 namespace nvfuser {
@@ -33,7 +31,7 @@ static constexpr char const* kTab = "  ";
 
 // Indent the generated code
 inline std::ostream& indent(std::ostream& os, int indent_size) {
-  for (const auto _ : c10::irange(indent_size)) {
+  for (const auto _ : arange(indent_size)) {
     (void)_; // Suppress unused variable warning
     os << "  ";
   }

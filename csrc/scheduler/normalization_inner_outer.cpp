@@ -62,7 +62,7 @@ std::vector<TensorView*> getOuterBroadcastTvs(
     if (scheduler_utils::isFastestDimReduction(tv)) {
       const auto& logical = tv->getLogicalDomain();
       ref_broadcast_mask.reserve(logical.size());
-      for (const auto i : c10::irange(logical.size())) {
+      for (const auto i : arange(logical.size())) {
         ref_broadcast_mask.push_back(!logical.at(i)->isReduction());
       }
       break;
@@ -759,7 +759,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   return rparams;
 }
 
-std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
+std::unique_ptr<ReductionParams> innerOuterWarpSpecializedTmaHeuristic(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
     const int64_t regs_buffer_size,
@@ -830,7 +830,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // Set a minimum workload for each thread to take advantage of low
   // intra-threads communication cost.
   // Tuned for layer_norm backward on A100, still works fine on H100.
-  auto getMinimumBatch = [&]() -> int64_t {
+  auto get_minimum_batch = [&]() -> int64_t {
     if (inner_dim_numel >= 3072l) {
       if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
         return 3l;
@@ -846,7 +846,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // Estimate register usage per thread based on buffer size.
   // Assuming a constant register overhead for non-buffer related usage,
   // and all the register buffers are stored in registers.
-  auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
+  auto get_estimated_register_usage = [&](int64_t batch_mul_vect) {
     int64_t persistent_buffer_size =
         regs_buffer_size / inner_dim_numel * batch_mul_vect;
     int64_t estimated_register_count =
@@ -865,7 +865,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // For read from tmp gmem, since the paralelization is changed, a different
   //                         vectorization factor is used to optimize the
   //                         number of reaductions per thread.
-  auto getOuterReductionBufferVectFactor = [&](int64_t inner_vect) {
+  auto get_outer_reduction_buffer_vect_factor = [&](int64_t inner_vect) {
     constexpr int64_t max_gmem_vect_access_bytes = 16;
     const int64_t max_tmp_gmem_vect_factor = std::min(
         max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size, inner_vect);
@@ -883,9 +883,9 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // This function splits the threads_per_block into bdimx and bdimy using:
   // bdimx = ceilDiv(inner_dim_numel / vect, gdimy)
   // bdimy = threads_per_block / bdimx
-  auto getBdimxBdimy = [&](int64_t threads_per_block,
-                           int64_t vectorization_factor_outer,
-                           int64_t gdimy) {
+  auto get_bdimx_bdimy = [&](int64_t threads_per_block,
+                             int64_t vectorization_factor_outer,
+                             int64_t gdimy) {
     // For widely used hidden sizes, threads_per_block has factor of 8, roundup
     // to increase the probability of bdimx * bdimy == threads_per_block.
     int64_t bdimx = scheduler_utils::roundUpPow2Or8(
@@ -905,8 +905,8 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   };
 
   // Get the heuristics given vectorization factor and threads per block
-  auto getHeuristicsGivenVectThreads = [&](int64_t vect_factor,
-                                           int64_t threads_per_block) {
+  auto get_heuristics_given_vect_threads = [&](int64_t vect_factor,
+                                               int64_t threads_per_block) {
     InnerOuterParams iop;
     // (1) inner reduction
     // Reduction dim: inner_batch, threads_per_block, vect_factor
@@ -921,8 +921,8 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
     // Iteration dim: gdimy, bdimx, vectorization_factor_outer
     // Reduction dim: bdimy
     std::tie(iop.tmp_gmem_write_vect, iop.vectorization_factor_outer) =
-        getOuterReductionBufferVectFactor(iop.inner_vect);
-    auto [bdimx, bdimy] = getBdimxBdimy(
+        get_outer_reduction_buffer_vect_factor(iop.inner_vect);
+    auto [bdimx, bdimy] = get_bdimx_bdimy(
         threads_per_block, iop.vectorization_factor_outer, iop.gdimy);
     iop.bdimx = bdimx;
     iop.bdimy = bdimy;
@@ -932,7 +932,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
     iop.available_register_per_thread =
         getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
     iop.required_register_per_thread =
-        getEstimatedRegisterUsage(iop.inner_vect * iop.inner_batch);
+        get_estimated_register_usage(iop.inner_vect * iop.inner_batch);
     return iop;
   };
 
@@ -943,7 +943,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   // elements in the inner dimension after vectorization.
   // Start from 128 or a smaller number if inner dim is small.
   const int64_t after_vect = inner_dim_numel / vect_factor;
-  const int64_t batch_min = getMinimumBatch();
+  const int64_t batch_min = get_minimum_batch();
   int64_t threads_per_block_min = hp_threads_per_block_min;
   threads_per_block_min = std::min(threads_per_block_min, after_vect);
   threads_per_block_min = scheduler_utils::roundUpPow2(threads_per_block_min);
@@ -966,7 +966,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
        threads_per_block >= threads_per_block_min;
        threads_per_block /= 2) {
     iop_candidates.emplace_back(
-        getHeuristicsGivenVectThreads(vect_factor, threads_per_block));
+        get_heuristics_given_vect_threads(vect_factor, threads_per_block));
   }
 
   // Sort the heuristics based on the register usage and occupancy.
@@ -1154,8 +1154,12 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   std::unique_ptr<ReductionParams> rparams;
 
-  if (isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
-    rparams = InnerOuterWarpSpecializedTmaHeuristic(
+  // Ultimately, we want the heuristic to decide between using the
+  // warp-specialized version or the multi-wave version. The enable option is a
+  // temporary configuration to facilitate testing during development without
+  // disrupting existing behavior.
+  if (isOptionEnabled(EnableOption::WarpSpecializedNormalization)) {
+    rparams = innerOuterWarpSpecializedTmaHeuristic(
         properties.total_iteration_numel,
         properties.total_reduction_numel,
         buffer_params.regs_buffer_size,

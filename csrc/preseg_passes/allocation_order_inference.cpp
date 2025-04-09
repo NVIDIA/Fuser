@@ -158,7 +158,7 @@ void mapAllocationDomain(
   // initialize new target allocation domain with nullptr
   std::vector<IterDomain*> target_alloc_domain(
       target_logical_domain.size(), nullptr);
-  for (auto i : c10::irange(target_logical_domain.size())) {
+  for (auto i : arange(target_logical_domain.size())) {
     // sharp-edges 1
     // preserves non-mapped reduction id in its original position
     if (target_logical_domain[i]->isReduction() &&

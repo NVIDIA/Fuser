@@ -19,7 +19,6 @@
 #include <ops/arith.h>
 #include <transform_iter.h>
 
-#include <c10/util/irange.h>
 #include <device_lower/utils.h>
 
 namespace nvfuser {
@@ -246,7 +245,7 @@ ParallelizedDomainPredicate::getPredicateMap(
   auto unswitch_protected_loop_ids =
       getUnswitchProtectedParallelLoopIds(expr, loops, unswitched_loop);
 
-  for (const auto i : c10::irange(loops.size())) {
+  for (const auto i : arange(loops.size())) {
     auto loop = loops[i];
 
     // Parallel dimensions need not be predicated if fully unswitched.
@@ -491,16 +490,23 @@ namespace {
 
 // Select first warp of threads along TIDx axis and then use ptx::elect_sync
 // TODO If TIDx is known at compile-time, generate custom mask.
-Val* createElectSyncPredicate() {
+Val* createElectSyncPredicate(bool use_first_warp = true) {
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
   Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
   Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
   IrBuilder::create<UnaryOp>(
       UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-  return SimplifyingIrBuilder::logicalAndExpr(
-      elect_sync_val,
-      IrBuilder::ltExpr(
-          NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size));
+  // If TIDx is used for both computation and TMA load, we should select a
+  // thread from the last warp along TIDx.
+  auto select_warp = use_first_warp
+      ? IrBuilder::ltExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx), warp_size)
+      : IrBuilder::geExpr(
+            NamedScalar::getParallelIndex(ParallelType::TIDx),
+            IrBuilder::addExpr(
+                NamedScalar::getParallelDim(ParallelType::TIDx),
+                IrBuilder::create<Val>(-32L, PrimDataType::Index)));
+  return SimplifyingIrBuilder::logicalAndExpr(elect_sync_val, select_warp);
 }
 
 Val* createElectSyncPredicate(kir::Predicate* pred) {
@@ -621,27 +627,57 @@ Val* createMultipleExpressionElectSync(
         return fl->circularBufferLoopStage() ==
             CircularBufferLoopStage::LoadWarp;
       });
+  bool is_register_sharing = false;
   if (load_warp_loop_it != loops.end()) {
-    load_warp_on =
-        std::get<WarpSpecialized>(GpuLower::current()
-                                      ->circularBufferInfo()
-                                      .getCircularBufferOptionsFor(
-                                          (*load_warp_loop_it)->iter_domain())
-                                      .type)
-            .on;
+    auto circular_buffer_type = std::get<WarpSpecialized>(
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor((*load_warp_loop_it)->iter_domain())
+            .type);
+    load_warp_on = circular_buffer_type.on;
+    is_register_sharing = circular_buffer_type.num_registers.has_value();
   }
 
-  // If we are in a load warp, then the warp-dispatching IfThenElse
+  // Short-circuit: register sharing is not used, don't need to pad a full warp
+  // group. If we are in a load warp, then the warp-dispatching IfThenElse
   // already selects on `load_warp_on`, so we should not generate
   // predicates for it here.
-  Val* conditional = load_warp_on == ParallelType::TIDx
-      ? pred->fusion()->trueVal()
-      : createElectSyncPredicate();
+  if (!is_register_sharing) {
+    Val* conditional = load_warp_on == ParallelType::TIDx
+        ? pred->fusion()->trueVal()
+        : createElectSyncPredicate();
+    for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
+      if (pdim_map.has(pt) && load_warp_on != pt) {
+        conditional = SimplifyingIrBuilder::logicalAndExpr(
+            conditional,
+            IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+      }
+    }
+    return conditional;
+  }
+
+  // If not specialized on TIDx, load branch has full size of bdimx,
+  // we can use the first warp, otherwise should use the last warp.
+  bool use_first_warp = load_warp_on != ParallelType::TIDx;
+  Val* conditional = createElectSyncPredicate(use_first_warp);
   for (auto pt : {ParallelType::TIDy, ParallelType::TIDz}) {
-    if (pdim_map.has(pt) && load_warp_on != pt) {
+    if (!pdim_map.has(pt)) {
+      continue;
+    }
+    if (load_warp_on != pt) {
+      // Not specialized on pt, use the first thread.
       conditional = SimplifyingIrBuilder::logicalAndExpr(
           conditional,
           IrBuilder::eqExpr(NamedScalar::getParallelIndex(pt), zero));
+    } else {
+      // Specialized on pt, use the last thread.
+      Val* raw = GpuLower::current()->parallelDimensionMap().get(load_warp_on);
+      conditional = SimplifyingIrBuilder::logicalAndExpr(
+          conditional,
+          IrBuilder::eqExpr(
+              NamedScalar::getParallelIndex(pt),
+              IrBuilder::subExpr(
+                  raw, IrBuilder::create<Val>(1, DataType::Index))));
     }
   }
   return conditional;
@@ -774,7 +810,7 @@ Val* PredicateCompute::getInlinePredicate(
   }
 
   Val* cond = preds[0];
-  for (const auto i : c10::irange(1, preds.size())) {
+  for (const auto i : arange(1, preds.size())) {
     cond = SimplifyingIrBuilder::logicalAndExpr(cond, preds[i]);
   }
 

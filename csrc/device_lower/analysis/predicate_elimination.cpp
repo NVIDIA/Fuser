@@ -541,7 +541,7 @@ class PredicateChcker : public IterVisitor {
         "Was expecting matching number of inputs and outputs for expression: ",
         expr->toString());
 
-    for (auto i : c10::irange(tv_inputs.size())) {
+    for (auto i : arange(tv_inputs.size())) {
       const auto root_p2c =
           PairwiseLogicalDomainMap(tv_inputs[i], tv_outputs[i])
               .mapProducerToConsumer();
@@ -577,7 +577,7 @@ class PredicateChcker : public IterVisitor {
   //  lower index pass.
   std::vector<Val*> getZeroLoopIds(const TensorView* tv) const {
     std::vector<Val*> zero_loop_ids;
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto loop_id = tv->axis(i);
       if (ir_utils::isMemorySharedAcross(
               tv->getMemoryType(), loop_id->getParallelType())) {
@@ -750,7 +750,7 @@ class PredicateChcker : public IterVisitor {
 
   // Welford. See FusionPredicateElimination5.
   void handle(WelfordOp* wop) final {
-    for (const auto i : c10::irange(3)) {
+    for (const auto i : arange(3)) {
       auto init = wop->getInitVals()[i];
 
       // Welford input can be a scalar. Predicate is required unless
@@ -801,8 +801,7 @@ class PredicateChcker : public IterVisitor {
   }
 
   void handle(GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
       auto input = grouped_rop->input(i)->as<TensorView>();
       auto input_def = input->definition();
       // When input_def is null, input must be an input to the fusion,
@@ -865,8 +864,8 @@ class PredicateChcker : public IterVisitor {
 
   void handle(GroupedWelfordOp* grouped_wop) final {
     for (const auto expr_idx :
-         c10::irange(grouped_wop->numHorizontallyGroupedExprs())) {
-      for (const auto val_idx : c10::irange(3)) {
+         arange(grouped_wop->numHorizontallyGroupedExprs())) {
+      for (const auto val_idx : arange(3)) {
         auto init = grouped_wop->initVals().at(expr_idx).get(val_idx);
 
         // Welford input can be a scalar. Predicate is required unless
@@ -1004,7 +1003,7 @@ void PredicateElimination::dispatch(Expr* expr) {
 
   // Ensure all inputs have some values set at the out-of-bound
   // regions
-  for (const auto i : c10::irange(expr->inputs().size())) {
+  for (const auto i : arange(expr->inputs().size())) {
     auto input = dynamic_cast<TensorView*>(expr->inputs()[i]);
     if (input == nullptr) {
       continue;

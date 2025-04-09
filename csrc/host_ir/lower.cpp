@@ -185,7 +185,7 @@ void lowerToBroadcastOrSendRecv(
         sender_mesh.size(),
         " vs ",
         receiver_mesh.size());
-    for (auto i : c10::irange(sender_mesh.size())) {
+    for (auto i : arange(sender_mesh.size())) {
       const DeviceIdxType sender = sender_mesh.at(i);
       const DeviceIdxType receiver = receiver_mesh.at(i);
       comms.push_back(IrBuilder::create<Communication>(
