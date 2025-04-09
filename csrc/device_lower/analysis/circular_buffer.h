@@ -73,6 +73,11 @@ class CircularBufferInfo {
   //! Get the circular buffer insertion position for the given axis.
   int64_t getCircularBufferInsertionPosition(IterDomain* axis) const;
 
+  //! Set the circular buffer insertion position for the given axis.
+  void setCircularBufferInsertionPosition(
+      const TensorView* circular_buffer_tv,
+      IterDomain* circular_buffer_axis);
+
   //! Get the linearized index used for selecting the circular buffering stage
   //! and calculating mbarrier parity. mbarriers are active across nested
   //! for-loops.

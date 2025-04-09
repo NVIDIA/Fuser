@@ -258,42 +258,7 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
-
-  // short-circuit: insertion position is only for warp specialization with
-  // register sharing
-  if (!std::holds_alternative<WarpSpecialized>(
-          tv->circularBufferOptions().type) ||
-      !std::get<WarpSpecialized>(tv->circularBufferOptions().type)
-           .num_registers.has_value()) {
-    circular_buffer_insertion_position_[lower_utils::getConcreteLoopID(
-        cb_axis)] = 1;
-    return;
-  }
-
-  // The outer_most position is the cloned for-loop for warp specialization.
-  // The inner_most position is the default cloned for-loop.
-  // When inner_most position is used for cloning, the insertion point
-  // for mbarrier synchronization is 1 or the cloned for-loop.
-  // When outer_most != inner_most position, then the mbarrier synchronization
-  // is still placed at inner_most for-loop. The insertion_point is the
-  // number of nested for-loops relative to the outer_most position.
-  int64_t outer_most_circular_buffer_position =
-      getOuterMostCircularBufferPosition(tv);
-  int64_t inner_most_circular_buffer_position =
-      getInnerMostCircularBufferPosition(tv);
-  NVF_ERROR(
-      outer_most_circular_buffer_position <=
-          inner_most_circular_buffer_position,
-      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position",
-      "but got ",
-      outer_most_circular_buffer_position,
-      " and ",
-      inner_most_circular_buffer_position);
-  int64_t insertion_position = (inner_most_circular_buffer_position -
-                                outer_most_circular_buffer_position) +
-      1;
-  circular_buffer_insertion_position_[lower_utils::getConcreteLoopID(cb_axis)] =
-      insertion_position;
+  setCircularBufferInsertionPosition(tv, cb_axis);
 }
 
 void CircularBufferInfo::setCircularBufferOptions(
@@ -357,6 +322,47 @@ int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
       "Circular buffer insertion position not found");
 
   return maybe_depth_it->second;
+}
+
+void CircularBufferInfo::setCircularBufferInsertionPosition(
+    const TensorView* circular_buffer_tv,
+    IterDomain* circular_buffer_axis) {
+  IterDomain* concrete_loop_id =
+      lower_utils::getConcreteLoopID(circular_buffer_axis);
+
+  // short-circuit: insertion position is only for warp specialization with
+  // register sharing
+  if (!std::holds_alternative<WarpSpecialized>(
+          circular_buffer_tv->circularBufferOptions().type) ||
+      !std::get<WarpSpecialized>(
+           circular_buffer_tv->circularBufferOptions().type)
+           .num_registers.has_value()) {
+    circular_buffer_insertion_position_[concrete_loop_id] = 1;
+    return;
+  }
+
+  // The outer_most position is the cloned for-loop for warp specialization.
+  // The inner_most position is the default cloned for-loop.
+  // When inner_most position is used for cloning, the insertion point
+  // for mbarrier synchronization is 1 or the cloned for-loop.
+  // When outer_most != inner_most position, then the mbarrier synchronization
+  // is still placed at inner_most for-loop. The insertion_point is the
+  // number of nested for-loops relative to the outer_most position.
+  int64_t outer_most_circular_buffer_position =
+      getOuterMostCircularBufferPosition(circular_buffer_tv);
+  int64_t inner_most_circular_buffer_position =
+      getInnerMostCircularBufferPosition(circular_buffer_tv);
+  NVF_ERROR(
+      outer_most_circular_buffer_position <=
+          inner_most_circular_buffer_position,
+      "Expected outer_most_circular_buffer_position <= inner_most_circular_buffer_position",
+      "but got ",
+      outer_most_circular_buffer_position,
+      " and ",
+      inner_most_circular_buffer_position);
+  int64_t insertion_position = inner_most_circular_buffer_position -
+      outer_most_circular_buffer_position + 1;
+  circular_buffer_insertion_position_[concrete_loop_id] = insertion_position;
 }
 
 namespace {

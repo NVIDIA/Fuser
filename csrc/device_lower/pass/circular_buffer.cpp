@@ -1094,7 +1094,11 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // load TMA operations under this if-then-else.
   kir::IfThenElse* elect_sync_if_then_else_ = nullptr;
 
-  // Insertion position of the cloned loop
+  // The insertion_point is the number of nested for-loops relative to the
+  // top-level cloned for-loop where the mbarrier synchronization is inserted.
+  // By default, the insertion_point is 1, which is the top-level cloned
+  // for-loop. However, for register sharing warp specialization, it can be
+  // different.
   int64_t insertion_position_;
 };
 
