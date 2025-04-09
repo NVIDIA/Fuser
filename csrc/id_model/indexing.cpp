@@ -142,7 +142,8 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     const Expr* expr,
     bool as_consumer,
     const std::vector<IterDomain*>& index_ids,
-    const std::vector<ForLoop*>& for_loops) const {
+    const std::vector<ForLoop*>& for_loops,
+    bool use_magic_zero) const {
   auto info = computeIndex(expr, index_ids, for_loops);
   const auto& replacement_map = getIndexReplacementMap(
       expr, as_consumer, info.loop_ids, for_loops, info.index_map);
@@ -162,6 +163,11 @@ std::vector<Val*> TensorIndexer::getIndexFor(
     result.push_back(
         ir_utils::replaceValRecursively(it->second, replacement_map));
   }
+
+  if (use_magic_zero) {
+    result = protectIndicesWithMagicZero(result, for_loops);
+  }
+
   return result;
 }
 
@@ -210,7 +216,7 @@ Val* TensorIndexer::getLinearIndex(
   }
 
   if (tv->getMemoryType() == MemoryType::Global) {
-    linear_index = protectIndexWithMagicZero(linear_index, for_loops);
+    linear_index = protectIndicesWithMagicZero({linear_index}, for_loops).at(0);
   }
 
   if (tv->getMemoryType() == MemoryType::Local) {
@@ -425,11 +431,11 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   auto protectPredicatesWithMagicZero = [&](PredicateInfo& info) {
     if (info.startPredicate() != nullptr) {
       info.startPredicate() =
-          protectIndexWithMagicZero(info.startPredicate(), for_loops);
+          protectIndicesWithMagicZero({info.startPredicate()}, for_loops).at(0);
     }
     if (info.stopPredicate() != nullptr) {
       info.stopPredicate() =
-          protectIndexWithMagicZero(info.stopPredicate(), for_loops);
+          protectIndicesWithMagicZero({info.stopPredicate()}, for_loops).at(0);
     }
   };
 
@@ -634,7 +640,7 @@ std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
 }
 
 std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
-    Val* index,
+    const std::vector<Val*>& indices,
     const std::vector<ForLoop*>& for_loops) const {
   // Grab the loop indices
   std::vector<Val*> loop_indices;
@@ -646,7 +652,7 @@ std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
 
   // Figure out which loop indices are used in index
   const auto dep_vals = DependencyCheck::getAllValsBetween(
-      {loop_indices.begin(), loop_indices.end()}, {index});
+      {loop_indices.begin(), loop_indices.end()}, indices);
 
   std::vector<ForLoop*> dep_loops;
   for (auto [i, for_loop] : enumerate(for_loops)) {
@@ -663,7 +669,7 @@ std::vector<ForLoop*> TensorIndexer::getUsedForLoopsOf(
 void TensorIndexer::ensureStaticIndexing(
     const std::vector<ForLoop*>& for_loops,
     Val* index) const {
-  for (auto for_loop : getUsedForLoopsOf(index, for_loops)) {
+  for (auto for_loop : getUsedForLoopsOf({index}, for_loops)) {
     for_loop->requireUnroll();
   }
 }
@@ -727,14 +733,14 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
   return {result, contig_strides};
 }
 
-Val* TensorIndexer::protectIndexWithMagicZero(
-    Val* index,
+std::vector<Val*> TensorIndexer::protectIndicesWithMagicZero(
+    const std::vector<Val*>& indices,
     const std::vector<ForLoop*>& for_loops) const {
   if (!GpuLower::current()->isNvFuserZeroEnabled()) {
-    return index;
+    return indices;
   }
 
-  auto used_for_loops = getUsedForLoopsOf(index, for_loops);
+  auto used_for_loops = getUsedForLoopsOf(indices, for_loops);
 
   for (const auto for_loop : used_for_loops | std::views::reverse) {
     Val* initial_loop_index = getLoopIndex(for_loop->iter_domain(), for_loops);
@@ -749,12 +755,18 @@ Val* TensorIndexer::protectIndexWithMagicZero(
         initial_loop_index,
         SimplifyingIrBuilder::addExpr(
             initial_loop_index, GpuLower::current()->kernel()->magicZeroVal()));
-    auto protected_index =
-        ir_utils::replaceValRecursively(index, replacement_map);
-    return protected_index;
+
+    std::vector<Val*> protected_indices;
+    protected_indices.reserve(indices.size());
+    for (const auto index : indices) {
+      auto protected_index =
+          ir_utils::replaceValRecursively(index, replacement_map);
+      protected_indices.push_back(protected_index);
+    }
+    return protected_indices;
   }
 
-  return index;
+  return indices;
 }
 
 bool TensorIndexer::isSupported(Fusion* fusion) {
