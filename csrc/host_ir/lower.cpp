@@ -537,10 +537,9 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* initial_sync_stream =
       IrBuilder::create<hir::Synchronize>(original_stream);
 
-  // the initial sync of the streams with the user's stream is done in a separate for-loop for performance reasons with comms/compute overlap
-  std::vector<Expr*> loop_body_initial_sync = {
-      set_stream,
-      initial_sync_stream};
+  // the initial sync of the streams with the user's stream is done in a
+  // separate for-loop for performance reasons with comms/compute overlap
+  std::vector<Expr*> loop_body_initial_sync = {set_stream, initial_sync_stream};
   for (Expr* expr : loop_body_initial_sync) {
     for_loop_initial_sync->body().push_back(expr);
   }
@@ -608,7 +607,11 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   }
 
   return {
-      get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop_initial_sync, for_loop};
+      get_current_stream,
+      allocate_tva_allgathered,
+      allocate_tv_out,
+      for_loop_initial_sync,
+      for_loop};
 }
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
