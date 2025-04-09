@@ -3003,23 +3003,23 @@ void IndexLowering::handle(const PrefixSumOp* psop) {
   Val* next_val = IrBuilder::create<Val>(psop->in()->dtype());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, next_val, in);
 
+  // Convert prev_sum to a scalar Val so that we don't need to allocate a new
+  // TensorView for it.
   Val* prev_sum = IrBuilder::create<Val>(psop->out()->dtype());
   IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
-
-  // Convert prev_sum to a scalar Val so that we don't need to allocate a new
-  // TensorView for it.
 
   if (Val* f = psop->discountFactor()) {
     Val* f_scalar = f;
     if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
       Val* f_ti = lowerSrcIndex(f_tv, psop->out());
-
-      Val* f_scalar = IrBuilder::create<Val>(psop->in()->dtype());
-      IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, f_scalar, f_ti);
+      Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
+      IrBuilder::create<BinaryOp>(
+          BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
+      prev_sum = prev_sum_mul;
+    } else {
+      prev_sum = mul(f_scalar, prev_sum);
     }
-    // TODO: Allocate this intermediate value
-    prev_sum = mul(f_scalar, prev_sum);
   }
 
   Expr* expr = IrBuilder::create<TernaryOp>(
