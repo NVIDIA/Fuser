@@ -2,6 +2,25 @@
 
 ## Current Changes (from main)
 
+### Edge Handling Improvements
+1. Added helper functions in SegmentedFusion:
+   - `connectGroups(from, to, val)` - Creates and connects new edge
+   - `disconnectGroups(group1, group2)` - Removes all edges between groups
+   - `removeEdge(edge)` - Removes single edge and updates all references
+   - `getEdgesBetween(from, to)` - Gets all edges between two groups
+
+2. Refactored edge manipulation code:
+   - Moved edge creation/deletion to SegmentedFusion class
+   - Using helper functions instead of direct manipulation
+   - Fixed edge invalidation issues in merge operations
+   - Improved edge cleanup during group merging
+
+3. Edge handling safety improvements:
+   - Better documentation of edge lifetime/validity
+   - Clear comments about when edges become invalid
+   - Proper ordering of edge operations during merges
+   - Collection of edges before removal when needed
+
 ### Data Structure Changes
 1. Changed input/output storage in SegmentedGroup from std::vector to VectorOfUniqueEntries:
    - `input_vals` -> `input_vals_`
@@ -12,12 +31,6 @@
    - Removed `isFusionInputGroup()` method
    - Removed `isConnected()` method
    - Removed special constructor for fusion input groups
-
-### Edge Handling
-1. Improved edge management and documentation:
-   - Added comments clarifying edge usage
-   - Simplified edge container organization
-   - Added better type safety for edge handling
 
 ### Debug Output
 1. Added more debug output for FusionSegmentGuard:
@@ -37,15 +50,15 @@
    - Improved scalar input handling
 
 ### Code Cleanup
-1. Removed redundant functions:
-   - Removed uniqueValConcat in favor of VectorOfUniqueEntries
-   - Simplified getAllInputs/getAllOutputs implementations
-   - Removed duplicate code in merging operations
-
-2. Improved error handling and validation:
+1. Improved error handling and validation:
    - Added more error checks for group operations
    - Improved validation of group merging
    - Better handling of edge cases
+
+2. Better code organization:
+   - Centralized edge manipulation in SegmentedFusion
+   - Clearer separation of responsibilities
+   - More consistent API usage
 
 ## Revised Understanding of SegmentedEdge
 
@@ -60,30 +73,6 @@ The initial plan to remove SegmentedEdge was based on the assumption that group 
    - Simple intersection and union operations on input/output lists don't capture the full complexity of group dependencies
    - The edge system provides explicit producer-consumer relationships that are harder to infer from just input/output lists
    - Edges maintain important information about data flow that isn't captured by just knowing inputs and outputs
-
-## Next Steps
-
-1. **Reevaluation of Edge Removal**:
-   - Reconsider the motivation for removing SegmentedEdge
-   - Identify what specific problems we were trying to solve
-   - Evaluate if there are alternative solutions that don't require edge removal
-
-2. **Alternative Approaches**:
-   - Consider enhancing rather than removing the edge system
-   - Look for ways to simplify edge handling while maintaining correctness
-   - Explore hybrid approaches that might combine benefits of both systems
-
-3. **Investigation Areas**:
-   - Study how other systems handle similar graph dependency tracking
-   - Look for opportunities to optimize the current edge-based implementation
-   - Consider if partial refactoring of the edge system could achieve our goals
-
-4. **Documentation**:
-   - Better document the current edge system's role and importance
-   - Clarify edge handling in complex scenarios (multiple consumers, merging)
-   - Update comments and documentation to reflect latest understanding
-
-The focus should shift from removing SegmentedEdge to finding the right balance between simplicity and correctness in dependency tracking.
 
 ## Fusion Segmentation Process & Role of SegmentedEdge
 
@@ -111,16 +100,6 @@ The core idea is to partition the original `Fusion` DAG into `SegmentedGroup`s, 
 5.  **Analysis:** Dependency analysis (`GroupDependencyAnalysis`) uses edge information extensively to understand the producer-consumer relationships between groups.
 6.  **Serialization:** The complete structure, including edges, is serialized to save/load segmented fusions.
 
-**Goal: Removing SegmentedEdge:**
-
-The current development aims to **eliminate the `SegmentedEdge` class**. The "Current Changes (from main)" section reflects this:
-
-*   `SegmentedGroup::input_vals_` and `output_vals_` (now `VectorOfUniqueEntries`) are being repurposed to store *all* inputs/outputs for a group, including those that connect to other groups (previously only represented by edges).
-*   `SegmentedGroup::producer_groups_` and `SegmentedGroup::consumer_groups_` (also `VectorOfUniqueEntries`) have been added to directly store references to neighboring groups.
-*   **(Correction):** As of the last update, `producer_groups_` and `consumer_groups_` have *not* yet been added. They represent a planned mechanism to facilitate `SegmentedEdge` removal.
-
-The intended future state is to represent inter-group dependencies implicitly. The specific `Val`s connecting a `producer` group to a `consumer` group can be derived by computing the intersection of their respective outputs and inputs: `producer->output_vals_.computeIntersect(consumer->input_vals_)`. This removes the need for explicit edge objects to store this information.
-
 **Edge Handling During Group Merging:**
 
 When two or more `SegmentedGroup`s are merged into a new `joined_group` (e.g., in `SegmentCandidateFinder::mergeNodes` or `SegmentCandidateFinder::mergeAllGivenGroups`):
@@ -137,14 +116,124 @@ When two or more `SegmentedGroup`s are merged into a new `joined_group` (e.g., i
 
 Essentially, the merging process preserves the external connectivity by creating new edges linked to the merged group, while internalizing the dependencies previously represented by edges between the merged groups. 
 
-## Identified Failures
+## Planned Edge Handling Optimizations
 
-### Instance Normalization Merge Failure (Issue ##TBD##)
+After evaluating the current edge system and its challenges, we have identified several optimization approaches to be implemented in order of priority:
 
-- **Test Case:** `NVFuserTest.FusionMagicSchedulerInstanceNormalization_CUDA`
-- **Symptom:** Test fails with an `INTERNAL ASSERT FAILED` in `logical_domain_map.cpp` during segment merging.
-- **Analysis:** The failure occurs when attempting to merge two segments:
-    1. A reduction segment derived from a `Welford` operation (calculating mean `T5` and variance `T6` from input `T0`, then using `T5` to compute `T8`).
-    2. A pointwise segment that uses both the original input `T0` and a broadcast of the Welford mean `T5` (specifically, `T22 = T0 - broadcast(T5)`).
-- **Root Cause:** The `MERGE_DEBUG` logs preceding the crash indicate that the segmenter incorrectly identifies the Welford mean (`T5_g_float`) as an **input** to the hypothetically merged segment. However, `T5` is produced *internally* within this combined segment by the `Welford` operation acting on the true input `T0`. This incorrect input identification leads to the failure when `PairwiseLogicalDomainMap` attempts to map the domains between the operations, as it's working with an incorrect understanding of the segment's dependencies.
-- **Resolution:** The logic for determining the inputs of a merged segment needs to be corrected to properly distinguish between true external inputs and values produced and consumed internally within the potential merged segment. 
+1. **Helper Functions for Edge Management**
+   - Implement centralized edge manipulation functions in SegmentedFusion
+   - Key functions to add:
+     ```cpp
+     void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+     void disconnectGroups(SegmentedGroup* group1, SegmentedGroup* group2);
+     void removeEdge(SegmentedEdge* edge);
+     std::vector<SegmentedEdge*> getEdgesBetween(SegmentedGroup* g1, SegmentedGroup* g2);
+     ```
+   - Benefits:
+     - Reduces error-prone manual edge management
+     - Centralizes edge manipulation logic
+     - Improves code maintainability
+     - Minimal refactoring required
+
+2. **EdgeSet Abstraction**
+   - Create EdgeSet class to encapsulate edge operations and queries
+   - Key features:
+     - Maintains deterministic edge ordering
+     - Provides efficient group-based queries
+     - Supports standard iteration
+   - Implementation considerations:
+     - Keep vector for deterministic iteration
+     - Add optional indexing for faster lookups if needed
+     - Replace direct edge vectors in SegmentedGroup
+
+3. **Shared Pointer Edge Ownership**
+   - Convert edge storage to use std::shared_ptr
+   - Benefits:
+     - Explicit ownership semantics
+     - Safer memory management
+     - Clearer object lifetime management
+   - Implementation notes:
+     - Update both SegmentedFusion and SegmentedGroup edge storage
+     - Ensure proper cleanup in destructors
+     - Consider impact on serialization
+
+4. **Value-Based Edge Management (Future)**
+   - Long-term architectural enhancement
+   - Maintain dual representation:
+     - Traditional edge-based connectivity
+     - Value-based producer/consumer relationships
+   - Key considerations:
+     - Synchronization between representations
+     - Impact on existing algorithms
+     - Migration strategy
+
+**Implementation Strategy:**
+
+1. **Phase 1: Helper Functions**
+   - Add helper functions to SegmentedFusion
+   - Update existing code to use new helpers
+   - Add tests for edge manipulation
+   - Document common edge operation patterns
+
+2. **Phase 2: EdgeSet Introduction**
+   - Implement EdgeSet class
+   - Add unit tests for EdgeSet
+   - Gradually migrate SegmentedGroup to use EdgeSet
+   - Update documentation
+
+3. **Phase 3: Shared Pointer Migration**
+   - Convert edge storage to shared_ptr
+   - Update edge creation/deletion code
+   - Verify proper cleanup
+   - Add ownership documentation
+
+4. **Phase 4: Value-Based Enhancement**
+   - Design value-based representation
+   - Implement dual representation
+   - Add synchronization logic
+   - Migrate algorithms as needed
+
+**Key Areas to Monitor:**
+- Performance impact of each change
+- Memory usage patterns
+- Code complexity metrics
+- Impact on existing algorithms
+- Test coverage
+
+**Success Metrics:**
+- Reduced code complexity in edge handling
+- Fewer edge-related bugs
+- Improved code readability
+- Maintained or improved performance
+- Better test coverage of edge operations
+
+The implementation will proceed incrementally, with each phase being fully tested before moving to the next. Regular reviews will ensure the changes maintain the system's correctness while improving its maintainability. 
+
+## Next Steps
+
+### Edge Handling
+1. Consider creating EdgeSet abstraction:
+   - Maintain deterministic ordering
+   - Provide efficient queries
+   - Support standard iteration
+   - Replace direct edge vectors in SegmentedGroup
+
+2. Evaluate shared pointer usage for edges:
+   - Consider explicit ownership semantics
+   - Improve memory management
+   - Make object lifetime clearer
+
+3. Remaining direct edge manipulations to review:
+   - Edge value modifications in cast operations
+   - Scalar edge removal process
+   - Edge handling during group merging
+
+### Testing
+1. Add more edge manipulation tests:
+   - Edge creation/deletion
+   - Group connection/disconnection
+   - Edge invalidation cases
+   - Edge cleanup verification
+
+## Current failing tests:
+(previous failing tests section preserved as is) 
