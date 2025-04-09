@@ -108,6 +108,26 @@ TEST_P(LowerGatherTest, ) {
   }
 }
 
+namespace {
+std::string nameFromTuple(const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+  auto&& [meshes, enable_hir] = info.param;
+  auto&& [in_mesh, out_mesh] = meshes;
+
+  std::stringstream ss;
+  ss << "InMesh";
+  for (auto id : in_mesh.vector()) {
+    ss << "_" << id;
+  }
+  ss << "_OutMesh";
+  for (auto id : out_mesh.vector()) {
+    ss << "_" << id;
+  }
+  ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
+
+  return ss.str();
+}
+} // namespace
+
 INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerGatherTest,
@@ -117,25 +137,7 @@ INSTANTIATE_TEST_SUITE_P(
             {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
-    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
-      const auto& meshes = std::get<0>(info.param);
-      const auto& in_mesh = meshes.first;
-      const auto& out_mesh = meshes.second;
-      const auto enable_hir = std::get<1>(info.param);
-
-      std::stringstream ss;
-      ss << "InMesh";
-      for (auto id : in_mesh.vector()) {
-        ss << "_" << id;
-      }
-      ss << "_OutMesh";
-      for (auto id : out_mesh.vector()) {
-        ss << "_" << id;
-      }
-      ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
-
-      return ss.str();
-    });
+    nameFromTuple);
 
 class LowerScatterTest
     : public MultiDeviceTest,
@@ -187,25 +189,7 @@ INSTANTIATE_TEST_SUITE_P(
             {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
-    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
-      const auto& meshes = std::get<0>(info.param);
-      const auto& in_mesh = meshes.first;
-      const auto& out_mesh = meshes.second;
-      const auto enable_hir = std::get<1>(info.param);
-
-      std::stringstream ss;
-      ss << "InMesh";
-      for (auto id : in_mesh.vector()) {
-        ss << "_" << id;
-      }
-      ss << "_OutMesh";
-      for (auto id : out_mesh.vector()) {
-        ss << "_" << id;
-      }
-      ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
-
-      return ss.str();
-    });
+    nameFromTuple);
 
 class LowerSendRecvTest
     : public MultiDeviceTest,
@@ -259,25 +243,7 @@ INSTANTIATE_TEST_SUITE_P(
             {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
         testing::Values(false)), // TODO: testing::Bool() after implementing
                                  // communication lowering
-    [](const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
-      const auto& meshes = std::get<0>(info.param);
-      const auto& in_mesh = meshes.first;
-      const auto& out_mesh = meshes.second;
-      const auto enable_hir = std::get<1>(info.param);
-
-      std::stringstream ss;
-      ss << "InMesh";
-      for (auto id : in_mesh.vector()) {
-        ss << "_" << id;
-      }
-      ss << "_OutMesh";
-      for (auto id : out_mesh.vector()) {
-        ss << "_" << id;
-      }
-      ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
-
-      return ss.str();
-    });
+    nameFromTuple);
 
 class LowerCollectiveTest : public MultiDeviceTest,
                             public testing::WithParamInterface<bool> {};
