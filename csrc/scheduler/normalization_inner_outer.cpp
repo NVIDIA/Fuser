@@ -830,7 +830,7 @@ std::unique_ptr<ReductionParams> innerOuterWarpSpecializedTmaHeuristic(
   // Set a minimum workload for each thread to take advantage of low
   // intra-threads communication cost.
   // Tuned for layer_norm backward on A100, still works fine on H100.
-  auto getMinimumBatch = [&]() -> int64_t {
+  auto get_minimum_batch = [&]() -> int64_t {
     if (inner_dim_numel >= 3072l) {
       if (outer_dim_numel <= 2048l && inner_dim_numel == 3072l) {
         return 3l;
