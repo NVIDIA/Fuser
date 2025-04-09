@@ -362,20 +362,46 @@ int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
 Val* CircularBufferInfo::getLinearizeIndex(
     TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& loops) const {
-  ForLoop* circular_buffer_loop =
-      getCircularBufferLoop(circular_buffer_tv, loops);
-  int64_t insertion_position =
-      getCircularBufferInsertionPosition(circular_buffer_loop->iter_domain());
+  int64_t inner_axis_pos =
+      getInnerMostCircularBufferPosition(circular_buffer_tv);
+  IterDomain* inner_axis = circular_buffer_tv->axis(inner_axis_pos);
+  ForLoop* inner_fl =
+      CircularBufferInfo::getCircularBufferLoop(inner_axis, loops);
+  auto inner_fl_it =
+      std::find_if(loops.begin(), loops.end(), [inner_fl](const ForLoop* fl) {
+        return fl == inner_fl;
+      });
+  int64_t inner_loop_index = (int64_t)std::distance(loops.begin(), inner_fl_it);
+
+  // short-circuit: return index for inner-most for-loop if not warp specialized
+  // with register sharing
   bool is_warp_specialized_register_sharing =
       std::holds_alternative<WarpSpecialized>(
           circular_buffer_tv->circularBufferOptions().type) &&
       std::get<WarpSpecialized>(
           circular_buffer_tv->circularBufferOptions().type)
           .num_registers.has_value();
-  int64_t offset = (is_warp_specialized_register_sharing)
-      ? getOuterMostCircularBufferPosition(circular_buffer_tv)
-      : getInnerMostCircularBufferPosition(circular_buffer_tv);
-  return getLinearizeIndex(loops, insertion_position, offset);
+  if (!is_warp_specialized_register_sharing) {
+    return loops[inner_loop_index]->indexOrStartIfTrivial();
+  }
+
+  // The inner-most and outer-most for loops can be different.
+  // Get outer-most for-loop index
+  int64_t outer_axis_pos =
+      getOuterMostCircularBufferPosition(circular_buffer_tv);
+  IterDomain* outer_axis = circular_buffer_tv->axis(outer_axis_pos);
+  ForLoop* outer_fl =
+      CircularBufferInfo::getCircularBufferLoop(outer_axis, loops);
+  auto outer_fl_it =
+      std::find_if(loops.begin(), loops.end(), [outer_fl](const ForLoop* fl) {
+        return fl == outer_fl;
+      });
+  int64_t outer_loop_index = (int64_t)std::distance(loops.begin(), outer_fl_it);
+
+  // Calculate insertion position
+  int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
+  return getLinearizeIndex(
+      loops, insertion_position, /*start=*/outer_loop_index);
 }
 
 Val* CircularBufferInfo::getLinearizeIndex(
