@@ -257,8 +257,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       inst_ss << ".f16.f16";
     }
 
-    // Set use_input_acc false when all the reduction loop indicies are at the
-    // start of the loop, otherwise set it to true.
+    // Set use_input_acc false for the first iteration.
     Val* use_input_acc = mma->fusion()->trueVal();
     std::vector<IterDomain*> reduction_ids;
     for (IterDomain* id : ir_utils::getTvOutput(mma)->getLoopDomain()) {
@@ -267,6 +266,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       }
     }
     for (auto fl : for_loops_) {
+      // Skip non-reduction loops.
       if (fl->isTrivial() ||
           !std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
             return GpuLower::current()
@@ -276,6 +276,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 .strictAreMapped(fl->iter_domain(), id);
           })) {
         continue;
+      }
+      // The Epilogue loop is never the first iteration.
+      if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilogue) {
+        use_input_acc = mma->fusion()->falseVal();
       }
       Val* loop_index = GpuLower::current()->tensorIndexer().getLoopIndex(
           fl->iter_domain(), for_loops_);
