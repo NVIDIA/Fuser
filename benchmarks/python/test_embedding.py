@@ -13,7 +13,29 @@ from .core import (
     DEFAULT_EXECUTORS,
 )
 from .global_params import FLOAT_DTYPES
-from .embedding_ops import embedding, EMBEDDING_CONFIGS, SEQ_LENGTHS
+from .torch_ops import embedding
+
+
+# (vocab, hidden) configurations seen in models.
+EMBEDDING_CONFIGS = [
+    (152064, 3584),  # hf_qwen2
+    (32064, 3072),  # hf_phi3
+    (131072, 5120),  # hf_mistral_nemo
+]
+
+SEQ_LENGTHS = [
+    1024,
+    2048,
+    3072,
+    4096,
+    8192,
+    12288,
+    16384,
+    20480,
+    24576,
+    28672,
+    32768,
+]
 
 
 @pytest.mark.parametrize("executor", DEFAULT_EXECUTORS)
