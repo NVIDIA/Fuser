@@ -1525,8 +1525,6 @@ void scheduleTmaWarpSpecializedOuter(
 
     // First-stage of outer reduction
     outer_reduction_tv->split(0, rparams->lparams.gdimy());
-    std::cout << "outer_reduction_tv1: " << outer_reduction_tv->toString()
-              << std::endl;
 
     TensorView* partialResult = outer_reduction_tv->rFactor({0});
     partialResult->cacheBefore();
@@ -1559,8 +1557,6 @@ void scheduleTmaWarpSpecializedOuter(
     }
 
     outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
-    std::cout << "outer_reduction_tv2: " << outer_reduction_tv->toString()
-              << std::endl;
 
     auto outer_reference_tv =
         reduction_scheduler_utils::sortAndRFactor(outer_reduction_tv);
