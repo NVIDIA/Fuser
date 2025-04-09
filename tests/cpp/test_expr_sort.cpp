@@ -202,7 +202,7 @@ TEST_F(ExprSortTest, SegmentedGroup) {
 
   SegmentedGroup* group = segmented_fusion->groups().front();
   EXPECT_THAT(
-      group->orderedExprs(),
+      group->stablyOrderedExprs(),
       ElementsAre(
           UnaryOpTypeIs(UnaryOpType::Neg),
           UnaryOpTypeIs(UnaryOpType::Sin),

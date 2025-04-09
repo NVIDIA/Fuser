@@ -1067,7 +1067,7 @@ void detailGroupPrint(std::ostream& os, const SegmentedGroup* group) {
 
   os << std::endl << std::endl;
 
-  for (Expr* e : group->orderedExprs()) {
+  for (Expr* e : group->stablyOrderedExprs()) {
     os << e->toString();
     os << "(" << e->name() << ")" << std::endl;
   }
@@ -2595,7 +2595,7 @@ void deDuplicateScalarExprs(std::vector<Expr*>& exprs) {
 
 } // namespace
 
-std::vector<Expr*> SegmentedGroup::orderedExprs() const {
+std::vector<Expr*> SegmentedGroup::stablyOrderedExprs() const {
   // The time complexity is O((V+E)LogV) where V is the number of nodes and E
   // is the number of edges. LogV is due to the use of std::priority_queue to
   // break ties by the original order.

@@ -134,7 +134,7 @@ class SegmentedGroup {
 
   // Returns a toposorted list of Exprs in this group, with equal cases
   // respecting the original order.
-  std::vector<Expr*> orderedExprs() const;
+  std::vector<Expr*> stablyOrderedExprs() const;
 
   //! Returns the complete fusion inputs mapped to this segmented group's fusion
   const auto& getCompleteFusionInputs() const {
