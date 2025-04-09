@@ -457,6 +457,86 @@ TEST_P(CommunicationTest, AllgatherLoopSplit) {
       __FILE__);
 }
 
+TEST_P(CommunicationTest, ReduceScatterLoopSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto d = communicator_->size();
+
+  TensorView* tv0 = makeConcreteTensor({5, d*3, d*7});
+  TensorView* tv1 = sum(tv0, {1});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->outer_split(1, d);
+  TensorView* tv2 = tv1->rFactor({2});
+  tv2->axis(1)->parallelize(ParallelType::DIDx);
+
+  tv1->outer_split(2, d);
+  tv1->axis(2)->parallelize(ParallelType::DIDx);
+
+  for (auto tv : {tv0, tv1, tv2}) {
+    tv->setDeviceMesh(full_mesh_);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+  
+  at::Tensor unsharded_in_tensor = at::randn({5, d*3, d*7}, tensor_options);
+  at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, full_mesh_);
+  at::Tensor expected_output = shardTensor(unsharded_in_tensor.sum(1), -1, full_mesh_);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {expected_output},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_P(CommunicationTest, AllreduceLoopSplit) {
+ auto fusion = std::make_unique<Fusion>();
+ FusionGuard fg(fusion.get());
+ const auto d = communicator_->size();
+
+ TensorView* tv0 = makeConcreteTensor({3, 5*d, 7});
+ TensorView* tv1 = sum(tv0, {1});
+
+ tv0->outer_split(1, d);
+ tv0->axis(1)->parallelize(ParallelType::DIDx);
+
+ tv1->outer_split(1, d);
+ TensorView* tv2 = tv1->rFactor({2});
+ tv2->axis(1)->parallelize(ParallelType::DIDx);
+
+ for (auto tv : {tv0, tv1, tv2}) {
+   tv->setDeviceMesh(full_mesh_);
+   tv->setAllocationDomain(tv->getLoopDomain(), true);
+ }
+
+ fusion->addInput(tv0);
+ fusion->addOutput(tv1);
+
+ at::Tensor unsharded_in_tensor = at::randn({3, 5*d, 7}, tensor_options);
+ at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, full_mesh_);
+
+ FusionExecutorCache executor_cache(std::move(fusion));
+ at::Tensor out_tensor =
+     executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+
+ testValidate(
+     executor_cache.fusion(),
+     {out_tensor},
+     {in_tensor},
+     {unsharded_in_tensor.sum(1)},
+     __LINE__,
+     __FILE__);
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     CommunicationTest,
