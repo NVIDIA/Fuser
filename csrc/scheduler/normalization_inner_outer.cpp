@@ -229,7 +229,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       }
     }
   }
-  if(isOptionEnabled(EnableOption::WarpSpecializedPersistent)){
+  if (isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
     buffer_params.regs_buffer_size = 0;
     for (auto buffer : buffers) {
       if (std::any_of(
@@ -246,7 +246,6 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       }
     }
   }
-
 
   // Needs to use rounded shared memory size to avoid over usage.
   // key : buffer tv.
@@ -858,6 +857,11 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
     // Reduction dim: serial
     std::tie(iop.tmp_gmem_write_vect, iop.vectorization_factor_outer) =
         getOuterReductionBufferVectFactor(iop.inner_vect);
+  
+    if (std::getenv("VECT_OUTER") && std::atoi(std::getenv("VECT_OUTER"))) {
+      iop.vectorization_factor_outer =
+          (int64_t)std::atoi(std::getenv("VECT_OUTER"));
+    }
 
     // (3) Derived metrics warps_per_sm and register usage for sorting
     iop.warps_per_sm = ceilDiv(iop.threads_per_block, dev_prop->warpSize) *
@@ -897,17 +901,14 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
       (smem_overhead + smem_buffer_size);
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
-  int64_t n_stages_prefered = std::min(2L, iter_remaining);
+  int64_t n_stages_prefered = std::min(4L, iter_remaining);
   int64_t n_stages_max_allowed = max_n_copies;
   int64_t n_stages = std::min(n_stages_prefered, n_stages_max_allowed);
+  if (std::getenv("STAGES") && std::atoi(std::getenv("STAGES"))) {
+    n_stages = (int64_t)std::atoi(std::getenv("STAGES"));
+  }
   int64_t n_prefetch = n_stages - 1L;
   int64_t n_computation_groups = iop.threads_per_block <= 128 ? 2L : 1L;
-  CircularBufferOptions circular_buffer_options{
-      .type = WarpSpecialized(ParallelType::TIDy),
-      .stage = n_stages,
-      .prefetch = n_prefetch,
-      .computation_groups = n_computation_groups};
-  rparams->circular_buffer_options = circular_buffer_options;
 
   // Iteration unroll factor, limited by:
   // (1) heuristic selection
@@ -916,6 +917,31 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   int64_t heu_iter_unroll = std::min(2L, iter_remaining);
   int64_t max_iter_unroll = max_n_copies / n_stages;
   rparams->unroll_factor_iter_dom = std::min(heu_iter_unroll, max_iter_unroll);
+  if (std::getenv("IUNROLL") && std::atoi(std::getenv("IUNROLL"))) {
+    rparams->unroll_factor_iter_dom =
+        (int64_t)std::atoi(std::getenv("IUNROLL"));
+  }
+
+  // cmp: 128 * 4 * 120 = 61440
+  // tma: 128 * 4 * 8   / (32 * 4) = 32
+  // If CMPREG and TMAREG are set, and threads_per_block >= 128, then after
+  // padding 128 threads each thread can use less than 256 registers, then
+  // we can use register sharing.
+  std::optional<std::pair<int64_t, int64_t>> adjusted_regs = std::nullopt;
+  if (n_computation_groups == 2L) {
+    int64_t tma_reg = 40L;
+    int64_t cmp_reg = 232L;
+    adjusted_regs = std::make_pair(tma_reg, cmp_reg);
+  }
+  CircularBufferOptions circular_buffer_options{
+      .type = adjusted_regs.has_value()
+          ? WarpSpecialized(ParallelType::TIDy, adjusted_regs.value())
+          : WarpSpecialized(ParallelType::TIDy),
+      .stage = n_stages,
+      .prefetch = n_prefetch,
+      .computation_groups = n_computation_groups};
+
+  rparams->circular_buffer_options = circular_buffer_options;
 
   // Load from smem to regs immediately after TMA load is done.
   // Increased register usage but avoids redundant smem--> regs

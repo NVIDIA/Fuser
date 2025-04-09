@@ -3204,7 +3204,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       step_code << gen_index << " += " << gen_step;
     }
     if (loop->circularBufferLoopStage() !=
-        CircularBufferLoopStage::NotApplicable) {
+        CircularBufferLoopStage::NotApplicable &&
+        !isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler
       // should maximally unroll such loops leading to very long compiles, we
