@@ -1428,6 +1428,18 @@ class NVF_API MmaOp : public Expr {
     return nvfuser::isHopper(macro());
   }
 
+  bool isBlackwell1CTA() const {
+    return nvfuser::isBlackwell1CTA(macro());
+  }
+
+  bool isBlackwell2CTA() const {
+    return nvfuser::isBlackwell2CTA(macro());
+  }
+
+  bool isBlackwell() const {
+    return nvfuser::isBlackwell(macro());
+  }
+
   void setMacro(MmaMacro options);
 
  private:

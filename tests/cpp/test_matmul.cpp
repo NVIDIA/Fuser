@@ -3811,8 +3811,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv1c->circularBuffer(stages, prefetch);
   }
 
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  auto inputs = matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
   ke.compile(
@@ -4944,8 +4943,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
     tv1c->circularBuffer(stages, prefetch);
   }
 
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  auto inputs = matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   inputs.first = inputs.first.squeeze();
   inputs.second = inputs.second.squeeze();
 

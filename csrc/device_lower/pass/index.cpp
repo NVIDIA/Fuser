@@ -2290,30 +2290,33 @@ void IndexLowering::handle(const LoadStoreOp* ldst) {
 
 // Reference:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-shared-memory-descriptor
 static Val* matrixDescriptorEncode(Val* x) {
-  auto x_cast = IrBuilder::maybeCastExpr(DataType::UInt64, x);
-  auto mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt64);
-  auto x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
-  auto shift = IrBuilder::create<Val>(0x4, DataType::UInt64);
+  Val* x_cast = IrBuilder::maybeCastExpr(DataType::UInt64, x);
+  Val* mask = IrBuilder::create<Val>(0x3FFFF, DataType::UInt64);
+  Val* x_and = IrBuilder::bitwiseAndExpr(x_cast, mask);
+  Val* shift = IrBuilder::create<Val>(0x4, DataType::UInt64);
   return IrBuilder::rShiftExpr(x_and, shift);
 }
 
-static Val* constructMatrixDescriptor(
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-shared-memory-descriptor
+static Val* constructHopperMatrixDescriptor(
     Val* start_address,
     Val* leading_dim_byte_offset,
     Val* stride_dim_byte_offset,
     Val* matrix_base_offset,
     MmaInputSmemSwizzle swizzle) {
-  auto or0 = matrixDescriptorEncode(start_address);
-  auto or1 = IrBuilder::lShiftExpr(
+  Val* or0 = matrixDescriptorEncode(start_address);
+  Val* or1 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(leading_dim_byte_offset),
       IrBuilder::create<Val>(16, DataType::UInt64));
-  auto or2 = IrBuilder::lShiftExpr(
+  Val* or2 = IrBuilder::lShiftExpr(
       matrixDescriptorEncode(stride_dim_byte_offset),
       IrBuilder::create<Val>(32, DataType::UInt64));
-  auto or3 = IrBuilder::lShiftExpr(
+  Val* or3 = IrBuilder::lShiftExpr(
       matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
-  auto or4 = IrBuilder::lShiftExpr(
+  Val* or4 = IrBuilder::lShiftExpr(
       IrBuilder::create<Val>((int64_t)swizzle, DataType::UInt64),
       IrBuilder::create<Val>(62, DataType::UInt64));
   return IrBuilder::bitwiseOrExpr(
@@ -2323,24 +2326,48 @@ static Val* constructMatrixDescriptor(
       or4);
 }
 
-static MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
-  const auto& alloc_domain = tv->getMaybeRootDomain();
-  const auto& loop_domain = tv->getLoopDomain();
-  auto exprs = StmtSort::getExprsBetween(
-      {alloc_domain.begin(), alloc_domain.end()},
-      {loop_domain.begin(), loop_domain.end()});
-  auto swizzle_exprs = ir_utils::filterByType<Swizzle>(exprs);
-  if (swizzle_exprs.empty()) {
-    return MmaInputSmemSwizzle::None;
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+static Val* constructBlackwellMatrixDescriptor(
+    Val* start_address,
+    Val* leading_dim_byte_offset,
+    Val* stride_dim_byte_offset,
+    Val* matrix_base_offset,
+    MmaInputSmemSwizzle swizzle) {
+  Val* or0 = matrixDescriptorEncode(start_address);
+  Val* or1 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(leading_dim_byte_offset),
+      IrBuilder::create<Val>(16, DataType::UInt64));
+  Val* or2 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(stride_dim_byte_offset),
+      IrBuilder::create<Val>(32, DataType::UInt64));
+  Val* or3 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>(0b001, DataType::UInt64),
+      IrBuilder::create<Val>(46, DataType::UInt64));
+  Val* or4 = IrBuilder::lShiftExpr(
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
+  Val* or5 = nullptr;
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      or5 = IrBuilder::create<Val>(0, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B128:
+      or5 = IrBuilder::create<Val>(2, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B64:
+      or5 = IrBuilder::create<Val>(4, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B32:
+      or5 = IrBuilder::create<Val>(6, DataType::UInt64);
+      break;
   }
-  NVF_ERROR(
-      swizzle_exprs.size() < 2,
-      "expected 2 or less swizzle expressions in mma input, got ",
-      swizzle_exprs.size());
-  auto swizzle = *swizzle_exprs.begin();
-  NVF_ERROR(swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
-  return getSwizzleFromBytes(
-      swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+  or5 =
+      IrBuilder::lShiftExpr(or5, IrBuilder::create<Val>(61, DataType::UInt64));
+  return IrBuilder::bitwiseOrExpr(
+      IrBuilder::bitwiseOrExpr(
+          IrBuilder::bitwiseOrExpr(or0, or1),
+          IrBuilder::bitwiseOrExpr(or2, or3)),
+      IrBuilder::bitwiseOrExpr(or4, or5));
 }
 
 // Get the ValGroup of the ID in consumer's loop domain that corresponds to the
@@ -2435,7 +2462,7 @@ ValGroup getInnerMmaLoopGroup(TensorView* tv, const MmaOp* mma) {
 // 3. Prove that `linear` is linear in the allocation domain of tv, and get the
 //    stride of `linear`.
 Val* getInnerStrideBytes(TensorView* tv, const MmaOp* mma) {
-  auto swizzle = getSwizzleMode(tv);
+  auto swizzle = ir_utils::getSwizzleMode(tv);
   auto swizzle_size = getBytesFromSwizzle(swizzle) / dataTypeSize(tv->dtype());
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   auto alloc_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
@@ -2557,11 +2584,14 @@ void IndexLowering::handle(const MmaOp* mma) {
   Val* a = nullptr;
   Val* b = nullptr;
   const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
+  auto constructMatrixDescriptor = mma->isBlackwell()
+      ? constructBlackwellMatrixDescriptor
+      : constructHopperMatrixDescriptor;
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inA()->as<TensorView>();
-    auto swizzle = getSwizzleMode(tv);
+    auto swizzle = ir_utils::getSwizzleMode(tv);
     // Because the entire tile is parallelized on MMA, which are trivial
     // loops and always have zero loop variables, the result of lowerSrcIndex
     // will be the address of the first element of the tile, which happens to
@@ -2580,7 +2610,7 @@ void IndexLowering::handle(const MmaOp* mma) {
         leading_bytes,
         stride_bytes,
         IrBuilder::create<Val>(0, DataType::UInt64),
-        getSwizzleMode(tv));
+        ir_utils::getSwizzleMode(tv));
     a = IrBuilder::create<kir::TensorIndex>(
         tv,
         GpuLower::current()->commonScalarMap().hoistScalar(
@@ -2593,7 +2623,7 @@ void IndexLowering::handle(const MmaOp* mma) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
     auto tv = mma->inB()->as<TensorView>();
-    auto swizzle = getSwizzleMode(tv);
+    auto swizzle = ir_utils::getSwizzleMode(tv);
     // Because the entire tile is parallelized on MMA, which are trivial
     // loops and always have zero loop variables, the result of lowerSrcIndex
     // will be the address of the first element of the tile, which happens to
@@ -2621,8 +2651,18 @@ void IndexLowering::handle(const MmaOp* mma) {
     b = lowerSrcIndex(
         mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
   }
-  const auto out = lowerDstIndex(
-      mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  Val* out = nullptr;
+  if (mma->out()->as<TensorView>()->getMemoryType() == MemoryType::Tensor) {
+    // TODO: hardcoded zero index for now
+    Val* index = IrBuilder::create<Val>(
+        std::vector<int64_t>{0, 0},
+        ArrayType(std::make_shared<DataType>(DataType::UInt16), 2));
+    out = IrBuilder::create<kir::TensorIndex>(
+        mma->out()->as<TensorView>(), index, DataType::TMemAddress);
+  } else {
+    out = lowerDstIndex(
+        mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  }
   auto mma_indexed =
       IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
