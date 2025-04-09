@@ -8,6 +8,7 @@
 
 #include <multidevice/device_mesh.h>
 
+#include <utils.h>
 #include <numeric>
 #include <unordered_set>
 
@@ -166,7 +167,7 @@ std::vector<DeviceIdxType> DeviceMesh::getSlice(
   }
 
   std::vector<DeviceIdxType> devices(shape_[axis]);
-  for (auto i : c10::irange(devices.size())) {
+  for (auto i : arange(devices.size())) {
     devices.at(i) = vector_.at(i * stride + offset);
   }
   return devices;

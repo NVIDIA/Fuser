@@ -54,6 +54,7 @@
 #include <algorithm>
 #include <iostream>
 #include "c10/core/ScalarType.h"
+#include "kernel_ir_dispatch.h"
 #include "scheduler/matmul_heuristic.h"
 
 namespace nvfuser {
@@ -3810,192 +3811,13 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
     tv1c->circularBuffer(stages, prefetch);
   }
 
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  auto inputs = matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
 
   KernelExecutor ke;
   ke.compile(
       &fusion, {inputs.first, inputs.second}, LaunchParams(), matmul_cparams);
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(inputs.first.squeeze(), inputs.second.squeeze(), layout);
-  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
-}
-
-// Test scheduling a Hopper matmul where the operands are 2D
-TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_NoBroadcasts) {
-  Fusion fusion;
-  FusionGuard fg(&fusion);
-
-  constexpr int64_t M = 2048, N = 2048, K = 8192;
-  constexpr auto macro = MmaMacro::Hopper_64_256_16;
-  constexpr auto layout = MmaLayout::NT; // [K, M] x [K, N] -> [M, N]
-  constexpr auto swizzle = MmaInputSmemSwizzle::B128;
-  const auto dtype = DataType::Half;
-
-  constexpr int64_t stages = 1;
-  constexpr int64_t prefetch = 3;
-  const int64_t cta_m = 2 * getM(macro);
-  const int64_t cta_n = 1 * getN(macro);
-
-  auto tv0 = makeContigConcreteTensor({-1, -1}, dtype); // [K, M]
-  auto tv1 = makeContigConcreteTensor({-1, -1}, dtype); // [K, N]
-  fusion.addInput(tv0);
-  fusion.addInput(tv1);
-
-  // The output is [M, N, K] (no reordering needed)
-  MmaOp::AxisMapping axis_mapping{.a_axes = {1, -1, 0}, .b_axes = {-1, 1, 0}};
-  auto tv2 =
-      fusedMultiplySum(tv0, tv1, /*axes=*/{-1}, /*init=*/nullptr, axis_mapping);
-
-  auto tv3 = castOp(DataType::Half, tv2);
-
-  fusion.addOutput(tv3);
-
-  auto mma_ops = ir_utils::getOpsOfType<MmaOp>(&fusion);
-  NVF_CHECK(
-      1 == mma_ops.size(),
-      "Invalid number of MmaOp instances in fusion definition, expected 1, got ",
-      mma_ops.size());
-  mma_ops.front()->setMacro(macro);
-
-  // gmem [K, M] x gmem [K, N] -mma-> register [M, N, rK]
-  // register [M, N, rK] -cast-> gmem [M, N]
-
-  auto tv0c = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  tv0c->setMemoryType(MemoryType::Shared);
-  auto tv1c = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
-  tv1c->setMemoryType(MemoryType::Shared);
-  auto tv3c = tv3->cacheBefore();
-
-  tv0c->broadcast(-1); // [K, M] -> [K, M, 1]
-  tv1c->broadcast(-2); // [K, N] -> [K, 1, N]
-
-  // gmem [K, M, 1] -TMA-> smem [K, M, 1]
-  // gmem [K, 1, N] -TMA-> smem [K, 1, N]
-  // smem [K, M, 1] x smem [K, 1, N] -mma-> register [M, N, rK]
-  // register [M, N, rK] -cast-> register [M, N] -set-> gmem [M, N]
-
-  // Create tiles
-  tv2->split(-3, cta_m);
-  tv2->split(-2, cta_n);
-  tv2->split(-1, getK(macro));
-  // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
-  tv2->reorder({{-5, -3}, {-3, -2}});
-  tv2->axis(0)->parallelize(ParallelType::BIDy);
-  tv2->axis(1)->parallelize(ParallelType::BIDx);
-
-  // NOTE: since in this case we do not have "proper" broadcast in the inputs,
-  // we cannot simply propagate transforms to the operands. Instead, we
-  // propagate forward to the outputs and manually schedule the smem operands.
-  scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-      tv2,
-      -1,
-      {tv3},
-      scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-          .propagateParallelType()
-          .propagateToBoundary());
-
-  // Schedule operands
-  for (TensorView* tv : {tv0c, tv1c}) {
-    tv->reorder({{-3, -1}}); // [K, M, N] -> [M, N, K]
-    // NOTE: above axes are given in MNK order, but inputs are in KMN
-    tv->split(-3, cta_m);
-    tv->split(-2, cta_n);
-    tv->split(-1, getK(macro));
-    // [Mo, Mi, No, Ni, Ko, Ki] -> [Mo, No, Ko, Mi, Ni, Ki]
-    // [Ko, Ki, Mo, Mi, No, Ni] -> [Mo, No, Ko, Mi, Ni, Ki]
-    tv->reorder({{-5, -3}, {-3, -2}});
-    tv->axis(0)->parallelize(ParallelType::BIDy);
-    tv->axis(1)->parallelize(ParallelType::BIDx);
-  }
-
-  // [..., Mi, Ni, Ki] -> [..., Ni, Ki, Mi]
-  tv0c->reorder({{-3, -1}});
-  tv0c->applyMmaSwizzleForTMALoad(swizzle);
-  // [..., Mi, Ni, Ki] -> [..., Mi, Ki, Ni]
-  tv1c->reorder({{-1, -2}});
-  tv1c->applyMmaSwizzleForTMALoad(swizzle);
-
-  {
-    tv2->split(-3, getM(macro));
-    tv2->split(-2, getN(macro));
-    // [Mo, No, Ko, Mio, Mii, Nio, Nii, Ki]
-    // -> [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
-    tv2->reorder({{-4, -3}});
-    tv2->merge(-5);
-    tv2->axis(-4)->parallelize(ParallelType::TIDy);
-    scheduler_utils::BoundedDirectionalTransformPropagator::forward(
-        tv2,
-        -1,
-        {tv3},
-        scheduler_utils::BoundedDirectionalTransformPropagator::Options()
-            .propagateParallelType()
-            .propagateToBoundary());
-  }
-
-  {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv2->getLoopDomain());
-    tv2->setAllocationDomain(s.as<IterDomain*>(), true);
-    tv2->axis(-1)->parallelize(ParallelType::Mma);
-    tv2->axis(-2)->parallelize(ParallelType::Mma);
-    tv2->axis(-3)->parallelize(ParallelType::Mma);
-  }
-
-  for (auto tv : {tv3c, tv3}) {
-    auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
-        tv->getLoopDomain());
-    tv->setLoopDomain(s.as<IterDomain*>());
-  }
-  tv3->axis(-1)->parallelize(ParallelType::Vectorize);
-
-  {
-    // Check using a copy that improperly aligned axis are not inlined
-    Fusion tmp_fusion;
-    IrCloner ir_cloner = Fusion::copy(&fusion, &tmp_fusion);
-    FusionGuard tmp_fg(&tmp_fusion);
-    // [Mo, No, Ko, Mio, Nio, Mii, Nii, Ki]
-    // Swap the No and Ko axes, but only in tv2, the mma output
-    // [Mo, Ko, No, Mio, Nio, Mii, Nii, Ki]
-    // This should mean the smem operands are now inlined at position 1 instead
-    // of 3
-    ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
-    inlineMost();
-    ir_cloner.clone(tv2)->reorder({{2, 1}, {1, 2}});
-    EXPECT_EQ(ir_cloner.clone(tv0c)->getComputeAtPosition(), 1);
-    // The outermost loop dim of tv1c is a broadcast Mo axis, so
-    // tv1c->inlineAt(1) does not inline past that axis and we wind up with
-    // compute-at position 0.
-    EXPECT_EQ(ir_cloner.clone(tv1c)->getComputeAtPosition(), 0);
-  }
-
-  inlineMost();
-
-  EXPECT_EQ(tv0c->getComputeAtPosition(), 3);
-  EXPECT_EQ(tv1c->getComputeAtPosition(), 3);
-
-  if (stages > 1) {
-    tv0c->circularBuffer(stages, prefetch);
-    tv1c->circularBuffer(stages, prefetch);
-  }
-
-  // Test that predicate elimination works when the MmaOp's operands have no
-  // logical broadcasts
-  GpuLower gpulw(&fusion);
-  kir::Kernel* kernel = gpulw.run();
-  PredicateChecker pred_checker;
-  pred_checker.handle(kernel->topLevelExprs());
-  ASSERT_TRUE(pred_checker.found_mma);
-
-  auto [A3d, B3d] =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
-  auto t0 = A3d.squeeze();
-  auto t1 = B3d.squeeze();
-
-  KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1}, LaunchParams(), matmul_cparams);
-  auto cg_outputs = ke.run({t0, t1});
-  auto tref = atMatmul(t0, t1, layout);
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
@@ -5121,8 +4943,7 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
     tv1c->circularBuffer(stages, prefetch);
   }
 
-  auto inputs =
-      matmulAtInput3DHopperSS(M, N, K, layout, data_type_to_aten(dtype));
+  auto inputs = matmulAtInput3DSS(M, N, K, layout, data_type_to_aten(dtype));
   inputs.first = inputs.first.squeeze();
   inputs.second = inputs.second.squeeze();
 
@@ -5358,6 +5179,141 @@ TEST_F(HopperMatmulTest, EpilogueSiluPersistentBroadcastInputs) {
   // Relax tolerance for larger sum due to large K
   EXPECT_TRUE(
       at::allclose(cg_outputs[0].as<at::Tensor>(), tv11_ref, 5e-2, 1e-1));
+}
+
+// Test that when we have a single math warp group we still include a block sync
+TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // K, M
+  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype); // K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  auto tv3 = castOp(DataType::Half, tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({K, M, 1}, options);
+  auto t1 = at::randn({K, 1, N}, options);
+  auto out_ref = at::matmul(t0.squeeze().t(), t1.squeeze()).to(at::kHalf);
+
+  MatMulTileOptions gemm_tile;
+  // Regardless of the instruction, this should result in 2 warp groups i.e. 256
+  // threads
+  gemm_tile.cta_tile = GemmTile(64, 64, 64);
+  gemm_tile.warp_tile = GemmTile(64, 64, 64);
+
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_64_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.buffering_loop_level = MatmulParams::BufferingLoopLevel::CTATiles;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = false;
+  mparams.cluster_dims = {1, 1, 1};
+  mparams.promote_prologue_smem_reuse = false;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+
+  ke.registerPostLoweringHook([](kir::Kernel* kernel) {
+    class SyncChecker : kir::IrVisitor {
+     public:
+      static bool check(kir::Kernel* kernel) {
+        SyncChecker c(kernel);
+        return c.passed_;
+      }
+
+     private:
+      SyncChecker(kir::Kernel* kernel) {
+        kir::IrVisitor::handle(kernel->topLevelExprs());
+      }
+
+      ForLoop* getInnerNonTrivialLoop() {
+        for (int64_t pos = (int64_t)for_loops_.size() - 1; pos >= 0; --pos) {
+          ForLoop* loop = for_loops_.at(pos);
+          if (!loop->isTrivial()) {
+            return loop;
+          }
+        }
+        return nullptr;
+      }
+
+      using OptOutDispatch::dispatch;
+
+      void dispatch(Expr* expr) {
+        if (next_expr_must_be_sync_) {
+          if (!expr->isA<kir::BlockSync>() ||
+              getInnerNonTrivialLoop() != wait_loop_) {
+            passed_ = false;
+          }
+          next_expr_must_be_sync_ = false;
+        }
+        OptOutDispatch::dispatch(expr);
+      }
+
+      using kir::IrVisitor::handle;
+
+      void handle(kir::Asm* aop) {
+        if (aop->code().find("wgmma.wait_group") != std::string::npos) {
+          ForLoop* loop = getInnerNonTrivialLoop();
+          if (loop != nullptr) {
+            // We don't need a sync for the wait that is placed at the end of
+            // the top scope of the kernel
+            wait_loop_ = loop;
+            next_expr_must_be_sync_ = true;
+          }
+        }
+      }
+
+     private:
+      ForLoop* wait_loop_ = nullptr;
+      bool next_expr_must_be_sync_ = false;
+      bool passed_ = true;
+    };
+    EXPECT_TRUE(SyncChecker::check(kernel));
+  });
+
+  ke.compile(&fusion, {t0, t1});
+  kir::Kernel* kernel = ke.compiledKernel()->kernel();
+  ASSERT_TRUE(kernel != nullptr);
+  EXPECT_TRUE(getBankConflictInfo(kernel).empty());
+  EXPECT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(kernel));
+
+  auto cg_outputs = ke.run({t0, t1});
+
+  // Check number of launched threads matches what we expect
+  EXPECT_EQ(ke.lastLaunchParams().bdimx(), 128);
+  EXPECT_EQ(ke.lastLaunchParams().bdimy(), 1)
+      << " expected 1 warp groups (BIDy==1) but found BIDy=="
+      << ke.lastLaunchParams().bdimy();
+
+  // Relax tolerance for larger sum due to large K
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
 } // namespace nvfuser

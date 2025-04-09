@@ -258,13 +258,13 @@ auto norm_properties_from_num_dims(
   std::vector<int64_t> inner_reduction_axes(kNormShapeNumDims);
   std::vector<bool> inner_broadcast_mask(kNumberOfDims, false);
 
-  for (const auto idx : c10::irange(kOuterNumDims)) {
+  for (const auto idx : arange(kOuterNumDims)) {
     outer_reduction_axes[idx] = idx;
     outer_broadcast_mask[idx] = true;
   }
 
   Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
-  for (const auto idx : c10::irange(kNormShapeNumDims)) {
+  for (const auto idx : arange(kNormShapeNumDims)) {
     const int64_t axis = kNumberOfDims - 1 - idx;
     inner_reduction_axes[idx] = axis;
     inner_broadcast_mask[axis] = true;
@@ -511,7 +511,7 @@ ForwardNormResult batch_norm(
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = IrBuilder::createInContainer<Val>(x->container(), 1.0);
 
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
@@ -657,7 +657,7 @@ BackwardNormResult batch_norm_backward(
   std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
@@ -764,7 +764,7 @@ ForwardNormResult instance_norm(
   std::vector<int64_t> x_reduction_axes;
   std::vector<bool> x_broadcast_mask(kNumberOfDims, false);
   Val* N = IrBuilder::createInContainer<Val>(x->container(), 1.0);
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != kBatchDim && axis != kChannelsDim) {
       x_reduction_axes.push_back(axis);
       x_broadcast_mask[axis] = true;
@@ -775,7 +775,7 @@ ForwardNormResult instance_norm(
   B = mul(B, x->getLoopDomain()[kBatchDim]->extent());
 
   std::vector<bool> channels_only_broadcast_mask(kNumberOfDims, false);
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != kChannelsDim) {
       channels_only_broadcast_mask[axis] = true;
     }
@@ -924,7 +924,7 @@ BackwardNormResult instance_norm_backward(
   // mean/var
   std::vector<bool> weight_broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       weight_broadcast_mask[axis] = true;
       if (axis != b_axis) {
