@@ -229,6 +229,24 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       }
     }
   }
+  if(isOptionEnabled(EnableOption::WarpSpecializedPersistent)){
+    buffer_params.regs_buffer_size = 0;
+    for (auto buffer : buffers) {
+      if (std::any_of(
+              outer_broadcast_tvs.begin(),
+              outer_broadcast_tvs.end(),
+              [&buffer](TensorView* tv) {
+                return DependencyCheck::isDependencyOf(buffer, tv);
+              })) {
+        buffers.erase(
+            std::remove(buffers.begin(), buffers.end(), buffer), buffers.end());
+        buffer_params.regs_buffer_size +=
+            scheduler_utils::getPersistentBufferSizeOfTensor(
+                buffer, runtime_info, persistent_buffer_info);
+      }
+    }
+  }
+
 
   // Needs to use rounded shared memory size to avoid over usage.
   // key : buffer tv.
@@ -251,7 +269,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
     total_smem_buffer_size += buffer_size_smem;
   }
   buffer_params.smem_buffer_size = total_smem_buffer_size;
-  buffer_params.regs_buffer_size =
+  buffer_params.regs_buffer_size +=
       partialOuterReductionBufferSize(reduction_tvs, runtime_info);
   if (buffer_params.regs_buffer_size <= available_regs &&
       buffer_params.smem_buffer_size <= available_smem) {
