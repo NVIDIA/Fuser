@@ -242,23 +242,11 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerRemove(mma);
   }
 
-  void handleHopperMma(MmaOp* mma) {
-    // Reference:
-    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-multiply-accumulate-instructions
-
-    // Do MMA
-    std::stringstream inst_ss;
-    inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
-            << "k" << mma->k() << ".f32";
-    if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
-        DataType::BFloat16) {
-      inst_ss << ".bf16.bf16";
-    } else {
-      inst_ss << ".f16.f16";
-    }
-
-    // Set use_input_acc false for the first iteration.
-    Val* use_input_acc = mma->fusion()->trueVal();
+  // Determine if we want to do D = D + A * B or D = A * B.
+  // We want to do the latter for the first iteration, and the former for the
+  // rest.
+  Val* getUseInputAcc(MmaOp* mma) {
+    Val* dont_use_input_acc = mma->fusion()->trueVal();
     std::vector<IterDomain*> reduction_ids;
     for (IterDomain* id : ir_utils::getTvOutput(mma)->getLoopDomain()) {
       if (id->isReduction()) {
@@ -278,7 +266,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       }
       // The Epilogue loop is never the first iteration.
       if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
-        use_input_acc = mma->fusion()->falseVal();
+        dont_use_input_acc = mma->fusion()->falseVal();
       }
       // Skip trivial loops as they are always the first iteration.
       if (fl->isTrivial()) {
@@ -286,10 +274,26 @@ class LowerToInlinePtx : public kir::ExprMutator {
       }
       Val* loop_index = GpuLower::current()->tensorIndexer().getLoopIndex(
           fl->iter_domain(), for_loops_);
-      use_input_acc = SimplifyingIrBuilder::logicalAndExpr(
-          use_input_acc, SimplifyingIrBuilder::eqExpr(loop_index, fl->start()));
+      dont_use_input_acc = SimplifyingIrBuilder::logicalAndExpr(
+          dont_use_input_acc, SimplifyingIrBuilder::eqExpr(loop_index, fl->start()));
     }
-    use_input_acc = SimplifyingIrBuilder::logicalNotExpr(use_input_acc);
+    return SimplifyingIrBuilder::logicalNotExpr(dont_use_input_acc);
+  }
+
+  void handleHopperMma(MmaOp* mma) {
+    // Reference:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-multiply-accumulate-instructions
+
+    // Do MMA
+    std::stringstream inst_ss;
+    inst_ss << "wgmma.mma_async.sync.aligned.m" << mma->m() << "n" << mma->n()
+            << "k" << mma->k() << ".f32";
+    if (mma->inA()->as<kir::TensorIndex>()->view()->getDataType().value() ==
+        DataType::BFloat16) {
+      inst_ss << ".bf16.bf16";
+    } else {
+      inst_ss << ".f16.f16";
+    }
 
     bool a_on_smem =
         mma->inA()->as<kir::TensorIndex>()->view()->getMemoryType() ==
@@ -297,7 +301,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     std::vector<Val*> inputs{
         a_on_smem ? mma->inA()->as<kir::TensorIndex>()->index() : mma->inA(),
         mma->inB()->as<kir::TensorIndex>()->index(),
-        /*scaleD=*/use_input_acc,
+        /*scaleD=*/getUseInputAcc(mma),
         /*scaleA=*/IrBuilder::create<Val>(1, DataType::Int32),
         /*scaleB=*/IrBuilder::create<Val>(1, DataType::Int32)};
     auto layout = lower_utils::getMmaLayout(mma);
