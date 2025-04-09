@@ -16,22 +16,12 @@
 #include <sys_utils.h>
 #include <utils.h>
 
-namespace nvfuser {
-PFN_cuStreamWriteValue32 cuStreamWriteValue32;
-} // namespace nvfuser
-
 namespace {
 
 class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
  public:
   CUDADriverAPIDynamicLoader() {
     setFilename("libcuda.so");
-
-    // https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#using-the-runtime-api
-    NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(
-        "cuStreamWriteValue32",
-        reinterpret_cast<void**>(&nvfuser::cuStreamWriteValue32),
-        cudaEnableDefault));
   }
 } loader;
 
@@ -79,26 +69,35 @@ class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
 //
 // Doc for CTAD:
 // https://en.cppreference.com/w/cpp/language/class_template_argument_deduction
-#define DEFINE_DRIVER_API_WRAPPER(funcName)                       \
-  namespace {                                                     \
-  template <typename ReturnType, typename... Args>                \
-  struct funcName##Loader {                                       \
-    static ReturnType lazilyLoadAndInvoke(Args... args) {         \
-      funcName = (decltype(funcName))loader.getSymbol(#funcName); \
-      return funcName(args...);                                   \
-    }                                                             \
-    /* This ctor is just a CTAD helper, it is only used in a */   \
-    /* non-evaluated environment*/                                \
-    funcName##Loader(ReturnType(Args...)){};                      \
-  };                                                              \
-                                                                  \
-  /* Use CTAD rule to deduct return and argument types */         \
-  template <typename ReturnType, typename... Args>                \
-  funcName##Loader(ReturnType(Args...))                           \
-      ->funcName##Loader<ReturnType, Args...>;                    \
-  }                                                               \
-                                                                  \
-  decltype(::funcName)* funcName =                                \
+//
+// Driver APIs are loaded using cudaGetDriverEntryPoint as recommended by
+// https://docs.nvidia.com/cuda/cuda-c-programming-guide/index.html#using-the-runtime-api
+#define DEFINE_DRIVER_API_WRAPPER(funcName)                               \
+  namespace {                                                             \
+  template <typename ReturnType, typename... Args>                        \
+  struct funcName##Loader {                                               \
+    static ReturnType lazilyLoadAndInvoke(Args... args) {                 \
+      /* `static` so cudaGetDriverEntryPoint is called only once. */      \
+      static PFN_##funcName f = []() {                                    \
+        PFN_##funcName f;                                                 \
+        NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(                \
+            #funcName, reinterpret_cast<void**>(&f), cudaEnableDefault)); \
+        return f;                                                         \
+      }();                                                                \
+      return f(args...);                                                  \
+    }                                                                     \
+    /* This ctor is just a CTAD helper, it is only used in a */           \
+    /* non-evaluated environment*/                                        \
+    funcName##Loader(ReturnType(Args...)){};                              \
+  };                                                                      \
+                                                                          \
+  /* Use CTAD rule to deduct return and argument types */                 \
+  template <typename ReturnType, typename... Args>                        \
+  funcName##Loader(ReturnType(Args...))                                   \
+      ->funcName##Loader<ReturnType, Args...>;                            \
+  } /* namespace */                                                       \
+                                                                          \
+  PFN_##funcName funcName =                                               \
       decltype(funcName##Loader(::funcName))::lazilyLoadAndInvoke
 
 namespace nvfuser {

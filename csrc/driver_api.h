@@ -17,8 +17,7 @@
 
 namespace nvfuser {
 
-#define DECLARE_DRIVER_API_WRAPPER(funcName) \
-  extern decltype(::funcName)* funcName;
+#define DECLARE_DRIVER_API_WRAPPER(funcName) extern PFN_##funcName funcName;
 
 // List of driver APIs that you want the magic to happen.
 #define ALL_DRIVER_API_WRAPPER_CUDA11(fn) \
@@ -38,7 +37,8 @@ namespace nvfuser {
 #if (CUDA_VERSION >= 12000)
 #define ALL_DRIVER_API_WRAPPER(fn)   \
   ALL_DRIVER_API_WRAPPER_CUDA11(fn); \
-  fn(cuTensorMapEncodeTiled)
+  fn(cuTensorMapEncodeTiled);        \
+  fn(cuStreamWriteValue32)
 #else
 #define ALL_DRIVER_API_WRAPPER ALL_DRIVER_API_WRAPPER_CUDA11
 #endif
@@ -46,7 +46,5 @@ namespace nvfuser {
 ALL_DRIVER_API_WRAPPER(DECLARE_DRIVER_API_WRAPPER);
 
 #undef DECLARE_DRIVER_API_WRAPPER
-
-extern PFN_cuStreamWriteValue32 cuStreamWriteValue32;
 
 } // namespace nvfuser
