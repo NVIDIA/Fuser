@@ -161,4 +161,88 @@ TEST_F(ScanTest, Concrete2D) {
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// This is similar to what's needed for serial online softmax
+TEST_F(ScanTest, Concrete1D) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto x = makeConcreteTensor({32});
+  fusion->addInput(x);
+
+  int64_t scan_dim = 0;
+
+  // Online normalizer for softmax: https://arxiv.org/abs/1805.02867
+  //
+  // Given x[i] for i=0 .. N-1:
+  //
+  //   m[-1] = -infinity
+  //   d[-1] = 0
+  //   for j = 0 .. N-1
+  //     m[j] = max(m[j-1], x[j])
+  //     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+  //
+  // Final denominator is d[N-1]
+
+  TensorView* m = prefixMax(x, scan_dim); // max x[j] over j = 0 .. i
+  // normalize by running max and exponentiate
+  TensorView* exp_x_m = exp(sub(x, m));
+  // Discount factor is exponentiated delta: exp(m[i] - m[i-1])
+  TensorView* discount = exp(sub(m, lag1(m, scan_dim)));
+
+  // What is needed?
+  //  - generalize prefixSum to scan (with discount factor) to cover prefixMax
+  //    case
+  //  - Implement lag1, with similar constraints to scan, for computing the
+  //    delta to adjust discount
+  //  - How to extract final element of the prefix sum?
+  //     - If _all_ we want is the final value, then we don't need to allocate
+  //       all of the values for tv1
+  //     - We could have a custom reduction type that we apply to grab the last
+  //       value in a dimension.
+
+  //
+  // lag1(x)[i] = x[i-1]  (in a specified dim)
+  // This is related to scan: scan can be defined recursively using lag1:
+  //    y := scan(x, f)
+  //    y = f(lag1(y), x)
+  // We don't represent it like this in our IR because that would require a
+  // cyclic graph (see Fold proposal)
+
+  // Note that lag1(scan(x)) is an _exclusive_ scan of x, e.g. sum x[j] for j =
+  // 0 .. i-1 One option is for us to produce two outputs from scan: the
+  // exclusive and inclusive scans:
+  //   mexc, minc = scan(x, scan_dim, BinaryOpType::Max);
+  //   exp_x_m = exp(sub(x, minc));
+  //   discount = exp(sub(minc, mexc));
+  // Note that we don't need to allocate mexc unless it is used, but this might
+  // be difficult in our current system because it is a sibling.
+  //
+  // We could also have a separate node or option where mexc is disabled.
+
+  auto denoms = prefixSum(exp_x_m, scan_dim, discount);
+
+  fusion->addOutput(tv1);
+
+  tv0->cacheAfter();
+  tv1->cacheBefore();
+  // Caching works fine, but once we inline we wind up not allocating the scan
+  // ID, meaning the index is just 0, and there's no replacement. This actually
+  // gives us the correct result in this test but it's not pretty, so I'd like
+  // to handle such cases more gracefully.
+  // TODO: Handle cases when the scan ID is inlined away.
+  // inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({32}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  auto cg_outputs = ke.run({t0});
+
+  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
