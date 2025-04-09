@@ -104,8 +104,9 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
           dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
     // see [ Note -- IndexPutAccumulate shape restriction ]
     if (producer_tv == iaop->indexTv()) {
-      indexed_ids.insert(iaop->getIndexingID());
-      has_consumer_id = false;
+      // map all producer_tv IDs as non mapping.
+      std::for_each(producer_tv->getLogicalDomain().begin(), producer_tv->getLogicalDomain().end(), [&indexed_ids](IterDomain* id) { indexed_ids.insert(id); });
+      has_consumer_id = true;
     } else if (producer_tv == iaop->valueTv()) {
       indexed_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;

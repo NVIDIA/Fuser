@@ -204,10 +204,6 @@ std::string IndexPutAccumulateOp::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Tensor op can not be printed inline");
 }
 
-IterDomain* IndexPutAccumulateOp::getIndexingID() const {
-  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
-}
-
 IterDomain* IndexPutAccumulateOp::getIndexingIDOfValue() const {
   return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
 }

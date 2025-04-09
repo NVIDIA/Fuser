@@ -870,7 +870,6 @@ TEST_F(NVFuserTest, IndexPutAccumulate) {
   fusion.addInput(tv_value);
   auto tv_index = makeContigTensor(1, DataType::Int);
   fusion.addInput(tv_index);
-  // TODO: make this symbolic?!
   auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
   std::vector<nvfuser::Val*> buffer_size = {
       s_vocab, tv_value->axis(-1)->extent()};

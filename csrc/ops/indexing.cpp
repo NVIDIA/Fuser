@@ -115,22 +115,22 @@ TensorView* indexPutAccumulate(
   std::vector<IterDomain*> value_domain =
       TensorDomain::noReductions(value_tv->getLogicalDomain());
 
-  // [ Note -- IndexPutAccumulate shape restriction ]
-  //
-  // Producers:
-  //     accumulate [ vocab, hidden ]
-  //     index [ *seq ]
-  //     value [ *seq, hidden ]
-  // Consumers:
-  //     output [ vocab, hidden ]
-  // Note: *seq could be multiple dimensions, we are keeping it as 1D for
-  // simplicity in indexing for now.
   NVF_CHECK(acc_domain.size() == 2);
   NVF_CHECK(index_domain.size() == 1);
   NVF_CHECK(value_domain.size() == 2);
 
+  // IndexPutAccumulateOp semantics
+  //
+  // Producers:
+  //     accumulate [ vocab, hidden ]
+  //     broadcast_index [ seq, broadcast ]
+  //     value [ seq, hidden ]
+  // Consumers:
+  //     output [ vocab, hidden ]
+  TensorView* broadcast_index_tv = unsqueeze(index_tv, -1);
+
   TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
-  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
+  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, broadcast_index_tv, value_tv);
   return out;
 }
 
