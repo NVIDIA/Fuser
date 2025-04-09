@@ -16,6 +16,81 @@
 
 namespace nvfuser {
 
+TEST_F(NVFuserTest, BarSyncWarpSpecializedPointwise) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  int64_t number_of_stages = 4;
+  int64_t prefetch_distance = 1;
+  int64_t tensor_outer_dim = 128;
+  int64_t tensor_inner_dim = 1024;
+
+  // with bdimx = 256, bdimy = 1,
+  // after warp specialization, bdimy = 2,
+  // kernel has 256 * 2 = 512 threads, each can use 128 registers.
+  // With register sharing, adjust to [64, 192]
+  constexpr int64_t bulk_inner_dim = 256;
+
+  CircularBufferType circular_buffer_type = WarpSpecialized(ParallelType::TIDy);
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = makeContigTensor(2);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+
+  TensorView* tv2 = add(tv0, tv1);
+  TensorView* tv3 = exp(tv2);
+  fusion->addOutput(tv3);
+
+  tv2->setMemoryType(MemoryType::Shared);
+
+  // Use TMA to load TV0 into shared memory
+  TensorView* tv4 = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv4->setMemoryType(MemoryType::Shared);
+
+  TensorView* tv5 = tv1->cacheAfter(LoadStoreOpType::CpAsyncBulkTensorTile);
+  tv5->setMemoryType(MemoryType::Shared);
+
+  TensorView* reference = tv3;
+
+  // [M, N] -> [M, N/bid, bid]
+  reference->split(-1, bulk_inner_dim);
+
+  TransformPropagatorWithCheck propagator(reference);
+  MaxLogicalDomainInfoSpanningTree(reference).traverse(&propagator);
+
+  // Set computeAt position
+  inlineAllAt(tv2, /*pos=*/2);
+
+  // Circular Buffer with TMA loads
+  tv4->axis(0)->parallelize(ParallelType::BIDx);
+  tv4->axis(2)->parallelize(ParallelType::Bulk);
+  tv4->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  // Load TV1 into shared memory
+  tv5->axis(0)->parallelize(ParallelType::BIDx);
+  tv5->axis(2)->parallelize(ParallelType::Bulk);
+  tv5->circularBuffer(
+      number_of_stages, prefetch_distance, circular_buffer_type);
+
+  // Split reference to parallelize TMA tile
+  reference->split(-1, bulk_inner_dim);
+  reference->axis(0)->parallelize(ParallelType::BIDx);
+  reference->axis(-1)->parallelize(ParallelType::TIDx);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t1 = at::randn({tensor_outer_dim, tensor_inner_dim}, options);
+  at::Tensor t2 = at::exp(t0 + t1);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0, t1}, LaunchParams());
+  auto cg_outputs = ke.run({t0, t1});
+  testValidate(fusion.get(), cg_outputs, {t0, t1}, {t2}, __LINE__, __FILE__);
+}
+
 TEST_F(NVFuserTest, RegisterSharingCircularBufferingPointwiseCustom) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
