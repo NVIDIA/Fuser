@@ -865,7 +865,7 @@ std::unique_ptr<ReductionParams> innerOuterWarpSpecializedTmaHeuristic(
   // For read from tmp gmem, since the paralelization is changed, a different
   //                         vectorization factor is used to optimize the
   //                         number of reaductions per thread.
-  auto getOuterReductionBufferVectFactor = [&](int64_t inner_vect) {
+  auto get_outer_reduction_buffer_vect_factor = [&](int64_t inner_vect) {
     constexpr int64_t max_gmem_vect_access_bytes = 16;
     const int64_t max_tmp_gmem_vect_factor = std::min(
         max_gmem_vect_access_bytes / (int64_t)tmp_gmem_dtype_size, inner_vect);
