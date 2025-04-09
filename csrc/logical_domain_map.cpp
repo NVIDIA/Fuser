@@ -80,43 +80,48 @@ namespace {
 std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
     const TensorView* consumer_tv) {
-  std::unordered_set<IterDomain*> indexed_ids;
+  std::unordered_set<IterDomain*> non_mapping_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
     // indexed ID is indirectly accessed
-    indexed_ids.insert(sop->getIndexedID());
+    non_mapping_ids.insert(sop->getIndexedID());
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
     // indexed ID is indirectly accessed
     if (producer_tv == sop->lookupTv()) {
-      indexed_ids.insert(sop->getIndexedID());
+      non_mapping_ids.insert(sop->getIndexedID());
       has_consumer_id = true;
     }
   } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
     // indexed ID is indirectly accessed
     if (producer_tv == gop->lookupTv()) {
-      indexed_ids.insert(gop->getIndexedID());
+      non_mapping_ids.insert(gop->getIndexedID());
       has_consumer_id = true;
     }
   } else if (
       auto iaop =
           dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
-    // see [ Note -- IndexPutAccumulate shape restriction ]
+    // see [ Note -- IndexPutAccumulateOp semantics ]
     if (producer_tv == iaop->indexTv()) {
-      // map all producer_tv IDs as non mapping.
+      // non-broadcast IDs of index tv do not map to output.
       std::for_each(
           producer_tv->getLogicalDomain().begin(),
           producer_tv->getLogicalDomain().end(),
-          [&indexed_ids](IterDomain* id) { indexed_ids.insert(id); });
+          [&non_mapping_ids](IterDomain* id) {
+            if (!id->isBroadcast()) {
+              non_mapping_ids.insert(id);
+            }
+          });
       has_consumer_id = true;
     } else if (producer_tv == iaop->valueTv()) {
-      indexed_ids.insert(iaop->getIndexingIDOfValue());
+      // indexing ID of value tv do not map to output.
+      non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
   }
 
-  return std::make_pair(indexed_ids, has_consumer_id);
+  return std::make_pair(non_mapping_ids, has_consumer_id);
 }
 
 } // namespace

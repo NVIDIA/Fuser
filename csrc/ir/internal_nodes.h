@@ -133,6 +133,8 @@ class IndexPutAccumulateOp : public Expr {
  public:
   using Expr::Expr;
 
+  // [ Note -- IndexPutAccumulateOp semantics ]
+  //
   // logical ID groups of IndexPutAccumulateOp
   // args:
   //     acc   [ ID_indexed_g0, ID_g0 ]
