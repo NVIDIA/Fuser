@@ -336,11 +336,84 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerRemove(mma);
   }
 
+  void handleBlackwellMma(MmaOp* mma) {
+    // Reference:
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tensorcore-5th-generation-of-mma-instructions
+
+    NVF_ERROR(
+        mma->isBlackwell1CTA(), "Currently only supports 1 CTA Blackwell MMA");
+
+    // Create instruction descriptor
+    // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#tcgen05-instruction-descriptor
+    Val* accumulator_dtype =
+        IrBuilder::create<Val>(1LL << 4LL, DataType::UInt32);
+    Val* a_dtype = IrBuilder::create<Val>(
+        (mma->inA()->dtype() == DataType::BFloat16 ? 1LL : 0LL) << 7LL,
+        DataType::UInt32);
+    Val* b_dtype = IrBuilder::create<Val>(
+        (mma->inB()->dtype() == DataType::BFloat16 ? 1LL : 0LL) << 10LL,
+        DataType::UInt32);
+
+    auto layout = lower_utils::getMmaLayout(mma);
+    Val* tnspA = IrBuilder::create<Val>(
+        (layout[0] == UnitDim::K ? 0LL : 1LL) << 15LL, DataType::UInt32);
+    Val* tnspB = IrBuilder::create<Val>(
+        (layout[1] == UnitDim::K ? 0LL : 1LL) << 16LL, DataType::UInt32);
+
+    Val* n =
+        IrBuilder::create<Val>((mma->n() >> 3LL) << 17LL, DataType::UInt32);
+    Val* m =
+        IrBuilder::create<Val>((mma->m() >> 4LL) << 24LL, DataType::UInt32);
+
+    Val* idesc = SimplifyingIrBuilder::bitwiseOrExpr(
+        SimplifyingIrBuilder::bitwiseOrExpr(
+            accumulator_dtype,
+            SimplifyingIrBuilder::bitwiseOrExpr(a_dtype, b_dtype)),
+        SimplifyingIrBuilder::bitwiseOrExpr(
+            SimplifyingIrBuilder::bitwiseOrExpr(tnspA, tnspB),
+            SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
+
+    // Switch between C = A * B and C = A * B + C.
+    // TODO: For now, we always use the former, because we do not have a good
+    // way to zero out the accumulator yet.
+    Val* enable_input_d = IrBuilder::create<Val>(false, DataType::Bool);
+
+    // Do MMA
+    registerInsertBefore(
+        mma,
+        IrBuilder::create<kir::Asm>(
+            "tcgen05.mma.cta_group::1.kind::f16",
+            std::vector<Val*>{},
+            std::vector<Val*>{
+                mma->out(),
+                mma->inA()->as<kir::TensorIndex>()->index(),
+                mma->inB()->as<kir::TensorIndex>()->index(),
+                idesc,
+                enable_input_d,
+            },
+            kir::Asm::Options{
+                /*volatile=*/true,
+                /*memory=*/false,
+                /*readable_outputs=*/{0}}));
+    // TODO: This is clearly a wrong way to sync, but as an intermediate step to
+    // enable incremental development, we use nanosleep to sync the mma. We
+    // should replace this with a correct sync method.
+    registerReplace(
+        mma,
+        IrBuilder::create<kir::Asm>(
+            "nanosleep.u32",
+            std::vector<Val*>{},
+            std::vector<Val*>{IrBuilder::create<Val>(100000, DataType::UInt32)},
+            kir::Asm::Options{/*volatile=*/true}));
+  }
+
   void handle(MmaOp* mma) final {
     if (mma->isTuring() || mma->isAmpere()) {
       handleTuringOrAmpereMma(mma);
     } else if (mma->isHopper()) {
       handleHopperMma(mma);
+    } else if (mma->isBlackwell()) {
+      handleBlackwellMma(mma);
     } else {
       NVF_THROW("Unsupported MMA architecture");
     }
