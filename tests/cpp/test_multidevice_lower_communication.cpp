@@ -109,7 +109,8 @@ TEST_P(LowerGatherTest, ) {
 }
 
 namespace {
-std::string nameFromTuple(const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+std::string nameFromTuple(
+    const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
   auto&& [meshes, enable_hir] = info.param;
   auto&& [in_mesh, out_mesh] = meshes;
 
