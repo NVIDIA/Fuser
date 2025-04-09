@@ -420,6 +420,7 @@ def main():
             "share/cmake/nvfuser/NvfuserConfig*",
             "contrib/*",
             "contrib/nn/*",
+            "testing/*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
             # "bin/test_nvfuser",
