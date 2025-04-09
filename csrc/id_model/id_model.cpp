@@ -454,8 +454,16 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         mapped_ids.push_back({split->in(), split->inner()});
       }
     } else {
-      // Rare, but don't want to deal with zero-dim IDs
-      if (!split->in()->extent()->isZeroInt()) {
+      // Rare, but don't want to deal with zero-dim IDs.
+      // If the input ID is a size-one ID (not necessarily broadcast,
+      // e.g., may be reduction) and the factor is not one, mapping
+      // the input and the size-one output can be inconvenient for
+      // predicate indexing. See
+      // PredicateIndexingTest.NonTrivialSizeOneDomain for a concrete
+      // example.
+      if (!split->in()->extent()->isZeroInt() &&
+          !(split->in()->extent()->isOneInt() &&
+            !split->factor()->isOneInt())) {
         // Even when the factor is not known to be 1, as long as the
         // input and output have the same extent, they should be
         // mapped. This happens, for example, split 32 by 32 -> 1, 32.
