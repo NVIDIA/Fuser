@@ -883,7 +883,7 @@ std::unique_ptr<ReductionParams> innerOuterWarpSpecializedTmaHeuristic(
   // This function splits the threads_per_block into bdimx and bdimy using:
   // bdimx = ceilDiv(inner_dim_numel / vect, gdimy)
   // bdimy = threads_per_block / bdimx
-  auto getBdimxBdimy = [&](int64_t threads_per_block,
+  auto get_bdimx_bdimy = [&](int64_t threads_per_block,
                            int64_t vectorization_factor_outer,
                            int64_t gdimy) {
     // For widely used hidden sizes, threads_per_block has factor of 8, roundup
