@@ -130,7 +130,8 @@ TensorView* indexPutAccumulate(
   TensorView* broadcast_index_tv = unsqueeze(index_tv, -1);
 
   TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
-  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, broadcast_index_tv, value_tv);
+  IrBuilder::create<IndexPutAccumulateOp>(
+      out, acc_tv, broadcast_index_tv, value_tv);
   return out;
 }
 
