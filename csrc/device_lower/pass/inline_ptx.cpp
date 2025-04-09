@@ -268,7 +268,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     }
     for (auto fl : for_loops_) {
       if (fl->isTrivial() ||
-          std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
+          !std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
             return GpuLower::current()
                 ->idModel()
                 .idGraph(IdMappingMode::LOOP)
