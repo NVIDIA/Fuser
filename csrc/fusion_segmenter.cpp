@@ -2125,11 +2125,24 @@ void SegmentedFusion::connectGroups(
   to->producer_edges.push_back(new_edge);
 }
 
+void SegmentedFusion::disconnectGroups(
+    SegmentedGroup* group1,
+    SegmentedGroup* group2) {
+  // Get all edges between the two groups
+  auto edges_between = getEdgesBetween(group1, group2);
+
+  // Remove each edge between the groups
+  for (auto edge : edges_between) {
+    removeEdge(edge);
+  }
+}
+
 SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::mergeNodes");
   SegmentedGroup* last_merged = nullptr;
   auto it = to_merge_.begin();
   NVF_ERROR(to_merge_.size() % 2 == 0);
+
   while (it != to_merge_.end()) {
     auto group1 = *it++;
     auto group2 = *it++;
@@ -2140,69 +2153,61 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
     // Make the new joined node
     auto joined_group = segmented_fusion_->newGroup();
 
+    // Merge input and output vals
     joined_group->input_vals_ =
         group1->input_vals_.computeUnion(group2->input_vals_);
-
     joined_group->output_vals_ =
         group1->output_vals_.computeUnion(group2->output_vals_);
 
+    // Merge expressions
     joined_group->exprs_ = group1->exprs_;
     joined_group->exprs_.insert(
         joined_group->exprs_.end(),
         group2->exprs_.begin(),
         group2->exprs_.end());
 
+    // Get all edges that will connect to the new joined group
     auto producer_edges = getMergedProducerEdges(group1, group2);
-    // Connect joined group to resulting neighbors
-    for (auto edge : producer_edges) {
-      auto from = edge->from;
-      auto val = edge->val;
-
-      auto new_edge = segmented_fusion_->newEdge(from, joined_group, val);
-      joined_group->producer_edges.push_back(new_edge);
-      from->consumer_edges.push_back(new_edge);
-    }
-
     auto consumer_edges = getMergedConsumerEdges(group1, group2);
 
-    for (auto edge : consumer_edges) {
-      auto to = edge->to;
-      auto val = edge->val;
-
-      auto new_edge = segmented_fusion_->newEdge(joined_group, to, val);
-      joined_group->consumer_edges.push_back(new_edge);
-      edge->to->producer_edges.push_back(new_edge);
+    // Connect all producer edges to the new joined group
+    for (auto edge : producer_edges) {
+      segmented_fusion_->connectGroups(edge->from, joined_group, edge->val);
     }
 
-    // Disconnect the merged groups before deriveSchedulerType, which
-    // may temporarily inject type cast and can get confused if stale
-    // edges exist
+    // Connect all consumer edges from the new joined group
+    for (auto edge : consumer_edges) {
+      segmented_fusion_->connectGroups(joined_group, edge->to, edge->val);
+    }
+
+    // Now that all new connections are made, disconnect the old groups, this
+    // invalidates producer_edges and consumer_edges
     for (auto merged_group : {group1, group2}) {
       disconnectGroup(merged_group);
     }
 
+    // Set scheduler type for the new group
     joined_group->setSchedulerType(deriveSchedulerType(joined_group));
-    // Need to maintain the group dependency data if it has been intialized
-    //  by previous merging
+
+    // Update group dependency data if initialized
     if (group_dependency_) {
       group_dependency_->as<GroupDependencyAnalysis>()->mergeGroups(
           group1, group2, joined_group);
     }
+
     last_merged = joined_group;
   }
 
   to_merge_.clear();
 
+  // Clean up merged groups
   groups().erase(
       std::remove_if(
           groups().begin(),
           groups().end(),
           [this](SegmentedGroup* group) {
-            if (this->clean_up_groups_.find(group) !=
-                this->clean_up_groups_.end()) {
-              return true;
-            };
-            return false;
+            return this->clean_up_groups_.find(group) !=
+                this->clean_up_groups_.end();
           }),
       groups().end());
 
@@ -2217,68 +2222,55 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
     const std::vector<SegmentedGroup*>& groups_to_merge) {
   NVF_ERROR(
       !groups_to_merge.empty(),
-      "fusion segment :(mergeAllGivenGroups) tried to merge no groups")
+      "fusion segment :(mergeAllGivenGroups) tried to merge no groups");
 
-  // Make a set to detect internal edges
+  // Make a set for quick lookup
   std::unordered_set<SegmentedGroup*> group_set(
       groups_to_merge.begin(), groups_to_merge.end());
-
-  // Sets to de-duplicate multiple uses of
-  //  edge values and re-computations of exprs
-  std::unordered_set<Val*> used_edge_vals_set;
-  std::unordered_set<Expr*> exprs_set;
 
   // Create new group
   auto joined_group = segmented_fusion_->newGroup();
 
-  // Populate edges, exprs, global vals
-  //  from each of the groups
+  // Track unique vals and exprs to avoid duplicates
+  std::unordered_set<Val*> used_edge_vals_set;
+  std::unordered_set<Expr*> exprs_set;
+
+  // Merge inputs and outputs from all groups
   for (auto group : groups_to_merge) {
-    // Populate complete fusion inputs to the group
     joined_group->input_vals_.pushBack(group->input_vals_);
     joined_group->output_vals_.pushBack(group->output_vals_);
+  }
 
-    // Populate producer edges to the group
-    for (auto edge : group->producer_edges) {
-      if (
-          // Check this is not internal edge
-          !group_set.count(edge->from) &&
-          // Check this val has been added or not
-          !used_edge_vals_set.count(edge->val)) {
-        used_edge_vals_set.insert(edge->val);
-        auto new_producer_edge =
-            segmented_fusion_->newEdge(edge->from, joined_group, edge->val);
-        joined_group->producer_edges.push_back(new_producer_edge);
-        edge->from->consumer_edges.push_back(new_producer_edge);
-      }
-    }
+  // Get all edges that will connect to the new joined group
+  auto all_edges = getAllEdges(groups_to_merge);
 
-    // Populate consumer edges from the group
-    for (auto edge : group->consumer_edges) {
-      if (
-          // Check this is not internal edge
-          !group_set.count(edge->to)) {
-        auto new_consumer_edge =
-            segmented_fusion_->newEdge(joined_group, edge->to, edge->val);
-        joined_group->consumer_edges.push_back(new_consumer_edge);
-        edge->to->producer_edges.push_back(new_consumer_edge);
-      }
-    }
-
-    // Populate exprs
-    for (auto expr : group->exprs_) {
-      if (!exprs_set.count(expr)) {
-        joined_group->exprs_.push_back(expr);
-        exprs_set.insert(expr);
-      }
+  // Connect all external edges to the new joined group
+  for (auto edge : all_edges) {
+    if (group_set.count(edge->from)) {
+      // This is a consumer edge from the merged group
+      segmented_fusion_->connectGroups(joined_group, edge->to, edge->val);
+    } else {
+      // This is a producer edge to the merged group
+      segmented_fusion_->connectGroups(edge->from, joined_group, edge->val);
     }
   }
 
-  // Clean up original groups from segmented fusion
+  // Disconnect all original groups before connecting the new one, this
+  // invalidates all_edges
   for (auto group : groups_to_merge) {
     disconnectGroup(group);
   }
 
+  // Merge all expressions from the groups
+  for (auto group : groups_to_merge) {
+    for (auto expr : group->exprs_) {
+      if (exprs_set.insert(expr).second) {
+        joined_group->exprs_.push_back(expr);
+      }
+    }
+  }
+
+  // Clean up original groups
   groups().erase(
       std::remove_if(
           groups().begin(),
@@ -4699,21 +4691,18 @@ void SegmentCandidateFinder::removeScalarEdges() {
   //   translation.
   //  we will not need them after scalar
   //  resolution
-  auto remove_scalar_edges_from_vec = [](std::vector<SegmentedEdge*>& edges) {
-    edges.erase(
-        std::remove_if(
-            edges.begin(),
-            edges.end(),
-            [](SegmentedEdge* segmented_edge) {
-              return segmented_edge->val->isScalar();
-            }),
-        edges.end());
-  };
 
-  remove_scalar_edges_from_vec(edges());
-  for (auto group : groups()) {
-    remove_scalar_edges_from_vec(group->producer_edges);
-    remove_scalar_edges_from_vec(group->consumer_edges);
+  // Collect all scalar edges first since removeEdge modifies the edge lists
+  std::vector<SegmentedEdge*> scalar_edges;
+  for (auto edge : edges()) {
+    if (edge->val->isScalar()) {
+      scalar_edges.push_back(edge);
+    }
+  }
+
+  // Remove each scalar edge through the proper API
+  for (auto edge : scalar_edges) {
+    segmented_fusion_->removeEdge(edge);
   }
 }
 

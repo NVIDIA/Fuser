@@ -325,6 +325,9 @@ class SegmentedFusion {
   //! call
   void removeEdge(SegmentedEdge* edge);
 
+  void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+  void disconnectGroups(SegmentedGroup* group1, SegmentedGroup* group2);
+
   HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
   //! Lower FP precision of inputs and outputs specified by the given
@@ -359,9 +362,6 @@ class SegmentedFusion {
   std::vector<SegmentedEdge*> getEdgesBetween(
       const SegmentedGroup* from,
       const SegmentedGroup* to) const;
-
-  //! Create an edge between two groups and update their edge lists
-  void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
   //! Serialize SegmentedFusion using flatbuffers
   flatbuffers::Offset<serde::SegmentedFusion> serialize(
