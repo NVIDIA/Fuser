@@ -1,43 +1,24 @@
-# NVFuser Build and Test Instructions
+# NVFuser Test Process
 
-## Environment
-- Container: `bold_gould` (image: nvfuser:csarofeen)
-- Build directory: `/opt/pytorch/Fuser/`
+## Three Required Steps
 
-## Docker Command Format
-Always use `/bin/bash -c` format for docker exec commands to ensure proper command execution:
+1. Find container name:
 ```bash
-docker exec bold_gould /bin/bash -c "command"
+docker ps
+# Look for container running nvfuser:csarofeen image
 ```
 
-## Build Command
+2. Build (if needed):
 ```bash
-docker exec bold_gould /bin/bash -c "cd /opt/pytorch/Fuser && pip install ."
+docker exec <container_name> /bin/bash -c "cd /opt/pytorch/Fuser && pip install . -v"
 ```
 
-## Test Command
-Add completion marker to ensure command termination is detected. Replace TEST_FILTER with desired test name:
+3. Run test with output capture:
 ```bash
-docker exec bold_gould /bin/bash -c "/opt/pytorch/Fuser/bin/test_nvfuser --gtest_filter='TEST_FILTER' ; echo '=== TEST COMPLETE ==='"
+docker exec <container_name> /bin/bash -c "/opt/pytorch/Fuser/bin/test_nvfuser --gtest_filter='TEST_FILTER' ; echo '=== TEST COMPLETE ==='" > local_test_log.txt 2>&1
 ```
 
-### Example Test Filters
-- Single test: `*FusionMagicSchedulerInstanceNormalization_CUDA`
-- All CUDA tests: `*_CUDA`
-- All tests in a category: `FusionMagicScheduler*`
-- Specific test case: `FusionMagicScheduler.LayerNorm_CUDA`
-
-## Example Interaction
-```
-> Run build command
-"Build command completed successfully"
-> Run test command with filter "*FusionMagicSchedulerInstanceNormalization_CUDA"
-"Test command completed (failed)"
-```
-or
-```
-> Run build command
-"Build command completed successfully"
-> Run test command with filter "FusionMagicScheduler*"
-"Test command completed (succeeded)"
-``` 
+## Notes
+- Replace `<container_name>` with the name from step 1
+- Replace `TEST_FILTER` with the specific test name (e.g. `NVFuserTest.FusionMagicSchedulerInstanceNormalization_CUDA`)
+- Output will be saved to `local_test_log.txt` 
