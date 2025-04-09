@@ -328,6 +328,11 @@ class SegmentedFusion {
   //! API for adding edges
   SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
+  //! Remove an edge from the segmented fusion graph and update all affected
+  //! groups The edge object will be deleted and should not be used after this
+  //! call
+  void removeEdge(SegmentedEdge* edge);
+
   HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
   //! Lower FP precision of inputs and outputs specified by the given
@@ -570,7 +575,7 @@ class SegmentCandidateFinder {
       SegmentedGroup* group,
       std::vector<SegmentedGroup::NeighborGroup> candidates = {});
 
-  std::unordered_set<SegmentedEdge*> disconnectGroup(SegmentedGroup* group);
+  void disconnectGroup(SegmentedGroup* group);
 
   std::vector<SegmentedGroup*>& groups() {
     NVF_ERROR(
@@ -691,7 +696,6 @@ class SegmentCandidateFinder {
   SegmentCandidateFinderOptions options_;
 
   std::unordered_set<SegmentedGroup*> clean_up_groups_;
-  std::unordered_set<SegmentedEdge*> clean_up_edges_;
 
   std::vector<SegmentedGroup*> to_merge_;
 
