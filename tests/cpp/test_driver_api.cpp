@@ -17,14 +17,23 @@ namespace nvfuser {
 using DriverApiTest = NVFuserTest;
 
 TEST_F(DriverApiTest, WriteValue) {
-  constexpr cuuint32_t value = 3;
-  CUdeviceptr pDevice;
-  cudaStream_t stream;
+  void* d_ptr;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, sizeof(uint32_t)));
 
-  NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc((void**)&pDevice, sizeof(cuuint32_t)));
+  cudaStream_t stream;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamCreate(&stream));
-  NVFUSER_CUDA_SAFE_CALL(
-      cuStreamWriteValue32(stream, pDevice, value, /*flag=*/0));
+
+  constexpr uint32_t kValueToWrite = 3;
+  NVFUSER_CUDA_SAFE_CALL(cuStreamWriteValue32(
+      stream, reinterpret_cast<CUdeviceptr>(d_ptr), kValueToWrite, /*flag=*/0));
+
+  uint32_t value_received;
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaMemcpyAsync(
+      &value_received, d_ptr, sizeof(int32_t), cudaMemcpyDeviceToHost, stream));
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaStreamSynchronize(stream));
+
+  EXPECT_EQ(value_received, kValueToWrite);
 }
 
 } // namespace nvfuser
