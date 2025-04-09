@@ -759,7 +759,7 @@ std::unique_ptr<ReductionParams> innerOuterPersistentHeuristic(
   return rparams;
 }
 
-std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
+std::unique_ptr<ReductionParams> innerOuterWarpSpecializedTmaHeuristic(
     const int64_t outer_dim_numel,
     const int64_t inner_dim_numel,
     const int64_t regs_buffer_size,
