@@ -33,18 +33,18 @@ NVF_API bool distributedEnabled() {
 
 namespace {
 
-// Returns the position where an axis is allocated in a tv, skipping trivial
+// Returns the position where an axis is allocated in a tensordomain, skipping trivial
 // dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
 // tv's loop domain WAR: today we assume that the loop domain match with the
 // actual allocation, but this will have to change in the future.
-int64_t allocationIndex(TensorView* tv, IterDomain* id) {
+int64_t axisIndex(std::vector<IterDomain*> domain, IterDomain* find_id) {
   int64_t index = 0;
-  for (auto* loop_id : tv->getLoopDomain()) {
-    if (loop_id == id) {
+  for (auto* id : domain) {
+    if (id == find_id) {
       return index;
     }
-    if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-        !loop_id->isBroadcast()) {
+    if (!id->isDeviceDim() && !id->isReduction() &&
+        !id->isBroadcast()) {
       index++;
     }
   }
@@ -59,6 +59,58 @@ bool isTvContiguous(const TensorView* tv) {
       tv->getContiguity().begin(),
       tv->getContiguity().end(),
       [](std::optional<bool> c) { return c.value_or(true); });
+}
+
+std::optional<std::pair<IterDomain*, IterDomain*>> getReshardingIdPair(Expr* expr, const ComputeAtMap& ca_map) {
+  NVF_ERROR(expr->isOneOf<ReductionOp, LoadStoreOp>(), "Expected a reduction or load/store operator.");
+
+  auto producer = expr->inputs()[0]->as<TensorView>();
+  auto consumer = expr->outputs()[0]->as<TensorView>();
+
+  auto p_loop_domain = producer->getLoopDomain();
+  auto c_loop_domain = consumer->getLoopDomain();
+
+  std::vector<std::pair<IterDomain*, IterDomain*>> resharding_id_pairs;
+
+  bool has_sharding_changes = false;
+
+  IterDomain* resharded_p_id = nullptr;
+  IterDomain* resharded_c_id = nullptr;
+
+  for (auto id : p_loop_domain) {
+    auto ca_id = ca_map.getConcreteMappedID(id, IdMappingMode::EXACT);
+    concrete_to_reference_map[ca_id] = id;
+  }
+
+  for (IterDomain* c_id: c_loop_domain) {
+    if (c_id->isReduction() || c_id->isBroadcast()) {
+      continue;
+    }
+    NVF_ERROR(concrete_to_reference_map.count(c_id) > 0, "Expected a mapped ID in the producer.");
+    IterDomain* p_id = concrete_to_reference_map.at(c_id);
+    if (p_id->isReduction() || p_id->isBroadcast()) {
+      continue;
+    }
+    // Get the corresponding logical ID to move it and all its descendants to the front.
+    // Get the loop id that is sharded since its parallelization needs to be annotated in copies.  
+    if (!p_id->isDeviceDim() && !c_id->isDeviceDim()) {
+      continue;
+    }
+
+    if (p_id->isDeviceDim() && c_id->isDeviceDim()) {
+      if (p_id->getParallelType() != c_id->getParallelType()) {
+        NVF_THROW("Resharding from ", p_id->toString(), " to ", c_id->toString(), " is not supported.");
+      }
+    }
+    NVF_ERROR(!has_sharding_changes, "Resharding expr can only support one axis: ", expr->toString());
+    has_sharding_changes = true;
+    resharded_p_id = p_id;
+    resharded_c_id = c_id;
+  }
+  if (!has_sharding_changes) {
+    return std::nullopt;
+  }
+  return std::make_pair(resharded_p_id, resharded_c_id);
 }
 
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
@@ -628,9 +680,9 @@ bool isInnerResharding(Expr* expr) {
           shard_additions.size() + shard_deletions.size() <= 1,
           "Resharding expr can only support one axis")
       if ((!shard_deletions.empty() &&
-           allocationIndex(input, shard_deletions.at(0)) > 0) ||
+           axisIndex(input->getLoopDomain(), shard_deletions.at(0)) > 0) ||
           (!shard_additions.empty() &&
-           allocationIndex(output, shard_additions.at(0)) > 0)) {
+           axisIndex(output->getLoopDomain(), shard_additions.at(0)) > 0)) {
         return true;
       }
     }
