@@ -905,7 +905,7 @@ std::unique_ptr<ReductionParams> innerOuterWarpSpecializedTmaHeuristic(
   };
 
   // Get the heuristics given vectorization factor and threads per block
-  auto getHeuristicsGivenVectThreads = [&](int64_t vect_factor,
+  auto get_heuristics_given_vect_threads = [&](int64_t vect_factor,
                                            int64_t threads_per_block) {
     InnerOuterParams iop;
     // (1) inner reduction
