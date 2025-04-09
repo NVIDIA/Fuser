@@ -216,6 +216,15 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
+  std::vector<Split*> getNonDivisibleSplitsToPredicate(
+      const IndexingInfo& index_info) const;
+
+  void updateIndexInfoForNonDivisibleSplits(
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops,
+      const std::vector<Split*>& non_divisible_splits,
+      IndexingInfo& index_info) const;
+
  private:
   // Using non-const references of IdModel because traversalGraph() returns a
   // non-const reference

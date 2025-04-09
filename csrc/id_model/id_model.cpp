@@ -455,7 +455,8 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
       }
     } else {
       // Rare, but don't want to deal with zero-dim IDs
-      if (!split->in()->extent()->isZeroInt()) {
+      if (!split->in()->extent()->isZeroInt() &&
+          !split->in()->extent()->isOneInt()) {
         // Even when the factor is not known to be 1, as long as the
         // input and output have the same extent, they should be
         // mapped. This happens, for example, split 32 by 32 -> 1, 32.

@@ -5409,6 +5409,168 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(NVFuserTest, NonDivisibleSplit2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+
+  // auto tv2 = set(tv1);
+  // fusion.addOutput(tv2);
+  fusion.addOutput(tv1);
+
+  // [i(8)]
+  tv1->split(0, 10);
+  // [b(1), i(10)]
+  tv1->split(0, 4);
+  // [b(1), i(4), i(8)]
+
+  // tv1->axis(1)->parallelize(ParallelType::TIDy);
+  // tv1->axis(2)->parallelize(ParallelType::TIDx);
+
+  fusion.print();
+  fusion.printKernel();
+#if 0
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // For tv1, since it's fully contiguous, the predicate should be
+      // just:
+      //
+      // i >= 0 && i < I0 * I1
+      //
+      // where i is the loop index of the sole loop.
+      //
+      // For tv2, since it isn't contiguous:
+      //
+      // I0: i / (5 * I1) * 5 + i % (5 * I1) / I1
+      // I1: i % (5 * I1) % I1
+
+      auto i = loop_indices.at(0);
+
+      if (tv->name() == 2) {
+        auto i0_ext = tv->getLogicalDomain().at(0)->extent();
+        auto i1_ext = tv->getLogicalDomain().at(1)->extent();
+        auto five_i1 = mulExpr(createInt(5), i1_ext);
+        auto i0 = addExpr(
+            mulExpr(divExpr(i, five_i1), createInt(5)),
+            divExpr(modExpr(i, five_i1), i1_ext));
+        auto i1 = modExpr(modExpr(i, five_i1), i1_ext);
+        return andExpr(
+            andExpr(
+                andExpr(geExpr(i0, zero), ltExpr(i0, i0_ext)),
+                geExpr(i1, zero)),
+            ltExpr(i1, i1_ext));
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+#endif
+
+  // EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, NonDivisibleSplit3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+
+  // auto tv2 = set(tv1);
+  // fusion.addOutput(tv2);
+  fusion.addOutput(tv1);
+
+  // [r(8)]
+  tv1->split(0, 1);
+  // [r(8), r(1)]
+  tv1->split(1, 4);
+  // [r(8), r(1), r(4)]
+
+  // tv1->axis(1)->parallelize(ParallelType::TIDy);
+  // tv1->axis(2)->parallelize(ParallelType::TIDx);
+
+  fusion.print();
+  fusion.printKernel();
+#if 0
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // For tv1, since it's fully contiguous, the predicate should be
+      // just:
+      //
+      // i >= 0 && i < I0 * I1
+      //
+      // where i is the loop index of the sole loop.
+      //
+      // For tv2, since it isn't contiguous:
+      //
+      // I0: i / (5 * I1) * 5 + i % (5 * I1) / I1
+      // I1: i % (5 * I1) % I1
+
+      auto i = loop_indices.at(0);
+
+      if (tv->name() == 2) {
+        auto i0_ext = tv->getLogicalDomain().at(0)->extent();
+        auto i1_ext = tv->getLogicalDomain().at(1)->extent();
+        auto five_i1 = mulExpr(createInt(5), i1_ext);
+        auto i0 = addExpr(
+            mulExpr(divExpr(i, five_i1), createInt(5)),
+            divExpr(modExpr(i, five_i1), i1_ext));
+        auto i1 = modExpr(modExpr(i, five_i1), i1_ext);
+        return andExpr(
+            andExpr(
+                andExpr(geExpr(i0, zero), ltExpr(i0, i0_ext)),
+                geExpr(i1, zero)),
+            ltExpr(i1, i1_ext));
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+#endif
+
+  // EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 TEST_F(IndexingTest, PerDimLogicalIndices) {
   Fusion fusion;
   FusionGuard fg(&fusion);
