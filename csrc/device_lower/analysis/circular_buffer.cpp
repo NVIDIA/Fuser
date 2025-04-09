@@ -359,19 +359,30 @@ int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
   return maybe_depth_it->second;
 }
 
+namespace {
+
+// Map iterDomain axis through IdModel loop map to get corresponding for-loop.
+// Then, return the index of the for-loop in the stack of for-loops.
+int64_t getForLoopIndex(
+    TensorView* tv,
+    const std::vector<ForLoop*>& loops,
+    bool is_inner_most_axis) {
+  int64_t axis_position = is_inner_most_axis
+      ? getInnerMostCircularBufferPosition(tv)
+      : getOuterMostCircularBufferPosition(tv);
+  IterDomain* axis = tv->axis(axis_position);
+  ForLoop* fl = CircularBufferInfo::getCircularBufferLoop(axis, loops);
+  auto fl_it = std::find(loops.begin(), loops.end(), fl);
+  return (int64_t)std::distance(loops.begin(), fl_it);
+}
+
+} // namespace
+
 Val* CircularBufferInfo::getLinearizeIndex(
     TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& loops) const {
-  int64_t inner_axis_pos =
-      getInnerMostCircularBufferPosition(circular_buffer_tv);
-  IterDomain* inner_axis = circular_buffer_tv->axis(inner_axis_pos);
-  ForLoop* inner_fl =
-      CircularBufferInfo::getCircularBufferLoop(inner_axis, loops);
-  auto inner_fl_it =
-      std::find_if(loops.begin(), loops.end(), [inner_fl](const ForLoop* fl) {
-        return fl == inner_fl;
-      });
-  int64_t inner_loop_index = (int64_t)std::distance(loops.begin(), inner_fl_it);
+  int64_t inner_loop_index =
+      getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/true);
 
   // short-circuit: return index for inner-most for-loop if not warp specialized
   // with register sharing
@@ -386,19 +397,11 @@ Val* CircularBufferInfo::getLinearizeIndex(
   }
 
   // The inner-most and outer-most for loops can be different.
-  // Get outer-most for-loop index
-  int64_t outer_axis_pos =
-      getOuterMostCircularBufferPosition(circular_buffer_tv);
-  IterDomain* outer_axis = circular_buffer_tv->axis(outer_axis_pos);
-  ForLoop* outer_fl =
-      CircularBufferInfo::getCircularBufferLoop(outer_axis, loops);
-  auto outer_fl_it =
-      std::find_if(loops.begin(), loops.end(), [outer_fl](const ForLoop* fl) {
-        return fl == outer_fl;
-      });
-  int64_t outer_loop_index = (int64_t)std::distance(loops.begin(), outer_fl_it);
+  // Get outer-most for-loop index.
+  int64_t outer_loop_index =
+      getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/false);
 
-  // Calculate insertion position
+  // Calculate insertion position.
   int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
   return getLinearizeIndex(
       loops, insertion_position, /*start=*/outer_loop_index);
