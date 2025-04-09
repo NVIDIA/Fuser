@@ -846,7 +846,7 @@ std::unique_ptr<ReductionParams> innerOuterWarpSpecializedTmaHeuristic(
   // Estimate register usage per thread based on buffer size.
   // Assuming a constant register overhead for non-buffer related usage,
   // and all the register buffers are stored in registers.
-  auto getEstimatedRegisterUsage = [&](int64_t batch_mul_vect) {
+  auto get_estimated_register_usage = [&](int64_t batch_mul_vect) {
     int64_t persistent_buffer_size =
         regs_buffer_size / inner_dim_numel * batch_mul_vect;
     int64_t estimated_register_count =
