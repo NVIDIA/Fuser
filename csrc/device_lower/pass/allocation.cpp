@@ -1201,7 +1201,17 @@ class AllocationInserter : public kir::ExprMutator {
             "Reduction should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedReductionOp>()->initVal(i);
       } else if (expr->isA<MmaOp>()) {
-        init = expr->as<MmaOp>()->init();
+        MmaOp* mma = expr->as<MmaOp>();
+        init = mma->init();
+        if (mma->isBlackwell()) {
+          // For Blackwell mma, we can choose between C = A x B or C = C + A x
+          // B. So there is no need to initialize the output tensor.
+          // TODO: we should do the same for Hopper
+          NVF_ERROR(
+              init == nullptr || init->isZero(),
+              "Blackwell mma should not have a non-zero initialization value.");
+          init = nullptr;
+        }
       } else if (expr->isA<WelfordOp>()) {
         NVF_ERROR(
             default_val == nullptr,

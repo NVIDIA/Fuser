@@ -2326,6 +2326,50 @@ static Val* constructHopperMatrixDescriptor(
       or4);
 }
 
+// Reference:
+// https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-shared-memory-layout-matrix-descriptor
+static Val* constructBlackwellMatrixDescriptor(
+    Val* start_address,
+    Val* leading_dim_byte_offset,
+    Val* stride_dim_byte_offset,
+    Val* matrix_base_offset,
+    MmaInputSmemSwizzle swizzle) {
+  Val* or0 = matrixDescriptorEncode(start_address);
+  Val* or1 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(leading_dim_byte_offset),
+      IrBuilder::create<Val>(16, DataType::UInt64));
+  Val* or2 = IrBuilder::lShiftExpr(
+      matrixDescriptorEncode(stride_dim_byte_offset),
+      IrBuilder::create<Val>(32, DataType::UInt64));
+  Val* or3 = IrBuilder::lShiftExpr(
+      IrBuilder::create<Val>(0b001, DataType::UInt64),
+      IrBuilder::create<Val>(46, DataType::UInt64));
+  Val* or4 = IrBuilder::lShiftExpr(
+      matrix_base_offset, IrBuilder::create<Val>(49, DataType::UInt64));
+  Val* or5 = nullptr;
+  switch (swizzle) {
+    case MmaInputSmemSwizzle::None:
+      or5 = IrBuilder::create<Val>(0, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B128:
+      or5 = IrBuilder::create<Val>(2, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B64:
+      or5 = IrBuilder::create<Val>(4, DataType::UInt64);
+      break;
+    case MmaInputSmemSwizzle::B32:
+      or5 = IrBuilder::create<Val>(6, DataType::UInt64);
+      break;
+  }
+  or5 =
+      IrBuilder::lShiftExpr(or5, IrBuilder::create<Val>(61, DataType::UInt64));
+  return IrBuilder::bitwiseOrExpr(
+      IrBuilder::bitwiseOrExpr(
+          IrBuilder::bitwiseOrExpr(or0, or1),
+          IrBuilder::bitwiseOrExpr(or2, or3)),
+      IrBuilder::bitwiseOrExpr(or4, or5));
+}
+
 // Get the ValGroup of the ID in consumer's loop domain that corresponds to the
 // innermost dimension in the allocation domain of tv. This ID must be
 // parallelized on Mma.
@@ -2540,7 +2584,9 @@ void IndexLowering::handle(const MmaOp* mma) {
   Val* a = nullptr;
   Val* b = nullptr;
   const auto& [unitdim_a, unitdim_b] = lower_utils::getMmaLayout(mma);
-  auto constructMatrixDescriptor = constructHopperMatrixDescriptor;
+  auto constructMatrixDescriptor = mma->isBlackwell()
+      ? constructBlackwellMatrixDescriptor
+      : constructHopperMatrixDescriptor;
   if (mma->inA()->as<TensorView>()->getMemoryType() == MemoryType::Shared) {
     // TODO: This is a temporary solution and only supports a single tile in
     // smem.
@@ -2605,8 +2651,18 @@ void IndexLowering::handle(const MmaOp* mma) {
     b = lowerSrcIndex(
         mma->inB(), mma->out(), {}, false, getMmaInputBType(mma->macro()));
   }
-  const auto out = lowerDstIndex(
-      mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  Val* out = nullptr;
+  if (mma->out()->as<TensorView>()->getMemoryType() == MemoryType::Tensor) {
+    // TODO: hardcoded zero index for now
+    Val* index = IrBuilder::create<Val>(
+        std::vector<int64_t>{0, 0},
+        ArrayType(std::make_shared<DataType>(DataType::UInt16), 2));
+    out = IrBuilder::create<kir::TensorIndex>(
+        mma->out()->as<TensorView>(), index, DataType::TMemAddress);
+  } else {
+    out = lowerDstIndex(
+        mma->out(), {}, false, getMmaOutType(mma->out()->as<TensorView>()));
+  }
   auto mma_indexed = IrBuilder::create<MmaOp>(
       out, a, b, mma->init(), mma->axisMapping(), mma->macro());
   pushBack(mma_indexed);
