@@ -267,8 +267,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     }
     for (auto fl : for_loops_) {
       // Skip non-reduction loops.
-      if (fl->isTrivial() ||
-          !std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
+      if (!std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
             return GpuLower::current()
                 ->idModel()
                 .idGraph(IdMappingMode::LOOP)
@@ -280,6 +279,10 @@ class LowerToInlinePtx : public kir::ExprMutator {
       // The Epilogue loop is never the first iteration.
       if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
         use_input_acc = mma->fusion()->falseVal();
+      }
+      // Skip trivial loops as they are always the first iteration.
+      if (fl->isTrivial()) {
+        continue;
       }
       Val* loop_index = GpuLower::current()->tensorIndexer().getLoopIndex(
           fl->iter_domain(), for_loops_);
