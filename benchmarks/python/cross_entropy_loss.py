@@ -21,7 +21,7 @@ class CrossEntropyLossBase:
             self.config.hidden_size,
             device="cuda",
             dtype=self.dtype,
-            requires_grad=True,
+            requires_grad=False,
         )
         labels = torch.randint(
             0,
