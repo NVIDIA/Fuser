@@ -63,7 +63,9 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
 
 
 @pytest.mark.mpi
-@pytest.mark.parametrize("backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc])
+@pytest.mark.parametrize(
+    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
+)
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
     multidevice_test, benchmark, backend_type, s
@@ -101,4 +103,3 @@ def test_overlap_allgather_matmul_stream_outermost(
 
     # benchmark
     benchmark.pedantic(lambda: fd.execute(ins), rounds=N_ITERATIONS)
-
