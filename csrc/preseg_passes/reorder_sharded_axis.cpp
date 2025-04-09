@@ -146,6 +146,42 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       output_permute->setAllocationDomain(
           output_permute->getLoopDomain(), true);
     }
+
+    ComputeAtMap ca_map(fusion);
+    const auto& [p_id, c_id] = getReshardingIdPair(expr, ca_map);
+    auto p_alloc_dom = input->getMaybeAllocationDomain();
+    auto p_alloc_id = getInputsInTargetDomain(p_id, p_alloc_dom).at(0);
+    auto p_logical_idx = axisIndex(input->getLogicalDomain(), p_id); // This remains fixed through all sets.
+    
+    // auto p_transforms = DependencyCheck::getAllExprsBetween({p_alloc_id}, {input});
+    // auto c_transforms = DependencyCheck::getAllExprsBetween({c_alloc_id}, {output});
+
+    // createReorderMapUnderTransforms to get the reorder map.
+    // Get p_idx and c_idx and their new positions. 
+    // Reorder loop domain under this map for inp_copy and out_copy.
+    // Invert the map to get the reorder map for new_output.
+    // p_idx is DIDx in inp_copy.
+    // c_idx is serial in out_copy and new_output.
+    
+    if (p_id->isDeviceDim() && axisIndex(p_alloc_dom, p_alloc_id) > 0){
+      // Gathered axis -> move it to front.
+      int64_t p_idx = input->domain()->rootPosOf(p_id);
+      int64_t c_idx = output->domain()->rootPosOf(c_id);
+
+      TensorView* inp_copy = set(input);
+      TensorView* out_copy = set(inp_copy);
+      TensorView* new_output = set(out_copy);
+
+      inp_copy->setAllocationDomain(TensorDomain::orderedAs(inp_copy->domain(), {{p_logical_idx, 0}}));
+      out_copy->setAllocationDomain(TensorDomain::orderedAs(out_copy->domain(), {{p_logical_idx, 0}}));
+      new_output->setAllocationDomain(TensorDomain::orderedAs(new_output->domain(), {{0, p_logical_idx}}));
+      
+      // TransformPropagator + shardAllLike on new tvs
+      auto parallel_type = p_id->getParallelType();
+      // Find this parallel type in out and replace with serial
+      // Set device mesh for out_copy and new_output same as output.
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
+    }
   }
 }
 
