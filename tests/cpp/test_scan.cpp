@@ -88,4 +88,38 @@ TEST_F(ScanTest, DiscountFactorScalar1D) {
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Simple test case for defining a scan
+TEST_F(ScanTest, Concrete2D) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({4, 32});
+  fusion->addInput(tv0);
+
+  auto tv1 = prefixSum(tv0, /*dim=*/0, /*discount_factor=*/nullptr);
+
+  fusion->addOutput(tv1);
+
+  // tv0->cacheAfter();
+  // tv1->cacheBefore();
+  //  Caching works fine, but once we inline we wind up not allocating the scan
+  //  ID, meaning the index is just 0, and there's no replacement. This actually
+  //  gives us the correct result in this test but it's not pretty, so I'd like
+  //  to handle such cases more gracefully.
+  //  TODO: Handle cases when the scan ID is inlined away.
+  // inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({4, 32}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  auto cg_outputs = ke.run({t0});
+
+  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
