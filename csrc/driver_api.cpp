@@ -77,13 +77,12 @@ class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
   template <typename ReturnType, typename... Args>                        \
   struct funcName##Loader {                                               \
     static ReturnType lazilyLoadAndInvoke(Args... args) {                 \
-      /* `static` so cudaGetDriverEntryPoint is called only once. */      \
-      static PFN_##funcName f = []() {                                    \
-        PFN_##funcName f;                                                 \
+      static PFN_##funcName f;                                            \
+      static std::once_flag once;                                         \
+      std::call_once(once, [&]() {                                        \
         NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(                \
             #funcName, reinterpret_cast<void**>(&f), cudaEnableDefault)); \
-        return f;                                                         \
-      }();                                                                \
+      });                                                                 \
       return f(args...);                                                  \
     }                                                                     \
     /* This ctor is just a CTAD helper, it is only used in a */           \
