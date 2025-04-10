@@ -15,6 +15,7 @@
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <ranges>
 
 namespace nvfuser {
 
@@ -83,7 +84,7 @@ class ParallelDimensionMap {
   }
 
   auto usedParallelTypes() const {
-    return dim_map_.keys();
+    return dim_map_ | std::views::keys;
   }
 
  private:
