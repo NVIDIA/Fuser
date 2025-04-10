@@ -234,7 +234,13 @@ TEST_F(ScanTest, OnlineSoftmax) {
 
   auto denoms = prefixSum(exp_x_m, scan_dim, discount);
 
-  fusion->addOutput(denoms);
+  auto norm_factor = reductionOp(
+      BinaryOpType::RHS,
+      {scan_dim},
+      /*init=*/fusion->zeroVal(DataType::Float),
+      denoms);
+
+  fusion->addOutput(norm_factor);
 
   // Caching works fine, but once we inline we wind up not allocating the scan
   // ID, meaning the index is just 0, and there's no replacement. This actually
@@ -251,6 +257,12 @@ TEST_F(ScanTest, OnlineSoftmax) {
 
   auto cg_outputs = ke.run({t0});
 
+  auto ref = (t0 - t0.max()).exp().sum();
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), ref))
+      << " returned " << cg_outputs[0].as<at::Tensor>().item()
+      << " but expected " << ref.item();
+
+  // Test automatic evaluation also
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 

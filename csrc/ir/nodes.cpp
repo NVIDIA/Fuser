@@ -1550,6 +1550,24 @@ std::vector<PolymorphicValue> ReductionOp::evaluate(
     case BinaryOpType::Min:
       return {at::amin(input, reduction_axes)};
       break;
+    case BinaryOpType::LHS: {
+      std::vector<torch::indexing::TensorIndex> slice_loc(
+          input.dim(), torch::indexing::Ellipsis);
+      for (int64_t ax : reduction_axes) {
+        slice_loc.at(ax) = 0L;
+      }
+      return {input.index(slice_loc)};
+      break;
+    }
+    case BinaryOpType::RHS: {
+      std::vector<torch::indexing::TensorIndex> slice_loc(
+          input.dim(), torch::indexing::Ellipsis);
+      for (int64_t ax : reduction_axes) {
+        slice_loc.at(ax) = -1L;
+      }
+      return {input.index(slice_loc)};
+      break;
+    }
     default:
       NVF_CHECK(
           false,
