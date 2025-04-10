@@ -97,9 +97,7 @@ void validateTensors(
     const std::vector<TensorView*>& tvs,
     const ExpressionEvaluator& expr_eval) {
   NVF_ERROR(tensors.size() == tvs.size());
-  for (const auto i : c10::irange(tensors.size())) {
-    const auto& tensor = tensors.at(i);
-    const auto& tv = tvs.at(i);
+  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
     if (tensor.defined()) {
       inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
     }

@@ -328,6 +328,16 @@ c10::intrusive_ptr<c10d::Work> postGather(
       output_tensors, input_tensors, {.rootRank = root_relative_index});
 }
 
+namespace {
+bool isTvContiguous(const TensorView* tv) {
+  // Reduction and broadcast axis do not have a contiguity value.
+  return std::all_of(
+      tv->getContiguity().begin(),
+      tv->getContiguity().end(),
+      [](std::optional<bool> c) { return c.value_or(true); });
+}
+} // namespace
+
 c10::intrusive_ptr<c10d::Work> postAllgather(
     Communication* communication,
     DeviceIdxType my_device_index,
@@ -339,6 +349,11 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
   // contiguity requirements. Presegmentation pass `makeReshardingContiguous`
   // ensures that the tvs are contiguous and HostIrExecutor validates the tensor
   // against the tv allocation domain.
+
+  NVF_ERROR(
+      isTvContiguous(communication->in()), "Input tensor is not contiguous");
+  NVF_ERROR(
+      isTvContiguous(communication->out()), "Output tensor is not contiguous");
 
   auto flattened_output_tensor =
       output_tensor.as_strided({output_tensor.numel()}, {1});

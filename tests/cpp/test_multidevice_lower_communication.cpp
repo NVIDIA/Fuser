@@ -571,9 +571,6 @@ TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
-  // debug() << tv0->getContiguity() << std::endl;
-  // debug() << tv1->getContiguity() << std::endl;
-
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
