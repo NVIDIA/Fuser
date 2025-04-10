@@ -19,6 +19,7 @@
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/inlining.h>
 #include <algorithm>
+#include <bit>
 #include <iterator>
 #include <unordered_map>
 
@@ -1418,7 +1419,10 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
     tv->reorder({{-3, -2}});
     tv->axis(-2)->parallelize(ParallelType::TIDx);
   }
-  register_result->axis(-1)->parallelize(ParallelType::Vectorize);
+  if (std::has_single_bit(getN(macro))) {
+    // We can only vectorize if N is a power of 2
+    register_result->axis(-1)->parallelize(ParallelType::Vectorize);
+  }
 
   inlineMost();
 
