@@ -117,7 +117,7 @@ bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
   std::unordered_set<ParallelType> ptypes =
-      GpuLower::current()->parallelTypeMap().usedParallelTypes();
+      GpuLower::current()->parallelDimensionMap().usedParallelTypes();
   for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
       ptypes.erase(id->getParallelType());
