@@ -16,6 +16,7 @@
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/utils.h>
 #include <scheduler/vectorize_helper.h>
 
@@ -1672,14 +1673,14 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
 
   // Reject when output IDs are not covered by reference tv. Assuming reduction scheduler simply uses reduction_tvs[0] as the reference, if that changes, this needs to be changed.
   // see issue https://github.com/NVIDIA/Fuser/issues/3811
-  schduler_tools::DomainMap domain_map(fusion);
+  scheduler_tools::DomainMap domain_map(fusion);
   for (auto output_tv :
-       ir_utils::filterByType<TensorView>(fusion_->outputs())) {
+       ir_utils::filterByType<TensorView>(fusion->outputs())) {
     // no need to check for self.
     if (output_tv == reduction_tvs[0]) {
       continue;
     }
-    if (!areAllTargetIdsCoveredBy(output_tv, reduction_tvs[0])) {
+    if (!domain_map.areAllTargetIdsCoveredBy(output_tv, reduction_tvs[0])) {
       return false;
     }
   }
