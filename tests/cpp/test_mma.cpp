@@ -909,7 +909,7 @@ TEST_P(HopperSS, SingleTileTransposed) {
   NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 1e-5, 1e-5));
 }
 
-void skipIfSwizzleNotCompatibleWithTiling(
+const char* skipIfSwizzleNotCompatibleWithTiling(
     int64_t num_tiles,
     MmaLayout layout,
     MmaMacro macro,
@@ -933,7 +933,7 @@ void skipIfSwizzleNotCompatibleWithTiling(
         swizzle_size % inner_tile_size != 0;
 
     if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
-      GTEST_SKIP() << skip_reason;
+      return skip_reason;
     }
   }
 
@@ -949,7 +949,7 @@ void skipIfSwizzleNotCompatibleWithTiling(
         swizzle_size % inner_tile_size != 0;
 
     if (instruction_tile_span_multiple_swizzle && span_uneven_swizzle) {
-      GTEST_SKIP() << skip_reason;
+      return skip_reason;
     }
   }
 }
@@ -960,8 +960,11 @@ TEST_P(HopperSS, MultipleTile) {
 
   constexpr int64_t num_tiles = 2;
 
-  skipIfSwizzleNotCompatibleWithTiling(
+  const char* skip_reason = skipIfSwizzleNotCompatibleWithTiling(
       num_tiles, layout, macro, swizzle_a, swizzle_b);
+  if (skip_reason) {
+    GTEST_SKIP() << skip_reason;
+  }
 
   auto shapes = matmulAtInputShape3DSS(
       num_tiles * getM(macro),
@@ -1286,8 +1289,11 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
     GTEST_SKIP() << "Skipping test due to excessive number of columns";
   }
 
-  skipIfSwizzleNotCompatibleWithTiling(
+  const char* skip_reason = skipIfSwizzleNotCompatibleWithTiling(
       num_tiles, layout, macro, swizzle_a, swizzle_b);
+  if (skip_reason) {
+    GTEST_SKIP() << skip_reason;
+  }
 
   // TODO: currently we are not doing tiling on K dimension because we are not
   // generating the correct predicate correctly. The correct way to do MMA is to
