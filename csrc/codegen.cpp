@@ -3078,7 +3078,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     if (std::getenv("NEW_CMP_WGROUPS") != nullptr) {
       func_args.arg(
           genStaticCast(genPtrType(output->dtype()), "shared_mem") + " + " +
-          genSmemOffset());
+          "128 * threadIdx.y");
     } else {
       func_args.arg(
           genStaticCast(genPtrType(output->dtype()), "shared_mem"));
@@ -3317,6 +3317,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       mbarrier_invalidate_count_ = 0;
       indent() << "/////////////////////////////////////////////////////////////////////////////////\n";
       indent() << "// WAR final outer reduction bug when using two math warp groups in RMS Norm BWd\n";
+      NVF_ERROR(std::getenv("PERSISTENT_BATCH") != nullptr);
       int n_batch = std::atoi(std::getenv("PERSISTENT_BATCH"));
       genTwoWarpGroupsReduction(n_batch);
       indent() << "if(WgGIDx == 1){return;}\n";
