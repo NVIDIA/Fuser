@@ -911,6 +911,7 @@ TEST_P(HopperSS, SingleTileTransposed) {
 void skipIfSwizzleNotCompatibleWithTiling(
     int64_t num_tiles,
     MmaLayout layout,
+    MmaMacro macro,
     MmaInputSmemSwizzle swizzle_a,
     MmaInputSmemSwizzle swizzle_b) {
   const char* skip_reason =
@@ -957,7 +958,8 @@ TEST_P(HopperSS, MultipleTile) {
 
   constexpr int64_t num_tiles = 2;
 
-  skipIfSwizzleNotCompatibleWithTiling(num_tiles, layout, swizzle_a, swizzle_b);
+  skipIfSwizzleNotCompatibleWithTiling(
+      num_tiles, layout, macro, swizzle_a, swizzle_b);
 
   auto shapes = matmulAtInputShape3DSS(
       num_tiles * getM(macro),
@@ -1282,7 +1284,8 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
     GTEST_SKIP() << "Skipping test due to excessive number of columns";
   }
 
-  skipIfSwizzleNotCompatibleWithTiling(num_tiles, layout, swizzle_a, swizzle_b);
+  skipIfSwizzleNotCompatibleWithTiling(
+      num_tiles, layout, macro, swizzle_a, swizzle_b);
 
   // TODO: currently we are not doing tiling on K dimension because we are not
   // generating the correct predicate correctly. The correct way to do MMA is to
