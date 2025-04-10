@@ -1363,6 +1363,8 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
   mma_result->setMemoryType(MemoryType::Tensor);
 
   auto register_result = tv2->cacheBefore();
+  register_result->definition()->as<LoadStoreOp>()->setOpType(
+      LoadStoreOpType::LdTMem);
 
   // Bring related dims to innermost, that is:
   // - Reorder tv0 as [1, M, K] or [1, K, M]
