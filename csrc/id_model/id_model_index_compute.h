@@ -52,24 +52,10 @@ class IdGraphIndexCompute : public OptOutDispatch {
   }
 
   bool hasIndex(IterDomain* id) const {
-    // If it's a broadcast, its index is always zero.
-    // This may not be actually the behavior we always want. For
-    // non-divisible predicates, we would need to have an actual
-    // computed index.
-    // if (id->isBroadcast()) {
-    // return true;
-    // }
     return indexMap().find(toGroup(id)) != indexMap().end();
   }
 
   Val* getIndex(IterDomain* id) const {
-    // If it's a broadcast, its index is always zero.
-    // This may not be actually the behavior we always want. For
-    // non-divisible predicates, we would need to have an actual
-    // computed index.
-    // if (id->isBroadcast()) {
-    // return id->fusion()->zeroVal();
-    // }
     auto it = index_map_.find(toGroup(id));
     NVF_ERROR(it != index_map_.end(), "Index not found: ", id->toString());
     return it->second;
