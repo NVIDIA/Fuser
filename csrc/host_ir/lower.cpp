@@ -639,7 +639,6 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   };
 
   for (auto group : workspace.group_run_order) {
-    std::vector<Expr*> host_exprs;
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
     if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
       continue;
