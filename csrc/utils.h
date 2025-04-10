@@ -978,14 +978,20 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
 
 // Backport of std::ranges::to from C++23
 // Utility to convert a range to a container, matching std::ranges::to's API
-template <typename Container, typename Range>
-Container to(Range&& range) {
-  Container result;
-  if constexpr (requires { std::ranges::size(range); }) {
-    result.reserve(std::ranges::size(range));
+template <typename Container>
+struct to_fn {
+  template <typename Range>
+  Container operator()(Range&& range) const {
+    Container result;
+    if constexpr (requires { std::ranges::size(range); }) {
+      result.reserve(std::ranges::size(range));
+    }
+    std::ranges::copy(range, std::inserter(result, result.end()));
+    return result;
   }
-  std::ranges::copy(range, std::inserter(result, result.end()));
-  return result;
-}
+};
+
+template <typename Container>
+inline constexpr to_fn<Container> to{};
 
 } // namespace nvfuser
