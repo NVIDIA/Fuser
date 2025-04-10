@@ -5,11 +5,11 @@
 import pytest
 import torch
 
-import multidevice_fixtures
+import fixtures
 import nvfuser
 from nvfuser import DataType, FusionDefinition
 
-multidevice_test = multidevice_fixtures.multidevice_test
+multidevice_test = fixtures.multidevice_test
 
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
