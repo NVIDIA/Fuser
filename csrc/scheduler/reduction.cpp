@@ -1674,15 +1674,8 @@ bool ReductionScheduler::canScheduleCompileTime(Fusion* fusion) {
   // Reject when output IDs are not covered by reference tv. Assuming reduction scheduler simply uses reduction_tvs[0] as the reference, if that changes, this needs to be changed.
   // see issue https://github.com/NVIDIA/Fuser/issues/3811
   scheduler_tools::DomainMap domain_map(fusion);
-  for (auto output_tv :
-       ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    // no need to check for self.
-    if (output_tv == reduction_tvs[0]) {
-      continue;
-    }
-    if (!domain_map.areAllTargetIdsCoveredBy(output_tv, reduction_tvs[0])) {
-      return false;
-    }
+  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
+    return false;
   }
 
   if (registry_utils::hasNonUniqueBcast(fusion)) {
