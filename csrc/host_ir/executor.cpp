@@ -453,10 +453,13 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
 
-  auto work = getOrDefault(works_, communication);
-  NVF_ERROR(work != nullptr, "no wait req");
+  auto i = works_.find(communication);
+  NVF_ERROR(i != works_.end(), "no wait req");
 
-  work->wait();
+  auto work = i->second;
+  if (work != nullptr) {
+    work->wait();
+  }
 
   works_.erase(communication);
 }
