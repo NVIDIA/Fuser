@@ -94,6 +94,14 @@ bool isSharded(const TensorView* tv) {
       continue;
     }
 
+    // Reduction dimensions are not materialized in the concrete tensor, so we
+    // don't consider rDIDx{i0} sharded. For example,
+    //
+    //   ```
+    //   [iDIDx{i0}, iS{i1}] => [rDIDx{i0}, iS{i1}]
+    //   ```
+    //
+    // is considered an allreduce and the output is replicated.
     if (alloc_id->isReduction()) {
       continue;
     }
