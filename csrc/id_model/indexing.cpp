@@ -396,61 +396,77 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
           "Index not found for non-divisible split: ",
           split_to_predicate->toString());
     }
+  }
 
-    const auto inputs = getInputsOfExprGroup(traversalGraph(), eg, direction);
-    const auto& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
-    for (const auto& input_group : inputs) {
-      ValGroups exact_groups;
-      for (const auto& val : *input_group) {
-        // Additional IDs may be created without getting added to the
-        // exact graph. Should be safe to ignore them.
-        if (exact_graph.hasGroup(val)) {
-          exact_groups.pushBack(exact_graph.toGroup(val));
+  // Grab all involved ID groups. This is copied from bfs.h. TODO: refactor
+  ValGroups unique_ids;
+  for (const auto& [eg, direction] : index_info.traversal_path) {
+    unique_ids.pushBack(getInputsOfExprGroup(traversalGraph(), eg, direction));
+    unique_ids.pushBack(getOutputsOfExprGroup(traversalGraph(), eg, direction));
+  }
+
+  // If a val in from is found in to, just copy it to the returned val
+  // set since there's no corresponding expr.
+  ValGroups target_groups = traversalGraph().toGroups(index_info.index_ids);
+  for (const auto& loop_id : index_info.loop_ids) {
+    const auto& loop_group = traversalGraph().toGroup(loop_id);
+    if (target_groups.has(loop_group)) {
+      unique_ids.pushBack(loop_group);
+    }
+  }
+
+  const auto& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  for (const auto& input_group : unique_ids) {
+    ValGroups exact_groups;
+    for (const auto& val : *input_group) {
+      // Additional IDs may be created without getting added to the
+      // exact graph. Should be safe to ignore them.
+      if (exact_graph.hasGroup(val)) {
+        exact_groups.pushBack(exact_graph.toGroup(val));
+      }
+    }
+    if (exact_groups.size() == 1) {
+      continue;
+    }
+    for (const auto& exact_group : exact_groups) {
+      for (const auto& use_eg : exact_graph.getUses(exact_group)) {
+        auto split = dynamic_cast<Split*>(use_eg->front());
+        if (split == nullptr) {
+          continue;
         }
-      }
-      if (exact_groups.size() == 1) {
-        continue;
-      }
-      for (const auto& exact_group : exact_groups) {
-        for (const auto& use_eg : exact_graph.getUses(exact_group)) {
-          auto split = dynamic_cast<Split*>(use_eg->front());
-          if (split == nullptr) {
+        // std::cerr << "Use: " << split->toString();
+        bool inner_mapped = false;
+        auto it = std::ranges::find(
+            exact_groups, exact_graph.toGroup(split->inner()));
+        if (it != exact_groups.end()) {
+          inner_mapped = true;
+        } else {
+          it = std::ranges::find(
+              exact_groups, exact_graph.toGroup(split->outer()));
+        }
+        if (it == exact_groups.end()) {
+          continue;
+        }
+
+        IterDomain* unmapped_output = inner_mapped
+            ? split->outer()->as<IterDomain>()
+            : split->inner()->as<IterDomain>();
+
+        // The unmapped output should be size one.
+        NVF_ERROR(unmapped_output->extent()->isOneInt());
+
+        for (const auto& use_of_unmapped_output :
+             exact_graph.getUses(exact_graph.toGroup(unmapped_output))) {
+          if (!isNonDivisibleSplit(use_of_unmapped_output)) {
             continue;
           }
-          // std::cerr << "Use: " << split->toString();
-          bool inner_mapped = false;
-          auto it = std::ranges::find(
-              exact_groups, exact_graph.toGroup(split->inner()));
-          if (it != exact_groups.end()) {
-            inner_mapped = true;
-          } else {
-            it = std::ranges::find(
-                exact_groups, exact_graph.toGroup(split->outer()));
-          }
-          if (it == exact_groups.end()) {
-            continue;
-          }
 
-          IterDomain* unmapped_output = inner_mapped
-              ? split->outer()->as<IterDomain>()
-              : split->inner()->as<IterDomain>();
-
-          // The unmapped output should be size one.
-          NVF_ERROR(unmapped_output->extent()->isOneInt());
-
-          for (const auto& use_of_unmapped_output :
-               exact_graph.getUses(exact_graph.toGroup(unmapped_output))) {
-            if (!isNonDivisibleSplit(use_of_unmapped_output)) {
-              continue;
-            }
-
-            // Non divisible split found
-            // std::cerr << "Additional non divisible split found: "
-            //<< use_of_unmapped_output->front()->toString();
-            NVF_ERROR(use_of_unmapped_output->front()->isA<Split>());
-            splits_to_predicate.push_back(
-                use_of_unmapped_output->front()->as<Split>());
-          }
+          // Non divisible split found
+          // std::cerr << "Additional non divisible split found: "
+          //<< use_of_unmapped_output->front()->toString();
+          NVF_ERROR(use_of_unmapped_output->front()->isA<Split>());
+          splits_to_predicate.push_back(
+              use_of_unmapped_output->front()->as<Split>());
         }
       }
     }
