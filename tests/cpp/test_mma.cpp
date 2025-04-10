@@ -1413,8 +1413,8 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
   // Schedule TMem load and gmem store
   for (auto tv : {register_result, tv2}) {
     // Split by tile
-    tv->split(-3, getM(macro));
-    tv->split(-2, getN(macro));
+    tv->split(-2, getM(macro));
+    tv->split(-1, getN(macro));
     // [Mo, Mi, No, Ni] -> [Mo, No, Mi, Ni]
     tv->reorder({{-3, -2}});
     tv->axis(-2)->parallelize(ParallelType::TIDx);
