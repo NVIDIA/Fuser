@@ -522,15 +522,16 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           HostIrLower lower;
           for (auto* expr : lower.lower(
                    ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+            NVF_ERROR(
+                expr->isA<Communication>(),
+                "Exprs in a Communication group should be Communication");
             // Allocate the recv buffers of communications
-            if (expr->isA<Communication>()) {
-              auto* communication = expr->as<Communication>();
-              TensorView* tv = communication->out();
-              if (tv->getDeviceMesh().has(deviceid)) {
-                auto* allocate =
-                    IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-                hic->pushBackTopLevelExprs(allocate);
-              }
+            auto* communication = expr->as<Communication>();
+            TensorView* tv = communication->out();
+            if (tv->getDeviceMesh().has(deviceid)) {
+              auto* allocate =
+                  IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+              hic->pushBackTopLevelExprs(allocate);
             }
             hic->pushBackTopLevelExprs(expr);
             if (expr->isA<Communication>()) {

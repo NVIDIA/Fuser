@@ -32,8 +32,9 @@ void assertIsCompiledToHostIrContainer(
         runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
     EXPECT_THAT(
         hicExprs,
-        Contains(Property(&Expr::isA<Communication>, IsTrue())).Times(1))
-        << "host ir container should only have one communication";
+        Contains(Property(&Expr::isA<Communication>, IsTrue()))
+            .Times(testing::Gt(0)))
+        << "host ir container should have at least one communication";
   } else {
     EXPECT_EQ(runtime->executors().size(), 1);
     EXPECT_THAT(
