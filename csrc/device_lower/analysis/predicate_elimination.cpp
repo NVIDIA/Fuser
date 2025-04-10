@@ -218,7 +218,10 @@ bool needsPredicateSharedMemAccess(const Expr* expr) {
     for (auto producer : ir_utils::filterByType<TensorView>(expr->inputs())) {
       if (isSharedMemory(producer) || isSharedMemory(consumer)) {
         if (needSharedMemPredicate(producer, consumer)) {
+          std::cout << "needSharedMemPredicate" << expr->toString() << std::endl;
           RECORD_AND_RETURN(true);
+        } else {
+          std::cout << "no needSharedMemPredicate" << expr->toString() << std::endl;
         }
       }
     }
