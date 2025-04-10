@@ -16,17 +16,6 @@
 #include <sys_utils.h>
 #include <utils.h>
 
-namespace {
-
-class CUDADriverAPIDynamicLoader : public nvfuser::LibraryLoader {
- public:
-  CUDADriverAPIDynamicLoader() {
-    setFilename("libcuda.so");
-  }
-} loader;
-
-} // namespace
-
 // How does the magic work?
 //
 // Let's take driver API cuGetErrorName as an example. Because all nvFuser's
