@@ -52,12 +52,14 @@ bool ParallelizedDomainPredicate::PredicateInfo::addDomain(IterDomain* id) {
 }
 
 Val* ParallelizedDomainPredicate::PredicateInfo::getPredicate() const {
+  std::cout << "getPredicate" << pt_ << std::endl;
   Val* pred = nullptr;
 
   auto index = SimplifyingIrBuilder::create<NamedScalar>(
       stringifyThread(pt_), DataType::Int);
 
   for (const auto& pred_id : ids()) {
+    std::cout << "pred_id: " << pred_id->toString() << std::endl;
     // Just sanity check that pred_id is concrete
     NVF_ERROR(
         pred_id ==
@@ -221,6 +223,7 @@ ParallelizedDomainPredicate::getPredicateMap(
     const Expr* expr,
     const std::vector<ForLoop*>& loops,
     ForLoop* unswitched_loop) {
+  std::cout << "getPredicateMap" << expr->toString() << std::endl;
   const auto gpu_lower = GpuLower::current();
   auto output_tvs = ir_utils::getTvs(expr->outputs());
 
@@ -254,8 +257,9 @@ ParallelizedDomainPredicate::getPredicateMap(
     }
 
     auto loop_id = loop->iter_domain();
+    std::cout << "loop_id: " << loop_id->toString() << std::endl;
     auto loop_ptype = loop_id->getParallelType();
-
+    std::cout << "loop_ptype: " << loop_ptype << std::endl;
     // Not necessary to add a predicate if the paralle type is exact
     if (!isParallelTypeThread(loop_ptype) ||
         lower_utils::isExtentEqualToMaxParallelTypeExtent(loop_id)) {
@@ -332,6 +336,7 @@ ParallelizedDomainPredicate::getPredicateMap(
 Val* ParallelizedDomainPredicate::getPredicate(
     const Expr* expr,
     const std::vector<ForLoop*>& loops) {
+  std::cout << "getPredicate" << expr->toString() << std::endl;
   DEBUG_PRINT_SCOPE_NAME(
       "ParallelizedDomainPredicate::getPredicate", "expr = ", expr);
   auto pred_map = getPredicateMap(expr, loops);
