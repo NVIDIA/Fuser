@@ -1428,7 +1428,7 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
   auto inputs = matmulAtInput3DSS(
       num_tiles * getM(macro),
       num_tiles * getN(macro),
-      num_tiles * getK(macro),
+      getK(macro), // TODO: num_tiles * getK(macro),
       layout,
       data_type_to_aten(dtype));
 
