@@ -914,6 +914,7 @@ void skipIfSwizzleNotCompatibleWithTiling(
     MmaMacro macro,
     MmaInputSmemSwizzle swizzle_a,
     MmaInputSmemSwizzle swizzle_b) {
+  constexpr int64_t dtype_size = 2;
   const char* skip_reason =
       "This test stores smem inputs on the inner dimension densely, "
       "which is not compatible with this macro and swizzle mode "
@@ -925,7 +926,7 @@ void skipIfSwizzleNotCompatibleWithTiling(
         ? getK(macro)
         : getM(macro);
     int64_t inner_size = num_tiles * inner_tile_size;
-    int64_t swizzle_size = getBytesFromSwizzle(swizzle_a) / dataTypeSize(dtype);
+    int64_t swizzle_size = getBytesFromSwizzle(swizzle_a) / dtype_size;
     bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
     bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
         swizzle_size % inner_tile_size != 0;
@@ -941,7 +942,7 @@ void skipIfSwizzleNotCompatibleWithTiling(
         ? getN(macro)
         : getK(macro);
     int64_t inner_size = num_tiles * inner_tile_size;
-    int64_t swizzle_size = getBytesFromSwizzle(swizzle_b) / dataTypeSize(dtype);
+    int64_t swizzle_size = getBytesFromSwizzle(swizzle_b) / dtype_size;
     bool instruction_tile_span_multiple_swizzle = inner_size > swizzle_size;
     bool span_uneven_swizzle = inner_tile_size % swizzle_size != 0 &&
         swizzle_size % inner_tile_size != 0;
