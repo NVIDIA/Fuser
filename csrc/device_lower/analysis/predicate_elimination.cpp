@@ -33,8 +33,6 @@ bool isSharedMemory(TensorView* tv) {
       tv->getMemoryType() == MemoryType::Tensor;
 }
 
-namespace {
-
 // Check if consumer is in the compute warp of a warp specialized loop,
 // and the id_in_consumer is the parallel type of the warp specialization.
 bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
