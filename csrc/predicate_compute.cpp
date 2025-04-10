@@ -341,6 +341,7 @@ Val* ParallelizedDomainPredicate::getPredicate(
   for (auto pt : kParallelTypeThreads) {
     auto pred_info_it = pred_map.find(pt);
     if (pred_info_it != pred_map.end()) {
+      std::cout << "pred_info_it != pred_map.end()" << std::endl;
       const auto& pred_info = pred_info_it->second;
       auto tid_pred = pred_info.getPredicate();
       pred = SimplifyingIrBuilder::logicalAndExpr(pred, tid_pred);
@@ -740,6 +741,7 @@ Val* PredicateCompute::getInlinePredicate(
   auto parallel_dom_pred =
       ParallelizedDomainPredicate::getPredicate(expr, loops);
   NVF_ERROR(parallel_dom_pred != nullptr);
+  std::cout << "parallel_dom_pred: " << parallel_dom_pred->toString() << std::endl;
 
   // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
   // itself is sufficient to predicate the accesses.
