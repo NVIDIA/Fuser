@@ -215,7 +215,13 @@ class Asm final : public Expr {
   // The name of the utility function that we want to wrap the inline PTX code
   // in. If this is empty, then the inline PTX code will be emitted directly
   // into the kernel.
-  const std::string utility() const;
+  std::string utility() const;
+
+  // The signature of the utility function that we want to wrap the inline PTX
+  // code in. Something like "void my_utility(int*, int*, int*)". This is
+  // used to determine if the utility function has already been generated when
+  // we convert Kernel IR to CUDA C++ code.
+  std::string signature() const;
 
   const Options& options() const {
     return attribute<Options>(1);
@@ -482,7 +488,10 @@ class BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit BlockSync(IrBuilderPasskey passkey, bool war_sync = false);
+  explicit BlockSync(
+      IrBuilderPasskey passkey,
+      bool war_sync = false,
+      std::optional<bool> optional_compute_or_load_sync = std::nullopt);
 
   const char* getOpString() const override {
     return "BlockSync";
@@ -496,6 +505,20 @@ class BlockSync final : public Expr {
   // TODO: war_sync_ is only used for testing/validation purposes.
   bool isWarHazardSync() const {
     return attribute<bool>(0);
+  }
+
+  std::optional<bool> warpSpecializedState() const {
+    return attribute<std::optional<bool>>(1);
+  }
+
+  bool isComputeWarpSync() const {
+    return attribute<std::optional<bool>>(1).value_or(false);
+  }
+
+  bool isLoadWarpSync() const {
+    auto optional_compute_or_load_sync = attribute<std::optional<bool>>(1);
+    return optional_compute_or_load_sync.has_value() &&
+        !optional_compute_or_load_sync.value();
   }
 };
 
@@ -1088,7 +1111,7 @@ class GroupedGridReduction final : public GroupedReductionOp {
     auto size = outputs().size();
     std::vector<Allocate*> result;
     result.reserve(size);
-    for (auto i : c10::irange(offset, offset + size)) {
+    for (auto i : arange(offset, offset + size)) {
       result.emplace_back(attribute(i)->as<Allocate>());
     }
     return result;
@@ -1292,7 +1315,7 @@ class GroupedGridWelford final : public GroupedWelfordOp {
     result[0].reserve(size);
     result[1].reserve(size);
     result[2].reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result[0].emplace_back(attribute(offset + i * 3)->as<Allocate>());
       result[1].emplace_back(attribute(offset + i * 3 + 1)->as<Allocate>());
       result[2].emplace_back(attribute(offset + i * 3 + 2)->as<Allocate>());

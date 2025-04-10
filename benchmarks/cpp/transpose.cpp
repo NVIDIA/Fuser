@@ -57,10 +57,10 @@ std::vector<at::Tensor> generateInputs(
   // Vectorization | Unroll - Add 1 to sizes
   // Shift axis by 1 to disable vectorize loads
   if (non_vectorize_offset) {
-    for (auto idx : c10::irange(transpose_shape.size())) {
+    for (auto idx : arange(transpose_shape.size())) {
       transpose_shape[idx] += 1;
     }
-    for (auto idx : c10::irange(non_transpose_shape.size())) {
+    for (auto idx : arange(non_transpose_shape.size())) {
       non_transpose_shape[idx] += 1;
     }
   }

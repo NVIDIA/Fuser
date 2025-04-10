@@ -94,7 +94,7 @@ TEST_F(Tutorial, Memcpy) {
     // equal to the input as this is just a copy fusion. More commonly,
     // though, testValidate is used to validate outputs while
     // automatically adjusting thresholds of valid deviations
-    ASSERT_TRUE(outputs[0].equal(t0));
+    ASSERT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 
     // Next, instead of just running the fusion as is, we manually
     // schedule it so that it runs in parallel. In this case, we only
@@ -168,7 +168,7 @@ TEST_F(Tutorial, Memcpy) {
   // with NVFUSER_DUMP=launch_param
   auto outputs = ke.run({t0});
 
-  ASSERT_TRUE(outputs[0].equal(t0));
+  ASSERT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
 TEST_F(Tutorial, Reduction) {
@@ -342,11 +342,11 @@ TEST_F(Tutorial, ReductionRFactor) {
 
     // The fusion math should now look like:
     //
-    // tv0: root = logical = [i0]
-    // tv2 = reduction(tv0): root = [i0], logical = [r1/1024, i1024]
-    // tv1 = reduction(tv2): root = logical = [r1024]
+    // tv0: root = logical = [i{i0}]
+    // tv2 = reduction(tv0): root = [r{i0}], logical = [r{i0/1024}, i{1024}]
+    // tv1 = reduction(tv2): root = logical = [r{1024}]
     if (verbose_) {
-      fusion_copy.printMath();
+      fusion_copy.print();
     }
     // Notice that the reduction operation is now split into two
     // operations, where the first one takes care of the first domain, and the
@@ -654,20 +654,20 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // As mentioned above, we don't know any relationship between tv0
   // and tv1, so they should not be mapped.
-  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
+  for (const auto i : arange(tv0->getLogicalDomain().size())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
         tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i)));
   }
 
   // Thus, the outputs of the reshape ops are not mapped either
-  for (const auto i : c10::irange(tv2->nDims())) {
+  for (const auto i : arange(tv2->nDims())) {
     ASSERT_FALSE(exact_graph.disjointValSets().strictAreMapped(
         tv2->axis(i), tv3->axis(i)));
   }
 
   // Now, suppose we can say the inputs are exactly mapped. We
   // can manually add mappings:
-  for (const auto i : c10::irange(tv0->getLogicalDomain().size())) {
+  for (const auto i : arange(tv0->getLogicalDomain().size())) {
     exact_graph.mapVals(
         tv0->getLogicalDomain().at(i), tv1->getLogicalDomain().at(i));
   }
@@ -676,7 +676,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
   // intermediate and loop domains.
 
   // Check the root domains.
-  for (const auto i : c10::irange(tv2->getRootDomain().size())) {
+  for (const auto i : arange(tv2->getRootDomain().size())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv2->getRootDomain().at(i), tv3->getRootDomain().at(i)));
   }
@@ -689,7 +689,7 @@ TEST_F(Tutorial, IdModelReshapeAnalysis) {
 
   // The next operation is split. Its outputs, which are the loop
   // domains, should be mapped too.
-  for (const auto i : c10::irange(tv2->nDims())) {
+  for (const auto i : arange(tv2->nDims())) {
     ASSERT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv2->axis(i), tv3->axis(i)));
   }
@@ -786,7 +786,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -870,7 +870,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -953,7 +953,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -1033,7 +1033,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -1138,7 +1138,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 
   {
@@ -1244,7 +1244,7 @@ TEST_F(Tutorial, BasicTMA) {
     KernelExecutor ke;
     ke.compile(&fusion, {t}, {}, index32bit);
     auto outputs = ke.run({t});
-    ASSERT_TRUE(at::equal(t, outputs[0]));
+    ASSERT_TRUE(at::equal(t, outputs[0].as<at::Tensor>()));
   }
 }
 
@@ -1455,7 +1455,6 @@ TEST_F(Tutorial, PointwiseBroadcastTMA) {
 }
 
 TEST_F(Tutorial, TMABankConflictFreeTranspose) {
-  GTEST_SKIP() << "This test needs new IdModel based indexing.";
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
 
   Fusion fusion;
@@ -1552,7 +1551,7 @@ TEST_F(Tutorial, TMABankConflictFreeTranspose) {
   CompileParams index32bit{DataType::Int32, 255, false};
   ke.compile(&fusion, {t}, {}, index32bit);
   auto outputs = ke.run({t});
-  ASSERT_TRUE(at::equal(t.t(), outputs[0]));
+  ASSERT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
 }
 
 } // namespace nvfuser

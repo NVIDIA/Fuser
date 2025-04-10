@@ -146,7 +146,7 @@ TensorView* newForLinear(
 
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - red_dims)) {
+  for (auto idx : arange(ndims_out - red_dims)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {mapping_a.at(idx), mapping_b.at(idx), mapping_bias.at(idx)});
   }
@@ -435,7 +435,7 @@ TensorView* newForMatmul(TensorView* tv_a, TensorView* tv_b) {
   const std::vector<IterDomain*>& mapping_b =
       ops::mapMatmulOpIterDomains(orig_domain_b, 1, ndims_out);
 
-  for (auto idx : c10::irange(ndims_out - red_dims)) {
+  for (auto idx : arange(ndims_out - red_dims)) {
     out_domain[idx] =
         ops::newOutputIterDomain({mapping_a.at(idx), mapping_b.at(idx)});
   }
@@ -517,7 +517,7 @@ SdpfaFwdResult sdpfa_fwd(
 
   // TensorView for attention output
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
-  for (auto idx : c10::irange(ndims_out - 2)) {
+  for (auto idx : arange(ndims_out - 2)) {
     out_domain[idx] = ops::newOutputIterDomain(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
@@ -532,7 +532,7 @@ SdpfaFwdResult sdpfa_fwd(
 
   // TensorView for log_sumexp [DIDx(D)?,N, H, L]
   std::vector<IterDomain*> log_sumexp_dom(ndims_out - 1, nullptr);
-  for (auto idx : c10::irange(ndims_out - 2)) {
+  for (auto idx : arange(ndims_out - 2)) {
     log_sumexp_dom[idx] = ops::newOutputIterDomain(
         {query_domain.at(idx), key_domain.at(idx), value_domain.at(idx)});
   }
@@ -544,11 +544,23 @@ SdpfaFwdResult sdpfa_fwd(
   TensorView* log_sumexp =
       IrBuilder::create<TensorView>(log_sumexp_td, DataType::Float);
 
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+  // API changes in torch 2.7.0
+  // The torch API returns philox_seed -> rng_state (uint64_t[2])
+  // and philox_offset -> _unused (empty tensor)
+  TensorView* philox_seed = TensorViewBuilder()
+                                .shape(std::vector<int64_t>{2})
+                                .dtype(DataType::UInt64)
+                                .build();
+  TensorView* philox_offset =
+      TensorViewBuilder().dtype(DataType::UInt64).build();
+#else
   // Scalar tensors of int64_t dtype.
   TensorView* philox_seed = TensorViewBuilder().dtype(DataType::Int).build();
   TensorView* philox_offset = TensorViewBuilder().dtype(DataType::Int).build();
   philox_seed->setCpuScalar(true);
   philox_offset->setCpuScalar(true);
+#endif
 
   // Set default values for dropout_p (0.0), is_causal(false)
   if (dropout_p == nullptr) {
@@ -641,10 +653,6 @@ SdpfaBwdResult sdpfa_bwd(
     is_causal = IrBuilder::create<Val>(false, DataType::Bool);
   }
 
-  // Mark CPU scalar tensors.
-  philox_seed->setCpuScalar(true);
-  philox_offset->setCpuScalar(true);
-
   // Query: [N,H,L,E], Key: [N,H,S,E], Value: [N,H,S,Ev] Output: [N,H,L,Ev]
   TensorView* grad_query = ops::newOutputTV({query}, query->dtype());
   TensorView* grad_key = ops::newOutputTV({key}, key->dtype());
@@ -707,7 +715,7 @@ TensorView* embedding_fwd(
   auto ndims_out = input_domain.size() + 1;
   std::vector<IterDomain*> out_domain(ndims_out, nullptr);
 
-  for (auto idx : c10::irange(ndims_out - 1)) {
+  for (auto idx : arange(ndims_out - 1)) {
     out_domain[idx] = ops::newOutputIterDomain({input_domain[idx]});
   }
   out_domain[ndims_out - 1] = ops::newOutputIterDomain({weight_domain.back()});

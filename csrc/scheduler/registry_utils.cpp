@@ -78,7 +78,7 @@ namespace {
 std::deque<std::deque<TensorView*>> tvChains(
     std::deque<std::deque<Val*>> val_chains) {
   std::deque<std::deque<TensorView*>> tv_chains(val_chains.size());
-  for (const auto i : c10::irange(val_chains.size())) {
+  for (const auto i : arange(val_chains.size())) {
     auto tv_iterable = ir_utils::filterByType<TensorView>(val_chains[i]);
     tv_chains[i] =
         std::deque<TensorView*>(tv_iterable.begin(), tv_iterable.end());
@@ -169,13 +169,12 @@ bool rejectScheduleForMemoryPromotion(
     Fusion* fusion,
     SchedulerType scheduler_type) {
   for (auto expr : fusion->exprs()) {
-    if (expr->isOneOf<SelectOp, IndexSelectOp, TorchGatherOp>()) {
+    if (expr->isOneOf<SelectOp, IndexSelectOp, GatherOp>()) {
       // For now, only relax the input requirement when it's
       // takeAlongAxis. Also since this would require memory
       // promotion, i.e., persistent global sync in the case of
       // block-parallel ops, it needs to be explictly enabled.
-      if (expr->isA<TorchGatherOp>() &&
-          expr->as<TorchGatherOp>()->exactSizes() &&
+      if (expr->isA<GatherOp>() && expr->as<GatherOp>()->exactSizes() &&
           isOptionEnabled(EnableOption::MemoryPromotion)) {
         continue;
       }
@@ -442,14 +441,14 @@ bool reductionInterferingView(
   std::vector<std::vector<IterDomain*>> groups;
 
   // Do this three times as we could have a 3D scheduler at maximum
-  for (auto dimension : c10::irange(3)) {
+  for (auto dimension : arange(3)) {
     // Tracker for this group
     std::vector<IterDomain*> current_dims;
 
     // Tracker of what we've already processed to remove from dims
     std::unordered_set<IterDomain*> processed;
 
-    for (auto i : c10::irange(dims.size())) {
+    for (auto i : arange(dims.size())) {
       auto dim_i = dims.size() - i - 1;
       if (dims[dim_i]->isReduction() != dims[dims.size() - 1]->isReduction()) {
         if (dimension == 0) {
@@ -511,7 +510,7 @@ bool reductionInterferingView(
   // since it should be relatively small int vectors of a small total nDims,
   // not too worried about it now.
 
-  for (auto first_dim_i : c10::irange(disjoint_groups.size())) {
+  for (auto first_dim_i : arange(disjoint_groups.size())) {
     for (auto second_dim_i = first_dim_i + 1;
          second_dim_i < disjoint_groups.size();
          ++second_dim_i) {
@@ -1016,8 +1015,7 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
   for (auto expr : fusion->exprs()) {
     if (scheduler_tools::isResizeBasedOp(expr)) {
       has_resize = true;
-    } else if (
-        expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+    } else if (expr->isOneOf<GatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
       has_index_op = true;
     }
 

@@ -7,14 +7,13 @@
 // clang-format on
 #include <runtime/fusion_kernel_runtime.h>
 #include <tests/cpp/validator.h>
-
 #include <validator_utils.h>
 
 namespace nvfuser {
 
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
+    const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& aten_inputs,
     std::vector<at::Tensor> aten_outputs,
     int line_number,
@@ -61,7 +60,7 @@ void testValidate(
       " vs ",
       aten_inputs.size());
 
-  for (auto i : c10::irange(fusion->inputs().size())) {
+  for (auto i : arange(fusion->inputs().size())) {
     if (fusion->inputs()[i]->isA<TensorView>()) {
       NVF_ERROR(aten_inputs[i].is<at::Tensor>(), "Mismatch of tensor inputs.");
 
@@ -77,12 +76,16 @@ void testValidate(
     }
   }
 
-  for (auto i : c10::irange(non_hidden_outputs.size())) {
+  for (auto i : arange(non_hidden_outputs.size())) {
     Val* out = non_hidden_outputs[i];
     NVF_ERROR(out->isA<TensorView>());
     TensorView* out_tv = out->as<TensorView>();
 
-    const at::Tensor& fusion_output_tensor = fusion_outputs[i];
+    NVF_ERROR(
+        fusion_outputs[i].is<at::Tensor>(),
+        "Fusion output is not a tensor at index ",
+        i);
+    const at::Tensor& fusion_output_tensor = fusion_outputs[i].as<at::Tensor>();
     const at::Tensor& aten_output_tensor = aten_outputs[i];
 
     NVF_ERROR(
@@ -94,7 +97,7 @@ void testValidate(
 
     NVF_ERROR(
         aten_output_tensor.dim() == fusion_output_tensor.dim() &&
-            fusion_outputs[i].dim() ==
+            fusion_output_tensor.dim() ==
                 static_cast<int64_t>(
                     TensorDomain::noReductions(out_tv->getLogicalDomain())
                         .size()),
@@ -151,7 +154,7 @@ void testValidate(
 
 void testValidate(
     Fusion* fusion,
-    const std::vector<at::Tensor>& fusion_outputs,
+    const KernelArgumentHolder& fusion_outputs,
     const KernelArgumentHolder& aten_inputs,
     int line_number,
     const char* file_name,

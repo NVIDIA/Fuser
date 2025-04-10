@@ -7,13 +7,12 @@ import torch
 from enum import Enum, auto
 from torch.nn.attention import SDPBackend
 
-import multidevice_fixtures
+import fixtures
 import nvfuser
-import utils
 from nvfuser import DataType, FusionDefinition
+from nvfuser.testing.utils import create_sdpa_rng_tensors, define_sdpa_rng_state
 
-
-multidevice_test = multidevice_fixtures.multidevice_test
+multidevice_test = fixtures.multidevice_test
 
 
 @pytest.mark.mpi
@@ -38,7 +37,7 @@ def test_pointwise(multidevice_test):
     class Model(FusionDefinition):
         def definition(self):
             self.t0 = self.define_tensor(
-                (-1, -1), contiguity=(False, False), dtype=DataType.Float
+                (-1, -1), contiguity=False, dtype=DataType.Float
             )
             self.t1 = self.ops.relu(self.t0)
             self.t2 = self.ops.add(self.t1, self.t1)
@@ -54,272 +53,9 @@ def test_pointwise(multidevice_test):
     sharded_input = multidevice_test.shard_tensor(unsharded_input, 0, mesh)
 
     fd = Model()
-    (output,) = fd.execute([sharded_input])
-    torch.testing.assert_close(output.local.cpu(), unsharded_input.relu() * 2)
-    assert output.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
-
-
-@pytest.mark.mpi
-def test_linear(multidevice_test):
-    class Model(FusionDefinition):
-        def __init__(self, num_devices, batch, sequence, hidden):
-            super().__init__()
-            self._num_devices = num_devices
-            self._batch = batch
-            self._sequence = sequence
-            self._hidden = hidden
-
-        def definition(self):
-            d, b, s, e = self._num_devices, self._batch, self._sequence, self._hidden
-            self.inp = self.define_tensor([b, s, e])
-            self.weight = self.define_tensor([d, e, e], contiguity=[True, True, True])
-            self.bias = self.define_tensor([d, e], contiguity=[True, True])
-            out = self.ops.linear(self.inp, self.weight, self.bias)
-            self.add_output(out)
-
-        def multidevice_schedule(self):
-            mesh = nvfuser.DeviceMesh(range(self._num_devices))
-            for t in [self.inp, self.weight, self.bias]:
-                self.sched._set_device_mesh(t, mesh)
-            for t in [self.weight, self.bias]:
-                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-
-    d = multidevice_test.size
-    rank = multidevice_test.rank
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
-    b, s, e = 2, 1024, 768
-    inp_tensor = torch.randn(b, s, e, device="cuda")
-    unsharded_weight_tensor = torch.randn(d * e, e, device="cuda")
-    weight_tensor = unsharded_weight_tensor.view([d, e, e])[rank : rank + 1]
-    unsharded_bias_tensor = torch.randn(d * e, device="cuda")
-    bias_tensor = unsharded_bias_tensor.view([d, e])[rank : rank + 1]
-
-    fd = Model(d, b, s, e)
-    (out_tensor,) = fd.execute([inp_tensor, weight_tensor, bias_tensor])
-
-    # [b, s, d*e]
-    unsharded_out_tensor = torch.nn.functional.linear(
-        inp_tensor, unsharded_weight_tensor, unsharded_bias_tensor
-    )
-    expected_out_tensor = unsharded_out_tensor.view([b, s, d, e]).permute(2, 0, 1, 3)[
-        rank : rank + 1
-    ]
-    # rtol is the same as the default for fp32. atol is slightly increased.
-    assert out_tensor.axis_sharded_on(nvfuser.ParallelType.mesh_x) == 0
-    torch.testing.assert_close(
-        out_tensor.local, expected_out_tensor, rtol=1.3e-6, atol=1e-3
-    )
-
-
-@pytest.mark.mpi
-def test_linear_loop_split(multidevice_test):
-    d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
-
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor([-1, -1, -1])
-            self.weight = self.define_tensor([-1, -1])
-            self.bias = self.define_tensor([-1])
-            self.out = self.ops.linear(self.inp, self.weight, self.bias)
-            self.add_output(self.out)
-
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.bias, self.out]:
-                self.sched._set_device_mesh(t, mesh)
-
-            # Shard N for weight (N, K) and bias (N)
-            for t in [self.weight, self.bias]:
-                self.sched.split(t, 0, d, False)
-                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-                self.sched.set_allocation_as_loop(t)
-
-            # Output of linear: {.., i{M}, i{N}, r{K}}
-            # Shard N -> axis(-2)
-            self.sched.split(self.out, -2, d, False)
-            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.out)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
-    b, s, e = 2, 1024, 768
-    inp_tensor = torch.randn(b, s, e, device="cuda")
-    unsharded_weight_tensor = torch.randn(d * e, e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(
-        unsharded_weight_tensor, 0, mesh
-    )
-    unsharded_bias_tensor = torch.randn(d * e)
-    sharded_bias_tensor = multidevice_test.shard_tensor(unsharded_bias_tensor, 0, mesh)
-
-    fd = Model()
-    (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor, sharded_bias_tensor])
-
-    # [b, s, d*e]
-    unsharded_out_tensor = torch.nn.functional.linear(
-        inp_tensor.cpu(), unsharded_weight_tensor, unsharded_bias_tensor
-    )
-    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
-    # rtol is the same as the default for fp32. atol is slightly increased.
-    torch.testing.assert_close(
-        out_tensor.local, expected_out_tensor, rtol=1.3e-6, atol=1e-3
-    )
-
-
-@pytest.mark.mpi
-def test_matmul_allreduce(multidevice_test):
-    d, b, s, e = multidevice_test.size, 1, 4, 8
-
-    class Model(FusionDefinition):
-        def definition(self) -> None:
-            # A pattern appeared in the backprop of the first linear layer in
-            # Transformer's MLP.
-            self.out_grad = self.define_tensor(
-                [d, b * s, e], contiguity=True, dtype=DataType.Half
-            )
-            self.weight = self.define_tensor(
-                [d, e, e], contiguity=True, dtype=DataType.Half
-            )
-            in_grad = self.ops.matmul(self.out_grad, self.weight)
-            in_grad = self.ops.sum(in_grad, [0])
-            in_grad = self.ops.reshape(in_grad, [b, s, e])
-            in_grad = self.ops.cast(in_grad, dtype=DataType.Float)
-            self.add_output(in_grad)
-
-        def multidevice_schedule(self) -> None:
-            mesh = nvfuser.DeviceMesh(range(d))
-            for t in [self.out_grad, self.weight]:
-                self.sched._set_device_mesh(t, mesh)
-                self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
-
-    rank = multidevice_test.rank
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
-    unsharded_out_grad = torch.randn(b * s, d * e, dtype=torch.half, device="cpu")
-    unsharded_weight = torch.randn(d * e, e, dtype=torch.half, device="cpu")
-    expected_in_grad = (
-        (unsharded_out_grad @ unsharded_weight).view([b, s, e]).to(torch.float32)
-    )
-
-    out_grad = (
-        unsharded_out_grad.view([b * s, d, e])
-        .permute([1, 0, 2])
-        .contiguous()[rank : rank + 1]
-    )
-    weight = unsharded_weight.view([d, e, e])[rank : rank + 1]
-
-    fd = Model()
-    (in_grad,) = fd.execute([out_grad.cuda(), weight.cuda()])
-    # Use the default rtol for half because the output, although being float32,
-    # is a straight cast from half.
-    torch.testing.assert_close(
-        in_grad.local.cpu(), expected_in_grad, rtol=1e-3, atol=1e-2
-    )
-
-
-@pytest.mark.mpi
-def test_matmul_loop_split(multidevice_test):
-    d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
-
-    class Model(FusionDefinition):
-        def definition(self):
-            self.inp = self.define_tensor([-1, -1, -1])
-            self.weight = self.define_tensor([-1, -1])
-            self.out = self.ops.matmul(self.inp, self.weight)
-            self.add_output(self.out)
-
-        def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.out]:
-                self.sched._set_device_mesh(t, mesh)
-
-            # Shard N for weight (K, N)
-            self.sched.split(self.weight, -1, d, False)
-            self.sched.parallelize(self.weight, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.weight)
-
-            # Output of linear: {.., i{M}, i{N}, r{K}}
-            # Shard N -> axis(-2)
-            self.sched.split(self.out, -2, d, False)
-            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.out)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
-    b, s, e = 2, 1024, 768
-    inp_tensor = torch.randn(b, s, e, device="cuda")
-    unsharded_weight_tensor = torch.randn(e, d * e)
-    sharded_weight_tensor = multidevice_test.shard_tensor(
-        unsharded_weight_tensor, -1, mesh
-    )
-
-    fd = Model()
-    (out_tensor,) = fd.execute([inp_tensor, sharded_weight_tensor])
-
-    # [b, s, d*e]
-    unsharded_out_tensor = torch.matmul(inp_tensor.cpu(), unsharded_weight_tensor)
-    expected_out_tensor = multidevice_test.shard_tensor(unsharded_out_tensor, -1, mesh)
-    # rtol is the same as the default for fp32. atol is slightly increased.
-    torch.testing.assert_close(
-        out_tensor.local, expected_out_tensor.squeeze(0), rtol=1.3e-6, atol=1e-3
-    )
-
-
-@pytest.mark.mpi
-def test_matmul_allreduce_loop_split(multidevice_test):
-    d = multidevice_test.size
-    mesh = nvfuser.DeviceMesh(range(d))
-
-    class Model(FusionDefinition):
-        def definition(self) -> None:
-            self.inp = self.define_tensor(
-                [-1, -1], contiguity=True, dtype=DataType.Half
-            )
-            self.weight = self.define_tensor(
-                [-1, -1], contiguity=True, dtype=DataType.Half
-            )
-            self.out = self.ops.matmul(self.inp, self.weight)
-            self.add_output(self.out)
-
-        def multidevice_schedule(self) -> None:
-            for t in [self.inp, self.weight]:
-                self.sched._set_device_mesh(t, mesh)
-
-            # Shard K for inp (M, K)
-            self.sched.split(self.inp, -1, d, False)
-            self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.inp)
-
-            # Shard K for weight (K, N)
-            self.sched.split(self.weight, 0, d, False)
-            self.sched.parallelize(self.weight, 0, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.weight)
-
-            # [i{M}, i{N}, r{K}]
-            self.sched.split(self.out, -1, d, False)
-            # [i{M}, i{N}, r{d}, r{K//d}]
-            self.local_out = self.sched.rfactor(self.out, dims=[-1])
-            # local_out = [i{M}, i{N}, i{d}, r{K//d}]
-            # out = [i{M}, i{N}, r{d}]
-            self.sched._set_device_mesh(self.local_out, mesh)
-            self.sched.parallelize(self.local_out, -2, nvfuser.ParallelType.mesh_x)
-
-    torch.cuda.set_device(multidevice_test.local_rank)
-
-    b, s, e = 1, 4, 8
-    unsharded_inp = torch.randn(b * s, d * e, dtype=torch.half)
-    unsharded_weight = torch.randn(d * e, e, dtype=torch.half)
-    sharded_inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
-    sharded_weight = multidevice_test.shard_tensor(unsharded_weight, 0, mesh)
-
-    expected_out = torch.matmul(unsharded_inp, unsharded_weight)
-
-    fd = Model()
-    (out,) = fd.execute([sharded_inp, sharded_weight])
-
-    torch.testing.assert_close(out.local.cpu(), expected_out, rtol=1e-3, atol=1e-2)
+    (output,), (output_sharding,) = fd.execute([sharded_input])
+    torch.testing.assert_close(output.cpu(), unsharded_input.relu() * 2)
+    assert output_sharding.axis_sharded_on(nvfuser.ParallelType.mesh_x) == -1
 
 
 class QkvFormat(Enum):
@@ -328,7 +64,7 @@ class QkvFormat(Enum):
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
@@ -423,7 +159,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
                 return t.permute(1, 0, 3, 2, 4).contiguous().transpose(2, 3)
 
     fd = Model(qkv_format)
-    outs = fd.execute(
+    outs, _ = fd.execute(
         [
             head_parallelize(q).requires_grad_(),
             head_parallelize(k).requires_grad_(),
@@ -433,15 +169,15 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
     )
     out, q_grad, k_grad, v_grad = outs
 
-    def assert_close(actual: nvfuser.DistributedTensor, expected: torch.Tensor):
+    def assert_close(actual: torch.Tensor, expected: torch.Tensor) -> None:
         match qkv_format:
             case QkvFormat.BHSE:
-                assert actual.local.is_contiguous()
+                assert actual.is_contiguous()
             case QkvFormat.BSHE:
-                assert actual.local.transpose(2, 3).is_contiguous()
+                assert actual.transpose(2, 3).is_contiguous()
 
         # Use the default rtol for bfloat16 and a relaxed atol.
-        torch.testing.assert_close(actual.local, expected, rtol=1.6e-2, atol=1e-2)
+        torch.testing.assert_close(actual, expected, rtol=1.6e-2, atol=1e-2)
 
     assert_close(out, head_parallelize(expected_out))
     assert_close(q_grad, head_parallelize(expected_q_grad))
@@ -450,7 +186,7 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.parametrize("qkv_format", [QkvFormat.BHSE, QkvFormat.BSHE])
@@ -458,6 +194,9 @@ def test_sdpa(multidevice_test, qkv_format: QkvFormat):
 def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
+    h, e = 12, 768
+    if h % d != 0:
+        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
 
     class Model(FusionDefinition):
         def __init__(self, qkv_format: QkvFormat):
@@ -473,7 +212,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
 
             self.q, self.k, self.v, self.out_grad = [
                 self.define_tensor(
-                    shape=[-1, -1, -1, -1],
+                    shape=[-1, h, -1, e // h],
                     dtype=DataType.BFloat16,
                     stride_order=stride_order,
                 )
@@ -484,7 +223,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             # positive probability.
             dropout_p = self.define_scalar(0.0, dtype=DataType.Double)
             is_causal = self.define_scalar(True, dtype=DataType.Bool)
-            self.attn, self.log_sumexp, seed, offset = self.ops.sdpfa_fwd(
+            self.attn, self.log_sumexp, self.seed, self.offset = self.ops.sdpfa_fwd(
                 self.q, self.k, self.v, dropout_p, is_causal, scale=None
             )
 
@@ -497,8 +236,8 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                 self.log_sumexp,
                 dropout_p,
                 is_causal,
-                seed,
-                offset,
+                self.seed,
+                self.offset,
                 scale=None,
             )
 
@@ -515,8 +254,9 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
                 self.k_grad,
                 self.v_grad,
             ]
+            non_sharded_tvs = [self.seed, self.offset]
 
-            for t in input_tvs + output_tvs:
+            for t in input_tvs + output_tvs + non_sharded_tvs:
                 self.sched._set_device_mesh(t, mesh)
 
             # Shard input tensorviews
@@ -539,9 +279,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             for t in output_tvs:
                 self.sched.set_allocation_as_loop(t)
 
-    b, s, h, e = 2, 1024, 12, 768
-    if h % d != 0:
-        pytest.skip(f"We only support even split, so {h} has to be divisible by {d}.")
+    b, s = 2, 1024
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -570,7 +308,7 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
             case QkvFormat.BSHE:
                 return t.transpose(1, 2).contiguous().transpose(1, 2)
 
-    attn, q_grad, k_grad, v_grad = fd.execute(
+    (attn, q_grad, k_grad, v_grad), _ = fd.execute(
         [
             reformat_tensor(sharded_q).requires_grad_(),
             reformat_tensor(sharded_k).requires_grad_(),
@@ -582,13 +320,13 @@ def test_sdpa_loop_split(multidevice_test, qkv_format: QkvFormat):
     def assert_close(actual, expected):
         match qkv_format:
             case QkvFormat.BHSE:
-                assert actual.local.is_contiguous()
+                assert actual.is_contiguous()
             case QkvFormat.BSHE:
-                assert actual.local.transpose(1, 2).is_contiguous()
+                assert actual.transpose(1, 2).is_contiguous()
 
         # Use the default rtol for bfloat16 and a relaxed atol.
         torch.testing.assert_close(
-            actual.local,
+            actual,
             multidevice_test.shard_tensor(expected, 1, mesh),
             rtol=1.6e-2,
             atol=1e-2,
@@ -995,14 +733,14 @@ class TransformerForwardFusion(FusionDefinition):
 # TODO(#2962): validate the numbers as well. Currently, the numbers are off
 # by a lot, making comparison infeasible.
 def _assert_shape_dtype(
-    t: nvfuser.DistributedTensor, expected_sizes: list[int], expected_dtype: torch.dtype
+    t: torch.Tensor, expected_sizes: list[int], expected_dtype: torch.dtype
 ) -> None:
-    assert t.local.shape == torch.Size(expected_sizes)
-    assert t.local.dtype == expected_dtype
+    assert t.shape == torch.Size(expected_sizes)
+    assert t.dtype == expected_dtype
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
@@ -1077,7 +815,7 @@ def test_transformer_forward(multidevice_test, benchmark):
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
     # Warm up and validate.
-    outs = warmup_fn()
+    outs, _ = warmup_fn()
     (
         layernorm0_mean,
         layernorm0_rstd,
@@ -1098,8 +836,9 @@ def test_transformer_forward(multidevice_test, benchmark):
     _assert_shape_dtype(mha_linear0_out, [1, b, s, e * 3 // d], torch.bfloat16)
     _assert_shape_dtype(sdpa_out, [1, b, h // d, s, e // h], torch.bfloat16)
     _assert_shape_dtype(sdpa_logsum_exp, [1, b, h // d, s], torch.float32)
-    _assert_shape_dtype(sdpa_seed, [], torch.int64)
-    _assert_shape_dtype(sdpa_offset, [], torch.int64)
+    ref_philox_seed, ref_philox_offset = create_sdpa_rng_tensors()
+    _assert_shape_dtype(sdpa_seed, ref_philox_seed.shape, ref_philox_seed.dtype)
+    _assert_shape_dtype(sdpa_offset, ref_philox_offset.shape, ref_philox_offset.dtype)
     _assert_shape_dtype(mha_linear1_out, [b, s, e], torch.bfloat16)
     _assert_shape_dtype(layernorm1_mean, [b, s], torch.float32)
     _assert_shape_dtype(layernorm1_rstd, [b, s, 1], torch.float32)
@@ -1201,8 +940,7 @@ class TransformerBackwardFusion(FusionDefinition):
             contiguity=True,
             dtype=DataType.Float,
         )
-        mha_sdpa_seed = self.define_tensor(shape=[], dtype=DataType.Int, is_cpu=True)
-        mha_sdpa_offset = self.define_tensor(shape=[], dtype=DataType.Int, is_cpu=True)
+        mha_sdpa_seed, mha_sdpa_offset = define_sdpa_rng_state(self)
         self.mha_linear0_weight = self.define_tensor(
             shape=[d, e * 3 // d, e],
             contiguity=True,
@@ -1589,7 +1327,7 @@ class TransformerBackwardFusion(FusionDefinition):
 
 
 @pytest.mark.skipif(
-    utils.is_pre_ampere(),
+    nvfuser.testing.utils.is_pre_ampere(),
     reason="Flash Attention is only supported on Ampere and newer devices.",
 )
 @pytest.mark.mpi
@@ -1625,6 +1363,7 @@ def test_transformer_backward(multidevice_test, benchmark):
     mha_linear0_weight = torch.testing.make_tensor(
         d, e * 3 // d, e, dtype=torch.bfloat16, device="cpu"
     )
+    sdpa_philox_seed, sdpa_philox_offset = create_sdpa_rng_tensors()
     ins = [
         30,
         2722423872872113,
@@ -1643,8 +1382,8 @@ def test_transformer_backward(multidevice_test, benchmark):
         mha_linear0_out[rank : rank + 1].cuda(),
         sdpa_out[rank : rank + 1].cuda(),
         sdpa_log_sumexp[rank : rank + 1].cuda(),
-        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
-        torch.testing.make_tensor((), dtype=torch.int64, device="cpu"),
+        sdpa_philox_seed,
+        sdpa_philox_offset,
         mha_linear0_weight[rank : rank + 1].cuda(),
         torch.testing.make_tensor((e,), dtype=torch.bfloat16, device="cuda"),
         torch.testing.make_tensor((b, s), dtype=torch.float32, device="cuda"),
@@ -1657,7 +1396,7 @@ def test_transformer_backward(multidevice_test, benchmark):
 
     warmup_fn, benchmark_fn = get_benchmark_fns(lambda: fd.execute(ins))
 
-    outs = warmup_fn()
+    outs, _ = warmup_fn()
     (
         mlp_linear1_weight_grad,
         mlp_linear1_bias_grad,

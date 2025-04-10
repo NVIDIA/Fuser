@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
 #include <compute_at.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/lower2device.h>
@@ -49,7 +48,7 @@ NVFUSER_DEFINE_CLONE(TensorView)
 
 std::string TensorView::toString(int indent_size) const {
   std::stringstream ss;
-  ss << ir_utils::varName(this);
+  indent(ss, indent_size) << ir_utils::varName(this);
   switch (getMemoryType()) {
     case MemoryType::Global:
       ss << "_g";
@@ -66,7 +65,7 @@ std::string TensorView::toString(int indent_size) const {
     default:
       NVF_THROW("Unknown tensor memory type.");
   }
-  ss << "_" << dtype() << domain()->toString(indent_size);
+  ss << "_" << dtype() << domain()->toString();
 
   if (getComputeAtPosition() > 0) {
     ss << " ca_pos( ";
@@ -121,7 +120,8 @@ TensorView::TensorView(const TensorView* src, IrCloner* ir_cloner)
       compute_with_consumers_(ir_cloner->clone(src->compute_with_consumers_)),
       compute_with_pos_(src->compute_with_pos_),
       promote_reuse_(src->promote_reuse_),
-      mesh_(src->mesh_) {}
+      mesh_(src->mesh_),
+      tmem_dim_sep_pos_(src->tmem_dim_sep_pos_) {}
 
 void TensorView::printTransforms() const {
   IrTransformPrinter(std::cout).printTransforms(this);
@@ -526,7 +526,8 @@ TensorView* TensorView::merge(int64_t axis_o, int64_t axis_i) {
 TensorView* TensorView::resize(
     int64_t axis,
     Val* left_expansion,
-    Val* right_expansion) {
+    Val* right_expansion,
+    std::optional<IterType> iter_type) {
   NVF_ERROR(
       nDims() > 0,
       "Tried to do resize on a 0-dim TensorView. ",
@@ -559,7 +560,7 @@ TensorView* TensorView::resize(
       " Parallelization strategy must be set after calling resize: ",
       toString());
 
-  domain()->resize(axis, left_expansion, right_expansion);
+  domain()->resize(axis, left_expansion, right_expansion, iter_type);
   return this;
 }
 
@@ -569,7 +570,7 @@ TensorView* TensorView::flatten(int64_t from, int64_t to) {
   to = wrapDim(to);
   NVF_CHECK(from <= to, "Invalid flatten range. From: ", from, " To: ", to);
   int64_t num_merges = to - from;
-  for (auto _ : c10::irange(num_merges)) {
+  for (auto _ : arange(num_merges)) {
     (void)_;
     merge(from);
   }
@@ -779,12 +780,6 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
       "Error rfactoring ",
       this,
       " its definition is either a nullptr or not a reduction.");
-  // For hopper matmuls, the mma_result logical domain is reordered as [M, N, K]
-  // using commitLeafToLogical. Thus, the original logical domain is moved to
-  // the root domain.
-  NVF_CHECK(
-      definition()->isA<MmaOp>() || !domain()->hasRoot(),
-      "Cannot call rfactor on the same view twice.");
   NVF_CHECK(
       !definition()->isA<GroupedReductionOp>(),
       "For GroupedReductionOp, use TensorView::rFactor(const std::vector<int64_t>& axes, const std::vector<TensorView*>& tvs)");
@@ -818,12 +813,7 @@ TensorView* TensorView::rFactor(const std::vector<int64_t>& axes) {
     // Initial reduction that still uses mma to combine
     //  the input.
     IrBuilder::create<MmaOp>(
-        producer,
-        mma->inA(),
-        mma->inB(),
-        mma->init(),
-        mma->axisMapping(),
-        mma->macro());
+        producer, mma->inA(), mma->inB(), mma->init(), mma->macro());
 
     // Remaining reduction that can be scheduled cross
     //  warp or cta.
@@ -868,7 +858,7 @@ TensorView* TensorView::multiOutputRFactorHelper(
 
     // construct a trivial logical domain map
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : c10::irange(logical.size())) {
+    for (const auto i : arange(logical.size())) {
       id_map[this_logical[i]] = logical[i];
     }
 
@@ -931,7 +921,7 @@ std::vector<TensorView*> TensorView::rFactor(
       definition()->outputs().size() == tvs.size(),
       "Rfactor of a multi-output reduction not used correctly");
 
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     NVF_CHECK(
         definition()->output(i) == tvs.at(i),
         "Rfactor of a multi-output reduction not used correctly");
@@ -950,13 +940,13 @@ std::vector<TensorView*> TensorView::rFactor(
 
   // Make sure this gets rfactored last so everybody gets
   //  replayed correctly
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     if (this != tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
   }
 
-  for (const auto i : c10::irange(tvs.size())) {
+  for (const auto i : arange(tvs.size())) {
     if (this == tvs.at(i)) {
       rf_tvs.at(i) = multiOutputRFactorHelper(tvs.at(i), axes);
     }
@@ -1301,7 +1291,7 @@ void TensorView::clearReductionIterDomains() {
   std::vector<IterDomain*> new_logical;
   std::vector<IterDomain*> new_alloc;
   std::vector<std::optional<bool>> new_contig;
-  for (const auto i : c10::irange(logical.size())) {
+  for (const auto i : arange(logical.size())) {
     auto root_i = logical.at(i);
     if (!root_i->isReduction()) {
       new_logical.push_back(root_i);
@@ -1440,6 +1430,9 @@ void TensorView::commitLeafToLogical() {
 }
 
 void TensorView::setTMemDimSepPos(int64_t pos) {
+  NVF_CHECK(
+      getMemoryType() == MemoryType::Tensor,
+      "TMem dimension separator is only supported for tensor memory");
   int64_t ndims = (int64_t)getMaybeAllocationDomain().size();
   pos = nvfuser::wrapDim(pos, ndims + 1);
   NVF_CHECK(
@@ -1556,7 +1549,7 @@ TensorViewBuilder& TensorViewBuilder::expanded(std::vector<bool> expanded) {
 TensorView* TensorViewBuilder::build() const {
   // Build the domain
   std::vector<IterDomain*> domain(ndims_, nullptr);
-  for (const auto i : c10::irange(ndims_)) {
+  for (const auto i : arange(ndims_)) {
     bool is_expanded = false;
     Val* extent = nullptr;
     Val* expanded_extent = nullptr;

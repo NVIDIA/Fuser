@@ -145,7 +145,8 @@ Communication::Communication(
     Team team,
     DeviceIdxType root,
     RedOpType red_op,
-    int64_t scattered_axis)
+    int64_t scattered_axis,
+    CommunicatorBackend backend)
     : Expr(passkey) {
   NVF_ERROR(
       in->getDeviceMesh().size() > 0,
@@ -161,6 +162,7 @@ Communication::Communication(
   addDataAttribute(root);
   addDataAttribute(red_op);
   addDataAttribute(scattered_axis);
+  addDataAttribute(backend);
 
   validate();
 }
@@ -191,7 +193,7 @@ int64_t Communication::getRootRelativeIndex() {
   return getRelativeIndex(team(), root());
 }
 
-std::string Communication::toString(const int indent_size) const {
+std::string Communication::toInlineString(const int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Communication " << name() << " ("
                           << "type=" << type() << ", "
@@ -205,12 +207,13 @@ std::string Communication::toString(const int indent_size) const {
   if (!outputs().empty()) {
     ss << ", output=" << out();
   }
-  ss << ")\n";
+  ss << ", backend=" << backend();
+  ss << ")";
   return ss.str();
 }
 
-std::string Communication::toInlineString(int indent_size) const {
-  return toString(indent_size);
+std::string Communication::toString(int indent_size) const {
+  return toInlineString(indent_size) + "\n";
 }
 
 std::ostream& operator<<(std::ostream& os, const P2PCommunicationType& type) {
@@ -307,7 +310,7 @@ c10::intrusive_ptr<c10d::Work> postGather(
   if (my_device_index == communication->root()) {
     output_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(communication->team().size())) {
+    for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
           !communication->in()->getDeviceMesh().has(communication->root())) {
         output_tensors[0].push_back(input_tensor);
@@ -360,7 +363,7 @@ c10::intrusive_ptr<c10d::Work> postScatter(
   if (my_device_index == communication->root()) {
     input_tensors.resize(1);
     int64_t j = 0;
-    for (auto i : c10::irange(communication->team().size())) {
+    for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
           !communication->out()->getDeviceMesh().has(communication->root())) {
         input_tensors.front().push_back(output_tensor);

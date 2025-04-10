@@ -15,7 +15,7 @@
 #     Skips python API target `libnvfuser.so`, i.e. `_C.cpython-xxx.so`
 #
 #   --no-test
-#     Skips cpp tests `nvfuser_tests`
+#     Skips cpp tests `test_nvfuser`
 #
 #   --no-benchmark
 #     Skips benchmark target `nvfuser_bench`
@@ -55,7 +55,7 @@
 #     to identify the cuda toolkit version
 #
 #   --cpp=STANDARD
-#     Specify the C++ standard to use for building nvfuser. The default is C++17.
+#     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
 
 import multiprocessing
@@ -66,7 +66,7 @@ import sys
 
 import setuptools
 import setuptools.command.build_ext
-from setuptools import Extension, setup
+from setuptools import Extension, setup, find_packages
 
 # pick args used by this script
 CMAKE_ONLY = False
@@ -78,6 +78,7 @@ NO_NINJA = False
 BUILD_WITH_UCC = False
 BUILD_WITH_ASAN = False
 BUILD_WITHOUT_DISTRIBUTED = False
+BUILD_WITH_SYSTEM_NVTX = True
 OVERWRITE_VERSION = False
 EXPLICIT_ERROR_CHECK = False
 VERSION_TAG = None
@@ -117,6 +118,9 @@ for i, arg in enumerate(sys.argv):
     if arg == "--build-without-distributed":
         BUILD_WITHOUT_DISTRIBUTED = True
         continue
+    if arg == "--no-system-nvtx":
+        BUILD_WITH_SYSTEM_NVTX = False
+        continue
     if arg == "--debug":
         BUILD_TYPE = "Debug"
         continue
@@ -144,6 +148,8 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("--cpp="):
         CPP_STANDARD = int(arg.split("=")[1])
+        if CPP_STANDARD < 20:
+            raise ValueError("nvfuser requires C++20 standard or higher")
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -350,6 +356,8 @@ def cmake():
         cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
     if BUILD_WITHOUT_DISTRIBUTED:
         cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
+    if BUILD_WITH_SYSTEM_NVTX:
+        cmd_str.append("-DUSE_SYSTEM_NVTX=ON")
     cmd_str.append(".")
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
@@ -410,11 +418,9 @@ def main():
             "include/nvfuser/host_ir/*.h",
             "include/nvfuser/id_model/*.h",
             "share/cmake/nvfuser/NvfuserConfig*",
-            "contrib/*",
-            "contrib/nn/*",
             # TODO(crcrpar): it'd be better to ship the following two binaries.
             # Would need some change in CMakeLists.txt.
-            # "bin/nvfuser_tests",
+            # "bin/test_nvfuser",
             # "bin/nvfuser_bench"
         ]
 
@@ -423,7 +429,7 @@ def main():
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
-            packages=["nvfuser"],
+            packages=find_packages(),
             ext_modules=[Extension(name="nvfuser._C", sources=[])],
             license_files=("LICENSE",),
             cmdclass={

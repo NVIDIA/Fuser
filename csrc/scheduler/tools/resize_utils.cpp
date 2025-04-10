@@ -26,25 +26,27 @@ bool hasResizeBasedOps(Fusion* fusion) {
   return ir_utils::hasOpsOfType<SliceOp, PadOp>(fusion);
 }
 
+std::vector<Expr*> getResizeBasedOps(Fusion* fusion) {
+  return ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
+}
+
 void propagateResizeToInputs(Expr* resize_tensor_op) {
   NVF_ERROR(
       resize_tensor_op->isA<SliceOp>() || resize_tensor_op->isA<PadOp>(),
       "Unexpected resize tensor op: ",
       resize_tensor_op->toString());
 
-  Fusion* fusion = resize_tensor_op->fusion();
-
   auto producer_tv = resize_tensor_op->input(0)->as<TensorView>();
   auto consumer_tv = resize_tensor_op->output(0)->as<TensorView>();
 
-  auto all_dep_vals = DependencyCheck::getAllValsBetween(
-      {fusion->inputs().begin(), fusion->inputs().end()}, {producer_tv});
+  // Note: DependencyCheck::getAllValsBetween with fusion inputs fails
+  // to grab factory-created tensors (#4202)
+  auto all_dep_stmts = StmtSort::getStmtsTo({producer_tv});
 
   std::vector<TensorView*> tvs_to_schedule;
-  tvs_to_schedule.reserve(all_dep_vals.size());
-  for (auto val : all_dep_vals) {
-    if (val->isA<TensorView>() && !val->isFusionInput()) {
-      tvs_to_schedule.push_back(val->as<TensorView>());
+  for (auto tv : ir_utils::filterByType<TensorView>(all_dep_stmts)) {
+    if (!tv->isFusionInput()) {
+      tvs_to_schedule.push_back(tv);
     }
   }
 
@@ -65,14 +67,15 @@ void propagateResizeToInputs(Expr* resize_tensor_op) {
   // Now that all the dependent tensors have the uniform, exact-mapped
   // loop domains, we just need to propagte the specific Resize ops of
   // this tensor.
-  for (const auto i : c10::irange(consumer_tv->getLogicalDomain().size())) {
+  for (const auto i : arange(consumer_tv->getLogicalDomain().size())) {
     auto out_logical_id = consumer_tv->getLogicalDomain().at(i);
     auto resize = dynamic_cast<Resize*>(out_logical_id->definition());
     if (resize == nullptr) {
       continue;
     }
 
-    scheduler_tools::scheduleLoopDomainsBy(tvs_to_schedule, resize);
+    scheduler_tools::scheduleLoopDomainsBy(
+        tvs_to_schedule, resize, Direction::Forward);
   }
 }
 
@@ -84,8 +87,10 @@ std::unordered_map<TensorView*, ResizeExclusivityInfo> getNonExclusiveResizeInfo
 
   std::unordered_map<TensorView*, ResizeExclusivityInfo> non_exclusive_resizes;
 
-  std::unordered_set<Val*> inputs{
-      fusion->inputs().begin(), fusion->inputs().end()};
+  // Start with both fusion inputs and factory-created tensors. Fusion
+  // inputs are not enough (#4202).
+  const auto inputs_vec = InputsOf::outputs(fusion->outputs());
+  std::unordered_set<Val*> inputs{inputs_vec.begin(), inputs_vec.end()};
 
   auto get_root_to_logical_resizes =
       [&exact_graph](TensorView* tv) -> ValGroups {

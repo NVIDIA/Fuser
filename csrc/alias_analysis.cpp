@@ -10,6 +10,7 @@
 
 #include <alias_analysis.h>
 #include <dispatch.h>
+#include <exceptions.h>
 #include <fusion.h>
 #include <ir/interface_nodes.h>
 #include <ir/internal_base_nodes.h>
@@ -148,7 +149,7 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
       PairwiseLogicalDomainMap(in, out).mapProducerToConsumer();
 
   Layout preferred_out_layout;
-  for (const auto i : c10::irange(preferred_in_layout.size())) {
+  for (const auto i : arange(preferred_in_layout.size())) {
     IterDomain* in_alloc_id = preferred_in_layout.allocation_domain[i];
     IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
     if (out_root_id == nullptr) {
@@ -175,7 +176,7 @@ void AliasFinder::handle(const ViewOp* view) {
   }
 
   LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
-  for (const auto i : c10::irange(out_root_layout->size())) {
+  for (const auto i : arange(out_root_layout->size())) {
     if (!out_root_layout->contiguity[i].has_value() &&
         !out_root_layout->allocation_domain[i]->isBroadcast()) {
       // TODO(#1126): Due to #1126, `out_root` materializes an expanded
@@ -289,11 +290,10 @@ void AliasFinder::handle(const SliceOp* slice) {
   std::unordered_map<IterDomain*, IterDomain*> out_root_to_logical;
   {
     const std::vector<IterDomain*>& out_logical = out->getLogicalDomain();
-    const auto out_rank = out_root.size();
-    NVF_ERROR(out_logical.size() == out_rank);
-    out_root_to_logical.reserve(out_rank);
-    for (auto i : c10::irange(out_rank)) {
-      out_root_to_logical[out_root[i]] = out_logical[i];
+    NVF_ERROR_EQ(out_root.size(), out_logical.size());
+    out_root_to_logical.reserve(out_root.size());
+    for (auto&& [root_id, logical_id] : zip(out_root, out_logical)) {
+      out_root_to_logical[root_id] = logical_id;
     }
   }
 
@@ -352,7 +352,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
 
   // Put new, broadcast dimensions to the end.
   const std::vector<IterDomain*> out_logical = out->getLogicalDomain();
-  for (const auto i : c10::irange(out_logical.size())) {
+  for (const auto i : arange(out_logical.size())) {
     if (bcast->isBroadcastDim(i)) {
       out_layout->allocation_domain.push_back(out_logical[i]);
       out_layout->contiguity.emplace_back(std::nullopt);
@@ -445,7 +445,7 @@ void AliasAnalysisResult::finalize(
     // as an alias op, since we will have a set operation on it.
     if (alias->fusion()->getOutputAlias(alias).type ==
         AllocationType::ReuseBuffer) {
-      return;
+      continue;
     }
 
     // Walks up the `alias_to_source_` chain.
@@ -550,7 +550,7 @@ bool Layout::isCompliantWith(const Layout& required) const {
     return false;
   }
 
-  for (const auto i : c10::irange(allocation_domain.size())) {
+  for (const auto i : arange(allocation_domain.size())) {
     if (!contiguityIsCompliant(contiguity[i], required.contiguity[i])) {
       return false;
     }

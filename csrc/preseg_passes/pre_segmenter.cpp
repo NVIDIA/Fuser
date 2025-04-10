@@ -69,7 +69,7 @@ namespace nvfuser::preseg_passes {
   // currently only limited to pointwise patterns and does not
   // support, for example, reductions, etc, so this preseg pass still
   // may be preferable in some cases.
-  if (!isOptionEnabled(EnableOption::ResizeScheduler)) {
+  if (isOptionDisabled(DisableOption::ResizeScheduler)) {
     OptimizationPass<MovePadPass>::runPass(fusion);
   }
   // NOTE vvv this doesn't really work, since our type promotion to higher

@@ -353,7 +353,7 @@ bool ValGraph::exprsMap(Expr* first, Expr* second, bool forward) const {
       first->toString(),
       second->toString());
 
-  for (const auto i : c10::irange(first_vals.size())) {
+  for (const auto i : arange(first_vals.size())) {
     if (!disjointValSets().permissiveAreMapped(
             first_vals.at(i), second_vals.at(i))) {
       return false;
@@ -401,6 +401,10 @@ void ValGraph::mapVals(Val* val0, Val* val1) {
   }
 
   if (disjointValSets().strictAreMapped(val0, val1)) {
+    return;
+  }
+
+  if (areUnmappable(val0, val1)) {
     return;
   }
 
@@ -558,11 +562,47 @@ bool ValGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
       first->toString(),
       "\nand\n",
       second->toString());
-  for (auto out_i : c10::irange(first_ids.size())) {
+  for (auto out_i : arange(first_ids.size())) {
     mapVals(first_ids[out_i], second_ids[out_i]);
   }
 
   return true;
+}
+
+void ValGraph::setUnmappable(Val* val0, Val* val1) {
+  unmappable_vals_[val0].insert(val1);
+  unmappable_vals_[val1].insert(val0);
+}
+
+void ValGraph::setUnmappable(const std::vector<Val*>& vals) {
+  if (vals.size() < 2) {
+    return;
+  }
+  for (const auto i : arange(vals.size() - 1)) {
+    for (const auto j : arange(i + 1, vals.size())) {
+      setUnmappable(vals.at(i), vals.at(j));
+    }
+  }
+}
+
+bool ValGraph::areUnmappable(Val* val0, Val* val1) const {
+  const ValGroup& val_group0 = toGroup(val0);
+  const ValGroup& val_group1 = toGroup(val1);
+
+  for (const auto v0 : *val_group0) {
+    auto it = unmappable_vals_.find(v0);
+    if (it == unmappable_vals_.end()) {
+      continue;
+    }
+    const auto& unmappable_val_set = it->second;
+    if (std::any_of(val_group1->begin(), val_group1->end(), [&](Val* v1) {
+          return unmappable_val_set.count(v1);
+        })) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 void ValGraph::validateConsistency() const {

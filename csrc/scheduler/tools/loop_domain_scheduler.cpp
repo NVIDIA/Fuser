@@ -99,6 +99,8 @@ class LoopDomainSchedulerReplayTransform : OptInConstDispatch {
   const std::vector<IterDomain*>& output_ids_;
 };
 
+// Replay a given IterDomain transform expression on the loop domain
+// of a given tensor using specified loop IDs as its inputs.
 class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
  public:
   static void replayAs(
@@ -149,10 +151,16 @@ class ReplayForwardTransformOnLoopDomain : OptInConstDispatch {
 
   void handle(const Resize* resize) final {
     NVF_ERROR(input_loop_ids_.size() == 1);
+    NVF_ERROR(
+        resize->out()->getIterType() != IterType::Symbolic,
+        "Unexpected to have a symbolic ID: ",
+        resize->out()->toString());
+    // Pass the iter type explicitly to avoid generating a symblic ID
     tv_->resize(
         getLoopIdPosition(input_loop_ids_.at(0)),
         resize->leftExpand(),
-        resize->rightExpand());
+        resize->rightExpand(),
+        resize->out()->getIterType());
   }
 
   void handle(const Swizzle2D* swizzle_2d) final {
@@ -274,7 +282,7 @@ void LoopDomainScheduler::schedule(TensorView* tv) const {
 
   // Find missing IDs.
   bool has_missing_ids = false;
-  for (const auto i : c10::irange(ref_loop_dom_.size())) {
+  for (const auto i : arange(ref_loop_dom_.size())) {
     const auto& ref_id_group = ref_id_groups_.at((int64_t)i);
     if (all_id_groups.has(ref_id_group)) {
       // This loop ID already exists.
@@ -520,18 +528,15 @@ void scheduleLoopDomainsBy(
       }
     }
 
-    // It should be either: all of the inputs found and none of the
-    // outputs found, or none of the inputs found and all of the
-    // outputs found.
+    // If all of the inputs are found, the tranform expr is replayed as
+    // a forward op.
     Direction replay_dir_tv = Direction::Undefined;
     if (replay_dir != Direction::Backward &&
         input_ids.size() == transform->inputs().size()) {
-      NVF_ERROR(output_ids.empty());
       replay_dir_tv = Direction::Forward;
     } else if (
         replay_dir != Direction::Forward &&
         output_ids.size() == transform->outputs().size()) {
-      NVF_ERROR(input_ids.empty());
       replay_dir_tv = Direction::Backward;
     } else {
       // Replay not possible since none of inputs nor outputs are connected with
@@ -541,7 +546,11 @@ void scheduleLoopDomainsBy(
 
     // When the direction is forward, the TensorView transform
     // APIs, e.g., TensorView::split, can be used, which doesn't need
-    // to use TensorView::setLoopDomain.
+    // to use TensorView::setLoopDomain. This is important as
+    // setLoopDomain may result in losing extra IDs added by prior
+    // scheduleLoopDomain calls, which was indeed the case with the
+    // Llama 3 RoPE backward (see also
+    // https://github.com/NVIDIA/Fuser/issues/3571).
     if (replay_dir_tv == Direction::Forward) {
       ReplayForwardTransformOnLoopDomain::replayAs(tv, input_ids, transform);
       continue;
@@ -582,7 +591,7 @@ void scheduleLoopDomainsBy(
   return;
 }
 
-void cancelReshapeInLoopDomains(TensorView* from_tv) {
+void cancelReshapeInLoopDomains(TensorView* from_tv, bool skip_innermost_id) {
   Fusion* fusion = from_tv->fusion();
   IdModel id_model(fusion, /*build_graphs=*/false);
   id_model.buildExactGraph();
@@ -677,12 +686,29 @@ void cancelReshapeInLoopDomains(TensorView* from_tv) {
         {reshape_out->getLogicalDomain().begin(),
          reshape_out->getLogicalDomain().end()});
 
+    std::unordered_set<Expr*> reshape_exprs_with_innermost_logical_id_set;
+    if (skip_innermost_id) {
+      auto reshape_exprs_with_innermost_logical_id =
+          DependencyCheck::getAllExprsBetween(
+              {reshape_out->getRootDomain().begin(),
+               reshape_out->getRootDomain().end()},
+              {reshape_out->getLogicalDomain().back()});
+      reshape_exprs_with_innermost_logical_id_set = {
+          reshape_exprs_with_innermost_logical_id.begin(),
+          reshape_exprs_with_innermost_logical_id.end()};
+    }
+
     auto reshape_out_loop_domain = reshape_out->getLoopDomain();
 
     for (auto reshape_exprs_it = reshape_exprs.rbegin();
          reshape_exprs_it != reshape_exprs.rend();
          ++reshape_exprs_it) {
       auto reshape_expr = *reshape_exprs_it;
+
+      if (skip_innermost_id &&
+          reshape_exprs_with_innermost_logical_id_set.count(reshape_expr)) {
+        continue;
+      }
 
       // If any of the output IDs of reshape_expr is not found in
       // cancellable_ids, that means the expr cannot be cancelled.

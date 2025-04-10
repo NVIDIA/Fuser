@@ -175,7 +175,7 @@ static void SingleMatmulBase(
   // Compile kernel
   auto launch_constraints = LaunchParams();
   KernelExecutor ke;
-  ke.compile(fusion, args.toC10Array(), launch_constraints, cparams);
+  ke.compile(fusion, args, launch_constraints, cparams);
   NVF_CHECK(
       getBankConflictInfo(ke.compiledKernel()->kernel(), launch_constraints)
           .empty(),
@@ -183,7 +183,7 @@ static void SingleMatmulBase(
 
   // Warm up run
   auto outputs = ke.run(args);
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), k);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), k);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 
@@ -352,7 +352,7 @@ static void SingleMatmulPartitionedK(
   // Compile kernel
   KernelExecutor ke;
   auto lparams = LaunchParams();
-  ke.compile(fusion, args.toC10Array(), lparams, cparams);
+  ke.compile(fusion, args, lparams, cparams);
   NVF_CHECK(
       getBankConflictInfo(ke.compiledKernel()->kernel(), lparams).empty(),
       "Shared memory bank conflict not removed.");
@@ -360,7 +360,7 @@ static void SingleMatmulPartitionedK(
   // Warm up run
   auto outputs = ke.run(args);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), Ki);
+  checkMatch(expected_output, outputs[0].as<at::Tensor>().to(at::kDouble), Ki);
 
   runBenchmarkIterations(benchmark_state, &ke, args);
 
@@ -461,10 +461,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   // Compile kernel
   KernelExecutor ke;
   ke.compile(
-      fusion,
-      args.toC10Array(),
-      heuristic_params->lparams,
-      heuristic_params->cparams);
+      fusion, args, heuristic_params->lparams, heuristic_params->cparams);
 
   NVF_CHECK(
       getBankConflictInfo(
@@ -475,7 +472,10 @@ static void NvFuserScheduler_MatmulSplitKReduction(
   // Warm up run
   auto outputs = ke.run(args, {}, heuristic_params->lparams);
 
-  checkMatch(expected_output, outputs.at(0).to(at::kDouble), splitk_factor);
+  checkMatch(
+      expected_output,
+      outputs[0].as<at::Tensor>().to(at::kDouble),
+      splitk_factor);
 
   runBenchmarkIterations(benchmark_state, &ke, args, heuristic_params->lparams);
 
@@ -544,7 +544,7 @@ static void NvFuserScheduler_MatmulSplitKReduction(
 static std::vector<long int> splitKNs(long int tileN = 128) {
   const long int numSMs = getNumSMs();
   std::vector<long int> Ns;
-  for (long int N : c10::irange(numSMs + 1)) {
+  for (long int N : arange(numSMs + 1)) {
     if (N > 0 && numSMs % N == 0) {
       Ns.push_back(N * tileN);
     }

@@ -7,15 +7,14 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <visibility.h>
-
-#include <ir/base_nodes.h>
-#include <utils.h>
-
 #include <deque>
 #include <unordered_map>
 #include <unordered_set>
+
+#include <exceptions.h>
+#include <ir/base_nodes.h>
+#include <utils.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -125,6 +124,15 @@ class IrContainer : public PolymorphicBase {
     return vals_;
   }
 
+  int64_t numExprs() const noexcept {
+    return std::ssize(exprs_);
+  }
+
+  // When include_shortcuts is true, it will count the shortcuts like true_val_.
+  int64_t numVals(bool include_shortcuts) const noexcept {
+    return include_shortcuts ? std::ssize(vals_) : std::ssize(vals_up_);
+  }
+
   // Shortcuts for frequently used vals
   NVF_API Val* zeroVal();
   NVF_API Val* oneVal();
@@ -179,6 +187,18 @@ class IrContainer : public PolymorphicBase {
 
   void lazyInitAxioms();
 
+  friend class StatementGuard;
+
+  // A simple garbage collection mechanism to remove all Exprs and Vals that
+  // were created after a certain point. This is useful for analysis that
+  // creates new Exprs and Vals in the container and wants to clean up after
+  // itself.
+  //
+  // Used by StatementGuard only.
+  void removeStatementsCreatedAfter(
+      int64_t prev_num_exprs,
+      int64_t prev_num_vals);
+
   // Deque of unique pointer is the memory owning data structure
   std::deque<std::unique_ptr<Val>> vals_up_;
 
@@ -192,13 +212,6 @@ class IrContainer : public PolymorphicBase {
   // A convenient set to return when we just need an unordered set to do
   // something like check if an Expr is in this container
   std::unordered_set<Expr*> exprs_;
-
-  // Used to implement a generic "inContainer" that can be passed an invalid
-  // pointer. Specifically a pointer to a Statement owned by another container
-  // that has been freed. We can't check normally with the unordered_sets we
-  // already have because it would require a const_cast from a constant
-  // expr/val, or a dynamic cast from a Statement.
-  std::unordered_set<void*> raw_ptrs_;
 
   // Values names counters
   std::unordered_map<ValType, StmtNameType> val_type_name_map_;

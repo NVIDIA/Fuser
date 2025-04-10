@@ -10,13 +10,13 @@ A Fusion Code Generator for NVIDIA GPUs (commonly known as "nvFuser")
 
 ## Installation
 
-We publish nightly wheel packages on https://pypi.nvidia.com, while build against stable torch version on https://pypi.org.
+We publish nightly wheel packages on https://pypi.nvidia.com, while build against stable torch version on https://pypi.org and https://pypi.nvidia.com.
 **Wheels are published for Python version: _3.10_, _3.12_**.
 
-built-env | cuda 11.8 | cuda 12.1 | cuda 12.4
-:---: | :---: | :---: | :---:
-torch 2.5 (pypi.org)| nvfuser-cu118-torch25 | nvfuser-cu121-torch25 | nvfuser-cu124-torch25
-torch nightly (pypi.nvidia.com) | nvfuser-cu118 | nvfuser-cu121 | nvfuser-cu124
+built-env | cuda 11.8 | cuda 12.4 | cuda12.6 | cuda 12.8
+:---: | :---: | :---: | :---: | :---: |
+torch 2.6 | nvfuser-cu118-torch26 | nvfuser-cu124-torch26 | nvfuser-cu126-torch26 | N/A |
+torch nightly (pypi.nvidia.com) | nvfuser-cu118 | N/A | nvfuser-cu126 | nvfuser-cu128 |
 
 Note that nvfuser built against stable torch version isn't compatible with nightly pytorch wheel, so ensure you pick the right version suiting your environment.
 
@@ -30,7 +30,7 @@ Note that this may uninstall your local pytorch installation and install the com
 
 ### nvfuser pip wheel against pytorch stable release
 
-nvfuser pip wheel built against stable torch releases is published on pypi.org. Pick the right cuda toolkit version to match your torch installation. e.g. `pip install nvfuser-cu121-torch24`
+nvfuser pip wheel built against stable torch releases is published on both pypi.org and pypi.nvidia.com. Pick the right cuda toolkit version to match your torch installation. e.g. `pip install nvfuser-cu121-torch26`
 
 PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 
@@ -43,20 +43,16 @@ Supported compilers:
 **GCC:**
 
 We support all "supported releases" of gcc as specified in [the official site](https://gcc.gnu.org/).
-As of 6/20/2024, they are:
+As of 3/2/2025, they are:
 
-- gcc 11.4
 - gcc 12.4
-- gcc 13.2
-- gcc 14.1
+- gcc 13.3
+- gcc 14.2
 
 **Clang:**
 
-- clang 14+
+- clang 16+
 
 Supported C++ standard:
 
-- C++17
 - C++20
-
-We are actively considering dropping C++17 support

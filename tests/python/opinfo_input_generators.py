@@ -13,7 +13,7 @@ import random
 from numbers import Number
 
 from opinfo_core import OpInfo, SampleInput, ErrorSample, Domain
-from utils import (
+from nvfuser.testing.utils import (
     make_number,
     find_nonmatching_dtype,
     is_floating_dtype,
@@ -311,7 +311,11 @@ def cat_error_generator(op, dtype=torch.float32, requires_grad: bool = False, **
         "Unexpected number of dimensions",
     )
     # All tensors must have same shape except for the cat dimension
-    shape_mismatch = (([(2, 3), (4, 5)], 0), RuntimeError, "Tried to bind to a value")
+    shape_mismatch = (
+        ([(2, 3), (4, 5)], 0),
+        RuntimeError,
+        "a conflict was found with 2 different sizes",
+    )
 
     error_cases = [
         empty_input_tensors,

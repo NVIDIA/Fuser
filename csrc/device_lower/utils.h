@@ -26,8 +26,6 @@ namespace nvfuser {
 
 class ThreadPredicateMap;
 
-using IterDomainMap = std::unordered_map<IterDomain*, IterDomain*>;
-
 namespace scope_utils {
 
 //! Create an **empty** Forloop and copy the metadata.
@@ -138,6 +136,10 @@ bool isCpAsyncBulk(const Expr* expr);
 //! Short-cut for detecting initialization for cpAsync op.
 bool isCpAsyncInit(const Expr* expr);
 
+//! Returns true if the expression will be lowered to
+//!  a ld/st tmem intrinsic.
+bool isLdStTMem(const Expr* expr);
+
 //! Short-cut for matching a singleton expr in a if statement,
 //!  which likely becomes a predicated instruction in ptx, eg.:
 //!  if(...) {expr;}
@@ -178,6 +180,14 @@ std::vector<Expr*> replaceInputsInExpr(
     const std::vector<Expr*>& exprs,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
+//! Returns true if the given TensorView is a smem tv of TMA load/store, or
+//! an input of an MmaOp.
+bool isTMAOrMMASmemTv(TensorView* tv);
+
+//! Returns the swizzle mode of the given TensorView. The TensorView must be
+//! an input of an MmaOp, or the smem tv of TMA load/store.
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv);
+
 } // namespace ir_utils
 
 namespace lower_utils {
@@ -192,7 +202,7 @@ kir::Allocate* allocGlobalBufferForGridComm(
     bool zero_init,
     bool resets_to_zero = false);
 
-struct BasicAllocInfo {
+struct AllocPosInfo {
   // The for loop that the initialization of this allocation must be
   // placed in, nullptr if not within a loop
   ForLoop* init_for_loop = nullptr;
@@ -214,7 +224,7 @@ struct BasicAllocInfo {
 
 // Fill the above allocation struct based on provided information. id_map is
 // used if we're looking at a producer tensor but loops on a consumer tensor.
-BasicAllocInfo getAllocInformation(
+AllocPosInfo getAllocPosInfo(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,
     const std::unordered_map<IterDomain*, IterDomain*>& id_map = {},

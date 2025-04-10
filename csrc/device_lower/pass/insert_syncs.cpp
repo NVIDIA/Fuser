@@ -20,6 +20,50 @@ namespace nvfuser {
 
 namespace {
 
+// Determine if any for loop is a LoadWarp circular buffering stage
+bool isWithinLoadWarp(const std::vector<ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::LoadWarp;
+  });
+}
+
+// Determine if any for loop is a ComputeWarp circular buffering stage
+bool isWithinComputeWarp(const std::vector<ForLoop*> for_loops) {
+  return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
+    return fl->circularBufferLoopStage() ==
+        CircularBufferLoopStage::ComputeWarp;
+  });
+}
+
+// Return true if any for loop is ComputeWarp.
+// Return false if any for loop is LoadWarp.
+// Return std:nullopt if none of the for loops are a warp specialized stage.
+std::optional<bool> isOptionalComputeSync(
+    const std::vector<ForLoop*> for_loops) {
+  bool contains_load_warp = isWithinLoadWarp(for_loops);
+  bool contains_compute_warp = isWithinComputeWarp(for_loops);
+  NVF_ERROR(
+      !contains_load_warp || !contains_compute_warp,
+      "The list of for-loops contains both LoadWarp and ComputeWarp stages.");
+  if (isWithinLoadWarp(for_loops)) {
+    return false;
+  } else if (isWithinComputeWarp(for_loops)) {
+    return true;
+  } else {
+    return std::nullopt;
+  }
+}
+
+// Tensor memory is similar to shared memory because they are both
+// shared between threads in a block. In that sense, we can consider
+// tensor memory as special type of shared memory. In this file, we use
+// the term "shared memory", "smem" to refer to both shared and tensor
+// memories.
+bool isSharedMemory(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared ||
+      tv->getMemoryType() == MemoryType::Tensor;
+}
+
 //! Scan through Kernel IR for-loops to insert Sync nodes to avoid
 //! Write-After-Read (WAR) race condition.
 //!
@@ -39,7 +83,7 @@ class SmemAllocMap {
   //! Insert a new node if it's a SMEM allocation
   void insert(kir::Allocate* alloc) {
     if (auto tv = dynamic_cast<TensorView*>(alloc->buffer())) {
-      if (tv->getMemoryType() == MemoryType::Shared) {
+      if (isSharedMemory(tv)) {
         // Note that a TensorView can have two allocations due to
         // unswitch.
         auto p = map_.insert({tv, alloc});
@@ -138,10 +182,9 @@ class WarSyncInserter : private kir::ExprMutator {
   }
 
   void handle(kir::IfThenElse* ite) final {
-    NVF_ERROR(
-        ite->elseBody().empty(),
-        "Pass does not support conditional flow,",
-        " needs to be done before conditional execution is lowered.");
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
     kir::ExprMutator::handle(ite);
   }
 
@@ -181,7 +224,7 @@ class WarSyncInserter : private kir::ExprMutator {
     auto fl_i = std::distance(for_loops_.begin(), fl_it) + 1;
 
     // Start at that index and see if there's syncs within that for loop
-    for (auto i : c10::irange(fl_i, sync_hit_.size())) {
+    for (auto i : arange(fl_i, sync_hit_.size())) {
       if (sync_hit_[i]) {
         return true;
       }
@@ -203,11 +246,10 @@ class WarSyncInserter : private kir::ExprMutator {
     // Mark write has been hit for all output tvs
     auto out_tvs = ir_utils::filterByType<TensorView>(expr->outputs());
     for (auto out_tv : out_tvs) {
-      if (out_tv->getMemoryType() != MemoryType::Shared ||
+      if (!isSharedMemory(out_tv) ||
           GpuLower::current()->syncMap()->needsRawSync(out_tv).none()) {
         continue;
       }
-
       auto& entry = getMemInfo(out_tv);
 
       // If this is the first write and there's a sync in one of the loops after
@@ -221,7 +263,7 @@ class WarSyncInserter : private kir::ExprMutator {
     // Mark read was hit, if sync_after_read was set, clear it.
     auto inp_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto inp_tv : inp_tvs) {
-      if (inp_tv->getMemoryType() != MemoryType::Shared ||
+      if (!isSharedMemory(inp_tv) ||
           GpuLower::current()->syncMap()->needsRawSync(inp_tv).none()) {
         continue;
       }
@@ -279,7 +321,12 @@ class WarSyncInserter : private kir::ExprMutator {
 
     // WAR Sync is necessary in this loop, register its insertion.
     if (insert_sync) {
-      auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+      // Temporarily add the current for-loop to for_loops to check for warp
+      // specialization
+      for_loops_.push_back(for_loop);
+      auto sync_expr = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/true, isOptionalComputeSync(for_loops_));
+      for_loops_.pop_back();
       kir::ExprMutator::registerInsertAfter(
           for_loop->body().exprs().back(), sync_expr, &for_loop->body());
       handle(sync_expr);
@@ -295,8 +342,7 @@ class WarSyncInserter : private kir::ExprMutator {
   WarMemoryInfo& getMemInfo(TensorView* tv) {
     auto maybe_aliased_tv = alloc_map_.getRealBuffer(tv);
     auto alloc_it = smem_allocations_.find(maybe_aliased_tv);
-    auto ca_loop =
-        lower_utils::getAllocInformation(tv, for_loops_).init_for_loop;
+    auto ca_loop = lower_utils::getAllocPosInfo(tv, for_loops_).init_for_loop;
     if (alloc_it == smem_allocations_.end()) {
       WarMemoryInfo mem_info;
       mem_info.ca_loop = ca_loop;
@@ -433,6 +479,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // TODO: unify the handle of cp.async
     std::unordered_map<AsyncOpType, std::unordered_set<Expr*>> input_async_ops;
     for (auto inp : expr->inputs()) {
+      if (auto* inp_tv = dynamic_cast<TensorView*>(inp)) {
+        inp = GpuLower::current()->getMaybeTensorProducerAlias(inp_tv);
+      }
       auto def = inp->definition();
       auto async_type = ir_utils::getAsyncOpType(def);
 
@@ -508,8 +557,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           std::all_of(
               expr->inputs().begin(), expr->inputs().end(), [](Val* val) {
                 return !val->isA<TensorView>() ||
-                    val->as<TensorView>()->getMemoryType() !=
-                    MemoryType::Shared ||
+                    !isSharedMemory(val->as<TensorView>()) ||
                     ir_utils::isCpAsyncBulkLoad(val->definition());
               })) {
         // RAW of TMA is handled separately, so skip it here.
@@ -527,7 +575,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         sync_expr = IrBuilder::create<kir::GridSync>(
             sync_bitmap, maybe_alloc->buffer());
       } else {
-        sync_expr = IrBuilder::create<kir::BlockSync>(false); // is not war sync
+        sync_expr = IrBuilder::create<kir::BlockSync>(
+            /*war_sync=*/false, isOptionalComputeSync(for_loops_));
       }
 
       insertSyncExpr(last_writes, expr, sync_expr, maybe_alloc);
@@ -622,10 +671,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     }
   }
 
-  void handle(kir::IfThenElse*) final {
-    NVF_THROW(
-        "Pass does not support conditional statements, ",
-        "this pass should be run before any conditionals are placed in code.");
+  void handle(kir::IfThenElse* ite) final {
+    // TODO: Currently we just naively dispatch into the IfThenElse node
+    // assuming that this does not affect the analysis. For now, this assumption
+    // is true, but in the future, we might need to revisit this.
+    kir::ExprMutator::handle(ite);
   }
 
   // Return a set of expressions that modify shared-memory
@@ -641,7 +691,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
           GpuLower::current()->syncMap()->needsRawSync(tv).none()) {
         continue;
       }
-      if (tv->getMemoryType() != MemoryType::Shared) {
+      if (!isSharedMemory(tv)) {
         continue;
       }
       auto it = smem.find(tv);
@@ -657,6 +707,8 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       const std::vector<Val*>& tvs) const {
     std::unordered_set<Expr*> last_writes;
     for (auto tv : ir_utils::filterByType<TensorView>(tvs)) {
+      tv = GpuLower::current()->getMaybeTensorProducerAlias(tv);
+
       if (GpuLower::current()->syncMap()->needsRawSync(tv).none()) {
         continue;
       }
@@ -752,7 +804,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // Circular buffered tensors do not need RAW sync to be inserted
         // here, except for the initial load part, which is taken care
         // separately by CircularBufferInserter.
-        if (tv->getMemoryType() == MemoryType::Shared &&
+        if (isSharedMemory(tv) &&
             (!tv->isCircularBuffered() ||
              tv->circularBufferOptions().prefetch == 0)) {
           smem[tv] = expr;
@@ -1224,8 +1276,14 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             for_loop->circularBufferLoopStage() ==
                 CircularBufferLoopStage::Main) {
           NVF_ERROR(num_exprs > 1);
-          NVF_ERROR(for_loop->body().exprs().back()->isA<kir::BlockSync>());
-          --pos;
+          if (for_loop->body().exprs().back()->isA<kir::BlockSync>()) {
+            --pos;
+          } else {
+            // Insert a sync if there is not one already
+            auto sync_expr = IrBuilder::create<kir::BlockSync>(true);
+            kir::ExprMutator::registerInsertAfter(
+                for_loop->body().exprs().back(), sync_expr, &for_loop->body());
+          }
         }
 
         Expr* expr = for_loop->body().exprs().at(pos);

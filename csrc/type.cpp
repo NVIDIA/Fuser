@@ -428,6 +428,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
+    case UnaryOpType::BitCeil:
+      return "bit_ceil";
     case UnaryOpType::LogicalNot:
       return "logical_not";
     case UnaryOpType::BitwiseNot:
@@ -710,6 +712,10 @@ static const char* parallel_type2string(ParallelType t) {
   switch (t) {
     case ParallelType::DIDx:
       return "deviceIdx.x";
+    case ParallelType::DIDy:
+      return "deviceIdx.y";
+    case ParallelType::DIDz:
+      return "deviceIdx.z";
     case ParallelType::BIDz:
       return "blockIdx.z";
     case ParallelType::BIDy:
@@ -726,8 +732,6 @@ static const char* parallel_type2string(ParallelType t) {
       return "Stream";
     case ParallelType::Vectorize:
       return "V";
-    case ParallelType::MisalignedVectorize:
-      return "MV";
     case ParallelType::Unroll:
       return "UR";
     case ParallelType::Unswitch:
@@ -755,7 +759,6 @@ std::unordered_set<ParallelType> allParallelTypesExcept(
       ParallelType::TIDy,
       ParallelType::TIDx,
       ParallelType::Vectorize,
-      ParallelType::MisalignedVectorize,
       ParallelType::Unroll,
       ParallelType::Unswitch,
       ParallelType::Mma,
@@ -1529,8 +1532,10 @@ std::string typePrefix(const DataType data_type) {
     case DataType::Index:
     case DataType::Int:
     case DataType::Int32:
+    case DataType::Short:
     case DataType::UInt64:
     case DataType::UInt32:
+    case DataType::UInt16:
     case DataType::SMemAddress:
       return "i";
     case DataType::ComplexFloat:
@@ -1552,7 +1557,8 @@ bool isParallelTypeBlockDim(ParallelType ptype) {
 }
 
 bool isParallelTypeDeviceDim(ParallelType ptype) {
-  return ptype == ParallelType::DIDx;
+  return ptype == ParallelType::DIDx || ptype == ParallelType::DIDy ||
+      ptype == ParallelType::DIDz;
 }
 
 bool isParallelTypeThread(ParallelType ptype) {
@@ -1560,8 +1566,7 @@ bool isParallelTypeThread(ParallelType ptype) {
 }
 
 bool isParallelTypeVectorize(ParallelType ptype) {
-  return ptype == ParallelType::Vectorize ||
-      ptype == ParallelType::MisalignedVectorize;
+  return ptype == ParallelType::Vectorize;
 }
 
 std::optional<std::string> cast_func_str(
@@ -1668,6 +1673,23 @@ int max_digits10(DataType dtype) {
         "Unhandled floating point type in max_digits10 ",
         dtype);
     return 0;
+  }
+}
+
+std::ostream& operator<<(std::ostream& os, TMemRegisterDataPath dp) {
+  switch (dp) {
+    case TMemRegisterDataPath::Path32x32b:
+      return os << "32x32b";
+    case TMemRegisterDataPath::Path16x64b:
+      return os << "16x64b";
+    case TMemRegisterDataPath::Path16x128b:
+      return os << "16x128b";
+    case TMemRegisterDataPath::Path16x256b:
+      return os << "16x256b";
+    case TMemRegisterDataPath::Path16x32bx2:
+      return os << "16x32bx2";
+    default:
+      NVF_THROW("Unknown TMemRegisterDataPath");
   }
 }
 

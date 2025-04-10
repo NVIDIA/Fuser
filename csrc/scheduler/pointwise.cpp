@@ -186,8 +186,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
   params->tag = "Pointwise heuristics";
   params->cparams.index_type = index_type;
 
-  auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
-
   auto domain_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::DomainMap>(
           data_cache, [fusion]() {
@@ -209,15 +207,6 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
 
   const auto device_multiprocessor_count = static_cast<int64_t>(
       at::cuda::getCurrentDeviceProperties()->multiProcessorCount);
-
-  // TODO: Set to 1?
-  int64_t max_input_dtype_size = 2;
-
-  for (auto inp : in_tvs) {
-    max_input_dtype_size = std::max(
-        max_input_dtype_size,
-        (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
-  }
 
   auto reorder_map_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::LogicalReorderMap>(
@@ -295,10 +284,17 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
                 largest_out, true, true));
       });
 
+  int64_t max_dtype_size_for_vectorization = 1;
+  for (auto inp : vectorizable_inputs_outputs_entry.get()) {
+    max_dtype_size_for_vectorization = std::max(
+        max_dtype_size_for_vectorization,
+        (int64_t)dataTypeSize(inp->getDataType().value(), index_type));
+  }
+
   constexpr int64_t kSixteen = 16; // clang tidy
   auto max_vect_factor = ceilDiv(
       // Available vectorization based on size of data type
-      (int64_t)kSixteen / max_input_dtype_size,
+      (int64_t)kSixteen / max_dtype_size_for_vectorization,
       // Reduce max vectorization factor if we have many inputs/outputs to
       // vectorize as it could start consuming a lot of registers.
       std::max(
@@ -369,7 +365,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     // How much would this transfer cost if it was done as a 1-D schedule
     int64_t transfer_size_1d = 1;
 
-    for (const auto i : c10::irange(ref_loop.size())) {
+    for (const auto i : arange(ref_loop.size())) {
       transfer_size_1d = transfer_size_1d * elem_counts[i] * dtype_sum;
     }
 
@@ -380,7 +376,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
           (int64_t)at::cuda::getCurrentDeviceProperties()->warpSize;
       // Don't check the inner most dimension, scheduler assumes there's always
       // an rhs
-      for (const auto break_point_i : c10::irange((int64_t)ref_loop.size())) {
+      for (const auto break_point_i : arange((int64_t)ref_loop.size())) {
         // If break point is incoherent with view, don't consider breaking here.
         if (!scheduler_utils::breakIsDisjoint(
                 view_disjoint_sets, break_point_i)) {
@@ -390,7 +386,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         // Number of elements in the right side of reference tv with
         // break_point_i
         int64_t cur_right_elem_count = 1;
-        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
+        for (const auto right_i : arange(break_point_i, ref_loop.size())) {
           cur_right_elem_count = cur_right_elem_count * elem_counts[right_i];
         }
 
@@ -408,12 +404,12 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
         int64_t cur_transfer_size = 1;
         int64_t right_transfer_size = 1;
 
-        for (const auto left_i : c10::irange(break_point_i)) {
+        for (const auto left_i : arange(break_point_i)) {
           cur_transfer_size =
               cur_transfer_size * elem_counts[left_i] * lhs_byte_multiple;
         }
 
-        for (const auto right_i : c10::irange(break_point_i, ref_loop.size())) {
+        for (const auto right_i : arange(break_point_i, ref_loop.size())) {
           right_transfer_size =
               right_transfer_size * elem_counts[right_i] * rhs_byte_multiple;
         }
@@ -487,7 +483,7 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
       fusion,
       break_point,
       total_blocks,
-      params->vectorization_factor * max_input_dtype_size,
+      params->vectorization_factor * max_dtype_size_for_vectorization,
       divisible_split,
       vectorizable_inputs_outputs_entry.get());
 
@@ -518,7 +514,8 @@ std::unique_ptr<PointwiseParams> getPointwiseHeuristics(
     debug() << "\n===== Pointwise Stats ========\n"
             << "num_elems: " << n_elems << "\n"
             << "elem_counts: " << elem_counts << "\n"
-            << "max_input_dtype_size: " << max_input_dtype_size << "\n"
+            << "max_dtype_size_for_vectorization: "
+            << max_dtype_size_for_vectorization << "\n"
             << "unroll_factor_inner: " << params->unroll_factor_inner
             << std::endl
             << "unroll_factor_outer: " << params->unroll_factor_outer
