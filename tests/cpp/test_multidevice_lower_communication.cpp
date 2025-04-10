@@ -246,7 +246,7 @@ INSTANTIATE_TEST_SUITE_P(
 
 class LowerCollectiveTest
     : public MultiDeviceTest,
-      public testing::WithParamInterface<CommunicatorBackend> {
+      public testing::WithParamInterface<std::tuple<CommunicatorBackend, bool>> {
  protected:
   void SetUp() override;
 };
@@ -254,13 +254,18 @@ class LowerCollectiveTest
 void LowerCollectiveTest::SetUp() {
   MultiDeviceTest::SetUp();
 
-  const CommunicatorBackend backend_type = GetParam();
+  const auto& [backend_type, enable_host_ir_lowering] = GetParam();
   if (!communicator_->isBackendAvailable(backend_type)) {
     GTEST_SKIP() << "Backend not available: " << backend_type;
   }
   // getBackendForTeam throws an error if the requested backend type isn't
   // available. Therefore, we call it after the isBackendAvailable check.
   communicator_->setDefaultBackend(backend_type);
+
+  EnableOptionsGuard enable_options_guard;
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
 }
 
 TEST_P(LowerCollectiveTest, Allgather) {
@@ -592,9 +597,17 @@ TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    HostIrLowering,
     LowerCollectiveTest,
-    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
-    testing::PrintToStringParamName());
-
+    ::testing::Combine(
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(false)),
+    ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>& info)
+        -> std::string {
+      const auto& [backend_type, enable_host_ir_lowering] = info.param;
+      std::stringstream ss;
+      ss << backend_type;
+      ss << (enable_host_ir_lowering ? "_HirLowerEnabled" : "_HirLowerDisabled");
+      return ss.str();
+    }));
 } // namespace nvfuser
