@@ -10,7 +10,6 @@
 #include <tuple>
 
 #include <c10/util/ArrayRef.h>
-#include <c10/util/irange.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 
 #include <pybind11/complex.h>
@@ -322,7 +321,7 @@ Tensor slice_fn(
     // Note: we cannot re-use the same ScalarRecord, otherwise, serialized
     // python program uses `define_vector`, which would create multiple
     // ScalarRecord, causing a cache miss.
-    for (auto i : c10::irange(new_start.size)) {
+    for (auto i : arange(new_start.size)) {
       (void)i; // Supress unused variable warning
       Scalar out = fd->defineScalar();
       fd->defineRecord(new ScalarRecord(
@@ -467,7 +466,7 @@ computeTensorDescriptor(
       "Sizes and strides must have the same number of dimensions");
   std::vector<DimInfo> non_broadcast_dim_info_vec;
   std::vector<DimInfo> stride_zero_dims;
-  for (auto i : c10::irange(sizes.size())) {
+  for (auto i : arange(sizes.size())) {
     // NOTE: not supporting negative stride yet, but we can probably allow it on
     // broadcast dims
     NVF_CHECK(
@@ -815,6 +814,7 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("Half", DataType::Half)
       .value("Int", DataType::Int)
       .value("Int32", DataType::Int32)
+      .value("UInt64", DataType::UInt64)
       .value("Bool", DataType::Bool)
       .value("BFloat16", DataType::BFloat16)
       .value("Float8_e4m3fn", DataType::Float8_e4m3fn)
@@ -837,7 +837,8 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("tma", ParallelType::Bulk)
       .value("unroll", ParallelType::Unroll)
       .value("unswitch", ParallelType::Unswitch)
-      .value("vectorize", ParallelType::Vectorize);
+      .value("vectorize", ParallelType::Vectorize)
+      .value("stream", ParallelType::Stream);
 
   //! LoadStoreOpType used for scheduling
   py::enum_<LoadStoreOpType>(nvfuser, "LoadStoreOpType")
@@ -1083,9 +1084,10 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<std::optional<size_t>, size_t>(),
+          py::init<std::optional<size_t>, size_t, bool>(),
           py::arg("id") = py::none(),
-          py::arg("max_length") = int(1024))
+          py::arg("max_length") = int(1024),
+          py::arg("use_multidevice_executor") = false)
       .def_readwrite("ops", &FusionDefinition::ops)
       .def_readwrite("sched", &FusionDefinition::sched)
       .def(
@@ -1200,17 +1202,18 @@ void initNvFuserPythonBindings(PyObject* module) {
              bool capture_debug_output,
              bool profile,
              std::vector<std::string> _enable_options,
-             std::vector<std::string> _disable_options) {
-            KernelArgumentHolder args;
+             std::vector<std::string> _disable_options)
+              -> std::pair<std::vector<at::Tensor>, std::vector<Sharding>> {
+            KernelArgumentHolder ins;
             for (py::handle obj : iter) {
               // Allows for a Vector of Sizes to be inputed as a list/tuple
               if (py::isinstance<py::list>(obj) ||
                   py::isinstance<py::tuple>(obj)) {
                 for (py::handle item : obj) {
-                  args.push(torch::jit::toIValue(item, c10::AnyType::get()));
+                  ins.push(torch::jit::toIValue(item, c10::AnyType::get()));
                 }
               } else {
-                args.push(torch::jit::toIValue(obj, c10::AnyType::get()));
+                ins.push(torch::jit::toIValue(obj, c10::AnyType::get()));
               }
             }
             std::optional<int8_t> int8_device = std::nullopt;
@@ -1218,14 +1221,23 @@ void initNvFuserPythonBindings(PyObject* module) {
               NVF_CHECK(device.value() < 256, "Maximum device index is 255");
               int8_device = (int8_t)device.value();
             }
-            return self.execute(
-                args,
+            auto&& [outs, out_shardings] = self.execute(
+                ins,
                 int8_device,
                 override_user_schedule,
                 capture_debug_output,
                 profile,
                 _enable_options,
                 _disable_options);
+
+            std::vector<at::Tensor> out_tensors;
+            out_tensors.reserve(outs.size());
+            for (const auto& out : outs) {
+              // Should we append toIValue(out) instead?
+              out_tensors.push_back(out.as<at::Tensor>());
+            }
+            return std::make_pair(
+                std::move(out_tensors), std::move(out_shardings));
           },
           py::arg("inputs"),
           py::kw_only(),
@@ -1441,7 +1453,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Alternatively, I can extend TensorRecord to allow contiguity as
             // a boolean. If you think it's worth doing, I'm happy to pursue it
             // in a separate PR.
-            for (const auto index : c10::irange(rank)) {
+            for (const auto index : arange(rank)) {
               const auto contig_index =
                   stride_order.empty() ? index : rank - 1 - stride_order[index];
               if (shape[index] == 1) {
@@ -1493,7 +1505,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Translate to TensorViewBuilder's view of the world.
             std::vector<int64_t> dim_sizes;
             dim_sizes.reserve(sizes.size());
-            for (const auto i : c10::irange(sizes.size())) {
+            for (const auto i : arange(sizes.size())) {
               NVF_ERROR(
                   sizes[i] >= 0,
                   "Size of ",
@@ -3125,7 +3137,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             dim);
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(arg1.dims);
-        fd->defineRecord(new TorchGatherOpRecord(
+        fd->defineRecord(new GatherOpRecord(
             {
                 fd->recordingState(arg1()),
                 fd->recordingState(index()),
@@ -3400,7 +3412,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         std::vector<Scalar> outputs;
         std::vector<State> output_state;
-        for (const auto idx : c10::irange(arg.dims)) {
+        for (const auto idx : arange(arg.dims)) {
           outputs.push_back(fd->defineScalar());
           output_state.push_back(fd->recordingState(outputs[idx]()));
         }
@@ -3611,7 +3623,12 @@ void initNvFuserPythonBindings(PyObject* module) {
         size_t ndims = query.dims;
         Tensor output = fd->defineTensor(/*dims=*/ndims);
         Tensor log_sumexp = fd->defineTensor(/*dims=*/ndims - 1);
-        Tensor philox_seed = fd->defineTensor(/*dims=*/0);
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+        int64_t philox_ndims = 1;
+#else
+        int64_t philox_ndims = 0;
+#endif
+        Tensor philox_seed = fd->defineTensor(philox_ndims);
         Tensor philox_offset = fd->defineTensor(/*dims=*/0);
 
         auto dropout_p_state = dropout_p.has_value()

@@ -13,6 +13,7 @@
 #include <ops/arith.h>
 #include <options.h>
 #include <preseg_passes/remove_bcast_squeeze.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -134,7 +135,7 @@ std::optional<AxisOp> getSimplifiedOpType(const AxisOps& ops) {
 std::vector<bool> nonPreservedDims(const AxisOps& ops) {
   std::vector<bool> flags;
   flags.reserve(ops.size());
-  for (size_t i : c10::irange(ops.size())) {
+  for (size_t i : arange(ops.size())) {
     flags.push_back(ops[i] != AxisOp::PRESERVE);
   }
   return flags;
@@ -378,7 +379,7 @@ TensorView* maybeDoReplacement(TensorView* orig) {
   // Therefore, if resharding is needed, instead of replacing `orig` with
   // `replacement`, we link them with a resharding `set`.
   bool needs_resharding = false;
-  for (size_t i : c10::irange(old_loop.size())) {
+  for (size_t i : arange(old_loop.size())) {
     if (old_loop[i]->getParallelType() != new_loop[i]->getParallelType()) {
       NVF_ERROR(
           old_loop[i]->isDeviceDim() || new_loop[i]->isDeviceDim(),
@@ -387,6 +388,13 @@ TensorView* maybeDoReplacement(TensorView* orig) {
       needs_resharding = true;
       break;
     }
+  }
+
+  // If we are replacing an output, we need to preserve the memory layout by
+  // replaying the allocation domain. Otherwise it might alter user semantics,
+  // violating memory layout required by aliasing
+  if (orig->isFusionOutput()) {
+    TransformReplay::selfReplay(orig->domain(), replacement->domain());
   }
 
   if (needs_resharding) {

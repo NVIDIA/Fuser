@@ -116,18 +116,21 @@ class ReplayRFactor : public ReplayTransformations {
     bool static_logical_outputs = static_logical_ids_.count(s->outer()) ||
         static_logical_ids_.count(s->inner());
 
-    // Let IterDomain::split determine the correct IterType, except
-    // when the output is a reduction domain but not part of the
-    // rfactored domains. If it isn't involved in the rfactor, it's no
-    // longer a redunction domain
+    // A split of a reduction ID may output a non-reduction ID when the split
+    // is involved in a prior rfactor transformation. In that case, we need to
+    // preserve the non-reduction iteration type, which is not automatically
+    // done by IterDomain::split.  This happens when a TV is rfactored multiple
+    // times, e.g., test_communication.py::test_allreduce and
+    // test_schedule_ops.py::test_rfactor_twice
     std::optional<IterType> outer_iter_type;
-    if (s->outer()->isReduction() && !rfactor_dep_ids_.count(s->outer())) {
-      outer_iter_type = IterType::Iteration;
-    }
-
     std::optional<IterType> inner_iter_type;
-    if (s->inner()->isReduction() && !rfactor_dep_ids_.count(s->inner())) {
-      inner_iter_type = IterType::Iteration;
+    if (s->in()->isReduction()) {
+      if (!rfactor_dep_ids_.count(s->outer())) {
+        outer_iter_type = IterType::Iteration;
+      }
+      if (!rfactor_dep_ids_.count(s->inner())) {
+        inner_iter_type = IterType::Iteration;
+      }
     }
 
     auto [ido, idi] = IterDomain::split(
@@ -350,7 +353,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
   std::unordered_map<IterDomain*, IterDomain*> original_to_producer_root_map;
 
   {
-    for (auto i : c10::irange(original_td_root.size())) {
+    for (auto i : arange(original_td_root.size())) {
       auto id = original_td_root[i];
       // If this is an rfactor root, it will be a reduction in this stage
       if (rfactor_root_axes.find(id) != rfactor_root_axes.end()) {
@@ -397,7 +400,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   std::vector<IterDomain*> new_producer_domain(original_td->nDims(), nullptr);
   {
-    for (auto i : c10::irange(original_td->nDims())) {
+    for (auto i : arange(original_td->nDims())) {
       auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_producer_id_map.find(orig_id);
       NVF_ERROR(
@@ -474,7 +477,7 @@ std::pair<TensorDomain*, TensorDomain*> TransformRFactor::runReplay(
 
   {
     // Construct the new consumer domain
-    for (auto i : c10::irange(original_td->nDims())) {
+    for (auto i : arange(original_td->nDims())) {
       auto orig_id = original_td->axis(i);
       auto replayed_id_it = original_to_consumer_map.find(orig_id);
       if (replayed_id_it != original_to_consumer_map.end()) {

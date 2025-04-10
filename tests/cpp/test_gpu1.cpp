@@ -214,7 +214,7 @@ TEST_F(NVFuserTest, FusionClear_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  NVF_CHECK(output_ref.equal(outputs[0]));
+  NVF_CHECK(output_ref.equal(outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionCopy_CUDA) {
@@ -624,7 +624,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
       tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
-  for (const auto i : c10::irange(tv->nDims())) {
+  for (const auto i : arange(tv->nDims())) {
     NVF_CHECK(ref[i]->sameAs(tv->axis(i - 1)));
   }
 
@@ -633,7 +633,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
       tv->getLoopDomain().begin(), tv->getLoopDomain().end());
 
   tv->reorder(shift_left);
-  for (const auto i : c10::irange(tv->nDims())) {
+  for (const auto i : arange(tv->nDims())) {
     NVF_CHECK(ref[i]->sameAs(tv->axis(i - 1)));
   }
 
@@ -643,7 +643,7 @@ TEST_F(NVFuserTest, FusionTVReorder_CUDA) {
 
   tv->reorder(shift_right);
   NVF_CHECK(ref[ref.size() - 1]->sameAs(tv->axis(0)));
-  for (const auto i : c10::irange(1, tv->nDims())) {
+  for (const auto i : arange(1, tv->nDims())) {
     NVF_CHECK(ref[i - 1]->sameAs(tv->axis(i)));
   }
 
@@ -816,7 +816,7 @@ TEST_F(NVFuserTest, FusionOuterSplit_CUDA) {
   KernelExecutor ke;
   ke.compile(&fusion);
   auto outputs = ke.run({});
-  const auto& output = outputs.at(0);
+  const auto& output = outputs[0].as<at::Tensor>();
 
   at::Tensor output_ref = at::ones_like(output, options);
   output_ref = output_ref + 2.0 + 3.0;
@@ -858,7 +858,7 @@ TEST_F(NVFuserTest, FusionCodeGen_CUDA) {
   KernelExecutor ke;
   ke.compile(&fusion);
   auto outputs = ke.run({});
-  const auto& output = outputs.at(0);
+  const auto& output = outputs[0].as<at::Tensor>();
 
   at::Tensor output_ref = at::ones_like(output, options);
   output_ref = output_ref + 2.0 + 3.0;
@@ -906,7 +906,7 @@ TEST_F(NVFuserTest, FusionCodeGen2_CUDA) {
   at::Tensor tv2_ref = input2 + 2.0;
   at::Tensor output_ref = input1 + tv2_ref;
 
-  NVF_CHECK(output_ref.equal(outputs[0]));
+  NVF_CHECK(output_ref.equal(outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(NVFuserTest, FusionSimplePWise_CUDA) {
@@ -1068,8 +1068,7 @@ TEST_F(NVFuserTest, FusionExecKernel_CUDA) {
   auto outputs = ke.run({input1, input2});
 
   at::Tensor check = at::full({1, 128}, 4, options);
-  ;
-  NVF_CHECK(outputs[0].equal(check));
+  NVF_CHECK(outputs[0].as<at::Tensor>().equal(check));
 }
 
 int ceilDiv_(int a, int b) {
@@ -2010,7 +2009,7 @@ TEST_F(NVFuserTest, FusionLoopUnroll_CUDA) {
   ke.compile(&fusion, {input0, input1});
   auto outputs = ke.run({input0, input1});
 
-  NVF_CHECK(outputs[0].equal(input0.add(input1.add(2.0))));
+  NVF_CHECK(outputs[0].as<at::Tensor>().equal(input0.add(input1.add(2.0))));
 }
 
 /*
@@ -2715,13 +2714,59 @@ TEST_F(NVFuserTest, FusionFp8CastOps_CUDA) {
         at::Tensor ref_output = t0.to(at_fp8_type).to(at_src_type);
 
         NVF_CHECK(
-            outputs[0].equal(ref_output),
+            outputs[0].as<at::Tensor>().equal(ref_output),
             "cast to fp8 and back had a mismatch.\n",
             "\nABS MAX DIFF: ",
-            outputs[0].sub(ref_output).abs().max(),
+            outputs[0].as<at::Tensor>().sub(ref_output).abs().max(),
             "\n");
       }
     }
+  }
+}
+
+TEST_F(NVFuserTest, BitCeilKernel) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* tv0 = makeSymbolicTensor(1, DataType::UInt64);
+  fusion.addInput(tv0);
+  TensorView* tv1 = bitceil(tv0);
+  fusion.addOutput(tv1);
+
+  inlineMost();
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+
+  auto options = at::TensorOptions().dtype(at::kUInt64).device(at::kCUDA, 0);
+  at::Tensor input = at::randint(0, 1000000, {1024}, options);
+  at::Tensor cg_output = at::empty({1024}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {input});
+  ke.run({input}, {cg_output});
+
+  auto input_cpu = input.cpu();
+  auto expect_cpu = input_cpu.clone();
+  auto input_span =
+      std::span(input_cpu.data_ptr<uint64_t>(), input_cpu.numel());
+  std::ranges::transform(
+      input_span, expect_cpu.data_ptr<uint64_t>(), [](uint64_t i) {
+        return std::bit_ceil(i);
+      });
+
+  EXPECT_TRUE(cg_output.equal(expect_cpu.cuda()));
+}
+
+TEST_F(NVFuserTest, BitCeilEval) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  for ([[maybe_unused]] auto _ : std::views::iota(0, 1024)) {
+    uint64_t value = std::rand() % 1000000;
+    Val* v0 =
+        IrBuilder::create<Val>(static_cast<int64_t>(value), DataType::Int);
+    Val* v1 = bitceil(v0);
+    uint64_t result = (uint64_t)v1->evaluate();
+    EXPECT_EQ(std::bit_ceil(value), result);
   }
 }
 
@@ -4694,7 +4739,7 @@ TEST_F(NVFuserTest, FusionReductionMultiConsumer_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionComputeAtExprOrder1_CUDA) {
-  for (const auto i : c10::irange(2)) {
+  for (const auto i : arange(2)) {
     Fusion fusion;
     FusionGuard fg(&fusion);
 
@@ -5054,7 +5099,8 @@ TEST_F(NVFuserTest, FusionSumTo_CUDA) {
   auto cg_outputs = ke.run({aten_input});
 
   NVF_CHECK(
-      cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
+      cg_outputs[0].as<at::Tensor>().dim() ==
+          static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
   testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
@@ -5096,7 +5142,8 @@ TEST_F(NVFuserTest, FusionSumToNoop_CUDA) {
   auto cg_outputs = ke.run({aten_input});
 
   NVF_CHECK(
-      cg_outputs[0].dim() == static_cast<int64_t>(sum_to_shape.size()),
+      cg_outputs[0].as<at::Tensor>().dim() ==
+          static_cast<int64_t>(sum_to_shape.size()),
       "sum_to not keeping the final dimension");
 
   testValidate(&fusion, cg_outputs, {aten_input}, __LINE__, __FILE__);
@@ -6182,10 +6229,10 @@ TEST_F(NVFuserTest, FusionMagicSchedulerLayerNormBackward_CUDA) {
   const size_t kOuterNumDims = kM - kN;
 
   std::vector<int64_t> outer_shape;
-  for (const auto idx : c10::irange(kOuterNumDims)) {
+  for (const auto idx : arange(kOuterNumDims)) {
     outer_shape.push_back(shape[idx]);
   }
-  for (const auto i : c10::irange(kOuterNumDims, kM)) {
+  for (const auto i : arange(kOuterNumDims, kM)) {
     (void)i; // Suppress unused variable warning
     outer_shape.push_back(1);
   }
@@ -6253,10 +6300,10 @@ TEST_F(NVFuserTest, FusionMagicSchedulerRMSNormBackward_CUDA) {
   const size_t kOuterNumDims = kM - kN;
 
   std::vector<int64_t> outer_shape;
-  for (const auto idx : c10::irange(kOuterNumDims)) {
+  for (const auto idx : arange(kOuterNumDims)) {
     outer_shape.push_back(shape[idx]);
   }
-  for (const auto i : c10::irange(kOuterNumDims, kM)) {
+  for (const auto i : arange(kOuterNumDims, kM)) {
     (void)i; // Suppress unused variable warning
     outer_shape.push_back(1);
   }
@@ -6667,7 +6714,8 @@ TEST_F(NVFuserTest, FusionMagicSchedulerInstanceNormalizationBackward_CUDA) {
       outputs_forward[2]};
   auto outputs_backward =
       executor_cache_backward.runFusionWithInputs(args_backwards);
-  outputs_backward[0] = outputs_backward[0].permute({0, 4, 1, 2, 3});
+  outputs_backward[0] =
+      outputs_backward[0].as<at::Tensor>().permute({0, 4, 1, 2, 3});
   testValidate(
       executor_cache_backward.fusion(),
       outputs_backward,

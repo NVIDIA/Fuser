@@ -327,8 +327,9 @@ TEST_F(AllocationOrderInferenceTest, EnableInRuntime) {
   auto cg_outputs = executor_cache.runFusionWithInputs({in_nhwc});
   auto ref_out = in_nhwc.relu();
 
-  EXPECT_TRUE(cg_outputs[0].is_contiguous(at::MemoryFormat::ChannelsLast));
-  EXPECT_TRUE(ref_out.allclose(cg_outputs[0]));
+  EXPECT_TRUE(cg_outputs[0].as<at::Tensor>().is_contiguous(
+      at::MemoryFormat::ChannelsLast));
+  EXPECT_TRUE(ref_out.allclose(cg_outputs[0].as<at::Tensor>()));
 }
 
 TEST_F(AllocationOrderInferenceTest, QkvSplitSdpaForward) {
@@ -375,8 +376,7 @@ TEST_F(AllocationOrderInferenceTest, SdpaBackward) {
   auto* o = makeConcreteTensor({b, h, s, e}, DataType::Half);
   auto* lse = makeConcreteTensor({b, h, s}, DataType::Float);
 
-  auto seed = makeConcreteTensor({}, DataType::Int);
-  auto offset = makeConcreteTensor({}, DataType::Int);
+  auto [seed, offset] = createSdpaRngTvs();
 
   fusion.addInput(o_grad);
   fusion.addInput(q);

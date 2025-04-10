@@ -39,11 +39,15 @@ message(STATUS "Setting NVFUSER_DISTRIBUTED=${NVFUSER_DISTRIBUTED}")
 # are footguns that should generally be avoided, because they are difficult to
 # target where and *only* where they are needed. See e.g.:
 # https://cliutils.gitlab.io/modern-cmake/chapters/intro/dodonot.html
-set(NVFUSER_C_STANDARD 17 CACHE STRING "C standard to use for C code")
+set(NVFUSER_C_STANDARD 20 CACHE STRING "C standard to use for C code")
 set(NVFUSER_CPP_STANDARD 20 CACHE STRING "C++ standard to use for C++ code")
 set(NVFUSER_CUDA_STANDARD 17 CACHE STRING "C++ standard to use for CUDA code")
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
+  # TODO: gcc 11.4 has been end of life according to https://gcc.gnu.org/
+  # I believe we should bump up the version below to 12.x.
+  # However, because gcc 11.4 is well tested and stable, let's defer this
+  # rejection until the day that we find a bug in gcc 11.4.
   if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS 11.4)
     message(FATAL_ERROR "GCC < 11.4 has compiler bugs and can not compile nvFuser.")
   endif()
@@ -75,7 +79,6 @@ add_subdirectory(${CMAKE_CURRENT_LIST_DIR}/lib/dynamic_type)
 # TODO: fix MSVC
 if(NOT MSVC)
   find_library(LIBCUPTI libcupti.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/lib64/ ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
-  find_library(LIBNVTOOLSEXT libnvToolsExt.so PATHS ${CUDA_TOOLKIT_ROOT_DIR}/lib64/)
 endif()
 
 # ------------------------------
@@ -100,6 +103,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_producer_aliases.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/thread_predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tma.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/trivial_broadcast.cpp
@@ -117,7 +121,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loop_rotation.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/loops.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/magic_zero.cpp
-  ${NVFUSER_SRCS_DIR}/device_lower/pass/misaligned_vectorization.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/predicate.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/replace_size.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/pass/rng.cpp
@@ -259,6 +262,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/expr_eval_sched.cpp
   ${NVFUSER_SRCS_DIR}/serde/polymorphic_value.cpp
   ${NVFUSER_SRCS_DIR}/serde/utils.cpp
+  ${NVFUSER_SRCS_DIR}/statement_guard.cpp
   ${NVFUSER_SRCS_DIR}/swizzle.cpp
   ${NVFUSER_SRCS_DIR}/sys_utils.cpp
   ${NVFUSER_SRCS_DIR}/tensor_metadata.cpp
@@ -344,9 +348,9 @@ set_target_properties(codegen_internal PROPERTIES
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
 
-  # this is to find pip installed nvrtc/nvtx .so
+  # this is to find pip installed nvrtc.so
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
@@ -365,17 +369,8 @@ add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
 
 if(NVFUSER_BUILD_WITH_ASAN)
   target_compile_options(codegen_internal PRIVATE -fsanitize=address)
-
-  if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU")
-    # https://github.com/google/sanitizers/issues/796#issuecomment-292844823
-    # recommends to link asan statically. This is the default with Clang. GCC
-    # needs `-static-libasan`.
-    target_link_options(codegen_internal PUBLIC -fsanitize=address -static-libasan)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address -static-libasan)
-  else()
-    target_link_options(codegen_internal PUBLIC -fsanitize=address)
-    target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
-  endif()
+  target_link_options(codegen_internal PUBLIC -fsanitize=address)
+  target_link_options(nvfuser_codegen PUBLIC -fsanitize=address)
 endif()
 
 target_include_directories(nvfuser_codegen PUBLIC
@@ -385,7 +380,6 @@ target_include_directories(nvfuser_codegen PUBLIC
 target_link_libraries(nvfuser_codegen PRIVATE
   flatbuffers
   ${CUDA_NVRTC_LIB}
-  ${LIBNVTOOLSEXT}
   ${LIBCUPTI}
   ${TORCH_LIBRARIES}
   dl
@@ -397,7 +391,7 @@ set_target_properties(nvfuser_codegen PROPERTIES
   CXX_STANDARD_REQUIRED ON
   CXX_VISIBILITY_PRESET hidden
   INSTALL_RPATH
-  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
+  "$ORIGIN/../../nvidia/cuda_runtime/lib:$ORIGIN/../../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../../torch/lib"
   POSITION_INDEPENDENT_CODE Yes
   VISIBILITY_INLINES_HIDDEN Yes
 )
@@ -520,7 +514,7 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
     POSITION_INDEPENDENT_CODE Yes
     SUFFIX ${NVF_LIB_SUFFIX}
     VISIBILITY_INLINES_HIDDEN Yes
@@ -532,14 +526,13 @@ if(BUILD_PYTHON)
     CXX_STANDARD_REQUIRED ON
     CXX_VISIBILITY_PRESET hidden
     INSTALL_RPATH
-    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../nvidia/nvtx/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
     POSITION_INDEPENDENT_CODE Yes
     VISIBILITY_INLINES_HIDDEN Yes
   )
 
   target_link_libraries(nvf_py_internal PRIVATE
     codegen_internal
-    ${LIBNVTOOLSEXT}
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
     pybind11::pybind11 pybind11::headers
   )
@@ -564,25 +557,27 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_bfs.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_driver_api.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_embedding_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_exceptions.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_simplifier.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_expr_sort.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_gather.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu1.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu2.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu3.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_fused_reduction.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_gpu_indexing_ops.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_outer_reduction.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_gpu_transpose.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_id_model.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
@@ -601,20 +596,25 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_predicate_elimination.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_preseg_passes.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_remove_bcast_squeeze.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_remove_trivial_ops.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_replay.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_resize.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_reduction_pointwise.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_rope.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_runtime.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_scalar_hoisting.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_scatter_gather.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_scatter.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sdpa_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_segmentation.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_select.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_serial_gridreduce.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_sharding.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_smem_reuse.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_statement_guard.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_swizzle.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_tensor_factories.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_tmem.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_unary.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_utils.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_vectorization_analysis.cpp
@@ -650,7 +650,8 @@ function(add_test_without_main TEST_NAME TEST_SRC ADDITIONAL_LINK)
     codegen_internal
     ${ADDITIONAL_LINK}
     dynamic_type
-    GTest::gtest GTest::gmock
+    GTest::gtest
+    GTest::gmock
     flatbuffers
     ${TORCH_LIBRARIES}
   )
@@ -721,7 +722,8 @@ if(BUILD_TEST)
   set(TUTORIAL_SRCS)
   list(APPEND TUTORIAL_SRCS
     ${NVFUSER_ROOT}/tests/cpp/test_tutorial.cpp
-    ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp)
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_tmem.cpp
+    ${NVFUSER_ROOT}/tests/cpp/tutorial_ldmatrix_stmatrix.cpp)
   add_test(test_tutorial "${TUTORIAL_SRCS}" "")
   list(APPEND TEST_BINARIES test_tutorial)
 
@@ -809,6 +811,7 @@ if(BUILD_NVFUSER_BENCHMARK)
   )
   target_include_directories(nvfuser_bench PUBLIC ${NVFUSER_ROOT})
   target_link_libraries(nvfuser_bench PRIVATE
+    GTest::gtest
     benchmark::benchmark
     codegen_internal
   )
@@ -846,6 +849,7 @@ if(BUILD_NVFUSER_BENCHMARK)
     )
     target_include_directories(nvfuser_multidevice_bench PUBLIC ${NVFUSER_ROOT})
     target_link_libraries(nvfuser_multidevice_bench PRIVATE
+      GTest::gtest
       benchmark::benchmark
       codegen_internal
     )

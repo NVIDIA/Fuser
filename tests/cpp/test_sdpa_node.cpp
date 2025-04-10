@@ -46,7 +46,7 @@ using AtenSdpaOut = std::tuple<
     at::Tensor,
     at::Tensor,
     at::Tensor>;
-auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
+auto validateSdpaFwdOutputs = [](KernelArgumentHolder nvf_out,
                                  AtenSdpaOut aten_out) {
   auto
       [attn,
@@ -62,8 +62,8 @@ auto validateSdpaFwdOutputs = [](std::vector<at::Tensor> nvf_out,
   // Since, dropout_p = 0.0 to validate outputs,
   // philox_seed and philox_offset are uninitialized empty tensors with
   // garbage values for this case, so we skip validating those values.
-  EXPECT_TRUE(at::allclose(nvf_out[0], attn));
-  EXPECT_TRUE(at::allclose(nvf_out[1], log_sumexp));
+  NVF_CHECK(at::allclose(nvf_out[0].as<at::Tensor>(), attn));
+  NVF_CHECK(at::allclose(nvf_out[1].as<at::Tensor>(), log_sumexp));
 };
 
 // Check SDPAFwdOp mapping in IdModel and ComputeAtMap.
@@ -88,16 +88,15 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
   Note: S, E are not mapped together in the producers and do not have any
   mapping to the consumer.
   */
+  std::vector<TensorView*> producer_tvs{
+      sdpa_op->query(), sdpa_op->key(), sdpa_op->value()};
+  std::vector<TensorView*> consumer_tvs{
+      sdpa_op->attn_out(), sdpa_op->logsumexp()};
 
-  for (auto producer : sdpa_op->inputs()) {
-    for (auto consumer : sdpa_op->outputs()) {
-      if (producer->isA<Val>() || consumer->isA<Val>()) {
-        continue;
-      }
-      std::vector<IterDomain*> producer_ids =
-          producer->as<TensorView>()->getLogicalDomain();
-      std::vector<IterDomain*> consumer_ids =
-          consumer->as<TensorView>()->getMaybeRootDomain();
+  for (auto producer : producer_tvs) {
+    for (auto consumer : consumer_tvs) {
+      std::vector<IterDomain*> producer_ids = producer->getLogicalDomain();
+      std::vector<IterDomain*> consumer_ids = consumer->getMaybeRootDomain();
 
       size_t num_device_dim = producer_ids.at(0)->isDeviceDim() ? 1 : 0;
 
@@ -106,7 +105,7 @@ void checkSdpaFwdMapping(Fusion* fusion, Expr* op) {
       // Idx=2: producer_ids[2]=L/S, consumer_ids [2] = L
       // Idx=3: prodcuer_ids[3] = E/Ev, consumer_idx[3] = Ev
 
-      for (auto idx : c10::irange(consumer_ids.size())) {
+      for (auto idx : arange(consumer_ids.size())) {
         if (idx < (2 + num_device_dim)) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
@@ -157,16 +156,20 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
     output = [N, H, L, Ev]
     logsumexp = [N, H, L]
   */
-
-  for (auto producer : sdpa_op->inputs()) {
-    for (auto consumer : sdpa_op->outputs()) {
-      if (producer->isA<Val>() || consumer->isA<Val>()) {
-        continue;
-      }
-      auto producer_tv = producer->as<TensorView>();
-      auto consumer_tv = consumer->as<TensorView>();
-      std::vector<IterDomain*> producer_ids = producer_tv->getLogicalDomain();
-      std::vector<IterDomain*> consumer_ids = consumer_tv->getMaybeRootDomain();
+  // Do not try to map from rng_state.
+  std::vector<TensorView*> producer_tvs{
+      sdpa_op->grad_attn(),
+      sdpa_op->query(),
+      sdpa_op->key(),
+      sdpa_op->value(),
+      sdpa_op->attn_out(),
+      sdpa_op->logsumexp()};
+  std::vector<TensorView*> consumer_tvs{
+      sdpa_op->grad_query(), sdpa_op->grad_key(), sdpa_op->grad_value()};
+  for (TensorView* producer : producer_tvs) {
+    for (TensorView* consumer : consumer_tvs) {
+      std::vector<IterDomain*> producer_ids = producer->getLogicalDomain();
+      std::vector<IterDomain*> consumer_ids = consumer->getMaybeRootDomain();
 
       size_t num_device_dim = producer_ids.at(0)->isDeviceDim() ? 1 : 0;
 
@@ -175,17 +178,16 @@ void checkSdpaBwdMapping(Fusion* fusion, Expr* op) {
       // Idx=2: producer_ids[2], consumer_ids [2] = L/S
       // Idx=3: producer_ids[3], consumer_ids[3] = E/Ev
 
-      bool producer_has_s = producer_tv->sameAs(sdpa_op->key()) ||
-          producer_tv->sameAs(sdpa_op->value());
-      bool consumer_has_s = consumer_tv->sameAs(sdpa_op->grad_key()) ||
-          consumer_tv->sameAs(sdpa_op->grad_value());
+      bool producer_has_s = producer->sameAs(sdpa_op->key()) ||
+          producer->sameAs(sdpa_op->value());
+      bool consumer_has_s = consumer->sameAs(sdpa_op->grad_key()) ||
+          consumer->sameAs(sdpa_op->grad_value());
 
-      bool producer_has_e = producer_tv->sameAs(sdpa_op->query()) ||
-          producer_tv->sameAs(sdpa_op->key());
-      bool consumer_has_e = consumer_tv->sameAs(sdpa_op->grad_query()) ||
-          consumer_tv->sameAs(sdpa_op->grad_key());
-
-      for (auto idx : c10::irange(consumer_ids.size())) {
+      bool producer_has_e = producer->sameAs(sdpa_op->query()) ||
+          producer->sameAs(sdpa_op->key());
+      bool consumer_has_e = consumer->sameAs(sdpa_op->grad_query()) ||
+          consumer->sameAs(sdpa_op->grad_key());
+      for (auto idx : arange(producer_ids.size())) {
         if (idx < 2 + num_device_dim) {
           checkMapped(vg, producer_ids.at(idx), consumer_ids.at(idx));
           EXPECT_TRUE(compute_at_map.areMapped(
@@ -389,8 +391,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
   for (auto role : {AttnRole::Q, AttnRole::K, AttnRole::V}) {
     auto producer_tv = producer_tvs[(int)role];
 
-    for (Val* consumer : fusion->outputs()) {
-      auto consumer_tv = consumer->as<TensorView>();
+    for (TensorView* consumer_tv : {output.output, output.log_sumexp}) {
       auto pairwise_map = PairwiseLogicalDomainMap(producer_tv, consumer_tv)
                               .mapProducerToConsumer();
       auto mappingExists = [&pairwise_map](
@@ -400,7 +401,7 @@ TEST_F(SDPATest, PairwiseLogicalDomainMap) {
       };
 
       auto consumer_root = consumer_tv->getMaybeRootDomain();
-      for (auto idx : c10::irange(consumer_tv->nDims())) {
+      for (auto idx : arange(consumer_tv->nDims())) {
         // Mapping for N, H exists from Q/K/V to any output.
         if (idx < 2) {
           EXPECT_TRUE(
@@ -462,8 +463,7 @@ TEST_F(SDPATest, NonCausalAttnConcreteBwd) {
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({n, h, l}, DataType::Float);
-  auto tv_seed = makeConcreteTensor({}, DataType::Int);
-  auto tv_offset = makeConcreteTensor({}, DataType::Int);
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -571,8 +571,7 @@ TEST_F(SDPATest, NonCausalAttnSymbolicBwd) {
   auto tvv = makeSymbolicTensor(kv_shape, DataType::Half);
   auto tv_output = makeSymbolicTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeSymbolicTensor({n, h, l}, DataType::Float);
-  auto tv_seed = makeSymbolicTensor({}, DataType::Int);
-  auto tv_offset = makeSymbolicTensor({}, DataType::Int);
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);
@@ -687,7 +686,7 @@ TEST_F(SDPATest, AttnProgram) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({q, k, v});
-  EXPECT_TRUE(at::allclose(out[0], expected_out));
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), expected_out));
 }
 
 TEST_F(SDPATest, AttnFwdBwd) {
@@ -878,8 +877,7 @@ TEST_F(SDPATest, Sharded_SdpaBwd) {
   auto tvv = makeConcreteTensor(kv_shape, DataType::Half);
   auto tv_output = makeConcreteTensor(attn_shape, DataType::Half);
   auto tv_logsumexp = makeConcreteTensor({d, n, h / d, l}, DataType::Float);
-  auto tv_seed = makeConcreteTensor({}, DataType::Int);
-  auto tv_offset = makeConcreteTensor({}, DataType::Int);
+  auto [tv_seed, tv_offset] = createSdpaRngTvs();
 
   fusion->addInput(tv_grad_output);
   fusion->addInput(tvq);

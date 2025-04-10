@@ -51,6 +51,11 @@ struct CudaExecutable : public NonCopyable {
 NVF_API ExpressionEvaluator
 bindInputs(const KernelArgumentHolder& args, Fusion* fusion);
 
+// Returns a vector where vector[out_idx] == the input index in fusion->inputs()
+// that output[out_idx] is aliased to. If output[out_idx] is not aliased to any
+// input, then vector[out_idx] is -1.
+std::vector<int> getOutputAliasToInputMap(const Fusion* fusion);
+
 // Compile time cache for execution
 namespace caching {
 // TODO: Could consider putting some of
@@ -102,14 +107,6 @@ struct VectorizedTensorInfo {
   std::vector<int64_t> aligned_vectorized_inp_tensor_pos;
   //! Aligned vectorized fusion outputs
   std::vector<int64_t> aligned_vectorized_out_tensor_pos;
-  //! Misaligned vectorized input tensors
-  std::unordered_set<TensorView*> global_inp_misaligned_tv;
-  //! Misaligned vectorized output tensors
-  std::unordered_set<TensorView*> global_out_misaligned_tv;
-  //! Positions of misaligned input tensors
-  std::vector<int64_t> inp_misaligned_tensors_pos;
-  //! Positions of misaligned output tensors
-  std::vector<int64_t> out_misaligned_tensors_pos;
 };
 
 //! Compile-time info to be cached in each KernelExecutor:
@@ -222,7 +219,7 @@ std::unique_ptr<ParallelExtentMap> getParallelIterExtents(
 void validateVectorizedTensors(
     kir::Kernel* kernel,
     const KernelArgumentHolder& args,
-    const std::vector<at::Tensor>& outputs,
+    const KernelArgumentHolder& outputs,
     caching::ExecutorCompileTimeInfoCache* data_cache,
     ExpressionEvaluator& expr_eval);
 

@@ -517,7 +517,7 @@ void scheduleNormalization(Fusion& fusion, const OuterReductionParams& params) {
   // Make sure the vectorized domain placed at the innermost position
   int64_t vec_id_cur_pos = -1;
   std::unordered_map<int64_t, int64_t> vec_reorder_map;
-  for (const auto i : c10::irange(reduction_tv_rf->nDims())) {
+  for (const auto i : arange(reduction_tv_rf->nDims())) {
     auto id = reduction_tv_rf->axis(i);
     if (id->getParallelType() == ParallelType::Vectorize) {
       vec_id_cur_pos = i;
@@ -910,7 +910,6 @@ void grid_persistent_batchnorm_manual(
   }
 
   auto cg_outputs = ke.run(inputs);
-  cg_outputs.at(2) = cg_outputs.at(2).permute({0, 3, 1, 2});
 
   auto at_output = at::batch_norm(
       at_input,
@@ -925,7 +924,7 @@ void grid_persistent_batchnorm_manual(
 
   testValidate(
       ke.compiledKernel()->kernel(),
-      {cg_outputs.at(2)},
+      cg_outputs[2].as<at::Tensor>().permute({0, 3, 1, 2}),
       inputs,
       {at_output},
       __LINE__,
@@ -1223,8 +1222,6 @@ void grid_persistent_batchnorm_bwd_manual(
        at_save_mean,
        at_save_var});
 
-  std::vector<at::Tensor> cg_outputs;
-
   KernelExecutor ke;
   ke.compile(fusion_ptr.get(), inputs);
 
@@ -1235,9 +1232,9 @@ void grid_persistent_batchnorm_bwd_manual(
                  << params.bidx * bidy << ", available: " << deviceSMCount();
   }
 
-  cg_outputs = ke.run(inputs);
+  auto cg_outputs = ke.run(inputs);
   // Permute grad_input output
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs[0] = cg_outputs[0].as<at::Tensor>().permute({0, 3, 1, 2});
 
   auto at_output = at::native_batch_norm_backward(
       at_grad_out,
@@ -1782,7 +1779,7 @@ void grid_persistent_batchnorm_scheduler(
       kEps,
       true);
 
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs[0] = cg_outputs[0].as<at::Tensor>().permute({0, 3, 1, 2});
 
   testValidate(&fusion, cg_outputs, args, {at_output}, __LINE__, __FILE__, "");
 }
@@ -2080,7 +2077,7 @@ void grid_persistent_batchnorm_bwd_scheduler(
   }
 
   // Permute grad_input output
-  cg_outputs.at(0) = cg_outputs.at(0).permute({0, 3, 1, 2});
+  cg_outputs[0] = cg_outputs[0].as<at::Tensor>().permute({0, 3, 1, 2});
 
   auto at_output = at::native_batch_norm_backward(
       at_grad_out,

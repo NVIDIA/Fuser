@@ -55,20 +55,22 @@ void mapThroughLoopSwizzles(ValGraph& graph) {
 
 } // namespace
 
-void IdModel::assertNoSelfMapping() {
-  const ValGraph& exact_graph = idGraph(IdMappingMode::EXACT);
+void IdModel::assertNoSelfMapping(const ValGraph& graph) const {
   for (TensorView* tv : tvs_) {
-    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, exact_graph);
+    std::optional<SelfMapping> self_mapping = hasSelfMapping(tv, graph);
+    if (self_mapping.has_value()) {
+      tv->fusion()->print();
+    }
     NVF_CHECK(
         !self_mapping.has_value(),
         "Unsupported domain mapping detected in ",
-        tv,
+        tv->toString(),
         ". ",
         self_mapping->where,
         " domains, ",
-        self_mapping->id1,
+        self_mapping->id1->toString(),
         " and ",
-        self_mapping->id2,
+        self_mapping->id2->toString(),
         ", are mapped with each other.");
   }
 }
@@ -361,7 +363,7 @@ ValGraph& IdModel::buildExactGraph() {
                 c_tv->getMaybeRootDomain().size(),
             "Multiple outputs with mismatched TV domains is not supported.");
 
-        for (auto domain_i : c10::irange(c_tv->getMaybeRootDomain().size())) {
+        for (auto domain_i : arange(c_tv->getMaybeRootDomain().size())) {
           auto c_id = c_tv->getMaybeRootDomain()[domain_i];
           auto o_id = other_tv_output->getMaybeRootDomain()[domain_i];
           graph.mapVals(o_id, c_id);
@@ -413,6 +415,12 @@ ValGraph& IdModel::buildExactGraph() {
 
   graph.validateConsistency();
 
+  // Make sure there's no self mapping in the Exact graph as that
+  // would invalidate lowering assumptions.
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(graph);
+  }
+
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     checkStaticExtentGroups(graph);
   }
@@ -446,8 +454,15 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         mapped_ids.push_back({split->in(), split->inner()});
       }
     } else {
-      // Rare, but don't want to deal with zero-dim IDs
-      if (!split->in()->extent()->isZeroInt()) {
+      // Rare, but don't want to deal with zero-dim IDs.
+      // If the input ID is a size-one ID (not necessarily broadcast,
+      // e.g., may be reduction) and the factor is not one, mapping
+      // the input and the size-one output can be inconvenient for
+      // predicate indexing. See
+      // PredicateIndexingTest.NonTrivialSizeOneDomain for a concrete
+      // example.
+      if (!split->in()->extent()->isZeroInt() &&
+          !split->in()->extent()->isOneInt()) {
         // Even when the factor is not known to be 1, as long as the
         // input and output have the same extent, they should be
         // mapped. This happens, for example, split 32 by 32 -> 1, 32.
@@ -495,6 +510,22 @@ ValGraph& IdModel::buildAlmostExactGraph() {
 
   auto& almost_exact_graph = idGraph(IdMappingMode::ALMOSTEXACT);
 
+  // Even when EXACT has no self mapping, there was a case ALMOSTEXACT
+  // had self mapping (see issue #3919). ALMOSTEXACT is used in
+  // indexing, which assumes the graph has no self mapping. To avoid
+  // self mapping, mark each of the root, logical and loop domains of
+  // all tensors unmappable
+  for (TensorView* tv : tvs_) {
+    if (tv->hasRoot()) {
+      almost_exact_graph.setUnmappable(
+          {tv->getRootDomain().begin(), tv->getRootDomain().end()});
+    }
+    almost_exact_graph.setUnmappable(
+        {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()});
+    almost_exact_graph.setUnmappable(
+        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  }
+
   // Maps iter domain pairs returned by calling that return mappings from
   // isTrivialExpr on every expression in the graph.
 
@@ -514,7 +545,6 @@ ValGraph& IdModel::buildAlmostExactGraph() {
       // Map through trivial expressions
       for (auto mapped_id_group : mapped_ids) {
         for (auto id : mapped_id_group) {
-          // almost_exact_graph.mapVals(mapped_id_group.front(), id);
           ids_to_map.emplace_back(mapped_id_group.front(), id);
         }
       }
@@ -526,6 +556,10 @@ ValGraph& IdModel::buildAlmostExactGraph() {
   }
 
   almost_exact_graph.validateConsistency();
+
+  if (!allow_self_mapping_) {
+    assertNoSelfMapping(almost_exact_graph);
+  }
 
   if (isOptionEnabled(EnableOption::IdModelExtraValidation)) {
     checkStaticExtentGroups(almost_exact_graph);
@@ -687,10 +721,6 @@ StatefulInliningInfo buildStatefulInliningInfo(
       const auto& producer_logical = producer_tv->getLogicalDomain();
       const auto& producer_domain = producer_tv->domain()->loop();
 
-      // Grab all iteration domains in producer that its compute at iter domains
-      // depend on.
-      VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
-
       // Broadcast forwarding is not applied when the loop domain is
       // not fully derived from the logical domain. In that case, the
       // loop promotion analysis effectively does nothing, however, we
@@ -698,28 +728,33 @@ StatefulInliningInfo buildStatefulInliningInfo(
       // well as p2c_ca_permissive_maps are required. Since no
       // promotion analysis is done, only loop IDs need to be
       // considered.
-
-      if (ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv)) {
-        auto ca_dep_vals = DependencyCheck::getAllValsBetween(
-            {producer_logical.begin(), producer_logical.end()},
-            {producer_domain.begin(),
-             producer_domain.begin() + producer_tv->getComputeAtPosition()});
-        auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            ca_deps_filter.begin(), ca_deps_filter.end());
-      } else {
-        all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
-            producer_tv->getLoopDomain().begin(),
-            producer_tv->getLoopDomain().begin() +
-                producer_tv->getComputeAtPosition());
-      }
-
-      info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+      auto fully_derived =
+          ir_utils::isLoopDomainFullyDerivedFromLogicalDomain(producer_tv);
 
       // Gather info on and producer-consumer
       // mappings of CA domains and broadcast resolution
       for (auto consumer_tv :
            ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Grab all iteration domains in producer that its compute at iter
+        // domains depend on.
+        VectorOfUniqueEntries<IterDomain*> all_producer_ca_deps;
+        if (fully_derived) {
+          auto ca_dep_vals = DependencyCheck::getAllValsBetween(
+              {producer_logical.begin(), producer_logical.end()},
+              {producer_domain.begin(),
+               producer_domain.begin() +
+                   producer_tv->getComputePosition(consumer_tv)});
+          auto ca_deps_filter = ir_utils::filterByType<IterDomain>(ca_dep_vals);
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              ca_deps_filter.begin(), ca_deps_filter.end());
+        } else {
+          all_producer_ca_deps = VectorOfUniqueEntries<IterDomain*>(
+              producer_tv->getLoopDomain().begin(),
+              producer_tv->getLoopDomain().begin() +
+                  producer_tv->getComputePosition(consumer_tv));
+        }
+        info.ordered_p_ca_ids.pushBack(all_producer_ca_deps);
+
         auto all_producer_ids = producer_tv->domain()->allIDs();
         auto all_consumer_ids = consumer_tv->domain()->allIDs();
 
@@ -749,7 +784,7 @@ StatefulInliningInfo buildStatefulInliningInfo(
         auto all_consumer_ids = consumer_tvs.vector().at(0)->domain()->allIDs();
         info.ordered_sibling_ids.pushBack(
             {all_consumer_ids.begin(), all_consumer_ids.end()});
-        for (const auto i : c10::irange(1, consumer_tvs.size())) {
+        for (const auto i : arange(1, consumer_tvs.size())) {
           auto consumer_tv_i = consumer_tvs.vector().at(i);
           auto all_consumer_i_ids = consumer_tv_i->domain()->allIDs();
 
@@ -851,15 +886,7 @@ void IdModel::buildAllGraphs() {
     validator->checkExactGraphEquivalence(idGraph(IdMappingMode::EXACT));
   }
 
-  // Make sure there's no self mapping in the Exact graph as that
-  // would invalidate lowering assumptions.
-  if (!allow_self_mapping_) {
-    assertNoSelfMapping();
-  }
-
   buildAlmostExactGraph();
-  // Skip validating the almost exact graph as the IdModel graph also
-  // maps non-size-one broadcast domains
 
   buildPermissiveGraph();
   // Validation is not implemented when compliment mapping is enabled
@@ -897,6 +924,10 @@ ValGraph& IdModel::maybeBuildGraph(IdMappingMode mode) {
   }
 }
 
+void IdModel::removeGraph(IdMappingMode mode) {
+  id_graphs_.erase(mode);
+}
+
 ValGraph IdModel::buildIntersection(
     const ValGraph& graph0,
     const ValGraph& graph1,
@@ -904,7 +935,7 @@ ValGraph IdModel::buildIntersection(
   ValGraph intersection = initializeIdGraph(propagate_exprs);
   for (const ValGroup& group0 : graph0.disjointValSets().disjointSets()) {
     auto set_size = group0->size();
-    for (auto id0_i : c10::irange(set_size)) {
+    for (auto id0_i : arange(set_size)) {
       Val* id0 = group0->vector()[id0_i];
       for (auto id1_i = id0_i; id1_i < set_size; id1_i++) {
         Val* id1 = group0->vector()[id1_i];
@@ -949,7 +980,7 @@ Expr* IdModel::addReplayAs(std::vector<IterDomain*> new_inputs, Expr* expr) {
       })) {
     // Inputs have mismatched type, replace new_inputs
     auto tmp_inputs = new_inputs;
-    for (const auto i : c10::irange(new_inputs.size())) {
+    for (const auto i : arange(new_inputs.size())) {
       new_inputs.at(i) = IterDomainBuilder(tmp_inputs.at(i))
                              .iter_type(IterType::Iteration)
                              .build();
@@ -1162,15 +1193,17 @@ void IdModel::allocateLoopIndexVariables() {
 
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             loop_group->front()->as<IterDomain>())) {
-      // Allocate index variable for each stage of the circular buffered loop.
+      // Allocate index variable for each stage of the circular
+      // buffered loop.
+      auto indices = std::make_unique<CircularBufferIndices>();
+      for (auto i :
+           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+        indices->emplace(
+            static_cast<CircularBufferLoopStage>(i),
+            IrBuilder::create<Val>(DataType::Index));
+      }
       circular_buffered_loop_index_variable_map_[loop_group] =
-          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
-              {{CircularBufferLoopStage::Prolog,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Main,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Epilog,
-                IrBuilder::create<Val>(DataType::Index)}}));
+          std::move(indices);
       continue;
     }
 

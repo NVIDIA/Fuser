@@ -197,6 +197,8 @@ struct GetValType<ExprGroup> {
   using type = ValGroup;
 };
 
+using ExprGroupPath = std::vector<std::pair<ExprGroup, Direction>>;
+
 class ValGraphBFS : public BFS<
                         ExprGroup,
                         ValGroup,
@@ -275,5 +277,30 @@ class ValGraphPermissiveBFS : public BFSWithPermissiveDependence<
         graph);
   }
 };
+
+inline std::vector<ValGroup> getInputsOfExprGroup(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return getInputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+}
+
+inline std::vector<ValGroup> getOutputsOfExprGroup(
+    const ValGraph& graph,
+    const ExprGroup& expr,
+    Direction dir) {
+  return getOutputsOfExpr(
+      expr, dir, ValGraphInputs(graph), ValGraphOutputs(graph));
+}
+
+// Grab all ExprGroups between to sets of ValGroups. ExprGroups are
+// not guaranteed to be topologically sorted.
+std::pair<ExprGroupPath, bool> getAllExprGroupsBetween(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGroups& to,
+    bool require_all_to_visited = true,
+    Direction allowed_direction = Direction::Undefined);
 
 } // namespace nvfuser
