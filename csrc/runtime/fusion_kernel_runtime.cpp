@@ -534,11 +534,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               hic->pushBackTopLevelExprs(allocate);
             }
             hic->pushBackTopLevelExprs(expr);
-            if (expr->isA<Communication>()) {
-              auto wait =
-                  IrBuilder::create<hir::Wait>(expr->as<Communication>());
-              hic->pushBackTopLevelExprs(wait);
-            }
+            auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
+            hic->pushBackTopLevelExprs(wait);
           }
         } else {
           // push back segment's exprs into the container as top level
