@@ -1273,6 +1273,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
   }
 
+  std::string genLoadBlockDim() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    Val* tidx = pdim_map.getRawLoad(ParallelType::TIDx);
+    Val* tidy = pdim_map.getRawLoad(ParallelType::TIDy);
+    Val* tidz = pdim_map.getRawLoad(ParallelType::TIDz);
+    int64_t num_threads = tidx->value().as<int64_t>() +
+        tidy->value().as<int64_t>() + tidz->value().as<int64_t>();
+    NVF_ERROR(
+        num_threads == 128,
+        "Expected 128 threads in LoadWarp, but found ",
+        num_threads);
+    NVF_ERROR(pdim_map.hasWarpSpecialization());
+    ss << "dim3(" << genInlineOrOne(tidx) << ", " << genInlineOrOne(tidy)
+       << ", " << genInlineOrOne(tidz) << ")";
+    return ss.str();
+  }
+
   std::string genComputeBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
@@ -3539,6 +3557,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
+    } else if (sync->isLoadWarpSync()) {
+      ArgumentBuilder template_args;
+      template_args.arg(isAligned());
+      ArgumentBuilder func_args;
+      func_args.arg(genLoadBlockDim());
+      indent() << genCall("block_sync::sync", template_args, func_args)
+               << ";\n";
+    } else if (sync->isComputeWarpSync()) {
+      ArgumentBuilder template_args;
+      template_args.arg(isAligned());
+      ArgumentBuilder func_args;
+      func_args.arg(genComputeBlockDim());
+      indent() << genCall("block_sync::sync", template_args, func_args)
+               << ";\n";
     } else {
       indent() << "__barrier_sync(0);\n";
     }
