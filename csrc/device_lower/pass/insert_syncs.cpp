@@ -466,7 +466,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // TODO: This is clearly a wrong way to sync, but as an intermediate
         // step to enable incremental development, we use nanosleep to sync the
         // mma. We should replace this with a correct sync method.
-        registerInsertAfter(expr, IrBuilder::create<kir::BlockSync>());
         registerInsertAfter(
             expr,
             IrBuilder::create<kir::Asm>(
@@ -475,6 +474,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                 std::vector<Val*>{
                     IrBuilder::create<Val>(100000, DataType::UInt32)},
                 kir::Asm::Options{/*volatile=*/true}));
+        registerInsertAfter(expr, IrBuilder::create<kir::BlockSync>());
       }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
       // Add a fence before TMA store so that writes in the generic proxy is
