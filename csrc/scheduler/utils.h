@@ -656,7 +656,7 @@ void applyTransforms(
 
 // Returns a mapping from vec1 to vec2.
 template <typename T>
-std::unordered_map<T, T> createMapping(
+std::unordered_map<int64_t, int64_t> createReorderMap(
     const std::vector<T>& vec1,
     const std::vector<T>& vec2);
 

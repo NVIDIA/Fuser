@@ -2128,7 +2128,12 @@ namespace {
 
 void applySplitTransform(const Split* split, std::vector<IterDomain*>& ids) {
   auto find_it = std::find(ids.begin(), ids.end(), split->in());
-  NVF_ERROR(find_it != ids.end(), "Split input ", split->in()->toString(), " not found in given ids: ", ids);
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Split input ",
+      split->in()->toString(),
+      " not found in given ids: ",
+      ids);
   auto pos = std::distance(ids.begin(), find_it);
   ids[pos] = split->inner();
   ids.insert(ids.begin() + pos, split->outer());
@@ -2137,8 +2142,18 @@ void applySplitTransform(const Split* split, std::vector<IterDomain*>& ids) {
 void applyMergeTransform(const Merge* merge, std::vector<IterDomain*>& ids) {
   auto find_it_0 = std::find(ids.begin(), ids.end(), merge->outer());
   auto find_it_1 = std::find(ids.begin(), ids.end(), merge->inner());
-  NVF_ERROR(find_it_0 != ids.end(), "Merge outer ", merge->outer()->toString(), " not found in given ids: ", ids);
-  NVF_ERROR(find_it_1 != ids.end(), "Merge inner ", merge->inner()->toString(), " not found in given ids: ", ids);
+  NVF_ERROR(
+      find_it_0 != ids.end(),
+      "Merge outer ",
+      merge->outer()->toString(),
+      " not found in given ids: ",
+      ids);
+  NVF_ERROR(
+      find_it_1 != ids.end(),
+      "Merge inner ",
+      merge->inner()->toString(),
+      " not found in given ids: ",
+      ids);
   auto pos0 = std::distance(ids.begin(), find_it_0);
   auto pos1 = std::distance(ids.begin(), find_it_1);
   if (pos0 > pos1) {
@@ -2156,7 +2171,12 @@ void applyMergeTransform(const Merge* merge, std::vector<IterDomain*>& ids) {
 
 void applyResizeTransform(const Resize* resize, std::vector<IterDomain*>& ids) {
   auto find_it = std::find(ids.begin(), ids.end(), resize->in());
-  NVF_ERROR(find_it != ids.end(), "Resize input ", resize->in()->toString(), " not found in given ids: ", ids);
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Resize input ",
+      resize->in()->toString(),
+      " not found in given ids: ",
+      ids);
   *find_it = resize->out();
 }
 
@@ -2186,19 +2206,21 @@ void applyTransforms(
 
 // Returns a mapping from vec1 to vec2.
 template <typename T>
-std::unordered_map<T, T> createMapping(
+std::unordered_map<int64_t, int64_t> createReorderMap(
     const std::vector<T>& vec1,
     const std::vector<T>& vec2) {
-  std::unordered_map<size_t, size_t> old2new;
+  std::unordered_map<int64_t, int64_t> old2new;
 
   for (auto idx : c10::irange((int64_t)vec1.size())) {
     auto orig_id = vec1.at(idx);
     auto find_it = std::find(vec2.begin(), vec2.end(), orig_id);
     NVF_ERROR(
         find_it != vec2.end(),
-        "Reordering map creation failed, uninitialized iterdomain, ",
-        orig_id->toString());
-    int64_t new_pos = std::distance(vec2.begin(), find_it);
+        "Mapping failed, cannot find ",
+        orig_id,
+        " in ",
+        vec2);
+    int64_t new_pos = (int64_t)std::distance(vec2.begin(), find_it);
     old2new[idx] = new_pos;
   }
   return old2new;
@@ -2213,8 +2235,7 @@ std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
   std::vector<IterDomain*> ids_to_transform = tv->getLogicalDomain();
   applyTransforms(ids_to_transform, transform_exprs);
-  return createMapping(/*vec1=*/tv->getLoopDomain(),
-                       /*vec2=*/ids_to_transform);
+  return createReorderMap(tv->getLoopDomain(), ids_to_transform);
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
