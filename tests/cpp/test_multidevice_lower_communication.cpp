@@ -32,8 +32,9 @@ void assertIsCompiledToHostIrContainer(
         runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
     EXPECT_THAT(
         hicExprs,
-        Contains(Property(&Expr::isA<Communication>, IsTrue())).Times(1))
-        << "host ir container should only have one communication";
+        Contains(Property(&Expr::isA<Communication>, IsTrue()))
+            .Times(testing::Gt(0)))
+        << "host ir container should have at least one communication";
   } else {
     EXPECT_EQ(runtime->executors().size(), 1);
     EXPECT_THAT(
@@ -136,8 +137,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
-        testing::Values(false)), // TODO: testing::Bool() after implementing
-                                 // communication lowering
+        testing::Bool()),
     nameFromTuple);
 
 class LowerScatterTest
@@ -188,8 +188,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
-        testing::Values(false)), // TODO: testing::Bool() after implementing
-                                 // communication lowering
+        testing::Bool()),
     nameFromTuple);
 
 class LowerSendRecvTest
@@ -242,8 +241,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
-        testing::Values(false)), // TODO: testing::Bool() after implementing
-                                 // communication lowering
+        testing::Bool()),
     nameFromTuple);
 
 class LowerCollectiveTest : public MultiDeviceTest,
@@ -595,8 +593,7 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
 INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerCollectiveTest,
-    testing::Values(false), // TODO: testing::Bool() after implementing
-                            // communication lowering
+    testing::Bool(),
     [](const testing::TestParamInfo<bool>& info) {
       return info.param ? "HirLowerEnabled" : "HirLowerDisabled";
     });
