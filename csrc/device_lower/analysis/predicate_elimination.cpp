@@ -382,6 +382,7 @@ class PredicateChcker : public IterVisitor {
         predicateNonDivisibleLogicalDomains(expr) ||
         predicateNonDivisibleSplit(expr) || predicateExpandReduce(expr) ||
         predicateRNGOp(expr);
+    std::cout << expr->toString() << " needs_predicate_: " << needs_predicate_ << std::endl;
 
     if (needs_predicate_) {
       return;
