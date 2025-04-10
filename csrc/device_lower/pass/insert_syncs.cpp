@@ -462,6 +462,18 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         fill_async_mma_pipeline_ = true;
         // async mma pipeline has not been flushed yet.
         flush_async_mma_pipeline_ = false;
+      } else if (mma->isBlackwell()) {
+        // TODO: This is clearly a wrong way to sync, but as an intermediate
+        // step to enable incremental development, we use nanosleep to sync the
+        // mma. We should replace this with a correct sync method.
+        registerInsertAfter(
+            expr,
+            IrBuilder::create<kir::Asm>(
+                "nanosleep.u32",
+                std::vector<Val*>{},
+                std::vector<Val*>{
+                    IrBuilder::create<Val>(100000, DataType::UInt32)},
+                kir::Asm::Options{/*volatile=*/true}));
       }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
       // Add a fence before TMA store so that writes in the generic proxy is
