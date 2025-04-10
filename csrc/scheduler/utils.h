@@ -649,6 +649,17 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
 // [1, 0, 0] pos 1 would return true
 bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 
+// Transform the ids_to_transform as progressing through the transform_exprs
+void applyTransforms(
+    std::vector<IterDomain*>& ids_to_transform,
+    const std::vector<Expr*>& transform_exprs);
+
+// Returns a mapping from vec1 to vec2.
+template <typename T>
+std::unordered_map<T, T> createMapping(
+    const std::vector<T>& vec1,
+    const std::vector<T>& vec2);
+
 // Generates an old to new map to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
 // logical [i0, i1, i2]
