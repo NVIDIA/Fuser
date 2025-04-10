@@ -244,17 +244,26 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool()),
     nameFromTuple);
 
-class LowerCollectiveTest : public MultiDeviceTest,
-                            public testing::WithParamInterface<bool> {};
+class LowerCollectiveTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<CommunicatorBackend> {
+ protected:
+  void SetUp() override;
+};
+
+void LowerCollectiveTest::SetUp() {
+  MultiDeviceTest::SetUp();
+
+  const CommunicatorBackend backend_type = GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
+  }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  communicator_->setDefaultBackend(backend_type);
+}
 
 TEST_P(LowerCollectiveTest, Allgather) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -282,14 +291,6 @@ TEST_P(LowerCollectiveTest, Allgather) {
 }
 
 TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    // Skip this test when HostIrLowering is enabled
-    GTEST_SKIP() << "Disabled for HostIrLowering enabled configuration";
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -326,13 +327,6 @@ TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
 // https://github.com/NVIDIA/Fuser/blob/1dda106a946adcfd1526b83e4f2d4abebb9e32e4/csrc/multidevice/utils.cpp#L77.
 // Will try to fix this in a follow-up PR and reenable the test.
 TEST_P(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -366,13 +360,6 @@ TEST_P(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
 }
 
 TEST_P(LowerCollectiveTest, Broadcast) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -405,13 +392,6 @@ TEST_P(LowerCollectiveTest, Broadcast) {
 }
 
 TEST_P(LowerCollectiveTest, Reduce) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -444,13 +424,6 @@ TEST_P(LowerCollectiveTest, Reduce) {
 }
 
 TEST_P(LowerCollectiveTest, Allreduce) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -478,13 +451,6 @@ TEST_P(LowerCollectiveTest, Allreduce) {
 }
 
 TEST_P(LowerCollectiveTest, Allreduce_Concrete) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -516,13 +482,6 @@ TEST_P(LowerCollectiveTest, Allreduce_Concrete) {
 }
 
 TEST_P(LowerCollectiveTest, ReduceScatter) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -552,13 +511,6 @@ TEST_P(LowerCollectiveTest, ReduceScatter) {
 }
 
 TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
-  EnableOptionsGuard opt_guard;
-  const bool enable_host_ir_lowering = GetParam();
-
-  if (enable_host_ir_lowering) {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-  }
-
   // Allreduce = ReduceScatter + Allgather
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -590,12 +542,62 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
+TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // ProcessGroupNCCL requires the gathered axis to be outermost.
+  // We change the allocation of tensorviews to reflect this.
+  // We do not modify the logical shape of the tensorview.
+  // This would still require one copy on each device if the input tensor is in
+  // a different layout.
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv0: Logical = [5, d*3], Loop/Allocation = [DIDx(d), 3, 5]
+
+  TensorView* tv1 = set(tv0);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv1: Logical = [5, d*3], Loop/Allocation = [Serial(d), 3, 5]
+
+  for (auto tv : {tv0, tv1}) {
+    tv->setDeviceMesh(mesh);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  // debug() << tv0->getContiguity() << std::endl;
+  // debug() << tv1->getContiguity() << std::endl;
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options);
+  at::Tensor in_tensor =
+      shardTensor(unsharded_in_tensor, 0, mesh).transpose(0, 1);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {unsharded_in_tensor.transpose(0, 1)},
+      __LINE__,
+      __FILE__);
+}
+
 INSTANTIATE_TEST_SUITE_P(
-    HostIrLowering,
+    ,
     LowerCollectiveTest,
-    testing::Bool(),
-    [](const testing::TestParamInfo<bool>& info) {
-      return info.param ? "HirLowerEnabled" : "HirLowerDisabled";
-    });
+    testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+    testing::PrintToStringParamName());
 
 } // namespace nvfuser
