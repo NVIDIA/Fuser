@@ -2984,7 +2984,6 @@ void IndexLowering::handle(const ScanOp* scop) {
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   const ValGroup& scan_group = id_graph.toGroup(scan_id);
   for (ForLoop* loop : for_loops_) {
-    // TODO: use promoted loop and match group of scan_id
     if (id_graph.toGroup(loop->iter_domain()) == scan_group) {
       scan_index = loop->index();
       break;
