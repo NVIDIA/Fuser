@@ -5593,7 +5593,22 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
           NVF_THROW("Unhandled discount factor type");
         }
 
-        cur += next_slice;
+        switch (opType()) {
+          case BinaryOpType::Add:
+            cur += next_slice;
+            break;
+          case BinaryOpType::Max:
+            cur = cur.maximum(next_slice);
+            break;
+          case BinaryOpType::Min:
+            cur = cur.minimum(next_slice);
+            break;
+          case BinaryOpType::Mul:
+            cur *= next_slice;
+            break;
+          default:
+            NVF_THROW("Unhandled opType() ", opType());
+        }
       }
 
       out.index(slice_pos).copy_(cur);

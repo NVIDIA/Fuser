@@ -2958,19 +2958,19 @@ void IndexLowering::handle(const CatOp* cat) {
   GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
-void IndexLowering::handle(const ScanOp* psop) {
-  const auto in = lowerSrcIndex(psop->in(), psop->out());
-  const auto out = lowerDstIndex(psop->out());
+void IndexLowering::handle(const ScanOp* scop) {
+  const auto in = lowerSrcIndex(scop->in(), scop->out());
+  const auto out = lowerDstIndex(scop->out());
 
   // Find index for the scanDim IterDomain loop, so that we can modify the index
   // by subtracting one.
   IterDomain* scan_id =
-      TensorDomain::noReductions(psop->in()->getLogicalDomain())
-          .at((size_t)psop->scanDim());
+      TensorDomain::noReductions(scop->in()->getLogicalDomain())
+          .at((size_t)scop->scanDim());
   int scan_id_alloc_pos = -1;
   Val* scan_index = nullptr;
   const std::vector<IterDomain*>& alloc_dom =
-      psop->in()->getMaybeAllocationDomain();
+      scop->in()->getMaybeAllocationDomain();
   for (size_t alloc_pos : arange(alloc_dom.size())) {
     if (alloc_dom.at(alloc_pos) == scan_id) {
       scan_id_alloc_pos = alloc_pos;
@@ -2997,22 +2997,22 @@ void IndexLowering::handle(const ScanOp* psop) {
   Val* lagged_index = sub(scan_index, GpuLower::current()->kernel()->oneVal());
   // This gives us the previously computed value along the scanned dimension
   Val* prev_sum_tensor = lowerDstIndex(
-      psop->out(), /*override_index=*/{{scan_id_alloc_pos, lagged_index}});
+      scop->out(), /*override_index=*/{{scan_id_alloc_pos, lagged_index}});
 
   // Cache the tensors to scalars, to make building the where expression simpler
-  Val* next_val = IrBuilder::create<Val>(psop->in()->dtype());
+  Val* next_val = IrBuilder::create<Val>(scop->in()->dtype());
   IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, next_val, in);
 
   // Convert prev_sum to a scalar Val so that we don't need to allocate a new
   // TensorView for it.
-  Val* prev_sum = IrBuilder::create<Val>(psop->out()->dtype());
+  Val* prev_sum = IrBuilder::create<Val>(scop->out()->dtype());
   IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
 
-  if (Val* f = psop->discountFactor()) {
+  if (Val* f = scop->discountFactor()) {
     Val* f_scalar = f;
     if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
-      Val* f_ti = lowerSrcIndex(f_tv, psop->out());
+      Val* f_ti = lowerSrcIndex(f_tv, scop->out());
       Val* prev_sum_mul = IrBuilder::create<Val>(f_tv->dtype());
       IrBuilder::create<BinaryOp>(
           BinaryOpType::Mul, prev_sum_mul, f_ti, prev_sum);
@@ -3022,16 +3022,16 @@ void IndexLowering::handle(const ScanOp* psop) {
     }
   }
 
-  Expr* expr = IrBuilder::create<TernaryOp>(
-      TernaryOpType::Where,
-      out,
-      // TODO: Allocate these intermediate values
+  prev_sum = where(
       gt(scan_index, GpuLower::current()->kernel()->zeroVal()),
-      binaryOp(psop->opType(), prev_sum, next_val),
-      next_val);
+      prev_sum,
+      scop->init());
+
+  Expr* expr =
+      IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, next_val);
 
   pushBack(expr);
-  GpuLower::current()->propagateExprInfo(psop, expr);
+  GpuLower::current()->propagateExprInfo(scop, expr);
 }
 
 } // namespace nvfuser

@@ -13,6 +13,7 @@
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <limits>
 
 namespace nvfuser {
 
@@ -31,6 +32,8 @@ TEST_F(ScanTest, Concrete1D) {
   auto tv1 = prefixSum(tv0, /*dim=*/-1, /*discount_factor=*/nullptr);
 
   fusion->addOutput(tv1);
+
+  fusion->printMath();
 
   tv0->cacheAfter();
   tv1->cacheBefore();
@@ -162,7 +165,7 @@ TEST_F(ScanTest, Concrete2D) {
 }
 
 // This is similar to what's needed for serial online softmax
-TEST_F(ScanTest, Concrete1D) {
+TEST_F(ScanTest, OnlineSoftmax) {
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
 
   auto fusion = std::make_unique<Fusion>();
@@ -185,11 +188,18 @@ TEST_F(ScanTest, Concrete1D) {
   //
   // Final denominator is d[N-1]
 
-  TensorView* m = scan(BinaryOpType::Max, x, scan_dim); // max x[j] over j = 0 .. i
+  TensorView* m = scan(
+      x,
+      scan_dim,
+      BinaryOpType::Max,
+      /*init=*/
+      IrBuilder::create<Val>(
+          -std::numeric_limits<double>::infinity(),
+          DataType::Double)); // max x[j] over j = 0 .. i
   // normalize by running max and exponentiate
   TensorView* exp_x_m = exp(sub(x, m));
   // Discount factor is exponentiated delta: exp(m[i] - m[i-1])
-  TensorView* discount = exp(sub(m, lag1(m, scan_dim)));
+  TensorView* discount = nullptr; // exp(sub(m, lag1(m, scan_dim)));
 
   // What is needed?
   //  - generalize prefixSum to scan (with discount factor) to cover prefixMax
@@ -200,7 +210,8 @@ TEST_F(ScanTest, Concrete1D) {
   //     - If _all_ we want is the final value, then we don't need to allocate
   //       all of the values for tv1
   //     - We could have a custom reduction type that we apply to grab the last
-  //       value in a dimension.
+  //       value in a dimension. This could be accomplished with a new
+  //       BinaryOpType::RHS which just returns the rhs
 
   //
   // lag1(x)[i] = x[i-1]  (in a specified dim)
@@ -223,10 +234,8 @@ TEST_F(ScanTest, Concrete1D) {
 
   auto denoms = prefixSum(exp_x_m, scan_dim, discount);
 
-  fusion->addOutput(tv1);
+  fusion->addOutput(denoms);
 
-  tv0->cacheAfter();
-  tv1->cacheBefore();
   // Caching works fine, but once we inline we wind up not allocating the scan
   // ID, meaning the index is just 0, and there's no replacement. This actually
   // gives us the correct result in this test but it's not pretty, so I'd like
