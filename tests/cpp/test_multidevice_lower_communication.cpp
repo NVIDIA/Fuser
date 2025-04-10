@@ -136,8 +136,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
-        testing::Values(false)), // TODO: testing::Bool() after implementing
-                                 // communication lowering
+        testing::Bool()),
     nameFromTuple);
 
 class LowerScatterTest
@@ -188,8 +187,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
-        testing::Values(false)), // TODO: testing::Bool() after implementing
-                                 // communication lowering
+        testing::Bool()),
     nameFromTuple);
 
 class LowerSendRecvTest
@@ -242,8 +240,7 @@ INSTANTIATE_TEST_SUITE_P(
     testing::Combine(
         testing::ValuesIn(std::vector<InOutMesh>(
             {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
-        testing::Values(false)), // TODO: testing::Bool() after implementing
-                                 // communication lowering
+        testing::Bool()),
     nameFromTuple);
 
 class LowerCollectiveTest : public MultiDeviceTest,
@@ -595,8 +592,7 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
 INSTANTIATE_TEST_SUITE_P(
     HostIrLowering,
     LowerCollectiveTest,
-    testing::Values(false), // TODO: testing::Bool() after implementing
-                            // communication lowering
+    testing::Bool(),
     [](const testing::TestParamInfo<bool>& info) {
       return info.param ? "HirLowerEnabled" : "HirLowerDisabled";
     });
