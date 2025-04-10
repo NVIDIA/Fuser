@@ -157,7 +157,7 @@ bool isTvOp(const Expr* expr) {
           SdpaBwdOp,
           EmbeddingFwdOp,
           BroadcastOp,
-          PrefixSumOp,
+          ScanOp,
           SqueezeOp,
           ExpandOp,
           RepeatOp,

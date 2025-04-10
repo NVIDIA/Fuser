@@ -2261,7 +2261,12 @@ TensorView* tensor(Val* val) {
   return out;
 }
 
-TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
+TensorView* scan(
+    TensorView* tv,
+    int64_t dim,
+    BinaryOpType op_type,
+    Val* init,
+    Val* discount_factor) {
   const std::vector<IterDomain*> logical_dom =
       TensorDomain::noReductions(tv->getLogicalDomain());
 
@@ -2270,6 +2275,7 @@ TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
   IterDomain* scan_id = logical_dom.at((size_t)dim);
 
   // Special case: scanning along broadcast dimension is no-op
+  // Assumes init is identity for op_type
   if (scan_id->isBroadcast()) {
     if (scan_id->hasExpandedExtent()) {
       NVF_THROW(
@@ -2288,10 +2294,19 @@ TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
     out = ops::newOutputTV({tv, discount_factor}, dtype);
   }
 
-  IrBuilder::createInContainer<PrefixSumOp>(
-      tv->container(), out, tv, discount_factor, dim);
+  IrBuilder::createInContainer<ScanOp>(
+      tv->container(), op_type, out, tv, discount_factor, init, dim);
 
   return out;
+}
+
+TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
+  return scan(
+      tv,
+      dim,
+      BinaryOpType::Add,
+      /*init=*/tv->fusion()->zeroVal(tv->dtype()),
+      discount_factor);
 }
 
 } // namespace nvfuser

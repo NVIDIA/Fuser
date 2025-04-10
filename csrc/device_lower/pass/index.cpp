@@ -2958,7 +2958,7 @@ void IndexLowering::handle(const CatOp* cat) {
   GpuLower::current()->propagateExprInfo(cat, expr);
 }
 
-void IndexLowering::handle(const PrefixSumOp* psop) {
+void IndexLowering::handle(const ScanOp* psop) {
   const auto in = lowerSrcIndex(psop->in(), psop->out());
   const auto out = lowerDstIndex(psop->out());
 
@@ -3027,7 +3027,7 @@ void IndexLowering::handle(const PrefixSumOp* psop) {
       out,
       // TODO: Allocate these intermediate values
       gt(scan_index, GpuLower::current()->kernel()->zeroVal()),
-      add(prev_sum, next_val),
+      binaryOp(psop->opType(), prev_sum, next_val),
       next_val);
 
   pushBack(expr);

@@ -5513,11 +5513,13 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
           .sparse(sparse))};
 }
 
-PrefixSumOp::PrefixSumOp(
+ScanOp::ScanOp(
     IrBuilderPasskey passkey,
+    BinaryOpType op_type,
     TensorView* output,
     TensorView* input,
     Val* discount_factor,
+    Val* init,
     int64_t dim)
     : Expr(passkey) {
   addOutput(output);
@@ -5525,27 +5527,31 @@ PrefixSumOp::PrefixSumOp(
   if (discount_factor != nullptr) {
     addInput(discount_factor);
   }
+  addDataAttribute(op_type);
   addDataAttribute(dim);
+  addAttribute(init);
 }
 
-std::string PrefixSumOp::toString(int indent_size) const {
+std::string ScanOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString() << ",\n";
-  indent(ss, indent_size + 1) << " = scan(" << in()->toString();
-  indent(ss, indent_size + 1) << ",\n        " << scanDim();
+  indent(ss, indent_size + 1) << " = scan(" << opType() << ",\n";
+  indent(ss, indent_size + 1) << "        " << in()->toString() << ",\n";
+  indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";
   if (discountFactor() != nullptr) {
     indent(ss, indent_size + 1)
-        << ",\n        " << discountFactor()->toString();
+        << "        discount_factor=" << discountFactor()->toString() << ",\n";
   }
-  ss << ")\n";
+  indent(ss, indent_size + 1)
+      << "        init=" << init()->toInlineString() << ")\n";
   return ss.str();
 }
 
-std::string PrefixSumOp::toInlineString(int indent_size) const {
+std::string ScanOp::toInlineString(int indent_size) const {
   NVF_THROW("Tensor op can not be printed inline");
 }
 
-std::vector<PolymorphicValue> PrefixSumOp::evaluate(
+std::vector<PolymorphicValue> ScanOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
   auto input = inputs.at(0).as<at::Tensor>();
@@ -5597,6 +5603,6 @@ std::vector<PolymorphicValue> PrefixSumOp::evaluate(
   }
 }
 
-NVFUSER_DEFINE_CLONE_AND_CREATE(PrefixSumOp)
+NVFUSER_DEFINE_CLONE_AND_CREATE(ScanOp)
 
 } // namespace nvfuser

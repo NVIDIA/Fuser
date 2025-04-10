@@ -185,7 +185,7 @@ TEST_F(ScanTest, Concrete1D) {
   //
   // Final denominator is d[N-1]
 
-  TensorView* m = prefixMax(x, scan_dim); // max x[j] over j = 0 .. i
+  TensorView* m = scan(BinaryOpType::Max, x, scan_dim); // max x[j] over j = 0 .. i
   // normalize by running max and exponentiate
   TensorView* exp_x_m = exp(sub(x, m));
   // Discount factor is exponentiated delta: exp(m[i] - m[i-1])

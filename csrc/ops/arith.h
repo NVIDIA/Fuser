@@ -736,6 +736,13 @@ NVF_API TensorView* tensor(const std::vector<T>& vals) {
 //!   y[i] = y[i-1] + x[i] for 0 < i < n
 //!
 //! If the dimension being scanned is an expanded broadcast, we throw an error.
+NVF_API TensorView* scan(
+    TensorView* tv,
+    int64_t dim,
+    BinaryOpType op_type,
+    Val* init,
+    Val* discount_factor = nullptr);
+
 NVF_API TensorView* prefixSum(
     TensorView* tv,
     int64_t dim,

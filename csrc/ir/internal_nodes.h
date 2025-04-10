@@ -2812,23 +2812,25 @@ class EmbeddingFwdOp : public Expr {
       const std::vector<PolymorphicValue>& inputs) const override;
 };
 
-class PrefixSumOp : public Expr {
+class ScanOp : public Expr {
  public:
   using Expr::Expr;
 
   // NOTE: We translate these nodes to other nodes during indexing, so we should
   // never expect to receive TensorIndex arguments here
-  PrefixSumOp(
+  ScanOp(
       IrBuilderPasskey,
+      BinaryOpType op_type,
       TensorView* output,
       TensorView* input,
       Val* discount_factor,
+      Val* init,
       int64_t dim);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "PrefixSumOp";
+    return "ScanOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -2846,8 +2848,16 @@ class PrefixSumOp : public Expr {
     return inputs().size() > 1 ? input(1) : nullptr;
   }
 
+  BinaryOpType opType() const {
+    return attribute<BinaryOpType>(0);
+  }
+
   int64_t scanDim() const {
-    return attribute<int64_t>(0);
+    return attribute<int64_t>(1);
+  }
+
+  Val* init() const {
+    return attributeVal(2);
   }
 
   std::vector<PolymorphicValue> evaluate(
