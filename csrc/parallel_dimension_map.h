@@ -82,6 +82,10 @@ class ParallelDimensionMap {
     return dim_map_.count(pt) > 0;
   }
 
+  auto usedParallelTypes() const {
+    return dim_map_.keys();
+  }
+
  private:
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.

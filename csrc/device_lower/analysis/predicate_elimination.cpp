@@ -116,8 +116,11 @@ bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
 //   are exact so that the shared mem read/write would not
 //   run out of bound because of thread over-subscription.
 bool isExactParallelSharedMemAccess(TensorView* tv) {
+  std::unordered_set<ParallelType> ptypes =
+      GpuLower::current()->parallelTypeMap().usedParallelTypes();
   for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
+      ptypes.erase(id->getParallelType());
       // Need to predicate to avoid out of bound access
       //  because of over-subscribed block size.
       if (!lower_utils::isExtentEqualToMaxParallelTypeExtent(
@@ -126,7 +129,7 @@ bool isExactParallelSharedMemAccess(TensorView* tv) {
       }
     }
   }
-  return true;
+  return ptypes.empty();
 }
 
 // Check for conditions where the predicate cannot be removed
