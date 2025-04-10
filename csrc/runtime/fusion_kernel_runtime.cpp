@@ -520,8 +520,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               group_to_run->exprs().size() == 1,
               "Communication segments must contain only one Expr");
           HostIrLower lower;
-          for (auto* expr :
-               lower.lower(ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+          for (auto* expr : lower.lower(
+                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
             // Allocate the recv buffers of communications
             if (expr->isA<Communication>()) {
               auto* communication = expr->as<Communication>();
