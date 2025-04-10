@@ -733,6 +733,7 @@ Val* PredicateCompute::getInlinePredicate(
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
+    std::cout << "canOmitPredicate" << expr->toString() << std::endl;
     RECORD_AND_RETURN(thread_pred);
   }
 
