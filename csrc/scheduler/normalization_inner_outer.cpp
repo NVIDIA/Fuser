@@ -883,7 +883,10 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   threads_per_block =
       std::max(threads_per_block, ceilDiv(after_vect, max_persistent_batch));
   threads_per_block = scheduler_utils::roundUpToN(threads_per_block, 128L);
-
+  if (std::getenv("CMP_THREADS") && std::atoi(std::getenv("CMP_THREADS"))) {
+    threads_per_block =
+        (int64_t)std::atoi(std::getenv("CMP_THREADS"));
+  }
   auto iop = getHeuristicsGivenVectThreads(vect_factor, threads_per_block);
   rparams->combined_split_grid_inner_dim =
       iop.vectorization_factor_outer * iop.threads_per_block * iop.gdimy <
@@ -909,7 +912,9 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   }
   int64_t n_prefetch = n_stages - 1L;
   int64_t n_computation_groups = iop.threads_per_block <= 128 ? 2L : 1L;
-
+  if (std::getenv("CMP_WGROUPS") && std::atoi(std::getenv("CMP_WGROUPS"))) {
+    n_computation_groups = (int64_t)std::atoi(std::getenv("CMP_WGROUPS"));
+  }
   // Iteration unroll factor, limited by:
   // (1) heuristic selection
   // (2) max possible due to smem limitation
