@@ -205,7 +205,7 @@ class AllocationDomainSetup : private kir::IrVisitor {
         }
 
         // Honor the set allocation domain if the tensor is used by a
-        // TMA store
+        // TMA store or MmaOp
         if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
               return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
             })) {
