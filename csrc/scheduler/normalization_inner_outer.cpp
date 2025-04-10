@@ -1780,8 +1780,15 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
     std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
     for (auto tv : smem_consumers) {
       std::cout << "smem_consumers tv: " << tv->toString() << "\n";
-      //[..Unroll, | TIDx, Persisent, USwitch, Vect]
-      int64_t inline_last_n_dims = rparams->unroll_factor_iter_dom > 1 ? 5 : 4;
+      //[..Unroll[opt], | TIDx, Persisent, USwitch[opt], Vect]
+      int64_t inline_last_n_dims = 3; // TIDx, Persisent, Vect
+      if(rparams->unroll_factor_iter_dom > 1){
+        inline_last_n_dims++;
+      }
+      if (!std::getenv("DISABLE_OUTER_UNSWITCH") ||
+          std::atoi(std::getenv("DISABLE_OUTER_UNSWITCH")) == 0) {
+        inline_last_n_dims++;
+      }
       if (tv->nDims() - inline_last_n_dims >= 0) {
         tv_inline_pos_map.emplace(tv, tv->nDims() - inline_last_n_dims);
       }

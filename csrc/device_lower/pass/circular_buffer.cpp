@@ -1491,8 +1491,13 @@ class CircularBufferInserter : private kir::ExprMutator {
               // create a WarpGroupReduction
               int64_t ndims = tv->getLoopDomain().size();
               auto vect_factor = tv->getLoopDomain().back()->extent();
+              int64_t axis_pos = -2;
+              if (!std::getenv("DISABLE_OUTER_UNSWITCH") ||
+                  std::atoi(std::getenv("DISABLE_OUTER_UNSWITCH")) == 0) {
+                axis_pos = -3;
+              }
               auto persistent_batch_size =
-                  tv->getLoopDomain().at(ndims - 3)->extent();
+                  tv->getLoopDomain().at(ndims + axis_pos)->extent();
               std::cout << "vect_factor: " << vect_factor->toString()
                         << std::endl;
               std::cout << "persistent_batch_size: "

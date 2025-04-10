@@ -843,6 +843,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       if (!alloc->size()->isConstInt()) {
         TORCH_WARN_ONCE(
             "Lower_alias_memory : dynamic sized register allocation");
+        std::cout << alloc->toString() << std::endl;
         return;
       }
       if (alloc->size()->evaluate() <= kRegisterSizeThreshold) {

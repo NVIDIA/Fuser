@@ -130,7 +130,11 @@ TensorView* scheduleReductionTV(
     reduction_tv->split(
         outer_i++, rparams->batches_per_block_inner_reduction, false);
 
-    outer_unswitch(outer_i++);
+    // Redu: [Persistent, TIDx, Vect]
+    if (!std::getenv("DISABLE_OUTER_UNSWITCH") ||
+        std::atoi(std::getenv("DISABLE_OUTER_UNSWITCH")) == 0) {
+      outer_unswitch(outer_i++);
+    }
 
     reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDx);
     if (rparams->pad_inner_reduction_to_warp) {
