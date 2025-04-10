@@ -5534,13 +5534,17 @@ std::vector<PolymorphicValue> EmbeddingFwdOp::evaluate(
 ScanOp::ScanOp(
     IrBuilderPasskey passkey,
     BinaryOpType op_type,
-    TensorView* output,
+    TensorView* output_inclusive,
+    TensorView* output_exclusive,
     TensorView* input,
     Val* discount_factor,
     Val* init,
     int64_t dim)
     : Expr(passkey) {
-  addOutput(output);
+  addOutput(output_inclusive);
+  if (output_exclusive != nullptr) {
+    addOutput(output_exclusive);
+  }
   addInput(input);
   if (discount_factor != nullptr) {
     addInput(discount_factor);
@@ -5552,7 +5556,12 @@ ScanOp::ScanOp(
 
 std::string ScanOp::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << out()->toString() << ",\n";
+  indent(ss, indent_size) << out()->toString();
+  if (outExclusive() != nullptr) {
+    ss << ",\n";
+    indent(ss, indent_size) << outExclusive()->toString();
+  }
+  ss << "\n";
   indent(ss, indent_size + 1) << " = scan(" << opType() << ",\n";
   indent(ss, indent_size + 1) << "        " << in()->toString() << ",\n";
   indent(ss, indent_size + 1) << "        dim=" << scanDim() << ",\n";

@@ -2821,7 +2821,8 @@ class ScanOp : public Expr {
   ScanOp(
       IrBuilderPasskey,
       BinaryOpType op_type,
-      TensorView* output,
+      TensorView* output_inclusive,
+      TensorView* output_exclusive,
       TensorView* input,
       Val* discount_factor,
       Val* init,
@@ -2836,8 +2837,14 @@ class ScanOp : public Expr {
   std::string toString(int indent_size = 0) const override;
   std::string toInlineString(int indent_size = 0) const override;
 
+  //! Returns the inclusive scan output
   TensorView* out() const {
     return output(0)->as<TensorView>();
+  }
+
+  //! Returns the exclusive scan output if available, otherwise nullptr
+  TensorView* outExclusive() const {
+    return outputs().size() == 2 ? output(1)->as<TensorView>() : nullptr;
   }
 
   TensorView* in() const {

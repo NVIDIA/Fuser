@@ -3008,6 +3008,18 @@ void IndexLowering::handle(const ScanOp* scop) {
   IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
 
+  prev_sum = where(
+      gt(scan_index, GpuLower::current()->kernel()->zeroVal()),
+      prev_sum,
+      scop->init());
+
+  if (TensorView* exc = scop->outExclusive()) {
+    const auto exc_ti = lowerDstIndex(exc);
+    auto* save_exc_op =
+        IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, exc_ti, prev_sum);
+    pushBack(save_exc_op);
+  }
+
   if (Val* f = scop->discountFactor()) {
     Val* f_scalar = f;
     if (auto* f_tv = dynamic_cast<TensorView*>(f)) {
@@ -3020,11 +3032,6 @@ void IndexLowering::handle(const ScanOp* scop) {
       prev_sum = mul(f_scalar, prev_sum);
     }
   }
-
-  prev_sum = where(
-      gt(scan_index, GpuLower::current()->kernel()->zeroVal()),
-      prev_sum,
-      scop->init());
 
   Expr* expr =
       IrBuilder::create<BinaryOp>(scop->opType(), out, prev_sum, next_val);

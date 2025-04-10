@@ -2295,9 +2295,65 @@ TensorView* scan(
   }
 
   IrBuilder::createInContainer<ScanOp>(
-      tv->container(), op_type, out, tv, discount_factor, init, dim);
+      tv->container(),
+      op_type,
+      out,
+      /*output_exclusive=*/nullptr,
+      tv,
+      discount_factor,
+      init,
+      dim);
 
   return out;
+}
+
+std::pair<TensorView*, TensorView*> scanWithExclusive(
+    TensorView* tv,
+    int64_t dim,
+    BinaryOpType op_type,
+    Val* init,
+    Val* discount_factor) {
+  const std::vector<IterDomain*> logical_dom =
+      TensorDomain::noReductions(tv->getLogicalDomain());
+
+  dim = wrapDim(dim, (int64_t)logical_dom.size());
+
+  IterDomain* scan_id = logical_dom.at((size_t)dim);
+
+  // Special case: scanning along broadcast dimension is no-op
+  // Assumes init is identity for op_type
+  if (scan_id->isBroadcast()) {
+    if (scan_id->hasExpandedExtent()) {
+      NVF_THROW(
+          "Closed-form scan of expanded dimension is not yet implemented");
+    }
+    // Exclusive scan is just the init val
+    return {set(tv), mul(init, ones_like(tv))};
+  }
+
+  TensorView* out = nullptr;
+  if (discount_factor == nullptr) {
+    out = ops::newOutputTV({tv}, tv->dtype());
+  } else {
+    DataType dtype = promoteType(tv->dtype(), discount_factor->dtype());
+    tv = maybeCastOp(dtype, tv);
+    discount_factor = maybeCastOp(dtype, discount_factor);
+    out = ops::newOutputTV({tv, discount_factor}, dtype);
+  }
+
+  TensorView* out_exclusive = ops::newOutputTV({out}, out->dtype());
+
+  IrBuilder::createInContainer<ScanOp>(
+      tv->container(),
+      op_type,
+      out,
+      out_exclusive,
+      tv,
+      discount_factor,
+      init,
+      dim);
+
+  return {out, out_exclusive};
 }
 
 TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {

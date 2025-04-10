@@ -188,7 +188,9 @@ TEST_F(ScanTest, OnlineSoftmax) {
   //
   // Final denominator is d[N-1]
 
-  TensorView* m = scan(
+  TensorView* m;
+  TensorView* m_prev;
+  std::tie(m, m_prev) = scanWithExclusive(
       x,
       scan_dim,
       BinaryOpType::Max,
@@ -199,7 +201,7 @@ TEST_F(ScanTest, OnlineSoftmax) {
   // normalize by running max and exponentiate
   TensorView* exp_x_m = exp(sub(x, m));
   // Discount factor is exponentiated delta: exp(m[i] - m[i-1])
-  TensorView* discount = nullptr; // exp(sub(m, lag1(m, scan_dim)));
+  TensorView* discount = exp(sub(m, m_prev));
 
   // What is needed?
   //  - generalize prefixSum to scan (with discount factor) to cover prefixMax
