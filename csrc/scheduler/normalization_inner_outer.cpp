@@ -1595,7 +1595,7 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
   const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
 
-  const bool use_grouped_reduction = rparams->unroll_factor_iter_dom > 1;
+  const bool use_grouped_reduction = rparams->unroll_factor_iter_dom > 100;
   // Propagate transformations for inner reduction.
   // Two steps are used since tma tvs are scheduled differently.
   // Step-1, propagate iteration domain in inner reduction.
@@ -1801,16 +1801,31 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
 
     // WAR for rms_BWD, inline at 2, otherwise inlineMost will inline at 3 and
     // leads to failure in expr sort.
+    // if (use_grouped_reduction) {
+    //   for (auto tv : fusion->allTvs()) {
+    //     if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
+    //         tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
+    //             UnaryOpType::Reciprocal) {
+    //       std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
+    //       tv_inline_pos_map.emplace(tv, 2);
+    //     }
+    //   }
+    // }
     if (use_grouped_reduction) {
+      auto is_special_tv = [&](TensorView* tv){
+        auto last_id = tv->getLogicalDomain().back();
+        if(last_id->hasExpandedExtent() && DependencyCheck::isDependencyOf(tv, inner_reference_tv)){
+          return true;
+        }
+        return false;
+      };
       for (auto tv : fusion->allTvs()) {
-        if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
-            tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                UnaryOpType::Reciprocal) {
+        if (is_special_tv(tv)) {
+          std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
           tv_inline_pos_map.emplace(tv, 2);
         }
       }
     }
-
     // vectorized load of rms tensor
     if (rparams->unroll_factor_iter_dom > 1) {
       for (auto val : fusion->inputs()) {
