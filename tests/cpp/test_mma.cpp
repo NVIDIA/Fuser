@@ -1419,7 +1419,7 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
     tv->reorder({{-3, -2}});
     tv->axis(-2)->parallelize(ParallelType::TIDx);
   }
-  if (std::has_single_bit(getN(macro))) {
+  if (std::has_single_bit(static_cast<uint64_t>(getN(macro)))) {
     // We can only vectorize if N is a power of 2
     register_result->axis(-1)->parallelize(ParallelType::Vectorize);
   }
