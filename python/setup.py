@@ -433,7 +433,7 @@ def main():
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=["nvfuser"],
             ext_modules=[Extension(name="nvfuser._C", sources=[])],
-            license_files=("LICENSE",),
+            license_files=("../LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
                 "build_ext": build_ext,
