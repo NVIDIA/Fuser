@@ -6005,4 +6005,39 @@ TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
   EXPECT_EQ(tv6->getLoopDomain().back()->extent()->evaluate(), 2);
 }
 
+// Repro of issue #4202
+TEST_F(ResizeTest, PropagateResizeThroughMultiplePaths) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t size = 16;
+  auto tv0 = makeContigConcreteTensor({size});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({size});
+  fusion.addInput(tv1);
+
+  auto tv2 = full(
+      {IrBuilder::create<Val>(size)},
+      fusion.zeroVal(DataType::Float),
+      DataType::Float);
+
+  auto tv3 = add(sin(tv0), tv2);
+  auto tv4 = pad(tv3, {IrBuilder::create<Val>(size), fusion.zeroVal()});
+
+  auto tv5 = add(sin(tv1), tv2);
+  auto tv6 = pad(tv5, {fusion.zeroVal(), IrBuilder::create<Val>(size)});
+
+  auto tv7 = add(tv4, tv6);
+
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({size}, options);
+  auto t1 = at::randn({size}, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0, t1});
+  testValidate(&fusion, outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

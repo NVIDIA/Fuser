@@ -653,7 +653,6 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->axisMapping(),
           node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -695,6 +694,52 @@ std::vector<Expr*> getAllSwizzlesBetween(
       [](Expr* expr) { return expr->isA<Swizzle2D>(); });
 
   return all_swizzles;
+}
+
+bool isTMAOrMMASmemTv(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared &&
+      (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||
+       std::ranges::any_of(tv->uses(), [](Expr* e) {
+         return e->isA<MmaOp>() || ir_utils::isCpAsyncBulkStore(e);
+       }));
+}
+
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  // Output of TMA load
+  if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+    return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
+  }
+  for (auto use : tv->uses()) {
+    // Input of TMA store
+    if (ir_utils::isCpAsyncBulkStore(use)) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      return GpuLower::current()->consumerToTMAInfo().at(consumer_tv).swizzle();
+    }
+
+    // Input of MmaOp
+    if (use->isA<MmaOp>()) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+      const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+      const auto& from_domain = id_graph.toGroups(consumer_tv->getLoopDomain());
+      auto exprs = ValGraphBFS::getExprGroupsBetween(
+                       id_graph,
+                       {from_domain.begin(), from_domain.end()},
+                       {to_domain.begin(), to_domain.end()},
+                       false)
+                       .first;
+      for (const auto& [eg, dir] : exprs) {
+        auto expr = eg->front();
+        if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
+          NVF_ERROR(
+              swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+          return getSwizzleFromBytes(
+              swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+        }
+      }
+    }
+  }
+  return MmaInputSmemSwizzle::None;
 }
 
 } // namespace ir_utils

@@ -1201,7 +1201,17 @@ class AllocationInserter : public kir::ExprMutator {
             "Reduction should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedReductionOp>()->initVal(i);
       } else if (expr->isA<MmaOp>()) {
-        init = expr->as<MmaOp>()->init();
+        MmaOp* mma = expr->as<MmaOp>();
+        init = mma->init();
+        if (mma->isBlackwell()) {
+          // For Blackwell mma, we can choose between C = A x B or C = C + A x
+          // B. So there is no need to initialize the output tensor.
+          // TODO: we should do the same for Hopper
+          NVF_ERROR(
+              init == nullptr || init->isZero(),
+              "Blackwell mma should not have a non-zero initialization value.");
+          init = nullptr;
+        }
       } else if (expr->isA<WelfordOp>()) {
         NVF_ERROR(
             default_val == nullptr,
@@ -1322,8 +1332,10 @@ class AllocationInserter : public kir::ExprMutator {
     //    inval mbarrier
     //    block_sync
     //
-    // The circular buffer case is handled in handle(ForLoop* fl) and the
+    // * The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
+    // * Assume that the tma load is in ComputeWarp if it is not circular
+    // buffered.
     if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
@@ -1338,10 +1350,12 @@ class AllocationInserter : public kir::ExprMutator {
               DataType::UInt32,
               lower_utils::getNumThreadsInTensorView(
                   expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>();
+      auto sync_init = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
-      auto sync_inval = IrBuilder::create<kir::BlockSync>();
+      auto sync_inval = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
