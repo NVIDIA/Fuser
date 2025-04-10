@@ -357,7 +357,6 @@ target_link_libraries(codegen_internal PUBLIC
   ${LIBCUPTI}
   ${TORCH_LIBRARIES}
   dl
-  cuda
 )
 
 add_library(nvfuser_codegen SHARED $<TARGET_OBJECTS:codegen_internal>)
