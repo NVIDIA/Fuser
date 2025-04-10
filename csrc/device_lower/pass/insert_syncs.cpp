@@ -466,6 +466,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // TODO: This is clearly a wrong way to sync, but as an intermediate
         // step to enable incremental development, we use nanosleep to sync the
         // mma. We should replace this with a correct sync method.
+        registerInsertAfter(expr, IrBuilder::create<kir::BlockSync>());
         registerInsertAfter(
             expr,
             IrBuilder::create<kir::Asm>(
