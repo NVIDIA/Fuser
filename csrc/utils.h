@@ -976,4 +976,15 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
   };
 };
 
+// Utility to convert a range to a container, matching std::ranges::to's API
+template <typename Container, typename Range>
+Container to(Range&& range) {
+  Container result;
+  if constexpr (requires { std::ranges::size(range); }) {
+    result.reserve(std::ranges::size(range));
+  }
+  std::ranges::copy(range, std::inserter(result, result.end()));
+  return result;
+}
+
 } // namespace nvfuser
