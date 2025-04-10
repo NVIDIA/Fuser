@@ -976,6 +976,7 @@ class Generator : public std::ranges::view_interface<Generator<T>> {
   };
 };
 
+// Backport of std::ranges::to from C++23
 // Utility to convert a range to a container, matching std::ranges::to's API
 template <typename Container, typename Range>
 Container to(Range&& range) {
