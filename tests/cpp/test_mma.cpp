@@ -952,6 +952,7 @@ const char* skipIfSwizzleNotCompatibleWithTiling(
       return skip_reason;
     }
   }
+  return nullptr;
 }
 
 TEST_P(HopperSS, MultipleTile) {
