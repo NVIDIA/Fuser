@@ -244,9 +244,9 @@ INSTANTIATE_TEST_SUITE_P(
         testing::Bool()),
     nameFromTuple);
 
-class LowerCollectiveTest
-    : public MultiDeviceTest,
-      public testing::WithParamInterface<std::tuple<CommunicatorBackend, bool>> {
+class LowerCollectiveTest : public MultiDeviceTest,
+                            public testing::WithParamInterface<
+                                std::tuple<CommunicatorBackend, bool>> {
  protected:
   void SetUp() override;
 };
@@ -602,12 +602,14 @@ INSTANTIATE_TEST_SUITE_P(
     ::testing::Combine(
         testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
         testing::Values(false)),
-    ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>& info)
-        -> std::string {
+    ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
+            info) -> std::string {
       const auto& [backend_type, enable_host_ir_lowering] = info.param;
       std::stringstream ss;
       ss << backend_type;
-      ss << (enable_host_ir_lowering ? "_HirLowerEnabled" : "_HirLowerDisabled");
+      ss
+          << (enable_host_ir_lowering ? "_HirLowerEnabled"
+                                      : "_HirLowerDisabled");
       return ss.str();
     }));
 } // namespace nvfuser
