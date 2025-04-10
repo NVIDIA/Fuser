@@ -472,7 +472,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                 "nanosleep.u32",
                 std::vector<Val*>{},
                 std::vector<Val*>{
-                    IrBuilder::create<Val>(1000000, DataType::UInt32)},
+                    IrBuilder::create<Val>(100000000, DataType::UInt32)},
                 kir::Asm::Options{/*volatile=*/true}));
         registerInsertAfter(expr, IrBuilder::create<kir::BlockSync>());
       }
