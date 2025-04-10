@@ -118,7 +118,7 @@ bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
 bool isExactParallelSharedMemAccess(TensorView* tv) {
   std::unordered_set<ParallelType> ptypes =
       GpuLower::current()->parallelDimensionMap().usedParallelTypes() |
-      to<std::unordered_set<ParallelType>>;
+      to<std::unordered_set<ParallelType>>();
   for (auto id : tv->getLoopDomain()) {
     if (id->isThreadDim()) {
       ptypes.erase(id->getParallelType());
