@@ -181,7 +181,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       normalization_scheduler_utils::getOuterBroadcastTvs(
           fusion, reduction_tvs);
   bool skip_check_buffer_size = !outer_broadcast_tvs.empty() ||
-      isOptionEnabled(EnableOption::WarpSpecializedPersistent);
+      isOptionEnabled(EnableOption::WarpSpecializedNormalization);
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
@@ -229,7 +229,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
       }
     }
   }
-  if (isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
+  if (isOptionEnabled(EnableOption::WarpSpecializedNormalization)) {
     buffer_params.regs_buffer_size = 0;
     for (auto buffer : buffers) {
       if (std::any_of(
@@ -904,7 +904,7 @@ std::unique_ptr<ReductionParams> InnerOuterWarpSpecializedTmaHeuristic(
   int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
       (smem_overhead + smem_buffer_size);
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
-  int64_t n_stages_prefered = std::min(4L, iter_remaining);
+  int64_t n_stages_prefered = std::min(2L, iter_remaining);
   int64_t n_stages_max_allowed = max_n_copies;
   int64_t n_stages = std::min(n_stages_prefered, n_stages_max_allowed);
   if (std::getenv("STAGES") && std::atoi(std::getenv("STAGES"))) {
@@ -1089,7 +1089,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   std::unique_ptr<ReductionParams> rparams;
 
-  if (isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
+  if (isOptionEnabled(EnableOption::WarpSpecializedNormalization)) {
     rparams = InnerOuterWarpSpecializedTmaHeuristic(
         properties.total_iteration_numel,
         properties.total_reduction_numel,
@@ -1595,7 +1595,7 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
   const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
 
-  const bool use_grouped_reduction = rparams->unroll_factor_iter_dom > 1;
+  const bool use_grouped_reduction = rparams->unroll_factor_iter_dom > 100;
   // Propagate transformations for inner reduction.
   // Two steps are used since tma tvs are scheduled differently.
   // Step-1, propagate iteration domain in inner reduction.
@@ -1801,16 +1801,31 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
 
     // WAR for rms_BWD, inline at 2, otherwise inlineMost will inline at 3 and
     // leads to failure in expr sort.
+    // if (use_grouped_reduction) {
+    //   for (auto tv : fusion->allTvs()) {
+    //     if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
+    //         tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
+    //             UnaryOpType::Reciprocal) {
+    //       std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
+    //       tv_inline_pos_map.emplace(tv, 2);
+    //     }
+    //   }
+    // }
     if (use_grouped_reduction) {
+      auto is_special_tv = [&](TensorView* tv){
+        auto last_id = tv->getLogicalDomain().back();
+        if(last_id->hasExpandedExtent() && DependencyCheck::isDependencyOf(tv, inner_reference_tv)){
+          return true;
+        }
+        return false;
+      };
       for (auto tv : fusion->allTvs()) {
-        if (tv->definition() != nullptr && tv->definition()->isA<UnaryOp>() &&
-            tv->definition()->as<UnaryOp>()->getUnaryOpType() ==
-                UnaryOpType::Reciprocal) {
+        if (is_special_tv(tv)) {
+          std::cout << "WAR expr sort tv: " << tv->toString() << std::endl;
           tv_inline_pos_map.emplace(tv, 2);
         }
       }
     }
-
     // vectorized load of rms tensor
     if (rparams->unroll_factor_iter_dom > 1) {
       for (auto val : fusion->inputs()) {

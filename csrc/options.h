@@ -108,7 +108,7 @@ enum class EnableOption {
   WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
                 // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
-  WarpSpecializedPersistent, //! Enable warp specialized persistent kernel
+  WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   EndOfOption //! Placeholder for counting the number of elements
 };

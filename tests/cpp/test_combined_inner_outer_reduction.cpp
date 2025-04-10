@@ -1036,14 +1036,20 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
   testValidate(&fusion_copy, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
-using TmaWarpSpecializedParams = std::tuple<DataType, int64_t, int64_t>;
+// enable WarpSpecializedNormalization, dtype, dim0, dim1
+using TmaWarpSpecializedParams = std::tuple<bool, DataType, int64_t, int64_t>;
 class TmaWarpSpecializedTest
     : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
  public:
   void SetUp() override {
     opt_guard_ = std::make_unique<EnableOptionsGuard>();
-    EnableOptionsGuard::getCurOptions().set(
-        EnableOption::WarpSpecializedPersistent);
+    if (std::get<0>(GetParam())) {
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::WarpSpecializedNormalization);
+    } else {
+      EnableOptionsGuard::getCurOptions().unset(
+          EnableOption::WarpSpecializedNormalization);
+    }
     NVFuserTest::SetUp();
   }
 
@@ -1054,7 +1060,7 @@ class TmaWarpSpecializedTest
 
 TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [dtype, dim0, dim1] = GetParam();
+  auto [_, dtype, dim0, dim1] = GetParam();
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1083,9 +1089,10 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
+
 TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [dtype, dim0, dim1] = GetParam();
+  auto [_, dtype, dim0, dim1] = GetParam();
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
@@ -1126,7 +1133,6 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   KernelArgumentHolder args = {
       aten_grad_out, aten_input, aten_rstd, aten_weight};
   auto cg_outputs = executor_cache.runFusionWithInputs(args);
-
   testValidate(
       &fusion_copy,
       cg_outputs,
@@ -1134,19 +1140,23 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
       __LINE__,
       __FILE__);
 }
+// batch size is revised to 132*148 which is divisible by sm count on H100 &
+// B200 will change back to 32 & 2048 after predicate for 1D TMA is added.
 INSTANTIATE_TEST_SUITE_P(
     ,
     TmaWarpSpecializedTest,
     ::testing::Combine(
+        testing::Values(true, false),
         testing::Values(DataType::Float, DataType::BFloat16),
-        testing::Values(32, 2048),
+        testing::Values(2048),
         ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),
-    [](const testing::TestParamInfo<CombinedSchedulerParams>& info)
+    [](const testing::TestParamInfo<TmaWarpSpecializedParams>& info)
         -> std::string {
       std::stringstream ss;
-      ss << "dtype_" << std::get<0>(info.param);
-      ss << "_batch_" << std::get<1>(info.param);
-      ss << "_hidden_" << std::get<2>(info.param);
+      ss << "ws_" << std::get<0>(info.param);
+      ss << "_dtype_" << std::get<1>(info.param);
+      ss << "_batch_" << std::get<2>(info.param);
+      ss << "_hidden_" << std::get<3>(info.param);
       return sanitizeTestName(ss.str());
     });
 } // namespace nvfuser

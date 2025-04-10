@@ -169,7 +169,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.has_multiple_compute_groups_ =
         kernel->summary()
             .circular_buffer_info.getCircularBufferComputationGroups() > 1;
-
+    if (std::getenv("LAYER_NORM") && std::atoi(std::getenv("LAYER_NORM"))) {
+      codegen.n_warp_reductions_ =
+          (int64_t)std::atoi(std::getenv("LAYER_NORM"));
+    }
     codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
@@ -1853,7 +1856,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
     indent() << genCall("twoWarpGroupsReduction", template_args, func_args)
              << ";\n";
-    indent() << "if(threadIdx.y == 1){return;}\n";
+    if (n_warp_reductions_ == current_warp_reductions_) {
+      indent() << "if(threadIdx.y == 1){return;}\n";
+    }
+    current_warp_reductions_++;
   }
 
   void handle(const kir::GridReduction* grop) final {
@@ -3204,8 +3210,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       step_code << gen_index << " += " << gen_step;
     }
     if (loop->circularBufferLoopStage() !=
-        CircularBufferLoopStage::NotApplicable &&
-        !isOptionEnabled(EnableOption::WarpSpecializedPersistent)) {
+            CircularBufferLoopStage::NotApplicable &&
+        !isOptionEnabled(EnableOption::WarpSpecializedNormalization)) {
       // NOTE: requireUnroll is sometimes called on a circular-buffered matmul
       // loops when static shapes are used. To avoid hinting that the compiler
       // should maximally unroll such loops leading to very long compiles, we
@@ -3948,6 +3954,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   uint32_t max_used_barrier_id_ = 0;
   bool has_warp_specialized_;
   bool has_multiple_compute_groups_;
+  uint32_t current_warp_reductions_ = 0;
+  uint32_t n_warp_reductions_ = 0;
 };
 
 } // namespace
