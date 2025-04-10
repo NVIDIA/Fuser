@@ -400,12 +400,18 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
     const auto inputs = getInputsOfExprGroup(traversalGraph(), eg, direction);
     const auto& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
     for (const auto& input_group : inputs) {
-      const auto exact_groups = exact_graph.toGroups(*input_group);
+      ValGroups exact_groups;
+      for (const auto& val : *input_group) {
+        // Additional IDs may be created without getting added to the
+        // exact graph. Should be safe to ignore them.
+        if (exact_graph.hasGroup(val)) {
+          exact_groups.pushBack(exact_graph.toGroup(val));
+        }
+      }
       if (exact_groups.size() == 1) {
         continue;
       }
       for (const auto& exact_group : exact_groups) {
-        // std::cerr << "Checking " << nvfuser::toString(exact_group) << "\n";
         for (const auto& use_eg : exact_graph.getUses(exact_group)) {
           auto split = dynamic_cast<Split*>(use_eg->front());
           if (split == nullptr) {
