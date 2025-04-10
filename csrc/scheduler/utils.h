@@ -649,24 +649,21 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
 // [1, 0, 0] pos 1 would return true
 bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 
-// Transform the ids_to_transform as progressing through the transform_exprs
+// Update the vector of ids_to_transform as progressing through the
+// `transform_exprs`. We'll always insert the result of split in the
+// location of the input, and insert the merge result in the position of the
+// inner dimension.
 void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
     const std::vector<Expr*>& transform_exprs);
 
-// Returns a mapping from vec1 to vec2.
-template <typename T>
-std::unordered_map<int64_t, int64_t> createReorderMap(
-    const std::vector<T>& vec1,
-    const std::vector<T>& vec2);
-
-// Generates an old to new map to reorder tv's domain as the logical order.
+// Generates a permutation to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
 // logical [i0, i1, i2]
 // domain [i0*i2, i1]
-// will produce the map {{0, 1}, {1, 0}}
+// will produce the permutation {1, 0}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv);
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
 // Generates an old to new map to reorder tv's loop domain as its allocation
 // order. This only handles the simple case where allocation is a permutation of
