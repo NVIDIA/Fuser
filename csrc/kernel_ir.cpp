@@ -435,6 +435,7 @@ std::string Asm::utility() const {
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
       {"wgmma.wait_group.sync.aligned", "wgmma::wait"},
+      {"tcgen05.mma.cta_group::1.kind::f16", "tcgen06::mma_f16"},
       {"ldmatrix.sync.aligned.x1.m8n8.shared.b16", "ldmatrix1"},
       {"ldmatrix.sync.aligned.x2.m8n8.shared.b16", "ldmatrix2"},
       {"ldmatrix.sync.aligned.x4.m8n8.shared.b16", "ldmatrix4"},
