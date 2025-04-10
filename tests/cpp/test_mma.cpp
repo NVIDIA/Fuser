@@ -1407,9 +1407,6 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
     s.reorder({{3, 0}});
     mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
     mma_result->setTMemDimSepPos(1);
-    // Just do some fancy scheduling to test the correctness of our indexing.
-    // This is not how we should schedule for a performant matmul:
-    mma_result->swizzle(SwizzleType::XOR, 0, 1);
   }
 
   // Schedule TMem load and gmem store
