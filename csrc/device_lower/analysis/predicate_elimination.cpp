@@ -33,41 +33,6 @@ bool isSharedMemory(TensorView* tv) {
       tv->getMemoryType() == MemoryType::Tensor;
 }
 
-// Warp primitives are currently limited to un-predicated usage,
-//   predicating these ops will require extra steps to ensure that
-//   the whole warp will get the same value.
-void assertOnWarpOps(const Expr* expr) {
-  // Prohibit predicates for LdMatrix expressions in Mma k main loop;
-  // Allow predicates for general LdMatrix usage.
-  if (ir_utils::isLdMatrixOp(expr)) {
-    const LoadStoreOp* ldst = expr->as<LoadStoreOp>();
-    TensorView* in_tv = ir_utils::getTv(ldst->in());
-    NVF_ERROR(in_tv != nullptr);
-
-    NVF_ERROR(in_tv->definition() != nullptr);
-    bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
-
-    TensorView* out_tv = ir_utils::getTv(ldst->out());
-    NVF_ERROR(out_tv != nullptr);
-    bool any_mma_uses =
-        std::any_of(out_tv->uses().begin(), out_tv->uses().end(), [](Expr* e) {
-          return e->isA<MmaOp>();
-        });
-
-    NVF_ERROR(
-        !is_tma_ldmatrix || !any_mma_uses,
-        "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
-        expr->toString());
-  }
-
-  NVF_ERROR(
-      !expr->isA<MmaOp>(),
-      "Mma op: cannot eliminate predicate for mma op, tiling not valid. ",
-      expr->toString());
-}
-
-} // namespace
-
 namespace {
 
 // Check if consumer is in the compute warp of a warp specialized loop,
@@ -934,7 +899,6 @@ void PredicateElimination::dispatch(Expr* expr) {
   }
 
   if (needsPredicate(expr)) {
-    assertOnWarpOps(expr);
     return;
   }
 
@@ -1037,7 +1001,6 @@ bool PredicateElimination::canOmitPredicate(const Expr* expr) const {
   // Predicate elimination can be disabled with
   // NVFUSER_DISABLE=predicate_elimination
   if (isOptionDisabled(DisableOption::PredicateElimination)) {
-    assertOnWarpOps(expr);
     return false;
   }
 
@@ -1062,7 +1025,6 @@ bool PredicateElimination::canOmitPredicate(const Expr* expr) const {
     return true;
   }
 
-  assertOnWarpOps(expr);
   return false;
 }
 
