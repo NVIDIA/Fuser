@@ -601,7 +601,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, std::unordered_
   }
   if (!tvs.empty()) {
     std::unordered_set<ParallelType> parallel_types;
-    parallel_types.insert(ParallelType::Serial);
+    // parallel_types.insert(ParallelType::Serial);
     for (auto pt : kParallelTypeDIDs) {
       if (!excluded_parallel_types.count(pt)) {
         parallel_types.insert(pt);
@@ -609,6 +609,7 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, std::unordered_
     }
     scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
   }
+}
 
 void shardBetween(
     const std::vector<Expr*>& from,
