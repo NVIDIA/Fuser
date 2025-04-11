@@ -195,7 +195,7 @@ Val* TensorIndexer::getLinearIndex(
   const auto& alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
-      expr, as_consumer, alloc_info, for_loops, override_index);
+      tv, expr, as_consumer, alloc_info, for_loops, override_index);
 
   // Linearize the indices with strides.
   Val* linear_index = tv->fusion()->zeroVal();
@@ -693,6 +693,7 @@ void TensorIndexer::ensureStaticIndexing(
 
 std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     getContigIndexFor(
+        TensorView* tv,
         const Expr* expr,
         bool as_consumer,
         const AllocationDomainInfo& alloc_info,
@@ -710,8 +711,22 @@ std::pair<std::vector<Val*>, std::vector<Val*>> TensorIndexer::
     index_info.index_map.emplace(traversalGraph().toGroup(indexed_id), index);
   }
   const auto& index_map = index_info.index_map;
-  const auto& replacement_map = getIndexReplacementMap(
+  auto replacement_map = getIndexReplacementMap(
       expr, as_consumer, index_info.loop_ids, for_loops, index_map);
+
+  // War for MmaOp. The allocation domain may involve parallelized
+  // IDs, either directly or by traversal. Ideally, we should set the
+  // right allocation domain, but this seems to be a good enough WAR.
+  if (expr->isA<MmaOp>() && tv->getMemoryType() == MemoryType::Local &&
+      !as_consumer) {
+    // Replace the indices of parallelized loop IDs with zero
+    for (const auto loop_id : index_info.loop_ids) {
+      if (isParallelTypeThread(loop_id->getParallelType())) {
+        Val* loop_index = getLoopIndex(loop_id, for_loops);
+        replacement_map.emplace(loop_index, expr->fusion()->zeroVal());
+      }
+    }
+  }
 
   std::vector<ValGroup> contig_alloc_groups;
   std::vector<Val*> contig_strides;
