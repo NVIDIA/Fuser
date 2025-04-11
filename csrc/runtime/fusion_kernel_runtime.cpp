@@ -555,7 +555,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       hic->addOutput(ir_cloner.clone(out));
     }
 
-    hie_ = std::make_unique<hir::HostIrEvaluator>(std::move(hic), &Communicator::getInstance());
+    hie_ = std::make_unique<hir::HostIrEvaluator>(
+        std::move(hic), &Communicator::getInstance());
   }
 
   if (isProfilerEnabled()) {
