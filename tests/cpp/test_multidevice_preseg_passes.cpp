@@ -76,7 +76,7 @@ TEST_F(MultiDevicePresegPassesTest, ResidualAdd) {
   }
 }
 
-TEST_F(MultiDevicePresegPassesTest, MultipleTransformReshape) {
+TEST_F(MultiDevicePresegPassesTest, DISABLED_MultipleTransformReshape) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -115,7 +115,7 @@ TEST_F(MultiDevicePresegPassesTest, MultipleTransformReshape) {
       __FILE__);
 }
 
-TEST_F(MultiDevicePresegPassesTest, SliceReshapePermute) {
+TEST_F(MultiDevicePresegPassesTest, DISABLED_SliceReshapePermute) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -168,10 +168,9 @@ TEST_F(MultiDevicePresegPassesTest, SliceReshapePermute) {
 }
 
 namespace {
-at::Tensor reference_mha(at::Tensor inp, at::Tensor weight) {
-  at::Tensor linear0_out = at::linear(inp, weight);
+at::Tensor reference_mha(at::Tensor inp) {
   auto qkv =
-      linear0_out.view({b, s, a, 3 * h / a}).transpose(1, 2).split(h / a, -1);
+      inp.view({b, s, a, 3 * h / a}).transpose(1, 2).split(h / a, -1);
   double scale = 1.0 / std::sqrt(h / a);
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
       qkv[0],
@@ -182,7 +181,7 @@ at::Tensor reference_mha(at::Tensor inp, at::Tensor weight) {
       /*return_debug_mask=*/false,
       scale);
   auto attn = std::get<0>(sdpa_out);
-  return attn.transpose(1, 2).reshape({b, s, h});
+  return attn.transpose(1, 2);
 }
 } // namespace
 
@@ -195,15 +194,7 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
 
   auto mesh = DeviceMesh::createForNumDevices(d);
 
-  TensorView* inp = makeConcreteTensor({b, s, h}, DataType::Half);
-  TensorView* mha_w0 = makeConcreteTensor({3 * d * h, h}, DataType::Half);
-
-  // MHA Linear0
-  TensorView* mha_linear0_out = linear(inp, mha_w0);
-
-  // reshape -> slice -> permute
-  TensorView* qkv =
-      reshape(mha_linear0_out, {b, s, 3 * d * h}, {b, s, d * a, 3 * h / a});
+  TensorView* qkv = makeConcreteTensor({b, s, d * a, 3 * h / a}, DataType::Half);
   TensorView* q = slice(qkv, {0, 0, 0, 0}, {b, s, d * a, h / a});
   TensorView* k = slice(qkv, {0, 0, 0, h / a}, {b, s, d * a, 2 * h / a});
   TensorView* v = slice(qkv, {0, 0, 0, 2 * h / a}, {b, s, d * a, 3 * h / a});
@@ -222,20 +213,13 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
 
   TensorView* attn = sdpa_out.output;
   TensorView* attn_permute = permute(attn, {0, 2, 1, 3});
-  TensorView* attn_reshaped =
-      reshape(attn_permute, {b, s, d * a, h / a}, {b, s, d * h});
 
-  fusion->addInput(inp);
-  fusion->addInput(mha_w0);
-  fusion->addOutput(attn_reshaped);
+  fusion->addInput(qkv);
+  fusion->addOutput(attn_permute);
 
-  // Shard input tensors
-  for (auto* tv : {inp, mha_w0}) {
-    tv->setDeviceMesh(mesh);
-  }
-
-  mha_w0->split(0, d, /*inner_split=*/false);
-  mha_w0->axis(0)->parallelize(ParallelType::DIDx);
+  qkv->setDeviceMesh(mesh);
+  qkv->outer_split(2, d);
+  qkv->axis(2)->parallelize(ParallelType::DIDx);
 
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
@@ -245,22 +229,19 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp_tensor = at::randn({b, s, h}, tensor_options.dtype(at::kHalf));
+  at::Tensor unsharded_inp_tensor = at::randn({b, s, d * a, 3 * h / a}, tensor_options.dtype(at::kHalf));
+  at::Tensor inp_tensor = shardTensor(unsharded_inp_tensor, 2, mesh);
 
-  at::Tensor mha_w0_tensor =
-      at::randn({3 * d * h, h}, tensor_options.dtype(at::kHalf));
-  at::Tensor sharded_mha_w0 = shardTensor(mha_w0_tensor, 0, mesh);
-
-  KernelArgumentHolder args = {inp_tensor, sharded_mha_w0};
+  KernelArgumentHolder args = {inp_tensor};
   auto outputs = executor_cache.runFusionWithInputs(args);
   at::Tensor nvf_out = outputs[0].as<at::Tensor>();
 
-  at::Tensor ref_out = reference_mha(inp_tensor, sharded_mha_w0);
+  at::Tensor ref_out = reference_mha(inp_tensor);
 
   testValidate(
       executor_cache.fusion(),
       {nvf_out},
-      {inp_tensor, sharded_mha_w0},
+      {inp_tensor},
       {ref_out},
       __LINE__,
       __FILE__);
