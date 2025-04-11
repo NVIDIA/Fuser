@@ -403,7 +403,6 @@ table SegmentedGroup {
   merge_with_segmented_group: long;
   merge_through_segmented_edge: long;
   merged: bool;
-  is_fusion_input: bool;
 }
 
 // The SegmentedFusion represents a segmented fusion graph that owns the segmented groups.
