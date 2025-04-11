@@ -4981,6 +4981,7 @@ using WarpGroupTestParams = int64_t;
 using MLPGemmPersistentBroadcastInputs =
     NVFuserFixtureParamTest<WarpGroupTestParams>;
 TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
+  NVFUSER_TEST_CUDA_ARCH_RANGE_GUARD(9, 0, 10, 0);
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
 

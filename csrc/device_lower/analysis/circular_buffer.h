@@ -79,15 +79,18 @@ class CircularBufferInfo {
       IterDomain* circular_buffer_axis);
 
   //! Get the linearized index used for selecting the circular buffering stage
-  //! and calculating mbarrier parity. mbarriers are active across nested
-  //! for-loops.
-  Val* getLinearizeIndex(
+  //! and calculating mbarrier parity. The index includes all serial for-loops
+  //! from outer-most to inner-most circular buffer axis. Assume the for_loop
+  //! stack maps to the circular_buffer_tv's loop domain.
+  Val* getLinearIndex(
       TensorView* circular_buffer_tv,
       const std::vector<ForLoop*>& loops) const;
 
   //! Get the linearized index used for selecting the circular buffering stage
-  //! and calculating mbarrier parity.
-  Val* getLinearizeIndex(
+  //! and calculating mbarrier parity. The index includes all serial for-loops
+  //! from outer-most to inner-most circular buffer axis. Assume the for_loop
+  //! stack can be anything to the left of the insertion position.
+  Val* getLinearIndexRelativeForLoopStack(
       const std::vector<ForLoop*>& loops,
       int64_t insertion_position,
       int64_t start = 0) const;

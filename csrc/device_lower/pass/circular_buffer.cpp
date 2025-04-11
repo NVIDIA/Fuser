@@ -484,8 +484,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
   // Current compute index: loop_index
   Val* currentComputeIndex() const {
-    return GpuLower::current()->circularBufferInfo().getLinearizeIndex(
-        for_loop_stack_, insertion_position_);
+    return GpuLower::current()
+        ->circularBufferInfo()
+        .getLinearIndexRelativeForLoopStack(
+            for_loop_stack_, insertion_position_);
   }
 
   // Current compute stage: loop_index % stages
@@ -517,9 +519,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
 
-    Val* linearized_index =
-        GpuLower::current()->circularBufferInfo().getLinearizeIndex(
-            for_loop_stack_, insertion_position_);
+    Val* linearized_index = GpuLower::current()
+                                ->circularBufferInfo()
+                                .getLinearIndexRelativeForLoopStack(
+                                    for_loop_stack_, insertion_position_);
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
         SimplifyingIrBuilder::addExpr(linearized_index, opt.prefetch + 1),
         IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
@@ -537,9 +540,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
             ->circularBufferInfo()
             .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
             .prefetch;
-    Val* linearized_index =
-        GpuLower::current()->circularBufferInfo().getLinearizeIndex(
-            for_loop_stack_, insertion_position_);
+    Val* linearized_index = GpuLower::current()
+                                ->circularBufferInfo()
+                                .getLinearIndexRelativeForLoopStack(
+                                    for_loop_stack_, insertion_position_);
     if (loop_type_ == CircularBufferLoopStage::Main) {
       auto current_load_index =
           SimplifyingIrBuilder::addExpr(linearized_index, prefetch);

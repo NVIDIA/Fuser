@@ -263,6 +263,7 @@ void CircularBufferInfo::setCircularBufferOptions(
     IterDomain* id,
     const CircularBufferOptions& opt) {
   auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
+  NVF_ERROR(concrete_loop_id != nullptr);
 
   auto maybe_existing_depth_it =
       circular_buffer_options_.find(concrete_loop_id);
@@ -325,14 +326,14 @@ int64_t CircularBufferInfo::getCircularBufferInsertionPosition(
 void CircularBufferInfo::setCircularBufferInsertionPosition(
     const TensorView* circular_buffer_tv,
     IterDomain* circular_buffer_axis) {
-  IterDomain* concrete_loop_id =
-      lower_utils::getConcreteLoopID(circular_buffer_axis);
+  if (GpuLower::hasCurrent()) {
+    circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
+  }
 
-  // short-circuit: insertion position is only for warp specialization with
-  // register sharing
+  // short-circuit: insertion position is only for warp specialization.
   if (!std::holds_alternative<WarpSpecialized>(
           circular_buffer_tv->circularBufferOptions().type)) {
-    circular_buffer_insertion_position_[concrete_loop_id] = 1;
+    circular_buffer_insertion_position_[circular_buffer_axis] = 1;
     return;
   }
 
@@ -357,7 +358,8 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
       inner_most_circular_buffer_position);
   int64_t insertion_position = inner_most_circular_buffer_position -
       outer_most_circular_buffer_position + 1;
-  circular_buffer_insertion_position_[concrete_loop_id] = insertion_position;
+  circular_buffer_insertion_position_[circular_buffer_axis] =
+      insertion_position;
 }
 
 namespace {
@@ -379,7 +381,7 @@ int64_t getForLoopIndex(
 
 } // namespace
 
-Val* CircularBufferInfo::getLinearizeIndex(
+Val* CircularBufferInfo::getLinearIndex(
     TensorView* circular_buffer_tv,
     const std::vector<ForLoop*>& loops) const {
   int64_t inner_loop_index =
@@ -400,21 +402,30 @@ Val* CircularBufferInfo::getLinearizeIndex(
 
   // Calculate insertion position.
   int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
-  return getLinearizeIndex(
+  return getLinearIndexRelativeForLoopStack(
       loops, insertion_position, /*start=*/outer_loop_index);
 }
 
-Val* CircularBufferInfo::getLinearizeIndex(
+Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
     const std::vector<ForLoop*>& loops,
     int64_t insertion_position,
-    int64_t start) const {
+    int64_t start_loop_index) const {
+  NVF_ERROR(insertion_position > 0);
+  NVF_ERROR(insertion_position <= (int64_t)loops.size());
+  NVF_ERROR(start_loop_index >= 0);
+  NVF_ERROR(start_loop_index < (int64_t)loops.size());
+
   // Insertion position is the number of for-loops in the nested for-loop
-  // structure. end is the last for-loop while start is the first for-loop.
-  int64_t end = insertion_position - 1 + start;
-  NVF_ERROR((int64_t)loops.size() >= end);
+  // structure. end_loop_index is the last for-loop while start_loop_index is
+  // the first for-loop.
+  int64_t end_loop_index = insertion_position - 1 + start_loop_index;
+
+  NVF_ERROR(end_loop_index < (int64_t)loops.size());
+  NVF_ERROR(start_loop_index <= end_loop_index);
+
   Val* index = GpuLower::current()->kernel()->zeroVal();
   Val* extent = GpuLower::current()->kernel()->oneVal();
-  for (int64_t i = end; i >= start; --i) {
+  for (int64_t i = end_loop_index; i >= start_loop_index; --i) {
     if (loops[i]->iter_domain()->isParallelized() ||
         loops[i]->iter_domain()->isBroadcast()) {
       continue;
