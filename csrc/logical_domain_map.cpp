@@ -174,7 +174,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
                                std::vector<IterDomain*> consumer_ids) {
     NVF_ERROR(producer_ids.size() == consumer_ids.size());
-    for (auto idx : c10::irange(consumer_ids.size())) {
+    for (auto idx : arange(consumer_ids.size())) {
       IterDomain* producer_id = producer_ids.at(idx);
       IterDomain* consumer_id = consumer_ids.at(idx);
       if (producer_id == nullptr) {
@@ -183,24 +183,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       updatePairwiseLogicalDomainMap(producer_id, consumer_id);
     }
   };
-
-  if (auto* mma = dynamic_cast<MmaOp*>(consumer_tv_->definition())) {
-    // producer_tv_ is either A or B
-    const MmaOp::AxesData& operand_axes = producer_tv_ == mma->inA()
-        ? mma->axisMapping().a_axes
-        : mma->axisMapping().b_axes;
-    NVF_ERROR(operand_axes.size() == consumer_root.size());
-    for (size_t idx : c10::irange(operand_axes.size())) {
-      int64_t operand_pos = operand_axes[idx];
-      if (operand_pos == -1) {
-        continue;
-      }
-      IterDomain* operand_id = producer_logical.at((size_t)operand_pos);
-      IterDomain* out_id = consumer_root.at(idx);
-      updatePairwiseLogicalDomainMap(operand_id, out_id);
-    }
-    return dom_map;
-  }
 
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
@@ -267,7 +249,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
     size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
     // Map N, H from any input (query/key/value)
-    for (auto idx : c10::irange(consumer_root.size())) {
+    for (auto idx : arange(consumer_root.size())) {
       if (idx < (2 + num_device_dim)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
@@ -316,7 +298,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     size_t num_device_dim =
         !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
                                                                            : 0;
-    for (auto idx : c10::irange(producer_logical.size())) {
+    for (auto idx : arange(producer_logical.size())) {
       // Map N, H from all producers to consumers
       // producer/consumer[2] = L/S
       // producer/consumer[3] = E/Ev
@@ -339,7 +321,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   output = [*, embedding_dim]
     auto ndims_out = consumer_root.size();
     if (producer_tv_->sameAs(op->in())) {
-      for (auto idx : c10::irange(ndims_out - 1)) {
+      for (auto idx : arange(ndims_out - 1)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
@@ -1095,7 +1077,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
   // Next, check if any pair is invalid to map.
   const auto num_keys = domains.size();
   const std::vector<DomainKey> domains_vec({domains.begin(), domains.end()});
-  for (const auto i : c10::irange(num_keys)) {
+  for (const auto i : arange(num_keys)) {
     const auto& key_i = domains_vec[i];
     // If no invalid keys found for key_i, it can be skipped.
     const auto invalid_key_map_it = invalid_key_map.find(key_i);
@@ -1108,7 +1090,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
 
     // If any other key in domains is identified mappable with any of
     // the keys in this set, the mapping with key_i is invalid.
-    for (const auto j : c10::irange(i + 1, num_keys)) {
+    for (const auto j : arange(i + 1, num_keys)) {
       const auto& key_j = domains_vec[j];
       if (std::any_of(
               invalid_keys_for_i.begin(),

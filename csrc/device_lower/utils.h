@@ -183,6 +183,14 @@ std::vector<Expr*> replaceInputsInExpr(
     const std::vector<Expr*>& exprs,
     const std::unordered_map<Val*, Val*>& replacement_map);
 
+//! Returns true if the given TensorView is a smem tv of TMA load/store, or
+//! an input of an MmaOp.
+bool isTMAOrMMASmemTv(TensorView* tv);
+
+//! Returns the swizzle mode of the given TensorView. The TensorView must be
+//! an input of an MmaOp, or the smem tv of TMA load/store.
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv);
+
 } // namespace ir_utils
 
 namespace lower_utils {

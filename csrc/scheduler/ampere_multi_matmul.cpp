@@ -467,19 +467,20 @@ void AmpereMultipleMatmulScheduler::validate() const {
 }
 
 void AmpereMultipleMatmulScheduler::run() {
-  // Clears memory spaces on intermediate tensors, calls
-  // cache{After,Before,Fork} on inputs and outputs
-  cacheInputsAndOutputs();
-
   // Finds matmul patterns and translates them to MmaOps, then finds tensor
   // and dimension roles for all tensors in the fusion
   findPatterns();
   translatePatterns();
-  findRoles();
+
+  // Clears memory spaces on intermediate tensors, calls
+  // cache{After,Before,Fork} on inputs and outputs
+  cacheInputsAndOutputs(/*skip_intermediates=*/false);
 
   // Defines acw_smem/bcw_smem and acr/bcr by possibly calling cacheAfter.
-  // This also collects mma_results_
-  defineOperandCaches();
+  cacheOperandsToRegisters(acw_smems_, acrs_);
+  cacheOperandsToRegisters(bcw_smems_, bcrs_);
+
+  findRoles();
 
   // Schedules:
   //   - global->smem (cp.async)
@@ -505,79 +506,11 @@ void AmpereMultipleMatmulScheduler::run() {
   setUpCircularBuffering();
 }
 
-void AmpereMultipleMatmulScheduler::cacheInputsAndOutputs() {
-  // Make sure we don't have global memory set on intermediate tensors from
-  // fusion segmentation
-  scheduler_utils::clearMemorySpace(fusion_);
-
-  // Cache inputs
-  scheduler_utils::cacheInputs(fusion_, /*unroll=*/true);
-
-  // Cache and fork outputs
-  cached_outputs_ =
-      scheduler_utils::cacheAndForkOutputs(fusion_, /*unroll=*/true);
-}
-
-void AmpereMultipleMatmulScheduler::defineOperandCaches() {
-  cacheOperandsToSmem(as_, acw_smems_, params_->supported_vec_size.a);
-  cacheOperandsToRegisters(acw_smems_, acrs_);
-
-  cacheOperandsToSmem(bs_, bcw_smems_, params_->supported_vec_size.b);
-  cacheOperandsToRegisters(bcw_smems_, bcrs_);
-
-  // Now that we are finished possibly redefining the inputs to the MmaOps,
-  // we can set the macro for those ops
-  for (TensorView* mma_result : mma_results_) {
-    MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
-    NVF_ERROR(mma != nullptr);
-    mma->setMacro(params_->mma_macro);
-  }
-}
-
-void AmpereMultipleMatmulScheduler::cacheOperandsToSmem(
-    const std::vector<TensorView*>& operands,
-    std::vector<TensorView*>& smem_operands,
-    int64_t vec_size) {
-  // Use cp.async as requested in scheduler params.
-  smem_operands.resize(operands.size(), nullptr);
-  for (size_t i : c10::irange(operands.size())) {
-    TensorView* operand = operands[i];
-    CacheOp cache_op = CacheOp::Unspecified;
-    if (params_->async_gmem_load_operands) {
-      int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
-      NVF_CHECK(
-          vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
-          "Unsupported async vectorization size ",
-          vec_size,
-          " = ",
-          vec_bytes,
-          " bytes for operand ",
-          operand->toString(),
-          " which has data type ",
-          operand->dtype(),
-          ". Size must be 4, 8, or 16 bytes. ",
-          "MatmulParams::async_gmem_load_operands should be set to false in this case.");
-      cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
-    };
-
-    NVF_ERROR(operand->uses().size() == 1);
-    smem_operands[i] = ir_utils::consumerTvsOf(operand).at(0);
-
-    LoadStoreOpType load_op = params_->async_gmem_load_operands
-        ? LoadStoreOpType::CpAsync
-        : LoadStoreOpType::Set;
-
-    smem_operands[i]->definition()->as<LoadStoreOp>()->setOpType(load_op);
-    smem_operands[i]->definition()->as<LoadStoreOp>()->setCacheOp(cache_op);
-    smem_operands[i]->setMemoryType(MemoryType::Shared);
-  }
-}
-
 void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
     const std::vector<TensorView*>& tv_smems,
     std::vector<TensorView*>& tv_rs) {
   tv_rs.resize(tv_smems.size(), nullptr);
-  for (size_t i : c10::irange(tv_smems.size())) {
+  for (size_t i : arange(tv_smems.size())) {
     TensorView* tv_smem = tv_smems[i];
     TensorView*& tv_r = tv_rs[i];
 
@@ -591,8 +524,7 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
       tv_r = ldst->out()->as<TensorView>();
       ldst->setOpType(LoadStoreOpType::LdMatrix);
     } else {
-      tv_r = cacheAfter(
-          tv_smem,
+      tv_r = tv_smem->cacheAfter(
           LoadStoreOpType::LdMatrix,
           CacheOp::Unspecified,
           /*propagate_allocation_domain=*/false);
@@ -606,7 +538,7 @@ void AmpereMultipleMatmulScheduler::swizzleBlockTiles(
   if (params_->grid_swizzle_factor != 1) {
     // Find position of outer M and N dims in schedule_.tiled
     int64_t Mo_pos = -1, No_pos = -1;
-    for (size_t i : c10::irange(outer_dim_roles.size())) {
+    for (size_t i : arange(outer_dim_roles.size())) {
       if (outer_dim_roles[i] == MatmulDimRole::M) {
         Mo_pos = (int64_t)i;
       } else if (outer_dim_roles[i] == MatmulDimRole::N) {
@@ -677,7 +609,7 @@ TensorView* AmpereMultipleMatmulScheduler::cacheAfter(
   if (propagate_allocation_domain) {
     const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
     NVF_ERROR(orig_alloc.size() == cache_alloc.size());
-    for (size_t i : c10::irange(orig_alloc.size())) {
+    for (size_t i : arange(orig_alloc.size())) {
       ValGroup vg = graph_->toGroup(orig_alloc[i]);
       graph_->initializeVal(cache_alloc[i], vg);
     }
@@ -691,7 +623,7 @@ TensorView* AmpereMultipleMatmulScheduler::cacheAfter(
   // original tensor. The logical domain contains Iteration transforms of the
   // Reduction axis in the original mma output.
   NVF_ERROR(orig_logical.size() == cache_logical.size());
-  for (size_t i : c10::irange(orig_logical.size())) {
+  for (size_t i : arange(orig_logical.size())) {
     ValGroup vg = graph_->toGroup(orig_logical[i]);
     graph_->initializeVal(cache_logical[i], vg);
   }
@@ -764,7 +696,7 @@ std::vector<std::vector<MatmulDimRole>> AmpereMultipleMatmulScheduler::
 
     if (params_->splitk_factor > 1) {
       // Outer K dimension in tv is in same position found in merged_roles
-      for (size_t i : c10::irange(merged_roles.size())) {
+      for (size_t i : arange(merged_roles.size())) {
         if (merged_roles[i] == MatmulDimRole::K) {
           tv->split((int64_t)i, params_->splitk_factor, /*inner*/ false);
         }
@@ -802,7 +734,7 @@ void AmpereMultipleMatmulScheduler::scheduleMmaOperands(
     std::vector<TensorView*>& tvs,
     const std::optional<MmaOperand> operand_type) {
   auto all_merged_roles = blockTileTensors(tvs);
-  for (size_t i : c10::irange(tvs.size())) {
+  for (size_t i : arange(tvs.size())) {
     TensorView*& operand = tvs[i];
     std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
@@ -842,7 +774,7 @@ void AmpereMultipleMatmulScheduler::scheduleMmaOperands(
 
 void AmpereMultipleMatmulScheduler::scheduleMmaResults() {
   auto all_merged_roles = blockTileTensors(mma_results_);
-  for (size_t i : c10::irange(mma_results_.size())) {
+  for (size_t i : arange(mma_results_.size())) {
     TensorView*& mma_result = mma_results_[i];
     std::vector<MatmulDimRole>& merged_roles = all_merged_roles[i];
 
@@ -1018,6 +950,8 @@ void AmpereMultipleMatmulScheduler::schedulePrologues() {
     // TODO: save all register prologue tensors instead to a new vector called
     // prologue_register_tensors_
     NVF_ERROR(mma_inputs.empty());
+    std::unordered_set<TensorView*>
+        mma_input_set; // to prevent double insertion
     for (TensorView* mma_result : mma_results_) {
       MmaOp* mma = dynamic_cast<MmaOp*>(mma_result->definition());
       NVF_ERROR(mma != nullptr);
@@ -1027,6 +961,10 @@ void AmpereMultipleMatmulScheduler::schedulePrologues() {
       } else if (operand_type == MmaOperand::B) {
         mma_input = mma->inB()->as<TensorView>();
       }
+      if (mma_input_set.count(mma_input)) {
+        continue;
+      }
+      mma_input_set.insert(mma_input);
       NVF_ERROR(mma_input != nullptr);
       mma_inputs.push_back(mma_input);
     }
@@ -1163,7 +1101,8 @@ void AmpereMultipleMatmulScheduler::scheduleEpilogue() {
   }
   if (params_->use_smem_epilogue) {
     blockTileTensors(output_tvs);
-    for (auto [dc, d] : cached_outputs_) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
       // Schedule output tensor differently for better global memory access
       // pattern.
       scheduleOutputTensor(d);
@@ -1183,7 +1122,8 @@ void AmpereMultipleMatmulScheduler::scheduleEpilogue() {
               .propagateParallelType()
               .propagateToBoundary());
     }
-    for (auto [dc, d] : cached_outputs_) {
+    for (Val* dv : fusion_->outputs()) {
+      auto* d = dv->as<TensorView>();
       // We might propagate an inner dimension that is not compatible with the
       // output or bias-like inputs. In those cases, we will further split
       // this dimension with an outer unrolled loop to achieve the proper
@@ -1367,6 +1307,37 @@ void AmpereMultipleMatmulScheduler::setUpCircularBuffering() {
         num_device_and_batch_dims_ + 2 + num_splitk_dims_,
         all_smem_loads);
   }
+}
+
+void AmpereMultipleMatmulScheduler::setOperandSmemLoadAndCacheOps(
+    TensorView* operand,
+    int64_t vec_size) {
+  int64_t vec_bytes = vec_size * dataTypeSize(operand->dtype());
+  CacheOp cache_op = CacheOp::Unspecified;
+  if (params_->async_gmem_load_operands) {
+    NVF_CHECK(
+        vec_bytes == 4LL || vec_bytes == 8LL || vec_bytes == 16LL,
+        "Unsupported async vectorization size ",
+        vec_size,
+        " = ",
+        vec_bytes,
+        " bytes for operand ",
+        operand->toString(),
+        " which has data type ",
+        operand->dtype(),
+        ". Size must be 4, 8, or 16 bytes. ",
+        "MatmulParams::async_gmem_load_operands should be set to false in this case.");
+    cache_op = vec_bytes == 16LL ? CacheOp::Global : CacheOp::AllLevels;
+  }
+
+  auto* lsop = operand->definition()->as<LoadStoreOp>();
+
+  lsop->setCacheOp(cache_op);
+
+  LoadStoreOpType load_op = params_->async_gmem_load_operands
+      ? LoadStoreOpType::CpAsync
+      : LoadStoreOpType::Set;
+  lsop->setOpType(load_op);
 }
 
 } // namespace nvfuser

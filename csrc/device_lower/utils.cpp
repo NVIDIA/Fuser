@@ -8,7 +8,6 @@
 #include <device_lower/utils.h>
 
 #include <ATen/cuda/CUDAContext.h>
-#include <c10/util/irange.h>
 #include <device_lower/analysis/thread_predicate.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
@@ -132,10 +131,7 @@ bool isTV(const Val* val) {
 
 // Check if we're a TensorView op that we can generate code for.
 bool isTvOp(const Expr* expr) {
-  if (std::any_of(
-          expr->outputs().begin(),
-          expr->outputs().end(),
-          [](Val* v) { return isTV(v); }) &&
+  if (std::ranges::any_of(expr->outputs(), [](Val* v) { return isTV(v); }) &&
       (expr->isOneOf<
           UnaryOp,
           BinaryOp,
@@ -674,7 +670,6 @@ class ReplaceExprInput : private kir::ExprMutator {
           replaced_inputs->at(node->inA()),
           replaced_inputs->at(node->inB()),
           node->init(),
-          node->axisMapping(),
           node->macro());
       registerReplaceWithPredicate(node, replacement);
     }
@@ -716,6 +711,52 @@ std::vector<Expr*> getAllSwizzlesBetween(
       [](Expr* expr) { return expr->isA<Swizzle2D>(); });
 
   return all_swizzles;
+}
+
+bool isTMAOrMMASmemTv(TensorView* tv) {
+  return tv->getMemoryType() == MemoryType::Shared &&
+      (ir_utils::isCpAsyncBulkLoad(tv->definition()) ||
+       std::ranges::any_of(tv->uses(), [](Expr* e) {
+         return e->isA<MmaOp>() || ir_utils::isCpAsyncBulkStore(e);
+       }));
+}
+
+MmaInputSmemSwizzle getSwizzleMode(TensorView* tv) {
+  // Output of TMA load
+  if (ir_utils::isCpAsyncBulkLoad(tv->definition())) {
+    return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
+  }
+  for (auto use : tv->uses()) {
+    // Input of TMA store
+    if (ir_utils::isCpAsyncBulkStore(use)) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      return GpuLower::current()->consumerToTMAInfo().at(consumer_tv).swizzle();
+    }
+
+    // Input of MmaOp
+    if (use->isA<MmaOp>()) {
+      TensorView* consumer_tv = ir_utils::getTvOutput(use);
+      auto id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
+      const auto& to_domain = id_graph.toGroups(tv->getMaybeAllocationDomain());
+      const auto& from_domain = id_graph.toGroups(consumer_tv->getLoopDomain());
+      auto exprs = ValGraphBFS::getExprGroupsBetween(
+                       id_graph,
+                       {from_domain.begin(), from_domain.end()},
+                       {to_domain.begin(), to_domain.end()},
+                       false)
+                       .first;
+      for (const auto& [eg, dir] : exprs) {
+        auto expr = eg->front();
+        if (Swizzle* swizzle = dynamic_cast<Swizzle*>(expr)) {
+          NVF_ERROR(
+              swizzle->swizzleType() == SwizzleType::XOR, "expect xor swizzle");
+          return getSwizzleFromBytes(
+              swizzle->inX()->extent()->evaluate().as<int64_t>() * 16);
+        }
+      }
+    }
+  }
+  return MmaInputSmemSwizzle::None;
 }
 
 } // namespace ir_utils
@@ -973,7 +1014,6 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
   if (isAmpere(expr->macro()) || isTuring(expr->macro())) {
     return {UnitDim::K, UnitDim::K};
   }
-  NVF_ERROR(isHopper(expr->macro()));
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-member-init)
   std::array<UnitDim, 2> layout;
@@ -994,7 +1034,7 @@ std::array<UnitDim, 2> getMmaLayout(const MmaOp* expr) {
 
   std::array<TensorView*, 2> inputs = {
       ir_utils::getTv(expr->inA()), ir_utils::getTv(expr->inB())};
-  for (auto i : c10::irange(2)) {
+  for (auto i : arange(2)) {
     auto in_tv = inputs.at(i);
     if (in_tv->getMemoryType() == MemoryType::Local) {
       layout[i] = UnitDim::K;

@@ -379,6 +379,9 @@ NVF_API TensorView* trunc(TensorView*);
 // bitwise_not
 NVF_API Val* bitwise_not(Val*);
 NVF_API TensorView* bitwise_not(TensorView*);
+// bitceil
+NVF_API Val* bitceil(Val*);
+NVF_API TensorView* bitceil(TensorView*);
 // imag
 NVF_API Val* imag(Val*);
 NVF_API TensorView* imag(TensorView*);
@@ -686,7 +689,6 @@ TensorView* viewAsScalar(TensorView* inp);
 //! \param tv_b second multiply operand
 //! \param axes axes to sum over, relative to output loop domain
 //! \param init sum initial value
-//! \param axis_mapping_opt mapping from output axes to operand axes
 //!
 //! Note & TODO:
 //!   currently only support lowering to a mma op
@@ -697,8 +699,7 @@ NVF_API TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
     const std::vector<int64_t>& axes,
-    Val* init = nullptr,
-    const std::optional<MmaOp::AxisMapping>& axis_mapping_opt = std::nullopt);
+    Val* init = nullptr);
 
 // Create a tensor view from the given value. The given value can be a single
 // scalar, an array of scalars, or a nested array of scalars.
