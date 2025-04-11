@@ -532,9 +532,12 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
   }
 }
 
-void AmpereMultipleMatmulScheduler::swizzleBlockTiles(
+void AmpereMultipleMatmulScheduler::reorderBlockTileTraversal(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
+  NVF_ERROR(
+      params_->grid_traversal_factor.second == 1,
+      "Ampere matmul scheduler does not support 2d grid traversal");
   if (params_->grid_traversal_factor.first != 1) {
     // Find position of outer M and N dims in schedule_.tiled
     int64_t Mo_pos = -1, No_pos = -1;
@@ -691,7 +694,7 @@ std::vector<std::vector<MatmulDimRole>> AmpereMultipleMatmulScheduler::
     // scheduling is the next step in this modernization.
     mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    swizzleBlockTiles(tv, merged_roles);
+    reorderBlockTileTraversal(tv, merged_roles);
 
     all_merged_roles.push_back(merged_roles);
 

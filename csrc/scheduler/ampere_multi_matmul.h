@@ -132,7 +132,7 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! This updates outer_dim_roles if we introduce a new dimension, which can
   //! happen if tv is missing a merged axis, in which case we skip merging after
   //! the split. This is analogous to forwarding during transform propagation.
-  void swizzleBlockTiles(
+  void reorderBlockTileTraversal(
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
