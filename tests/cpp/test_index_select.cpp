@@ -858,82 +858,50 @@ TEST_F(NVFuserTest, IndexSelectVectorization3DCase1) {
 }
 
 TEST_F(NVFuserTest, IndexPutAccumulate) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
-  int64_t vocab = 1024;
-  int64_t hidden = 3584;
-  int64_t seq = 3000;
-
-  auto tv_value = makeSymbolicTensor(2);
-  fusion.addInput(tv_value);
-  auto tv_index = makeContigTensor(1, DataType::Int);
-  fusion.addInput(tv_index);
-  auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
-  std::vector<nvfuser::Val*> buffer_size = {
-      s_vocab, tv_value->axis(-1)->extent()};
-  auto buf = zeros(buffer_size, DataType::Float, true);
-  // this should be an inplace. handle it when we have codegen support
-  auto out = indexPutAccumulate(buf, tv_index, tv_value);
-  fusion.addOutput(out);
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-  std::vector<int64_t> shape1({seq, hidden});
-  std::vector<int64_t> shape2({seq});
-  auto t_value = at::randn(shape1, options);
-  auto t_index = at::randint(0, vocab, shape2, options_i);
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t_value, t_index});
-
-  testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, IndexPutAccumulateSizeOneDim) {
   int64_t vocab_size = 1024;
   int64_t hidden_size = 3584;
   int64_t seq_size = 3000;
-  for (bool size_one_vocab : { true, false }) {
-  for (bool size_one_hidden: { true, false }) {
-  for (bool size_one_seq : { true, false }) {
-      auto fusion_ptr = std::make_unique<Fusion>();
-      Fusion& fusion = *fusion_ptr.get();
-      FusionGuard fg(&fusion);
-      int64_t vocab = size_one_vocab ? 1 : vocab_size;
-      int64_t hidden = size_one_hidden ? 1 : hidden_size;
-      int64_t seq = size_one_seq ? 1 : seq_size;
+  // Note: The semantics doesn't support broadcast on operands, adding `size 1`
+  // check just to ensure the ID mapping is done correctly.
+  for (bool size_one_vocab : {true, false}) {
+    for (bool size_one_hidden : {true, false}) {
+      for (bool size_one_seq : {true, false}) {
+        auto fusion_ptr = std::make_unique<Fusion>();
+        Fusion& fusion = *fusion_ptr.get();
+        FusionGuard fg(&fusion);
+        int64_t vocab = size_one_vocab ? 1 : vocab_size;
+        int64_t hidden = size_one_hidden ? 1 : hidden_size;
+        int64_t seq = size_one_seq ? 1 : seq_size;
 
-      std::vector<int64_t> shape1({seq, hidden});
-      std::vector<int64_t> shape2({seq});
+        std::vector<int64_t> shape1({seq, hidden});
+        std::vector<int64_t> shape2({seq});
 
-      auto tv_value = makeSymbolicTensor(shape1);
-      fusion.addInput(tv_value);
-      auto tv_index = makeSymbolicTensor(shape2, DataType::Int);
-      fusion.addInput(tv_index);
-      auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
-      std::vector<nvfuser::Val*> buffer_size = {
-          s_vocab, tv_value->axis(-1)->extent()};
-      auto buf = zeros(buffer_size, DataType::Float, true);
-      // this should be an inplace. handle it when we have codegen support
-      auto out = indexPutAccumulate(buf, tv_index, tv_value);
-      fusion.addOutput(out);
+        auto tv_value = makeSymbolicTensor(shape1);
+        fusion.addInput(tv_value);
+        auto tv_index = makeSymbolicTensor(shape2, DataType::Int);
+        fusion.addInput(tv_index);
+        auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
+        std::vector<nvfuser::Val*> buffer_size = {
+            s_vocab, tv_value->axis(-1)->extent()};
+        auto buf = zeros(buffer_size, DataType::Float, true);
+        // this should be an inplace. handle it when we have codegen support
+        auto out = indexPutAccumulate(buf, tv_index, tv_value);
+        fusion.addOutput(out);
 
-      auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-      auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-      auto t_value = at::randn(shape1, options);
-      auto t_index = at::randint(0, vocab, shape2, options_i);
+        auto options =
+            at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+        auto options_i =
+            at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+        auto t_value = at::randn(shape1, options);
+        auto t_index = at::randint(0, vocab, shape2, options_i);
 
-      FusionExecutorCache executor_cache(std::move(fusion_ptr));
-      auto outputs = executor_cache.runFusionWithInputs({t_value, t_index});
+        FusionExecutorCache executor_cache(std::move(fusion_ptr));
+        auto outputs = executor_cache.runFusionWithInputs({t_value, t_index});
 
-      testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
-
+        testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
+      }
+    }
   }
-  }
-  }
-
 }
 
 } // namespace nvfuser
