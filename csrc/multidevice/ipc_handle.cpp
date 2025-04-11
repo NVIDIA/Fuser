@@ -157,5 +157,4 @@ void IpcHandleCache::exchangeHandles(
 #endif // NVFUSER_DISTRIBUTED
 }
 
-
 } // namespace nvfuser
