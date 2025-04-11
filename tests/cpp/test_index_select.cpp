@@ -908,7 +908,7 @@ TEST_F(NVFuserTest, IndexPutAccumulateSizeOneDim) {
       int64_t seq = size_one_seq ? 1 : seq_size;
 
 
-      auto tv_value = makeSymbolicTensor({seq, hidden);
+      auto tv_value = makeSymbolicTensor({seq, hidden});
       fusion.addInput(tv_value);
       auto tv_index = makeSymbolicTensor({seq}, DataType::Int);
       fusion.addInput(tv_index);
