@@ -130,6 +130,10 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
       continue;
     }
 
+    if (id->isReduction()) {
+      continue;
+    }
+
     NVF_ERROR(
         parallel_type_to_id.try_emplace(parallel_type, id).second,
         "Found multiple loop IterDomains with the same parallel type (",

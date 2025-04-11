@@ -148,6 +148,8 @@ void rFactorLoopSplits(Fusion* fusion) {
     std::vector<int64_t> rfactor_axes;
     rfactor_axes.reserve(tv->nDims());
 
+    std::unordered_set<ParallelType> reduced_parallel_types;
+
     for (auto&& [i, loop_id] : enumerate(tv->getLoopDomain())) {
       if (!loop_id->isReduction()) {
         // rFactor only applies to reduction dimensions.
@@ -162,14 +164,23 @@ void rFactorLoopSplits(Fusion* fusion) {
         continue;
       }
 
-      if (!loop_id->isParallelized()) {
+      ParallelType parallel_type = loop_id->getParallelType();
+      if (parallel_type == ParallelType::Serial) {
         // rFactor non-parallelized IDs so they get reduced locally.
         rfactor_axes.push_back(i);
+      } else {
+        reduced_parallel_types.insert(parallel_type);
       }
     }
 
     if (!rfactor_axes.empty()) {
-      tv->rFactor(rfactor_axes);
+      TensorView* local = tv->rFactor(rfactor_axes);
+      for (IterDomain* loop_id : local->getLoopDomain()) {
+        if (!loop_id->isRFactorProduct() &&
+            reduced_parallel_types.count(loop_id->getParallelType())) {
+          loop_id->parallelize(ParallelType::Serial);
+        }
+      }
     }
   }
 }
