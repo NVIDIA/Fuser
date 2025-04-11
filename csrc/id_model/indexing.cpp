@@ -214,6 +214,7 @@ Val* TensorIndexer::getLinearIndex(
     linear_index =
         SimplifyingIrBuilder::addExpr(linear_index, circular_buffer_offset);
   }
+
   if (tv->getMemoryType() == MemoryType::Global) {
     linear_index = protectIndicesWithMagicZero({linear_index}, for_loops).at(0);
   }

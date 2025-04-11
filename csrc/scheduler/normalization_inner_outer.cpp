@@ -218,7 +218,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // should project to inputs.
   const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
   bool skip_check_buffer_size = !outer_broadcast_tvs.empty() ||
-      isOptionEnabled(EnableOption::WarpSpecializedPersistent);
+      isOptionEnabled(EnableOption::WarpSpecializedNormalization);
   normalization_scheduler_utils::BufferProjectionStrategy project_strategy =
       normalization_scheduler_utils::isProjectBufferToInputs(
           fusion,
@@ -1651,15 +1651,6 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
   // Step-1, propagate iteration domain in inner reduction.
   // Step-2, propagate reduction domain in inner reduction.
   if (rparams->tma_warp_specialized) {
-    std::unordered_set<TensorView*> special_tvs{
-        tma_load_tvs.begin(), tma_load_tvs.end()};
-    for (auto tv : boundaryNodesSet) {
-      std::cout << "boundaryNodesSet tv: " << tv->toString() << "\n";
-      if (special_tvs.count(tv) == 0) {
-        special_tvs.emplace(tv);
-      }
-    }
-
     // Find the axis that splits the reduction domain and iteration domain.
     int first_redu_axis = -1;
     int n_dims = (int)inner_reference_tv->nDims();
@@ -1692,14 +1683,15 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
     // Step-2, propagate reduction domain in inner reduction.
     // (a) Tvs in boundaryNodesSet are excluded since they should follow outer
     // reduction pattern.
-    // (b) TMA tvs are excluded since they require special scheduling. However,
-    // it breaks the propagation path from inner reduction tv to cached_gmem
-    // which stores the results of the frist-stage of outer reduction. Add a
-    // dummy output to link them.
+    // (b) TMA tvs are excluded since they require special scheduling.
+    // (3) Excluding tma tvs breaks the propagation path from inner reduction tv
+    // to cached_gmem which stores the results of the first-stage of outer
+    // reduction. The solution is adding a dummy output to link them. The same
+    // trick is used when projecting persistent buffers to inputs.
     auto inner_reduction_input =
         ir_utils::getSoleProducerTv(inner_reference_tv);
     for (auto tv : cached_gmem) {
-      // T1(smem) --> T2 (l) --> T3 = Redu(T2) --> T4(cached_gmem)
+      // T1(smem) --> T2 (l) --> T3 = OuterRedu(T2) --> T4(cached_gmem)
       // outer_reduction_input: T2
       // partial_outer_redu_tv: T3
       auto partial_outer_redu_tv = ir_utils::getSoleProducerTv(tv);
@@ -1710,6 +1702,15 @@ void scheduleInnerOuterWarpSpecializedTmaKernel(
       dummy_outputs.emplace_back(dummy_output);
     }
 
+    // Tvs requiring special scheduling
+    std::unordered_set<TensorView*> special_tvs{
+        tma_load_tvs.begin(), tma_load_tvs.end()};
+    for (auto tv : boundaryNodesSet) {
+      std::cout << "boundaryNodesSet tv: " << tv->toString() << "\n";
+      if (special_tvs.count(tv) == 0) {
+        special_tvs.emplace(tv);
+      }
+    }
     TransformPropagator propagator(inner_reference_tv);
     std::vector<TensorView*> all_tvs_except_cache = ir_utils::allTvsExcept(
         fusion, {special_tvs.begin(), special_tvs.end()});
