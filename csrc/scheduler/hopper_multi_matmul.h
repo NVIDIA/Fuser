@@ -120,7 +120,7 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! This updates outer_dim_roles if we introduce a new dimension, which can
   //! happen if tv is missing a merged axis, in which case we skip merging after
   //! the split. This is analogous to forwarding during transform propagation.
-  void swizzleBlockTiles(
+  void reorderBlockTileTraversal(
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
@@ -138,7 +138,8 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! with the same role will be merged.
   //!   2) After that, we perform splits according to
   //!   params_->tile_sizes.cta_tile, e.g. [M, K] -> [Mo, Ko, Mi, Ki].
-  //!   3) Depending on the value of params_->grid_swizzle_factor, if the TV has
+  //!   3) Depending on the value of params_->grid_traversal_factor, if the TV
+  //!   has
   //! both M and N dimensions, we perform a 2D swizzle of the outer dimensions
   //! Mo and No.
   //!   4) Finally, we do a split-K split if the splitk_factor is not 1

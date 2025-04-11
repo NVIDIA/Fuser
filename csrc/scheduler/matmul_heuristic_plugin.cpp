@@ -143,7 +143,7 @@ void copyParamsToConfig(KernelConfig* config, const MatmulParams* mparams) {
   config->cluster_dims[1] = mparams->cluster_dims.y;
   config->cluster_dims[2] = mparams->cluster_dims.z;
   config->splitk_factor = mparams->splitk_factor;
-  config->grid_swizzle_factor = mparams->grid_swizzle_factor;
+  config->grid_swizzle_factor = mparams->grid_traversal_factor.first;
   config->cta_order =
       mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor ? 0
                                                                            : 1;
@@ -179,7 +179,7 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   menc.k = config->instruction_tile[2];
   mparams->mma_macro = menc; // cast back to uint64_t
   mparams->splitk_factor = config->splitk_factor;
-  mparams->grid_swizzle_factor = config->grid_swizzle_factor;
+  mparams->grid_traversal_factor.first = config->grid_swizzle_factor;
   switch (config->cta_order) {
     case 0:
       mparams->cta_order = MatmulParams::TileRasterizationOrder::RowMajor;

@@ -786,7 +786,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, circular_buffer_options)
       .PARAM(MatmulParams, supported_vec_size)
       .PARAM(MatmulParams, async_gmem_load_operands)
-      .PARAM(MatmulParams, grid_swizzle_factor)
+      .PARAM(MatmulParams, grid_traversal_factor)
       .PARAM(MatmulParams, use_smem_epilogue)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
