@@ -121,13 +121,13 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 // For example,
 //
 //   [i{m} i{k}]               [i{n} i{k}]
-//         /   \                     /   \\
+//         /   \                     /   \.
 //     iDID{d} i{k/d}           iDID{d}  i{k/d}
 //                    |
 //                    | linear
 //                    v
 //               [i{m} i{n} r{k}]
-//                         /   \\
+//                         /   \.
 //                    rDID{d}  r{k/d}
 //
 // is decomposed into
@@ -136,7 +136,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
 //                    | linear (local)
 //                    v
 //                          r{k}
-//                         /   \\
+//                         /   \.
 //          [i{m} i{n} iDID{d}  r{k/d}
 //                    |
 //                    | reduce (allreduce)
