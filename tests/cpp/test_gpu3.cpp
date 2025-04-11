@@ -9104,6 +9104,34 @@ TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
   }
 }
 
+// https://github.com/NVIDIA/Fuser/issues/3811
+TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({1, -1});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigTensor(2);
+  fusion.addInput(tv1);
+
+  auto tv2 = sum(tv0, {0, 1});
+  fusion.addOutput(tv2);
+  auto tv3 = add(tv0, tv1);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 100}, options);
+  auto t1 = at::randn({5, 100}, options);
+  std::vector<c10::IValue> inputs({t0, t1});
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+}
+
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
 } // namespace nvfuser
