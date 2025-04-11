@@ -592,7 +592,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
 }
 
-bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
+bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
   return expr->isOneOf<
       MatmulOp,
       SliceOp,

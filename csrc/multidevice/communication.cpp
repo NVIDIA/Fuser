@@ -352,7 +352,6 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-
   if (my_device_index == communication->root()) {
     input_tensor = input_tensor.contiguous();
   }
