@@ -603,15 +603,15 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
 
 flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::SegmentedEdge* edge,
-    const std::unordered_map<Val*, int64_t>& vals_to_id_map,
+    const std::shared_ptr<SegmentedEdge>& edge,
+    const std::unordered_map<Val*, int64_t>& vals_map,
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const {
   FUSER_PERF_SCOPE("SegmentedEdge::serialize");
   return serde::CreateSegmentedEdge(
       builder,
       groups_map.at(edge->from),
       groups_map.at(edge->to),
-      vals_to_id_map.at(edge->val));
+      vals_map.at(edge->val));
 }
 
 nvfuser::SegmentedEdge SegmentedFusion::deserialize(
@@ -638,30 +638,28 @@ SegmentedGroup* SegmentedFusion::Impl::makeGroup(Expr* expr) {
   return groups_.back().get();
 }
 
-SegmentedEdge* SegmentedFusion::Impl::makeEdge(
+std::shared_ptr<SegmentedEdge> SegmentedFusion::Impl::makeEdge(
     SegmentedGroup* from,
     SegmentedGroup* to,
     Val* val) {
-  edges_.emplace_back(std::make_unique<SegmentedEdge>(from, to, val));
-  return edges_.back().get();
+  edges_.emplace_back(std::make_shared<SegmentedEdge>(from, to, val));
+  return edges_.back();
 }
 
-void SegmentedFusion::removeEdge(SegmentedEdge* edge) {
+void SegmentedFusion::removeEdge(const std::shared_ptr<SegmentedEdge>& edge) {
   // Validate edge exists in all expected locations
   auto& producer_edges = edge->from->consumer_edges;
   auto& consumer_edges = edge->to->producer_edges;
 
   // Remove edge from producer's consumer edges
-  auto producer_edge_it =
-      std::find(producer_edges.begin(), producer_edges.end(), edge);
+  auto producer_edge_it = std::find(producer_edges.begin(), producer_edges.end(), edge);
   NVF_ERROR(
       producer_edge_it != producer_edges.end(),
       "Edge not found in producer's consumer edges");
   producer_edges.erase(producer_edge_it);
 
   // Remove edge from consumer's producer edges
-  auto consumer_edge_it =
-      std::find(consumer_edges.begin(), consumer_edges.end(), edge);
+  auto consumer_edge_it = std::find(consumer_edges.begin(), consumer_edges.end(), edge);
   NVF_ERROR(
       consumer_edge_it != consumer_edges.end(),
       "Edge not found in consumer's producer edges");
@@ -719,7 +717,7 @@ std::unordered_map<SegmentedEdge*, int64_t> SegmentedFusion::Impl::edges_map()
       edges_.begin(),
       edges_.end(),
       std::inserter(edge_map, edge_map.end()),
-      [&count](const std::unique_ptr<SegmentedEdge>& edge_up) {
+      [&count](const std::shared_ptr<SegmentedEdge>& edge_up) {
         return std::make_pair(edge_up.get(), count++);
       });
   return edge_map;
@@ -1341,13 +1339,13 @@ std::vector<SegmentedEdge*> SegmentedFusion::castInputOutputToLowerPrecision(
   return affected_edges;
 }
 
-std::vector<SegmentedEdge*> SegmentedFusion::getEdgesByVal(Val* val) const {
-  std::vector<SegmentedEdge*> edges_with_val;
+std::vector<std::shared_ptr<SegmentedEdge>> SegmentedFusion::getEdgesByVal(Val* val) const {
+  std::vector<std::shared_ptr<SegmentedEdge>> edges_with_val;
   std::copy_if(
       cedges().begin(),
       cedges().end(),
       std::back_inserter(edges_with_val),
-      [&](auto edge) { return edge->val == val; });
+      [&](const std::shared_ptr<SegmentedEdge>& edge) { return edge->val == val; });
   return edges_with_val;
 }
 
@@ -2090,20 +2088,20 @@ void SegmentCandidateFinder::eraseGroups(
       groups().end());
 }
 
-std::vector<SegmentedEdge*> SegmentedFusion::getEdgesBetween(
+std::vector<std::shared_ptr<SegmentedEdge>> SegmentedFusion::getEdgesBetween(
     const SegmentedGroup* producer,
     const SegmentedGroup* consumer) const {
-  std::vector<SegmentedEdge*> edges_between;
+  std::vector<std::shared_ptr<SegmentedEdge>> edges_between;
 
   // Look through producer's consumer edges
-  for (auto edge : producer->consumer_edges) {
+  for (const auto& edge : producer->consumer_edges) {
     if (edge->to == consumer) {
       edges_between.push_back(edge);
     }
   }
 
   // Look through consumer's producer edges
-  for (auto edge : consumer->producer_edges) {
+  for (const auto& edge : consumer->producer_edges) {
     if (edge->from == producer) {
       // Don't add duplicates
       if (std::find(edges_between.begin(), edges_between.end(), edge) ==
@@ -2120,7 +2118,7 @@ void SegmentedFusion::connectGroups(
     SegmentedGroup* from,
     SegmentedGroup* to,
     Val* val) {
-  auto new_edge = newEdge(from, to, val);
+  auto new_edge = impl_.makeEdge(from, to, val);
   from->consumer_edges.push_back(new_edge);
   to->producer_edges.push_back(new_edge);
 }

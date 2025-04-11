@@ -60,9 +60,9 @@ class SegmentedGroup {
   //!  both the group to connect with and the edge
   //!  to connect through
   struct NeighborGroup {
-    NeighborGroup(SegmentedGroup* g, SegmentedEdge* e) : group(g), edge(e) {}
+    NeighborGroup(SegmentedGroup* g, std::shared_ptr<SegmentedEdge> e) : group(g), edge(e) {}
     SegmentedGroup* group;
-    SegmentedEdge* edge;
+    std::shared_ptr<SegmentedEdge> edge;
   };
 
   SegmentedGroup(SegmentedFusion* segmented_fusion)
@@ -153,10 +153,10 @@ class SegmentedGroup {
 
  public:
   //! "Ancestor nodes", towards inputs of segmentedDAG
-  std::vector<SegmentedEdge*> producer_edges;
+  std::vector<std::shared_ptr<SegmentedEdge>> producer_edges;
 
   //! "Descendent nodes", towards outputs of segmentedDAG
-  std::vector<SegmentedEdge*> consumer_edges;
+  std::vector<std::shared_ptr<SegmentedEdge>> consumer_edges;
 
   //! Inputs of this group, they could be composite fusion inputs, or inputs
   //! from other groups
@@ -269,15 +269,13 @@ class SegmentedFusion {
   }
 
   std::vector<SegmentedEdge*>& edges() {
-    return edges_;
-  }
-
-  const std::vector<SegmentedGroup*>& cgroups() const {
-    return groups_;
+    cached_raw_edges_ = impl_.getRawEdges();
+    return cached_raw_edges_;
   }
 
   const std::vector<SegmentedEdge*>& cedges() const {
-    return edges_;
+    cached_raw_edges_ = impl_.getRawEdges();
+    return cached_raw_edges_;
   }
 
   //! Returns the original un-segmented fusion
@@ -323,7 +321,7 @@ class SegmentedFusion {
   //! Remove an edge from the segmented fusion graph and update all affected
   //! groups The edge object will be deleted and should not be used after this
   //! call
-  void removeEdge(SegmentedEdge* edge);
+  void removeEdge(const std::shared_ptr<SegmentedEdge>& edge);
 
   void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
   void disconnectGroups(SegmentedGroup* group1, SegmentedGroup* group2);
@@ -356,10 +354,10 @@ class SegmentedFusion {
       const std::vector<SegmentedEdge*>& edges);
 
   //! Grab edges with val
-  std::vector<SegmentedEdge*> getEdgesByVal(Val* val) const;
+  std::vector<std::shared_ptr<SegmentedEdge>> getEdgesByVal(Val* val) const;
 
   //! Get edges between two groups
-  std::vector<SegmentedEdge*> getEdgesBetween(
+  std::vector<std::shared_ptr<SegmentedEdge>> getEdgesBetween(
       const SegmentedGroup* from,
       const SegmentedGroup* to) const;
 
@@ -393,6 +391,9 @@ class SegmentedFusion {
   std::vector<SegmentedEdge*> edges_;
   std::vector<SegmentedGroup*> groups_;
 
+  //! Cache for raw edge pointers
+  mutable std::vector<SegmentedEdge*> cached_raw_edges_;
+
   //! Owning object to explicitly manage groups and edges
   class Impl {
    public:
@@ -405,9 +406,19 @@ class SegmentedFusion {
     std::unordered_map<SegmentedGroup*, int64_t> groups_map() const;
     std::unordered_map<SegmentedEdge*, int64_t> edges_map() const;
 
+    // Get raw pointer vector for public interface
+    std::vector<SegmentedEdge*> getRawEdges() const {
+      std::vector<SegmentedEdge*> raw_edges;
+      raw_edges.reserve(edges_.size());
+      for (const auto& edge : edges_) {
+        raw_edges.push_back(edge.get());
+      }
+      return raw_edges;
+    }
+
    private:
     using GroupPtr = std::unique_ptr<SegmentedGroup>;
-    using EdgePtr = std::unique_ptr<SegmentedEdge>;
+    using EdgePtr = std::shared_ptr<SegmentedEdge>;
     std::vector<GroupPtr> groups_;
     std::vector<EdgePtr> edges_;
     SegmentedFusion* owning_fusion_;
