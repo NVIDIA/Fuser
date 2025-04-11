@@ -826,6 +826,8 @@ static const char* iter_type2string(IterType t) {
       return "n";
     case IterType::VectorComponent:
       return "v";
+    case IterType::Scan:
+      return "c";
     case IterType::Symbolic:
       return "?";
     default:
