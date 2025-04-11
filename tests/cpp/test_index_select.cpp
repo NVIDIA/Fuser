@@ -892,17 +892,15 @@ TEST_F(NVFuserTest, IndexPutAccumulate) {
 }
 
 TEST_F(NVFuserTest, IndexPutAccumulateSizeOneDim) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  Fusion& fusion = *fusion_ptr.get();
-  FusionGuard fg(&fusion);
-
   int64_t vocab_size = 1024;
   int64_t hidden_size = 3584;
   int64_t seq_size = 3000;
-
   for (bool size_one_vocab : { true, false }) {
   for (bool size_one_hidden: { true, false }) {
   for (bool size_one_seq : { true, false }) {
+      auto fusion_ptr = std::make_unique<Fusion>();
+      Fusion& fusion = *fusion_ptr.get();
+      FusionGuard fg(&fusion);
       int64_t vocab = size_one_vocab ? 1 : vocab_size;
       int64_t hidden = size_one_hidden ? 1 : hidden_size;
       int64_t seq = size_one_seq ? 1 : seq_size;
