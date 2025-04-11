@@ -19,6 +19,7 @@
 #include <visibility.h>
 
 #include <deque>
+#include <functional>
 #include <list>
 #include <unordered_set>
 #include <vector>
@@ -501,8 +502,7 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
-  bool (*custom_should_merge_groups)(SegmentedGroup*, SegmentedGroup*) =
-      nullptr;
+  std::function<bool(SegmentedGroup*, SegmentedGroup*)> custom_should_merge_groups = nullptr;
 };
 
 //!  SegmentCandidateFinder

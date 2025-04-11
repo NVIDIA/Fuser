@@ -3920,7 +3920,7 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
   if (options_.custom_should_merge_groups != nullptr) {
-    return (*options_.custom_should_merge_groups)(group1, group2);
+    return (options_.custom_should_merge_groups)(group1, group2);
   }
   return tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2) !=
       SchedulerType::None;

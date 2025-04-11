@@ -592,16 +592,16 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
       get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
 }
 
-bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
+bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
   return isResharding(expr);
 }
 
-bool HostIrLower::ShouldMergeSegmentedGroups(
+bool HostIrLower::shouldMergeSegmentedGroups(
     SegmentedGroup* group1,
     SegmentedGroup* group2) {
   for (auto group : {group1, group2}) {
-    for (auto expr : group->exprs()) {
-      if (isLoweredAsStandaloneHostOp(expr)) {
+    for (Expr* expr : group->exprs()) {
+      if (isLowerableAsStandaloneHostOp(expr)) {
         return false;
       }
     }
@@ -632,7 +632,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       .run_combine_reductions = false,
       .run_herrmann_merge = true,
       .run_final_merge = true,
-      .custom_should_merge_groups = &ShouldMergeSegmentedGroups};
+      .custom_should_merge_groups = &shouldMergeSegmentedGroups};
   std::unique_ptr<SegmentedFusion> staged_fusion =
       SegmentCandidateFinder::segment(
           std::move(fusion), KernelArgumentHolder(), options, true);
@@ -667,7 +667,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     if (std::all_of(
             group->exprs().begin(),
             group->exprs().end(),
-            isLoweredAsStandaloneHostOp)) {
+            isLowerableAsStandaloneHostOp)) {
       NVF_ERROR(
           group->exprs().size() == 1,
           "Expr executed as a standalone op cannot be fused");

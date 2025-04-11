@@ -36,9 +36,9 @@ class HostIrLower {
       std::unique_ptr<Fusion> fusion,
       DeviceIdxType my_device_index);
 
-  static bool isLoweredAsStandaloneHostOp(Expr* expr);
+  static bool isLowerableAsStandaloneHostOp(Expr* expr);
 
-  static bool ShouldMergeSegmentedGroups(
+  static bool shouldMergeSegmentedGroups(
       SegmentedGroup* group1,
       SegmentedGroup* group2);
 
