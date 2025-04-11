@@ -201,37 +201,6 @@ TEST_F(ScanTest, OnlineSoftmax) {
   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
   TensorView* discount = exp(sub(m_prev, m));
 
-  // What is needed?
-  //  - generalize prefixSum to scan (with discount factor) to cover prefixMax
-  //    case
-  //  - Implement lag1, with similar constraints to scan, for computing the
-  //    delta to adjust discount
-  //  - How to extract final element of the prefix sum?
-  //     - If _all_ we want is the final value, then we don't need to allocate
-  //       all of the values for tv1
-  //     - We could have a custom reduction type that we apply to grab the last
-  //       value in a dimension. This could be accomplished with a new
-  //       BinaryOpType::RHS which just returns the rhs
-
-  //
-  // lag1(x)[i] = x[i-1]  (in a specified dim)
-  // This is related to scan: scan can be defined recursively using lag1:
-  //    y := scan(x, f)
-  //    y = f(lag1(y), x)
-  // We don't represent it like this in our IR because that would require a
-  // cyclic graph (see Fold proposal)
-
-  // Note that lag1(scan(x)) is an _exclusive_ scan of x, e.g. sum x[j] for j =
-  // 0 .. i-1 One option is for us to produce two outputs from scan: the
-  // exclusive and inclusive scans:
-  //   mexc, minc = scan(x, scan_dim, BinaryOpType::Max);
-  //   exp_x_m = exp(sub(x, minc));
-  //   discount = exp(sub(minc, mexc));
-  // Note that we don't need to allocate mexc unless it is used, but this might
-  // be difficult in our current system because it is a sibling.
-  //
-  // We could also have a separate node or option where mexc is disabled.
-
   auto denoms = prefixSum(exp_x_m, scan_dim, discount);
 
   auto norm_factor = reductionOp(
@@ -241,6 +210,9 @@ TEST_F(ScanTest, OnlineSoftmax) {
       denoms);
 
   fusion->addOutput(norm_factor);
+
+  scheduler_utils::cacheInputs(fusion.get(), /*unroll=*/true);
+  scheduler_utils::cacheAndForkOutputs(fusion.get(), /*unroll=*/true);
 
   // We don't inline the scans past the scan dimension
   std::unordered_set<IterDomain*> uninlineable_ids;
