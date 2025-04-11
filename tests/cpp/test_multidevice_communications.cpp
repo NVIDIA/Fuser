@@ -12,7 +12,9 @@
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <tests/cpp/multidevice.h>
+#include <tests/cpp/validator.h>
 
+#include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
 
@@ -405,6 +407,97 @@ TEST_P(CommunicationTest, ReduceScatter) {
         unsharded_input_tensor.sum({0}).slice(0, device_id, device_id + 1);
     validate(output_tensor, ref);
   }
+}
+
+TEST_P(CommunicationTest, AllgatherLoopSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // ProcessGroupNCCL requires the gathered axis to be outermost.
+  // We change the allocation of tensorviews to reflect this.
+  // We do not modify the logical shape of the tensorview.
+  // This would still require one copy on each device if the input tensor is in
+  // a different layout.
+  const auto d = communicator_->size();
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv0: Logical = [5, d*3], Loop/Allocation = [DIDx(d), 3, 5]
+
+  TensorView* tv1 = set(tv0);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv1: Logical = [5, d*3], Loop/Allocation = [Serial(d), 3, 5]
+
+  for (auto tv : {tv0, tv1}) {
+    tv->setDeviceMesh(full_mesh_);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options);
+  at::Tensor in_tensor =
+      shardTensor(unsharded_in_tensor, 0, full_mesh_).transpose(0, 1);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {unsharded_in_tensor.transpose(0, 1)},
+      __LINE__,
+      __FILE__);
+}
+
+TEST_P(CommunicationTest, ScatterLoopSplit) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  const auto d = communicator_->size();
+  
+  DeviceMesh mesh_zero({0});
+  TensorView* tv0 = makeConcreteTensor({5, d*3});
+  TensorView* tv1 = set(tv0);
+  
+  tv0->setDeviceMesh(mesh_zero);
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::Serial);
+  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+
+  tv1->setDeviceMesh(full_mesh_);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::DIDx);
+  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
+  
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  
+  for (auto tv : {tv0, tv1}) {
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  at::Tensor unsharded_in_tensor = at::randn({d*3, 5}, tensor_options);
+
+  at::Tensor expected_output = shardTensor(unsharded_in_tensor, 0, full_mesh_).transpose(0, 1);
+  
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({unsharded_in_tensor.transpose(0, 1)})[0].as<at::Tensor>();
+  
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {unsharded_in_tensor.transpose(0, 1)},
+      {expected_output},
+      __LINE__,
+      __FILE__);
 }
 
 INSTANTIATE_TEST_SUITE_P(

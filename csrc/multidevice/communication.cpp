@@ -334,16 +334,27 @@ c10::intrusive_ptr<c10d::Work> postAllgather(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  auto splits =
-      at::tensor_split(output_tensor, communication->team_size(), /*dim=*/0);
-  assertBuffersHaveSameSize({input_tensor}, splits);
+  // input and output tensors maybe strided (tensor with shape [m, n, k] and
+  // strides [1, k*m, m]), so we flatten them to match the ProcessGroupNCCL
+  // contiguity requirements. Presegmentation pass `makeReshardingContiguous`
+  // ensures that the tvs are contiguous and HostIrExecutor validates the tensor
+  // against the tv allocation domain.
+
+  auto flattened_output_tensor =
+      output_tensor.as_strided({output_tensor.numel()}, {1});
+  auto flattened_input_tensor =
+      input_tensor.as_strided({input_tensor.numel()}, {1});
+  auto splits = at::tensor_split(
+      flattened_output_tensor, communication->team_size(), /*dim=*/0);
+  assertBuffersHaveSameSize({flattened_input_tensor}, splits);
 
   // allgather primitive in c10d induces extra buffering time to copy out the
   // received tensors into user buffer. It is therefore always preferable to use
   // _allgather_base, which does not perform any extra copy at the cost of
   // assuming that the receive buffers are placed contiguously. See #2384 for an
   // illustration.
-  return backend->_allgather_base(output_tensor, input_tensor, {});
+  return backend->_allgather_base(
+      flattened_output_tensor, flattened_input_tensor, {});
 }
 
 c10::intrusive_ptr<c10d::Work> postScatter(
@@ -352,29 +363,33 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  if (my_device_index == communication->root() &&
-      !communication->out()->getDeviceMesh().has(communication->root())) {
-    output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
-  }
-  std::vector<at::Tensor> output_tensors({output_tensor});
-
+  
+  auto output_device_mesh = communication->out()->getDeviceMesh();
+  bool output_has_root = output_device_mesh.has(communication->root());
   auto root_relative_index = communication->getRootRelativeIndex();
+
   std::vector<std::vector<at::Tensor>> input_tensors;
+  std::vector<at::Tensor> output_tensors({output_tensor.as_strided({output_tensor.numel()}, {1})});
+  
   if (my_device_index == communication->root()) {
+    auto splits = at::tensor_split(input_tensor.as_strided({input_tensor.numel()}, {1}), output_device_mesh.size(), /*dim=*/0);
+    if (!output_has_root) {
+      output_tensors[0] = at::empty_like(splits.at(0));
+    }
     input_tensors.resize(1);
     int64_t j = 0;
     for (auto i : arange(communication->team().size())) {
       if (root_relative_index == static_cast<DeviceIdxType>(i) &&
-          !communication->out()->getDeviceMesh().has(communication->root())) {
+          !output_has_root) {
         input_tensors.front().push_back(output_tensor);
         continue;
       }
-      input_tensors.front().push_back(input_tensor.slice(0, j, j + 1));
+      input_tensors.front().push_back(splits.at(j));
       j++;
-    }
+  }
 
-    assertBufferCount(input_tensors[0], communication->team().size());
-    assertBuffersHaveSameSize(input_tensors[0], output_tensors);
+  assertBufferCount(input_tensors[0], communication->team().size());
+  assertBuffersHaveSameSize(input_tensors[0], output_tensors);
   }
 
   return backend->scatter(
