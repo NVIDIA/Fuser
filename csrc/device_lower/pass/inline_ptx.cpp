@@ -269,6 +269,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
       // The Epilogue loop is never the first iteration.
       if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
         dont_use_input_acc = mma->fusion()->falseVal();
+        break;
       }
       // Skip trivial loops as they are always the first iteration.
       if (fl->isTrivial()) {
