@@ -90,9 +90,7 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
   // For warp-specialized tensors, the outer-most loop is the circular buffer
   // loop.
   if (std::holds_alternative<WarpSpecialized>(
-          tv->circularBufferOptions().type) &&
-      std::get<WarpSpecialized>(tv->circularBufferOptions().type)
-          .num_registers.has_value()) {
+          tv->circularBufferOptions().type)) {
     return getOuterMostCircularBufferPosition(tv);
   }
 
@@ -333,10 +331,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
   // short-circuit: insertion position is only for warp specialization with
   // register sharing
   if (!std::holds_alternative<WarpSpecialized>(
-          circular_buffer_tv->circularBufferOptions().type) ||
-      !std::get<WarpSpecialized>(
-           circular_buffer_tv->circularBufferOptions().type)
-           .num_registers.has_value()) {
+          circular_buffer_tv->circularBufferOptions().type)) {
     circular_buffer_insertion_position_[concrete_loop_id] = 1;
     return;
   }
@@ -392,13 +387,10 @@ Val* CircularBufferInfo::getLinearizeIndex(
 
   // short-circuit: return index for inner-most for-loop if not warp specialized
   // with register sharing
-  bool is_warp_specialized_register_sharing =
+  bool is_warp_specialized =
       std::holds_alternative<WarpSpecialized>(
-          circular_buffer_tv->circularBufferOptions().type) &&
-      std::get<WarpSpecialized>(
-          circular_buffer_tv->circularBufferOptions().type)
-          .num_registers.has_value();
-  if (!is_warp_specialized_register_sharing) {
+          circular_buffer_tv->circularBufferOptions().type);
+  if (!is_warp_specialized) {
     return loops[inner_loop_index]->indexOrStartIfTrivial();
   }
 
