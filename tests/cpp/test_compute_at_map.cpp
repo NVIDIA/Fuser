@@ -74,8 +74,12 @@ TEST_F(ComputeAtMapTest, UnregisteredAlmostExactExpr) {
   auto i0 = tv1->axis(0);
 
   auto i1 = i0->cloneWithoutRFactor();
-  auto b0 = IterDomainBuilder(fusion.zeroVal(), fusion.oneVal()).iter_type(IterType::Broadcast).build();
-  auto b1 = IterDomainBuilder(fusion.zeroVal(), fusion.oneVal()).iter_type(IterType::Broadcast).build();
+  auto b0 = IterDomainBuilder(fusion.zeroVal(), fusion.oneVal())
+                .iter_type(IterType::Broadcast)
+                .build();
+  auto b1 = IterDomainBuilder(fusion.zeroVal(), fusion.oneVal())
+                .iter_type(IterType::Broadcast)
+                .build();
 
   auto i2 = IterDomain::merge(i1, b0);
   IrBuilder::create<Merge>(i0, i2, b1);
@@ -91,4 +95,3 @@ TEST_F(ComputeAtMapTest, UnregisteredAlmostExactExpr) {
 }
 
 } // namespace nvfuser
-
