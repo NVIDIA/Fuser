@@ -352,6 +352,11 @@ c10::intrusive_ptr<c10d::Work> postScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+
+  if (my_device_index == communication->root()) {
+    input_tensor = input_tensor.contiguous();
+  }
+
   if (my_device_index == communication->root() &&
       !communication->out()->getDeviceMesh().has(communication->root())) {
     output_tensor = at::empty_like(input_tensor.slice(0, 0, 1));
