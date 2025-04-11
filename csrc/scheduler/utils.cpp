@@ -2917,9 +2917,13 @@ int64_t getComputationCostFactor(Fusion* fusion) {
 int64_t getRequiredBytesInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
+  const auto dev_idx = at::cuda::current_device();
+  int gpu_mem_clock_khz;
+  cudaDeviceGetAttribute(
+      &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
-      (float)dev_prop->memoryClockRate * 1000.f;
+      (float)gpu_mem_clock_khz * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }
 
@@ -2959,8 +2963,8 @@ bool isHighBandwidthFlopsRatio() {
   int gpu_mem_clock_khz;
   cudaDeviceGetAttribute(
       &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
-  float hardware_bandwidth = 2.f * (float)gpu_mem_clock_khz / 8.f *
-      (float)dev_prop->memoryClockRate * 1000.f;
+  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+      (float)gpu_mem_clock_khz * 1000.f;
   // fp32 cuda core flops
   const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
   const int flops_per_cycle = 2;
