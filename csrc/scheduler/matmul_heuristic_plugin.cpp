@@ -179,7 +179,7 @@ void copyConfigToParams(MatmulParams* mparams, const KernelConfig* config) {
   menc.k = config->instruction_tile[2];
   mparams->mma_macro = menc; // cast back to uint64_t
   mparams->splitk_factor = config->splitk_factor;
-  mparams->grid_traversal_factor = config->grid_traversal_factor;
+  mparams->grid_traversal_factor.first = config->grid_swizzle_factor;
   switch (config->cta_order) {
     case 0:
       mparams->cta_order = MatmulParams::TileRasterizationOrder::RowMajor;

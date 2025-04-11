@@ -296,12 +296,12 @@ class MatmulParams : public HeuristicParams {
   //!  will more likely be forming sub-tiles of the C matrix. This will increase
   //!  L2 hit rate/data reuse of A and B.
   //!
-  //! Eg for grid_traversal_factor=2:
+  //! Eg for grid_traversal_factor = {2, 1}:
   //!    A1 A2 B1 B2 -->   A1 A2 A3 A4 B1 B2 B3 B4
   //!    A3 A4 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
   //!    C1 C2 D1 D2
   //!    C3 C4 D3 D4
-  int grid_traversal_factor = 1;
+  std::pair<int, int> grid_traversal_factor = {1, 1};
 
   //! Unswizzle MMA results in shared memory to get
   //!  coalesced write to global memory
@@ -425,8 +425,9 @@ class MatmulParams : public HeuristicParams {
         (circular_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
-        (std::hash<size_t>{}(grid_traversal_factor) << 5) ^
-        (std::hash<size_t>{}(splitk_factor) << 6);
+        (std::hash<size_t>{}(grid_traversal_factor.first) << 5) ^
+        (std::hash<size_t>{}(grid_traversal_factor.second) << 6) ^
+        (std::hash<size_t>{}(splitk_factor) << 7);
     return attr_hash;
   }
 

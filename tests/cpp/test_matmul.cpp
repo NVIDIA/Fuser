@@ -526,7 +526,7 @@ TEST_P(MatmulTestWithLayout, AmpereSwizzle) {
     mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
 
     mparams.cta_order = order;
-    mparams.grid_traversal_factor = swizzle;
+    mparams.grid_traversal_factor = {swizzle, 1};
 
     SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
         ->schedule(&fusion, &mparams);
@@ -5016,7 +5016,7 @@ TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
       MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
-  mparams.grid_traversal_factor = 8;
+  mparams.grid_traversal_factor = {8, 1};
   // TODO reduced share memory aliasing because of persistent scheduling
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;

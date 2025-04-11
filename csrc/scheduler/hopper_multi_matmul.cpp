@@ -172,7 +172,7 @@ void HopperMultipleMatmulScheduler::run() {
 void HopperMultipleMatmulScheduler::swizzleBlockTiles(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
-  if (params_->grid_traversal_factor != 1) {
+  if (params_->grid_traversal_factor.first != 1) {
     // Find position of outer M and N dims in schedule_.tiled
     int64_t Mo_pos = -1, No_pos = -1;
     for (size_t i : arange(outer_dim_roles.size())) {
@@ -183,7 +183,8 @@ void HopperMultipleMatmulScheduler::swizzleBlockTiles(
       }
     }
 
-    int factor = std::max(1, params_->grid_traversal_factor); // must be >=1
+    int factor =
+        std::max(1, params_->grid_traversal_factor.first); // must be >=1
     switch (params_->cta_order) {
       case MatmulParams::TileRasterizationOrder::RowMajor:
         // split   [I1, I2/factor, factor]
