@@ -6037,6 +6037,7 @@ TEST_F(PredicateIndexingTest, NonTrivialSizeOneDomain) {
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
+// Simple repro of issue #4218
 TEST_F(PredicateIndexingTest, AdditionalNonDivisibleSplit) {
   Fusion fusion;
   FusionGuard fg(&fusion);
