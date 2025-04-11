@@ -26,14 +26,25 @@ namespace {
 void assertIsCompiledToHostIrContainer(
     const FusionExecutorCache& executor_cache) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
-  EXPECT_EQ(runtime->executors().size(), 1);
-  EXPECT_THAT(
-      runtime->executors(),
-      Each(Pointer(Property(
-          "is a HostIrExecutor",
-          &ExecutorAbstract::isA<HostIrExecutor>,
-          IsTrue()))))
-      << "failed to compile to a HostIrContainer with Communications";
+  if (isOptionEnabled(EnableOption::HostIrLowering)) {
+    EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
+    auto hicExprs =
+        runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
+    EXPECT_THAT(
+        hicExprs,
+        Contains(Property(&Expr::isA<Communication>, IsTrue()))
+            .Times(testing::Gt(0)))
+        << "host ir container should have at least one communication";
+  } else {
+    EXPECT_EQ(runtime->executors().size(), 1);
+    EXPECT_THAT(
+        runtime->executors(),
+        Each(Pointer(Property(
+            "is a HostIrExecutor",
+            &ExecutorAbstract::isA<HostIrExecutor>,
+            IsTrue()))))
+        << "failed to compile to a HostIrContainer with Communications";
+  }
 }
 } // namespace
 
@@ -56,11 +67,19 @@ using InOutMesh = std::pair<DeviceMesh, DeviceMesh>;
 
 static constexpr int kTensorSize = 4;
 
-class LowerGatherTest : public MultiDeviceTest,
-                        public testing::WithParamInterface<InOutMesh> {};
+class LowerGatherTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerGatherTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
+  EnableOptionsGuard opt_guard;
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
@@ -90,20 +109,50 @@ TEST_P(LowerGatherTest, ) {
   }
 }
 
-INSTANTIATE_TEST_SUITE_P(
-    ,
-    LowerGatherTest,
-    // Trick to enforce clang-format to break lines for readability.
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0, 1}, {0}}, //
-         {{0, 1}, {1}}, //
-         {{1, 2}, {0, 2}}})));
+namespace {
+std::string nameFromTuple(
+    const testing::TestParamInfo<std::tuple<InOutMesh, bool>>& info) {
+  auto&& [meshes, enable_hir] = info.param;
+  auto&& [in_mesh, out_mesh] = meshes;
 
-class LowerScatterTest : public MultiDeviceTest,
-                         public testing::WithParamInterface<InOutMesh> {};
+  std::stringstream ss;
+  ss << "InMesh";
+  for (auto id : in_mesh.vector()) {
+    ss << "_" << id;
+  }
+  ss << "_OutMesh";
+  for (auto id : out_mesh.vector()) {
+    ss << "_" << id;
+  }
+  ss << (enable_hir ? "_HirEnabled" : "_HirDisabled");
+
+  return ss.str();
+}
+} // namespace
+
+INSTANTIATE_TEST_SUITE_P(
+    HostIrLowering,
+    LowerGatherTest,
+    // Create product of InOutMesh configurations and HostIrLowering options
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0, 1}, {0}}, {{0, 1}, {1}}, {{1, 2}, {0, 2}}})),
+        testing::Bool()),
+    nameFromTuple);
+
+class LowerScatterTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerScatterTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
+  EnableOptionsGuard opt_guard;
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
@@ -134,18 +183,27 @@ TEST_P(LowerScatterTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    HostIrLowering,
     LowerScatterTest,
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0}, {0, 1}}, //
-         {{1}, {0, 1}}, //
-         {{0, 2}, {1, 2}}})));
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {0, 1}}, {{1}, {0, 1}}, {{0, 2}, {1, 2}}})),
+        testing::Bool()),
+    nameFromTuple);
 
-class LowerSendRecvTest : public MultiDeviceTest,
-                          public testing::WithParamInterface<InOutMesh> {};
+class LowerSendRecvTest
+    : public MultiDeviceTest,
+      public testing::WithParamInterface<std::tuple<InOutMesh, bool>> {};
 
 TEST_P(LowerSendRecvTest, ) {
-  const auto& [in_mesh, out_mesh] = GetParam();
+  EnableOptionsGuard opt_guard;
+  const auto& [meshes, enable_host_ir_lowering] = GetParam();
+  const auto& [in_mesh, out_mesh] = meshes;
+
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+
   SKIP_IF_NOT_ENOUGH_DEVICES(in_mesh, out_mesh);
 
   auto fusion = std::make_unique<Fusion>();
@@ -178,17 +236,39 @@ TEST_P(LowerSendRecvTest, ) {
 }
 
 INSTANTIATE_TEST_SUITE_P(
-    ,
+    HostIrLowering,
     LowerSendRecvTest,
-    testing::ValuesIn(std::vector<InOutMesh>(
-        {{{0}, {1}}, //
-         {{1}, {0}}, //
-         {{1, 2}, {0, 1}}, //
-         {{1, 2}, {1, 0}}})));
+    testing::Combine(
+        testing::ValuesIn(std::vector<InOutMesh>(
+            {{{0}, {1}}, {{1}, {0}}, {{1, 2}, {0, 1}}, {{1, 2}, {1, 0}}})),
+        testing::Bool()),
+    nameFromTuple);
 
-using LowerCollectiveTest = MultiDeviceTest;
+class LowerCollectiveTest : public MultiDeviceTest,
+                            public testing::WithParamInterface<
+                                std::tuple<CommunicatorBackend, bool>> {
+ protected:
+  void SetUp() override;
+};
 
-TEST_F(LowerCollectiveTest, Allgather) {
+void LowerCollectiveTest::SetUp() {
+  MultiDeviceTest::SetUp();
+
+  const auto& [backend_type, enable_host_ir_lowering] = GetParam();
+  if (!communicator_->isBackendAvailable(backend_type)) {
+    GTEST_SKIP() << "Backend not available: " << backend_type;
+  }
+  // getBackendForTeam throws an error if the requested backend type isn't
+  // available. Therefore, we call it after the isBackendAvailable check.
+  communicator_->setDefaultBackend(backend_type);
+
+  EnableOptionsGuard enable_options_guard;
+  if (enable_host_ir_lowering) {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+}
+
+TEST_P(LowerCollectiveTest, Allgather) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -215,7 +295,7 @@ TEST_F(LowerCollectiveTest, Allgather) {
   EXPECT_TRUE(at::equal(out_tensor, unsharded_tensor));
 }
 
-TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
+TEST_P(LowerCollectiveTest, Allgather_LoopSplit) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -251,7 +331,7 @@ TEST_F(LowerCollectiveTest, Allgather_LoopSplit) {
 // This currently fails due to getShardingChanges reads root/logical only:
 // https://github.com/NVIDIA/Fuser/blob/1dda106a946adcfd1526b83e4f2d4abebb9e32e4/csrc/multidevice/utils.cpp#L77.
 // Will try to fix this in a follow-up PR and reenable the test.
-TEST_F(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
+TEST_P(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -284,7 +364,7 @@ TEST_F(LowerCollectiveTest, DISABLED_Allgather_LoopSplit_Noncontiguous) {
   EXPECT_TRUE(at::equal(out_tensor.cpu(), unsharded_tensor));
 }
 
-TEST_F(LowerCollectiveTest, Broadcast) {
+TEST_P(LowerCollectiveTest, Broadcast) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -307,6 +387,7 @@ TEST_F(LowerCollectiveTest, Broadcast) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor out_tensor =
       executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
   if (num_devices > 1) {
     assertIsCompiledToHostIrContainer(executor_cache);
   }
@@ -315,7 +396,7 @@ TEST_F(LowerCollectiveTest, Broadcast) {
       at::equal(out_tensor, unsharded_tensor.slice(0, kRoot, kRoot + 1)));
 }
 
-TEST_F(LowerCollectiveTest, Reduce) {
+TEST_P(LowerCollectiveTest, Reduce) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -347,7 +428,7 @@ TEST_F(LowerCollectiveTest, Reduce) {
   }
 }
 
-TEST_F(LowerCollectiveTest, Allreduce) {
+TEST_P(LowerCollectiveTest, Allreduce) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -374,7 +455,7 @@ TEST_F(LowerCollectiveTest, Allreduce) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
+TEST_P(LowerCollectiveTest, Allreduce_Concrete) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -405,7 +486,7 @@ TEST_F(LowerCollectiveTest, Allreduce_Concrete) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_F(LowerCollectiveTest, ReduceScatter) {
+TEST_P(LowerCollectiveTest, ReduceScatter) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -434,7 +515,7 @@ TEST_F(LowerCollectiveTest, ReduceScatter) {
   EXPECT_TRUE(at::allclose(out_tensor, shardTensor(unsharded_out_tensor, out)));
 }
 
-TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
+TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
   // Allreduce = ReduceScatter + Allgather
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -466,4 +547,69 @@ TEST_F(LowerCollectiveTest, ReduceScatter_Allgather) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
+TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // ProcessGroupNCCL requires the gathered axis to be outermost.
+  // We change the allocation of tensorviews to reflect this.
+  // We do not modify the logical shape of the tensorview.
+  // This would still require one copy on each device if the input tensor is in
+  // a different layout.
+  const auto d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* tv0 = makeConcreteTensor({5, d * 3});
+  tv0->outer_split(1, d);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv0: Logical = [5, d*3], Loop/Allocation = [DIDx(d), 3, 5]
+
+  TensorView* tv1 = set(tv0);
+  tv1->outer_split(1, d);
+  tv1->axis(1)->parallelize(ParallelType::Serial);
+  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
+  // tv1: Logical = [5, d*3], Loop/Allocation = [Serial(d), 3, 5]
+
+  for (auto tv : {tv0, tv1}) {
+    tv->setDeviceMesh(mesh);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options);
+  at::Tensor in_tensor =
+      shardTensor(unsharded_in_tensor, 0, mesh).transpose(0, 1);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
+
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {unsharded_in_tensor.transpose(0, 1)},
+      __LINE__,
+      __FILE__);
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    HostIrLowering,
+    LowerCollectiveTest,
+    ::testing::Combine(
+        testing::Values(CommunicatorBackend::kNccl, CommunicatorBackend::kUcc),
+        testing::Values(false)),
+    ([](const testing::TestParamInfo<std::tuple<CommunicatorBackend, bool>>&
+            info) -> std::string {
+      const auto& [backend_type, enable_host_ir_lowering] = info.param;
+      std::stringstream ss;
+      ss << backend_type;
+      ss
+          << (enable_host_ir_lowering ? "_HirLowerEnabled"
+                                      : "_HirLowerDisabled");
+      return ss.str();
+    }));
 } // namespace nvfuser

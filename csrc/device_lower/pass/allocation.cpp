@@ -203,6 +203,14 @@ class AllocationDomainSetup : private kir::IrVisitor {
                 tv->getAllocationDomain().begin())) {
           use_set_allocation_domain = true;
         }
+
+        // Honor the set allocation domain if the tensor is used by a
+        // TMA store or MmaOp
+        if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
+              return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
+            })) {
+          use_set_allocation_domain = true;
+        }
       }
     }
 
