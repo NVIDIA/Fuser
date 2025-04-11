@@ -19,34 +19,22 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-void validateMeshes(Fusion* fusion) {
+// Validates meshes and returns true if any TensorView has a device mesh.
+bool validateMeshes(Fusion* fusion) {
   // Validate that meshes are assigned to all TensorViews or none.
-  TensorView* tv_with_mesh = nullptr;
-  TensorView* tv_without_mesh = nullptr;
-  for (TensorView* tv : fusion->allTvs()) {
-    auto update_if_null = [](TensorView*& lhs, TensorView* rhs) {
-      if (lhs == nullptr) {
-        lhs = rhs;
-      }
-    };
-
+  bool tv_with_mesh_found = false;
+  bool tv_without_mesh_found = false;
+  
+  for (auto tv : fusion->allTvs()) {
     if (tv->isCpuScalar()) {
       continue;
     }
-
-    if (tv->hasDeviceMesh()) {
-      update_if_null(tv_with_mesh, tv);
-    } else {
-      update_if_null(tv_without_mesh, tv);
-    }
+    tv->hasDeviceMesh() ? tv_with_mesh_found = true : tv_without_mesh_found = true;
   }
   NVF_CHECK(
-      tv_with_mesh == nullptr || tv_without_mesh == nullptr,
-      "Found ",
-      tv_with_mesh,
-      " assigned a mesh and ",
-      tv_without_mesh,
-      " not.");
+      !(tv_with_mesh_found && tv_without_mesh_found),
+      "Cannot have some TensorViews with device mesh and some without.");
+  return tv_with_mesh_found;
 }
 
 int64_t numDeviceDims(TensorView* tv) {
@@ -279,21 +267,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh);
-
-      // Undo the reordering of the DID axis in ref_input so it is in the correct order
-      // again.
-      ref_input->reorder(new2old);
     }
-
-    // Reorder the loop domain since the transform propagator may
-    // have reordered the iterdomains in loop domain. For example: Consider
-    // linear op: in = [b, m, k] weight = [DIDx(d), n/d, k] After
-    // transformation, the loop domain of linear output is [DIDx(d), n/d, b,
-    // m, r{k}]. Since, we set allocation to be the same as loop, we reorder it
-    // as allocation domain in the interim. Ideally, this should follow logical
-    // domain and DIDx axis at the front. The allocation domain should follow
-    // any stride order specified/inferred.
-    reorderLoopAsAllocation(outputs_without_mesh);
   }
 
   // Back-propagate device meshes. This makes sure all TensorViews have a mesh
@@ -327,7 +301,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // modify their sharding. For non-fusion inputs, we try to propagate shardings
     // from the reference output for parallel types that are not already present.
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::vector<TensorView*> inputs_to_shard;
+    std::vector<TensorView*> unsharded_inputs;
     for (auto* tv : inputs) {
       if (tv->isFusionInput()) {
         if (!tv->hasDeviceMesh()) {
@@ -335,35 +309,45 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         }
         continue;
       }
-      inputs_to_shard.push_back(tv);
+      if (!tv->hasDeviceMesh() || numDeviceDims(tv) == 0) {
+        unsharded_inputs.push_back(tv);
+      }
     }
 
-    if (inputs_to_shard.empty()) {
+    if (unsharded_inputs.empty()) {
       continue;
     }
 
-    // Each input can have different shardings, so attempt to propagate independently.
-    for (auto tv : inputs_to_shard) {
-      std::unordered_set<ParallelType> existing_parallel_types = getTvParallelTypes({tv});
-      std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, existing_parallel_types);
-      int64_t did_pos = new2old.size();
+    std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, {});
+    int64_t did_pos = new2old.size();
 
-      // Note: We do not have to manually shard for reshape here.
-      // TransformPropagator can handle reshapes when going from consumer to
-      // producer.
-      propagateDIDTransform(
-        /*ref=*/ref_output, 
-        /*tvs=*/{tv}, 
-        /*did_pos=*/did_pos, 
-        /*allow_c2p=*/true, 
-        /*allow_p2c=*/false);
-      ref_output->reorder(new2old);
-    }
-    shardAllLike(ref_output, inputs_to_shard);
-    reorderLoopAsAllocation(inputs_to_shard);
+    // Note: We do not have to manually shard for reshape here.
+    // TransformPropagator can handle reshapes when going from consumer to
+    // producer.
+    propagateDIDTransform(
+      /*ref=*/ref_output, 
+      /*tvs=*/unsharded_inputs, 
+      /*did_pos=*/did_pos, 
+      /*allow_c2p=*/true, 
+      /*allow_p2c=*/false);
+    shardAllLike(ref_output, unsharded_inputs);
   }
 
-  validateMeshes(fusion);
+  bool has_mesh = validateMeshes(fusion);
+  if (has_mesh) {
+    // Reorder the loop domain since the transform propagator may
+    // have reordered the iterdomains in loop domain. For example: Consider
+    // linear op: in = [b, m, k] weight = [DIDx(d), n/d, k] After
+    // transformation, the loop domain of linear output is [DIDx(d), n/d, b,
+    // m, r{k}]. Since, we set allocation to be the same as loop, we reorder it
+    // as allocation domain in the interim. Ideally, this should follow logical
+    // domain and DIDx axis at the front. The allocation domain should follow
+    // any stride order specified/inferred.
+    reorderLoopAsAllocation(fusion->allTvs());
+    for (auto tv : fusion->allTvs()) {
+      tv->setAllocationDomain(tv->getLoopDomain(), true);
+    }
+  }
 }
 
 } // namespace nvfuser::preseg_passes
