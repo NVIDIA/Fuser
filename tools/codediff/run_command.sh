@@ -201,10 +201,10 @@ export NVFUSER_ENABLE=$appended_enable
 set +e
 if [[ -z $quiet ]]
 then
-    NVFUSER_DISABLE=index_hoist $testcmd 1> >(tee "$stdoutfile") 2> >(tee "$stderrfile" >&2)
+    $testcmd 1> >(tee "$stdoutfile") 2> >(tee "$stderrfile" >&2)
 else
     echo "Running: $testcmd"
-    NVFUSER_DISABLE=index_hoist $testcmd 1> "$stdoutfile" 2> "$stderrfile"
+    $testcmd 1> "$stdoutfile" 2> "$stderrfile"
 fi
 # See https://unix.stackexchange.com/questions/14270/get-exit-status-of-process-thats-piped-to-another
 echo "${PIPESTATUS[0]}" > "$testdir/exitcode"
