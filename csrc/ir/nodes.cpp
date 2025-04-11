@@ -2042,24 +2042,12 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 //==============================================================================================================================
 
-MmaOp::AxisMapping MmaOp::AxisMapping::trivialMapping(size_t dimension) {
-  AxesData a_axes, b_axes;
-  a_axes.reserve(dimension);
-  b_axes.reserve(dimension);
-  for (size_t i : arange(dimension)) {
-    a_axes.push_back((int64_t)i);
-    b_axes.push_back((int64_t)i);
-  }
-  return {a_axes, b_axes};
-}
-
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in_a,
     Val* in_b,
-    Val* init,
-    const AxisMapping& axis_mapping)
+    Val* init)
     : Expr(passkey) {
   NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
@@ -2076,15 +2064,6 @@ MmaOp::MmaOp(
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
 
-  NVF_ERROR(
-      axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
-      "Must have the same number of axis positions in axis mapping for each operand");
-
-  auto* out_tv = ir_utils::getTv(out);
-  NVF_ERROR(
-      axis_mapping.a_axes.size() == out_tv->getMaybeRootDomain().size(),
-      "Must have the same number of axis positions in axis mapping as output root dimensions");
-
   addOutput(out);
   addInput(in_a);
   addInput(in_b);
@@ -2092,8 +2071,6 @@ MmaOp::MmaOp(
   addAttribute(init);
   // ATTR_POS_MACRO
   addDataAttribute(MmaMacro::NoMMA);
-  // ATTR_POS_AXIS_MAPPING
-  addDataAttribute(axis_mapping);
 }
 
 MmaOp::MmaOp(
@@ -2102,9 +2079,8 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const AxisMapping& axis_mapping,
     const MmaMacro& macro)
-    : MmaOp(passkey, out, in_a, in_b, init, axis_mapping) {
+    : MmaOp(passkey, out, in_a, in_b, init) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 
