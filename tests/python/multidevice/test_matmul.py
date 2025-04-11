@@ -162,6 +162,52 @@ def test_row_parallel_linear(multidevice_test):
 
 
 @pytest.mark.mpi
+def test_linear_reduce_scatter(multidevice_test):
+    d = multidevice_test.size
+    mesh = nvfuser.DeviceMesh(range(d))
+    e = 768
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.inp = self.define_tensor([-1, -1, d * e])
+            self.weight = self.define_tensor([e, d * e])
+            self.out = self.ops.linear(self.inp, self.weight, None)
+            self.add_output(self.out)
+
+        def multidevice_schedule(self):
+            for t in [self.inp, self.weight, self.out]:
+                self.sched._set_device_mesh(t, mesh)
+                self.sched.split(t, -1, d, False)
+                self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)
+                self.sched.set_allocation_as_loop(t)
+
+            # Scatter
+            self.sched.split(self.out, 1, d, False)
+            self.sched.parallelize(self.out, 1, nvfuser.ParallelType.mesh_x)
+
+    torch.cuda.set_device(multidevice_test.local_rank)
+
+    b, s = 2, 1024
+    unsharded_inp = torch.randn(b, s, d * e)
+    unsharded_weight = torch.randn(e, d * e)
+
+    inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
+    weight = multidevice_test.shard_tensor(unsharded_weight, -1, mesh)
+
+    fd = Model()
+    (out,), _ = fd.execute([inp, weight])
+
+    unsharded_out = torch.nn.functional.linear(unsharded_inp, unsharded_weight, None)
+    # rtol is the same as the default for fp32. atol is slightly increased.
+    torch.testing.assert_close(
+        out,
+        multidevice_test.shard_tensor(unsharded_out, 1, mesh),
+        rtol=1.3e-6,
+        atol=1e-3,
+    )
+
+
+@pytest.mark.mpi
 def test_matmul_allreduce(multidevice_test):
     d, b, s, e = multidevice_test.size, 1, 4, 8
 
