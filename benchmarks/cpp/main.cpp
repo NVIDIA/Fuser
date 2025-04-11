@@ -38,10 +38,9 @@ void addGPUBenchmarkContext() {
   NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDeviceProperties(&prop, dev_idx));
 
   int gpu_clock_khz, gpu_mem_clock_khz;
+  cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
   cudaDeviceGetAttribute(
-      &gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
-  cudaDeviceGetAttribute(
-      &gpu_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
+      &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
 
   ::benchmark::AddCustomContext("gpu_name", prop.name);
   ::benchmark::AddCustomContext(
@@ -50,8 +49,7 @@ void addGPUBenchmarkContext() {
       "gpu_smem_bytes_per_block", std::to_string(prop.sharedMemPerBlock));
   ::benchmark::AddCustomContext(
       "gpu_regs_per_block", std::to_string(prop.regsPerBlock));
-  ::benchmark::AddCustomContext(
-      "gpu_clock_khz", std::to_string(gpu_clock_khz));
+  ::benchmark::AddCustomContext("gpu_clock_khz", std::to_string(gpu_clock_khz));
   ::benchmark::AddCustomContext(
       "gpu_mem_clock_khz", std::to_string(gpu_mem_clock_khz));
   ::benchmark::AddCustomContext(

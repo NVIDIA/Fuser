@@ -2953,14 +2953,20 @@ bool isHighBandwidthFlopsRatio() {
   // A100-SXM4-40GB, 1.555e12 B/s, 1.95e13 flops, ratio = 0.0798
   // H100-HBM3-80GB, 3.352e12 B/s, 6.69e13 flops, ratio = 0.0501
   constexpr float reference_ratio = 0.07f;
+  const auto dev_idx = at::cuda::current_device();
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // bandwidth
-  float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
+  int gpu_mem_clock_khz;
+  cudaDeviceGetAttribute(
+      &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
+  float hardware_bandwidth = 2.f * (float)gpu_mem_clock_khz / 8.f *
       (float)dev_prop->memoryClockRate * 1000.f;
   // fp32 cuda core flops
   const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
   const int flops_per_cycle = 2;
-  float flops = (float)dev_prop->clockRate * 1000.f *
+  int gpu_clock_khz;
+  cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
+  float flops = (float)gpu_clock_khz * 1000.f *
       (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
       (float)flops_per_cycle;
 
