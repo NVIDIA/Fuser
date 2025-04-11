@@ -242,6 +242,24 @@ TEST_F(ScanTest, OnlineSoftmax) {
 
   fusion->addOutput(norm_factor);
 
+  // We don't inline the scans past the scan dimension
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (TensorView* tv : {m, m_prev, denoms}) {
+    for (IterDomain* id : tv->getLoopDomain()) {
+      uninlineable_ids.insert(id);
+    }
+  }
+
+  inlineMost(uninlineable_ids);
+
+  // These TVs are not inlined, but instead we set computeWith on them
+  for (TensorView* tv : {m, m_prev, denoms}) {
+    tv->computeWith(-1);
+    for (Val* v : tv->definition()->inputs()) {
+      v->as<TensorView>()->computeWith(-1);
+    }
+  }
+
   // Caching works fine, but once we inline we wind up not allocating the scan
   // ID, meaning the index is just 0, and there's no replacement. This actually
   // gives us the correct result in this test but it's not pretty, so I'd like
