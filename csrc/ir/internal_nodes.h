@@ -179,6 +179,10 @@ class IndexPutAccumulateOp : public Expr {
 
   // return ID_indexing_g1 from value
   IterDomain* getIndexingIDOfValue() const;
+
+  // return ID_indexing_g1 from index, for IndexPutAccumulate, there's only one
+  // indexing ID, while the remaining ID is broadcast
+  IterDomain* getIndexingID() const;
 };
 
 class NVF_API GatherOp : public Expr {

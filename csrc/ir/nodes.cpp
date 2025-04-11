@@ -208,6 +208,10 @@ IterDomain* IndexPutAccumulateOp::getIndexingIDOfValue() const {
   return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
 }
 
+IterDomain* IndexPutAccumulateOp::getIndexingID() const {
+  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
+}
+
 std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {
