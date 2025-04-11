@@ -53,7 +53,7 @@ class ReshardingTest : public NVFuserFixtureParamTest<ReshardingTestParams> {
         .run_combine_reductions = false,
         .run_herrmann_merge = true,
         .run_final_merge = true,
-        .only_segment_resharding_exprs = true};
+        .custom_should_merge_groups = &HostIrLower::shouldMergeSegmentedGroups};
 
     auto segmented_fusion = SegmentCandidateFinder::segment(
         std::move(fusion_), KernelArgumentHolder(), options, true);
