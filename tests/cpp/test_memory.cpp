@@ -420,6 +420,8 @@ class TMASimpleLdstTest
       default:
         NVF_THROW("Invalid dimension");
     }
+
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
