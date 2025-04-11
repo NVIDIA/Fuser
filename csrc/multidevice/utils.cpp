@@ -344,8 +344,6 @@ std::pair<Val*, bool> computeLoopIndex(
   return id_to_index.at(id);
 }
 
-} // namespace
-
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
     const std::vector<IterDomain*>& target_domain) {
@@ -361,6 +359,8 @@ std::vector<IterDomain*> getInputsInTargetDomain(
       [](Val* val) { return val->as<IterDomain>(); });
   return inputs_as_iter_domains;
 }
+
+} // namespace
 
 bool haveDifferentShardings(
     const TensorView* producer,
@@ -595,19 +595,13 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, std::unordered_set<ParallelType> existing_parallel_types) {
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   if (!tvs.empty()) {
-    std::unordered_set<ParallelType> parallel_types;
-    parallel_types.insert(ParallelType::Serial);
-    for (auto pt : kParallelTypeDIDs) {
-      if (!existing_parallel_types.count(pt)) {
-        parallel_types.insert(pt);
-      }
-    }
-    scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
+    scheduler_utils::parallelizeAllLike(
+        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
   }
 }
 

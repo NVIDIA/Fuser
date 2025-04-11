@@ -19,7 +19,7 @@
 namespace nvfuser::preseg_passes {
 
 namespace {
-// Validates meshes and returns true if any TensorView has a device mesh.
+// Validates meshes (i.e. all TensorViews have a device mesh or none) and returns true if any TensorView has a device mesh.
 bool validateMeshes(Fusion* fusion) {
   // Validate that meshes are assigned to all TensorViews or none.
   bool tv_with_mesh_found = false;
@@ -37,17 +37,6 @@ bool validateMeshes(Fusion* fusion) {
   return tv_with_mesh_found;
 }
 
-int64_t numDeviceDims(TensorView* tv) {
-  return std::count_if(
-      tv->getLoopDomain().begin(),
-      tv->getLoopDomain().end(),
-      std::mem_fn(&IterDomain::isDeviceDim));
-}
-
-// Sort the given tvs by the number of device dimensions in descending order.
-// Break ties by the total number of dimensions.
-// Only includes TensorViews that have a device mesh.
-
 template <typename Range>
 std::vector<TensorView*> filterTvsWithMesh(const Range& tvs) {
   std::vector<TensorView*> tvs_with_mesh;
@@ -59,13 +48,23 @@ std::vector<TensorView*> filterTvsWithMesh(const Range& tvs) {
   return tvs_with_mesh;
 }
 
+// Sort the given tvs by the number of device dimensions in descending order.
+// Break ties by the total number of dimensions.
+// Only includes TensorViews that have a device mesh.
 template <typename Range>
 std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {
   // Filter out TVs without a device mesh
   std::vector<TensorView*> tvs_with_mesh = filterTvsWithMesh(tvs);
 
+  auto numDeviceDims = [](TensorView* tv) -> int64_t {
+    return std::count_if(
+        tv->getLoopDomain().begin(),
+        tv->getLoopDomain().end(),
+        std::mem_fn(&IterDomain::isDeviceDim));
+  };
+
   // Then sort the filtered TVs
-  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(), [](auto a, auto b) {
+  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(), [&numDeviceDims](auto a, auto b) {
     int64_t a_device_dims = numDeviceDims(a);
     int64_t b_device_dims = numDeviceDims(b);
     if (a_device_dims != b_device_dims) {
@@ -168,26 +167,23 @@ void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
 
 // Reorder the DID axis to the front only if it does not have a parallel type
 // already seen on the output (existing_parallel_types).
-// Returns a map from the new position to the old position to undo the
-// reordering later.
-std::unordered_map<int64_t, int64_t> selectiveReorderDIDToFront(
+// Returns the number of device dimensions that were reordered to the front.
+int64_t selectiveReorderDIDToFront(
     TensorView* tv,
     std::unordered_set<ParallelType> existing_parallel_types) {
   std::unordered_map<int64_t, int64_t> old2new;
-  std::unordered_map<int64_t, int64_t> new2old;
   int64_t current_pos = 0;
 
   for (auto pos : c10::irange(tv->nDims())) {
     if (tv->axis(pos)->isDeviceDim() &&
         !existing_parallel_types.count(tv->axis(pos)->getParallelType())) {
       old2new[pos] = current_pos;
-      new2old[current_pos] = pos;
       current_pos++;
     }
   }
 
   tv->reorder(old2new);
-  return new2old;
+  return current_pos;
 }
 
 // Returns the set of parallel types seen on the loop domain of the given tvs.
@@ -254,16 +250,15 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           " has no device mesh.");
 
       // Reorder the DID axis to the front only if it does not have a parallel
-      // type already seen on the output.
+      // type already seen on the outputs.
       std::unordered_set<ParallelType> existing_parallel_types = getTvParallelTypes(outputs_without_mesh);
-      std::unordered_map<int64_t, int64_t> new2old =
+      
+      // This restricts the transform propagation to only the relevant DID axis.
+      int64_t did_pos =
           selectiveReorderDIDToFront(ref_input, existing_parallel_types);
 
-      // This restricts the transform propagation to the DID axis.
-      int64_t num_device_dims = new2old.size();
-
       // Propagate the DID loop split to the outputs without mesh.
-      propagateDIDTransform(/*ref=*/ref_input, /*tvs=*/outputs_without_mesh, /*did_pos=*/num_device_dims, /*allow_c2p=*/false, /*allow_p2c=*/true);
+      propagateDIDTransform(/*ref=*/ref_input, /*tvs=*/outputs_without_mesh, /*did_pos=*/did_pos, /*allow_c2p=*/false, /*allow_p2c=*/true);
 
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh, existing_parallel_types);
@@ -280,11 +275,11 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     Expr* expr = *i_expr;
 
     const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
-    std::vector<TensorView*> sorted_outputs = sortTvsByDeviceDims(outputs);
     // All outputs of an expression (Welford, SDPA) should be uniformly sharded.
     // We pick the most parallel output as the reference.
     // This is to avoid picking seed/offset tvs in SDPA.
-
+    std::vector<TensorView*> sorted_outputs = sortTvsByDeviceDims(outputs);
+    
     if (sorted_outputs.empty()) {
       // No output with a device mesh.
       continue;
@@ -309,9 +304,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         }
         continue;
       }
-      if (!tv->hasDeviceMesh() || numDeviceDims(tv) == 0) {
-        sharding_candidates.push_back(tv);
-      }
+      sharding_candidates.push_back(tv);
     }
 
     if (sharding_candidates.empty()) {
@@ -320,8 +313,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
     for (auto tv : sharding_candidates) {
       std::unordered_set<ParallelType> existing_parallel_types = getTvParallelTypes({tv});
-      std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, existing_parallel_types);
-      int64_t did_pos = new2old.size();
+      int64_t did_pos = selectiveReorderDIDToFront(ref_output, existing_parallel_types);
       // Note: We do not have to manually shard for reshape here.
       // TransformPropagator can handle reshapes when going from consumer to
       // producer.
