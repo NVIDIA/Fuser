@@ -4977,8 +4977,10 @@ TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle_BroadcastOp) {
       << "Expected to have no intermediate global allocations";
 }
 
-// See https://github.com/NVIDIA/Fuser/issues/3962
-TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
+using WarpGroupTestParams = int64_t;
+using MLPGemmPersistentBroadcastInputs =
+    NVFuserFixtureParamTest<WarpGroupTestParams>;
+TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
   EnableOptionsGuard eog;
   EnableOptionsGuard::getCurOptions().set(EnableOption::FuseMultipleMatmuls);
 
@@ -5008,9 +5010,13 @@ TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
   auto tv3_ref = at::linear(a_ref.squeeze(), b_ref.squeeze());
   clearL2Cache();
 
+  int64_t num_warp_groups = GetParam();
+  constexpr int64_t warp_m = 64;
+  int64_t cta_m = warp_m * num_warp_groups;
+
   MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  gemm_tile.cta_tile = GemmTile(cta_m, 256, 64);
+  gemm_tile.warp_tile = GemmTile(warp_m, 256, 64);
 
   MatmulParams mparams;
   mparams.supported_vec_size = {8, 8, 8};
@@ -5050,6 +5056,15 @@ TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
   EXPECT_TRUE(
       cg_outputs[0].as<at::Tensor>().allclose(tv3_ref, 1e-6 * K, 1e-6 * K));
 }
+INSTANTIATE_TEST_SUITE_P(
+    HopperMatmulTest,
+    MLPGemmPersistentBroadcastInputs,
+    ::testing::Range(1L, 3L),
+    [](const testing::TestParamInfo<WarpGroupTestParams>& info) {
+      std::stringstream ss;
+      ss << info.param;
+      return sanitizeTestName(ss.str());
+    });
 
 TEST_F(HopperMatmulTest, EpilogueBiasPersistentBroadcastInputs) {
   EnableOptionsGuard eog;
