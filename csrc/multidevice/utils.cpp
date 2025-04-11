@@ -94,6 +94,18 @@ bool isSharded(const TensorView* tv) {
       continue;
     }
 
+    // Reduction dimensions are not materialized in the concrete tensor, so we
+    // don't consider rDIDx{i0} sharded. For example,
+    //
+    //   ```
+    //   [iDIDx{i0}, iS{i1}] => [rDIDx{i0}, iS{i1}]
+    //   ```
+    //
+    // is considered an allreduce and the output is replicated.
+    if (alloc_id->isReduction()) {
+      continue;
+    }
+
     // Only one axis can be sharded on DIDx.
     NVF_ERROR(
         !is_sharded,
@@ -133,12 +145,13 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
   std::unordered_map<IterDomain*, int64_t> id_to_axis;
   int64_t axis = 0;
   for (auto* id : domain) {
-    // Reduction IterDomains are not materialized as an at::Tensor axis.
     if (id->isReduction()) {
-      continue;
+      // Reduction IterDomains are not materialized as an at::Tensor axis.
+      id_to_axis[id] = -1;
+    } else {
+      id_to_axis[id] = axis;
+      axis++;
     }
-    id_to_axis[id] = axis;
-    axis++;
   }
   return id_to_axis;
 }
@@ -508,7 +521,18 @@ bool haveDifferentShardings(
       if (p_index == nullptr && c_index == nullptr) {
         return true;
       }
+
       if (p_index == nullptr || c_index == nullptr) {
+        return false;
+      }
+
+      // iDIDx{i0} => rDIDx{i0} triggers an allreduce even though the two `i0`s
+      // are equivalent.
+      if (c_id->isReduction()) {
+        NVF_ERROR(
+            !p_id->isReduction(),
+            "Reduction IterDomains in the producer's logical shouldn't be mapped: ",
+            p_id);
         return false;
       }
 
@@ -585,47 +609,6 @@ void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, std::unordered_
     }
     scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
   }
-
-  // parallelAllLke, tries to DID-parallelize
-  // reduction dimensions. For example,
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [r{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // becomes
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [rDID{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // This implies that the reduction result only exists on the "home" device.
-  // `lower_communication` can't lower such a reduction today. lowerToReduce
-  // is closest but it uses the output device mesh to indicate the home device.
-  // Also, an extra broadcast will be needed to replicate the reduction result
-  // to all devices for the pointwise op.
-  //
-  // Therefore, instead, we remove the DID from reduction dimensions and
-  // therefore reset them to Serial. This way,
-  // the above becomes
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [r{i1}, i2] -> (Pointwise) -> [i2]
-  //
-  // where the reduction will be lowered to an Allreduce.
-  //
-  // Alternatively, @naoyam proposed to represent an allreduce as a reduce
-  // followed by a broadcasting set.
-  //
-  //   [iDID{i1}, i2] -> (Reduce) -> [rDID{i1}, i2] -> (Set) [i2] -> (Pointwise)
-  //   -> [i2]
-  //
-  // This will make the semantics similar to other parallel types and therefore
-  // we can better leverage existing parallelization utilities. We have yet to
-  // pursue this because of implementation difficulty -- `lower_communication`
-  // would need to match the reduce-set pattern.
-  for (TensorView* tv : tvs) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      if (id->isReduction() && id->isDeviceDim()) {
-        id->parallelize(ParallelType::Serial);
-      }
-    }
-  }
 }
 
 void shardBetween(
@@ -665,15 +648,6 @@ void shardBetween(
   std::unordered_set<TensorView*> all_tvs =
       scheduler_utils::getAllTvsFrom(from, boundary);
   shardAllLike(ref, {all_tvs.begin(), all_tvs.end()});
-
-  // Remove DID parallelizations on reduction axes.
-  for (auto* tv : all_tvs) {
-    for (IterDomain* id : tv->getLoopDomain()) {
-      if (id->isReduction() && id->isDeviceDim()) {
-        id->parallelize(ParallelType::Serial);
-      }
-    }
-  }
 }
 
 int64_t requestedNumberOfDevices(Fusion* fusion) {

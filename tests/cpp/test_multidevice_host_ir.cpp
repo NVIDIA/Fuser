@@ -91,6 +91,11 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   auto communication_input = tv1->as<TensorView>();
   auto communication_output = tv2->as<TensorView>();
 
+  for (auto tv : {communication_input, communication_output}) {
+    // Allgather requires contiguous input and output tensors
+    tv->setContiguity(true);
+  }
+
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       communication_output,
@@ -181,6 +186,10 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   // [Step 5)b.] Create Communication Ir representing executing the Fusion
   TensorView* communication_input = tv1->as<TensorView>();
   TensorView* communication_output = tv2->as<TensorView>();
+  for (auto tv : {communication_input, communication_output}) {
+    // Allgather requires contiguous input and output tensors
+    tv->setContiguity(true);
+  }
   auto communication = IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       communication_output,
