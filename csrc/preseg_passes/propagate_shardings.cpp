@@ -151,10 +151,12 @@ class PropagateShardingsSelector : public SetSelector {
 };
 
 void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
-  // Use maybeAllocationDomain to transform
-  // Transform using exprs between logical and loop and get the map.
+  // Transform the maybe allocation domain to the loop domain.
+  // using exprs between logical and loop and get the permutation required to
+  // reorder the loop domain in the same relative order as the allocation domain.
   for (auto tv : tvs) {
     auto alloc_dom = tv->getMaybeAllocationDomain();
+    // Allocation domain should be a permutation of logical domain at this point.
     std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
         {alloc_dom.begin(), alloc_dom.end()},
         {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
@@ -164,11 +166,15 @@ void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
             transform_exprs.end(),
             [](Expr* expr) { return expr->isA<Split>(); }),
         "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
-    auto reorder_map = scheduler_utils::createReorderMapUnderTransforms(
-        /*ids_to_reorder=*/tv->getLoopDomain(),
-        /*ids_to_transform=*/alloc_dom,
-        /*transform_exprs=*/transform_exprs);
-    tv->reorder(reorder_map);
+    scheduler_utils::applyTransforms(alloc_dom, transform_exprs);
+    std::optional<std::vector<int64_t>> permutation = ir_utils::computePermutation(alloc_dom, tv->getLoopDomain());
+    NVF_ERROR(
+      permutation.has_value(),
+      "Failed to find a valid permutation for reordering",
+      tv->getLoopDomain(),
+      " as ",
+      alloc_dom);
+    tv->reorder(permutation.value());
   }
 }
 
