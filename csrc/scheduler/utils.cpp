@@ -2126,33 +2126,34 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
 
 namespace {
 
-void applySplitTransform(const Split* split, std::vector<IterDomain*>& ids) {
-  auto find_it =
-          std::find(ids.begin(), ids.end(), split->in());
-  if (find_it == ids.end()) {
-    // Transformations before rfactor, ignore those.
-    return;
-  }
+void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), split->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Split input ",
+      split->in()->toString(),
+      " not found in given ids: ",
+      ids);
   auto pos = std::distance(ids.begin(), find_it);
   ids[pos] = split->inner();
   ids.insert(ids.begin() + pos, split->outer());
 }
 
-void applyMergeTransform(const Merge* merge, std::vector<IterDomain*>& ids) {
-  auto find_it_0 =
-        std::find(ids.begin(), ids.end(), merge->outer());
-  auto find_it_1 =
-        std::find(ids.begin(), ids.end(), merge->inner());
-  if (find_it_0 == ids.end() &&
-      find_it_1 == ids.end()) {
-    // Transformations before rfactor, ignore those.
-    return;
-  }
+void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
+  auto find_it_0 = std::find(ids.begin(), ids.end(), merge->outer());
+  auto find_it_1 = std::find(ids.begin(), ids.end(), merge->inner());
   NVF_ERROR(
-      find_it_0 != ids.end() && find_it_1 != ids.end(),
-      "Error in transformations of ",
-      ids,
-      "\nTransformations before rfactor should not mix with transformations after rfactor.");
+      find_it_0 != ids.end(),
+      "Merge outer ",
+      merge->outer()->toString(),
+      " not found in given ids: ",
+      ids);
+  NVF_ERROR(
+      find_it_1 != ids.end(),
+      "Merge inner ",
+      merge->inner()->toString(),
+      " not found in given ids: ",
+      ids);
   auto pos0 = std::distance(ids.begin(), find_it_0);
   auto pos1 = std::distance(ids.begin(), find_it_1);
   if (pos0 > pos1) {
@@ -2168,62 +2169,54 @@ void applyMergeTransform(const Merge* merge, std::vector<IterDomain*>& ids) {
   ids[--pos1] = merge->out();
 }
 
-void applyResizeTransform(const Resize* resize, std::vector<IterDomain*>& ids) {
-  auto find_it =
-      std::find(ids.begin(), ids.end(), resize->in());
-  if (find_it == ids.end()) {
-    // Transformations before rfactor, ignore those.
-    return;
-  }
+void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), resize->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Resize input ",
+      resize->in()->toString(),
+      " not found in given ids: ",
+      ids);
   *find_it = resize->out();
 }
 
 } // namespace
 
-// Update the vector of ids_to_transform as progressing through the transformation
-// expressions. We'll always insert the result of split in the location of the
-// input, and insert the merge result in the position of the inner dimension.
-// After transformations, ids_to_reorder should be a permutation of ids_to_transform.
-// Returns a reorder map from ids_to_reorder to ids_to_transform.
-std::unordered_map<int64_t, int64_t> createReorderMapUnderTransforms(
-    const std::vector<IterDomain*>& ids_to_reorder,
+void applyTransforms(
     std::vector<IterDomain*>& ids_to_transform,
     const std::vector<Expr*>& transform_exprs) {
-  for (const auto* expr : transform_exprs) {
-    if (const Split* split = dynamic_cast<const Split*>(expr)) {
+  for (auto* expr : transform_exprs) {
+    if (Split* split = dynamic_cast<Split*>(expr)) {
       applySplitTransform(split, ids_to_transform);
-    } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
+    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
       applyMergeTransform(merge, ids_to_transform);
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
       applyResizeTransform(resize, ids_to_transform);
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
-
-  std::unordered_map<int64_t, int64_t> old2new;
-  for (auto idx : c10::irange((int64_t)ids_to_reorder.size())) {
-    auto orig_id = ids_to_reorder.at(idx);
-    auto find_it = std::find(ids_to_transform.begin(), ids_to_transform.end(), orig_id);
-    NVF_ERROR(
-        find_it != ids_to_transform.end(),
-        "Reordering map creation failed, uninitialized iterdomain, ",
-        orig_id->toString(),
-        " likely something is wrong with the transformations between the logical and loop domain.");
-    int64_t new_pos = (int64_t)std::distance(ids_to_transform.begin(), find_it);
-    old2new[idx] = new_pos;
-  }
-  return old2new;
 }
 
-// Returns a map reordering the loop domain of the tensor view as the logical domain
-std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+// Returns a permutation reordering the loop domain of the tensor view as the
+// logical domain
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
   FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprsTo(
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
       {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-  auto ids_to_transform = tv->getLogicalDomain();
-  return createReorderMapUnderTransforms(tv->getLoopDomain(), ids_to_transform, transform_exprs);
+  std::vector<IterDomain*> ids_to_transform = tv->getLogicalDomain();
+  applyTransforms(ids_to_transform, transform_exprs);
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(ids_to_transform, tv->getLoopDomain());
+  NVF_ERROR(
+      permutation.has_value(),
+      "Failed to find a valid permutation for reordering",
+      tv->getLoopDomain(),
+      " as ",
+      ids_to_transform);
+  return *permutation;
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
