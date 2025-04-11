@@ -435,9 +435,11 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     // stream-parallelized on axis 0.
     auto* a = linear->inA()->as<TensorView>();
     auto* b = linear->inB()->as<TensorView>();
+    auto* bias =
+        (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
     auto* out = linear->out()->as<TensorView>();
-    return !isSharded(b) &&
-        !(linear->has_bias() && isSharded(linear->bias())) && !isSharded(out) &&
+    return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
+        !isSharded(out) &&
         a->axis(0)->getParallelType() == ParallelType::Serial &&
         getShardedLogicalAxis(a, ParallelType::DIDx) == 1 &&
         out->axis(0)->getParallelType() == ParallelType::Stream;
@@ -463,7 +465,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
     auto* linear = expr->as<LinearOp>();
     tva = linear->inA()->as<TensorView>();
     tvb = linear->inB()->as<TensorView>();
-    tv_bias = linear->bias()->as<TensorView>();
+    tv_bias = (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
     tv_out = linear->out()->as<TensorView>();
     NVF_ERROR(
         !(linear->has_bias() && isSharded(tv_bias)),
@@ -637,7 +639,6 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   };
 
   for (auto group : workspace.group_run_order) {
-    std::vector<Expr*> host_exprs;
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
     if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
       continue;
