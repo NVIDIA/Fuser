@@ -164,7 +164,7 @@ void rFactorLoopSplits(Fusion* fusion) {
         continue;
       }
 
-      ParallelType parallel_type = loop_id->getParallelType();
+      const ParallelType parallel_type = loop_id->getParallelType();
       if (parallel_type == ParallelType::Serial) {
         // rFactor non-parallelized IDs so they get reduced locally.
         rfactor_axes.push_back(i);
@@ -175,6 +175,30 @@ void rFactorLoopSplits(Fusion* fusion) {
 
     if (!rfactor_axes.empty()) {
       TensorView* local = tv->rFactor(rfactor_axes);
+      // Before rFactor:
+      //
+      // [i{m}         i{n}         r{k}]
+      //               /  \         /   \.
+      //         iDIDx{d} i{n/d} rDIDx{d}  r{k/d}
+      //
+      // After rFactor:
+      //
+      //                            r{k}
+      //                            /  \.
+      // [i{m}         i{n}    iDIDx{d}  r{k/d}]
+      //               /  \.
+      //         iDIDx{d} i{n/d}
+      //
+      //                 |
+      //                 | reduce
+      //                 v
+      //
+      // [i{m}         i{n}    rDIDx{d}]
+      //               /  \.
+      //         iDIDx{d} i{n/d}
+      //
+      // The TensorView returned by rFactor has two iDIDx, which is disallowed.
+      // The following code unparallelizes the first iDIDx{d}.
       for (IterDomain* loop_id : local->getLoopDomain()) {
         if (!loop_id->isRFactorProduct() &&
             reduced_parallel_types.count(loop_id->getParallelType())) {
