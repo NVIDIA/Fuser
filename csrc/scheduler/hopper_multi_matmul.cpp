@@ -191,9 +191,37 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
     }
   }
 
-  int factor = std::max(1, params_->grid_traversal_factor.first); // must be >=1
+  // Multi-factor grid traversal.
+  // M and N roles must be present and consecutive.
+  if (params_->grid_traversal_factor.first > 1 &&
+      params_->grid_traversal_factor.second > 1) {
+    // original: [I1, I2]
+    // split:   [I1, I2/second_factor, second_factor]
+    // split:   [I1/first_factor, first_factor, I2/second_factor, second_factor]
+    // reorder: [I1/first_factor, I2/second_factor, first_factor, second_factor]
+    // merge:   [I1/first_factor * I2/second_factor, first_factor,
+    // second_factor] merge:   [I1/first_factor * I2/second_factor, first_factor
+    // * second_factor]
+    NVF_ERROR(Mo_pos >= 0, "M role must be present");
+    NVF_ERROR(No_pos >= 0, "N role must be present");
+    NVF_ERROR(abs(Mo_pos - No_pos) == 1, "M and N roles must be consecutive");
+
+    tv->split(No_pos, params_->grid_traversal_factor.second);
+    tv->split(Mo_pos, params_->grid_traversal_factor.first);
+
+    int64_t min_pos = std::min(Mo_pos, No_pos);
+    tv->reorder({{min_pos + 1, min_pos + 2}, {min_pos + 2, min_pos + 1}});
+    tv->merge(min_pos, min_pos + 1);
+    tv->merge(min_pos + 1, min_pos + 2);
+    return;
+  }
+
+  // Single factor grid traversal.
+  NVF_ERROR(params_->grid_traversal_factor.first > 1);
+  NVF_ERROR(params_->grid_traversal_factor.second == 1);
+  int factor = params_->grid_traversal_factor.first;
   switch (params_->cta_order) {
-    case MatmulParams::TileRasterizationOrder::RowMajor:
+    case MatmulParams::TileRasterizationOrder::RowMajor: {
       // split   [I1, I2/factor, factor]
       // reorder [I1, factor, I2/factor]
       // merge   [I1*factor, I2/factor]
@@ -215,8 +243,9 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
         }
       }
       break;
+    }
 
-    case MatmulParams::TileRasterizationOrder::ColumnMajor:
+    case MatmulParams::TileRasterizationOrder::ColumnMajor: {
       // split   [I1/factor, factor, I2]
       // reorder [I1/factor, I2, factor]
       // merge   [I1/factor, I2*factor]
@@ -237,6 +266,10 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
               outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
         }
       }
+      break;
+    }
+    default:
+      NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 }
 

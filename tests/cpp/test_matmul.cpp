@@ -5016,7 +5016,7 @@ TEST_F(HopperMatmulTest, MLPGemmPersistentBroadcastInputs) {
       MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
-  mparams.grid_traversal_factor = {8, 1};
+  mparams.grid_traversal_factor = {16, 8};
   // TODO reduced share memory aliasing because of persistent scheduling
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
