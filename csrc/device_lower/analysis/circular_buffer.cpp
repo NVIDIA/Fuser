@@ -387,9 +387,8 @@ Val* CircularBufferInfo::getLinearizeIndex(
 
   // short-circuit: return index for inner-most for-loop if not warp specialized
   // with register sharing
-  bool is_warp_specialized =
-      std::holds_alternative<WarpSpecialized>(
-          circular_buffer_tv->circularBufferOptions().type);
+  bool is_warp_specialized = std::holds_alternative<WarpSpecialized>(
+      circular_buffer_tv->circularBufferOptions().type);
   if (!is_warp_specialized) {
     return loops[inner_loop_index]->indexOrStartIfTrivial();
   }
