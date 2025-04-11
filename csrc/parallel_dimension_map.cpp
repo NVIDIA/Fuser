@@ -269,10 +269,18 @@ bool ParallelDimensionMap::isExact(ParallelType pt) const {
 Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   Val* raw = getRaw(pt);
   if (warp_specialized_types_.count(pt)) {
-    auto padded_val = getWarpSpecializationPaddedVal(pt);
+    int64_t padded_val = getWarpSpecializationPaddedVal(pt);
     return SimplifyingIrBuilder::addExpr(raw, -padded_val);
   }
   return raw;
+}
+
+Val* ParallelDimensionMap::getRawLoad(ParallelType pt) const {
+  if (warp_specialized_types_.count(pt)) {
+    return IrBuilder::create<Val>(
+        getWarpSpecializationPaddedVal(pt), DataType::Index);
+  }
+  return getRaw(pt);
 }
 
 Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
