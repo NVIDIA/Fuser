@@ -31,6 +31,10 @@
 #include <algorithm>
 #include <fstream>
 
+namespace {
+bool _debug = false;
+}
+
 namespace nvfuser {
 
 TensorIndexer::TensorIndexer(IdModel& id_model) : id_model_(id_model) {
@@ -74,6 +78,9 @@ void TensorIndexer::buildLoopIndexMap() {
       }
 
       loop_index_map_[loop_group] = loop_index;
+      indexing_utils::verbose()
+          << "Loop index map: " << nvfuser::toString(loop_group) << " -> "
+          << loop_index->toInlineString() << std::endl;
     }
   }
 }
@@ -192,7 +199,7 @@ Val* TensorIndexer::getLinearIndex(
       std::find(expr->outputs().begin(), expr->outputs().end(), tv) !=
       expr->outputs().end();
 
-  const auto& alloc_info = getIndexAllocationInfo(tv);
+  const auto alloc_info = getIndexAllocationInfo(tv);
 
   const auto [contig_indices, contig_strides] = getContigIndexFor(
       tv, expr, as_consumer, alloc_info, for_loops, override_index);
@@ -273,6 +280,10 @@ IndexingInfo TensorIndexer::computeIndex(
   }
 
   for (const auto& [expr_group, direction] : traversal_path) {
+    if (_debug) {
+      std::cerr << "Indexing path: " << direction << ", "
+                << expr_group->front()->toString();
+    }
     index_compute.propagate(expr_group, direction);
 
     // Propagate loop dependencies from inputs to outputs
@@ -364,6 +375,142 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   return replacement_map;
 }
 
+std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
+    const IndexingInfo& index_info) const {
+  std::vector<Split*> splits_to_predicate;
+
+  for (const auto& [eg, direction] : index_info.traversal_path) {
+    // NOTE: Fundamentally, the problem of non divisiblity should be
+    // checked while traversing the indexing path. Currently, it uses
+    // the information gathered in a tensor-by-tensor basis. This
+    // should be fine currently, but may not work if, e.g., the
+    // indexing path involved both backward and forward traversals.
+    if (isNonDivisibleSplit(eg)) {
+      NVF_ERROR(eg->front()->isA<Split>());
+      auto split_to_predicate = eg->front()->as<Split>();
+      splits_to_predicate.push_back(split_to_predicate);
+
+      NVF_ERROR(
+          index_info.index_map.find(traversalGraph().toGroup(
+              split_to_predicate->in())) != index_info.index_map.end(),
+          "Index not found for non-divisible split: ",
+          split_to_predicate->toString());
+    }
+  }
+
+  // Grab all involved ID groups. This is copied from bfs.h. TODO: refactor
+  ValGroups unique_ids;
+  for (const auto& [eg, direction] : index_info.traversal_path) {
+    unique_ids.pushBack(getInputsOfExprGroup(traversalGraph(), eg, direction));
+    unique_ids.pushBack(getOutputsOfExprGroup(traversalGraph(), eg, direction));
+  }
+
+  // If a val in from is found in to, just copy it to the returned val
+  // set since there's no corresponding expr.
+  ValGroups target_groups = traversalGraph().toGroups(index_info.index_ids);
+  for (const auto& loop_id : index_info.loop_ids) {
+    const auto& loop_group = traversalGraph().toGroup(loop_id);
+    if (target_groups.has(loop_group)) {
+      unique_ids.pushBack(loop_group);
+    }
+  }
+
+  const auto& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
+  for (const auto& input_group : unique_ids) {
+    ValGroups exact_groups;
+    for (const auto& val : *input_group) {
+      // Additional IDs may be created without getting added to the
+      // exact graph. Should be safe to ignore them.
+      if (exact_graph.hasGroup(val)) {
+        exact_groups.pushBack(exact_graph.toGroup(val));
+      }
+    }
+    if (exact_groups.size() == 1) {
+      continue;
+    }
+    for (const auto& exact_group : exact_groups) {
+      for (const auto& use_eg : exact_graph.getUses(exact_group)) {
+        auto split = dynamic_cast<Split*>(use_eg->front());
+        if (split == nullptr) {
+          continue;
+        }
+        // std::cerr << "Use: " << split->toString();
+        bool inner_mapped = false;
+        auto it = std::ranges::find(
+            exact_groups, exact_graph.toGroup(split->inner()));
+        if (it != exact_groups.end()) {
+          inner_mapped = true;
+        } else {
+          it = std::ranges::find(
+              exact_groups, exact_graph.toGroup(split->outer()));
+        }
+        if (it == exact_groups.end()) {
+          continue;
+        }
+
+        IterDomain* unmapped_output = inner_mapped
+            ? split->outer()->as<IterDomain>()
+            : split->inner()->as<IterDomain>();
+
+        // The unmapped output should be size one.
+        NVF_ERROR(unmapped_output->extent()->isOneInt());
+
+        for (const auto& use_of_unmapped_output :
+             exact_graph.getUses(exact_graph.toGroup(unmapped_output))) {
+          if (!isNonDivisibleSplit(use_of_unmapped_output)) {
+            continue;
+          }
+
+          // Non divisible split found
+          // std::cerr << "Additional non divisible split found: "
+          //<< use_of_unmapped_output->front()->toString();
+          NVF_ERROR(use_of_unmapped_output->front()->isA<Split>());
+          splits_to_predicate.push_back(
+              use_of_unmapped_output->front()->as<Split>());
+        }
+      }
+    }
+  }
+
+  return splits_to_predicate;
+}
+
+void TensorIndexer::updateIndexInfoForNonDivisibleSplits(
+    const Expr* expr,
+    const std::vector<ForLoop*>& for_loops,
+    const std::vector<Split*>& non_divisible_splits,
+    IndexingInfo& index_info) const {
+  auto& index_map = index_info.index_map;
+
+  std::vector<IterDomain*> additional_ids_to_predicate;
+
+  for (const auto& split_to_predicate : non_divisible_splits) {
+    auto split_in_group = traversalGraph().toGroup(split_to_predicate->in());
+    auto idx_it = index_map.find(split_in_group);
+    if (idx_it != index_map.end()) {
+      continue;
+    }
+
+    additional_ids_to_predicate.push_back(split_to_predicate->in());
+  }
+
+  if (additional_ids_to_predicate.empty()) {
+    return;
+  }
+
+  const auto additional_index_info =
+      computeIndex(expr, additional_ids_to_predicate, for_loops);
+
+  // Merge additional_index_info.index_map to index_info.index_map
+  index_map.insert(
+      additional_index_info.index_map.begin(),
+      additional_index_info.index_map.end());
+
+  index_info.loop_group_dependencies.insert(
+      additional_index_info.loop_group_dependencies.begin(),
+      additional_index_info.loop_group_dependencies.end());
+}
+
 std::vector<PredicateInfo> TensorIndexer::getPredicates(
     TensorView* tv,
     const Expr* expr,
@@ -378,8 +525,12 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     return {};
   }
 
-  const IndexingInfo& index_info =
-      computeIndex(expr, predicate_domains, for_loops);
+  _debug = getenv("DEBUG");
+  if (_debug) {
+    std::cerr << "getPredicates: " << tv->toString() << "\n";
+  }
+
+  IndexingInfo index_info = computeIndex(expr, predicate_domains, for_loops);
 
   const auto& index_map = index_info.index_map;
 
@@ -465,6 +616,8 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       const ValGroup& contig_domain_group = contig_domains_it->second;
       if (already_indexed_domains.find(contig_domain_group) !=
           already_indexed_domains.end()) {
+        indexing_utils::verbose()
+            << "Already indexed: " << predicate_domain->toString() << std::endl;
         continue;
       }
       already_indexed_domains.emplace(contig_domain_group);
@@ -474,6 +627,12 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
           actual_predicate_domain_group->front()->as<IterDomain>();
       actual_predicate_domains =
           getCoveredPredicatedDomains(contig_domain_group);
+    }
+
+    if (_debug) {
+      std::cerr << "T" << tv->name()
+                << ": Predicate domain: " << actual_predicate_domain->toString()
+                << "\n";
     }
 
     auto idx_it = index_map.find(actual_predicate_domain_group);
@@ -521,22 +680,31 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     info_vec.emplace_back(info);
   }
 
+  if (_debug && tv->name() == 1) {
+    const auto& non_divisible_split_info =
+        GpuLower::current()->nonDivisibleSplitInfo();
+    std::cerr << "Non div splits\n";
+    for (const auto& [tv, split] :
+         non_divisible_split_info.splitsToPredicate()) {
+      std::cerr << tv->toString() << ", " << toDelimitedString(split) << "\n";
+    }
+  }
+
   // Add predicates for non-divisible splits.
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    for (const auto& [eg, direction] : index_info.traversal_path) {
-      // NOTE: Fundamentally, the problem of non divisiblity should be
-      // checked while traversing the indexing path. Currently, it uses
-      // the information gathered in a tensor-by-tensor basis. This
-      // should be fine currently, but may not work if, e.g., the
-      // indexing path involved both backward and forward traversals.
-      if (!isNonDivisibleSplit(eg)) {
-        continue;
-      }
+    const auto non_divisible_splits =
+        getNonDivisibleSplitsToPredicate(index_info);
 
-      NVF_ERROR(eg->front()->isA<Split>());
-      auto split_to_predicate = eg->front()->as<Split>();
+    updateIndexInfoForNonDivisibleSplits(
+        expr, for_loops, non_divisible_splits, index_info);
+
+    for (const auto& split_to_predicate : non_divisible_splits) {
+      if (_debug) {
+        std::cerr << "Non-div split of T" << tv->name() << ": "
+                  << split_to_predicate->toString();
+      }
 
       IterDomain* non_divisible_domain = split_to_predicate->in();
       const auto& non_divisible_domain_group =
@@ -551,10 +719,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
       info.stop_offset_ = zero_val;
 
       auto idx_it = index_map.find(non_divisible_domain_group);
-      NVF_ERROR(
-          idx_it != index_map.end(),
-          "Index not found for non-divisible split domain: ",
-          non_divisible_domain->toString());
+      NVF_ERROR(idx_it != index_map.end());
 
       auto idx =
           ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
@@ -574,6 +739,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
     }
   }
 
+  _debug = false;
   return info_vec;
 }
 
