@@ -44,6 +44,9 @@ class IpcHandle {
   cudaIpcMemHandle_t semaphore_ipc_handle_ = {};
   IpcSemaphore* semaphore_ = nullptr;
   int64_t rank_;
+  // we keep a reference of the tensor to prevent the cuda buffer to be freed
+  // before the IpcHandle gets destroyed
+  at::Tensor tensor_;
 };
 
 // This class wraps two IpcHandles involved in a P2P Communication

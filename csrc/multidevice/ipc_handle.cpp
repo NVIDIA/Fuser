@@ -28,7 +28,9 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 } // namespace
 
 IpcHandle::IpcHandle(at::Tensor tensor)
-    : ptr_(tensor.data_ptr()), rank_(Communicator::getInstance().deviceId()) {
+    : ptr_(tensor.data_ptr()),
+      rank_(Communicator::getInstance().deviceId()),
+      tensor_(tensor) {
   size_t psize = 0;
   NVFUSER_CUDA_SAFE_CALL(cuMemGetAddressRange(
       (CUdeviceptr*)&base_address_, &psize, (CUdeviceptr)ptr_));
