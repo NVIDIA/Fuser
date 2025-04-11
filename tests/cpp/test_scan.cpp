@@ -33,8 +33,6 @@ TEST_F(ScanTest, Concrete1D) {
 
   fusion->addOutput(tv1);
 
-  fusion->printMath();
-
   tv0->cacheAfter();
   tv1->cacheBefore();
   // Caching works fine, but once we inline we wind up not allocating the scan
@@ -200,8 +198,8 @@ TEST_F(ScanTest, OnlineSoftmax) {
           DataType::Double)); // max x[j] over j = 0 .. i
   // normalize by running max and exponentiate
   TensorView* exp_x_m = exp(sub(x, m));
-  // Discount factor is exponentiated delta: exp(m[i] - m[i-1])
-  TensorView* discount = exp(sub(m, m_prev));
+  // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
+  TensorView* discount = exp(sub(m_prev, m));
 
   // What is needed?
   //  - generalize prefixSum to scan (with discount factor) to cover prefixMax

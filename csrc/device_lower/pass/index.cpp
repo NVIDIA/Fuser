@@ -2968,7 +2968,6 @@ void IndexLowering::handle(const ScanOp* scop) {
       TensorDomain::noReductions(scop->in()->getLogicalDomain())
           .at((size_t)scop->scanDim());
   int scan_id_alloc_pos = -1;
-  Val* scan_index = nullptr;
   const std::vector<IterDomain*>& alloc_dom =
       scop->in()->getMaybeAllocationDomain();
   for (size_t alloc_pos : arange(alloc_dom.size())) {
@@ -2983,16 +2982,19 @@ void IndexLowering::handle(const ScanOp* scop) {
       "Scan dimensions must not be merged or split during scheduling");
   ValGraph& id_graph = GpuLower::current()->tensorIndexer().traversalGraph();
   const ValGroup& scan_group = id_graph.toGroup(scan_id);
+  ForLoop* scan_loop = nullptr;
   for (ForLoop* loop : for_loops_) {
     if (id_graph.toGroup(loop->iter_domain()) == scan_group) {
-      scan_index = loop->index();
+      scan_loop = loop;
       break;
     }
   }
   NVF_ERROR(
-      scan_index != nullptr,
+      scan_loop != nullptr,
       "Could not find for loop with scanned ID. ",
       "Scan dimensions must not be merged or split during scheduling");
+  Val* scan_index = GpuLower::current()->tensorIndexer().getLoopIndex(
+      scan_loop->iter_domain(), for_loops_);
   Val* lagged_index = sub(scan_index, GpuLower::current()->kernel()->oneVal());
   // This gives us the previously computed value along the scanned dimension
   Val* prev_sum_tensor = lowerDstIndex(
@@ -3008,10 +3010,7 @@ void IndexLowering::handle(const ScanOp* scop) {
   IrBuilder::create<LoadStoreOp>(
       LoadStoreOpType::Set, prev_sum, prev_sum_tensor);
 
-  prev_sum = where(
-      gt(scan_index, GpuLower::current()->kernel()->zeroVal()),
-      prev_sum,
-      scop->init());
+  prev_sum = where(gt(scan_index, scan_loop->start()), prev_sum, scop->init());
 
   if (TensorView* exc = scop->outExclusive()) {
     const auto exc_ti = lowerDstIndex(exc);

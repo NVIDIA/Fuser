@@ -269,6 +269,7 @@ const PolymorphicValue& ExpressionEvaluator::evaluate(
     if (auto def = value->definition()) {
       FUSER_PERF_SCOPE("ExpressionEvaluator::evaluate");
       auto outputs = def->evaluate(*this, known_values);
+      NVF_ERROR(outputs.size() == def->outputs().size());
       for (auto i : arange(def->outputs().size())) {
         known_values[def->output(i)] = std::move(outputs[i]);
       }

@@ -29,6 +29,7 @@
 
 #include <complex>
 #include <iterator>
+#include <limits>
 #include <numeric>
 #include <sstream>
 #include <string>
@@ -5561,7 +5562,40 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
 
   if (discountFactor() == nullptr) {
     NVF_ERROR(inputs.size() == 1);
-    return {at::cumsum(input, scanDim())};
+
+    at::Tensor out_inclusive;
+    float identity;
+    switch (opType()) {
+      case BinaryOpType::Add:
+        out_inclusive = at::cumsum(input, scanDim());
+        identity = 0.0;
+        break;
+      case BinaryOpType::Max:
+        out_inclusive = std::get<0>(at::cummax(input, scanDim()));
+        identity = -std::numeric_limits<float>::infinity();
+        break;
+      case BinaryOpType::Min:
+        out_inclusive = std::get<0>(at::cummin(input, scanDim()));
+        identity = std::numeric_limits<float>::infinity();
+        break;
+      case BinaryOpType::Mul:
+        out_inclusive = at::cumprod(input, scanDim());
+        identity = 1.0;
+        break;
+      default:
+        NVF_THROW("Unhandled opType() ", opType());
+    }
+    if (outExclusive() == nullptr) {
+      return {out_inclusive};
+    } else {
+      std::vector<int64_t> pad_widths(
+          2 * ((int64_t)input.dim() - scanDim()), 0L);
+      pad_widths[pad_widths.size() - 2] = 1L;
+      pad_widths[pad_widths.size() - 1] = -1L;
+      at::Tensor out_exclusive =
+          at::pad(out_inclusive, pad_widths, "constant", identity);
+      return {out_inclusive, out_exclusive};
+    }
   } else {
     // auto discount_factor = inputs.at(1).as<at::Tensor>();
     NVF_ERROR(inputs.size() == 2);
