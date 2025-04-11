@@ -4656,20 +4656,16 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
     consumers.pushBack(edge->to);
   }
 
-  std::vector<SegmentedEdge*> edges_to_remove(
-      aux_group->consumer_edges.begin(), aux_group->consumer_edges.end());
-
-  for (SegmentedEdge* edge : edges_to_remove) {
-    segmented_fusion_->removeEdge(edge);
-  }
-
   for (SegmentedGroup* consumer : consumers) {
     SegmentedGroup* input_group = createInputGroup(forwarded_input);
 
     for (SegmentedEdge*& edge : consumer->producer_edges) {
       if (edge->from == aux_group && edge->val == forwarded_input) {
-        edge->from = input_group;
-        input_group->consumer_edges.push_back(edge);
+        // Create new edges before removing old ones
+        segmented_fusion_->connectGroups(
+            input_group, consumer, forwarded_input);
+        // Now safe to remove old edges
+        segmented_fusion_->removeEdge(edge);
       }
     }
 
