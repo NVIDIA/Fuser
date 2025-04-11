@@ -216,6 +216,21 @@ class TensorIndexer {
       const std::vector<ForLoop*>& for_loops,
       const std::unordered_map<ValGroup, Val*>& index_map) const;
 
+  // Grab all non-divisible splits whose input IDs need to be
+  // predicated.
+  std::vector<Split*> getNonDivisibleSplitsToPredicate(
+      const IndexingInfo& index_info) const;
+
+  // Augment IndexingInfo with index mappings for non-divisible split
+  // predicates. Non-divisible splits on the normal indexing path
+  // should not need any additional indexing, but those not in the
+  // path need another traversal.
+  void updateIndexInfoForNonDivisibleSplits(
+      const Expr* expr,
+      const std::vector<ForLoop*>& for_loops,
+      const std::vector<Split*>& non_divisible_splits,
+      IndexingInfo& index_info) const;
+
  private:
   // Using non-const references of IdModel because traversalGraph() returns a
   // non-const reference
