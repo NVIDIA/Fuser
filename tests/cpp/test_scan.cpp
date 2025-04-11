@@ -256,4 +256,101 @@ TEST_F(ScanTest, OnlineSoftmax) {
   testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
+//
+TEST_F(ScanTest, OnlineSoftmaxOuter) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // TODO: Allow outer dim to be symbolic
+  auto x = makeConcreteTensor({16, 32});
+  fusion->addInput(x);
+
+  int64_t scan_dim = 0;
+
+  // Online normalizer for softmax: https://arxiv.org/abs/1805.02867
+  //
+  // Given x[i] for i=0 .. N-1:
+  //
+  //   m[-1] = -infinity
+  //   d[-1] = 0
+  //   for j = 0 .. N-1
+  //     m[j] = max(m[j-1], x[j])
+  //     d[j] = d[j-1] * exp(m[j-1] - m[j]) + exp(x[j] - m[j])
+  //
+  // Final denominator is d[N-1]
+
+  TensorView* m;
+  TensorView* m_prev;
+  std::tie(m, m_prev) = scanWithExclusive(
+      x,
+      scan_dim,
+      BinaryOpType::Max,
+      /*init=*/
+      IrBuilder::create<Val>(
+          -std::numeric_limits<double>::infinity(),
+          DataType::Double)); // max x[j] over j = 0 .. i
+  // normalize by running max and exponentiate
+  TensorView* exp_x_m = exp(sub(x, m));
+  // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
+  TensorView* discount = exp(sub(m_prev, m));
+
+  auto denoms = prefixSum(exp_x_m, scan_dim, discount);
+
+  auto norm_factor = reductionOp(
+      BinaryOpType::RHS,
+      {scan_dim},
+      /*init=*/fusion->zeroVal(DataType::Float),
+      denoms);
+
+  fusion->addOutput(norm_factor);
+
+  scheduler_utils::cacheInputs(fusion.get(), /*unroll=*/true);
+  scheduler_utils::cacheAndForkOutputs(fusion.get(), /*unroll=*/true);
+
+  // We don't inline the scans past the scan dimension
+  std::unordered_set<IterDomain*> uninlineable_ids;
+  for (TensorView* tv : {m, m_prev, denoms}) {
+    for (IterDomain* id : tv->getLoopDomain()) {
+      uninlineable_ids.insert(id);
+    }
+  }
+
+  inlineMost(uninlineable_ids);
+
+  // These TVs are not inlined, but instead we set computeWith on them
+  for (TensorView* tv : {m, m_prev, denoms}) {
+    tv->computeWith(-1);
+    for (Val* v : tv->definition()->inputs()) {
+      v->as<TensorView>()->computeWith(-1);
+    }
+  }
+
+  // Caching works fine, but once we inline we wind up not allocating the scan
+  // ID, meaning the index is just 0, and there's no replacement. This actually
+  // gives us the correct result in this test but it's not pretty, so I'd like
+  // to handle such cases more gracefully.
+  // TODO: Handle cases when the scan ID is inlined away.
+  // inlineMost();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({16, 32}, options);
+
+  KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
+
+  auto cg_outputs = ke.run({t0});
+
+  at::Tensor ref = (t0 - std::get<0>(t0.max(/*dim=*/0, /*keepdim=*/true)))
+                       .exp()
+                       .sum(/*dim=*/0);
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), ref))
+      << " returned " << cg_outputs[0].as<at::Tensor>() << " but expected "
+      << ref;
+
+  // Test automatic evaluation also
+  testValidate(fusion.get(), cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
