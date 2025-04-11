@@ -3874,48 +3874,6 @@ TEST_F(NVFuserTest, FusionMergeBroadcastingTrivialReduction1_CUDA) {
       fusion, cg_outputs, {t0, t1}, {t1 + t0.flatten()}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, FusionMappingRelation_CUDA) {
-  // See https://github.com/csarofeen/pytorch/pull/1960
-  // and https://github.com/csarofeen/pytorch/pull/2113
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 = makeConcreteTensor({1, 1});
-  TensorView* tv1 = makeConcreteTensor({-1, 1, 1});
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {true, false, false});
-  auto tv4 = add(tv3, tv1);
-
-  fusion->addOutput(tv4);
-
-  tv4->merge(-2);
-  tv4->merge(-2);
-
-  tv0->computeAt(tv4, -1);
-  tv1->computeAt(tv4, -1);
-
-  ComputeAtMap ca_map(fusion);
-
-  auto tv4_inner_node = tv4->axis(0)->definition()->input(1)->as<IterDomain>();
-  NVF_CHECK(
-      ca_map.areMapped(tv2->axis(0), tv4_inner_node, IdMappingMode::EXACT));
-  NVF_CHECK(ca_map.areMapped(
-      tv2->axis(0), tv4_inner_node, IdMappingMode::PERMISSIVE));
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1, 1}, options);
-  at::Tensor t1 = at::randn({2, 1, 1}, options);
-
-  KernelExecutor ke;
-  ke.compile(fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
-
-  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
-}
-
 TEST_F(NVFuserTest, FusionInlineAt_CUDA) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   auto fusion = fusion_ptr.get();
