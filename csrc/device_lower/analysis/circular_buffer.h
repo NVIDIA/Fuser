@@ -50,7 +50,7 @@ class CircularBufferInfo {
   ForLoop* getCircularBufferLoop(
       const TensorView* tv,
       const std::vector<ForLoop*>& loops,
-      bool ignore_prologue = false);
+      bool ignore_prologue = false) const;
 
   //! Get the circular-buffered tensors for the given loop/axis.
   std::unordered_set<const TensorView*> getCircularBufferTvs(
@@ -69,6 +69,31 @@ class CircularBufferInfo {
   //! Get the circular buffer options for the given axis.
   const CircularBufferOptions& getCircularBufferOptionsFor(
       IterDomain* circular_buffered_id) const;
+
+  //! Get the circular buffer insertion position for the given axis.
+  int64_t getCircularBufferInsertionPosition(IterDomain* axis) const;
+
+  //! Set the circular buffer insertion position for the given axis.
+  void setCircularBufferInsertionPosition(
+      const TensorView* circular_buffer_tv,
+      IterDomain* circular_buffer_axis);
+
+  //! Get the linearized index used for selecting the circular buffering stage
+  //! and calculating mbarrier parity. The index includes all serial for-loops
+  //! from outer-most to inner-most circular buffer axis. Assume the for_loop
+  //! stack maps to the circular_buffer_tv's loop domain.
+  Val* getLinearIndex(
+      TensorView* circular_buffer_tv,
+      const std::vector<ForLoop*>& loops) const;
+
+  //! Get the linearized index used for selecting the circular buffering stage
+  //! and calculating mbarrier parity. The index includes all serial for-loops
+  //! from outer-most to inner-most circular buffer axis. Assume the for_loop
+  //! stack can be anything to the left of the insertion position.
+  Val* getLinearIndexRelativeForLoopStack(
+      const std::vector<ForLoop*>& loops,
+      int64_t insertion_position,
+      int64_t start = 0) const;
 
   std::string toString() const;
 
@@ -92,6 +117,10 @@ class CircularBufferInfo {
   //! Keeps track of which concrete loop map is realizing circular buffer
   //!  iterdomains.
   std::unordered_set<const IterDomain*> concrete_circular_buffered_loop_id_;
+
+  //! Keeps track of the circular buffer insertion position for each
+  //! circular buffer loop.
+  std::unordered_map<IterDomain*, int64_t> circular_buffer_insertion_position_;
 
   //! Keeps track of circular buffer loop stage depth and prefetch distance.
   //! Currently for each disjoint set of loop mapped iterdomains,

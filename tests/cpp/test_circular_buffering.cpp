@@ -1363,9 +1363,11 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type);
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
-  if (axis_extent < number_of_stages) {
+  if (axis_extent < number_of_stages && !is_warp_specialized) {
     ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }
@@ -1427,9 +1429,11 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   KernelExecutor ke;
   ke.compile(fusion.get(), {t0});
 
+  bool is_warp_specialized =
+      std::holds_alternative<WarpSpecialized>(circular_buffer_type);
   int64_t axis_extent =
       ceilDiv(ceilDiv(tensor_inner_dim, bulk_inner_dim), unroll_dim);
-  if (axis_extent < number_of_stages) {
+  if (axis_extent < number_of_stages && !is_warp_specialized) {
     ASSERT_ANY_THROW(ke.run({t0}));
     return;
   }

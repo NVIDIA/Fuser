@@ -430,6 +430,14 @@ void validateCircularBuffering(
     ExpressionEvaluator& expr_eval) {
   const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
   for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    // There is always a valid load and compute for loop with warp
+    // specialization.
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        cb_tv->circularBufferOptions().type);
+    if (use_warp_specialization) {
+      continue;
+    }
+
     IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
     NVF_ERROR(axis != nullptr);
     PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
