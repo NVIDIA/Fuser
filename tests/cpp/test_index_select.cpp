@@ -907,10 +907,12 @@ TEST_F(NVFuserTest, IndexPutAccumulateSizeOneDim) {
       int64_t hidden = size_one_hidden ? 1 : hidden_size;
       int64_t seq = size_one_seq ? 1 : seq_size;
 
+      std::vector<int64_t> shape1({seq, hidden});
+      std::vector<int64_t> shape2({seq});
 
-      auto tv_value = makeSymbolicTensor({seq, hidden});
+      auto tv_value = makeSymbolicTensor(shape1);
       fusion.addInput(tv_value);
-      auto tv_index = makeSymbolicTensor({seq}, DataType::Int);
+      auto tv_index = makeSymbolicTensor(shape2, DataType::Int);
       fusion.addInput(tv_index);
       auto s_vocab = IrBuilder::create<Val>(vocab, DataType::Index);
       std::vector<nvfuser::Val*> buffer_size = {
@@ -922,8 +924,6 @@ TEST_F(NVFuserTest, IndexPutAccumulateSizeOneDim) {
 
       auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
       auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
-      std::vector<int64_t> shape1({seq, hidden});
-      std::vector<int64_t> shape2({seq});
       auto t_value = at::randn(shape1, options);
       auto t_index = at::randint(0, vocab, shape2, options_i);
 
