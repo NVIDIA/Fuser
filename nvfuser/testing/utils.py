@@ -493,6 +493,8 @@ class NVFuserTest(TestCase):
         torch.manual_seed(0)
         if "id_model_extra_validation" not in _enable_options:
             _enable_options.append("id_model_extra_validation")
+        if "id_model(all)" not in _enable_options:
+            _enable_options.append("id_model(all)")
         out = fd.execute(
             inputs,
             device=device,
