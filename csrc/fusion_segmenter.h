@@ -502,7 +502,8 @@ struct SegmentCandidateFinderOptions {
   bool run_combine_reductions = true;
   bool run_herrmann_merge = true;
   bool run_final_merge = true;
-  std::function<bool(SegmentedGroup*, SegmentedGroup*)> custom_should_merge_groups = nullptr;
+  std::function<bool(SegmentedGroup*, SegmentedGroup*)>
+      custom_should_merge_groups = nullptr;
 };
 
 //!  SegmentCandidateFinder
