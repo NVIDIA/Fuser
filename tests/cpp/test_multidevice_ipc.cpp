@@ -31,6 +31,7 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 using IpcTest = MultiDeviceTest;
 
 TEST_F(IpcTest, IpcMemHandle) {
+#ifdef NVFUSER_DISTRIBUTED
   // Allocate and setup GPU buffers
   constexpr size_t kBufferSize = sizeof(int64_t);
   const int64_t num_devices = communicator_->size();
@@ -68,9 +69,14 @@ TEST_F(IpcTest, IpcMemHandle) {
   // Clean up
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(d_ptr));
+#else // NVFUSER_DISTRIBUTED
+  GTEST_SKIP() << "NVFUSER_DISTRIBUTED is not defined";
+#endif // NVFUSER_DISTRIBUTED
+
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
+#ifdef NVFUSER_DISTRIBUTED
   // TL;DR: We can do pointer arithmetic on the importer side. IOW, the pointer
   // can be used as a regular pointer on the importer side.
 
@@ -114,9 +120,13 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
   // Clean up
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(d_ptr));
+#else // NVFUSER_DISTRIBUTED
+  GTEST_SKIP() << "NVFUSER_DISTRIBUTED is not defined";
+#endif // NVFUSER_DISTRIBUTED
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
+#ifdef NVFUSER_DISTRIBUTED
   // TL;DR: We CANNOT do pointer arithmetic on the exporter side! The IPC handle
   // points to the beginning of the allocated buffer.
 
@@ -162,6 +172,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
   // Clean up
   NVFUSER_CUDA_RT_SAFE_CALL(cudaIpcCloseMemHandle(peer_d_ptr));
   NVFUSER_CUDA_RT_SAFE_CALL(cudaFree(d_ptr));
+#else // NVFUSER_DISTRIBUTED
+  GTEST_SKIP() << "NVFUSER_DISTRIBUTED is not defined";
+#endif // NVFUSER_DISTRIBUTED
 }
 
 // cuStreamWriteValue32 and cuStreamWaitValue32 are CUDA driver API used in the
