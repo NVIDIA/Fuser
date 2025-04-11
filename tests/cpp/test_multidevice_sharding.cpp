@@ -774,6 +774,7 @@ TEST_F(MultiDeviceTest, TransformPropagatorSplitReshape) {
 
   // Loop split and parallelize input
   tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
   tv0->split(-2, d, /*inner_split=*/false);
   tv0->axis(-3)->parallelize(ParallelType::DIDx);
   // in: loop domain: {b, s, DIDx{d}, h, e}
