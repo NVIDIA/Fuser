@@ -5595,6 +5595,20 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
     NVF_ERROR(df.hasValue());
 
     at::Tensor out = at::zeros_like(input);
+    at::Tensor out_exclusive;
+
+    if (outExclusive() != nullptr) {
+      out_exclusive = at::ones_like(out);
+      PolymorphicValue init_pv = init()->value();
+      if (init_pv.is<int64_t>()) {
+        out_exclusive *= init_pv.as<int64_t>();
+      } else if (init_pv.is<double>()) {
+        out_exclusive *= init_pv.as<double>();
+      } else {
+        NVF_THROW("Unsupported type for evaluation: ", init()->dtype());
+      }
+    }
+
     at::Tensor cur;
     std::vector<at::indexing::TensorIndex> slice_pos;
     slice_pos.reserve((size_t)input.dim());
@@ -5609,6 +5623,10 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
       if (i == 0) {
         cur = next_slice;
       } else {
+        if (outExclusive() != nullptr) {
+          out_exclusive.index(slice_pos).copy_(cur);
+        }
+
         if (df.is<double>()) {
           cur *= df.as<double>();
         } else if (df.is<int64_t>()) {
@@ -5641,7 +5659,11 @@ std::vector<PolymorphicValue> ScanOp::evaluate(
       out.index(slice_pos).copy_(cur);
     }
 
-    return {out};
+    if (outExclusive() == nullptr) {
+      return {out};
+    } else {
+      return {out, out_exclusive};
+    }
   }
 }
 
