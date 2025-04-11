@@ -266,7 +266,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       propagateDIDTransform(/*ref=*/ref_input, /*tvs=*/outputs_without_mesh, /*did_pos=*/num_device_dims, /*allow_c2p=*/false, /*allow_p2c=*/true);
 
       // Apply parallelization on the outputs without mesh.
-      shardAllLike(ref_input, outputs_without_mesh);
+      shardAllLike(ref_input, outputs_without_mesh, existing_parallel_types);
     }
   }
 
@@ -301,7 +301,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // modify their sharding. For non-fusion inputs, we try to propagate shardings
     // from the reference output for parallel types that are not already present.
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
-    std::vector<TensorView*> unsharded_inputs;
+    std::vector<TensorView*> sharding_candidates;
     for (auto* tv : inputs) {
       if (tv->isFusionInput()) {
         if (!tv->hasDeviceMesh()) {
@@ -310,27 +310,29 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         continue;
       }
       if (!tv->hasDeviceMesh() || numDeviceDims(tv) == 0) {
-        unsharded_inputs.push_back(tv);
+        sharding_candidates.push_back(tv);
       }
     }
 
-    if (unsharded_inputs.empty()) {
+    if (sharding_candidates.empty()) {
       continue;
     }
 
-    std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, {});
-    int64_t did_pos = new2old.size();
-
-    // Note: We do not have to manually shard for reshape here.
-    // TransformPropagator can handle reshapes when going from consumer to
-    // producer.
-    propagateDIDTransform(
-      /*ref=*/ref_output, 
-      /*tvs=*/unsharded_inputs, 
-      /*did_pos=*/did_pos, 
-      /*allow_c2p=*/true, 
-      /*allow_p2c=*/false);
-    shardAllLike(ref_output, unsharded_inputs);
+    for (auto tv : sharding_candidates) {
+      std::unordered_set<ParallelType> existing_parallel_types = getTvParallelTypes({tv});
+      std::unordered_map<int64_t, int64_t> new2old = selectiveReorderDIDToFront(ref_output, existing_parallel_types);
+      int64_t did_pos = new2old.size();
+      // Note: We do not have to manually shard for reshape here.
+      // TransformPropagator can handle reshapes when going from consumer to
+      // producer.
+      propagateDIDTransform(
+        /*ref=*/ref_output, 
+        /*tvs=*/{tv}, 
+        /*did_pos=*/did_pos, 
+        /*allow_c2p=*/true, 
+        /*allow_p2c=*/false);
+      shardAllLike(ref_output, {tv}, existing_parallel_types);
+    }
   }
 
   bool has_mesh = validateMeshes(fusion);

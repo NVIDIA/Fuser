@@ -571,13 +571,19 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
+void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs, std::unordered_set<ParallelType> existing_parallel_types) {
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
   if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
+    std::unordered_set<ParallelType> parallel_types;
+    parallel_types.insert(ParallelType::Serial);
+    for (auto pt : kParallelTypeDIDs) {
+      if (!existing_parallel_types.count(pt)) {
+        parallel_types.insert(pt);
+      }
+    }
+    scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
   }
 
   // parallelAllLke, tries to DID-parallelize
