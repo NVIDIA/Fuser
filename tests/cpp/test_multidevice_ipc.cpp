@@ -72,7 +72,6 @@ TEST_F(IpcTest, IpcMemHandle) {
 #else // NVFUSER_DISTRIBUTED
   GTEST_SKIP() << "NVFUSER_DISTRIBUTED is not defined";
 #endif // NVFUSER_DISTRIBUTED
-
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
