@@ -28,7 +28,7 @@ from nvfuser import (
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
-from utils import (
+from nvfuser.testing.utils import (
     is_pre_volta,
     is_pre_ampere,
     is_pre_hopper,

@@ -63,7 +63,7 @@ TEST_F(ShardingTest, MultipleDIDx) {
       << x->domain()->toString(0, /*loop_only=*/false);
 }
 
-TEST_F(ShardingTest, ReductionShouldNotBeSharded) {
+TEST_F(ShardingTest, Allreduce) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -71,12 +71,23 @@ TEST_F(ShardingTest, ReductionShouldNotBeSharded) {
   TensorView* y = sum(x, {0});
 
   x->axis(0)->parallelize(ParallelType::DIDx);
-  // y->axis(0) is a reduction dimension and shouldn't be sharded. Doing so
-  // leads to a multi-DIDx exception.
+  y->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_FALSE(isSharded(y));
+}
+
+TEST_F(ShardingTest, ReductionScatter) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(2);
+  TensorView* y = sum(x, {0});
+
+  x->axis(0)->parallelize(ParallelType::DIDx);
   y->axis(0)->parallelize(ParallelType::DIDx);
   y->axis(1)->parallelize(ParallelType::DIDx);
 
-  EXPECT_ANY_THROW(isSharded(y)) << "Multiple DIDx";
+  EXPECT_TRUE(isSharded(y));
 }
 
 TEST_F(ShardingTest, PropagateSharding) {
@@ -107,7 +118,7 @@ void isContiguous(TensorView* tv) {
   EXPECT_TRUE(tv->hasAllocation());
   auto contiguity = tv->getContiguity();
   auto alloc_domain = tv->getAllocationDomain();
-  for (auto i : c10::irange(contiguity.size())) {
+  for (auto i : arange(contiguity.size())) {
     // TODO: This should eventually check that DeviceDim domains also has no
     // value.
     if (alloc_domain[i]->isReduction() || alloc_domain[i]->isBroadcast()) {

@@ -156,6 +156,118 @@ TEST_F(TMemTest, AddKernelSameRegion) {
   testTMemAddKernel(true);
 }
 
+TEST_F(TMemTest, dtypes) {
+  const std::vector<DataType> data_types{
+      DataType::Char,
+      DataType::Half,
+      DataType::Float,
+      DataType::Double,
+      DataType::ComplexDouble};
+
+  const std::vector<int64_t> vec_factors = {
+      1, 2, 4, 8, 16, 32, 64, 128, 256, 512};
+
+  int64_t expect_dtype_bytes = 1;
+  for (auto dtype : data_types) {
+    EXPECT_EQ(dataTypeSize(dtype), expect_dtype_bytes);
+    for (int64_t vec : vec_factors) {
+      int64_t vec_bytes = expect_dtype_bytes * vec;
+      if (vec_bytes > 512) {
+        continue;
+      }
+      Fusion fusion;
+      FusionGuard fg(&fusion);
+
+      auto tv0 = makeContigConcreteTensor({128, 512}, dtype);
+      fusion.addInput(tv0);
+      auto tv1 = set(tv0);
+      auto tv2 = set(tv1);
+      auto tv3 = set(tv2);
+      auto tv4 = set(tv3);
+      fusion.addOutput(tv4);
+      tv2->setMemoryType(MemoryType::Tensor);
+      tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+      tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+      for (auto tv : {tv1, tv2, tv3, tv4}) {
+        tv->axis(0)->parallelize(ParallelType::TIDx);
+        tv->split(1, vec);
+      }
+      tv2->axis(-1)->parallelize(ParallelType::Vectorize);
+      tv3->axis(-1)->parallelize(ParallelType::Vectorize);
+
+      tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+      tv2->setTMemDimSepPos(1);
+
+      inlineMost();
+
+      KernelExecutor ke;
+
+      if (vec_bytes % 4 != 0) {
+        std::string message = vec_bytes == 1
+            ? "Tried to vectorize a dim resulting in a word size of 1 however, vector sizes only upto and including 512 bytes are supported."
+            : "Vectorize size is not a multiple of 4 bytes";
+        EXPECT_THAT(
+            [&]() { ke.compile(&fusion); },
+            ::testing::ThrowsMessage<nvfuser::nvfError>(
+                ::testing::HasSubstr(message)));
+        continue;
+      }
+
+      // check allocation size of tcgen05.alloc calls
+      ke.registerLoweringHook([vec_bytes](GpuLower* lower) {
+        auto check_pass = [vec_bytes](const std::vector<Expr*>& exprs) {
+          bool found_alloc = false;
+          for (Expr* expr : ir_utils::flattenScopedExprs(exprs)) {
+            std::string str = expr->isA<kir::Asm>()
+                ? expr->as<kir::Asm>()->code()
+                : std::string();
+            if (str.find("tcgen05.alloc") != std::string::npos) {
+              EXPECT_FALSE(found_alloc);
+              found_alloc = true;
+            } else {
+              continue;
+            }
+            Val* alloc_size = expr->input(1);
+            Val* expected_size =
+                IrBuilder::create<Val>(static_cast<int64_t>(std::max<int64_t>(
+                    std::bit_ceil(static_cast<uint64_t>(vec_bytes / 4)), 32)));
+            EXPECT_TRUE(
+                simplifyExpr(IrBuilder::eqExpr(alloc_size, expected_size))
+                    ->isTrue());
+          }
+          EXPECT_TRUE(found_alloc);
+          return exprs;
+        };
+        lower->passes().push_back({"Check result", check_pass});
+      });
+
+      ke.compile(&fusion);
+
+      at::TensorOptions options = at::TensorOptions()
+                                      .dtype(data_type_to_aten(dtype))
+                                      .device(at::kCUDA, 0);
+      at::Tensor t0 = dtype == DataType::Char
+          ? at::randint(-128, 128, {128, 512}, options)
+          : at::randn({128, 512}, options);
+      auto out = ke.run({t0});
+      EXPECT_TRUE(at::equal(out[0].as<at::Tensor>(), t0));
+
+      // Check that vectorized PTX instructions are used
+      GpuLower gpulw(&fusion);
+      auto kernel_str = codegen::generateCudaKernel(gpulw.run());
+      std::stringstream expect_st, expect_ld;
+      expect_st << "tcgen05.st.sync.aligned.32x32b.x"
+                << ir_utils::getTMemLdStVectorizeSize(tv2) << ".b32";
+      expect_ld << "tcgen05.ld.sync.aligned.32x32b.x"
+                << ir_utils::getTMemLdStVectorizeSize(tv3) << ".b32";
+      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_st.str()));
+      EXPECT_THAT(kernel_str, ::testing::HasSubstr(expect_ld.str()));
+    }
+    expect_dtype_bytes *= 2;
+  }
+}
+
 using TMemTestCompileOnly = NVFuserTest;
 
 TEST_F(TMemTestCompileOnly, SetTMemDimSepPosNonTMem) {
@@ -239,14 +351,14 @@ TEST_F(TMemTest, InexactParallelType) {
 
   auto tv0 = makeContigConcreteTensor({2, 33});
   fusion.addInput(tv0);
-  auto tv1 = set(tv0); // gmem
+  auto tv1 = set(tv0); // smem
   auto tv2 = set(tv1); // register
   auto tv3 = set(tv2); // tmem
   auto tv4 = set(tv3); // register
   auto tv5 = set(tv4); // gmem
   fusion.addOutput(tv5);
 
-  tv1->setMemoryType(MemoryType::Global);
+  tv1->setMemoryType(MemoryType::Shared);
   tv3->setMemoryType(MemoryType::Tensor);
   tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
   tv4->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
@@ -275,5 +387,94 @@ TEST_F(TMemTest, InexactParallelType) {
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
 }
+
+using AllocationSizeTestParams = int64_t; // num cols
+
+class TMemAllocationSize
+    : public TMemTest,
+      public ::testing::WithParamInterface<AllocationSizeTestParams> {
+ protected:
+  int64_t num_cols;
+
+  void SetUp() override {
+    TMemTest::SetUp();
+    num_cols = GetParam();
+  }
+};
+
+TEST_P(TMemAllocationSize, CopyKernel) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  int64_t size = 32 * num_cols;
+
+  auto tv0 = makeContigConcreteTensor({size});
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0); // register
+  auto tv2 = set(tv1); // tmem
+  auto tv3 = set(tv2); // register
+  auto tv4 = set(tv3); // gmem
+  fusion.addOutput(tv4);
+
+  tv2->setMemoryType(MemoryType::Tensor);
+  tv2->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::StTMem);
+  tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::LdTMem);
+
+  tv4->split(0, num_cols);
+
+  TransformPropagator propagator(tv4);
+  MaxLogicalDomainInfoSpanningTree(tv4).traverse(&propagator);
+
+  tv4->axis(0)->parallelize(ParallelType::TIDx);
+
+  scheduler_utils::parallelizeAllLike(tv4, {tv1, tv2, tv3});
+
+  tv2->setAllocationDomain(tv2->getLoopDomain(), true);
+  tv2->setTMemDimSepPos(1);
+
+  KernelExecutor ke;
+
+  // check allocation size of tcgen05.alloc calls
+  ke.registerLoweringHook([this](GpuLower* lower) {
+    auto check_pass = [this](const std::vector<Expr*>& exprs) {
+      bool found_alloc = false;
+      for (Expr* expr : ir_utils::flattenScopedExprs(exprs)) {
+        std::string str = expr->isA<kir::Asm>() ? expr->as<kir::Asm>()->code()
+                                                : std::string();
+        if (str.find("tcgen05.alloc") != std::string::npos) {
+          EXPECT_FALSE(found_alloc);
+          found_alloc = true;
+        } else {
+          continue;
+        }
+        Val* alloc_size = expr->input(1);
+        Val* expected_size = IrBuilder::create<Val>(static_cast<int64_t>(
+            std::bit_ceil(static_cast<uint64_t>(num_cols))));
+        EXPECT_TRUE(simplifyExpr(IrBuilder::eqExpr(alloc_size, expected_size))
+                        ->isTrue());
+      }
+      EXPECT_TRUE(found_alloc);
+      return exprs;
+    };
+    lower->passes().push_back({"Check result", check_pass});
+  });
+
+  ke.compile(&fusion);
+  auto t0 = at::randn(
+      {size}, at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0));
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
+}
+
+std::string allocationSizeTestName(
+    const ::testing::TestParamInfo<AllocationSizeTestParams>& info) {
+  return std::to_string(info.param) + "cols";
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TMemAllocationSize,
+    ::testing::Values(32, 33, 63, 64, 65, 127, 128, 129, 255, 256, 257),
+    allocationSizeTestName);
 
 } // namespace nvfuser

@@ -5,8 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
-
 // Extract size and strides
 #include <runtime/allocations.h>
 #include <runtime/fusion_executor_cache.h>
@@ -23,7 +21,7 @@ namespace {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
   KernelIndexTypeCompute index_type_helper;
-  for (const auto dim_i : c10::irange(tensor.ndimension())) {
+  for (const auto dim_i : arange(tensor.ndimension())) {
     auto size = tensor.size(dim_i);
     auto stride = tensor.stride(dim_i);
     if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
@@ -366,7 +364,7 @@ std::vector<std::byte> tensorToBytes(
 int64_t computeBytes(const KernelArgumentHolder& args) {
   int64_t num_bytes = 0;
   // Figure how many bytes are inputs, outputs, and temporary buffers
-  for (auto i : c10::irange(args.size())) {
+  for (auto i : arange(args.size())) {
     if (args[i].is<at::Tensor>()) {
       auto t = args[i].as<at::Tensor>();
       num_bytes += static_cast<int64_t>(t.storage().nbytes());

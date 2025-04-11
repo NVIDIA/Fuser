@@ -2800,6 +2800,7 @@ class LdMatrixTest : public NVFuserFixtureParamTest<LdMatrixTestParam> {
       GTEST_SKIP() << "skipping tests on pre-Turing GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -2853,6 +2854,7 @@ class StMatrixTest : public NVFuserFixtureParamTest<StMatrixTestParams> {
       GTEST_SKIP() << "skipping tests on pre-Hopper GPUs";
     }
     NVFuserTest::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
   }
 };
 
@@ -2900,7 +2902,7 @@ TEST_P(StMatrixTest, Regular) {
   }
   tv1->setAllocationDomain(tv1->getLoopDomain(), true);
 
-  mma_utils::scheduleStMatrixForMmaOutput(tv2, tile_m, tile_n);
+  mma_utils::scheduleLdStMatrixForMmaOutput(tv2, tile_m, tile_n);
 
   tv2->axis(-1)->parallelize(ParallelType::Vectorize);
 
