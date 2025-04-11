@@ -73,13 +73,6 @@ class SegmentedGroup {
     exprs_.push_back(expr);
   }
 
-  //! Create a temporary group to signify a fusion input, which can be
-  //! an original fusion input or a forwarded input with unary-only
-  //! use chains
-  SegmentedGroup(SegmentedFusion* segmented_fusion, bool is_fusion_input)
-      : is_fusion_input_(is_fusion_input),
-        segmented_fusion_(segmented_fusion) {}
-
   //! Serialize SegmentedGroup using flatbuffers
   flatbuffers::Offset<serde::SegmentedGroup> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -96,17 +89,6 @@ class SegmentedGroup {
       const std::vector<SegmentedGroup*>& groups,
       const std::vector<SegmentedEdge*>& edges);
 
-  //! Checks if this group takes original fusion's input
-  bool isInputGroup() {
-    return !input_vals.empty();
-  };
-
-  //! Checks if this group is used any where in the segmented fusion
-  bool isConnected() const {
-    return !producer_edges.empty() || !consumer_edges.empty() ||
-        !output_vals.empty();
-  }
-
   //! returns the id assigned by segment pass
   int groupId() const {
     return group_id_;
@@ -114,12 +96,12 @@ class SegmentedGroup {
 
   //! Returns inputs that this group shares with the original fusion
   const auto& inputs() const {
-    return input_vals;
+    return input_vals_.vector();
   }
 
   //! Returns outputs that this group shares with the original fusion
   const auto& outputs() const {
-    return output_vals;
+    return output_vals_.vector();
   }
 
   //! Returns the schedule heuristic associated with this group
@@ -178,11 +160,13 @@ class SegmentedGroup {
   //! "Descendent nodes", towards outputs of segmentedDAG
   std::vector<SegmentedEdge*> consumer_edges;
 
-  //! Composite Fusion inputs in this group
-  std::vector<Val*> input_vals;
+  //! Inputs of this group, they could be composite fusion inputs, or inputs
+  //! from other groups
+  VectorOfUniqueEntries<Val*> input_vals_;
 
-  //! Composite Fusion outputs in this group
-  std::vector<Val*> output_vals;
+  //! Outputs of this group, they could be composite fusion outputs, or outputs
+  //! to other groups
+  VectorOfUniqueEntries<Val*> output_vals_;
 
   bool isMerged() const {
     return merged_;
@@ -218,9 +202,6 @@ class SegmentedGroup {
 
   //! Has this node been merged?
   bool merged_ = false;
-
-  //! Is a group for a fusion input?
-  bool is_fusion_input_ = false;
 
  private:
   //! Utility to convert edge vector to value vector
