@@ -454,7 +454,7 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
     input_ids.reserve(tvs.size());
     for (auto* tv : tvs) {
       auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
-      input_ids.emplace_back(dom[dim_i]);
+      input_ids.emplace_back(dom.at(dim_i));
     }
     out_domain[dim_i] = newOutputIterDomain(input_ids);
   }

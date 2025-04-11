@@ -2311,6 +2311,8 @@ std::pair<TensorView*, TensorView*> scanWithExclusive(
 
   IterDomain* scan_id = logical_dom.at((size_t)dim);
 
+  NVF_ERROR(scan_id->extent()->isConstInt(), "Scan dimension must be concrete");
+
   // Special case: scanning along broadcast dimension is no-op
   // Assumes init is identity for op_type
   if (scan_id->isBroadcast()) {
@@ -2322,15 +2324,22 @@ std::pair<TensorView*, TensorView*> scanWithExclusive(
     return {set(tv), mul(init, ones_like(tv))};
   }
 
-  TensorView* out = nullptr;
+  std::vector<IterDomain*> new_dom;
+  DataType dtype = tv->dtype();
   if (discount_factor == nullptr) {
-    out = ops::newOutputTV({tv}, tv->dtype());
+    new_dom = ops::newOutputDomain({tv});
   } else {
-    DataType dtype = promoteType(tv->dtype(), discount_factor->dtype());
+    new_dom = ops::newOutputDomain({tv, discount_factor});
+    dtype = promoteType(tv->dtype(), discount_factor->dtype());
     tv = maybeCastOp(dtype, tv);
     discount_factor = maybeCastOp(dtype, discount_factor);
-    out = ops::newOutputTV({tv, discount_factor}, dtype);
   }
+  new_dom.at((size_t)dim) = IterDomainBuilder(new_dom.at((size_t)dim))
+                                .iter_type(IterType::Scan)
+                                .build();
+  auto* td = IrBuilder::create<TensorDomain>(
+      new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
+  TensorView* out = IrBuilder::create<TensorView>(td, tv->dtype());
 
   TensorView* out_exclusive = ops::newOutputTV({out}, out->dtype());
 

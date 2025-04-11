@@ -51,7 +51,7 @@ bool mayRequireAllocation(const TensorView* tv, IterDomain* id) {
   // - Reduction: Check the original ID, not the promotion, which may
   //   be a reduction ID even though the original ID is not a reduction
   return !isPartitionedLoop(tv, id) && !isSizeOneDomain(id) &&
-      !id->isReduction() && !id->isStride();
+      !id->isReduction() && !id->isScan() && !id->isStride();
 }
 
 // Get the allocation stride of a given allocation domain
@@ -1078,7 +1078,8 @@ class AllocationInserter : public kir::ExprMutator {
     std::vector<IterDomain*> init_dims;
     for (const auto axis_i : arange(info.alloc_pos, info.buffer->nDims())) {
       if (info.buffer->axis(axis_i)->isReduction() ||
-          info.buffer->axis(axis_i)->isBroadcast()) {
+          info.buffer->axis(axis_i)->isBroadcast() ||
+          info.buffer->axis(axis_i)->isScan()) {
         continue;
       }
       auto concrete_id =
@@ -1121,7 +1122,8 @@ class AllocationInserter : public kir::ExprMutator {
     info.allocation_domains =
         std::make_unique<std::vector<IterDomain*>>(alloc_ids);
 
-    if (alloc_dims.empty() && !info.buffer->domain()->noReductions().empty()) {
+    if (alloc_dims.empty() &&
+        !TensorDomain::noScans(info.buffer->domain()->noReductions()).empty()) {
       alloc_dims.push_back(info.buffer->container()->oneVal());
     }
 
