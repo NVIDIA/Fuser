@@ -313,20 +313,17 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    for (auto tv : sharding_candidates) {
-      std::unordered_set<ParallelType> existing_parallel_types = getTvParallelTypes({tv});
-      int64_t did_pos = selectiveReorderDIDToFront(ref_output, existing_parallel_types);
-      // Note: We do not have to manually shard for reshape here.
-      // TransformPropagator can handle reshapes when going from consumer to
-      // producer.
-      propagateDIDTransform(
-        /*ref=*/ref_output, 
-        /*tvs=*/{tv}, 
-        /*did_pos=*/did_pos, 
-        /*allow_c2p=*/true, 
-        /*allow_p2c=*/false);
-      shardAllLike(ref_output, {tv});
-    }
+    int64_t did_pos = selectiveReorderDIDToFront(ref_output, {});
+    // Note: We do not have to manually shard for reshape here.
+    // TransformPropagator can handle reshapes when going from consumer to
+    // producer.
+    propagateDIDTransform(
+      /*ref=*/ref_output, 
+      /*tvs=*/sharding_candidates, 
+      /*did_pos=*/did_pos, 
+      /*allow_c2p=*/true, 
+      /*allow_p2c=*/false);
+    shardAllLike(ref_output, sharding_candidates);
   }
 
   bool has_mesh = validateMeshes(fusion);
