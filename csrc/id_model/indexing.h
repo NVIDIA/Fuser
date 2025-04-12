@@ -82,10 +82,12 @@ class TensorIndexer {
       const Expr* expr,
       bool as_consumer,
       const std::vector<IterDomain*>& index_ids,
-      const std::vector<ForLoop*>& loops) const;
+      const std::vector<ForLoop*>& loops,
+      bool use_magic_zero = false) const;
 
   // Get the contig indices of the given ID groups with their strides
   std::pair<std::vector<Val*>, std::vector<Val*>> getContigIndexFor(
+      TensorView* tv,
       const Expr* expr,
       bool as_consumer,
       const AllocationDomainInfo& alloc_info,
@@ -93,14 +95,14 @@ class TensorIndexer {
       const std::unordered_map<IterDomain*, Val*>& override_index) const;
 
   // Grab all for-loops whose indices are actually used in the given
-  // index val. Note that IndexingInfo.loop_group_dependencies can be
+  // index vals. Note that IndexingInfo.loop_group_dependencies can be
   // used to find loop IDs that are connected to the index IDs, but
   // that doesn't always mean corresponding loop indices are actually
   // used in an index Val. For example, unswitch predicates replace loop indices
   // with (N - 1), where N is the extent of an unswitched ID. This
   // function only grabs for-loops whose indices are indeed used.
   std::vector<ForLoop*> getUsedForLoopsOf(
-      Val* index,
+      const std::vector<Val*>& indices,
       const std::vector<ForLoop*>& for_loops) const;
 
   // Add "pragma unroll" to for-loops whose loop indices are used for
@@ -148,8 +150,8 @@ class TensorIndexer {
   // to indices.
   //
   // TODO: Revisit if this is still necessary.
-  Val* protectIndexWithMagicZero(
-      Val* index,
+  std::vector<Val*> protectIndicesWithMagicZero(
+      const std::vector<Val*>& indices,
       const std::vector<ForLoop*>& for_loops) const;
 
   // Check if a given fusion can be indexed with

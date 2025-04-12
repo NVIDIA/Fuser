@@ -12,7 +12,9 @@
 #include <multidevice/communication.h>
 #include <multidevice/communicator.h>
 #include <tests/cpp/multidevice.h>
+#include <tests/cpp/validator.h>
 
+#include <ops/all_ops.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
 
