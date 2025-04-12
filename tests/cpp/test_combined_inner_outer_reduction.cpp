@@ -38,7 +38,8 @@ using testing::UnorderedElementsAre;
 // tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
 
-class CombinedSchedulerTest : public NVFuserFixtureParamTest<CombinedSchedulerParams> {
+class CombinedSchedulerTest
+    : public NVFuserFixtureParamTest<CombinedSchedulerParams> {
  protected:
   void SetUp() override {
     NVFuserFixtureParamTest<CombinedSchedulerParams>::SetUp();
