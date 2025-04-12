@@ -48,6 +48,13 @@ std::vector<TensorView*> filterTvsWithMesh(const Range& tvs) {
   return tvs_with_mesh;
 }
 
+int64_t numDeviceDims(TensorView* tv) {
+  return std::count_if(
+      tv->getLoopDomain().begin(),
+      tv->getLoopDomain().end(),
+      std::mem_fn(&IterDomain::isDeviceDim));
+};
+
 // Sort the given tvs by the number of device dimensions in descending order.
 // Break ties by the total number of dimensions.
 // Only includes TensorViews that have a device mesh.
@@ -56,15 +63,8 @@ std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {
   // Filter out TVs without a device mesh
   std::vector<TensorView*> tvs_with_mesh = filterTvsWithMesh(tvs);
 
-  auto numDeviceDims = [](TensorView* tv) -> int64_t {
-    return std::count_if(
-        tv->getLoopDomain().begin(),
-        tv->getLoopDomain().end(),
-        std::mem_fn(&IterDomain::isDeviceDim));
-  };
-
   // Then sort the filtered TVs
-  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(), [&numDeviceDims](auto a, auto b) {
+  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(), [](auto a, auto b) {
     int64_t a_device_dims = numDeviceDims(a);
     int64_t b_device_dims = numDeviceDims(b);
     if (a_device_dims != b_device_dims) {
@@ -261,7 +261,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       propagateDIDTransform(/*ref=*/ref_input, /*tvs=*/outputs_without_mesh, /*did_pos=*/did_pos, /*allow_c2p=*/false, /*allow_p2c=*/true);
 
       // Apply parallelization on the outputs without mesh.
-      shardAllLike(ref_input, outputs_without_mesh, existing_parallel_types);
+      shardAllLike(ref_input, outputs_without_mesh);
     }
   }
 
@@ -304,7 +304,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         }
         continue;
       }
-      sharding_candidates.push_back(tv);
+      if (!tv->hasDeviceMesh() || numDeviceDims(tv) == 0) {
+        sharding_candidates.push_back(tv);
+      }
     }
 
     if (sharding_candidates.empty()) {
@@ -323,7 +325,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*did_pos=*/did_pos, 
         /*allow_c2p=*/true, 
         /*allow_p2c=*/false);
-      shardAllLike(ref_output, {tv}, existing_parallel_types);
+      shardAllLike(ref_output, {tv});
     }
   }
 
@@ -338,7 +340,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // domain and DIDx axis at the front. The allocation domain should follow
     // any stride order specified/inferred.
     reorderLoopAsAllocation(fusion->allTvs());
-    
     for (auto tv : fusion->allTvs()) {
       tv->setAllocationDomain(tv->getLoopDomain(), true);
     }

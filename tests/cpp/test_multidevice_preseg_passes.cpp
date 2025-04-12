@@ -124,14 +124,7 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
   at::Tensor nvf_out = outputs[0].as<at::Tensor>();
 
   at::Tensor ref_out = reference_mha(inp_tensor);
-
-  testValidate(
-      executor_cache.fusion(),
-      {nvf_out},
-      {inp_tensor},
-      {ref_out},
-      __LINE__,
-      __FILE__);
+  EXPECT_TRUE(at::allclose(nvf_out, ref_out));
 }
   
 } // namespace nvfuser
