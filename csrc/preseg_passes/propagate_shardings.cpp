@@ -337,14 +337,11 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // as allocation domain in the interim. Ideally, this should follow logical
     // domain and DIDx axis at the front. The allocation domain should follow
     // any stride order specified/inferred.
-    // debug() << "reorderLoopAsAllocation\n";
-    // debug() << "before: " << fusion->toString() << "\n";
     reorderLoopAsAllocation(fusion->allTvs());
     
-    // for (auto tv : fusion->allTvs()) {
-    //   tv->setAllocationDomain(tv->getLoopDomain(), true);
-    // }
-    // debug() << "after: " << fusion->toString() << "\n";
+    for (auto tv : fusion->allTvs()) {
+      tv->setAllocationDomain(tv->getLoopDomain(), true);
+    }
   }
 }
 
