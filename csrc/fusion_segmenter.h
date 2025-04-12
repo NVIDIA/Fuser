@@ -383,13 +383,13 @@ class SegmentedFusion {
   //! Serialize SegmentedEdge using flatbuffers
   flatbuffers::Offset<serde::SegmentedEdge> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const nvfuser::std::shared_ptr<SegmentedEdge> edge,
+      const std::shared_ptr<nvfuser::SegmentedEdge> edge,
       const std::unordered_map<Val*, int64_t>& vals_map,
       const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const;
 
   //! Deserialize SegmentedEdge using flatbuffers
-  nvfuser::SegmentedEdge deserialize(
-      const serde::std::shared_ptr<SegmentedEdge> buffer,
+  std::shared_ptr<nvfuser::SegmentedEdge> deserialize(
+      const serde::SegmentedEdge* buffer,
       const std::deque<Val*>& vals);
 
  private:
@@ -418,7 +418,7 @@ class SegmentedFusion {
 
    private:
     using GroupPtr = std::unique_ptr<SegmentedGroup>;
-    using EdgePtr = std::unique_ptr<SegmentedEdge>;
+    using EdgePtr = std::shared_ptr<SegmentedEdge>;
     std::vector<GroupPtr> groups_;
     std::vector<EdgePtr> edges_;
     SegmentedFusion* owning_fusion_;

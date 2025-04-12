@@ -608,7 +608,7 @@ void SegmentedFusion::deserialize(const serde::SegmentedFusion* buffer) {
 
 flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
     flatbuffers::FlatBufferBuilder& builder,
-    const nvfuser::std::shared_ptr<SegmentedEdge> edge,
+    const std::shared_ptr<nvfuser::SegmentedEdge> edge,
     const std::unordered_map<Val*, int64_t>& vals_to_id_map,
     const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const {
   FUSER_PERF_SCOPE("SegmentedEdge::serialize");
@@ -619,18 +619,18 @@ flatbuffers::Offset<serde::SegmentedEdge> SegmentedFusion::serialize(
       vals_to_id_map.at(edge->val));
 }
 
-nvfuser::SegmentedEdge SegmentedFusion::deserialize(
-    const serde::std::shared_ptr<SegmentedEdge> buffer,
+std::shared_ptr<nvfuser::SegmentedEdge> SegmentedFusion::deserialize(
+    const serde::SegmentedEdge* buffer,
     const std::deque<Val*>& vals) {
   FUSER_PERF_SCOPE("SegmentedEdge::deserialize");
   NVF_ERROR(buffer != nullptr, "serde::SegmentedEdge is nullptr.");
   NVF_ERROR(
       !groups_.empty(),
       "Expected SegmentedGroup to be populated before deserializing SegmentedEdge.");
-  return {
+  return std::make_shared<SegmentedEdge>(
       groups_.at(buffer->from_segmented_group()),
       groups_.at(buffer->to_segmented_group()),
-      vals.at(buffer->val())};
+      vals.at(buffer->val()));
 }
 
 SegmentedGroup* SegmentedFusion::Impl::makeGroup() {
@@ -647,8 +647,8 @@ std::shared_ptr<SegmentedEdge> SegmentedFusion::Impl::makeEdge(
     SegmentedGroup* from,
     SegmentedGroup* to,
     Val* val) {
-  edges_.emplace_back(std::make_unique<SegmentedEdge>(from, to, val));
-  return edges_.back().get();
+  edges_.emplace_back(std::make_shared<SegmentedEdge>(from, to, val));
+  return edges_.back();
 }
 
 void SegmentedFusion::removeEdge(std::shared_ptr<SegmentedEdge> edge) {
@@ -724,8 +724,8 @@ std::unordered_map<std::shared_ptr<SegmentedEdge>, int64_t> SegmentedFusion::
       edges_.begin(),
       edges_.end(),
       std::inserter(edge_map, edge_map.end()),
-      [&count](const std::unique_ptr<SegmentedEdge>& edge_up) {
-        return std::make_pair(edge_up.get(), count++);
+      [&count](const std::shared_ptr<SegmentedEdge>& edge) {
+        return std::make_pair(edge, count++);
       });
   return edge_map;
 }
@@ -1770,7 +1770,7 @@ std::ostream& operator<<(
     os << "  " << g << "\n";
   }
   os << "edges: \n";
-  for (const auto e : sorted_edges_to_print) {
+  for (const auto& e : sorted_edges_to_print) {
     os << "  " << e << "\n";
   }
   os << "\ngroup details:\n";
@@ -3643,7 +3643,7 @@ class MergeUpAndDownCast {
       }
 
       if (!isUpCast(group)) {
-        for (const auto producer_edge : group->producer_edges) {
+        for (const auto& producer_edge : group->producer_edges) {
           SegmentedGroup* producer_group = producer_edge->from;
           // Don't add producers that have more than multiple consumers
           if (producer_group->consumer_edges.size() > 1) {
