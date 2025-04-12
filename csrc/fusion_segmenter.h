@@ -50,7 +50,9 @@ struct SegmentedEdge {
   }
 };
 
-std::ostream& operator<<(std::ostream& os, const SegmentedEdge* edge);
+std::ostream& operator<<(
+    std::ostream& os,
+    const std::shared_ptr<SegmentedEdge> edge);
 
 //! Groups together expressions which create a segmented group
 //! Can be used to produce fusions
@@ -60,9 +62,10 @@ class SegmentedGroup {
   //!  both the group to connect with and the edge
   //!  to connect through
   struct NeighborGroup {
-    NeighborGroup(SegmentedGroup* g, SegmentedEdge* e) : group(g), edge(e) {}
+    NeighborGroup(SegmentedGroup* g, std::shared_ptr<SegmentedEdge> e)
+        : group(g), edge(e) {}
     SegmentedGroup* group;
-    SegmentedEdge* edge;
+    std::shared_ptr<SegmentedEdge> edge;
   };
 
   SegmentedGroup(SegmentedFusion* segmented_fusion)
@@ -79,7 +82,8 @@ class SegmentedGroup {
       const std::unordered_map<Val*, int64_t>& vals_map,
       const std::unordered_map<Expr*, int64_t>& exprs_map,
       const std::unordered_map<SegmentedGroup*, int64_t>& groups_map,
-      const std::unordered_map<SegmentedEdge*, int64_t>& edges_map) const;
+      const std::unordered_map<std::shared_ptr<SegmentedEdge>, int64_t>&
+          edges_map) const;
 
   //! Deserialize SegmentedGroup using flatbuffers
   void deserialize(
@@ -87,7 +91,7 @@ class SegmentedGroup {
       const std::deque<Val*>& vals,
       const std::deque<Expr*>& exprs,
       const std::vector<SegmentedGroup*>& groups,
-      const std::vector<SegmentedEdge*>& edges);
+      const std::vector<std::shared_ptr<SegmentedEdge>>& edges);
 
   //! returns the id assigned by segment pass
   int groupId() const {
@@ -153,10 +157,10 @@ class SegmentedGroup {
 
  public:
   //! "Ancestor nodes", towards inputs of segmentedDAG
-  std::vector<SegmentedEdge*> producer_edges;
+  std::vector<std::shared_ptr<SegmentedEdge>> producer_edges;
 
   //! "Descendent nodes", towards outputs of segmentedDAG
-  std::vector<SegmentedEdge*> consumer_edges;
+  std::vector<std::shared_ptr<SegmentedEdge>> consumer_edges;
 
   //! Inputs of this group, they could be composite fusion inputs, or inputs
   //! from other groups
@@ -193,7 +197,7 @@ class SegmentedGroup {
   SegmentedGroup* merge_with_ = nullptr;
 
   //! if we selected another group to merge, which edge is to be contracted
-  SegmentedEdge* merge_through_ = nullptr;
+  std::shared_ptr<SegmentedEdge> merge_through_ = nullptr;
 
   //! Has this node been merged?
   bool merged_ = false;
@@ -268,7 +272,7 @@ class SegmentedFusion {
     return groups_;
   }
 
-  std::vector<SegmentedEdge*>& edges() {
+  std::vector<std::shared_ptr<SegmentedEdge>>& edges() {
     return edges_;
   }
 
@@ -276,7 +280,7 @@ class SegmentedFusion {
     return groups_;
   }
 
-  const std::vector<SegmentedEdge*>& cedges() const {
+  const std::vector<std::shared_ptr<SegmentedEdge>>& cedges() const {
     return edges_;
   }
 
@@ -318,12 +322,15 @@ class SegmentedFusion {
   SegmentedGroup* newFusionInputGroup();
 
   //! API for adding edges
-  SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+  std::shared_ptr<SegmentedEdge> newEdge(
+      SegmentedGroup* from,
+      SegmentedGroup* to,
+      Val* val);
 
   //! Remove an edge from the segmented fusion graph and update all affected
   //! groups The edge object will be deleted and should not be used after this
   //! call
-  void removeEdge(SegmentedEdge* edge);
+  void removeEdge(std::shared_ptr<SegmentedEdge> edge);
 
   void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
   void disconnectGroups(SegmentedGroup* group1, SegmentedGroup* group2);
@@ -346,20 +353,20 @@ class SegmentedFusion {
   //! no (temporary) merging. Each edge is considered a potential
   //! place to insert cast. In this case, groups_to_merge should be
   //! empty.
-  std::vector<SegmentedEdge*> castInputOutputToLowerPrecision(
-      const std::vector<SegmentedEdge*>& edges,
+  std::vector<std::shared_ptr<SegmentedEdge>> castInputOutputToLowerPrecision(
+      const std::vector<std::shared_ptr<SegmentedEdge>>& edges,
       const std::vector<SegmentedGroup*>& groups_to_merge = {});
 
   //! Revert the changes made by castInputOutputToLowerPrecision to the given
   //! edges
   void revertInputOutputPrecisionChanges(
-      const std::vector<SegmentedEdge*>& edges);
+      const std::vector<std::shared_ptr<SegmentedEdge>>& edges);
 
   //! Grab edges with val
-  std::vector<SegmentedEdge*> getEdgesByVal(Val* val) const;
+  std::vector<std::shared_ptr<SegmentedEdge>> getEdgesByVal(Val* val) const;
 
   //! Get edges between two groups
-  std::vector<SegmentedEdge*> getEdgesBetween(
+  std::vector<std::shared_ptr<SegmentedEdge>> getEdgesBetween(
       const SegmentedGroup* from,
       const SegmentedGroup* to) const;
 
@@ -376,13 +383,13 @@ class SegmentedFusion {
   //! Serialize SegmentedEdge using flatbuffers
   flatbuffers::Offset<serde::SegmentedEdge> serialize(
       flatbuffers::FlatBufferBuilder& builder,
-      const nvfuser::SegmentedEdge* edge,
+      const nvfuser::std::shared_ptr<SegmentedEdge> edge,
       const std::unordered_map<Val*, int64_t>& vals_map,
       const std::unordered_map<SegmentedGroup*, int64_t>& groups_map) const;
 
   //! Deserialize SegmentedEdge using flatbuffers
   nvfuser::SegmentedEdge deserialize(
-      const serde::SegmentedEdge* buffer,
+      const serde::std::shared_ptr<SegmentedEdge> buffer,
       const std::deque<Val*>& vals);
 
  private:
@@ -390,7 +397,7 @@ class SegmentedFusion {
   size_t segmented_fusion_name_;
 
   //! States representing segmentation
-  std::vector<SegmentedEdge*> edges_;
+  std::vector<std::shared_ptr<SegmentedEdge>> edges_;
   std::vector<SegmentedGroup*> groups_;
 
   //! Owning object to explicitly manage groups and edges
@@ -400,10 +407,14 @@ class SegmentedFusion {
 
     SegmentedGroup* makeGroup();
     SegmentedGroup* makeGroup(Expr*);
-    SegmentedEdge* makeEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+    std::shared_ptr<SegmentedEdge> makeEdge(
+        SegmentedGroup* from,
+        SegmentedGroup* to,
+        Val* val);
     void cleanUnused();
     std::unordered_map<SegmentedGroup*, int64_t> groups_map() const;
-    std::unordered_map<SegmentedEdge*, int64_t> edges_map() const;
+    std::unordered_map<std::shared_ptr<SegmentedEdge>, int64_t> edges_map()
+        const;
 
    private:
     using GroupPtr = std::unique_ptr<SegmentedGroup>;
@@ -582,7 +593,7 @@ class SegmentCandidateFinder {
     return segmented_fusion_->groups();
   }
 
-  std::vector<SegmentedEdge*>& edges() {
+  std::vector<std::shared_ptr<SegmentedEdge>>& edges() {
     NVF_ERROR(
         segmented_fusion_ != nullptr, "Segment finder not owinging any fusion");
     return segmented_fusion_->edges();
@@ -740,7 +751,7 @@ class SegmentCandidateFinder {
 
 // TODO: Make as member functions on classes instead of global scope
 std::string toString(const SegmentedGroup* group);
-std::string toString(const SegmentedEdge* edge);
+std::string toString(const std::shared_ptr<SegmentedEdge> edge);
 std::string toString(const SegmentedFusion* segmented_fusion);
 std::string toString(const SegmentCandidateFinderOptions& segment_options);
 
