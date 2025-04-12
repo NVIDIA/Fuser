@@ -427,6 +427,12 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     }
   }
 
+  // Always use TensorIndexer unless not supported
+  options.setProducerIndex(true);
+  options.setConsumerIndex(true);
+  options.setInlinePredicate(true);
+  options.setUnswitchPredicate(true);
+
   // If not supported, disable use of TensorIndexer by default. It is
   // still used if explicitly opted-in (see, for example,
   // Index::getConsumerIndex)
