@@ -7,8 +7,6 @@
 // clang-format on
 #include <runtime/fusion_executor_cache.h>
 
-#include <c10/util/irange.h>
-
 #include <dynamic_transform.h>
 #include <fusion.h>
 #include <logical_domain_map.h>
@@ -40,24 +38,26 @@ FusionExecutorCache::FusionExecutorCache(
     int64_t fusion_id,
     bool auto_schedule)
     : fusion_(std::move(fusion)),
-      exact_map_(std::make_unique<ExactLogicalDomainMap>(fusion_.get())),
+      exact_map_(fusion_.get()),
       fusion_id_{fusion_id},
       auto_schedule_(auto_schedule) {}
 
-std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
-    const c10::ArrayRef<c10::IValue>& inputs,
+KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
+    KernelArgumentHolder args,
     std::optional<PrimDataType> forced_index_type,
     std::optional<int8_t> selected_device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::runFusionWithInputs");
-  // NOTE: This should be the first code in the method to capture all host time
+
   if (isProfilerEnabled()) {
     FusionProfiler::start(!isProfilerEnabledWithCupti());
   }
 
-  KernelArgumentHolder args = prepareInputs(inputs, selected_device);
+  args.setDeviceIndex(selected_device);
+  setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (isProfilerEnabled()) {
+    FusionProfiler::start(!isProfilerEnabledWithCupti());
     FusionProfiler::createSegments(kernel_runtime->executors().size());
   }
 
@@ -87,15 +87,13 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
   // semantically correct to actually return them as outputs from
   // fusion.
   NVF_ERROR(fusion->outputs().size() == outputs.size());
-  size_t new_size = 0;
-  for (size_t out_index = 0; out_index < outputs.size(); out_index++) {
+  KernelArgumentHolder unaliased_outputs;
+  for (auto out_index : arange(outputs.size())) {
     Val* out = fusion->outputs()[out_index];
     if (!fusion->getOutputAlias(out).hide_output) {
-      outputs[new_size] = outputs[out_index];
-      new_size++;
+      unaliased_outputs.push(outputs[out_index]);
     }
   }
-  outputs.resize(new_size);
 
   // NOTE: This should be the last code in the method to capture all host time
   if (isProfilerEnabled()) {
@@ -105,16 +103,11 @@ std::vector<at::Tensor> FusionExecutorCache::runFusionWithInputs(
     debug() << FusionProfiler::profile();
   }
 
-  return outputs;
+  return unaliased_outputs;
 }
 
-KernelArgumentHolder FusionExecutorCache::prepareInputs(
-    const c10::ArrayRef<c10::IValue>& inputs,
-    std::optional<int8_t> selected_device) {
-  FUSER_PERF_SCOPE("FusionExecutorCache::prepareInputs");
-
-  KernelArgumentHolder args = KernelArgumentHolder(inputs, selected_device);
-
+void FusionExecutorCache::setCacheId(KernelArgumentHolder& args) {
+  FUSER_PERF_SCOPE("FusionExecutorCache::setCacheId");
   // TODO: move InputsIdLookup inside KernelArgumentHolder;
   // NOTE: We must ensure that the cache id is in fact unique. Dynamic fusions
   // may contain transformations that depend on input scalars, not just on the
@@ -124,26 +117,22 @@ KernelArgumentHolder FusionExecutorCache::prepareInputs(
   // short-circuiting here, resulting in avoidable rebuilds of concretization
   // info.
   auto id_lookup_ret = inputs_id_lookup_.lookupId(
-      inputs,
-      initialInfo().scalarInputsAffectingConcretization(),
-      args.getDeviceIndex());
+      args, initialInfo().scalarInputsAffectingConcretization());
   if (id_lookup_ret.eviction) {
     evictCache(id_lookup_ret.evict_id);
   }
 
   args.setCacheId(id_lookup_ret.id);
-  return args;
 }
 
 bool FusionExecutorCache::isCompiled(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    const KernelArgumentHolder& inputs,
     int8_t device) {
   FUSER_PERF_SCOPE("FusionExecutorCache::isCompiled");
 
   // Access kernels associated with the common device id
-  KernelArgumentHolder args = prepareInputs(inputs);
-  args.setDeviceIndex(device);
-
+  KernelArgumentHolder args(inputs);
+  setCacheId(args);
   return getKernelRuntimeFor(args)->isCompiled();
 }
 
@@ -219,9 +208,9 @@ std::string FusionExecutorCache::getMostRecentCode(bool intrinsic_code) const {
 }
 
 std::string FusionExecutorCache::getCodeFor(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    KernelArgumentHolder args,
     bool intrinsic_code) {
-  KernelArgumentHolder args = prepareInputs(inputs);
+  setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args);
   return getCode(kernel_runtime, intrinsic_code);
 }
@@ -254,9 +243,9 @@ std::string FusionExecutorCache::getMostRecentScheduledIr(
 }
 
 std::string FusionExecutorCache::getScheduledIrFor(
-    const c10::ArrayRef<c10::IValue>& inputs,
+    KernelArgumentHolder args,
     bool tensor_transforms) {
-  KernelArgumentHolder args = prepareInputs(inputs);
+  setCacheId(args);
   auto kernel_runtime = getKernelRuntimeFor(args);
   return getScheduledIr(kernel_runtime, tensor_transforms);
 }
@@ -373,7 +362,7 @@ flatbuffers::Offset<serde::FusionExecutorCache> FusionExecutorCache::serialize(
         fb_device_runtimes;
     fb_device_runtimes.reserve(device_runtimes.size());
 
-    for (auto kernel_idx : c10::irange(device_runtimes.size())) {
+    for (auto kernel_idx : arange(device_runtimes.size())) {
       auto kernel_runtime_ptr = device_runtimes.at(kernel_idx).get();
       fb_device_runtimes.push_back(kernel_runtime_ptr->serialize(builder));
 
@@ -450,7 +439,7 @@ void FusionExecutorCache::deserialize(
       auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
       cached_conc_info_.emplace_back(
           std::make_unique<DynamicTransformConcretizationInfo>(
-              &initial_info, &expr_eval, exact_map_.get()));
+              &initial_info, &expr_eval, &exact_map_));
       conc_info = cached_conc_info_.back().get();
     }
 
@@ -514,7 +503,7 @@ void FusionExecutorCache::deserialize(
   }
 
   // 2. Rebuild input id to kernel cache
-  for (auto idx : c10::irange(buffer->kernel_cache_keys()->size())) {
+  for (auto idx : arange(buffer->kernel_cache_keys()->size())) {
     size_t key = buffer->kernel_cache_keys()->Get(idx);
     size_t value_id = buffer->kernel_cache_values()->Get(idx);
     id_to_kernel_runtime_.emplace(key, all_runtimes.at(value_id));
@@ -591,7 +580,7 @@ FusionKernelRuntime* FusionExecutorCache::getKernelRuntimeFor(
     auto expr_eval = executor_utils::bindInputs(args, fusion_.get());
     cached_conc_info_.emplace_back(
         std::make_unique<DynamicTransformConcretizationInfo>(
-            &initial_info, &expr_eval, exact_map_.get()));
+            &initial_info, &expr_eval, &exact_map_));
     conc_info = cached_conc_info_.back().get();
   }
 

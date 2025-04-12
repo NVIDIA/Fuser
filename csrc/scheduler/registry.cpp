@@ -33,11 +33,11 @@ bool checkCanSchedule(Fusion* fusion, SchedulerType scheduler_type) {
 
   FusionGuard fg(fusion);
 
-  // Fusions with `SdpaFwdOp/SdpaBwdOp` are only accepted in `ExprEval`
+  // These ops are  are only accepted in `ExprEval`
   // scheduler, all other schedulers should reject them.
-  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp>(fusion)) {
+  if (ir_utils::hasOpsOfType<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp>(fusion)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        scheduler_type, "SdpaOps are not supported.");
+        scheduler_type, "Has unsupported ops");
     return false;
   }
 
@@ -99,6 +99,8 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
       return std::make_unique<ExprEvalScheduler>();
     case SchedulerType::Resize:
       return std::make_unique<ResizeScheduler>();
+    case SchedulerType::Communication:
+      return std::make_unique<CommunicationScheduler>();
     default:
       NVF_THROW("unreachable");
   }
@@ -107,7 +109,7 @@ std::unique_ptr<SchedulerEntry> SchedulerEntry::makeSchedulerInstance(
 std::unique_ptr<HeuristicParams> SchedulerEntry::scheduleWith(
     Fusion* fusion,
     SchedulerType scheduler_type,
-    const c10::ArrayRef<c10::IValue>& runtime_inputs,
+    const KernelArgumentHolder& runtime_inputs,
     bool validate_scheduler) {
   SchedulerRuntimeInfo runtime_info(fusion, runtime_inputs);
   NVF_ERROR(
@@ -221,6 +223,8 @@ template class HeuristicDataCacheEntry<
     HeuristicCompileTime::VectorizableInputsAndOutputs>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::TvToContigInnerSizeMaps>;
+template class HeuristicDataCacheEntry<
+    HeuristicCompileTime::ResizeVectorizationFactors>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::InputsOutputsInnerDimGroups>;
 template class HeuristicDataCacheEntry<

@@ -132,6 +132,10 @@ class SegmentedGroup {
     return exprs_;
   }
 
+  // Returns a toposorted list of Exprs in this group, with equal cases
+  // respecting the original order.
+  std::vector<Expr*> stablyOrderedExprs() const;
+
   //! Returns the complete fusion inputs mapped to this segmented group's fusion
   const auto& getCompleteFusionInputs() const {
     return original_inputs_in_cloned_fusion_;
@@ -377,12 +381,6 @@ class SegmentedFusion {
   //! Grab edges with val
   std::vector<SegmentedEdge*> getEdgesByVal(Val* val) const;
 
-  //! Make sure it's a DAG and optionally disjoint
-  void validate(bool require_disjoint = true) const;
-
-  //! Same as validate but only enabled when NDEBUG is undefined
-  void validateIfDebug(bool require_disjoint = true) const;
-
   //! Serialize SegmentedFusion using flatbuffers
   flatbuffers::Offset<serde::SegmentedFusion> serialize(
       flatbuffers::FlatBufferBuilder& builder) const;
@@ -390,10 +388,9 @@ class SegmentedFusion {
   //! Deserialize SegmentedFusion using flatbuffers
   void deserialize(const serde::SegmentedFusion* buffer);
 
- private:
-  void validateDAG() const;
   void validateDisjoint() const;
 
+ private:
   //! Serialize SegmentedEdge using flatbuffers
   flatbuffers::Offset<serde::SegmentedEdge> serialize(
       flatbuffers::FlatBufferBuilder& builder,
@@ -535,18 +532,19 @@ class SegmentCandidateFinder {
   // Perform segmentation on a copy of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       const Fusion* fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
 
   // Perform segmentation on and take ownership of the given fusion
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions());
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options = SegmentCandidateFinderOptions(),
+      bool multi_device = false);
 
   static std::unique_ptr<SegmentedFusion> segment(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
+      const KernelArgumentHolder& inputs,
       SchedulerRuntimeInfo& runtime_info);
 
   static bool hasSegmentHints(Fusion* fusion);
@@ -555,14 +553,17 @@ class SegmentCandidateFinder {
       Fusion* fusion,
       const KernelArgumentHolder& runtime_inputs);
 
+  //! Validate the graph is a DAG, and if require_disjoint that exprs are
+  //! disjoint
+  void validateIfDebug(bool require_disjoint = false);
+
  private:
   // Perform segmentation on and take ownership of the given fusion
   NVF_API SegmentCandidateFinder(
       std::unique_ptr<Fusion> fusion,
-      const KernelArgumentHolder* inputs,
-      SegmentCandidateFinderOptions options);
-
-  void resetTraversal();
+      const KernelArgumentHolder& inputs,
+      SegmentCandidateFinderOptions options,
+      bool multi_device = false);
 
   void resetLevels();
 
@@ -612,10 +613,7 @@ class SegmentCandidateFinder {
     return segmented_fusion_->completeFusion();
   }
 
-  SchedulerRuntimeInfo& runtimeInfo() {
-    NVF_ERROR(runtime_info_.has_value(), "needs runtime info");
-    return runtime_info_.value();
-  }
+  SchedulerRuntimeInfo& runtimeInfo();
 
   ExpressionEvaluator& expressionEvaluator() {
     return runtimeInfo().expressionEvaluator();
@@ -715,9 +713,6 @@ class SegmentCandidateFinder {
   //! options to configure and debug the segment process
   SegmentCandidateFinderOptions options_;
 
-  std::deque<SegmentedGroup*> to_visit_;
-  std::vector<SegmentedGroup*> next_to_visit_;
-
   std::unordered_set<SegmentedGroup*> clean_up_groups_;
   std::unordered_set<SegmentedEdge*> clean_up_edges_;
 
@@ -760,7 +755,7 @@ class SegmentCandidateFinder {
   //! TODO:
   //!  implement the expression evaluator transfer and
   //!  remove runtime_inputs_ in a follow up.
-  const KernelArgumentHolder* runtime_inputs_;
+  const KernelArgumentHolder runtime_inputs_;
 };
 
 // TODO: Make as member functions on classes instead of global scope

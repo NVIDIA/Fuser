@@ -92,6 +92,12 @@ Val* IrBuilder::bitwiseNotExpr(Val* val) {
   return result;
 }
 
+Val* IrBuilder::bitCeilExpr(Val* val) {
+  auto result = create<Val>(val->dtype());
+  IrBuilder::create<UnaryOp>(UnaryOpType::BitCeil, result, val);
+  return result;
+}
+
 Val* IrBuilder::derefExpr(Val* val) {
   NVF_CHECK(val != nullptr, "val is a nullptr in derefExpr.");
   auto result = create<Val>(*(std::get<PointerType>(val->dtype().type).type));
@@ -380,6 +386,17 @@ Val* SimplifyingIrBuilder::addExpr(Val* lhs, Val* rhs) {
   } else if (rhs->isConst()) {
     return addExpr(lhs, rhs->value(), rhs->dtype());
   } else {
+    // Simplify (-x) + x to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(lhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(rhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+    // Simplify x + (-x) to 0
+    if (auto uop = dynamic_cast<UnaryOp*>(rhs->definition()); uop != nullptr &&
+        uop->getUnaryOpType() == UnaryOpType::Neg && uop->in()->sameAs(lhs)) {
+      return lhs->fusion()->zeroVal(lhs->dtype());
+    }
+
     return IrBuilder::addExpr(lhs, rhs);
   }
 }

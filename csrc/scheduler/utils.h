@@ -153,24 +153,60 @@ int64_t mergeNonReduction(TensorView* tv);
 // DAG. Empty `selected_tvs` means selecting all tensors in the fusion of
 // `reference_tv`. `selected_parallel_types` are the selected parallel types.
 // Empty `selected_parallel_types` means selecting all parallel types.
+// `parallelize_inputs` is a boolean flag that determines whether to parallelize
+// the inputs of the fusion. This is generally not required except in some cases
+// for DID parallelization. For eg: propagateReshapeTransforms using
+// TransformPropagator will replay the transforms onto the inputs of the fusion
+// but not the DID parallelization.
 void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true);
+    bool propagate_padding = true,
+    bool parallelize_inputs = false);
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
-    bool propagate_padding = true) {
+    bool propagate_padding = true,
+    bool parallelize_inputs = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::move(selected_tvs),
       selected_parallel_types,
-      propagate_padding);
+      propagate_padding,
+      parallelize_inputs);
+}
+
+inline void parallelizeAllLike(
+    TensorView* reference_tv,
+    std::initializer_list<TensorView*> selected_tvs,
+    const std::unordered_set<ParallelType>& selected_parallel_types = {},
+    bool propagate_padding = true,
+    bool parallelize_inputs = false) {
+  parallelizeAllLike(
+      reference_tv,
+      std::vector<TensorView*>(selected_tvs),
+      selected_parallel_types,
+      propagate_padding,
+      parallelize_inputs);
+}
+
+inline void parallelizeAllLike(
+    TensorView* reference_tv,
+    const std::unordered_set<ParallelType>& selected_parallel_types,
+    bool propagate_padding = true,
+    bool parallelize_inputs = false) {
+  parallelizeAllLike(
+      reference_tv,
+      -1,
+      std::vector<TensorView*>{},
+      selected_parallel_types,
+      propagate_padding,
+      parallelize_inputs);
 }
 
 // Common hyperparameters used in heuristic scheduler. These hyperparameters
@@ -204,6 +240,10 @@ struct SchedulerHyperParameters {
 struct PersistentBufferInfo {
   std::vector<TensorView*> persistent_buffers;
   std::unordered_set<IterDomain*> unmappable_dims;
+
+  // Tensors with unmappable dims that cannot be persistent due to
+  // broadcast inling
+  std::vector<TensorView*> non_persistent_buffers;
 
   // Persistent buffers are needed until the path through the reduction -
   // broadcast chain is resolved by any other chain using the persistent buffer
@@ -609,13 +649,21 @@ DisjointSets<IterDomain*> disjointLogicalSets(Fusion* fusion);
 // [1, 0, 0] pos 1 would return true
 bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos);
 
-// Generates an old to new map to reorder tv's domain as the logical order.
+// Update the vector of ids_to_transform as progressing through the
+// `transform_exprs`. We'll always insert the result of split in the
+// location of the input, and insert the merge result in the position of the
+// inner dimension.
+void applyTransforms(
+    std::vector<IterDomain*>& ids_to_transform,
+    const std::vector<Expr*>& transform_exprs);
+
+// Generates a permutation to reorder tv's domain as the logical order.
 // Priority is given to inner most dimensions for example:
 // logical [i0, i1, i2]
 // domain [i0*i2, i1]
-// will produce the map {{0, 1}, {1, 0}}
+// will produce the permutation {1, 0}
 // This is somewhat similar to orderTiledConcreteIdAsRoot
-std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv);
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv);
 
 // Generates an old to new map to reorder tv's loop domain as its allocation
 // order. This only handles the simple case where allocation is a permutation of
@@ -766,6 +814,20 @@ inline int64_t nLogicalDims(const TensorView* tv) {
 // Reorer the loop domain of a given tensor to align with a given list of
 // reference IDs. Non-matching loop IDs are placed outermost positions.
 void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
+
+// If buffer_tv's definition is an upcast and the input to the cast is not a
+// fusion input, return input to the cast. Otherwise, return nullptr. Used to
+// recompute buffer_tv from its producer to save register/smem usage. Fusion
+// input is skipped as it is handled by project to inputs.
+TensorView* getUpCastInputOf(const TensorView* buffer_tv);
+
+//! Given an input TV, try and schedule trivial ops as global to global ops that
+//! will be skipped at lowering by modifying their allocation domains and memory
+//! types. Returns the last resulting global consumer of the given TV: its
+//! definition and those of all its producers will be skipped during lowering
+//! with the tensor producer alias mechanism.
+//! See device_lower/analysis/tensor_producer_aliases.h
+TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
 } // namespace scheduler_utils
 } // namespace nvfuser

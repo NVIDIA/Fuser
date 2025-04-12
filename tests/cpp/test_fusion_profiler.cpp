@@ -54,7 +54,7 @@ class FusionProfilerTest : public NVFuserTest {
   Options<ProfilerOption> saved_;
 };
 
-// RUN CMD: bin/nvfuser_tests --gtest_filter="*Profile1Segment*"
+// RUN CMD: bin/test_profiler --gtest_filter="*Profile1Segment*"
 TEST_F(FusionProfilerTest, Profile1Segment) {
   try {
     auto fusion = std::make_unique<Fusion>();

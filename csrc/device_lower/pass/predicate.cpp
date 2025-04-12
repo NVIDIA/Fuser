@@ -144,7 +144,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           auto vec_expr = ite->thenBody()[0];
           NVF_ERROR(
               vec_expr->isA<UnaryOp>() || vec_expr->isA<LoadStoreOp>() ||
-                  vec_expr->isA<TernaryOp>(),
+                  vec_expr->isA<TernaryOp>() || vec_expr->isA<IndexSelectOp>(),
               "Vectorize predicate exprs only supported on set operations.");
           NVF_ERROR(
               ir_utils::isTvOp(vec_expr),

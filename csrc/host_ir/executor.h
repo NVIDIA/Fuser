@@ -35,9 +35,8 @@ class HostIrExecutor : public ExecutorAbstract {
 
   bool isCompiled() const override;
 
-  NVF_API std::vector<at::Tensor> run(
-      KernelArgumentHolder& args,
-      std::vector<at::Tensor> outputs = {});
+  NVF_API KernelArgumentHolder
+  run(KernelArgumentHolder& args, KernelArgumentHolder outputs = {});
 
   const std::unique_ptr<hir::HostIrContainer>& hostContainer() const {
     return host_ir_container_;
@@ -86,10 +85,8 @@ class HostIrEvaluator final : public OptOutDispatch {
       Communicator* communicator = nullptr,
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
-  std::vector<at::Tensor> runWithInput(
-      std::unordered_map<Val*, c10::IValue> val_to_IValue);
-  std::vector<at::Tensor> runWithPolymorphicValues(
-      std::unordered_map<Val*, const PolymorphicValue*> val_to_PValue);
+  KernelArgumentHolder runWithInput(
+      const std::unordered_map<Val*, PolymorphicValue>& val_to_PValue);
 
   const std::vector<Val*>& inputs() {
     return container_->inputs();
@@ -102,6 +99,10 @@ class HostIrEvaluator final : public OptOutDispatch {
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
+
+  const HostIrContainer& getHostIrContainer() const {
+    return *container_.get();
+  }
 
   const auto& getFusionExecutorCaches() {
     return fec_;
@@ -136,7 +137,7 @@ class HostIrEvaluator final : public OptOutDispatch {
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
-  std::vector<at::Tensor> dispatchAndCollectOutputs();
+  KernelArgumentHolder dispatchAndCollectOutputs();
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;
@@ -149,7 +150,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   using StreamKey = std::variant<int64_t, Stream*>;
   std::unordered_map<StreamKey, c10::cuda::CUDAStream> streams_;
   std::unordered_map<Expr*, c10::intrusive_ptr<c10d::Work>> works_;
-  const int64_t my_device_index_;
+  const int64_t my_local_device_index_;
 };
 
 } // namespace hir

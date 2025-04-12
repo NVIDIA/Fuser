@@ -16,7 +16,6 @@
 
 #include <c10/util/BFloat16.h>
 #include <c10/util/Half.h>
-#include <c10/util/irange.h>
 
 namespace nvfuser {
 
@@ -28,7 +27,7 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
   new_root.reserve(dom.size() - 1);
   dim = wrapDim(dim, (int64_t)dom.size());
 
-  for (auto i : c10::irange((int64_t)dom.size())) {
+  for (auto i : arange((int64_t)dom.size())) {
     if (i != dim) {
       new_root.emplace_back(dom[i]->cloneWithoutRFactor());
     }
@@ -79,7 +78,7 @@ TensorView* indexSelect(
   // create logical domain for output tensorview.
   std::vector<IterDomain*> new_logical;
   new_logical.reserve(n_dims);
-  for (auto i : c10::irange(n_dims)) {
+  for (auto i : arange(n_dims)) {
     if (i != dim) {
       new_logical.emplace_back(lookup_domain.at(i)->cloneWithoutRFactor());
     } else {
@@ -101,7 +100,7 @@ TensorView* indexSelect(
 }
 
 // torch.gather
-TensorView* torchGather(TensorView* inp, int64_t dim, TensorView* index) {
+TensorView* gather(TensorView* inp, int64_t dim, TensorView* index) {
   auto inp_domain = TensorDomain::noReductions(inp->getLogicalDomain());
   auto idx_domain = TensorDomain::noReductions(index->getLogicalDomain());
   NVF_CHECK(
@@ -128,7 +127,7 @@ TensorView* torchGather(TensorView* inp, int64_t dim, TensorView* index) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
 
-  IrBuilder::create<TorchGatherOp>(out_tensor, inp, dim, index, false);
+  IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, false);
   return out_tensor->as<TensorView>();
 }
 
@@ -151,7 +150,7 @@ TensorView* scatterOp(
 
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_domain;
-  for (const auto i : c10::irange(self_dom.size())) {
+  for (const auto i : arange(self_dom.size())) {
     out_domain.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
@@ -192,7 +191,7 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
 
   std::vector<IterDomain*> out_domain(idx_domain.size());
 
-  for (const auto i : c10::irange(idx_domain.size())) {
+  for (const auto i : arange(idx_domain.size())) {
     auto inp_id = inp_domain.at(i);
     auto idx_id = idx_domain.at(i);
 
@@ -237,7 +236,7 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       inp->getDataType().value());
 
-  IrBuilder::create<TorchGatherOp>(out_tensor, inp, dim, index, true);
+  IrBuilder::create<GatherOp>(out_tensor, inp, dim, index, true);
 
   return out_tensor->as<TensorView>();
 }

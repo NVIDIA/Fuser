@@ -23,36 +23,37 @@ namespace nvfuser {
 MultiDeviceExecutor::MultiDeviceExecutor(
     std::unique_ptr<Fusion> fusion,
     Communicator& comm,
-    hir::HostIrEvaluatorParams params)
+    MultiDeviceExecutorParams params)
     : comm_(comm) {
+  HostIrLower lower(params.lower);
   std::unique_ptr<hir::HostIrContainer> hic =
-      HostIrLower::lower(std::move(fusion), comm.deviceId());
+      lower.lower(std::move(fusion), comm.deviceId());
   // Create the HostIrEvaluator representing the host program
-  host_ir_executor_ =
-      std::make_unique<hir::HostIrEvaluator>(std::move(hic), &comm, params);
+  host_ir_executor_ = std::make_unique<hir::HostIrEvaluator>(
+      std::move(hic), &comm, params.executor);
 }
 
-std::vector<at::Tensor> MultiDeviceExecutor::runWithInput(
-    const std::vector<c10::IValue>& inputs) {
+KernelArgumentHolder MultiDeviceExecutor::runWithInput(
+    const KernelArgumentHolder& inputs) {
   // make sure the communicator can run the Fusion (e.g. there is enough GPUs,
   // etc)
   auto error_msg = validate();
   NVF_ERROR(error_msg.empty(), error_msg);
 
   // Stores concrete computed values,
-  std::unordered_map<Val*, c10::IValue> val_to_IValue;
+  std::unordered_map<Val*, PolymorphicValue> val_to_PValue;
 
   // Make sure inputs align at global boundary.
   NVF_ERROR(
       inputs.size() == host_ir_executor_->inputs().size(),
       "Wrong number of inputs");
   // process input values:
-  for (auto input_idx : c10::irange(inputs.size())) {
-    val_to_IValue[host_ir_executor_->inputs().at(input_idx)] =
-        inputs.at(input_idx);
+  for (auto input_idx : arange(inputs.size())) {
+    val_to_PValue[host_ir_executor_->inputs().at(input_idx)] =
+        inputs[input_idx];
   }
 
-  return host_ir_executor_->runWithInput(val_to_IValue);
+  return host_ir_executor_->runWithInput(val_to_PValue);
 }
 
 std::ostream& MultiDeviceExecutor::print(std::ostream& os) {

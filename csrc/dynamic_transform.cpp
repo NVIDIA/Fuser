@@ -18,6 +18,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
 #include <transform_iter.h>
+#include <transform_replay.h>
 #include <transform_view.h>
 #include <utils.h>
 
@@ -169,7 +170,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
         TensorDomain::noReductions(inp_tv->getLogicalDomain());
     const std::vector<IterDomain*>& out_root = out_tv->getMaybeRootDomain();
     NVF_ERROR(inp_logical.size() == out_root.size());
-    for (auto i : c10::irange((int64_t)out_root.size())) {
+    for (auto i : arange((int64_t)out_root.size())) {
       IterDomain* out_id = out_root[i];
       if (!out_id->isSymbolic()) {
         continue;
@@ -221,7 +222,7 @@ class DynamicTransformInitialInfoBuilder : public IterVisitor {
     // Vals. These will be the inputs that are explicitly used in the cache ID
     // for KernelArgumentHolder.
     auto dyn_vals = info_.getRootDynamicVals();
-    for (const auto i : c10::irange((int64_t)info_.fusion()->inputs().size())) {
+    for (const auto i : arange((int64_t)info_.fusion()->inputs().size())) {
       auto input = info_.fusion()->inputs().at(i);
       if (dyn_vals.find(input) != dyn_vals.end()) {
         info_.scalar_inputs_affecting_concretization_.insert(i);
@@ -274,7 +275,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
   analyzeFactoryOutputs(expr_eval);
 
   auto maybe_zero_extents = initial_info_->getMaybeZeroExtents();
-  for (auto i : c10::irange((int64_t)maybe_zero_extents.size())) {
+  for (auto i : arange((int64_t)maybe_zero_extents.size())) {
     auto ext = maybe_zero_extents.at(i);
     auto ext_opt = expr_eval->evaluate(ext);
     NVF_ERROR(
@@ -290,7 +291,7 @@ DynamicTransformConcretizationInfo::DynamicTransformConcretizationInfo(
 void DynamicTransformConcretizationInfo::analyzeReshapes(
     ExpressionEvaluator* expr_eval) {
   const auto& reshape_tvs = initial_info_->getDynamicReshapedTensorViews();
-  for (const auto tv_index : c10::irange((int64_t)reshape_tvs.size())) {
+  for (const auto tv_index : arange((int64_t)reshape_tvs.size())) {
     auto out_tv = reshape_tvs.at(tv_index);
     auto op = out_tv->definition()->as<ViewOp>();
     auto inp_tv = op->in()->as<TensorView>();
@@ -311,7 +312,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     // Determine input shape using expr evaluator
     std::vector<int64_t> inp_shape(inp_dom.size(), 0);
     bool is_empty = false;
-    for (const auto i : c10::irange((int64_t)inp_dom.size())) {
+    for (const auto i : arange((int64_t)inp_dom.size())) {
       auto inp_id = inp_dom.at(i);
       // This should have been validated when initially creating reshape
       // op, but just in case
@@ -344,7 +345,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
     // one domain of extent -1
     std::vector<int64_t> out_shape(out_dom.size(), 0);
     std::vector<int64_t> out_symbolic_sizes;
-    for (const auto i : c10::irange((int64_t)out_dom.size())) {
+    for (const auto i : arange((int64_t)out_dom.size())) {
       auto out_id = out_dom.at(i);
       auto extent_val = expr_eval->evaluate(out_id->extent());
       NVF_ERROR(
@@ -390,7 +391,7 @@ void DynamicTransformConcretizationInfo::analyzeReshapes(
 void DynamicTransformConcretizationInfo::analyzeResizes(
     ExpressionEvaluator* expr_eval) {
   const auto& resize_ids = initial_info_->getDynamicResizedIterDomains();
-  for (const auto id_index : c10::irange((int64_t)resize_ids.size())) {
+  for (const auto id_index : arange((int64_t)resize_ids.size())) {
     auto out_id = resize_ids.at(id_index);
     auto op = out_id->definition()->as<Resize>();
 
@@ -427,7 +428,7 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
     ExpressionEvaluator* expr_eval) {
   const std::vector<TensorView*>& expanded_tvs =
       initial_info_->getDynamicExpandedTensorViews();
-  for (const auto tv_index : c10::irange((int64_t)expanded_tvs.size())) {
+  for (const auto tv_index : arange((int64_t)expanded_tvs.size())) {
     const TensorView* out_tv = expanded_tvs.at(tv_index);
     const TensorView* inp_tv = out_tv->definition()->as<ExpandOp>()->in();
 
@@ -438,7 +439,7 @@ void DynamicTransformConcretizationInfo::analyzeExpands(
     NVF_ERROR(out_root.size() == inp_logical.size());
     std::vector<bool> expand_axes;
     expand_axes.reserve(out_root.size());
-    for (int64_t i : c10::irange((int64_t)out_root.size())) {
+    for (int64_t i : arange((int64_t)out_root.size())) {
       const IterDomain* inp_id = inp_logical[i];
       const IterDomain* out_id = out_root[i];
       if (out_id->isIteration()) {
@@ -475,11 +476,11 @@ void DynamicTransformConcretizationInfo::analyzeFactoryOutputs(
   const std::vector<TensorView*>& factory_tvs =
       initial_info_->getDynamicFactoryOutputs();
   factory_output_itertypes_.reserve(factory_tvs.size());
-  for (const auto tv_index : c10::irange((int64_t)factory_tvs.size())) {
+  for (const auto tv_index : arange((int64_t)factory_tvs.size())) {
     const TensorView* tv = factory_tvs.at(tv_index);
     const std::vector<IterDomain*>& logical_dom = tv->getLogicalDomain();
     std::vector<std::pair<int64_t, IterType>> conc_iter_types;
-    for (int64_t pos : c10::irange((int64_t)logical_dom.size())) {
+    for (int64_t pos : arange((int64_t)logical_dom.size())) {
       const IterDomain* id = logical_dom[pos];
       if (!id->isSymbolic()) {
         continue;
@@ -515,7 +516,7 @@ bool DynamicTransformConcretizationInfo::operator==(
     return false;
   }
 
-  for (const auto i : c10::irange((int64_t)reshape_transforms_.size())) {
+  for (const auto i : arange((int64_t)reshape_transforms_.size())) {
     const auto& analysis = reshape_transforms_.at(i);
     const auto& other_analysis = other.reshape_transforms_.at(i);
     if (analysis != other_analysis) {
@@ -523,7 +524,7 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
-  for (const auto i : c10::irange((int64_t)resize_itertypes_.size())) {
+  for (const auto i : arange((int64_t)resize_itertypes_.size())) {
     const auto& itertype = resize_itertypes_.at(i);
     const auto& other_itertype = other.resize_itertypes_.at(i);
     if (itertype != other_itertype) {
@@ -535,7 +536,7 @@ bool DynamicTransformConcretizationInfo::operator==(
     return false;
   }
 
-  for (const auto i : c10::irange((int64_t)expand_axes_.size())) {
+  for (const auto i : arange((int64_t)expand_axes_.size())) {
     const auto& expand_axes = expand_axes_.at(i);
     const auto& other_expand_axes = other.expand_axes_.at(i);
     if (expand_axes != other_expand_axes) {
@@ -543,7 +544,7 @@ bool DynamicTransformConcretizationInfo::operator==(
     }
   }
 
-  for (const auto i : c10::irange((int64_t)empty_extents_.size())) {
+  for (const auto i : arange((int64_t)empty_extents_.size())) {
     const auto& ee = empty_extents_.at(i);
     const auto& other_ee = other.empty_extents_.at(i);
     if (ee != other_ee) {
@@ -608,7 +609,7 @@ std::string DynamicTransformConcretizationInfo::toString() const {
   NVF_ERROR(
       factory_output_itertypes_.size() ==
       initial_info_->getDynamicFactoryOutputs().size());
-  for (int64_t i : c10::irange((int64_t)factory_output_itertypes_.size())) {
+  for (int64_t i : arange((int64_t)factory_output_itertypes_.size())) {
     TensorView* tv = initial_info_->getDynamicFactoryOutputs().at(i);
     indent(ss, 2) << tv->toString() << std::endl;
     for (const auto& [pos, iter_type] : factory_output_itertypes_.at(i)) {
@@ -831,9 +832,13 @@ TensorView* DynamicTransformConcretizer::concretizeNonEmptyReshape(
   NVF_ERROR(
       old_logical.size() == new_logical.size(),
       "Concretized reshape logical size does not match symbolic logical size");
-  for (auto idx : c10::irange((int64_t)new_logical.size())) {
-    auto old_extent = old_logical.at(idx)->extent();
-    auto new_extent = new_logical.at(idx)->extent();
+
+  TransformReplay::selfReplay(
+      incomplete_out_tv->domain(), concrete_reshape_out_tv->domain());
+
+  for (auto&& [old_id, new_id] : zip(old_logical, new_logical)) {
+    Val* old_extent = old_id->extent();
+    Val* new_extent = new_id->extent();
     // If the old extent did not have a definition, we don't need to replace
     // it, since it will get bound whenever this tensor is a segmentation
     // edge.
@@ -859,7 +864,7 @@ TensorView* DynamicTransformConcretizer::concretizeEmptyReshape(
       incomplete_out_tv->getLogicalDomain();
   NVF_ERROR(symbolic_sizes.size() == old_logical.size());
   new_shape.reserve(incomplete_out_tv->getLogicalDomain().size());
-  for (size_t i : c10::irange(old_logical.size())) {
+  for (size_t i : arange(old_logical.size())) {
     int64_t symbolic_size = symbolic_sizes[i];
     if (symbolic_size == 0l) {
       new_shape.push_back(inp_tv->fusion()->zeroVal(DataType::Index));
@@ -877,7 +882,7 @@ TensorView* DynamicTransformConcretizer::concretizeEmptyReshape(
   const std::vector<IterDomain*>& new_logical =
       concrete_reshape_out_tv->getLogicalDomain();
   NVF_ERROR(symbolic_sizes.size() == new_logical.size());
-  for (size_t i : c10::irange(symbolic_sizes.size())) {
+  for (size_t i : arange(symbolic_sizes.size())) {
     int64_t symbolic_size = symbolic_sizes[i];
     IterType iter_type =
         symbolic_size == 1l ? IterType::Broadcast : IterType::Iteration;
@@ -977,7 +982,7 @@ void DynamicTransformConcretizer::concretizeExpand() {
     std::vector<IterDomain*> out_logical =
         TensorDomain::noReductions(symbolic_out_tv->getLogicalDomain());
     NVF_ERROR(axis_is_expanded.size() == out_logical.size());
-    for (int64_t i : c10::irange((int64_t)out_logical.size())) {
+    for (int64_t i : arange((int64_t)out_logical.size())) {
       if (!axis_is_expanded[i]) {
         // Propagate as usual for non-expanded IterDomains
         continue;
@@ -1003,7 +1008,7 @@ void DynamicTransformConcretizer::concretizeFactoryOutputs() {
       info_->initialInfo()->getDynamicFactoryOutputs();
   const auto& pair_vecs = info_->getFactoryOutputIterTypes();
   NVF_ERROR(factory_tvs.size() == pair_vecs.size());
-  for (const int64_t i : c10::irange((int64_t)factory_tvs.size())) {
+  for (const int64_t i : arange((int64_t)factory_tvs.size())) {
     TensorView* tv = factory_tvs[i];
     const std::vector<std::pair<int64_t, IterType>>& pair_vec = pair_vecs[i];
     for (auto& [pos, iter_type] : pair_vec) {
@@ -1090,7 +1095,7 @@ void DynamicTransformConcretizer::mutate(TensorView* tv) {
       IterType iter_type = IterType::Symbolic;
       const auto input_ids =
           ir_utils::filterByType<IterDomain>(expr->inputs()).vector();
-      for (auto i : c10::irange((int64_t)input_ids.size())) {
+      for (auto i : arange((int64_t)input_ids.size())) {
         auto inp_id = input_ids.at(i);
         auto updated_id = maybeMutated(inp_id)->as<IterDomain>();
         NVF_CHECK(
@@ -1204,7 +1209,7 @@ void DynamicTransformConcretizer::mutate(TensorDomain* td) {
       new_maybe_alloc.size() == original_alloc.size(),
       "rank of allocation domain shouldn't change in concretization");
 
-  for (const auto i : c10::irange((int64_t)original_alloc.size())) {
+  for (const auto i : arange((int64_t)original_alloc.size())) {
     auto original_id = original_alloc.at(i);
     if (original_id->getIterType() != IterType::Symbolic) {
       continue;
@@ -1343,7 +1348,7 @@ bool DynamicTransformConcretizer::propagateFromProducerToConsumer(
 
   bool is_concretized = false;
 
-  for (const auto i : c10::irange((int64_t)root_domain.size())) {
+  for (const auto i : arange((int64_t)root_domain.size())) {
     auto root_id = root_domain.at(i);
     if (root_id->getIterType() != IterType::Symbolic) {
       continue;
@@ -1451,12 +1456,6 @@ std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
     const DynamicTransformConcretizationInfo* info) {
   DynamicTransformConcretizer concretizer(fusion, info);
   return concretizer.getSymbolicToConcretizedMap();
-}
-
-std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(
-    Fusion* fusion,
-    const std::vector<c10::IValue>& aten_inputs) {
-  return concretizeFusion(fusion, KernelArgumentHolder(aten_inputs));
 }
 
 std::unordered_map<Val*, Val*> DynamicTransform::concretizeFusion(

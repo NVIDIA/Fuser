@@ -33,6 +33,7 @@
 namespace nvfuser {
 
 using namespace at::indexing;
+using testing::UnorderedElementsAre;
 
 // tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
@@ -105,9 +106,9 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto aten_rstd = std::get<2>(aten_results);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  std::vector<c10::IValue> aten_inputs = {
+  KernelArgumentHolder args = {
       aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
-  auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
   auto aten_gradients = at::native_layer_norm_backward(
       aten_grad_out,
@@ -121,8 +122,8 @@ TEST_P(CombinedSchedulerTest, LayerNormBackward) {
 
   testValidate(
       executor_cache.fusion(),
-      {cg_outputs[0], cg_outputs[1], cg_outputs[2]},
-      aten_inputs,
+      cg_outputs,
+      args,
       {std::get<0>(aten_gradients),
        std::get<1>(aten_gradients),
        std::get<2>(aten_gradients)},
@@ -180,10 +181,10 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
+    for (const auto idx : arange(kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
+    for (const auto idx : arange(kOuterNumDims, kM)) {
       // just to avoid unused variable warning
       outer_shape.push_back(1 + idx - idx);
     }
@@ -262,14 +263,14 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     auto aten_rstd = std::get<2>(aten_results);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    std::vector<c10::IValue> aten_inputs = {
+    KernelArgumentHolder args = {
         aten_grad_out,
         aten_input,
         aten_mean,
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
     auto aten_gradients = at::native_layer_norm_backward(
         aten_grad_out.to(at::kDouble),
@@ -294,7 +295,7 @@ TEST_F(CombinedSchedulerTest, SharedConsumer) {
     testValidate(
         &fusion,
         cg_outputs,
-        aten_inputs,
+        args,
         {aten_out_linked,
          std::get<0>(aten_gradients),
          std::get<1>(aten_gradients),
@@ -330,10 +331,10 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     const size_t kN = norm_shape.size();
     const size_t kOuterNumDims = kM - kN;
     std::vector<int64_t> outer_shape;
-    for (const auto idx : c10::irange(kOuterNumDims)) {
+    for (const auto idx : arange(kOuterNumDims)) {
       outer_shape.push_back(input_shape[idx]);
     }
-    for (const auto idx : c10::irange(kOuterNumDims, kM)) {
+    for (const auto idx : arange(kOuterNumDims, kM)) {
       // just to avoid unused variable warning
       outer_shape.push_back(1 + idx - idx);
     }
@@ -445,14 +446,14 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     auto aten_rstd = std::get<2>(aten_results);
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    std::vector<c10::IValue> aten_inputs = {
+    KernelArgumentHolder args = {
         aten_grad_out,
         aten_input,
         aten_mean,
         aten_rstd,
         aten_weight,
         aten_bias};
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs(args);
 
     FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
     switch (case_id) {
@@ -479,7 +480,7 @@ TEST_F(CombinedSchedulerTest, SharedProducer) {
     testValidate(
         &fusion,
         cg_outputs,
-        aten_inputs,
+        args,
         __LINE__,
         __FILE__,
         "",
@@ -849,10 +850,9 @@ TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     at::Tensor t0 = at::randn({x, y, z}, options);
-    std::vector<c10::IValue> aten_inputs = {t0};
 
     FusionExecutorCache executor_cache(std::move(fusion_ptr));
-    auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0});
 
     bool is_segmented =
         executor_cache.getMostRecentKernelRuntime()->isSegmented();
@@ -866,8 +866,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterMismatch) {
     auto t2 = t1.unsqueeze(-1);
     auto t3 = t0 + t2;
     auto t4 = t0.sum(outer_reduction_axis);
-    testValidate(
-        &fusion, cg_outputs, aten_inputs, {t3, t4}, __LINE__, __FILE__);
+    testValidate(&fusion, cg_outputs, {t0}, {t3, t4}, __LINE__, __FILE__);
   };
 
   // inner reduction is [I, I, R]
@@ -904,10 +903,9 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dim0, dim1}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
   auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, {t0});
 
   auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
   NVF_CHECK(
@@ -921,7 +919,7 @@ TEST_F(CombinedSchedulerTest, InnerOuterNoOuterBroadcastTv) {
   testValidate(
       &fusion,
       cg_results.outputs,
-      aten_inputs,
+      {t0},
       {t3, t4},
       __LINE__,
       __FILE__,
@@ -961,9 +959,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dim0, dim1}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
 
-  SchedulerRuntimeInfo runtime_info(&fusion, aten_inputs);
+  SchedulerRuntimeInfo runtime_info(&fusion, {t0});
   ASSERT_TRUE(Schedule::canSchedule(
       SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeSchedulerInstance(
@@ -983,7 +980,7 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
       std::vector<TensorView*>{tv1};
   scheduler->schedule(&fusion, heuristic_params.get());
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
+  ke.compile(&fusion, {t0});
 
   for (auto tv : fusion.allTvs()) {
     if (tv->getMemoryType() == MemoryType::Shared) {
@@ -993,8 +990,8 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
     }
   }
   auto cg_outputs =
-      ke.run(aten_inputs, heuristic_params->as<ReductionParams>()->lparams);
-  testValidate(&fusion_copy, cg_outputs, aten_inputs, __LINE__, __FILE__);
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
 using InnerOuterReshapeTest = NVFuserFixtureParamTest<bool>;
@@ -1033,13 +1030,140 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
 
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dim0, dim1, dim2}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
   auto cg_results =
-      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, aten_inputs);
+      scheduleAndRun(&fusion, SchedulerType::InnerOuterPersistent, {t0});
   auto persistent_params = cg_results.heuristic_params->as<ReductionParams>();
   ASSERT_FALSE(persistent_params->project_persistent_buffers);
-  testValidate(
-      &fusion_copy, cg_results.outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(&fusion_copy, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
+// enable WarpSpecializedNormalization, dtype, dim0, dim1
+using TmaWarpSpecializedParams = std::tuple<bool, DataType, int64_t, int64_t>;
+class TmaWarpSpecializedTest
+    : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
+ public:
+  void SetUp() override {
+    opt_guard_ = std::make_unique<EnableOptionsGuard>();
+    if (std::get<0>(GetParam())) {
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::WarpSpecializedNormalization);
+    } else {
+      EnableOptionsGuard::getCurOptions().unset(
+          EnableOption::WarpSpecializedNormalization);
+    }
+    NVFuserTest::SetUp();
+  }
+
+ protected:
+  // This keeps the guard alive until all TmaWarpSpecializedTests are done.
+  std::unique_ptr<EnableOptionsGuard> opt_guard_;
+};
+
+TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto [_, dtype, dim0, dim1] = GetParam();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(2, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  auto tv6 = sum(tv1, {0});
+  tv5 = maybeCastOp(dtype, tv5);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+  auto fusion_copy = *fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim0, dim1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+  testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto [_, dtype, dim0, dim1] = GetParam();
+  std::vector<int64_t> norm_shape{dim1};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto grad_out = makeContigTensor(2, dtype);
+  auto input = makeContigTensor(2, dtype);
+  auto rstd = makeContigConcreteTensor({dim0, 1});
+  auto weight = makeContigTensor(1, dtype);
+  fusion->addInput(grad_out);
+  fusion->addInput(input);
+  fusion->addInput(rstd);
+  fusion->addInput(weight);
+
+  grad_out = maybeCastOp(DataType::Float, grad_out);
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  auto grads = rms_norm_backward(
+      grad_out, input, norm_shape, rstd, weight, {true, true});
+  grads.grad_input = maybeCastOp(dtype, grads.grad_input);
+  grads.grad_weight = maybeCastOp(dtype, grads.grad_weight);
+  fusion->addOutput(grads.grad_input);
+  fusion->addOutput(grads.grad_weight);
+
+  auto fusion_copy = *fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  std::vector<int64_t> shape{dim0, dim1};
+  at::Tensor aten_grad_out = at::randn(shape, options);
+  at::Tensor aten_input = at::randn(shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  const float kEps = 1e-6;
+  auto pow2 = at::pow(aten_input.to(at::kFloat), 2);
+  auto sum = at::sum(pow2, -1, true);
+  auto var = at::mul(sum, 1.0 / dim1);
+  auto aten_rstd = at::pow(at::add(var, kEps), -0.5);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  KernelArgumentHolder args = {
+      aten_grad_out, aten_input, aten_rstd, aten_weight};
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+  testValidate(
+      &fusion_copy,
+      cg_outputs,
+      {aten_grad_out, aten_input, aten_rstd, aten_weight},
+      __LINE__,
+      __FILE__);
+}
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaWarpSpecializedTest,
+    ::testing::Combine(
+        testing::Values(true, false),
+        testing::Values(DataType::Float, DataType::BFloat16),
+        testing::Values(32, 2048),
+        ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),
+    [](const testing::TestParamInfo<TmaWarpSpecializedParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "ws_" << std::get<0>(info.param);
+      ss << "_dtype_" << std::get<1>(info.param);
+      ss << "_batch_" << std::get<2>(info.param);
+      ss << "_hidden_" << std::get<3>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser

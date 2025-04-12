@@ -77,15 +77,11 @@ class FusionKernelRuntime {
   PrimDataType getIndexType() const;
 
   //! Unified interface to run the managed kernels with given input
-  NVF_API std::vector<at::Tensor> runWithInputs(KernelArgumentHolder& args);
+  NVF_API KernelArgumentHolder runWithInputs(KernelArgumentHolder& args);
 
   //! Compile a kernel executor for given inputs. Note: The compilation is
   //! multithreaded. The segments in the fusion are compiled independently.
   NVF_API void compileFusionParallel(KernelArgumentHolder args);
-
-  const std::vector<int64_t>& getArgsNumAfterSegmentRuns() {
-    return num_live_args_after_segment_runs_;
-  }
 
   //! Turn On/Off profiling
   void profile(bool to_profile = true) {
@@ -143,18 +139,22 @@ class FusionKernelRuntime {
 
   const std::vector<std::unique_ptr<ExecutorAbstract>>& executors() const;
 
+  const hir::HostIrEvaluator& getHostIrEvaluator() const {
+    return *hie_.get();
+  };
+
  private:
   //! Runs each fusion segment given arguments. The outputs for a fusion are
   //! added back to the arguments, so they can be used as inputs to successive
   //! segments. Returns a map that links each NvFuser Val to its corresponding
   //! tensor.
-  std::unordered_map<Val*, const PolymorphicValue*> runSegmentsWithInputs(
+  std::unordered_map<Val*, PolymorphicValue> runSegmentsWithInputs(
       KernelArgumentHolder& args);
 
   //! Interface to run a single kernel, either one kernel for single-kernel
   //! fusions, or a kernel for a segmentedGrouup in a segmented fusion. Returns
   //! the kernel outputs.
-  std::vector<at::Tensor> runKernelWithInput(
+  KernelArgumentHolder runKernelWithInput(
       KernelArgumentHolder& args,
       SegmentedGroup* sg);
 
@@ -199,12 +199,6 @@ class FusionKernelRuntime {
 
   //! Pre-allocated runtime workspace to speed up kernel launch preparation.
   RuntimeWorkSpace runtime_workspace_;
-
-  //! store number of arguments in KernelArgumentHolder after each segment
-  //! used to check if arguments are erased if not being used in the following
-  //! segments
-  //! Only used in a single test: test_gpu3::FusionClearGmemBetweenSegments_CUDA
-  std::vector<int64_t> num_live_args_after_segment_runs_;
 
   // States for profiling support
   bool profiling_ = false;

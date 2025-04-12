@@ -88,7 +88,7 @@ void checkMatmulOpIdMapping(
   // exists (is not negative) and is not Broadcast before checking mapping.
   int batch_ndims =
       output->nDims() - (B->nDims() > 1) - (A->nDims() > 1) - red_dims;
-  for (int64_t i : c10::irange(batch_ndims)) {
+  for (int64_t i : arange(batch_ndims)) {
     int64_t i_a = A->nDims() - 3 - i;
     int64_t i_b = B->nDims() - 3 - i;
     int64_t i_out = batch_ndims - 1 - i;
@@ -122,7 +122,7 @@ void checkLinearOpIdMapping(
   ASSERT_EQ(output->nDims(), input->nDims() + weight->nDims() - 2 + red_dims);
 
   // Check that the first input_size - 1 dims are mapped for input
-  for (auto i : c10::irange(input->nDims() - 1)) {
+  for (auto i : arange(input->nDims() - 1)) {
     if (!input->axis(i)->isBroadcast()) {
       EXPECT_TRUE(checkMapped(vg, input->axis(i), output->axis(i)));
     }
@@ -167,7 +167,7 @@ TEST_P(MatmulNodeParameterizedTest, MatmulNodeConcrete) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({t0, t1});
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), out_ref));
 }
 
 TEST_P(MatmulNodeParameterizedTest, MatmulNodeSymbolic) {
@@ -193,7 +193,7 @@ TEST_P(MatmulNodeParameterizedTest, MatmulNodeSymbolic) {
   FusionExecutorCache executor_cache(std::move(fusion));
   auto out = executor_cache.runFusionWithInputs({t0, t1});
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(out[0].as<at::Tensor>(), out_ref));
 }
 
 TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
@@ -229,11 +229,11 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  std::vector<at::Tensor> out = {};
+  KernelArgumentHolder cg_outputs;
   if (bias_shape.has_value()) {
-    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = executor_cache.runFusionWithInputs({t0, t1});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   }
 
   const auto& executors =
@@ -241,7 +241,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeConcrete) {
   EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), out_ref));
 }
 TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   auto fusion = std::make_unique<Fusion>();
@@ -278,11 +278,11 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  std::vector<at::Tensor> out = {};
+  KernelArgumentHolder cg_outputs;
   if (bias_shape.has_value()) {
-    out = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1, bias_opt});
   } else {
-    out = executor_cache.runFusionWithInputs({t0, t1});
+    cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
   }
 
   const auto& executors =
@@ -290,7 +290,7 @@ TEST_P(LinearNodeParametrizedTest, LinearNodeSymbolic) {
   EXPECT_EQ(executors.size(), 1);
   EXPECT_FALSE(executors.front()->isA<KernelExecutor>());
 
-  EXPECT_TRUE(at::allclose(out[0], out_ref));
+  EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), out_ref));
 }
 
 constexpr int64_t b = 128, m = 64, k = 32, n = 16;

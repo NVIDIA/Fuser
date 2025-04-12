@@ -92,10 +92,7 @@ class CombineMulSumAsMmaTestWithLayout
   bool pre_hopper;
 };
 
-void performSubstitution(
-    Fusion* fusion,
-    bool avoid_intermediates,
-    bool should_not_find = false) {
+void performSubstitution(Fusion* fusion, bool should_not_find = false) {
   EXPECT_TRUE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 
   std::vector<mma_utils::MatmulPattern> patterns =
@@ -108,7 +105,7 @@ void performSubstitution(
   ASSERT_FALSE(patterns.empty());
   EXPECT_EQ(patterns.size(), 1);
 
-  patterns.front().translateToMmaOp(avoid_intermediates);
+  patterns.front().translateToMmaOp();
 
   ASSERT_FALSE(ir_utils::getOpsOfType<MmaOp>(fusion).empty());
 }
@@ -131,7 +128,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, MulSumToMatmul_Pass) {
 
   fusion.addOutput(tv3);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 }
 
 // This test checks that the pattern matcher does not incorrectly identify
@@ -150,8 +147,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_Fail1) {
   auto tv3 = sum(tv2, {-1});
   fusion.addOutput(tv3);
 
-  performSubstitution(
-      &fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/true);
+  performSubstitution(&fusion, /*should_not_find=*/true);
 }
 
 // This fusion has Broadcast batch axes in each operand.
@@ -186,8 +182,7 @@ TEST_F(CombineMulSumAsMmaTest, MulSumToMatmul_MultipleBroadcasts) {
   auto tv3 = sum(tv2, {-1});
   fusion->addOutput(tv3);
 
-  performSubstitution(
-      fusion, /*avoid_intermediates=*/!pre_hopper, /*should_not_find=*/false);
+  performSubstitution(fusion, /*should_not_find=*/false);
 
   // We test running this fusion also to verify that the broadcast batch
   // dimension does not cause unforeseen issues
@@ -227,7 +222,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
 
   fusion.addOutput(tv2);
 
-  performSubstitution(&fusion, /*avoid_intermediates=*/!pre_hopper);
+  performSubstitution(&fusion);
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 128, 32);
@@ -253,7 +248,7 @@ TEST_P(CombineMulSumAsMmaTestWithLayout, AmpereMulSumToMatmul_Schedule) {
   auto cg_outputs = ke.run({inputs.first, inputs.second});
   auto tref = atMatmul(
       inputs.first.to(at::kFloat), inputs.second.to(at::kFloat), layout);
-  NVF_CHECK(cg_outputs[0].allclose(tref, 0.0001, 0.0001));
+  NVF_CHECK(at::allclose(cg_outputs[0].as<at::Tensor>(), tref, 0.0001, 0.0001));
 }
 
 TEST_P(CombineMulSumAsMmaTestWithLayout, UseMatmulScheduler) {
@@ -557,7 +552,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
   if (transpose_a_alloc) {
     t0 = t0.as_strided({M, K}, {1, M});
   }
-  std::vector<c10::IValue> inputs{t0, t1};
+  KernelArgumentHolder inputs{t0, t1};
   at::Tensor tref;
   if (bias_dim >= 0) {
     at::Tensor bias;
@@ -568,7 +563,7 @@ TEST_P(LinearNodeTranslationTest, AutomaticSchedulerLinearNode) {
     } else {
       NVF_THROW("Invalid bias dimension given:", bias_dim);
     }
-    inputs.emplace_back(bias);
+    inputs.push(bias);
     tref = at::linear(t0, t1, bias);
   } else {
     tref = at::linear(t0, t1);
@@ -769,7 +764,27 @@ TEST_P(TranslationCastTest, CountCasts) {
     }
     return false;
   });
-  EXPECT_EQ(num_casts, 1);
+  if (sin_epilogue && output_pre_epilogue) {
+    // Fusion looks like
+    // Inputs:
+    //   A
+    //   B
+    // Outputs:
+    //   C
+    //   D
+    // C = linear(A, B)
+    // D = sin(C)
+    // We will need to cast both C and D.
+    EXPECT_EQ(num_casts, 2);
+  } else {
+    // Fusion is either
+    //   C = linear(A, B)
+    // or
+    //   C = linear(A, B)
+    //   D = sin(C)
+    // but we are not outputting both C and D so there is only one cast.
+    EXPECT_EQ(num_casts, 1);
+  }
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -787,7 +802,7 @@ INSTANTIATE_TEST_SUITE_P(
 INSTANTIATE_TEST_SUITE_P(
     ,
     CombineMulSumAsMmaTestWithLayout,
-    kAllSupportedMmaLayout,
+    testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
 } // namespace nvfuser

@@ -14,7 +14,7 @@ int64_t SegmentationState::setupSegmentation(
     Fusion* fusion,
     const std::unordered_map<const Val*, int64_t>&
         map_presched_value_to_original_python_index,
-    const c10::ArrayRef<c10::IValue>& inputs) {
+    const KernelArgumentHolder& args) {
   // Check state
   NVF_ERROR(fusion != nullptr);
   NVF_ERROR(cloned_original_fusion_ == nullptr);
@@ -22,10 +22,6 @@ int64_t SegmentationState::setupSegmentation(
   NVF_ERROR(group_run_order_.empty());
   NVF_ERROR(map_cloned_concretized_value_to_original_python_index_.empty());
   NVF_ERROR(cloned_original_extents_.empty());
-
-  int8_t device = getCommonDeviceCUDA(inputs);
-  NVF_CHECK(
-      inputs.empty() || device > -1, "Inputs are not all on the same device!");
 
   // Step 1) Clone preschedFusion CPP Fusion.
   cloned_original_fusion_ = std::make_unique<Fusion>();
@@ -55,8 +51,6 @@ int64_t SegmentationState::setupSegmentation(
       });
 
   // Step 3) Concretize fusion with input arguments.
-  KernelArgumentHolder args = KernelArgumentHolder(inputs, device);
-
   std::unordered_map<Val*, Val*> symbolic_to_concrete_map =
       DynamicTransform::concretizeFusion(cloned_original_fusion_.get(), args);
 
@@ -94,7 +88,7 @@ int64_t SegmentationState::setupSegmentation(
 
   // Run segmentation algorithm
   segmented_fusion_ = SegmentCandidateFinder::segment(
-      std::move(cloned_original_fusion_), &args, runtime_info);
+      std::move(cloned_original_fusion_), args, runtime_info);
 
   // Get the order for fusion segments
   prepareGroupOrder();
@@ -224,7 +218,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
   // Step 4d) Map original indices to segment indices.
   NVF_ERROR(original_python_index.size() == segment_python_index.size());
   std::unordered_map<int64_t, int64_t> segment_to_original_python_index_map;
-  for (size_t idx : c10::irange(original_python_index.size())) {
+  for (size_t idx : arange(original_python_index.size())) {
     segment_to_original_python_index_map.emplace(
         segment_python_index.at(idx), original_python_index.at(idx));
   }
@@ -300,7 +294,7 @@ std::unordered_map<int64_t, int64_t> SegmentationState::buildSegment(
       });
 
   // Step 4l) Add missing mappings from segment to original indices.
-  for (size_t idx : c10::irange(missing_segment_python_index.size())) {
+  for (size_t idx : arange(missing_segment_python_index.size())) {
     segment_to_original_python_index_map.emplace(
         missing_segment_python_index.at(idx),
         missing_cloned_python_index.at(idx));
@@ -336,7 +330,7 @@ void SegmentationState::prepareGroupOrder() {
     bool ran_any_group = false;
 
     // Find the first segment with all inputs available to run
-    for (size_t group_i : c10::irange(segmented_fusion_->groups().size())) {
+    for (size_t group_i : arange(segmented_fusion_->groups().size())) {
       SegmentedGroup* group = segmented_fusion_->groups().at(group_i);
 
       // short-circuit: Already ran this segmented group.
@@ -360,7 +354,7 @@ void SegmentationState::prepareGroupOrder() {
 
       // Mark all outputs of SegmentedGroup as ready.
       const std::vector<Val*>& group_outputs = group->outputs();
-      for (size_t group_out_i : c10::irange(group_outputs.size())) {
+      for (size_t group_out_i : arange(group_outputs.size())) {
         available_input.insert(group_outputs.at(group_out_i));
       }
       group_ran[group_i] = true;

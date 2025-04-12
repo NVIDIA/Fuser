@@ -532,7 +532,7 @@ TEST_F(ExprEvalTest, TernaryOps) {
   auto* f = IrBuilder::create<Val>(false);
 
   // Run once without PrecomputedValues, then once with
-  for ([[maybe_unused]] auto i : c10::irange(2)) {
+  for ([[maybe_unused]] auto i : arange(2)) {
     EXPECT_EQ(evaluator.evaluate(clamp(b, c, a)), b->value());
     EXPECT_EQ(evaluator.evaluate(clamp(a, c, b)), b->value());
     EXPECT_EQ(evaluator.evaluate(clamp(d, c, b)), c->value());
@@ -792,7 +792,6 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({3, 4}, options);
-  auto args = KernelArgumentHolder({t0});
 
   // now compute metadata of tv0
   auto metadata = fusion.metadataOf(tv0);
@@ -802,7 +801,7 @@ TEST_F(ExprEvalTest, TensorMetadataPrecomputedValues) {
   auto logical_size_0 = IrBuilder::getItemExpr(logical_size, fusion.zeroVal());
   auto logical_size_1 = IrBuilder::getItemExpr(logical_size, fusion.oneVal());
 
-  pv.bindInputs(args);
+  pv.bindInputs({t0});
   pv.evaluate();
 
   ExpressionEvaluator evaluator;

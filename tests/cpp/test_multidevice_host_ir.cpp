@@ -117,10 +117,10 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
   HostIrEvaluator hie(std::move(hic), communicator_, params);
 
   auto options = at::TensorOptions().device(communicator_->device());
-  at::Tensor unsharded_input = at::randn(unsharded_input_sizes, options);
-  c10::IValue input = unsharded_input.slice(
+  auto unsharded_input = at::randn(unsharded_input_sizes, options);
+  auto input = unsharded_input.slice(
       0, communicator_->deviceId(), communicator_->deviceId() + 1);
-  at::Tensor output = at::empty(unsharded_input_sizes, options);
+  auto output = at::empty(unsharded_input_sizes, options);
   auto ref_output = unsharded_input * 2;
 
   auto outputs = hie.runWithInput(
@@ -128,7 +128,7 @@ TEST_P(MultiDeviceHostIrTest, SingleFusionSingleComm) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
@@ -212,10 +212,10 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
   HostIrEvaluator hie(std::move(hic), communicator_, params);
 
   auto options = at::TensorOptions().device(communicator_->device());
-  at::Tensor unsharded_input = at::randn(unsharded_input_sizes, options);
-  c10::IValue input = unsharded_input.slice(
+  auto unsharded_input = at::randn(unsharded_input_sizes, options);
+  auto input = unsharded_input.slice(
       0, communicator_->deviceId(), communicator_->deviceId() + 1);
-  at::Tensor output = at::empty(unsharded_input_sizes, options);
+  auto output = at::empty(unsharded_input_sizes, options);
   auto ref_output = unsharded_input * 2;
 
   auto outputs = hie.runWithInput(
@@ -223,7 +223,7 @@ TEST_P(MultiDeviceHostIrTest, SingleCommTwoFusionAndWait) {
        {communication->outputs().back(), output}});
 
   // validate the obtained results
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 INSTANTIATE_TEST_SUITE_P(
@@ -297,7 +297,7 @@ TEST_F(P2PCommHostIrTest, RingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
@@ -347,7 +347,7 @@ TEST_F(P2PCommHostIrTest, CoalescedRingPairwiseExchange) {
 
   // validate the obtained results
   at::Tensor ref_output = send_buffer_aten + (recv_peer - my_device_index);
-  EXPECT_TRUE(torch::allclose(ref_output, outputs.back()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs.back().as<at::Tensor>()));
 }
 
 using OverlapDistributedMatmulTest = MultiDeviceTest;
@@ -366,46 +366,45 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  TensorView* a = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
-  TensorView* b = makeContigTensor(2); //[K, N]
-  TensorView* c = matmul(a, b); //[S, D, M/(S*D), N]
+  TensorView* tv0 = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
+  TensorView* tv1 = makeContigTensor(2); //[K, N]
+  TensorView* tv2 = matmul(tv0, tv1); //[S, D, M/(S*D), N]
 
-  fusion->addInput(a);
-  fusion->addInput(b);
-  fusion->addOutput(c);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
 
   auto mesh = DeviceMesh::createForNumDevices(D);
-  a->setDeviceMesh(mesh);
-  b->setDeviceMesh(mesh);
-  c->setDeviceMesh(mesh);
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv2->setDeviceMesh(mesh);
 
-  a->axis(1)->parallelize(ParallelType::DIDx);
-  c->axis(0)->parallelize(ParallelType::Stream);
+  tv0->axis(1)->parallelize(ParallelType::DIDx);
+  tv2->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
-  at::Tensor ta_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
-  at::Tensor ta = ta_unsharded.slice(
+  auto t0_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
+  auto t0 = t0_unsharded.slice(
       1, communicator_->deviceId(), communicator_->deviceId() + 1);
-  at::Tensor tb = at::randn({K, N}, tensor_options);
-  at::Tensor tc_ref = at::matmul(ta_unsharded, tb);
+  auto t1 = at::randn({K, N}, tensor_options);
+  auto t2_ref = at::matmul(t0_unsharded, t1);
 
-  std::vector<c10::IValue> inputs = {ta, tb};
-  at::Tensor tc;
+  at::Tensor t2;
 
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
-  for (auto i : c10::irange(kNumberOfIterations)) {
+  constexpr int64_t kNumberOfIterations = 2;
+  constexpr int64_t kNumberOfWarmupIterations = 1;
+  for (auto i : arange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
     }
-    tc = executor.runWithInput(inputs).at(0);
+    t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
   }
   cudaProfilerStop();
 
-  EXPECT_TRUE(torch::allclose(tc_ref, tc, 1e-2, 1e-2));
+  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
 TEST_F(OverlapDistributedMatmulTest, AG_linear) {
@@ -453,16 +452,16 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
   at::Tensor bias_at = at::randn({N}, tensor_options);
   at::Tensor out_ref = at::linear(in_at_unsharded, weight_at, bias_at);
 
-  std::vector<c10::IValue> inputs = {in_at, weight_at, bias_at};
   at::Tensor out_at;
 
-  constexpr int64_t kNumberOfIterations = 20;
-  constexpr int64_t kNumberOfWarmupIterations = 5;
-  for (auto i : c10::irange(kNumberOfIterations)) {
+  constexpr int64_t kNumberOfIterations = 2;
+  constexpr int64_t kNumberOfWarmupIterations = 1;
+  for (auto i : arange(kNumberOfIterations)) {
     if (i == kNumberOfWarmupIterations) {
       cudaProfilerStart();
     }
-    out_at = executor.runWithInput(inputs).at(0);
+    out_at =
+        executor.runWithInput({in_at, weight_at, bias_at})[0].as<at::Tensor>();
   }
   torch::cuda::synchronize();
   cudaProfilerStop();

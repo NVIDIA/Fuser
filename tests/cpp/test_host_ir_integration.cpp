@@ -30,9 +30,8 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({32, 32}, options);
-  std::vector<c10::IValue> aten_inputs = {t0};
   auto ke = std::make_unique<KernelExecutor>();
-  ke->compile(&fusion, aten_inputs);
+  ke->compile(&fusion, {t0});
 
   auto hic = std::make_unique<HostIrContainer>(1);
   FusionGuard::setCurFusion(hic.get());
@@ -59,7 +58,7 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
 
   auto outputs = hie.runWithInput({{hic_in, t0}});
 
-  EXPECT_TRUE(outputs[0].equal(t0));
+  EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
 TEST_F(HostIrIntegrationTest, Set) {
@@ -77,8 +76,7 @@ TEST_F(HostIrIntegrationTest, Set) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
 
   testValidate(
       executor_cache.fusion(),
@@ -104,8 +102,7 @@ TEST_F(HostIrIntegrationTest, Sum) {
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
-  std::vector<at::Tensor> out_tensors =
-      executor_cache.runFusionWithInputs({in_tensor});
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
 
   testValidate(
       executor_cache.fusion(),

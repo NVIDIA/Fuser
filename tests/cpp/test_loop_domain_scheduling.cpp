@@ -82,7 +82,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
       EXPECT_EQ(tv->getComputeAtPosition(), 2) << tv->toString();
     }
 
-    for (const auto i : c10::irange(ref.size())) {
+    for (const auto i : arange(ref.size())) {
       EXPECT_TRUE(id_model.idGraph(IdMappingMode::EXACT)
                       .disjointValSets()
                       .strictAreMapped(ref.at(i), tv->getLoopDomain().at(i)))
@@ -103,13 +103,12 @@ TEST_F(LoopDomainSchedulingTest, ReshapeSplitThenMerge) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({10}, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
 
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test loop domain scheduling with slice. More test cases can also be
@@ -146,7 +145,7 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
 
   for (auto tv : fusion.allTvs()) {
     EXPECT_EQ(ref_loop.size(), tv->getLoopDomain().size());
-    for (const auto i : c10::irange(ref_loop.size())) {
+    for (const auto i : arange(ref_loop.size())) {
       EXPECT_TRUE(
           id_model.idGraph(IdMappingMode::EXACT)
               .disjointValSets()
@@ -167,15 +166,14 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> aten_inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, aten_inputs);
-  auto cg_outputs = ke.run(aten_inputs);
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
 
   auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
 
-  NVF_CHECK(ref.equal(cg_outputs[0]));
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
 // Iter domain cannot have multiple definitions, whereas ValGroup can.
@@ -228,7 +226,7 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
   IdModel id_model(&fusion, /*build_models=*/false);
   const auto& exact_graph = id_model.buildExactGraph();
 
-  for (const auto i : c10::irange(tv5->getLoopDomain().size())) {
+  for (const auto i : arange(tv5->getLoopDomain().size())) {
     EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
         tv5->getLoopDomain().at(i), ref.at(i)))
         << "Expected exact mapping of loop domains: "
@@ -294,7 +292,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
   fusion.addOutput(tv9);
 
   // Try each of the tensors as a reference
-  for (const auto i : c10::irange(fusion.allTvs().size())) {
+  for (const auto i : arange(fusion.allTvs().size())) {
     Fusion fusion_copy = fusion;
     FusionGuard fg_copy(&fusion_copy);
 
@@ -314,7 +312,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
       }
       EXPECT_EQ(tv->getLoopDomain().size(), ref_loop.size())
           << "Invalid rank of loop domain: " << tv->toString();
-      for (const auto i : c10::irange(ref_loop.size())) {
+      for (const auto i : arange(ref_loop.size())) {
         EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
             tv->getLoopDomain().at(i), ref_loop.at(i)))
             << "Expected exact mapping of loop domains: "
@@ -337,14 +335,13 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({12}, options);
-    std::vector<c10::IValue> aten_inputs({t0});
 
     KernelExecutor ke;
-    ke.compile(&fusion, aten_inputs);
-    auto cg_outputs = ke.run(aten_inputs);
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
 
     auto ref = t0 * 2;
-    EXPECT_TRUE(ref.equal(cg_outputs[0]));
+    EXPECT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
   }
 }
 
@@ -531,7 +528,7 @@ TEST_F(LoopDomainSchedulingTest, BroadcastRefereceIDs) {
 
     // The loop domain should be exact mapped with tv3
     ASSERT_EQ(tv->getLoopDomain().size(), tv3->getLoopDomain().size());
-    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    for (const auto i : arange(tv->getLoopDomain().size())) {
       auto tv_loop_id = tv->getLoopDomain().at(i);
       auto ref_loop_id = tv3->getLoopDomain().at(i);
       EXPECT_TRUE(exact_graph.disjointValSets().strictAreMapped(
@@ -593,12 +590,11 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Cancelling chained reshape ops
@@ -648,12 +644,11 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape2) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Two reshapes that get merged by a binary op
@@ -691,12 +686,11 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape3) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape, options);
-  std::vector<c10::IValue> inputs({t0});
 
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
-  auto outputs = ke.run(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Resize should prevent cancellation
@@ -745,14 +739,14 @@ TEST_F(LoopDomainSchedulingTest, CancelReshape4) {
     IdModel id_model(&fusion, /*build_graphs=*/false);
     const auto& exact_graph = id_model.buildExactGraph();
     ValGroups ref_loop;
-    for (const auto i : c10::irange(2)) {
+    for (const auto i : arange(2)) {
       ref_loop.pushBack(exact_graph.toGroup(tv0->getLoopDomain().at(i)));
     }
     // The first two loop IDs should be exact mapped with tv0
     for (auto tv : {tv3, tv4}) {
       ASSERT_EQ(tv->getLoopDomain().size(), 3);
       ValGroups tv_loop_groups;
-      for (const auto i : c10::irange(2)) {
+      for (const auto i : arange(2)) {
         tv_loop_groups.pushBack(exact_graph.toGroup(tv->getLoopDomain().at(i)));
       }
       EXPECT_EQ(tv_loop_groups, ref_loop);

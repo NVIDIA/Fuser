@@ -46,13 +46,7 @@ struct RopeConfig {
   }
 };
 
-class RopeTest : public NVFuserFixtureParamTest<RopeConfig> {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserTest::SetUp();
-  }
-};
+using RopeTest = NVFuserFixtureParamTest<RopeConfig>;
 
 using MistralRopeTest = RopeTest;
 
@@ -169,12 +163,11 @@ TEST_P(MistralRopeTest, Fwd1) {
   auto t0 = at::randn(shape1, options_bf16);
   auto t1 = at::randn(shape2, options_bf16);
   auto t2 = at::randn(shape3, options_float).to(at::kLong);
-  std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
-      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // Mistral forward after matmul
@@ -435,12 +428,11 @@ TEST_P(MistralRopeTest, Fwd2) {
   auto t0 = at::randn(shape1, options_bf16);
   auto t1 = at::randn(shape2, options_bf16);
   auto t2 = at::randn(shape3, options_fp32);
-  std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
-      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // clang-format off
@@ -729,12 +721,15 @@ TEST_P(MistralRopeTest, Bwd) {
   auto t1 = at::randn(shape1, options_fp32);
   auto t2 = at::randn(shape2, options_bf16);
   auto t3 = at::randn(shape3, options_bf16);
-  std::vector<c10::IValue> inputs({t0, t1, t2, t3});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
   testValidate(
-      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {t0, t1, t2, t3},
+      __LINE__,
+      __FILE__);
 }
 
 using Phi3RopeTest = RopeTest;
@@ -986,12 +981,11 @@ TEST_P(Phi3RopeTest, Fwd) {
   auto t0 = at::randn(qkv_shape, options_bf16);
   auto t1 = at::randn({head_dim / 2}, options_bf16);
   auto t2 = at::arange(seq_len, options_int).unsqueeze(0);
-  std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(
-      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+      executor_cache.fusion(), out_tensors, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // clang-format off
@@ -1204,8 +1198,6 @@ TEST_P(Phi3RopeTest, Bwd) {
   auto T189 = castOp(DataType::BFloat16, T188);
   fusion.addOutput(T189);
 
-  fusion.print();
-
   auto options_bf16 =
       at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
 
@@ -1216,12 +1208,15 @@ TEST_P(Phi3RopeTest, Bwd) {
   auto t3 = at::randn({seq_len, head_dim}, options_bf16)
                 .as_strided({shape}, {0, 0, head_dim, 1});
   auto t4 = at::randn(shape, options_bf16);
-  std::vector<c10::IValue> inputs({t0, t1, t2, t3, t4});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto out_tensors = executor_cache.runFusionWithInputs(inputs);
+  auto out_tensors = executor_cache.runFusionWithInputs({t0, t1, t2, t3, t4});
   testValidate(
-      executor_cache.fusion(), out_tensors, inputs, __LINE__, __FILE__);
+      executor_cache.fusion(),
+      out_tensors,
+      {t0, t1, t2, t3, t4},
+      __LINE__,
+      __FILE__);
 }
 
 using LitgptRopeTest = RopeTest;
@@ -1371,11 +1366,10 @@ TEST_P(LitgptRopeTest, Fwd) {
   auto t0 = at::randn(input_shape, options);
   auto t1 = at::randn({config.seq_length, config.rope_n_elem}, options);
   auto t2 = at::randn({config.seq_length, config.rope_n_elem}, options);
-  std::vector<c10::IValue> inputs({t0, t1, t2});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
 }
 
 // clang-format off
@@ -1617,11 +1611,10 @@ TEST_P(LitgptRopeTest, Bwd) {
   auto t1 = at::randn({2, n_head, seq_len, head_dim}, options);
   auto t2 = at::randn({2, n_head, seq_len, head_dim}, options);
   auto t3 = at::randn({seq_len, head_dim}, options);
-  std::vector<c10::IValue> inputs({t0, t1, t2, t3});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2, t3});
+  testValidate(&fusion, outputs, {t0, t1, t2, t3}, __LINE__, __FILE__);
 }
 
 // Testing the scheduling of an ending repeat pattern, which is
@@ -1642,11 +1635,10 @@ TEST_F(RopeTest, EndingRepeat) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);
-  std::vector<c10::IValue> inputs({t0});
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_FALSE(runtime->isSegmented());

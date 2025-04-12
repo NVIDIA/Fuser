@@ -66,7 +66,11 @@ at::Tensor generate_normal(int64_t size, at::ScalarType dtype) {
   return generate_random_numbers(size, dtype, RNGTest_t::Normal);
 }
 
-class RNGTest : public NVFuserTest {};
+class RNGTest : public NVFuserTest {
+  void SetUp() override {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(RNGTest, ValidateWithCURand) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
@@ -126,12 +130,11 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand) {
 
   at::manual_seed(0);
   auto cg_outputs = ke.run({t0});
-  auto out = cg_outputs[0];
 
   at::manual_seed(0);
   auto ref = generate_uniform(size, dtype);
 
-  testValidate(fusion, {out}, {t0}, {ref}, __LINE__, __FILE__);
+  testValidate(fusion, cg_outputs, {t0}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
@@ -164,12 +167,11 @@ TEST_F(RNGTest, ManualScheduleValidateWithCURand2) {
 
   at::manual_seed(0);
   auto cg_outputs = ke.run({10, 10, 10, 10});
-  auto out = cg_outputs[0];
 
   at::manual_seed(0);
   auto ref = generate_uniform(10000, dtype).view({10, 10, 10, 10});
 
-  testValidate(fusion, {out}, {10, 10, 10, 10}, {ref}, __LINE__, __FILE__);
+  testValidate(fusion, cg_outputs, {10, 10, 10, 10}, {ref}, __LINE__, __FILE__);
 }
 
 TEST_F(RNGTest, BroadcastingRNG) {
@@ -194,7 +196,7 @@ TEST_F(RNGTest, BroadcastingRNG) {
     at::Tensor t1 = at::zeros({5, 5}, options);
 
     auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
-    auto out = cg_outputs[0];
+    auto out = cg_outputs[0].as<at::Tensor>();
     NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 3)).all().item<bool>())
@@ -225,13 +227,17 @@ TEST_F(RNGTest, BroadcastingRNG2) {
 
       at::manual_seed(0);
       auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
-      auto out = cg_outputs[0];
 
       at::manual_seed(0);
       auto ref = generate_uniform(1, dtype).expand_as(t1);
 
       testValidate(
-          executor_cache.fusion(), {out}, {t0, t1}, {ref}, __LINE__, __FILE__);
+          executor_cache.fusion(),
+          cg_outputs,
+          {t0, t1},
+          {ref},
+          __LINE__,
+          __FILE__);
     }
   }
 }
@@ -259,7 +265,7 @@ TEST_F(RNGTest, BroadcastingRNGSmem) {
         scheduleAndRun(
             fusion, SchedulerType::Transpose, {input0, input1}, false)
             .outputs;
-    auto out = outputs[0];
+    auto out = outputs[0].as<at::Tensor>();
 
     NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>())
     NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>())
@@ -296,7 +302,7 @@ TEST_F(RNGTest, BroadcastingRNGSmemNonSquareTile) {
   KernelExecutor ke;
   ke.compile(fusion, {t0, t1});
   auto cg_outputs = ke.run({t0, t1});
-  auto out = cg_outputs[0];
+  auto out = cg_outputs[0].as<at::Tensor>();
 
   NVF_CHECK((out.select(1, 0) == out.select(1, 1)).all().item<bool>());
   NVF_CHECK((out.select(1, 0) == out.select(1, 2)).all().item<bool>());
@@ -402,14 +408,14 @@ TEST_F(RNGTest, RandLikeReduction) {
 
   at::manual_seed(0);
   auto cg_outputs = executor_cache.runFusionWithInputs({t0});
-  auto out = cg_outputs[0];
 
   at::manual_seed(0);
   auto t1 = t0.sum(0);
   auto t2 = generate_uniform(3, dtype).expand_as(t1);
   auto t3 = t1.add(t2);
 
-  testValidate(executor_cache.fusion(), {out}, {t0}, {t3}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0}, {t3}, __LINE__, __FILE__);
 }
 
 //! This is the same as the Uniform test, but we compare against
@@ -468,10 +474,9 @@ TEST_F(RNGTest, FunctionalUniform) {
 
       auto ref1 = generate_uniform(size, at::kDouble) * 2 - 1;
 
-      std::vector<c10::IValue> aten_inputs({size, -1.0, 1.0, 0, 0});
-
       at::manual_seed(0);
-      auto cg_outputs = executor_cache.runFusionWithInputs(aten_inputs);
+      auto cg_outputs =
+          executor_cache.runFusionWithInputs({size, -1.0, 1.0, 0, 0});
 
       std::vector<at::Tensor> aten_outputs;
       if (do_stochastic) {
@@ -483,7 +488,7 @@ TEST_F(RNGTest, FunctionalUniform) {
       testValidate(
           executor_cache.fusion(),
           cg_outputs,
-          aten_inputs,
+          {size, -1.0, 1.0, 0, 0},
           aten_outputs,
           __LINE__,
           __FILE__);
@@ -539,11 +544,11 @@ TEST_F(RNGTest, DifferentOffsets) {
   for (int64_t size : {1, 4}) {
     at::manual_seed(0);
     EXPECT_TRUE(get_current_offset() == 0);
-    auto r1 = executor_cache.runFusionWithInputs({size}).at(0);
+    auto r1 = executor_cache.runFusionWithInputs({size})[0].as<at::Tensor>();
     EXPECT_TRUE(get_current_offset() == 4);
     auto r23 = fec2.runFusionWithInputs({size});
-    auto r2 = r23.at(0);
-    auto r3 = r23.at(1);
+    auto r2 = r23[0].as<at::Tensor>();
+    auto r3 = r23[1].as<at::Tensor>();
     EXPECT_TRUE(get_current_offset() == 12);
     // Check that non of r1's elements are equal to any r2's elements.
     // Same for r1 vs r3, and r2 vs r3.

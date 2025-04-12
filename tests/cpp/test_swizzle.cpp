@@ -531,7 +531,8 @@ at::Tensor getSwizzledTensor(
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({size_x, size_y});
 
-  return input.index_put({outputs[0], outputs[1]}, input);
+  return input.index_put(
+      {outputs[0].as<at::Tensor>(), outputs[1].as<at::Tensor>()}, input);
 }
 
 } // namespace
@@ -683,10 +684,10 @@ TEST_F(LegacySwizzleTest, SwizzleInProducerProjection) {
   auto outputs = ke.run({t});
 
   auto expect = at::empty_like(t);
-  for (auto i : c10::irange(t.size(0) / 8)) {
-    for (auto j : c10::irange(t.size(1) / 8)) {
-      for (auto ii : c10::irange(8)) {
-        for (auto jj : c10::irange(8)) {
+  for (auto i : arange(t.size(0) / 8)) {
+    for (auto j : arange(t.size(1) / 8)) {
+      for (auto ii : arange(8)) {
+        for (auto jj : arange(8)) {
           expect[i * 8 + ii][j * 8 + jj] = t[i * 8 + ii][j * 8 + (ii ^ jj)];
         }
       }
@@ -738,8 +739,8 @@ TEST_F(SwizzleTest, Transpose1) {
   KernelExecutor ke;
   ke.compile(&fusion, {t});
   EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
-  std::vector<at::Tensor> outputs = ke.run({t});
-  EXPECT_TRUE(at::equal(t.t(), outputs[0]));
+  auto outputs = ke.run({t});
+  EXPECT_TRUE(at::equal(t.t(), outputs[0].as<at::Tensor>()));
 }
 
 } // namespace nvfuser

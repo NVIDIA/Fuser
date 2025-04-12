@@ -31,6 +31,8 @@
 
 #include <algorithm>
 #include <queue>
+#include "scheduler/tools/loop_domain_scheduler.h"
+#include "type.h"
 
 namespace nvfuser {
 namespace scheduler_utils {
@@ -294,7 +296,8 @@ void parallelizeAllLike(
     int64_t pos,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
-    bool propagate_padding) {
+    bool propagate_padding,
+    bool parallelize_inputs) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -320,10 +323,10 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput()) {
+    if (tv->isFusionInput() && !parallelize_inputs) {
       continue;
     }
-    for (const auto i : c10::irange((int64_t)tv->getLoopDomain().size())) {
+    for (const auto i : arange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
       if (concrete_to_reference_map.count(ca_id) > 0) {
@@ -513,7 +516,7 @@ TensorView* getBufferProjectableBroadcastsTv(
       // dimension in the consumer, otherwise it is not a valid broadcast after
       // reduction.
       bool is_broadcast_after_reduction = true;
-      for (auto i : c10::irange(reduction_tv->nDims())) {
+      for (auto i : arange(reduction_tv->nDims())) {
         if (reduction_tv->axis(i)->isReduction() &&
             !tv->axis(i)->isBroadcast()) {
           is_broadcast_after_reduction = false;
@@ -557,6 +560,24 @@ std::pair<bool, std::vector<TensorView*>> canProjectToInputsWithoutReduction(
   return std::make_pair(true, target_broadcast_tvs);
 }
 
+TensorView* getUpCastInputOf(const TensorView* tv) {
+  // skip if definition is not a unary op
+  if (auto uop = dynamic_cast<UnaryOp*>(tv->definition())) {
+    // skip if the input is a fusion input or the op is not a cast
+    if (uop->input(0)->isFusionInput() ||
+        uop->getUnaryOpType() != UnaryOpType::Cast) {
+      return nullptr;
+    }
+    // skip if the cast is not upcast
+    auto precisions = ir_utils::getPrecisionOfProducerConsumerTensors(uop);
+    if (!precisions.has_value() || precisions->first >= precisions->second) {
+      return nullptr;
+    }
+    return uop->input(0)->as<TensorView>();
+  }
+  return nullptr;
+}
+
 PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   FusionGuard fg(fusion);
   PersistentBufferInfo persistent_buffer_info;
@@ -566,6 +587,13 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
 
   auto all_tvs = fusion->allTvs();
 
+  // Find projectable persistent buffers
+  auto reduction_tvs = getReductionTvs(fusion);
+
+  // TODO: Reuse this id_model in getResolutionPointsOf
+  IdModel id_model(fusion);
+  std::vector<TensorView*> persistent_buffer_candidates;
+
   for (auto producer : all_tvs) {
     // Are all producer ids mappable to all consumers
     bool mappable = true;
@@ -574,16 +602,12 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
       continue;
     }
 
-    // Track which consumers have unmappable dims from producer
-    std::vector<TensorView*> unmappable_consumers;
-
     for (auto consumer : consumers) {
       if (dynamic_cast<SelectOp*>(consumer->definition()) ||
           dynamic_cast<IndexSelectOp*>(consumer->definition()) ||
-          dynamic_cast<TorchGatherOp*>(consumer->definition())) {
+          dynamic_cast<GatherOp*>(consumer->definition())) {
         continue;
       }
-      bool consumer_mappable = true;
       auto mappable_roots =
           logical_map.getMappableDims(producer->domain(), consumer->domain());
 
@@ -595,20 +619,25 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
         }
         if (!mappable_roots.count(p_logical_id)) {
           mappable = false;
-          consumer_mappable = false;
           persistent_buffer_info.unmappable_dims.emplace(p_logical_id);
         }
       }
-
-      if (!consumer_mappable) {
-        unmappable_consumers.emplace_back(consumer);
-      }
     }
 
-    if (!mappable) {
-      // If there's unmappable dims from producer to consumer, producer is a
-      // persistent buffer.
-      persistent_buffer_info.persistent_buffers.emplace_back(producer);
+    if (mappable) {
+      continue;
+    }
+
+    // If there's unmappable dims from producer to consumer, producer is a
+    // persistent buffer. However, if it may not be possible to be
+    // persistent due to broadcast inlining
+    if (normalization_scheduler_utils::isCacheableUnmappableTv(
+            producer,
+            reduction_tvs,
+            id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT))) {
+      persistent_buffer_candidates.emplace_back(producer);
+    } else {
+      persistent_buffer_info.non_persistent_buffers.emplace_back(producer);
     }
   }
 
@@ -625,36 +654,50 @@ PersistentBufferInfo persistentBuffers(Fusion* fusion) {
   // only when it fails to find resolution points, the new analysis is
   // used as a fallback option.
   // TODO: Completely replace the old analysis
-  for (auto buffer : persistent_buffer_info.persistent_buffers) {
+  for (auto buffer : persistent_buffer_candidates) {
     auto resolution_points =
         PersistentBufferResolution::getResolutionPointsOf(fusion, buffer);
     if (resolution_points.empty()) {
-      resolution_points =
-          normalization_scheduler_utils::getResolutionPointsOf(buffer);
+      resolution_points = normalization_scheduler_utils::getResolutionPointsOf(
+          buffer, id_model);
     }
-    NVF_ERROR(
-        !resolution_points.empty(),
-        "Fail to find resolution points of ",
-        buffer->toString());
+    if (resolution_points.empty()) {
+      continue;
+    }
+    persistent_buffer_info.persistent_buffers.emplace_back(buffer);
     persistent_buffer_info.persistent_buffer_resolution_points.emplace_back(
         resolution_points);
   }
 
   // don't project if there are view ops and no buffer can be projected
   persistent_buffer_info.has_view_ops = !ir_utils::getViewOps(fusion).empty();
+  if (persistent_buffer_info.has_view_ops) {
+    return persistent_buffer_info;
+  }
 
-  // Find projectable persistent buffers
-  auto reduction_tvs = getReductionTvs(fusion);
   for (auto persistent_buffer : persistent_buffer_info.persistent_buffers) {
     // Inputs marked as persistent buffers can't be projected any further back
     if (persistent_buffer->isFusionInput()) {
       continue;
     }
 
-    // can project to input if the persistent_buffer can be recalculated without
-    // doing reduction.
-    if (canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
-            .first) {
+    // can't project to input if the recomputation needs reduction
+    if (!canProjectToInputsWithoutReduction(reduction_tvs, persistent_buffer)
+             .first) {
+      continue;
+    }
+
+    //  All inputs of the persistent buffer should be cacheable.
+    auto all_inputs = ir_utils::inputTvsOf(persistent_buffer);
+    if (std::all_of(
+            all_inputs.begin(),
+            all_inputs.end(),
+            [&reduction_tvs, &id_model](TensorView* input) {
+              return normalization_scheduler_utils::isCacheableUnmappableTv(
+                  input,
+                  reduction_tvs,
+                  id_model.maybeBuildGraph(IdMappingMode::ALMOSTEXACT));
+            })) {
       persistent_buffer_info.projectable_persistent_buffers.push_back(
           persistent_buffer);
     }
@@ -814,7 +857,7 @@ getScopePersistenceFactors(
       projectable_buffer_inputs.begin(),
       projectable_buffer_inputs.end());
 
-  for (auto persistent_buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto persistent_buffer_i : arange(persistent_buffers.size())) {
     auto persistent_buffer = persistent_buffers[persistent_buffer_i];
     // All expressions between tv and its resolution points must have tv's
     // persistent buffer allocated. This is an optimistic view on how many
@@ -859,7 +902,7 @@ getScopePersistenceFactors(
   // Offset into the bool vector
   size_t bool_vector_offset = persistent_buffers.size();
   for (auto projectable_persistent_buffer_i :
-       c10::irange(projectable_persistent_buffers.size())) {
+       arange(projectable_persistent_buffers.size())) {
     auto projectable_persistent_buffer =
         projectable_persistent_buffers[projectable_persistent_buffer_i];
     auto inputs = ir_utils::inputTvsOf(projectable_persistent_buffer);
@@ -961,11 +1004,21 @@ int64_t getPersistentBufferSizeOfTensor(
       buffer_bytes *= id_size.as<int64_t>();
     }
   }
+  // If the persistent buffer is the output of an upcast op, scheduler will
+  // project it back to the input to save register usage. This is similar to
+  // project to inputs, not abosutely necessary but we always do it to
+  // save register usage. So, need to compute the buffer size using the data
+  // type before upcast.
+  int64_t dtype_size = 1;
+  if (auto upcast_input = getUpCastInputOf(buffer)) {
+    dtype_size = dataTypeSize(
+        upcast_input->getDataType().value(), runtime_info.getIndexType());
+  } else {
+    dtype_size = dataTypeSize(
+        buffer->getDataType().value(), runtime_info.getIndexType());
+  }
 
-  buffer_bytes = buffer_bytes == -1 ? 0
-                                    : buffer_bytes *
-          (int64_t)dataTypeSize(buffer->getDataType().value(),
-                                runtime_info.getIndexType());
+  buffer_bytes = buffer_bytes == -1 ? 0 : buffer_bytes * dtype_size;
   return buffer_bytes;
 }
 
@@ -996,7 +1049,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   std::vector<int64_t> persistent_buffer_sizes(all_buffers.size(), -1);
 
-  for (auto buffer_i : c10::irange(all_buffers.size())) {
+  for (auto buffer_i : arange(all_buffers.size())) {
     auto buffer = all_buffers[buffer_i];
     persistent_buffer_sizes[buffer_i] = getPersistentBufferSizeOfTensor(
         buffer, runtime_info, persistent_buffer_info);
@@ -1006,7 +1059,7 @@ PersistentBufferSizeReturn persistentBufferSize(
   std::vector<bool> persistent_mask(all_buffers.size(), false);
   std::unordered_set<TensorView*> persistent_buffer_set(
       persistent_buffers.begin(), persistent_buffers.end());
-  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto buffer_i : arange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     const auto& producers = ir_utils::producerTvsOf(buffer);
     if (!canProjectToPersistentProducer(
@@ -1017,7 +1070,7 @@ PersistentBufferSizeReturn persistentBufferSize(
 
   // Buffers involved in projected to inputs
   std::vector<bool> projected_mask(all_buffers.size(), true);
-  for (auto buffer_i : c10::irange(persistent_buffers.size())) {
+  for (auto buffer_i : arange(persistent_buffers.size())) {
     auto buffer = persistent_buffers[buffer_i];
     // Not a projectable buffer, or an input of a projectable buffer
     if (std::find(
@@ -1042,7 +1095,7 @@ PersistentBufferSizeReturn persistentBufferSize(
     // that are both a persistent buffer and an input to a projectable
     // buffer
     std::unordered_set<TensorView*> active_buffers;
-    for (auto buffer_i : c10::irange(sizes.size())) {
+    for (auto buffer_i : arange(sizes.size())) {
       if (mask0[buffer_i] && mask1[buffer_i] &&
           active_buffers.count(all_buffers[buffer_i]) == 0) {
         buffer_size += sizes[buffer_i];
@@ -1196,7 +1249,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   // If we're going to unroll, make a cache of the inputs
   auto in_tvs = ir_utils::filterByType<TensorView>(fusion->inputs());
   for (auto tv : in_tvs) {
-    if (tv->uses().empty() || ir_utils::isTorchGatherLookupTv(tv) ||
+    if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
@@ -1455,7 +1508,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getMaybeRootDomain().size())) {
+    for (auto i : arange(from->getMaybeRootDomain().size())) {
       if (from_id == from->getMaybeRootDomain()[i]) {
         mapped_root_ids_[to] = to->getMaybeRootDomain()[i];
         break;
@@ -1466,7 +1519,7 @@ void FindAllMappedDims::propagateSibling(TensorView* from, TensorView* to) {
   if (from_id == nullptr) {
     mapped_root_ids_[to] = nullptr;
   } else {
-    for (auto i : c10::irange(from->getLogicalDomain().size())) {
+    for (auto i : arange(from->getLogicalDomain().size())) {
       if (from_id == from->getLogicalDomain()[i]) {
         mapped_logical_ids_[to] = to->getLogicalDomain()[i];
         return;
@@ -1572,8 +1625,7 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isTorchGatherLookupTv(input_tv) ||
-        ir_utils::isIndexSelectLookupTv(input_tv)) {
+    if (ir_utils::isGatherLookupTv(input_tv)) {
       continue;
     }
 
@@ -1708,7 +1760,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
     auto in_out_tv_domain_list = std::list<IterDomain*>(
         in_out_tv_domain.begin(), in_out_tv_domain.end());
 
-    for (const auto ref_i : c10::irange(ref_root_domain.size())) {
+    for (const auto ref_i : arange(ref_root_domain.size())) {
       auto ref_id = ref_root_domain[ref_i];
 
       if (ref_id->isBroadcast()) {
@@ -1767,7 +1819,7 @@ BroadcastMultipleInformation getBroadcastMultiples(
       bool lhs = false;
       auto dtype_size =
           dataTypeSize(in_out_tv->getDataType().value(), index_type);
-      for (auto mapped_axes_i : c10::irange(mapped_axes.size())) {
+      for (auto mapped_axes_i : arange(mapped_axes.size())) {
         auto lhs_i = mapped_axes_i;
         auto rhs_i = mapped_axes.size() - 1 - mapped_axes_i;
 
@@ -2072,82 +2124,99 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
   return true;
 }
 
-std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
-  FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprsTo(
-      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-  // simply update this vector of id's as progressing through the transformation
-  // expressions. We'll always insert the result of split in the location of the
-  // input, and insert the merge result in the position of the inner dimension.
+namespace {
 
-  auto reordered_ids = tv->getLogicalDomain();
-  for (const auto* expr : transform_exprs) {
-    if (const Split* split = dynamic_cast<const Split*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), split->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      auto pos = std::distance(reordered_ids.begin(), find_it);
-      reordered_ids[pos] = split->inner();
-      reordered_ids.insert(reordered_ids.begin() + pos, split->outer());
-    } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      auto find_it_0 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->outer());
-      auto find_it_1 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->inner());
-      if (find_it_0 == reordered_ids.end() &&
-          find_it_1 == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      NVF_ERROR(
-          find_it_0 != reordered_ids.end() && find_it_1 != reordered_ids.end(),
-          "Error in transformations of ",
-          tv->toString(),
-          "\nTransformations before rfactor should not mix with transformations after rfactor.");
-      auto pos0 = std::distance(reordered_ids.begin(), find_it_0);
-      auto pos1 = std::distance(reordered_ids.begin(), find_it_1);
-      if (pos0 > pos1) {
-        std::swap(pos0, pos1);
-      }
-      // Should be impossible.
-      NVF_ERROR(
-          pos0 != pos1,
-          "Didn't expect merge inputs to be the same iteration domain:\n",
-          merge->toString());
+void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), split->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Split input ",
+      split->in()->toString(),
+      " not found in given ids: ",
+      ids);
+  auto pos = std::distance(ids.begin(), find_it);
+  ids[pos] = split->inner();
+  ids.insert(ids.begin() + pos, split->outer());
+}
 
-      reordered_ids.erase(reordered_ids.begin() + pos0);
-      reordered_ids[--pos1] = merge->out();
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), resize->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      *find_it = resize->out();
+void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
+  auto find_it_0 = std::find(ids.begin(), ids.end(), merge->outer());
+  auto find_it_1 = std::find(ids.begin(), ids.end(), merge->inner());
+  NVF_ERROR(
+      find_it_0 != ids.end(),
+      "Merge outer ",
+      merge->outer()->toString(),
+      " not found in given ids: ",
+      ids);
+  NVF_ERROR(
+      find_it_1 != ids.end(),
+      "Merge inner ",
+      merge->inner()->toString(),
+      " not found in given ids: ",
+      ids);
+  auto pos0 = std::distance(ids.begin(), find_it_0);
+  auto pos1 = std::distance(ids.begin(), find_it_1);
+  if (pos0 > pos1) {
+    std::swap(pos0, pos1);
+  }
+  // Should be impossible.
+  NVF_ERROR(
+      pos0 != pos1,
+      "Didn't expect merge inputs to be the same iteration domain:\n",
+      merge->toString());
+
+  ids.erase(ids.begin() + pos0);
+  ids[--pos1] = merge->out();
+}
+
+void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), resize->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Resize input ",
+      resize->in()->toString(),
+      " not found in given ids: ",
+      ids);
+  *find_it = resize->out();
+}
+
+} // namespace
+
+void applyTransforms(
+    std::vector<IterDomain*>& ids_to_transform,
+    const std::vector<Expr*>& transform_exprs) {
+  for (auto* expr : transform_exprs) {
+    if (Split* split = dynamic_cast<Split*>(expr)) {
+      applySplitTransform(split, ids_to_transform);
+    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+      applyMergeTransform(merge, ids_to_transform);
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+      applyResizeTransform(resize, ids_to_transform);
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
+}
 
-  std::unordered_map<int64_t, int64_t> old2new;
-  for (auto id_i : c10::irange((int64_t)tv->getLoopDomain().size())) {
-    auto loop_id = tv->axis(id_i);
-    auto find_it =
-        std::find(reordered_ids.begin(), reordered_ids.end(), loop_id);
-    NVF_ERROR(
-        find_it != reordered_ids.end(),
-        "Reordering map creation failed, uninitialized iterdomain,",
-        " likely something is wrong with the transformations between the logical and loop domain.");
-    int64_t new_pos = (int64_t)std::distance(reordered_ids.begin(), find_it);
-    int64_t old_pos = id_i;
-    old2new[old_pos] = new_pos;
-  }
-  return old2new;
+// Returns a permutation reordering the loop domain of the tensor view as the
+// logical domain
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+  FusionGuard fg(tv->fusion());
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  std::vector<IterDomain*> ids_to_transform = tv->getLogicalDomain();
+  applyTransforms(ids_to_transform, transform_exprs);
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(ids_to_transform, tv->getLoopDomain());
+  NVF_ERROR(
+      permutation.has_value(),
+      "Failed to find a valid permutation for reordering",
+      tv->getLoopDomain(),
+      " as ",
+      ids_to_transform);
+  return *permutation;
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
@@ -2167,7 +2236,7 @@ std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
   }
   std::unordered_map<IterDomain*, int64_t> alloc_index;
   std::unordered_map<IterDomain*, int64_t> rfactor_index;
-  for (auto i : c10::irange((int64_t)alloc_dom.size())) {
+  for (auto i : arange((int64_t)alloc_dom.size())) {
     alloc_index[alloc_dom[i]] = i;
     rfactor_index[loop_dom[i]] = i;
   }
@@ -2227,25 +2296,53 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
 
     std::unordered_map<int64_t, int64_t> old2new;
     // Make sure rfactor dims we need are in domain, and reorder them in domain
-    // so they're consecutive starting from the left of domain. TODO: We could
-    // improve this so that if there's transformations replayed after the
-    // rfactor dims we could try and pull those through the fusion instead of
-    // enforcing rfactor dims are in domain.
+    // so they're consecutive starting from the left of domain.
+    // The reordering is to limit the propagation to only the view
+    // transformations.
     for (auto logical_id : tv->getLogicalDomain()) {
       if (terminating_reshape_dims.find(logical_id) !=
           terminating_reshape_dims.end()) {
-        auto find_it = std::find(
-            tv->getLoopDomain().begin(), tv->getLoopDomain().end(), logical_id);
+        // The rfactor dims are not in the loop domain directly if they are
+        // sharded. For example, Consider the split reshape: `[h]->[a, h/a]` `h`
+        // and `a` are both sharded by `d`. The loop domain of the consumer is
+        // `[DIDx(d), a/d, h/a]`. Hence, we cannot directly find logical ID `a`
+        // in the loop domain. Similarly, for merge reshape: `[a, h/a]->[h]`, we
+        // cannot directly find `h` in the loop domain when `h` is sharded by
+        // `d`.
+
+        // Find all reachable ids between the logical id and the loop domain.
+        // If the ids are in the loop domain, reorder them to the front.
+        auto transforms = DependencyCheck::getAllExprsBetween(
+            {logical_id},
+            {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+        std::unordered_set<IterDomain*> reachable_ids;
+        // Add the logical id for the case where it is directly in the loop
+        // domain.
+        reachable_ids.insert(logical_id);
+
+        for (auto expr : transforms) {
+          auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
+          reachable_ids.insert(outputs.begin(), outputs.end());
+        }
+
+        bool has_reachable_loop_id = false;
+        for (auto loop_idx :
+             arange(static_cast<int64_t>(tv->getLoopDomain().size()))) {
+          if (reachable_ids.count(tv->axis(loop_idx)) == 0) {
+            continue;
+          }
+          has_reachable_loop_id = true;
+          // Reorder the reshape dimensions to the front of the domain
+          old2new[loop_idx] = (int64_t)old2new.size();
+        }
+
         NVF_ERROR(
-            find_it != tv->getLoopDomain().end(),
+            has_reachable_loop_id,
             "Require ",
             logical_id,
             " is in the active domain of ",
             tv->toString(),
             " for view propagation.");
-        int64_t old_pos = std::distance(tv->getLoopDomain().begin(), find_it);
-
-        old2new[old_pos] = (int64_t)old2new.size();
       }
     }
 
@@ -2257,6 +2354,16 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
     tv->reorder(old2new);
     //! Propagate current transformations on from_tv to all graphs
     transformPropagateToAllFrom(tv, (int64_t)old2new.size());
+
+    // Propgating the transforms will not replay the DIDx parallelization, so we
+    // need to do it manually here.
+    parallelizeAllLike(
+        tv,
+        /*pos=*/(int64_t)old2new.size(),
+        /*selected_tvs=*/{},
+        /*selected_parallel_types=*/{ParallelType::DIDx},
+        /*propagate_padding=*/false,
+        /*parallelize_inputs=*/true);
   }
 }
 
@@ -2290,7 +2397,7 @@ getNonPointwiseProducerConsumerPairs(Fusion* fusion) {
     if (consumer->isFusionInput()) {
       continue;
     }
-    if (auto gather = dynamic_cast<TorchGatherOp*>(consumer->definition())) {
+    if (auto gather = dynamic_cast<GatherOp*>(consumer->definition())) {
       tvs.emplace_back(gather->lookupTv(), consumer);
     } else if (
         auto index_select =
@@ -2456,7 +2563,7 @@ void promoteProducerMemoryTypes(
                              .getReplay();
 
     for (const auto i :
-         c10::irange(producer->nDims() - producer->getComputeAtPosition())) {
+         arange(producer->nDims() - producer->getComputeAtPosition())) {
       auto producer_non_ca_id =
           producer->axis((i + producer->getComputeAtPosition()));
       auto producer_non_ca_id_ptype = producer_non_ca_id->getParallelType();
@@ -2610,7 +2717,7 @@ void moveNonConcretizedBroadcastInnermost(
 
   for (auto tv : fusion->allTvs()) {
     std::vector<int64_t> broadcast_to_move;
-    for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+    for (const auto i : arange(tv->getLoopDomain().size())) {
       auto loop_id = tv->getLoopDomain().at(i);
       if (!loop_id->isBroadcast()) {
         continue;
@@ -2657,7 +2764,7 @@ void moveNonConcretizedBroadcastInnermost(
 int64_t reorderDevicesToOuter(TensorView* tv) {
   int64_t reorder_pos = 0;
   std::unordered_map<int64_t, int64_t> old2new;
-  for (const auto i : c10::irange(tv->getLoopDomain().size())) {
+  for (const auto i : arange(tv->getLoopDomain().size())) {
     if (tv->axis((int64_t)i)->isDeviceDim()) {
       old2new.emplace((int64_t)i, reorder_pos);
       ++reorder_pos;
@@ -2717,7 +2824,7 @@ void reorderTensorLike(
 
   // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
-  for (const auto i : c10::irange(tv_loop_domain.size())) {
+  for (const auto i : arange(tv_loop_domain.size())) {
     const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
@@ -2726,7 +2833,7 @@ void reorderTensorLike(
       ++new_id_pos;
     }
   }
-  for (const auto i : c10::irange(tv_loop_domain.size())) {
+  for (const auto i : arange(tv_loop_domain.size())) {
     const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
@@ -2822,30 +2929,16 @@ namespace {
 int getCoresPerSM(int major, int minor) {
   int sm_version = (major << 4) + minor;
   std::unordered_map<int, int> cores_per_sm_map = {
-      {0x30, 192},
-      {0x32, 192},
-      {0x35, 192},
-      {0x37, 192},
-      {0x50, 128},
-      {0x52, 128},
-      {0x53, 128},
-      {0x60, 64},
-      {0x61, 128},
-      {0x62, 128},
-      {0x70, 64},
-      {0x72, 64},
-      {0x75, 64},
-      {0x80, 64},
-      {0x86, 128},
-      {0x87, 128},
-      {0x89, 128},
-      {0x90, 128},
-      {0xa0, 128}};
+      {0x30, 192}, {0x32, 192}, {0x35, 192}, {0x37, 192}, {0x50, 128},
+      {0x52, 128}, {0x53, 128}, {0x60, 64},  {0x61, 128}, {0x62, 128},
+      {0x70, 64},  {0x72, 64},  {0x75, 64},  {0x80, 64},  {0x86, 128},
+      {0x87, 128}, {0x89, 128}, {0x90, 128}, {0xa0, 128}, {0xc0, 128}};
   auto it = cores_per_sm_map.find(sm_version);
   if (it != cores_per_sm_map.end()) {
     return it->second;
   }
-  NVF_THROW("Unknown GPU architecture: ", major, ".", minor);
+  // Use the default value of 128 for any architecture not listed,
+  // applicable to all current Blackwell GPUs.
   return 128;
 }
 } // namespace
@@ -2898,5 +2991,73 @@ bool hasExpensiveMUFUops(Fusion* fusion) {
   }
   return false;
 }
+
+TensorView* scheduleInputToSkipIntermediates(TensorView* tv) {
+  // First check that tv is fully contiguous. If not, then we can't currently
+  // skip it.
+  for (std::optional<bool> c : tv->getContiguity()) {
+    if (c.has_value() && c.value() == false) {
+      return tv;
+    }
+  }
+
+  while (tv != nullptr) {
+    if (tv->uses().size() != 1) {
+      break;
+    }
+    Expr* use = tv->uses().front();
+
+    // TODO: support ViewOp here too
+    if (!use->isOneOf<BroadcastOp, SqueezeOp, LoadStoreOp>()) {
+      break;
+    }
+    TensorView* consumer = ir_utils::getTvOutput(use);
+    if (consumer == nullptr) {
+      break;
+    }
+
+    // Setting memory type to Global and allocation to be exact mapped with
+    // that of tv is enough to guarantee that it will be skipped during
+    // lowering as a tensor producer alias.
+    consumer->setMemoryType(MemoryType::Global);
+
+    // reorder consumer's allocation domain to match the original input
+    const std::vector<IterDomain*> old_loop = tv->getLoopDomain();
+
+    // TODO: Ideally we would use a tool like the following, but this does not
+    // preserve broadcasts that are missing in the target allocation domain.
+    //
+    //   scheduler_tools::scheduleLoopDomainsLike({consumer}, target_alloc);
+    //   consumer->setAllocationDomain(consumer->getLoopDomain(), true);
+    //   consumer->setLoopDomain(old_loop);
+    //
+    // Instead, we currently restrict to permutations and place new broadcasts
+    // on the outside
+
+    // Since we traverse in a p2c direction, we can use a pairwise map to
+    // propagate allocation domain from the producer tv to the consumer.
+    std::unordered_map<IterDomain*, IterDomain*> p2c =
+        PairwiseLogicalDomainMap(tv, consumer).mapProducerToConsumer();
+    std::vector<IterDomain*> new_consumer_alloc;
+    new_consumer_alloc.reserve(tv->getMaybeAllocationDomain().size());
+    for (IterDomain* p_id : tv->getMaybeAllocationDomain()) {
+      // NOTE: This simple approach assumes that the allocation domains of the
+      // producer are also logical domains. We can then map those to producer to
+      // get IDs to use in the consumer's allocation domain to get IDs to use in
+      // the consumer's allocation domain. This fails for ViewOp, which is why
+      // it is currently disabled. In the future, we should propagate through
+      // transforms as well using something similar to
+      // scheduler_tools::scheduleLoopDomainsLike();
+      auto it = p2c.find(p_id);
+      NVF_ERROR(it != p2c.end());
+      new_consumer_alloc.push_back(it->second);
+    }
+    consumer->setAllocationDomain(new_consumer_alloc, /*contiguity=*/true);
+
+    tv = consumer;
+  }
+  return tv;
+}
+
 } // namespace scheduler_utils
 } // namespace nvfuser

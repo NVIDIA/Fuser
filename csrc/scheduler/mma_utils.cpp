@@ -9,18 +9,21 @@
 #include <ATen/cuda/CUDAContext.h>
 
 #include <device_lower/utils.h>
+#include <disjoint_set.h>
 #include <id_model/id_model.h>
 #include <ir/printer.h>
+#include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <mma_type.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
+#include <options.h>
 #include <scheduler/mma_utils.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/utils.h>
+#include <type.h>
 #include <val_graph.h>
 #include <variant>
-#include "options.h"
 
 namespace nvfuser {
 
@@ -413,7 +416,7 @@ void makeTile(
 
   // Number of tiled inner dimensions after we split.
   const auto split_tile_dimension_size = 2 * num_split_axes;
-  for (auto idx : c10::irange(split_tile_dimension_size)) {
+  for (auto idx : arange(split_tile_dimension_size)) {
     // We want to reorder as follows:
     //           Before                               After
     //                                      vvv group0 vvv  vvv group1 vvv
@@ -449,7 +452,7 @@ void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes) {
   // axes if tile_sizes.size() < 3
   std::vector<std::unordered_set<MatmulDimRole>> axis_roles(tv->nDims());
   NVF_ERROR(axis_roles.size() >= tile_sizes.size());
-  for (size_t i : c10::irange(tile_sizes.size())) {
+  for (size_t i : arange(tile_sizes.size())) {
     size_t pos = axis_roles.size() - tile_sizes.size() + i;
     switch (i) {
       case 0:
@@ -688,7 +691,7 @@ void checkDimSize(
   NVF_ERROR(
       axis.size() == expect.size(),
       "CheckDimSize: Mismatched axis and expect size");
-  for (auto axis_index : c10::irange(axis.size())) {
+  for (auto axis_index : arange(axis.size())) {
     NVF_ERROR(
         ((axis[axis_index] + tv->nDims()) >= 0) &&
             (axis[axis_index] < tv->nDims()),
@@ -756,7 +759,7 @@ std::vector<IterDomain*> getMmaDomains(MmaOp* mma, MmaDimension dimension) {
 
   std::vector<IterDomain*> result;
 
-  for (auto id_idx : c10::irange(a_domain.size())) {
+  for (auto id_idx : arange(a_domain.size())) {
     // checks if this id should be included in the result
     bool include_this_id = false;
     bool is_broadcast_in_a = a_domain[id_idx]->isBroadcast();
@@ -845,6 +848,18 @@ IterDomain* getIDinConsumerRoot(IterDomain* id, TensorView* tv) {
 bool isLdMatrixTranspose(const LoadStoreOp* ldst) {
   const auto consumer = ir_utils::getTvOutput(ldst);
   const auto producer = ir_utils::getTvInput(ldst);
+
+  // TODO Fix analysis for this case.
+  // LdMatrix Transpose is not supported for LoadStoreOp expression with
+  // a TMA load definition and without any MmaOp use.
+  if (producer->definition() != nullptr &&
+      ir_utils::isCpAsyncBulkLoad(producer->definition())) {
+    NVF_ERROR(std::all_of(
+        consumer->uses().begin(), consumer->uses().end(), [](Expr* e) {
+          return !e->isA<MmaOp>();
+        }));
+    return false;
+  }
 
   // Get the innermost ID and go back up the DAG to the root domain.
   auto corresponding_id_in_consumer_root = getIDinConsumerRoot(
@@ -1165,7 +1180,7 @@ std::vector<MatmulDimRole> canonicalizeMmaTvOrdering(
     const std::vector<ValGroup>& ordering) {
   std::unordered_map<int64_t, int64_t> old2new;
 
-  for (size_t i : c10::irange(tv->nDims())) {
+  for (size_t i : arange(tv->nDims())) {
     IterDomain* id = tv->axis((int64_t)i);
     const ValGroup& g = graph.toGroup(id);
     auto order_it = std::find(ordering.begin(), ordering.end(), g);
@@ -1302,9 +1317,8 @@ void scheduleTMAStoreForMmaOutput(TensorView* tv, MmaInputSmemSwizzle swizzle) {
   }
 }
 
-void scheduleStMatrixForMmaOutput(
+void scheduleLdStMatrixForMmaOutput(
     TensorView* tv,
-    MmaInputSmemSwizzle swizzle,
     int64_t tile_m,
     int64_t tile_n) {
   NVF_ERROR(
@@ -1786,8 +1800,7 @@ namespace {
 // with `MmaOp` and pointwise `add`.
 // 4. `MatmulOp` -- This expression is `y = A[M, K] @ B[K, N]`. The `MmaOp`
 // expression requires `[M, N, K]` ordering, so it requires transposing the
-// `B` operand. It also support batch matrix multiplication, which is
-// tracked by `MmaOp::AxisMapping`.
+// `B` operand. It also support batch matrix multiplication.
 //
 // `finalizeMatmulOrLinearOp`
 //  * Fused-Multiply-Sum (FMS) is the output from MmaOp.
@@ -1800,15 +1813,14 @@ namespace {
 // `MmaOp` translation.
 class MatmulTranslator : public OptInDispatch {
  public:
-  static MmaOp* translate(MatmulPattern& pattern, bool avoid_intermediates) {
-    MatmulTranslator trans(pattern, avoid_intermediates);
+  static MatmulPattern::TranslationResult translate(MatmulPattern& pattern) {
+    MatmulTranslator trans(pattern);
     trans.dispatch(pattern.output->definition());
-    return trans.mma_;
+    return MatmulPattern::TranslationResult{trans.mma_, trans.replacements_};
   }
 
  private:
-  MatmulTranslator(MatmulPattern& pattern, bool avoid_intermediates)
-      : pattern_(pattern), avoid_intermediates_(avoid_intermediates) {}
+  MatmulTranslator(MatmulPattern& pattern) : pattern_(pattern) {}
 
   using OptInDispatch::handle;
 
@@ -1819,12 +1831,82 @@ class MatmulTranslator : public OptInDispatch {
   void handle(ReductionOp* rop) final {
     Val* init = IrBuilder::create<Val>(0.0, pattern_.output->dtype());
     // This replaces the mul and sum by overwriting output->definition()
-    mma_ = IrBuilder::create<MmaOp>(
-        pattern_.output,
-        pattern_.A,
-        pattern_.B,
-        init,
-        MmaOp::AxisMapping::trivialMapping(pattern_.output->nDims()));
+    mma_ =
+        IrBuilder::create<MmaOp>(pattern_.output, pattern_.A, pattern_.B, init);
+  }
+
+  //! Replace a TV, recording it in replacements_
+  void replaceTV(TensorView* old_tv, TensorView* new_tv) {
+    replacements_[old_tv] = new_tv;
+    ir_utils::replaceValInAllExprInputsAndFusionOutputs(old_tv, new_tv);
+  }
+
+  //! In a horizontal fusion, we will translate each MatmulPattern in turn. When
+  //! we do so, if there are repeated operands, we do not want to repeat the
+  //! broadcasting and transposing. This function only replays a broadcast if
+  //! there is no pre-existing use that matches. Otherwise it returns the
+  //! existing consumer.
+  TensorView* getBroadcast(
+      TensorView* tv,
+      const std::vector<bool>& bcast_flags) {
+    for (Expr* use : tv->uses()) {
+      if (auto* bop = dynamic_cast<BroadcastOp*>(use);
+          bop != nullptr && bop->getBroadcastDimFlags() == bcast_flags) {
+        return bop->out()->as<TensorView>();
+      }
+    }
+    return broadcast(tv, bcast_flags);
+  }
+
+  TensorView* getBroadcastInnerToRank(TensorView* tv, int64_t rank) {
+    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+
+    // broadcast inner on inp to match rank with other.
+    if ((int64_t)tv_rank < rank) {
+      const int num_bcast = static_cast<int>(rank - tv_rank);
+      std::vector<bool> inner_bcast_dims(rank, false);
+      std::fill(
+          inner_bcast_dims.begin(), inner_bcast_dims.begin() + num_bcast, true);
+      return getBroadcast(tv, inner_bcast_dims);
+    }
+    return tv;
+  }
+
+  TensorView* getUnsqueeze(TensorView* tv, int64_t dim) {
+    size_t tv_rank = TensorDomain::noReductions(tv->getLogicalDomain()).size();
+    std::vector<bool> bcast_dims(tv_rank + 1, false);
+    if (dim < 0) {
+      dim += (int64_t)tv_rank + 1;
+    }
+    bcast_dims.at(dim) = true;
+    return getBroadcast(tv, bcast_dims);
+  }
+
+  TensorView* getTranspose(TensorView* tv, int64_t dim0, int64_t dim1) {
+    for (Expr* use : tv->uses()) {
+      if (!use->isA<LoadStoreOp>()) {
+        continue;
+      }
+      auto* out_tv = use->output(0)->as<TensorView>();
+      std::optional<std::vector<int64_t>> perm_opt =
+          ir_utils::computePermutation(
+              out_tv->getMaybeRootDomain(), out_tv->getLogicalDomain());
+      if (!perm_opt.has_value()) {
+        continue;
+      }
+      std::vector<int64_t> perm = perm_opt.value();
+      std::vector<int64_t> target_perm;
+      target_perm.reserve(out_tv->getLogicalDomain().size());
+      for (size_t i : c10::irange(out_tv->getLogicalDomain().size())) {
+        target_perm.push_back((int64_t)i);
+      }
+      target_perm.at((size_t)dim0) = dim1;
+      target_perm.at((size_t)dim1) = dim0;
+      if (perm == target_perm) {
+        return out_tv;
+      }
+    }
+    return transpose(tv, dim0, dim1);
   }
 
   void handle(LinearOp* lop) final {
@@ -1856,53 +1938,15 @@ class MatmulTranslator : public OptInDispatch {
         a_dims > 1 && b_dims > 1, "Cannot translate LinearOp with 1D input");
     NVF_ERROR(
         b_dims == 2, "Cannot translate LinearOp without 2D weight tensor");
-    if (avoid_intermediates_) {
-      MmaOp::AxisMapping axis_mapping;
-      int64_t out_dim = a_dims + 1L;
-      axis_mapping.a_axes.reserve(out_dim);
-      for (int64_t d : c10::irange(out_dim - 2L)) {
-        axis_mapping.a_axes.push_back((int64_t)d);
-      }
-      axis_mapping.a_axes.push_back(-1); // missing N dimension
-      axis_mapping.a_axes.push_back(a_dims - 1L); // K dimension
+    std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
+    bcast_dim[bcast_dim.size() - 2] = true; // N
+    pattern_.A = getBroadcast(pattern_.A, bcast_dim);
 
-      axis_mapping.b_axes.reserve(out_dim);
-      axis_mapping.b_axes.resize(out_dim, -1);
-      axis_mapping.b_axes[out_dim - 2] = 0; // N
-      axis_mapping.b_axes[out_dim - 1] = 1; // K
+    bcast_dim[bcast_dim.size() - 2] = false; // reset N
+    std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
+    pattern_.B = getBroadcast(pattern_.B, bcast_dim);
 
-      int64_t num_M_dims = 1 + a_dims - b_dims;
-
-      // Add loop broadcasts to A and B to mimic logical broadcasts for
-      // simpler scheduling
-      // Note that since operands can be shared among multiple patterns, we
-      // should avoid modifying the operand twice. This is why we first check
-      // for loop broadcasts.
-      if (pattern_.A->domain()->additionalIDs().empty()) {
-        pattern_.A->broadcast(-2); // There's always a single N dimension
-      }
-
-      if (pattern_.B->domain()->additionalIDs().empty()) {
-        for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-          // Broadcast B for every M dimension in A
-          pattern_.B->broadcast(0);
-        }
-      }
-
-      fms = fusedMultiplySum(
-          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
-    } else {
-      std::vector<bool> bcast_dim(pattern_.A->nDims() + 1, false);
-      bcast_dim[bcast_dim.size() - 2] = true; // N
-      pattern_.A = broadcast(pattern_.A, bcast_dim);
-
-      bcast_dim[bcast_dim.size() - 2] = false; // reset N
-      std::fill(bcast_dim.begin(), bcast_dim.end() - 2, true);
-      pattern_.B = broadcast(pattern_.B, bcast_dim);
-
-      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
-    }
-
+    fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     mma_ = fms->definition()->as<MmaOp>();
 
     auto* bias = dynamic_cast<TensorView*>(lop->bias());
@@ -1945,62 +1989,16 @@ class MatmulTranslator : public OptInDispatch {
         pattern_.A->nDims() > 1 && pattern_.B->nDims() > 1,
         "Cannot translate MatmulOp with 1D input");
     TensorView* fms = nullptr;
-    if (avoid_intermediates_) {
-      MmaOp::AxisMapping axis_mapping;
-      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims()) + 1;
-
-      axis_mapping.a_axes.resize((size_t)out_dims, -1);
-      axis_mapping.b_axes.resize((size_t)out_dims, -1);
-
-      for (size_t a_axis : c10::irange((size_t)pattern_.A->nDims() - 1)) {
-        // Output is [ ... M, N, K ]
-        // This loop maps everything but N and K to A
-        int64_t out_axis =
-            (int64_t)a_axis + (out_dims - 1 - pattern_.A->nDims());
-        axis_mapping.a_axes.at((size_t)out_axis) = (int64_t)a_axis;
-      }
-      // Map the K dim, skipping one position
-      axis_mapping.a_axes.at((size_t)out_dims - 1) = pattern_.A->nDims() - 1;
-
-      for (size_t b_axis : c10::irange((size_t)pattern_.B->nDims() - 2)) {
-        // Output is [ ... M, N, K ]
-        // This loop maps everything before M to B, skipping the output M dim
-        int64_t out_axis =
-            (int64_t)b_axis + (out_dims - pattern_.B->nDims()) - 1;
-        axis_mapping.b_axes.at((size_t)out_axis) = (int64_t)b_axis;
-      }
-      // Skip the K dim and map N and K
-      axis_mapping.b_axes.at((size_t)out_dims - 2) = pattern_.B->nDims() - 1;
-      axis_mapping.b_axes.at((size_t)out_dims - 1) = pattern_.B->nDims() - 2;
-
-      fms = fusedMultiplySum(
-          pattern_.A, pattern_.B, {-1}, /*init=*/nullptr, axis_mapping);
-
-      int64_t num_M_dims =
-          std::max(1 + pattern_.A->nDims() - pattern_.B->nDims(), (int64_t)1);
-
-      // Reorder to BMNK.
-      // Add loop broadcasts to A and B to mimick logical broadcasts for
-      // simpler scheduling
-      pattern_.A->broadcast(-2);
-
-      pattern_.B->reorder({{-2, -1}});
-      for ([[maybe_unused]] size_t i : c10::irange((size_t)num_M_dims)) {
-        // Broadcast B for every M dimension in A
-        pattern_.B->broadcast(-3);
-      }
-    } else {
-      TensorView* Btrans = transpose(pattern_.B, -2, -1);
-      pattern_.A = unsqueeze(pattern_.A, -2);
-      pattern_.B = unsqueeze(Btrans, -3);
-      // A and B might have different dimensions. If so, broadcast the smaller
-      // one up to the size of the larger.
-      int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims());
-      // Add new outer broadcast dimensions if necessary
-      pattern_.A = ops::maybe_broadcast_inner_to_rank(pattern_.A, out_dims);
-      pattern_.B = ops::maybe_broadcast_inner_to_rank(pattern_.B, out_dims);
-      fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
-    }
+    TensorView* Btrans = getTranspose(pattern_.B, -2, -1);
+    pattern_.A = getUnsqueeze(pattern_.A, -2);
+    pattern_.B = getUnsqueeze(Btrans, -3);
+    // A and B might have different dimensions. If so, broadcast the smaller
+    // one up to the size of the larger.
+    int64_t out_dims = std::max(pattern_.A->nDims(), pattern_.B->nDims());
+    // Add new outer broadcast dimensions if necessary
+    pattern_.A = getBroadcastInnerToRank(pattern_.A, out_dims);
+    pattern_.B = getBroadcastInnerToRank(pattern_.B, out_dims);
+    fms = fusedMultiplySum(pattern_.A, pattern_.B, {-1});
     mma_ = fms->definition()->as<MmaOp>();
     finalizeMatmulOpOrLinearOp(fms);
   }
@@ -2008,7 +2006,6 @@ class MatmulTranslator : public OptInDispatch {
   // The following is common to both MatmulOp and LinearOp translation
   void finalizeMatmulOpOrLinearOp(TensorView* fms) {
     NVF_ERROR(fms != nullptr);
-    NVF_ERROR(mma_ != nullptr);
 
     // TODO: skip downcasting if the only uses of `output` are casts back to
     // higher precision in order avoid the round trip cast in defining an
@@ -2022,30 +2019,33 @@ class MatmulTranslator : public OptInDispatch {
       // dtype as fms. We first collect these Vals then we do the replacements
       // separately in order to avoid dereferencing an Expr* that has already
       // been replaced.
-      std::vector<Val*> round_trip_vals;
+      std::vector<TensorView*> round_trip_tvs;
       for (Expr* use : pattern_.output->uses()) {
         if (auto* uop = dynamic_cast<UnaryOp*>(use); uop != nullptr &&
             uop->getUnaryOpType() == UnaryOpType::Cast &&
             uop->out()->dtype() == fms->dtype()) {
-          round_trip_vals.push_back(uop->out());
+          round_trip_tvs.push_back(uop->out()->as<TensorView>());
         }
       }
       // If there are any uses that were not round-trip casts, then we should
       // insert the castOp.
-      if (pattern_.output->uses().size() > round_trip_vals.size()) {
+      //
+      // We also always need to insert the cast if the MatmulOp output is a
+      // Fusion output.
+      if (pattern_.output->isFusionOutput() ||
+          pattern_.output->uses().size() > round_trip_tvs.size()) {
         TensorView* old_output = pattern_.output;
         pattern_.output = castOp(pattern_.output->dtype(), fms);
-        ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-            old_output, pattern_.output);
+        replaceTV(old_output, pattern_.output);
       }
       // if any casts are skipped, then we reset output to point to the Float
       // output fms instead of the downcast.
-      if (!round_trip_vals.empty()) {
+      if (!round_trip_tvs.empty()) {
         pattern_.output = fms;
       }
-      // Finally, replace the round_trip_vals with fms
-      for (Val* v : round_trip_vals) {
-        ir_utils::replaceValInAllExprInputsAndFusionOutputs(v, fms);
+      // Finally, replace the round_trip_tvs with fms
+      for (TensorView* tv : round_trip_tvs) {
+        replaceTV(tv, fms);
       }
     } else {
       // No cast needed, for example the inputs might be Float
@@ -2056,14 +2056,15 @@ class MatmulTranslator : public OptInDispatch {
 
  private:
   MatmulPattern& pattern_;
-  bool avoid_intermediates_;
+  MatmulPattern::TranslationResult result_;
   MmaOp* mma_ = nullptr;
+  std::unordered_map<TensorView*, TensorView*> replacements_;
 };
 
 } // namespace
 
-MmaOp* MatmulPattern::translateToMmaOp(bool avoid_intermediates) {
-  return MatmulTranslator::translate(*this, avoid_intermediates);
+MatmulPattern::TranslationResult MatmulPattern::translateToMmaOp() {
+  return MatmulTranslator::translate(*this);
 }
 
 namespace {
@@ -2077,7 +2078,7 @@ DimRolesMap matmulOrLinearOpDimRoles(
   std::unordered_map<ValGroup, MatmulDimRole> dim_roles;
   NVF_ERROR(mapping_a.size() == out_logical.size());
   NVF_ERROR(mapping_a.size() == mapping_b.size());
-  for (size_t i : c10::irange(out_logical.size())) {
+  for (size_t i : arange(out_logical.size())) {
     IterDomain* id_out = out_logical[i];
     const ValGroup& g = graph.toGroup(id_out);
 
@@ -2660,7 +2661,7 @@ MmaInputSmemSwizzle tmaSwizzleSharedMemory(TensorView* shared_mem_tv) {
 std::string toString(const mma_utils::AbstractMatmulTensor& abten) {
   std::ostringstream ss;
   ss << "AbstractMatmulTensor (" << abten.size() << "):" << std::endl;
-  for (size_t i : c10::irange(abten.size())) {
+  for (size_t i : arange(abten.size())) {
     const AbstractId& abs_id = abten[(int64_t)i];
     const std::optional<MatmulDimRole> role = abten.getTag((int64_t)i).value();
     ss << "  " << (role.has_value() ? toString(role.value()) : "no role");

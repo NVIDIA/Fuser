@@ -681,6 +681,10 @@ TEST_F(ExprSimplifierTest, SimplifyDivisibleDivMod) {
   expectSimplifiedDivMod("i1 * i2 * 3 + i2 * i1 * 6"_, "3 * i2 * i1"_, "3"_);
 }
 
+TEST_F(ExprSimplifierTest, DoubleDiv) {
+  EXPECT_TRUE(isEquivalent("i0 / 2 / 3"_, "i0 / 6"_));
+}
+
 TEST_F(ExprSimplifierTest, SignProve) {
   auto assertProvedPositive = [](Val* x,
                                  const std::vector<Val*>& assumptions = {}) {
@@ -1199,6 +1203,16 @@ TEST_F(ExprSimplifierTest, OrderTransitivity) {
 
   EXPECT_VALUE_TRUE(simplifyExpr("neg( abs( 8 ) ) < i0"_, {}, {"i0 >= 0"_}));
 #undef EXPECT_VALUE_TRUE
+}
+
+// This was not evaluated away because i5 is a loop index variable
+// starting with a non-zero value.
+//
+// ((((i0 * 32) + (((i5 + nvfuser_zero) * 4) + 0)) >= 0)
+TEST_F(ExprSimplifierTest, NonZeroLoopIndexStart) {
+  EXPECT_TRUE(simplifyExpr("( i5 * 4 ) >= 0 "_, {}, {"5 <= i5 && i5 < 8"_})
+                  ->value()
+                  .as<bool>());
 }
 
 } // namespace nvfuser

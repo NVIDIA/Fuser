@@ -5,9 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <c10/util/irange.h>
-
 // Extract size and strides
+#include <runtime/allocations.h>
 #include <runtime/fusion_executor_cache.h>
 
 #include <instrumentation.h>
@@ -18,23 +17,11 @@
 
 namespace nvfuser {
 
-KernelArgumentHolder::KernelArgumentHolder(
-    const c10::ArrayRef<c10::IValue>& inputs,
-    std::optional<int8_t> device) {
-  if (inputs.empty()) {
-    // default to device 0
-    setDeviceIndex(device.has_value() ? device.value() : (int8_t)0);
-  } else {
-    setDeviceIndex(getCommonDeviceCUDA(inputs, device));
-    push(inputs);
-  }
-}
-
 namespace {
 
 PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
   KernelIndexTypeCompute index_type_helper;
-  for (const auto dim_i : c10::irange(tensor.ndimension())) {
+  for (const auto dim_i : arange(tensor.ndimension())) {
     auto size = tensor.size(dim_i);
     auto stride = tensor.stride(dim_i);
     if (index_type_helper.addDim(size, stride) == PrimDataType::Int) {
@@ -46,25 +33,49 @@ PrimDataType getSmallestIndexType(const at::Tensor& tensor) {
 
 } // namespace
 
-void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
-  // Naive I/O setup, I'm ignoring all the potential transformation (i.e. I/O
-  // allocated here from the subgraph could be, and very likely are, different
-  // from I/O expected by the generated CUDA kernel.
-  for (const auto& arg : args) {
-    push(PolymorphicValue_functions::IValueToPolymorphicValue(arg));
-  }
+void KernelArgumentHolder::push(const std::vector<PolymorphicValue>& args) {
+  arguments_.insert(arguments_.end(), args.begin(), args.end());
 }
 
 void KernelArgumentHolder::push(const std::vector<at::Tensor>& tensors) {
   for (const auto& tensor : tensors) {
-    push(tensor);
+    arguments_.emplace_back(PolymorphicValue(tensor));
   }
 }
 
-void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
+void KernelArgumentHolder::push(const c10::ArrayRef<c10::IValue>& args) {
+  for (const auto& arg : args) {
+    arguments_.emplace_back(
+        PolymorphicValue_functions::IValueToPolymorphicValue(arg));
+  }
+}
+
+void KernelArgumentHolder::push(const std::vector<c10::IValue>& args) {
+  for (const auto& arg : args) {
+    arguments_.emplace_back(
+        PolymorphicValue_functions::IValueToPolymorphicValue(arg));
+  }
+}
+
+void KernelArgumentHolder::push(at::Tensor tensor) {
+  arguments_.emplace_back(PolymorphicValue(tensor));
+}
+
+void KernelArgumentHolder::push(PolymorphicValue val) {
+  arguments_.emplace_back(std::move(val));
+}
+
+void KernelArgumentHolder::push(std::optional<at::Tensor> tensor) {
+  NVF_ERROR(
+      tensor.has_value(),
+      "KernelArgumentHolder doesn't support empty optional values, it's expected that when pushed they exist.");
+  arguments_.emplace_back(PolymorphicValue(tensor.value()));
+}
+
+void KernelArgumentHolder::erase(const PolymorphicValue& arg_to_delete) {
   auto iter = std::remove_if(
       arguments_.begin(), arguments_.end(), [&](const auto& ref) {
-        return arg_to_delete == ref.get();
+        return &arg_to_delete == &ref;
       });
   arguments_.erase(iter, arguments_.end());
 }
@@ -72,10 +83,10 @@ void KernelArgumentHolder::erase(const PolymorphicValue* arg_to_delete) {
 std::string KernelArgumentHolder::toString() const {
   std::stringstream ss;
   for (const auto& arg : arguments_) {
-    if (arg->is<at::Tensor>()) {
-      ss << debug_str(arg->as<at::Tensor>()) << "\n";
+    if (arg.is<at::Tensor>()) {
+      ss << debug_str(arg.as<at::Tensor>()) << "\n";
     } else {
-      ss << *arg << "\n";
+      ss << PolymorphicValue_functions::toString(arg) << "\n";
     }
   }
   return ss.str();
@@ -83,8 +94,8 @@ std::string KernelArgumentHolder::toString() const {
 
 PrimDataType KernelArgumentHolder::getSmallestIndexTypeOfArguments() const {
   for (const auto& arg : arguments_) {
-    if (arg->is<at::Tensor>()) {
-      if (getSmallestIndexType(arg->as<at::Tensor>()) == PrimDataType::Int) {
+    if (arg.is<at::Tensor>()) {
+      if (getSmallestIndexType(arg.as<at::Tensor>()) == PrimDataType::Int) {
         return PrimDataType::Int;
       }
     }
@@ -107,13 +118,12 @@ void KernelArgumentHolder::pushTensorProxy(
   push(meta_tensor);
 }
 
-c10::ArrayRef<c10::IValue> KernelArgumentHolder::toArrayRef() const {
-  std::vector<c10::IValue> ival_array;
-  ival_array.reserve(arguments_.size());
-  for (const auto& arg : arguments_) {
-    ival_array.push_back(PolymorphicValue_functions::toIValue(*arg));
+void KernelArgumentHolder::setDeviceIndex(std::optional<int8_t> index) {
+  if (index.has_value()) {
+    device_index_ = index.value();
+  } else {
+    device_index_ = getCommonDeviceCUDA(*this);
   }
-  return c10::ArrayRef<c10::IValue>(ival_array);
 }
 
 flatbuffers::Offset<serde::KernelArgumentHolder> KernelArgumentHolder::
@@ -274,51 +284,11 @@ std::vector<std::byte> polymorphicValueToBytes(
   } else if (argument.is<StructHandle>()) {
     // FUSER_PERF_SCOPE("polymorphicValueToBytes(StructHandle)");
     std::vector<std::byte> buffer;
-    const auto& dtype_ = std::get<StructType>(dtype.type);
-    auto& data = argument->*&TensorMetaData::data;
-    auto& logical_size = argument->*&TensorMetaData::logical_size;
-    auto& alloc_stride = argument->*&TensorMetaData::alloc_stride;
     if (argument.as<StructHandle>().is<TensorMetaData>()) {
-      // special handle for TensorMetaData so that CPU overhead is minimal.
-      if (index_type == PrimDataType::Int) {
-        buffer.reserve(
-            sizeof(void*) + sizeof(int64_t) * logical_size.size() +
-            sizeof(int64_t) * alloc_stride.size());
-        buffer.insert(
-            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)logical_size.data(),
-            (std::byte*)logical_size.data() +
-                sizeof(int64_t) * logical_size.size());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)alloc_stride.data(),
-            (std::byte*)alloc_stride.data() +
-                sizeof(int64_t) * alloc_stride.size());
-      } else {
-        buffer.reserve(
-            sizeof(void*) + sizeof(int32_t) * logical_size.size() +
-            sizeof(int32_t) * alloc_stride.size());
-        buffer.insert(
-            buffer.end(), (std::byte*)&data, (std::byte*)&data + sizeof(void*));
-        std::vector<int32_t> logical_size32(
-            logical_size.begin(), logical_size.end());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)logical_size32.data(),
-            (std::byte*)logical_size32.data() +
-                sizeof(int32_t) * logical_size32.size());
-        std::vector<int32_t> alloc_stride32(
-            alloc_stride.begin(), alloc_stride.end());
-        buffer.insert(
-            buffer.end(),
-            (std::byte*)alloc_stride32.data(),
-            (std::byte*)alloc_stride32.data() +
-                sizeof(int32_t) * alloc_stride32.size());
-      }
-      return buffer;
+      NVF_THROW(
+          "Don't send tensor metadata to this function directly, use tensorToBytes.");
     } else {
+      const auto& dtype_ = std::get<StructType>(dtype.type);
       for (const auto& field : dtype_.fields) {
         if (!field.used_in_kernel) {
           continue;
@@ -330,7 +300,6 @@ std::vector<std::byte> polymorphicValueToBytes(
       return buffer;
     }
   } else if (argument.is<Opaque>()) {
-    // FUSER_PERF_SCOPE("polymorphicValueToBytes(Opaque)");
     return argument.as<Opaque>().bytes();
   } else {
     NVF_THROW(
@@ -338,45 +307,68 @@ std::vector<std::byte> polymorphicValueToBytes(
   }
 }
 
-std::vector<std::byte> getKernelArgument(
-    ExpressionEvaluator& ee,
-    Val* parameter,
-    PrimDataType index_type) {
-  FUSER_PERF_SCOPE("getKernelArgument");
-  NVF_ERROR(parameter != nullptr);
-  PolymorphicValue pv = ee.evaluate(parameter);
-  if (auto tv = dynamic_cast<TensorView*>(parameter)) {
-    if (tv->isCpuScalar()) {
-      return polymorphicValueToBytes(pv, tv->dtype(), index_type);
-    } else {
-      const Val* metadata_val = IrBuilder::metadataExpr(tv);
-      const PolymorphicValue& metadata = ee.evaluate(metadata_val);
-      return polymorphicValueToBytes(
-          metadata, metadata_val->dtype(), index_type);
-    }
+std::vector<std::byte> tensorToBytes(
+    const PolymorphicValue& argument,
+    const std::vector<int64_t>& logical_sizes,
+    const std::vector<int64_t>& alloc_strides,
+    PrimDataType idx_type,
+    const std::vector<int64_t>& unsharded_logical_sizes) {
+  std::vector<std::byte> bytes;
+  NVF_ERROR(
+      argument.is<at::Tensor>() && argument.as<at::Tensor>().is_cuda(),
+      "Argument is not a CUDA tensor.");
+  const auto& tensor = argument.as<at::Tensor>();
+  auto data = tensor.data_ptr();
+
+  const auto& size_to_use =
+      logical_sizes.size() == unsharded_logical_sizes.size()
+      ? unsharded_logical_sizes
+      : logical_sizes;
+  // special handle for TensorMetaData so that CPU overhead is minimal.
+  if (idx_type == PrimDataType::Int) {
+    bytes.reserve(
+        sizeof(void*) + sizeof(int64_t) * size_to_use.size() +
+        sizeof(int64_t) * alloc_strides.size());
+    bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)size_to_use.data(),
+        (std::byte*)size_to_use.data() + sizeof(int64_t) * size_to_use.size());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)alloc_strides.data(),
+        (std::byte*)alloc_strides.data() +
+            sizeof(int64_t) * alloc_strides.size());
+  } else {
+    bytes.reserve(
+        sizeof(void*) + sizeof(int32_t) * size_to_use.size() +
+        sizeof(int32_t) * alloc_strides.size());
+    bytes.insert(bytes.end(), (std::byte*)&data, (std::byte*)(&data + 1));
+    std::vector<int32_t> logical_size32(size_to_use.begin(), size_to_use.end());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)logical_size32.data(),
+        (std::byte*)logical_size32.data() +
+            sizeof(int32_t) * logical_size32.size());
+    std::vector<int32_t> alloc_stride32(
+        alloc_strides.begin(), alloc_strides.end());
+    bytes.insert(
+        bytes.end(),
+        (std::byte*)alloc_stride32.data(),
+        (std::byte*)alloc_stride32.data() +
+            sizeof(int32_t) * alloc_stride32.size());
   }
-  return polymorphicValueToBytes(pv, parameter->dtype(), index_type);
+  return bytes;
 }
 
 int64_t computeBytes(const KernelArgumentHolder& args) {
   int64_t num_bytes = 0;
   // Figure how many bytes are inputs, outputs, and temporary buffers
-  for (auto i : c10::irange(args.size())) {
-    if (args[i]->is<at::Tensor>()) {
-      auto t = args[i]->as<at::Tensor>();
+  for (auto i : arange(args.size())) {
+    if (args[i].is<at::Tensor>()) {
+      auto t = args[i].as<at::Tensor>();
       num_bytes += static_cast<int64_t>(t.storage().nbytes());
     }
-  }
-  return num_bytes;
-}
-
-int64_t computeBytes(const std::vector<at::Tensor>& outputs) {
-  int64_t num_bytes = 0;
-  for (auto i : c10::irange(outputs.size())) {
-    const auto& output = outputs.at(i);
-    // NOTE: this assumes that all output elements correspond to a single
-    // store
-    num_bytes += static_cast<int64_t>(output.storage().nbytes());
   }
   return num_bytes;
 }

@@ -269,6 +269,16 @@ inline const char* nvfCheckMsgImpl(const char* /*msg*/, const char* args) {
     NVF_THROW(__VA_ARGS__)   \
   }
 
+#define NVF_ERROR_EQ(lhs, rhs, ...)                             \
+  NVF_ERROR(                                                    \
+      (lhs) == (rhs),                                           \
+      "Expected " #lhs " and " #rhs " to be equal, but found ", \
+      (lhs),                                                    \
+      " vs ",                                                   \
+      (rhs),                                                    \
+      ". ",                                                     \
+      ##__VA_ARGS__)
+
 #define NVF_CHECK_MSG(cond, type, ...) \
   (nvfuser::nvfCheckMsgImpl(           \
       "Expected " #cond " to be true, but got false.  ", ##__VA_ARGS__))

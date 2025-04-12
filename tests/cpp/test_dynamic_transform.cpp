@@ -5,24 +5,27 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <csrc/exceptions.h>
+#include <functional>
+
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
+#include <csrc/exceptions.h>
 #include <dynamic_transform.h>
 #include <expr_evaluator.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-#include <functional>
-
 namespace nvfuser {
 
+using DynamicTransformTest = NVFuserTest;
+
 // Simple test of analyzing dynamic reshape
-TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform1) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -121,7 +124,7 @@ TEST_F(NVFuserTest, DynamicTransform1_CUDA) {
 }
 
 // Reshape a tensor like another tensor
-TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform2) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -162,7 +165,7 @@ TEST_F(NVFuserTest, DynamicTransform2_CUDA) {
 }
 
 // Analyze dynamic reshape and concretize
-TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform3) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -207,16 +210,16 @@ TEST_F(NVFuserTest, DynamicTransform3_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn(shape_before, options);
   at::Tensor t1 = at::randn(shape_after, options);
-  std::vector<c10::IValue> inputs = {t0, t1};
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
 
-  testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 // Test multiple patterns of reshape
-TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform4) {
   std::vector<std::pair<std::vector<int64_t>, std::vector<int64_t>>>
       before_after_shapes = {
           {{4, 3}, {3, 4}},
@@ -237,7 +240,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
     fusion.addInput(tv1);
 
     std::vector<Val*> shape_arg;
-    for (const auto i : c10::irange(after_shape.size())) {
+    for (const auto i : arange(after_shape.size())) {
       (void)i;
       shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
     }
@@ -252,11 +255,11 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 
     ExpressionEvaluator expr_eval;
 
-    for (const auto i : c10::irange(before_shape.size())) {
+    for (const auto i : arange(before_shape.size())) {
       expr_eval.bind(tv0->axis(i)->extent(), before_shape.at(i));
     }
 
-    for (const auto i : c10::irange(after_shape.size())) {
+    for (const auto i : arange(after_shape.size())) {
       expr_eval.bind(tv2->axis(i)->extent(), after_shape.at(i));
       // We must bind tv1's extents, since they cannot be inferred until after
       // concretization. Because tv2 is a dynamic reshape both its IterDomains
@@ -278,7 +281,7 @@ TEST_F(NVFuserTest, DynamicTransform4_CUDA) {
 }
 
 // Dynamic reshape followed by static resize
-TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform5) {
   std::vector<std::pair<std::vector<int64_t>, std::vector<int64_t>>>
       before_after_shapes = {
           {{4, 3}, {3, 4}},
@@ -326,7 +329,7 @@ TEST_F(NVFuserTest, DynamicTransform5_CUDA) {
 }
 
 // Reshape of reshape
-TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform6) {
   std::vector<std::vector<std::vector<int64_t>>> reshape_lists = {
       {{4, 3}, {3, 4}},
       {{4, 3}, {3, 4}, {12}},
@@ -349,7 +352,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
     for (auto it = reshape_list.begin() + 1; it != reshape_list.end(); ++it) {
       auto shape = *it;
       std::vector<Val*> shape_arg;
-      for (const auto i : c10::irange(shape.size())) {
+      for (const auto i : arange(shape.size())) {
         (void)i;
         shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
@@ -361,9 +364,9 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
 
     ExpressionEvaluator expr_eval;
 
-    for (const auto i : c10::irange(reshape_list.size())) {
+    for (const auto i : arange(reshape_list.size())) {
       const auto& shape = reshape_list.at(i);
-      for (const auto j : c10::irange(shape.size())) {
+      for (const auto j : arange(shape.size())) {
         expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
       }
     }
@@ -379,7 +382,7 @@ TEST_F(NVFuserTest, DynamicTransform6_CUDA) {
 }
 
 // Test equality of DynamicTransformInfo
-TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform7) {
   // Represents a series of reshapes
   struct TransformList {
     std::vector<std::vector<int64_t>> shapes;
@@ -428,7 +431,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
          ++it) {
       const auto& shape = *it;
       std::vector<Val*> shape_arg;
-      for (const auto i : c10::irange(shape.size())) {
+      for (const auto i : arange(shape.size())) {
         (void)i;
         shape_arg.push_back(IrBuilder::create<Val>(DataType::Int));
       }
@@ -440,9 +443,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
 
     ExpressionEvaluator ref_expr_eval;
 
-    for (const auto i : c10::irange(ref_transform.shapes.size())) {
+    for (const auto i : arange(ref_transform.shapes.size())) {
       const auto& shape = ref_transform.shapes.at(i);
-      for (const auto j : c10::irange(shape.size())) {
+      for (const auto j : arange(shape.size())) {
         ref_expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
       }
     }
@@ -454,9 +457,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     for (const auto& transform : pattern.equal_transforms) {
       NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
-      for (const auto i : c10::irange(transform.shapes.size())) {
+      for (const auto i : arange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
-        for (const auto j : c10::irange(shape.size())) {
+        for (const auto j : arange(shape.size())) {
           expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
         }
       }
@@ -475,9 +478,9 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
     for (const auto& transform : pattern.different_transforms) {
       NVF_CHECK(transform.shapes.size() == ref_transform.shapes.size());
       ExpressionEvaluator expr_eval;
-      for (const auto i : c10::irange(transform.shapes.size())) {
+      for (const auto i : arange(transform.shapes.size())) {
         const auto& shape = transform.shapes.at(i);
-        for (const auto j : c10::irange(shape.size())) {
+        for (const auto j : arange(shape.size())) {
           expr_eval.bind(reshape_tvs.at(i)->axis(j)->extent(), shape.at(j));
         }
       }
@@ -496,7 +499,7 @@ TEST_F(NVFuserTest, DynamicTransform7_CUDA) {
 }
 
 // Make sure non-dynamic reshape op is created when possible
-TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform8) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -516,7 +519,7 @@ TEST_F(NVFuserTest, DynamicTransform8_CUDA) {
 
 // Mix of static and dynamic reshape. Make sure only dynamic reshape
 // is handled by the dynamic transform concretizer.
-TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform9) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -560,7 +563,7 @@ TEST_F(NVFuserTest, DynamicTransform9_CUDA) {
 }
 
 // Make sure inherited symbolic IDs are concretized through producer projection
-TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform10) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -600,7 +603,7 @@ TEST_F(NVFuserTest, DynamicTransform10_CUDA) {
 
 // Simple test of hashing. Create concretization info objects with two
 // similar but different reshape sizes and see if their hashes are different.
-TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransform11) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -655,7 +658,7 @@ TEST_F(NVFuserTest, DynamicTransform11_CUDA) {
 }
 
 // Test FusionExecutorCache with dynamic reshapes
-TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransformFusionExecutorCache) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -691,10 +694,9 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // trivial reshape
     auto t0 = at::randn({3, 4}, options);
     auto t1 = at::randn({3, 4}, options);
-    std::vector<c10::IValue> inputs = {t0, t1};
-    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
     NVF_CHECK(
         executor_cache.countRuntimes() == 1,
         "Expect to create a single runtime");
@@ -702,10 +704,9 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // non-trivial reshape: merge and split
     auto t0 = at::randn({3, 4}, options);
     auto t1 = at::randn({4, 3}, options);
-    std::vector<c10::IValue> inputs = {t0, t1};
-    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
     NVF_CHECK(num_rts == 2, "Non-trivial reshape should create new runtime");
@@ -716,10 +717,9 @@ TEST_F(NVFuserTest, DynamicTransformFusionExecutorCache_CUDA) {
   { // different non-trivial reshape
     auto t0 = at::randn({2, 6}, options);
     auto t1 = at::randn({4, 3}, options);
-    std::vector<c10::IValue> inputs = {t0, t1};
-    auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
+    auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
     testValidate(
-        executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
+        executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
     auto num_rts = executor_cache.countRuntimes();
     auto num_concs = executor_cache.countConcretizations();
     NVF_CHECK(
@@ -768,7 +768,7 @@ void reductionDynamicViewAddFusion(
       (reshape_before_reduction) ? add(x, bias) : sum(x, {kReductionAxis});
   // create vectors of input scalars describing this reshape
   std::vector<Val*> output_shape(output_dims);
-  for (size_t i : c10::irange(output_dims)) {
+  for (size_t i : arange(output_dims)) {
     output_shape[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(output_shape[i]);
   }
@@ -811,7 +811,7 @@ void reductionDynamicViewAddFusion(
       // concretize bias_shape so that we can properly initialize at_bias
       size_t other_numel = 1;
       ssize_t negone_dim = -1; // negative if no -1 shape is provided
-      for (auto i : c10::irange(bias_shape.size())) {
+      for (auto i : arange(bias_shape.size())) {
         if (bias_shape[i] == -1) {
           ASSERT_EQ(negone_dim, -1); // test cases should not have multiple -1s
           negone_dim = -1;
@@ -824,24 +824,24 @@ void reductionDynamicViewAddFusion(
       }
     }
     at::Tensor at_bias = at::randn(bias_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x, at_bias};
+    KernelArgumentHolder args = {at_x, at_bias};
     // Add input scalars describing the reshape size for concretization
-    for (size_t i : c10::irange(output_dims)) {
-      aten_inputs.emplace_back(output_shape[i]);
+    for (size_t i : arange(output_dims)) {
+      args.push(output_shape[i]);
     }
 
-    auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto outputs = executor_cache.runFusionWithInputs(args);
     checkCache(expect_miss);
 
     auto at_tv1 = (reshape_before_reduction) ? (at_x + at_bias)
                                              : at::sum(at_x, kReductionAxis);
     auto at_x_reshape = at::native::view(at_tv1, output_shape);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args, __LINE__, __FILE__);
   }
 }
 
-TEST_F(NVFuserTest, FusionDynamicReshapeReductionShmoo_CUDA) {
+TEST_F(DynamicTransformTest, FusionDynamicReshapeReductionShmoo) {
   auto invocations = std::vector<dynamic_view_invocation>{
       {{8, 3 * 4, 7, 9}, {8, 3 * 4, 7, 9}, true}, // trivial
       {{8, 3 * 4, 7, 5}, {8, 3 * 4, 7, 5}, false}, // trivial
@@ -894,7 +894,7 @@ void reductionDynamicPadAddFusion(
   fusion.addInput(x);
 
   std::vector<Val*> pad_width_vals(num_pad_widths);
-  for (auto i : c10::irange(num_pad_widths)) {
+  for (auto i : arange(num_pad_widths)) {
     pad_width_vals[i] = IrBuilder::create<Val>(DataType::Int);
     fusion.addInput(pad_width_vals[i]);
   }
@@ -937,26 +937,26 @@ void reductionDynamicPadAddFusion(
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     at::Tensor at_x = at::randn(input_shape, options);
-    std::vector<c10::IValue> aten_inputs = {at_x};
+    KernelArgumentHolder args = {at_x};
     // Add input scalars describing the reshape size for concretization
-    for (size_t i : c10::irange(pad_widths.size())) {
-      aten_inputs.emplace_back(pad_widths[i]);
+    for (size_t i : arange(pad_widths.size())) {
+      args.push(pad_widths[i]);
     }
 
-    auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+    auto outputs = executor_cache.runFusionWithInputs(args);
     CHECK_CACHE(
         expect_miss, "Input shape=", input_shape, " pad_widths=", pad_widths);
 
     auto at_x_pad = at::pad(at_x, pad_widths);
     auto at_y = at::sum(at_x_pad, kReductionAxis);
 
-    testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+    testValidate(&fusion, outputs, args, __LINE__, __FILE__);
   }
 }
 #undef CHECK_CACHE
 
 // Test dynamic pad for various inputs
-TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
+TEST_F(DynamicTransformTest, DynamicPadShmoo) {
   // NOLINTBEGIN(bugprone-implicit-widening-of-multiplication-result)
   auto invocations = std::vector<dynamic_pad_invocation>{
       {{3, 5}, {0, 0}, true}, // trivial
@@ -992,7 +992,7 @@ TEST_F(NVFuserTest, DynamicPadShmoo_CUDA) {
 
 // Test that a Symbolic root/Broadcast logical is not concretized to
 // Iteration/Iteration
-TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
+TEST_F(DynamicTransformTest, FusionDynamicSliceToBroadcast) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -1014,13 +1014,12 @@ TEST_F(NVFuserTest, FusionDynamicSliceToBroadcast_CUDA) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at0 = at::randn({5}, options);
-  std::vector<c10::IValue> aten_inputs = {at0};
-  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({at0});
+  testValidate(&fusion, outputs, {at0}, __LINE__, __FILE__);
 }
 
 // Test that empty input to cat is concretized away
-TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
+TEST_F(DynamicTransformTest, FusionDynamicEmptyCat1) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -1042,13 +1041,12 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat1_CUDA) {
   at::Tensor at0 = at::randn({5}, options);
   at::Tensor at1 = at::randn({0}, options);
   at::Tensor at2 = at::randn({3}, options);
-  std::vector<c10::IValue> aten_inputs = {at0, at1, at2};
-  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({at0, at1, at2});
+  testValidate(&fusion, outputs, {at0, at1, at2}, __LINE__, __FILE__);
 }
 
 // Test that empty input to cat is concretized away
-TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
+TEST_F(DynamicTransformTest, FusionDynamicEmptyCat2) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(fusion_ptr.get());
@@ -1067,9 +1065,8 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at0 = at::randn({5}, options);
   at::Tensor at1 = at::randn({0}, options);
-  std::vector<c10::IValue> aten_inputs = {at0, at1};
-  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
-  testValidate(&fusion, outputs, aten_inputs, __LINE__, __FILE__);
+  auto outputs = executor_cache.runFusionWithInputs({at0, at1});
+  testValidate(&fusion, outputs, {at0, at1}, __LINE__, __FILE__);
 
   // Check that fusion consists only of tv2 = set(tv0)
   auto fkr = executor_cache.getMostRecentKernelRuntime();
@@ -1081,7 +1078,7 @@ TEST_F(NVFuserTest, FusionDynamicEmptyCat2_CUDA) {
 }
 
 // Repro of https://github.com/NVIDIA/Fuser/issues/418
-TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
+TEST_F(DynamicTransformTest, DynamicTransformIssue418) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -1102,14 +1099,12 @@ TEST_F(NVFuserTest, DynamicTransformIssue418_CUDA) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor at0 = at::randn({256, 128, 28, 28}, options);
-  std::vector<c10::IValue> aten_inputs = {at0, 32};
-  auto outputs = executor_cache.runFusionWithInputs(aten_inputs);
+  auto outputs = executor_cache.runFusionWithInputs({at0, 32});
 
-  testValidate(
-      executor_cache.fusion(), outputs, aten_inputs, __LINE__, __FILE__);
+  testValidate(executor_cache.fusion(), outputs, {at0, 32}, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, Issue249_CUDA) {
+TEST_F(DynamicTransformTest, Issue249) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1137,7 +1132,7 @@ TEST_F(NVFuserTest, Issue249_CUDA) {
 }
 
 // This is just like the test above, but uses an input scalar with value -1
-TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
+TEST_F(DynamicTransformTest, Issue249InputNegative1) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -1178,7 +1173,7 @@ TEST_F(NVFuserTest, Issue249InputNegative1_CUDA) {
 // improper concretizations where we have squeezed a dimension with extent
 // other than 1.
 // See https://github.com/NVIDIA/Fuser/issues/1273
-TEST_F(NVFuserTest, SymbolicSqueeze) {
+TEST_F(DynamicTransformTest, SymbolicSqueeze) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1199,24 +1194,24 @@ TEST_F(NVFuserTest, SymbolicSqueeze) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 2}, options);
-  std::vector<c10::IValue> valid_inputs = {t0, 6, 1};
+  KernelArgumentHolder valid_args = {t0, 6, 1};
   // An invalid input has a second dimension that cannot be squeezed
-  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3};
+  KernelArgumentHolder invalid_args = {t0, 2, 3};
 
-  auto outputs = executor_cache.runFusionWithInputs(valid_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(valid_args);
 
-  testValidate(fusion, outputs, valid_inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, valid_args, __LINE__, __FILE__);
 
   // An informative error message should be given by
   // SqueezeOp::checkConcretization
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs(invalid_inputs); },
+      [&]() { executor_cache.runFusionWithInputs(invalid_args); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(::testing::HasSubstr(
           " must concretize to IterType::Broadcast but found")));
 }
 
 // See https://github.com/NVIDIA/Fuser/issues/1468
-TEST_F(NVFuserTest, SymbolicExpand) {
+TEST_F(DynamicTransformTest, SymbolicExpand) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1243,18 +1238,18 @@ TEST_F(NVFuserTest, SymbolicExpand) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({3, 2}, options);
-  std::vector<c10::IValue> valid_inputs = {t0, 6, 1, 6, 5};
+  KernelArgumentHolder valid_args = {t0, 6, 1, 6, 5};
   // An invalid input has a second dimension that cannot be expanded
-  std::vector<c10::IValue> invalid_inputs = {t0, 2, 3, 2, 5};
+  KernelArgumentHolder invalid_args = {t0, 2, 3, 2, 5};
 
-  auto outputs = executor_cache.runFusionWithInputs(valid_inputs);
+  auto outputs = executor_cache.runFusionWithInputs(valid_args);
 
   testValidate(
-      executor_cache.fusion(), outputs, valid_inputs, __LINE__, __FILE__);
+      executor_cache.fusion(), outputs, valid_args, __LINE__, __FILE__);
 
   // An informative error message should be given during concretization
   EXPECT_THAT(
-      [&]() { executor_cache.runFusionWithInputs(invalid_inputs); },
+      [&]() { executor_cache.runFusionWithInputs(invalid_args); },
       ::testing::ThrowsMessage<nvfuser::nvfError>(
           ::testing::HasSubstr("Mismatch in sizes when concretizing expand.")));
 }
@@ -1262,7 +1257,7 @@ TEST_F(NVFuserTest, SymbolicExpand) {
 // Test that constant zero extents are not overwritten during concretization
 // with non-constant extents.
 // See https://github.com/NVIDIA/Fuser/issues/1572
-TEST_F(NVFuserTest, ConcretizeConstantExtents) {
+TEST_F(DynamicTransformTest, ConcretizeConstantExtents) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1299,17 +1294,16 @@ TEST_F(NVFuserTest, ConcretizeConstantExtents) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({4096, 12288}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Test that dynamic reductions that should result in squeezes are handled
 // properly.
 // See https://github.com/NVIDIA/Fuser/issues/1667
-TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
+TEST_F(DynamicTransformTest, DynamicSqueezeTrivialReduction) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1336,16 +1330,15 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialReduction) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 // Same as above but for Welford ops
 // See https://github.com/NVIDIA/Fuser/issues/1667
-TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
+TEST_F(DynamicTransformTest, DynamicSqueezeTrivialWelford) {
   std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
   Fusion* fusion = fusion_ptr.get();
   FusionGuard fg(fusion);
@@ -1374,11 +1367,43 @@ TEST_F(NVFuserTest, DynamicSqueezeTrivialWelford) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({2, 2, 9}, options);
-  std::vector<c10::IValue> inputs = {t0};
 
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
+  auto outputs = executor_cache.runFusionWithInputs({t0});
 
-  testValidate(fusion, outputs, inputs, __LINE__, __FILE__);
+  testValidate(fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(DynamicTransformTest, LoopSplit) {
+  const int b = 2, s = 3, h = 96, e = 128;
+
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  TensorView* in = makeContigConcreteTensor({-1, -1, 12288});
+  TensorView* out = reshape(
+      in,
+      {shape(in)[0],
+       shape(in)[1],
+       IrBuilder::create<Val>(96),
+       IrBuilder::create<Val>(128)});
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  const int d = 2;
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->split(2, d, /*inner_split=*/false);
+    tv->axis(2)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  at::Tensor in_tensor = at::randn({b, s, h * e / d}, at::Device(at::kCUDA));
+  KernelArgumentHolder args({in_tensor});
+  DynamicTransform::concretizeFusion(&fusion, args);
+
+  ASSERT_EQ(fusion.outputs().size(), 1);
+  auto* concrete_out = fusion.outputs().at(0)->as<TensorView>();
+  EXPECT_EQ(getShardedLogicalAxis(concrete_out, ParallelType::DIDx), 2);
 }
 
 } // namespace nvfuser

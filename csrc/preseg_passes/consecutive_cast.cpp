@@ -97,7 +97,7 @@ Val* replayMetaOnNewInput(
 
     // creating map from original to replayed ID
     std::unordered_map<IterDomain*, IterDomain*> id_map;
-    for (const auto i : c10::irange(meta_tv_out_root_domain.size())) {
+    for (const auto i : arange(meta_tv_out_root_domain.size())) {
       id_map[meta_tv_out_root_domain[i]] = replayed_root_domain[i];
     }
 
