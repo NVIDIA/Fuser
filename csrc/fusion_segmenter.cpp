@@ -649,24 +649,26 @@ SegmentedEdge* SegmentedFusion::Impl::makeEdge(
 void SegmentedFusion::removeEdge(SegmentedEdge* edge) {
   NVF_ERROR(edge != nullptr, "Edge is nullptr");
   // Validate edge exists in all expected locations
-  auto& producer_edges = edge->from->consumer_edges;
-  auto& consumer_edges = edge->to->producer_edges;
+  SegmentedGroup* producer = edge->from;
+  SegmentedGroup* consumer = edge->to;
+  auto& producer_consumer_edges = producer->consumer_edges;
+  auto& consumer_producer_edges = consumer->producer_edges;
 
   // Remove edge from producer's consumer edges
-  auto producer_edge_it =
-      std::find(producer_edges.begin(), producer_edges.end(), edge);
+  auto producer_edge_it = std::find(
+      producer_consumer_edges.begin(), producer_consumer_edges.end(), edge);
   NVF_ERROR(
-      producer_edge_it != producer_edges.end(),
+      producer_edge_it != producer_consumer_edges.end(),
       "Edge not found in producer's consumer edges");
-  producer_edges.erase(producer_edge_it);
+  producer_consumer_edges.erase(producer_edge_it);
 
   // Remove edge from consumer's producer edges
-  auto consumer_edge_it =
-      std::find(consumer_edges.begin(), consumer_edges.end(), edge);
+  auto consumer_edge_it = std::find(
+      consumer_producer_edges.begin(), consumer_producer_edges.end(), edge);
   NVF_ERROR(
-      consumer_edge_it != consumer_edges.end(),
+      consumer_edge_it != consumer_producer_edges.end(),
       "Edge not found in consumer's producer edges");
-  consumer_edges.erase(consumer_edge_it);
+  consumer_producer_edges.erase(consumer_edge_it);
 
   // Remove edge from global edge list
   auto edge_it = std::find(edges_.begin(), edges_.end(), edge);
@@ -4656,7 +4658,10 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
   for (SegmentedGroup* consumer : consumers) {
     SegmentedGroup* input_group = createInputGroup(forwarded_input);
     std::vector<SegmentedEdge*> edges_to_remove;
-    for (SegmentedEdge* edge : consumer->producer_edges) {
+    std::vector<SegmentedEdge*> producer_edge_copy = consumer->producer_edges;
+    // Use a copy to iterate over edges as connect group can invalidate the
+    // original iterator
+    for (SegmentedEdge* edge : producer_edge_copy) {
       if (edge->from == aux_group && edge->val == forwarded_input) {
         // Create new edges before removing old ones
         segmented_fusion_->connectGroups(
