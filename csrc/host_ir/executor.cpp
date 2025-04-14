@@ -22,6 +22,7 @@
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -89,6 +90,22 @@ bool HostIrExecutor::isCompiled() const {
   return (bool)host_ir_container_;
 }
 
+namespace {
+// Validates the sizes and strides of the input and output tensors
+// against the tensorviews
+void validateTensors(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    const ExpressionEvaluator& expr_eval) {
+  NVF_ERROR(tensors.size() == tvs.size());
+  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
+    if (tensor.defined()) {
+      inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
+    }
+  }
+}
+} // namespace
+
 KernelArgumentHolder HostIrExecutor::run(
     KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
@@ -140,6 +157,8 @@ KernelArgumentHolder HostIrExecutor::run(
         "Output tensor not found in fusion outputs");
     auto out_tensor = output_args[out_idx].as<at::Tensor>();
 
+    // Inputs are already validated in bindInputs.
+    validateTensors({out_tensor}, {communication->out()}, expr_eval);
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -433,6 +452,12 @@ void HostIrEvaluator::handle(Communication* communication) {
   CommunicatorBackend backend_type = communication->backend();
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), backend_type);
+
+  validateTensors(
+      {input_tensor, output_tensor},
+      {communication->in(), communication->out()},
+      expr_evaluator_);
+
   works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
@@ -463,6 +488,7 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
       get_zcopy::sendPost(p2p_ipc_handle, current_stream);
     }
   } else {
+    validateTensors({buffer}, {communication->buffer()}, expr_evaluator_);
     works_[communication] = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -483,14 +509,14 @@ void HostIrEvaluator::handle(Wait* wait) {
       get_zcopy::sendWait(ipc_handles, current_stream);
     }
   } else {
-    auto it = works_.find(communication);
-    if (it == works_.end()) {
-      return;
-    }
-    auto& work = it->second;
+    auto i = works_.find(communication);
+    NVF_ERROR(i != works_.end(), "no wait req");
+
+    auto work = i->second;
     if (work != nullptr) {
       work->wait();
     }
+
     works_.erase(communication);
   }
 }
