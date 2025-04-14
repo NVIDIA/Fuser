@@ -48,26 +48,15 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
-      if(expr->isA<kir::IfThenElse>()) {
-        auto ite = expr->as<kir::IfThenElse>();
-        if (ite->predicate()->predicate_type() == PredicateType::Inline) {
-          for(auto lexpr : ite->thenBody().exprs()){
-            if(ir_utils::isCpAsyncUblk(lexpr)){
-              std::cout << "lexpr: " << lexpr->toString() << std::endl;
-              std::cout << "conditional: " << conditional->toInlineString() << std::endl;
-              std::cout << "current ite conditional: " << current_elect_sync_->predicate()->toInlineString() << std::endl;
-              current_elect_sync_->predicate()->setValue(
-                  SimplifyingIrBuilder::logicalAndExpr(
-                      current_elect_sync_->predicate()->value(),
-                      conditional));
-              ublk_predicate_val_ = conditional;
-              tma_branch_fl_index_ = for_loops_.front()->index();
-              conditional = GpuLower::current()->kernel()->trueVal();
-            }
-          }
-        }
-      }
 
+      // Adjust predicate for UBLK TMA load
+      if (!for_loops_.empty() &&
+          GpuLower::current()
+              ->circularBufferInfo()
+              .isCircularBufferedIterDomain(
+                  for_loops_.front()->iter_domain())) {
+        reviseUblkPredicate(expr, conditional);
+      }
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
@@ -111,20 +100,76 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       expr->predicate()->setValue(conditional);
       NVF_ERROR(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
-    }else if(expr->isA<kir::MBarrierWaitParity>() && ublk_predicate_val_){
+    } else if (expr->isA<kir::MBarrierWaitParity>() && ublk_predicate_val_) {
       auto fl = for_loops_.front();
       std::unordered_map<Val*, Val*> replace_map;
       replace_map[tma_branch_fl_index_] = fl->index();
-      std::cout << "replace_map: " << tma_branch_fl_index_->toString() << " : " << fl->index()->toString() << std::endl;
-      auto local_predicate_val = ir_utils::replaceValRecursively(
-          ublk_predicate_val_, replace_map);
-      kir::Predicate* pred = IrBuilder::create<kir::Predicate>(local_predicate_val);
+      std::cout << "replace_map: " << tma_branch_fl_index_->toString() << " : "
+                << fl->index()->toString() << std::endl;
+      auto local_predicate_val =
+          ir_utils::replaceValRecursively(ublk_predicate_val_, replace_map);
+      local_predicate_val = GpuLower::current()->commonScalarMap().hoistScalar(
+          local_predicate_val, {for_loops_.front()});
+      kir::Predicate* pred =
+          IrBuilder::create<kir::Predicate>(local_predicate_val);
       kir::IfThenElse* inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
       kir::ExprMutator::registerReplace(expr, inline_ite);
-      inline_ite->thenBody().push_back(expr);      
+      inline_ite->thenBody().push_back(expr);
     }
 
     kir::ExprMutator::dispatch(expr);
+  }
+
+  // Move Inline predicate for UBLK TMA load to ElectSync
+  // (1) UBLK TMA load can't handle out-of-bound access, it has Inline
+  //     predicates added in Unroll pass.
+  // (2) TMA loads are synced with MBarrierArriveExpectTx and
+  //     MBarrierWaitParity, they need the same predicate to avoid deadlock.
+  void reviseUblkPredicate(Expr* expr, Val* conditional) {
+    // Looking for the following pattern:
+    // IF Inline
+    //   Ts = UBLK TMA load
+    if (auto ite = expr->as<kir::IfThenElse>()) {
+      if (ite->predicate()->predicate_type() == PredicateType::Inline) {
+        for (auto lexpr : ite->thenBody().exprs()) {
+          if (ir_utils::isCpAsyncUblk(lexpr)) {
+            std::cout << "lexpr: " << lexpr->toString() << std::endl;
+            std::cout << "conditional: " << conditional->toInlineString()
+                      << std::endl;
+            std::cout << "current ite conditional: "
+                      << current_elect_sync_->predicate()->toInlineString()
+                      << std::endl;
+            // If this UBLK TMA load is nested in multiple for-loops
+            // only keep the index for the outermost for-loop. For example:
+            //
+            if (for_loops_.size() > 1) {
+              std::unordered_map<Val*, Val*> replace_map;
+              for (auto it = for_loops_.begin() + 1; it != for_loops_.end();
+                   it++) {
+                replace_map[(*it)->index()] =
+                    GpuLower::current()->kernel()->zeroVal();
+              }
+              ublk_predicate_val_ =
+                  ir_utils::replaceValRecursively(conditional, replace_map);
+            } else {
+              ublk_predicate_val_ = conditional;
+            }
+            // Combine the Inline predicate with the ElectSync predicate
+            auto combined_conditional = SimplifyingIrBuilder::logicalAndExpr(
+                current_elect_sync_->predicate()->value(), ublk_predicate_val_);
+            combined_conditional =
+                GpuLower::current()->commonScalarMap().hoistScalar(
+                    combined_conditional, {for_loops_.front()});
+            current_elect_sync_->predicate()->setValue(combined_conditional);
+            // Keep the index of the outermost for-loop, will be replaced in the
+            // predicate of MBarrierWaitParity.
+            tma_branch_fl_index_ = for_loops_.front()->index();
+            conditional = GpuLower::current()->kernel()->trueVal();
+            break;
+          }
+        }
+      }
+    }
   }
 
   void setWritePredicate(Expr* expr) {
@@ -230,8 +275,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       case PredicateType::LoopRotation: {
         // Currently, all existing predicates should be able to cover the
         // condition of loop_index + step < end, so nothing to do here. In the
-        // future, if we decide that we need to predicate this then we can do it
-        // here.
+        // future, if we decide that we need to predicate this then we can do
+        // it here.
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
