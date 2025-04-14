@@ -1392,17 +1392,20 @@ class CircularBufferInserter : private kir::ExprMutator {
         GpuLower::current()
             ->parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
+    kir::Predicate* predicate_val = nullptr;
     Val* raw =
         GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
     Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
         raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
-    Val* predicate_val = IrBuilder::eqExpr(
-        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad);
-    // kir::Predicate* predicate = IrBuilder::create<kir::Predicate>(
-    //     PredicateType::ElectSync, loads.at(0), predicate_val);
-    kir::Predicate* predicate = IrBuilder::create<kir::Predicate>(predicate_val);
+    if (warp_specialization_pad == 1) {
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    } else {
+      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+    }
     kir::IfThenElse* warp_dispatch_ite =
-        IrBuilder::create<kir::IfThenElse>(predicate);
+        IrBuilder::create<kir::IfThenElse>(predicate_val);
 
     // Set default value
     auto& circular_buffer_options =

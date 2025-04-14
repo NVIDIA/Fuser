@@ -170,12 +170,9 @@ void UnrollPass::dispatch(Expr* expr) {
     }
 
     if (pred == nullptr) {
-      pred = unswitched_loop_
-          ? thread_pred_expr
-          : IrBuilder::create<kir::Predicate>(
-                PredicateType::Inline,
-                expr,
-                thread_pred);
+      pred = unswitched_loop_ ? thread_pred_expr
+                              : IrBuilder::create<kir::Predicate>(
+                                    PredicateType::Inline, expr, thread_pred);
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }

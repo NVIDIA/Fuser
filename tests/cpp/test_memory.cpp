@@ -3070,7 +3070,8 @@ TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   CompileParams index32bit{DataType::Int32, 255, false};
   auto [has_unroll, has_circular_buffer] = GetParam();
-  int64_t sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  int64_t sm_count =
+      at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   const int64_t outer_unroll = has_unroll ? 2 : 1;
   // Ensure dim0 is divisible by outer_unroll but not
   // divisible by sm_count after divide by outer_unroll
@@ -3086,7 +3087,7 @@ TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
   auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
   tv0a->setMemoryType(MemoryType::Shared);
 
-  if(has_unroll){
+  if (has_unroll) {
     tv1->split(0, outer_unroll);
   }
   tv1->split(0, sm_count);
@@ -3104,9 +3105,8 @@ TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
   inlineSelectedAt({tv0a}, tv0a, has_unroll ? 2 : 1);
   inlineMost(std::unordered_set<TensorView*>{tv1});
 
-  if(has_circular_buffer){
-    tv0a->circularBuffer(
-        2, 1, WarpSpecialized(ParallelType::TIDy));
+  if (has_circular_buffer) {
+    tv0a->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
   }
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
