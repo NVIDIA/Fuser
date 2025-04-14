@@ -130,10 +130,10 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
     // Verify stream axis is an iteration axis (not reduction/broadcast)
     NVF_CHECK(
-        stream_axis->getIterType() == IterType::Iteration,
+        stream_axis->getIterType() == IterType::Iteration || stream_axis->getIterType() == IterType::Broadcast,
         "Stream axis ",
         stream_axis,
-        " should be an iteration axis.");
+        " should be an iteration or broadcast axis.");
 
     // Check if expression can be merged with previous stream for-loop
     if (!new_top_level_exprs.empty() &&
