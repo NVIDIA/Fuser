@@ -393,16 +393,22 @@ bool haveDifferentShardings(
     // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
     // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {0,1,2,3}
     //
-    // The long term better solution would actually to "select" into the DeviceMesh, e.g.,
+    // The long term better solution would actually to "select" into the
+    // DeviceMesh, e.g.,
     //
     // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
     // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
-    // But for achieving this with symbolic "index" we need to make DeviceMesh symbolic.
+    // But for achieving this with symbolic "index" we need to make DeviceMesh
+    // symbolic.
     if (select_op->getIndexedID()->isDeviceDim()) {
       return true;
     }
-    // If the sharded axis is not selected into, then we still need to check that other axis do not get resharded.
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p = PairwiseLogicalDomainMap(producer, consumer).mapBroadcast(false).mapConsumerToProducer();
+    // If the sharded axis is not selected into, then we still need to check
+    // that other axis do not get resharded.
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+        PairwiseLogicalDomainMap(producer, consumer)
+            .mapBroadcast(false)
+            .mapConsumerToProducer();
     return !std::all_of(
         consumer->getLoopDomain().begin(),
         consumer->getLoopDomain().end(),
