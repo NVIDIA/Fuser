@@ -47,12 +47,12 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
 
-      // When current elect sync predicates a UBLK TMA load
-      // merge the inline predicate with the elect sync to avoid
-      // deadlock, MBarrierArriveExpectTx MBarrierWaitParity should be called
-      // only when there is a valid TMA load.
-      if (current_elect_sync_) {
-        reviseUblkPredicate(expr, conditional);
+      // When current elect sync predicates a UBLK TMA load, it also need to
+      // predicate the corresponding MBarrierArriveExpectTx and
+      // MBarrierWaitParity. Manually hoist the inline predicate to merge with
+      // elect sync to avoid deadlock.
+      if (current_elect_sync_ && reviseUblkPredicate(expr, conditional)) {
+        conditional = GpuLower::current()->kernel()->trueVal();
       }
 
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
@@ -97,7 +97,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       expr->predicate()->setValue(conditional);
       NVF_ERROR(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
-    } else if (expr->isA<kir::MBarrierWaitParity>() && ublk_predicate_val_) {
+    } else if (
+        expr && expr->isA<kir::MBarrierWaitParity>() && ublk_predicate_val_) {
       auto fl = for_loops_.front();
       std::unordered_map<Val*, Val*> replace_map;
       replace_map[tma_branch_fl_index_] = fl->index();
@@ -120,7 +121,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   //     predicates added in Unroll pass.
   // (2) TMA loads are synced using MBarrierArriveExpectTx and
   //     MBarrierWaitParity, they need the same predicate to avoid deadlock.
-  void reviseUblkPredicate(Expr* expr, Val* conditional) {
+  bool reviseUblkPredicate(Expr* expr, Val* conditional) {
     // Looking for the following pattern:
     // IF Inline
     //   Ts = UBLK TMA load
@@ -150,12 +151,12 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
             // Keep the index of the outermost for-loop, will be replaced in the
             // predicate of MBarrierWaitParity.
             tma_branch_fl_index_ = for_loops_.front()->index();
-            conditional = GpuLower::current()->kernel()->trueVal();
-            break;
+            return true;
           }
         }
       }
     }
+    return false;
   }
 
   void setWritePredicate(Expr* expr) {
