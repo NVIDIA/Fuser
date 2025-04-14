@@ -175,7 +175,7 @@ void UnrollPass::dispatch(Expr* expr) {
           : IrBuilder::create<kir::Predicate>(
                 PredicateType::Inline,
                 expr,
-                ir_utils::isCpAsyncUblk(expr) ? nullptr : thread_pred);
+                thread_pred);
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }

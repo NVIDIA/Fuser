@@ -44,17 +44,14 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   void dispatch(Expr* expr) final {
     if (expr != nullptr && expr->predicate() != nullptr) {
-      std::cout << "expr:\n" << expr->toString() << std::endl;
-
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
 
-      // Adjust predicate for UBLK TMA load
-      if (!for_loops_.empty() &&
-          GpuLower::current()
-              ->circularBufferInfo()
-              .isCircularBufferedIterDomain(
-                  for_loops_.front()->iter_domain())) {
+      // When current elect sync predicates a UBLK TMA load
+      // merge the inline predicate with the elect sync to avoid
+      // deadlock, MBarrierArriveExpectTx MBarrierWaitParity should be called
+      // only when there is a valid TMA load.
+      if (current_elect_sync_) {
         reviseUblkPredicate(expr, conditional);
       }
 
@@ -104,8 +101,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       auto fl = for_loops_.front();
       std::unordered_map<Val*, Val*> replace_map;
       replace_map[tma_branch_fl_index_] = fl->index();
-      std::cout << "replace_map: " << tma_branch_fl_index_->toString() << " : "
-                << fl->index()->toString() << std::endl;
       auto local_predicate_val =
           ir_utils::replaceValRecursively(ublk_predicate_val_, replace_map);
       local_predicate_val = GpuLower::current()->commonScalarMap().hoistScalar(
@@ -123,7 +118,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   // Move Inline predicate for UBLK TMA load to ElectSync
   // (1) UBLK TMA load can't handle out-of-bound access, it has Inline
   //     predicates added in Unroll pass.
-  // (2) TMA loads are synced with MBarrierArriveExpectTx and
+  // (2) TMA loads are synced using MBarrierArriveExpectTx and
   //     MBarrierWaitParity, they need the same predicate to avoid deadlock.
   void reviseUblkPredicate(Expr* expr, Val* conditional) {
     // Looking for the following pattern:
@@ -133,15 +128,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       if (ite->predicate()->predicate_type() == PredicateType::Inline) {
         for (auto lexpr : ite->thenBody().exprs()) {
           if (ir_utils::isCpAsyncUblk(lexpr)) {
-            std::cout << "lexpr: " << lexpr->toString() << std::endl;
-            std::cout << "conditional: " << conditional->toInlineString()
-                      << std::endl;
-            std::cout << "current ite conditional: "
-                      << current_elect_sync_->predicate()->toInlineString()
-                      << std::endl;
-            // If this UBLK TMA load is nested in multiple for-loops
-            // only keep the index for the outermost for-loop. For example:
-            //
             if (for_loops_.size() > 1) {
               std::unordered_map<Val*, Val*> replace_map;
               for (auto it = for_loops_.begin() + 1; it != for_loops_.end();
@@ -190,7 +176,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
   void handle(kir::IfThenElse* ite) final {
     NVF_ERROR(ite->predicate() != nullptr);
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
-      std::cout << "============ enter ElectSync ========== " << std::endl;
       current_elect_sync_ = ite;
     }
     // Loop rotation transform loops like
@@ -229,7 +214,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     kir::ExprMutator::handle(ite);
 
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
-      std::cout << "============ leave ElectSync ========== " << std::endl;
       current_elect_sync_ = nullptr;
     }
 

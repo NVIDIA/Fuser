@@ -3063,103 +3063,6 @@ TEST_F(TMATest, CpAsyncBulk1D) {
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
 }
 
-
-TEST_F(TMATest, CpAsyncBulkPredicateCircularBuffer) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  constexpr at::ScalarType dtype = at::ScalarType::Float;
-  CompileParams index32bit{DataType::Int32, 255, false};
-
-  const int64_t dim0 = 2048;
-  const int64_t dim1 = 512;
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
-  fusion->addInput(tv0);
-  auto tv1 = add(tv0, tv0);
-  fusion->addOutput(tv1);
-
-  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
-  tv0a->setMemoryType(MemoryType::Shared);
-
-  // [I/148, 148, ...]
-  tv1->split(0, 148);
-  TransformPropagator propagator(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
-
-  tv1->axis(1)->parallelize(ParallelType::BIDx);
-  scheduler_utils::parallelizeAllLike(tv1);
-
-  /// TIDx for computation, Bulk for load
-  tv1->axis(-1)->parallelize(ParallelType::TIDx);
-  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
-
-  // inline
-  inlineSelectedAt({tv0a}, tv0a, 1);
-  inlineMost(std::unordered_set<TensorView*>{tv1});
-
-  tv0a->circularBuffer(
-      2, 1, WarpSpecialized(ParallelType::TIDy));
-
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
-
-  KernelExecutor ke;
-  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
-  auto outputs = ke.run({at_tv0});
-  auto at_output = at_tv0 + at_tv0;
-  testValidate(
-      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
-}
-
-TEST_F(TMATest, CpAsyncBulkPredicateCircularBufferUnroll) {
-  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  constexpr at::ScalarType dtype = at::ScalarType::Float;
-  CompileParams index32bit{DataType::Int32, 255, false};
-
-  const int64_t dim0 = 2048;
-  const int64_t dim1 = 512;
-  const int64_t outer_unroll = 2;
-  auto fusion = std::make_unique<Fusion>();
-  FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
-  fusion->addInput(tv0);
-  auto tv1 = add(tv0, tv0);
-  fusion->addOutput(tv1);
-
-  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
-  tv0a->setMemoryType(MemoryType::Shared);
-
-  // [I/2/148, 148, 2, ...]
-  tv1->split(0, outer_unroll);
-  tv1->split(0, 148);
-  TransformPropagator propagator(tv1);
-  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
-
-  tv1->axis(1)->parallelize(ParallelType::BIDx);
-  scheduler_utils::parallelizeAllLike(tv1);
-
-  /// TIDx for computation, Bulk for load
-  tv1->axis(-1)->parallelize(ParallelType::TIDx);
-  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
-
-  // inline
-  inlineSelectedAt({tv0a}, tv0a, 2);
-  inlineMost(std::unordered_set<TensorView*>{tv1});
-
-  tv0a->circularBuffer(
-      2, 1, WarpSpecialized(ParallelType::TIDy));
-
-  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
-  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
-
-  KernelExecutor ke;
-  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
-  auto outputs = ke.run({at_tv0});
-  auto at_output = at_tv0 + at_tv0;
-  testValidate(
-      fusion.get(), outputs, {at_tv0}, {at_output}, __LINE__, __FILE__);
-}
-
 using UblkPredicateTestParams = std::tuple<bool, bool>;
 using UblkPredicateTest = NVFuserFixtureParamTest<UblkPredicateTestParams>;
 TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
@@ -3169,6 +3072,8 @@ TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
   auto [has_unroll, has_circular_buffer] = GetParam();
   int64_t sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   const int64_t outer_unroll = has_unroll ? 2 : 1;
+  // Ensure dim0 is divisible by outer_unroll but not
+  // divisible by sm_count after divide by outer_unroll
   const int64_t dim0 = (sm_count + 1) * outer_unroll;
   const int64_t dim1 = 512;
   auto fusion = std::make_unique<Fusion>();

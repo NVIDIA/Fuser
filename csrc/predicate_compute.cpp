@@ -712,7 +712,6 @@ Val* PredicateCompute::getInlinePredicate(
       "pred_type = ",
       pred_type);
   FUSER_PERF_SCOPE("GpuLower::Lower::getInlinePredicate");
-  std::cout << "getInlinePredicate expr " << expr->toString() << std::endl;
 
   const auto gpu_lower = GpuLower::current();
 
@@ -727,7 +726,6 @@ Val* PredicateCompute::getInlinePredicate(
 
   if (loops.empty()) {
     NVF_ERROR(thread_pred != nullptr);
-    std::cout << "getInlinePredicate loops.empty() "  << std::endl;
     RECORD_AND_RETURN(thread_pred);
   }
 
@@ -735,7 +733,6 @@ Val* PredicateCompute::getInlinePredicate(
   NVF_ERROR(out_tv != nullptr, "Missing TensorView output");
 
   if (gpu_lower->predicateElimination().canOmitPredicate(expr)) {
-    std::cout << "getInlinePredicate canOmitPredicate"  << std::endl;
     RECORD_AND_RETURN(thread_pred);
   }
 
@@ -749,7 +746,6 @@ Val* PredicateCompute::getInlinePredicate(
   // predicated like accesses to general memory types, we do not have a good
   // way to predicate the accesses yet, so we just skip the predicate for now.
   if (ir_utils::isCpAsyncBulkTensorTile(expr) || ir_utils::isLdStTMem(expr)) {
-    std::cout << "getInlinePredicate isCpAsyncBulkTensorTile"  << std::endl;
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
@@ -805,14 +801,17 @@ Val* PredicateCompute::getInlinePredicate(
 
   preds.push_back(parallel_dom_pred);
 
-  if (thread_pred != nullptr) {
+  // Don't need thread predicate for UBLK TMA load with circular buffer, it is
+  // already predicated with ElectSync.
+  if (thread_pred &&
+      !(ir_utils::isCpAsyncUblk(expr) &&
+        gpu_lower->circularBufferInfo().getCircularBufferAxis(out_tv))) {
     preds.push_back(thread_pred);
   }
 
   if (preds.empty()) {
     RECORD_AND_RETURN(GpuLower::current()->kernel()->trueVal());
   }
-    std::cout << "getInlinePredicate preds.size() " << preds.size()  << std::endl;
 
   Val* cond = preds[0];
   for (const auto i : arange(1, preds.size())) {
