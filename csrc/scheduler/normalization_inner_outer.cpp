@@ -1564,7 +1564,7 @@ void scheduleTmaWarpSpecializedOuter(
   }
 }
 
-void scheduleInnerOuterWarpSpecializedTmaKernel(
+void scheduleTmaWarpSpecializedInnerOuter(
     Fusion* fusion,
     const ReductionParams* rparams) {
   FusionGuard fg(fusion);
@@ -2014,7 +2014,7 @@ void InnerOuterPersistentKernelScheduler::schedule(
       "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
       params);
   if (rparams->tma_warp_specialized) {
-    scheduleInnerOuterWarpSpecializedTmaKernel(fusion, rparams);
+    scheduleTmaWarpSpecializedInnerOuter(fusion, rparams);
   } else {
     scheduleInnerOuterPersistentKernel(fusion, rparams);
   }
