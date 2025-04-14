@@ -1661,9 +1661,6 @@ void scheduleTmaWarpSpecializedInnerOuter(
         break;
       }
     }
-    std::cout << "first_redu_axis: " << first_redu_axis << std::endl;
-    std::cout << "inner_reference_tv: " << inner_reference_tv->toString()
-              << std::endl;
 
     // Step-1, propagate iteration domain in inner reduction.
     // outer_reference_tvs are excluded since they are already scheduled
@@ -1676,9 +1673,6 @@ void scheduleTmaWarpSpecializedInnerOuter(
       MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
           .traverse(&propagator);
     }
-
-    std::cout << "outer_reference_tvs[i]: "
-              << outer_reference_tvs[0]->toString() << "\n";
 
     // Step-2, propagate reduction domain in inner reduction.
     // (a) Tvs in boundaryNodesSet are excluded since they should follow outer
@@ -1706,7 +1700,6 @@ void scheduleTmaWarpSpecializedInnerOuter(
     std::unordered_set<TensorView*> special_tvs{
         tma_load_tvs.begin(), tma_load_tvs.end()};
     for (auto tv : boundaryNodesSet) {
-      std::cout << "boundaryNodesSet tv: " << tv->toString() << "\n";
       if (special_tvs.count(tv) == 0) {
         special_tvs.emplace(tv);
       }
@@ -1718,9 +1711,6 @@ void scheduleTmaWarpSpecializedInnerOuter(
         {all_tvs_except_cache.begin(), all_tvs_except_cache.end()});
     MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
         .traverse(&propagator);
-    std::cout << "outer_reference_tvs[i]: "
-              << outer_reference_tvs[0]->toString() << "\n";
-
   } else {
     reduction_scheduler_utils::propagateTransformation(
         inner_reference_tv, boundaryNodesSet);
