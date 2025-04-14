@@ -232,7 +232,12 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
     if (circular_buffer_axis == nullptr ||
         !id_model.idGraph(IdMappingMode::LOOP)
              .disjointValSets()
-             .strictAreMapped(fl->iter_domain(), circular_buffer_axis)) {
+             .strictAreMapped(fl->iter_domain(), circular_buffer_axis) ||
+        std::holds_alternative<WarpSpecialized>(
+            GpuLower::current()
+                ->circularBufferInfo()
+                .getCircularBufferOptionsFor(fl->iter_domain())
+                .type)) {
       return nullptr;
     }
 

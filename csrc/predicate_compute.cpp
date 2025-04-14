@@ -716,7 +716,7 @@ Val* PredicateCompute::getInlinePredicate(
   const auto gpu_lower = GpuLower::current();
 
   // If outputs are registers, no need to predicate for threads
-  if (isOutputLocal(expr) || ir_utils::isCpAsyncBulk(expr)) {
+  if (isOutputLocal(expr)) {
     thread_pred = gpu_lower->kernel()->trueVal();
     // If it is a initilization op, return immediately.
     if (ir_utils::isTensorScalarFillOp(expr)) {
@@ -740,7 +740,7 @@ Val* PredicateCompute::getInlinePredicate(
       ParallelizedDomainPredicate::getPredicate(expr, loops);
   NVF_ERROR(parallel_dom_pred != nullptr);
 
-  // nD TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
+  // TMA handles out-of-bounds accesses in hardware, so parallel_dom_pred
   // itself is sufficient to predicate the accesses.
   // TMem ld/st accesses TMem in a very specific pattern and can not be
   // predicated like accesses to general memory types, we do not have a good
