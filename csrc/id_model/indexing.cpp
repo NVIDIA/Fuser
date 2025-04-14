@@ -457,16 +457,26 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
 
         for (const auto& use_of_unmapped_output :
              exact_graph.getUses(exact_graph.toGroup(unmapped_output))) {
-          if (!isNonDivisibleSplit(use_of_unmapped_output)) {
+          // std::cerr << "Potential non-div: " <<
+          // use_of_unmapped_output->front()->toString();
+
+          auto split_of_unmapped_output =
+              dynamic_cast<Split*>(use_of_unmapped_output->front());
+          if (split_of_unmapped_output == nullptr) {
+            continue;
+          }
+
+          // if (!isNonDivisibleSplit(use_of_unmapped_output)) {
+          if (split->factor()->isOneInt()) {
+            // std::cerr << "not\n";
             continue;
           }
 
           // Non divisible split found
           // std::cerr << "Additional non divisible split found: "
           //<< use_of_unmapped_output->front()->toString();
-          NVF_ERROR(use_of_unmapped_output->front()->isA<Split>());
-          splits_to_predicate.push_back(
-              use_of_unmapped_output->front()->as<Split>());
+          // NVF_ERROR(use_of_unmapped_output->front()->isA<Split>());
+          splits_to_predicate.push_back(split_of_unmapped_output);
         }
       }
     }
