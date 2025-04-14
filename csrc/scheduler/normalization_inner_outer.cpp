@@ -1172,6 +1172,7 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
         buffer_params.project_to_input,
         runtime_info.getIndexType());
     rparams->tma_warp_specialized = true;
+    rparams->tma_warp_specialized = true;
   } else {
     rparams = innerOuterPersistentHeuristic(
         properties.total_iteration_numel,
@@ -2112,10 +2113,6 @@ void InnerOuterPersistentKernelScheduler::schedule(
       rparams != nullptr && rparams->scheduler_type == schedulerType(),
       "Incorrect parameters sent to InnerOuterPersistentKernelScheduler::schedule",
       params);
-  if (rparams->tma_warp_specialized) {
-    scheduleInnerOuterWarpSpecializedTmaKernel(fusion, rparams);
-  } else {
-    scheduleInnerOuterPersistentKernel(fusion, rparams);
-  }
+  scheduleInnerOuterPersistentKernel(fusion, rparams);
 }
 } // namespace nvfuser
