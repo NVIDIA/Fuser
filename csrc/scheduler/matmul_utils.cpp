@@ -350,6 +350,9 @@ bool fillDefaultHopperHeuristic(
   //  Use a non-persistent kernel by default for now
   mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
 
+  //  Use a non-persistent kernel by default for now
+  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
   // Use warp specialization on hopper by default
   mparams->circular_buffering_strategy =
       MatmulParams::CircularBufferingStrategy::WarpSpecialized;
