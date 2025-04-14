@@ -140,7 +140,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   Val* getAlias(Val* val) const {
     const auto& aliases = container_->alias();
     auto it = aliases.find(val);
-    return it != aliases.end() ? it->second : val;
+    return it != aliases.end() ? getAlias(it->second) : val;
   }
 
   bool isKnown(Val* value) const {
