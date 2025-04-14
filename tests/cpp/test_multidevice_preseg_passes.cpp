@@ -20,7 +20,7 @@
 
 namespace nvfuser {
 
-constexpr int64_t b = 2, s = 3, h = 128, a = 8;
+constexpr int64_t b = 2, s = 3, h = 64, a = 8;
 constexpr double dropout_p = 0.0;
 constexpr bool is_causal = false;
 
@@ -62,9 +62,15 @@ TEST_F(MultiDevicePresegPassesTest, ResidualAdd) {
 }
 
 namespace {
+at::Tensor reference_mlp(at::Tensor inp, at::Tensor w0, at::Tensor w1) {
+  auto linear0 = at::linear(inp, w0);
+  auto gelu = at::gelu(linear0, "tanh");
+  auto linear1 = at::linear(gelu, w1);
+  return linear1;
+}
+
 at::Tensor reference_mha(at::Tensor inp) {
-  auto qkv =
-      inp.view({b, s, a, 3 * h / a}).transpose(1, 2).split(h / a, -1);
+  auto qkv = inp.transpose(1, 2).split(h / a, -1);
   double scale = 1.0 / std::sqrt(h / a);
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
       qkv[0],
@@ -79,6 +85,49 @@ at::Tensor reference_mha(at::Tensor inp) {
 }
 } // namespace
 
+TEST_F(MultiDevicePresegPassesTest, MLP) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* inp = makeContigConcreteTensor({b, s, h});
+  TensorView* w0 = makeContigConcreteTensor({4*d*h, h});
+  TensorView* w1 = makeContigConcreteTensor({h, 4*d*h});
+
+  TensorView* linear0 = linear(inp, w0);
+  TensorView* gelu = tanh_gelu(linear0);
+  TensorView* linear1 = linear(gelu, w1);
+
+  std::vector<TensorView*> fusion_inputs {inp, w0, w1};
+  for (auto tv: fusion_inputs){
+    fusion->addInput(tv);
+    tv->setDeviceMesh(mesh);
+  }
+  fusion->addOutput(linear1);
+
+  w0->outer_split(0, d);
+  w0->axis(0)->parallelize(ParallelType::DIDx);
+  w1->outer_split(1, d);
+  w1->axis(1)->parallelize(ParallelType::DIDx);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp_tensor = at::randn({b, s, h}, tensor_options.dtype(at::kFloat));
+  at::Tensor w0_tensor = at::randn({4*d*h, h}, tensor_options.dtype(at::kFloat));
+  at::Tensor w1_tensor = at::randn({h, 4*d*h}, tensor_options.dtype(at::kFloat));
+
+  at::Tensor w0_sharded = shardTensor(w0_tensor, 0, mesh);
+  at::Tensor w1_sharded = shardTensor(w1_tensor, 1, mesh);
+
+  KernelArgumentHolder args = {inp_tensor, w0_sharded, w1_sharded};
+  auto outputs = executor_cache.runFusionWithInputs(args);
+  at::Tensor nvf_out = outputs[0].as<at::Tensor>();
+
+  at::Tensor ref_out = reference_mlp(inp_tensor, w0_tensor, w1_tensor);
+  EXPECT_TRUE(at::allclose(nvf_out, ref_out));
+}
+
 TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -88,7 +137,7 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
 
   auto mesh = DeviceMesh::createForNumDevices(d);
 
-  TensorView* qkv = makeConcreteTensor({b, s, d * a, 3 * h / a}, DataType::Half);
+  TensorView* qkv = makeContigConcreteTensor({b, s, d * a, 3 * h / a}, DataType::Half);
   TensorView* q = slice(qkv, {0, 0, 0, 0}, {b, s, d * a, h / a});
   TensorView* k = slice(qkv, {0, 0, 0, h / a}, {b, s, d * a, 2 * h / a});
   TensorView* v = slice(qkv, {0, 0, 0, 2 * h / a}, {b, s, d * a, 3 * h / a});

@@ -137,32 +137,66 @@ class PropagateShardingsSelector : public SetSelector {
   }
 };
 
-void reorderLoopAsAllocation(std::vector<TensorView*> tvs) {
-  // Transform the maybe allocation domain to the loop domain.
-  // using exprs between logical and loop and get the permutation required to
-  // reorder the loop domain in the same relative order as the allocation domain.
-  for (auto tv : tvs) {
-    auto alloc_dom = tv->getMaybeAllocationDomain();
-    // Allocation domain should be a permutation of logical domain at this point.
-    std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
-        {alloc_dom.begin(), alloc_dom.end()},
-        {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+// Transform the maybe allocation domain to the loop domain.
+// using exprs between logical and loop and get the permutation required to
+// reorder the loop domain in the same relative order as the allocation domain.
+// Returns the contiguity of the transformed allocation domain.
+std::vector<std::optional<bool>> reorderLoopAsAllocation(TensorView* tv) {
+  auto alloc_dom = tv->getMaybeAllocationDomain();
+  auto contiguity = tv->getContiguity();
+
+  auto splitContiguity = [](std::optional<bool> contiguity) -> std::pair<std::optional<bool>, std::optional<bool>>{
+    if (!contiguity.has_value()) {
+      return std::make_pair(std::nullopt, std::nullopt);
+    }
+    if (contiguity.value()) {
+      return std::make_pair(true, true);
+    }
+    return std::make_pair(true, false);
+  };
+  
+  // Allocation domain should be a permutation of logical domain at this point.
+  std::vector<Expr*> transform_exprs = DependencyCheck::getAllExprsBetween(
+      {alloc_dom.begin(), alloc_dom.end()},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  
+  NVF_ERROR(
+      std::all_of(
+          transform_exprs.begin(),
+          transform_exprs.end(),
+          [](Expr* expr) { return expr->isA<Split>(); }),
+      "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
+  
+  for (auto* expr: transform_exprs) {
+    Split* split = dynamic_cast<Split*>(expr);
+    auto find_it = std::find(alloc_dom.begin(), alloc_dom.end(), split->in());
     NVF_ERROR(
-        std::all_of(
-            transform_exprs.begin(),
-            transform_exprs.end(),
-            [](Expr* expr) { return expr->isA<Split>(); }),
-        "Expected all transform exprs to be a split between logical and loop domain during sharding propagation.");
-    scheduler_utils::applyTransforms(alloc_dom, transform_exprs);
-    std::optional<std::vector<int64_t>> permutation = ir_utils::computePermutation(alloc_dom, tv->getLoopDomain());
-    NVF_ERROR(
-      permutation.has_value(),
-      "Failed to find a valid permutation for reordering",
-      tv->getLoopDomain(),
-      " as ",
-      alloc_dom);
-    tv->reorder(permutation.value());
+        find_it != alloc_dom.end(),
+        "Split input ",
+        split->in()->toString(),
+        " not found in given ids: ",
+        alloc_dom);
+
+    auto pos = std::distance(alloc_dom.begin(), find_it);
+    auto [outer_contiguity, inner_contiguity] = splitContiguity(contiguity.at(pos));
+    
+    alloc_dom[pos] = split->inner();
+    alloc_dom.insert(alloc_dom.begin() + pos, split->outer());
+
+    contiguity[pos] = inner_contiguity;
+    contiguity.insert(contiguity.begin() + pos, outer_contiguity);
   }
+
+  std::optional<std::vector<int64_t>> permutation = ir_utils::computePermutation(alloc_dom, tv->getLoopDomain());
+  NVF_ERROR(
+    permutation.has_value(),
+    "Failed to find a valid permutation for reordering",
+    tv->getLoopDomain(),
+    " as ",
+    alloc_dom);
+  tv->reorder(permutation.value());
+
+  return contiguity;
 }
 
 // Reorder the DID axis to the front only if it does not have a parallel type
@@ -336,9 +370,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // as allocation domain in the interim. Ideally, this should follow logical
     // domain and DIDx axis at the front. The allocation domain should follow
     // any stride order specified/inferred.
-    reorderLoopAsAllocation(fusion->allTvs());
     for (auto tv : fusion->allTvs()) {
-      tv->setAllocationDomain(tv->getLoopDomain(), true);
+      auto contiguity = reorderLoopAsAllocation(tv);   
+      tv->setAllocationDomain(tv->getLoopDomain(), contiguity);  
     }
   }
 }
