@@ -203,6 +203,14 @@ class AllocationDomainSetup : private kir::IrVisitor {
                 tv->getAllocationDomain().begin())) {
           use_set_allocation_domain = true;
         }
+
+        // Honor the set allocation domain if the tensor is used by a
+        // TMA store or MmaOp
+        if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
+              return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
+            })) {
+          use_set_allocation_domain = true;
+        }
       }
     }
 
@@ -1200,17 +1208,20 @@ class AllocationInserter : public kir::ExprMutator {
             default_val == nullptr,
             "Reduction should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedReductionOp>()->initVal(i);
-      } else if (expr->isA<MmaOp>()) {
-        MmaOp* mma = expr->as<MmaOp>();
-        init = mma->init();
-        if (mma->isBlackwell()) {
-          // For Blackwell mma, we can choose between C = A x B or C = C + A x
-          // B. So there is no need to initialize the output tensor.
-          // TODO: we should do the same for Hopper
+      } else if (MmaOp* mma = dynamic_cast<MmaOp*>(expr)) {
+        // On Hopper and Blackwell, we generate code like:
+        // for k in ...:
+        //   mma(acc, a, b, use_input_acc=(k!=0))
+        // For this case, there is no need to initialize the accumulator
+        // as it is initialized with zero by the MMA instruction.
+        if (mma->isHopper() || mma->isBlackwell()) {
           NVF_ERROR(
-              init == nullptr || init->isZero(),
-              "Blackwell mma should not have a non-zero initialization value.");
+              mma->init() == nullptr || mma->init()->isZero(),
+              "Hopper and Blackwell MMA should not have a non-zero initialization value.");
           init = nullptr;
+        } else {
+          // On Turing and Ampere, we manually initialize the accumulator
+          init = mma->init();
         }
       } else if (expr->isA<WelfordOp>()) {
         NVF_ERROR(

@@ -3648,7 +3648,13 @@ INSTANTIATE_TEST_SUITE_P(
     testing::ValuesIn(kAllSupportedMmaLayout),
     mmaLayoutName);
 
-using HopperMatmulTest = HopperBase;
+class HopperMatmulTest : public HopperBase {
+ protected:
+  void SetUp() override {
+    HopperBase::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
 
 TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
