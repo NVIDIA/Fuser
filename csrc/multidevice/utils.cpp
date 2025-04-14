@@ -374,7 +374,29 @@ bool haveDifferentShardings(
     auto* select_op = consumer->definition()->as<SelectOp>();
     NVF_ERROR(
         select_op->input(0) == producer, "SelectOp input 0 is not producer");
-    return select_op->getIndexedID()->isDeviceDim();
+    // If we select into the sharded axis, the op is resharding because the
+    // axis doesn't exist in the consumer and so becomes "replicated".
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {0,1,2,3}
+    //
+    // The long term better solution would actually to "select" into the DeviceMesh, e.g.,
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
+    // But for achieving this with symbolic "index" we need to make DeviceMesh symbolic.
+    if (select_op->getIndexedID()->isDeviceDim()) {
+      return true;
+    }
+    // If the sharded axis is not selected into, then we still need to check that other axis do not get resharded.
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p = PairwiseLogicalDomainMap(producer, consumer).mapBroadcast(false).mapConsumerToProducer();
+    return !std::all_of(
+        consumer->getLoopDomain().begin(),
+        consumer->getLoopDomain().end(),
+        [&c2p](IterDomain* c_id) {
+          auto p_id = c2p.at(c_id);
+          return c_id->isDeviceDim() == p_id->isDeviceDim();
+        });
   }
 
   // The rest of this function tries to do the following: for each pair of
