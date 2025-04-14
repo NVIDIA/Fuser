@@ -1363,53 +1363,9 @@ class GroupedWelfordOp : public Expr {
 class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  // AxisMapping denotes the pairing of two input dimensions to produce an
-  // output dimension. It holds two vectors of integers indicating the
-  // corresponding position of each output axis in either the A or B input.
-  // Positions refer to the noReductions logical domain of each input.
-  // NOTE: Axis positions are absolute, meaning you cannot specify them
-  // relative to the last dimension since -1 has special meaning.
-  // NOTE: -1 indicates that the axis does not exist, so Broadcast input
-  // domains should be listed with their actual position and not -1.
-  //
-  // Example 1:
-  //    a [ K, 1, M ]
-  //    b [ 1, N, K ]
-  //    out [ M, N, rK ]
-  //    axisMapping:
-  //      a_axes = [ 2, 1, 0 ]
-  //      b_axes = [ 0, 1, 2 ]
-  //    This results in the following groups of mapped axes:
-  //      { tv_a->axis(2), tv_b->axis(0), out->axis(0) }
-  //      { tv_a->axis(1), tv_b->axis(1), out->axis(1) }
-  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
-  //
-  // Example 1:
-  //    a [ K, M ]
-  //    b [ 1, N, K ]
-  //    out [ M, N, rK ]
-  //    axisMapping:
-  //      a_axes = [ 1, -1, 0 ]
-  //      b_axes = [ 0, 1, 2 ]
-  //    This results in the following groups of mapped axes:
-  //      { tv_a->axis(1), tv_b->axis(0), out->axis(0) }
-  //      { tv_b->axis(1), out->axis(1) }
-  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
-  struct AxisMapping {
-    AxesData a_axes;
-    AxesData b_axes;
-
-    static AxisMapping trivialMapping(size_t dimension);
-  };
   using Expr::Expr;
 
-  MmaOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in_a,
-      Val* in_b,
-      Val* init,
-      const AxisMapping& axis_mapping);
+  MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
 
   MmaOp(
       IrBuilderPasskey,
@@ -1417,7 +1373,6 @@ class NVF_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const AxisMapping& axis_mapping,
       const MmaMacro& options);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1487,17 +1442,12 @@ class NVF_API MmaOp : public Expr {
 
   void setMacro(MmaMacro options);
 
-  const AxisMapping& axisMapping() const {
-    return attribute<AxisMapping>(ATTR_POS_AXIS_MAPPING);
-  }
-
  private:
   // Predefined indices of attributes stored for this IR node, to avoid
   //  magic numbers, based on order in which attributes are initialized
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
   static constexpr size_t ATTR_POS_MACRO = 1;
-  static constexpr size_t ATTR_POS_AXIS_MAPPING = 2;
 };
 
 //! The semantics are identical to torch.broadcast_to.

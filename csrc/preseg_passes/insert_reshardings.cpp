@@ -37,7 +37,7 @@ void propagateParallelization(TensorView* ref, std::vector<TensorView*> tvs) {
   }
 }
 
-void insertReshardingsBefore(Fusion* fusion) {
+void insertReshardingSetsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (Expr* expr : fusion->exprs()) {
@@ -82,7 +82,7 @@ void insertReshardingsBefore(Fusion* fusion) {
   }
 }
 
-void insertReshardingsAfter(Fusion* fusion) {
+void insertReshardingSetsAfter(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   // Iterate backwards over fusion expressions. Reshard after will
@@ -122,13 +122,75 @@ void insertReshardingsAfter(Fusion* fusion) {
     }
   }
 }
+
+// If a TensorView has a reduction dimension that's DID-split, we R-factor the
+// TensorView into a local reduction followed by an allreduce.
+//
+// For example,
+//
+//   [i{m} i{k}]               [i{n} i{k}]
+//         /   \                     /   \.
+//     iDID{d} i{k/d}           iDID{d}  i{k/d}
+//                    |
+//                    | linear
+//                    v
+//               [i{m} i{n} r{k}]
+//                         /   \.
+//                    rDID{d}  r{k/d}
+//
+// is decomposed into
+//
+//                    |
+//                    | linear (local)
+//                    v
+//                          r{k}
+//                         /   \.
+//          [i{m} i{n} iDID{d}  r{k/d}
+//                    |
+//                    | reduce (allreduce)
+//                    v
+//             [i{m} i{n} rDID{d}]
+//
+void rFactorLoopSplits(Fusion* fusion) {
+  for (TensorView* tv : fusion->allTvs()) {
+    std::vector<int64_t> rfactor_axes;
+    rfactor_axes.reserve(tv->nDims());
+
+    for (auto&& [i, loop_id] : enumerate(tv->getLoopDomain())) {
+      if (!loop_id->isReduction()) {
+        // rFactor only applies to reduction dimensions.
+        continue;
+      }
+
+      if (std::count(
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              loop_id) > 0) {
+        // No need to rFactor if loop_id is in the logical domain.
+        continue;
+      }
+
+      if (!loop_id->isParallelized()) {
+        // rFactor non-parallelized IDs so they get reduced locally.
+        rfactor_axes.push_back(i);
+      }
+    }
+
+    if (!rfactor_axes.empty()) {
+      tv->rFactor(rfactor_axes);
+    }
+  }
+}
+
 } // namespace
 
 void InsertReshardingsPass::runPass(Fusion* fusion) {
-  // shouldReshardAfter selects whether insertReshardingsAfter or
-  // insertReshardingsBefore is used.
-  insertReshardingsAfter(fusion);
-  insertReshardingsBefore(fusion);
+  rFactorLoopSplits(fusion);
+
+  // shouldReshardAfter selects whether insertReshardingSetsAfter or
+  // insertReshardingSetsBefore is used.
+  insertReshardingSetsAfter(fusion);
+  insertReshardingSetsBefore(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

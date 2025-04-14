@@ -12,18 +12,19 @@ from opinfo_fusion_definitions import default_fd_fn, parse_inputs_fusion_definit
 from opinfo_framework import create_op_test, atexit_serde_create_op_test
 from opinfo_core import ReferenceType, OpInfo, SampleInput
 from opinfos import opinfos
-from utils import ArgumentType, is_tensor, requiresJAX
-from typing import Callable
-
-from nvfuser import DataType, FusionCache, FusionDefinition
-from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
-
-from utils import (
+from nvfuser.testing.utils import (
+    ArgumentType,
+    is_tensor,
+    requiresJAX,
     check_captured_python_definition,
     check_cpp_translation,
     debug_serde,
     basic_serde_check,
 )
+from typing import Callable
+
+from nvfuser import DataType, FusionCache, FusionDefinition
+from nvfuser.pytorch_utils import retry_on_oom_or_skip_test
 
 
 def serde_check_ops(test_fn: Callable):
