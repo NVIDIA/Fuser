@@ -311,14 +311,8 @@ void StreamParallelType::runPass(Fusion* fusion) {
           for (auto* running_output :
                ir_utils::filterByType<TensorView>(running_expr->outputs())) {
             if (running_output == output) {
-              // Create alias for the sliced output
-              TensorView* output_j_alias =
-                  ops::newValLike(
-                      output_j, output_j->dtype(), /*keep_reduction_axis=*/true)
-                      ->as<TensorView>();
-              hic->markAlias(output_j, output_j_alias);
               *it_running_expr = ir_utils::transferDefinitionToNewOutputs(
-                  running_expr, {output_j_alias});
+                  running_expr, {output_j});
             }
           }
         }
