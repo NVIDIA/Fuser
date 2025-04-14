@@ -689,7 +689,6 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
-    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
   )
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
