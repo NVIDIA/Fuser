@@ -424,13 +424,14 @@ std::string Asm::toInlineString(int indent_size) const {
 
 std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
-      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
+      {"tcgen05.wait::ld.sync.aligned", "tcgen05::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tcgen05::waitStore"},
       {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
-       "tmem::alloc"},
+       "tcgen05::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "tmem::relinquishAllocPermit"},
-      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
+       "tcgen05::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tcgen05::dealloc"},
+      {"tcgen05.mma.cta_group::1.kind::f16", "tcgen05::mma_f16"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},

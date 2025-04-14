@@ -517,7 +517,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* start = hic->zeroVal();
   auto* stop = stream_axis->extent();
   auto* step = hic->oneVal();
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
       stream_axis,
       /*index=*/j,
       start,
@@ -536,6 +536,25 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
   auto* initial_sync_stream =
       IrBuilder::create<hir::Synchronize>(original_stream);
+
+  // the initial sync of the streams with the user's stream is done in a
+  // separate for-loop for performance reasons with comms/compute overlap
+  std::vector<Expr*> loop_body_initial_sync = {set_stream, initial_sync_stream};
+  for (Expr* expr : loop_body_initial_sync) {
+    for_loop_initial_sync->body().push_back(expr);
+  }
+
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      stream_axis,
+      /*index=*/j,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
@@ -575,7 +594,6 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
   std::vector<Expr*> loop_body = {
       set_stream,
-      initial_sync_stream,
       tva_j->definition(),
       tva_allgathered_j->definition(),
       communication,
@@ -589,7 +607,11 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   }
 
   return {
-      get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
+      get_current_stream,
+      allocate_tva_allgathered,
+      allocate_tv_out,
+      for_loop_initial_sync,
+      for_loop};
 }
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
@@ -639,7 +661,6 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   };
 
   for (auto group : workspace.group_run_order) {
-    std::vector<Expr*> host_exprs;
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
     if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
       continue;
