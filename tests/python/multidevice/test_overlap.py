@@ -4,17 +4,20 @@
 
 import pytest
 import torch
+import os
 
 import fixtures
 import nvfuser
-from nvfuser import DataType, FusionDefinition
+from nvfuser import DataType, FusionDefinition, CommunicatorBackend
 
 multidevice_test = fixtures.multidevice_test
 
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
-    def __init__(self, m, k, n, s, num_devices):
-        super().__init__(use_multidevice_executor=True)
+    def __init__(self, m, k, n, s, num_devices, communication_backend):
+        super().__init__(
+            use_multidevice_executor=True, backend_type=communication_backend
+        )
         self.m = m
         self.k = k
         self.n = n
@@ -60,9 +63,18 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
 
 
 @pytest.mark.mpi
-def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
-    N_WARMUPS, N_ITERATIONS = 5, 15
-    m, k, n, s, d = 1024, 1024, 1024, 8, multidevice_test.size
+@pytest.mark.parametrize(
+    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
+)
+@pytest.mark.parametrize("s", [1, 8])
+def test_overlap_allgather_matmul_stream_outermost(
+    multidevice_test, benchmark, backend_type, s
+):
+    N_WARMUPS, N_ITERATIONS = 5, 25
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_test.size
+    assert m % (s * d) == 0
+
+    os.environ["UCC_CL_BASIC_TLS"] = "nccl"
 
     torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
@@ -76,7 +88,10 @@ def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
     ins = [x, weight, bias]
     out_ref = torch.nn.functional.linear(x_unsharded, weight.cpu(), bias.cpu())
 
-    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d)
+    # Resetting the cache here is necessary to workaround a bug that would need a proper fix. If not avoiding the cache, there is an issue for the second test that is being run. More specifically, the second time we define the fusion, we hit the cache in https://github.com/NVIDIA/Fuser/blob/6ff60e2a320733a2f49de57007d6bb45000107cd/csrc/python_frontend/fusion_definition.cpp#L95 . Later, when we call _set_device_mesh, we get a "thro out of range" here https://github.com/NVIDIA/Fuser/blob/6ff60e2a320733a2f49de57007d6bb45000107cd/csrc/python_frontend/schedule_bindings.cpp#L60 because the FusionDefinition has not run so it doesn't contain any state.
+    nvfuser.FusionCache.reset()
+
+    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d, backend_type)
 
     # warmup
     for _ in range(N_WARMUPS):
