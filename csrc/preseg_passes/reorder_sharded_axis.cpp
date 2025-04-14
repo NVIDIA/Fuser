@@ -145,20 +145,32 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     }
 
     ComputeAtMap ca_map(fusion);
-    const auto& [p_id, c_id] = getReshardingIdPair(expr, ca_map);
-    auto p_alloc_dom = input->getMaybeAllocationDomain();
-    auto p_alloc_id = getInputsInTargetDomain(p_id, p_alloc_dom).at(0);
-    auto p_logical_idx = axisIndex(input->getLogicalDomain(), p_id); // This remains fixed through all sets.
-    
-    // auto p_transforms = DependencyCheck::getAllExprsBetween({p_alloc_id}, {input});
-    // auto c_transforms = DependencyCheck::getAllExprsBetween({c_alloc_id}, {output});
 
-    // createReorderMapUnderTransforms to get the reorder map.
-    // Get p_idx and c_idx and their new positions. 
-    // Reorder loop domain under this map for inp_copy and out_copy.
-    // Invert the map to get the reorder map for new_output.
-    // p_idx is DIDx in inp_copy.
-    // c_idx is serial in out_copy and new_output.
+    // 1. Get the resharding id pair between producer and consumer.
+    const auto& [p_loop_id, c_loop_id] = getReshardingIdPair(expr, ca_map)
+
+    // 2. These ids may not be present in the logical domain. Find the logical id that p_id was derived from.
+    auto p_logical_dom = input->getMaybeAllocationDomain();
+    auto p_inputs_in_logical = getInputsInTargetDomain(p_loop_id, p_logical_dom);
+    NVF_ERROR(p_inputs_in_logical.size() == 1, "Expected exactly one input in logical domain");
+    auto p_logical_id = p_inputs_in_logical.at(0);
+
+    // 3. Get ids derived from p_logical_id: We reorder them as a group instead of just p_loop_id.
+    auto p_transforms = DependencyCheck::getAllExprsBetween({p_logical_id}, {input->getLoopDomain().begin(), input->getLoopDomain().end()});
+    auto p_derived_loop_ids = {p_logical_id};
+    scheduler_utils::applyTransforms({p_derived_loop_ids}, p_transforms);
+    auto p_logical_idx = axisIndex(input->getMaybeAllocationDomain(), p_derived_loop_ids.at(0)); // This remains fixed through all sets.
+    
+    // 4. Create a map from old to new index for p_derived_loop_ids. Track the index of p_loop_id.
+    int64_t p_idx = -1;
+    std::unordered_set<int64_t, int64_t> old2new;
+    for (auto idx : c10::irange(p_derived_loop_ids.size())) {
+      auto p_id = p_derived_loop_ids.at(idx);
+      old2new.insert({input->domain()->rootPosOf(p_id), idx});
+      if (p_loop_id == p_id) {
+        p_idx = idx;
+      }
+    }
     
     if (p_id->isDeviceDim() && axisIndex(p_alloc_dom, p_alloc_id) > 0){
       // Gathered axis -> move it to front.
