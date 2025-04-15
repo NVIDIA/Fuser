@@ -31,6 +31,9 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 using IpcTest = MultiDeviceTest;
 
 TEST_F(IpcTest, IpcMemHandle) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
 #ifdef NVFUSER_DISTRIBUTED
   // Allocate and setup GPU buffers
   constexpr size_t kBufferSize = sizeof(int64_t);
@@ -78,6 +81,9 @@ TEST_F(IpcTest, IpcMemHandle) {
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
 #ifdef NVFUSER_DISTRIBUTED
   // TL;DR: We can do pointer arithmetic on the importer side. IOW, the pointer
   // can be used as a regular pointer on the importer side.
@@ -131,6 +137,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
 #ifdef NVFUSER_DISTRIBUTED
   // TL;DR: We CANNOT do pointer arithmetic on the exporter side! The IPC handle
   // points to the beginning of the allocated buffer.
