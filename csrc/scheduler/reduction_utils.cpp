@@ -648,6 +648,8 @@ bool placedBefore(const IterDomain* id0, const IterDomain* id1) {
 } // namespace
 
 TensorView* sortAndRFactor(TensorView* reference_tv) {
+  bool is_outer_reduction =
+      !scheduler_utils::isFastestDimReduction(reference_tv);
   auto domain = reference_tv->getLoopDomain();
   std::sort(domain.begin(), domain.end(), placedBefore);
   std::unordered_map<int64_t, int64_t> reorder_map;
@@ -660,17 +662,17 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   }
   reference_tv->reorder(reorder_map);
 
-  // If all reduction dimensions are constants and not parallelized by threads
-  // or blocks, move the first reduction dim to the left of the vectorization
-  // dim to reduce register usage. For example, in a thread-local outer
-  // reduction, we want to transform:
+  // For outer reduction, if all reduction dimensions are constants and not
+  // parallelized by threads or blocks, move the first reduction dim to the left
+  // of the vectorization dim to reduce register usage. For example, in a
+  // thread-local outer reduction, we want to transform:
   //   [..., iV{8}, rS{7}, rUS{1}, rUR{4}]
   // to:
   //   [..., rS{7}, iV{8}, rUS{1}, rUR{4}]
   // This way, each thread only needs to cache 8 × 4 elements instead of
   // 8 × 7 × 4 elements.
   // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
-  if (!scheduler_utils::isFastestDimReduction(tv) &&
+  if (is_outer_reduction &&
       std::all_of(domain.begin(), domain.end(), [](IterDomain* id) {
         return !id->isReduction() ||
             (id->extent()->isConstScalar() && !id->isThread());
