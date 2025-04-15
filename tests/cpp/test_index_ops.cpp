@@ -57,10 +57,11 @@ INSTANTIATE_TEST_SUITE_P(
 // Note: The semantics doesn't support broadcast on operands, adding `size 1`
 // check just to ensure the ID mapping is done correctly.
 TEST_P(IndexPutAccumulate, BroadcastIDs) {
-
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
+
+  auto [vocab, hidden, seq] = GetParam();
 
   std::vector<int64_t> shape1({seq, hidden});
   std::vector<int64_t> shape2({seq});
