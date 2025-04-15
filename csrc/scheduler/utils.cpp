@@ -2124,82 +2124,99 @@ bool breakIsDisjoint(std::vector<int64_t> group_ids, int64_t pos) {
   return true;
 }
 
-std::unordered_map<int64_t, int64_t> domainReorderAsLogicalMap(TensorView* tv) {
-  FusionGuard fg(tv->fusion());
-  auto transform_exprs = StmtSort::getExprsTo(
-      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
-  // simply update this vector of id's as progressing through the transformation
-  // expressions. We'll always insert the result of split in the location of the
-  // input, and insert the merge result in the position of the inner dimension.
+namespace {
 
-  auto reordered_ids = tv->getLogicalDomain();
-  for (const auto* expr : transform_exprs) {
-    if (const Split* split = dynamic_cast<const Split*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), split->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      auto pos = std::distance(reordered_ids.begin(), find_it);
-      reordered_ids[pos] = split->inner();
-      reordered_ids.insert(reordered_ids.begin() + pos, split->outer());
-    } else if (const Merge* merge = dynamic_cast<const Merge*>(expr)) {
-      auto find_it_0 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->outer());
-      auto find_it_1 =
-          std::find(reordered_ids.begin(), reordered_ids.end(), merge->inner());
-      if (find_it_0 == reordered_ids.end() &&
-          find_it_1 == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      NVF_ERROR(
-          find_it_0 != reordered_ids.end() && find_it_1 != reordered_ids.end(),
-          "Error in transformations of ",
-          tv->toString(),
-          "\nTransformations before rfactor should not mix with transformations after rfactor.");
-      auto pos0 = std::distance(reordered_ids.begin(), find_it_0);
-      auto pos1 = std::distance(reordered_ids.begin(), find_it_1);
-      if (pos0 > pos1) {
-        std::swap(pos0, pos1);
-      }
-      // Should be impossible.
-      NVF_ERROR(
-          pos0 != pos1,
-          "Didn't expect merge inputs to be the same iteration domain:\n",
-          merge->toString());
+void applySplitTransform(Split* split, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), split->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Split input ",
+      split->in()->toString(),
+      " not found in given ids: ",
+      ids);
+  auto pos = std::distance(ids.begin(), find_it);
+  ids[pos] = split->inner();
+  ids.insert(ids.begin() + pos, split->outer());
+}
 
-      reordered_ids.erase(reordered_ids.begin() + pos0);
-      reordered_ids[--pos1] = merge->out();
-    } else if (const Resize* resize = dynamic_cast<const Resize*>(expr)) {
-      auto find_it =
-          std::find(reordered_ids.begin(), reordered_ids.end(), resize->in());
-      if (find_it == reordered_ids.end()) {
-        // Transformations before rfactor, ignore those.
-        continue;
-      }
-      *find_it = resize->out();
+void applyMergeTransform(Merge* merge, std::vector<IterDomain*>& ids) {
+  auto find_it_0 = std::find(ids.begin(), ids.end(), merge->outer());
+  auto find_it_1 = std::find(ids.begin(), ids.end(), merge->inner());
+  NVF_ERROR(
+      find_it_0 != ids.end(),
+      "Merge outer ",
+      merge->outer()->toString(),
+      " not found in given ids: ",
+      ids);
+  NVF_ERROR(
+      find_it_1 != ids.end(),
+      "Merge inner ",
+      merge->inner()->toString(),
+      " not found in given ids: ",
+      ids);
+  auto pos0 = std::distance(ids.begin(), find_it_0);
+  auto pos1 = std::distance(ids.begin(), find_it_1);
+  if (pos0 > pos1) {
+    std::swap(pos0, pos1);
+  }
+  // Should be impossible.
+  NVF_ERROR(
+      pos0 != pos1,
+      "Didn't expect merge inputs to be the same iteration domain:\n",
+      merge->toString());
+
+  ids.erase(ids.begin() + pos0);
+  ids[--pos1] = merge->out();
+}
+
+void applyResizeTransform(Resize* resize, std::vector<IterDomain*>& ids) {
+  auto find_it = std::find(ids.begin(), ids.end(), resize->in());
+  NVF_ERROR(
+      find_it != ids.end(),
+      "Resize input ",
+      resize->in()->toString(),
+      " not found in given ids: ",
+      ids);
+  *find_it = resize->out();
+}
+
+} // namespace
+
+void applyTransforms(
+    std::vector<IterDomain*>& ids_to_transform,
+    const std::vector<Expr*>& transform_exprs) {
+  for (auto* expr : transform_exprs) {
+    if (Split* split = dynamic_cast<Split*>(expr)) {
+      applySplitTransform(split, ids_to_transform);
+    } else if (Merge* merge = dynamic_cast<Merge*>(expr)) {
+      applyMergeTransform(merge, ids_to_transform);
+    } else if (Resize* resize = dynamic_cast<Resize*>(expr)) {
+      applyResizeTransform(resize, ids_to_transform);
     } else {
       NVF_ERROR(expr != nullptr);
       NVF_THROW("Unexpected expression: ", expr->toString());
     }
   }
+}
 
-  std::unordered_map<int64_t, int64_t> old2new;
-  for (auto id_i : arange((int64_t)tv->getLoopDomain().size())) {
-    auto loop_id = tv->axis(id_i);
-    auto find_it =
-        std::find(reordered_ids.begin(), reordered_ids.end(), loop_id);
-    NVF_ERROR(
-        find_it != reordered_ids.end(),
-        "Reordering map creation failed, uninitialized iterdomain,",
-        " likely something is wrong with the transformations between the logical and loop domain.");
-    int64_t new_pos = (int64_t)std::distance(reordered_ids.begin(), find_it);
-    int64_t old_pos = id_i;
-    old2new[old_pos] = new_pos;
-  }
-  return old2new;
+// Returns a permutation reordering the loop domain of the tensor view as the
+// logical domain
+std::vector<int64_t> domainReorderAsLogicalMap(TensorView* tv) {
+  FusionGuard fg(tv->fusion());
+  auto transform_exprs = DependencyCheck::getAllExprsBetween(
+      {tv->getLogicalDomain().begin(), tv->getLogicalDomain().end()},
+      {tv->getLoopDomain().begin(), tv->getLoopDomain().end()});
+  std::vector<IterDomain*> ids_to_transform = tv->getLogicalDomain();
+  applyTransforms(ids_to_transform, transform_exprs);
+  std::optional<std::vector<int64_t>> permutation =
+      ir_utils::computePermutation(ids_to_transform, tv->getLoopDomain());
+  NVF_ERROR(
+      permutation.has_value(),
+      "Failed to find a valid permutation for reordering",
+      tv->getLoopDomain(),
+      " as ",
+      ids_to_transform);
+  return *permutation;
 }
 
 std::unordered_map<int64_t, int64_t> maybeReorderAsAllocationMap(
@@ -2900,9 +2917,13 @@ int64_t getComputationCostFactor(Fusion* fusion) {
 int64_t getRequiredBytesInFlight() {
   // H100, 32KB in flight @ 3352 GB/s = 9.5e-9 seconds
   constexpr float empirical_gmem_latency = 9.5e-9;
+  const auto dev_idx = at::cuda::current_device();
+  int gpu_mem_clock_khz;
+  cudaDeviceGetAttribute(
+      &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
-      (float)dev_prop->memoryClockRate * 1000.f;
+      (float)gpu_mem_clock_khz * 1000.f;
   return (int64_t)(empirical_gmem_latency * hardware_bandwidth);
 }
 
@@ -2936,14 +2957,20 @@ bool isHighBandwidthFlopsRatio() {
   // A100-SXM4-40GB, 1.555e12 B/s, 1.95e13 flops, ratio = 0.0798
   // H100-HBM3-80GB, 3.352e12 B/s, 6.69e13 flops, ratio = 0.0501
   constexpr float reference_ratio = 0.07f;
+  const auto dev_idx = at::cuda::current_device();
   const auto dev_prop = at::cuda::getCurrentDeviceProperties();
   // bandwidth
+  int gpu_mem_clock_khz;
+  cudaDeviceGetAttribute(
+      &gpu_mem_clock_khz, cudaDevAttrMemoryClockRate, dev_idx);
   float hardware_bandwidth = 2.f * (float)dev_prop->memoryBusWidth / 8.f *
-      (float)dev_prop->memoryClockRate * 1000.f;
+      (float)gpu_mem_clock_khz * 1000.f;
   // fp32 cuda core flops
   const int cuda_core_per_sm = getCoresPerSM(dev_prop->major, dev_prop->minor);
   const int flops_per_cycle = 2;
-  float flops = (float)dev_prop->clockRate * 1000.f *
+  int gpu_clock_khz;
+  cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
+  float flops = (float)gpu_clock_khz * 1000.f *
       (float)dev_prop->multiProcessorCount * (float)cuda_core_per_sm *
       (float)flops_per_cycle;
 
