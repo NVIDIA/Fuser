@@ -374,7 +374,8 @@ TEST_F(SegmentationTest, ForceFp16Simple) {
   // Check the segmented edge is fp16
   SegmentedFusion* segmented_fusion =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments();
-  for (const std::shared_ptr<SegmentedEdge>& edge : segmented_fusion->edges()) {
+  for (const std::shared_ptr<SegmentedEdge>& edge :
+       segmented_fusion->collectAllEdges()) {
     auto* edge_tv = edge->val->as<TensorView>();
     EXPECT_EQ(edge_tv->getDataType(), DataType::Half);
   }
@@ -424,7 +425,8 @@ TEST_F(SegmentationTest, ForceBf16Simple) {
   // Check the segmented edge is bf16
   SegmentedFusion* segmented_fusion =
       executor_cache.getMostRecentKernelRuntime()->fusionSegments();
-  for (const std::shared_ptr<SegmentedEdge>& edge : segmented_fusion->edges()) {
+  for (const std::shared_ptr<SegmentedEdge>& edge :
+       segmented_fusion->collectAllEdges()) {
     auto* edge_tv = edge->val->as<TensorView>();
     EXPECT_EQ(edge_tv->getDataType(), DataType::BFloat16);
   }
@@ -473,7 +475,8 @@ TEST_F(SegmentationTest, ForceFp16NotAllCast) {
 
   // Check that the edge that wasn't fp16 is the producer of the
   //  reduction op, i.e. tv8 = sum(tv5,{1});.
-  for (const std::shared_ptr<SegmentedEdge>& edge : segmented_fusion->edges()) {
+  for (const std::shared_ptr<SegmentedEdge>& edge :
+       segmented_fusion->collectAllEdges()) {
     auto* edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
@@ -534,7 +537,8 @@ TEST_F(SegmentationTest, ForceBf16NotAllCast) {
 
   // Check that the edge that wasn't fp16 is the producer of the
   //  reduction op, i.e. tv8 = sum(tv5,{1});.
-  for (const std::shared_ptr<SegmentedEdge>& edge : segmented_fusion->edges()) {
+  for (const std::shared_ptr<SegmentedEdge>& edge :
+       segmented_fusion->collectAllEdges()) {
     auto* edge_tv = edge->val->as<TensorView>();
     if (edge_tv->getDataType() == DataType::Float) {
       Expr* consumer = *(complete_fusion->unordered_uses(edge_tv).begin());
