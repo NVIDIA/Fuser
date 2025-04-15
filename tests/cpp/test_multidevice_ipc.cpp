@@ -36,6 +36,9 @@ TEST_F(IpcTest, IpcMemHandle) {
   constexpr size_t kBufferSize = sizeof(int64_t);
   const int64_t num_devices = communicator_->size();
   const int64_t rank = communicator_->deviceId();
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
   void* d_ptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, kBufferSize));
   const int64_t value = rank;
@@ -84,6 +87,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
   const int64_t num_devices = communicator_->size();
   const int64_t rank = communicator_->deviceId();
   const int64_t peer_rank = (rank + 1) % num_devices;
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
   void* d_ptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, kBufferSize));
 
@@ -134,6 +140,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
   const int64_t num_devices = communicator_->size();
   const int64_t rank = communicator_->deviceId();
   const int64_t peer_rank = (rank + 1) % num_devices;
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
   int64_t* d_ptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, kBufferSize));
 
