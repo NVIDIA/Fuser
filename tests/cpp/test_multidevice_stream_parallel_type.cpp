@@ -153,6 +153,12 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul) {
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
+  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container->topLevelExprs().size(), 3);
+  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
+
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
   auto t0_unsharded = at::randn({S, D, M / (S * D), K}, tensor_options);
@@ -207,6 +213,12 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
   tv2->axis(0)->parallelize(ParallelType::Stream);
 
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+
+  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container->topLevelExprs().size(), 3);
+  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
