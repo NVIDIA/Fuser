@@ -337,7 +337,6 @@ class SegmentedFusion {
   void removeEdge(std::shared_ptr<SegmentedEdge> edge);
 
   void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
-  void disconnectGroups(SegmentedGroup* group1, SegmentedGroup* group2);
 
   HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 

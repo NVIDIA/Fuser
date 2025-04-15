@@ -652,25 +652,28 @@ std::shared_ptr<SegmentedEdge> SegmentedFusion::Impl::makeEdge(
 }
 
 void SegmentedFusion::removeEdge(std::shared_ptr<SegmentedEdge> edge) {
+  NVF_ERROR(edge, "Edge is nullptr");
   // Validate edge exists in all expected locations
-  auto& producer_edges = edge->from->consumer_edges;
-  auto& consumer_edges = edge->to->producer_edges;
+  SegmentedGroup* producer = edge->from;
+  SegmentedGroup* consumer = edge->to;
+  auto& producer_consumer_edges = producer->consumer_edges;
+  auto& consumer_producer_edges = consumer->producer_edges;
 
   // Remove edge from producer's consumer edges
-  auto producer_edge_it =
-      std::find(producer_edges.begin(), producer_edges.end(), edge);
+  auto producer_edge_it = std::find(
+      producer_consumer_edges.begin(), producer_consumer_edges.end(), edge);
   NVF_ERROR(
-      producer_edge_it != producer_edges.end(),
+      producer_edge_it != producer_consumer_edges.end(),
       "Edge not found in producer's consumer edges");
-  producer_edges.erase(producer_edge_it);
+  producer_consumer_edges.erase(producer_edge_it);
 
   // Remove edge from consumer's producer edges
-  auto consumer_edge_it =
-      std::find(consumer_edges.begin(), consumer_edges.end(), edge);
+  auto consumer_edge_it = std::find(
+      consumer_producer_edges.begin(), consumer_producer_edges.end(), edge);
   NVF_ERROR(
-      consumer_edge_it != consumer_edges.end(),
+      consumer_edge_it != consumer_producer_edges.end(),
       "Edge not found in consumer's producer edges");
-  consumer_edges.erase(consumer_edge_it);
+  consumer_producer_edges.erase(consumer_edge_it);
 
   // Remove edge from global edge list
   auto edge_it = std::find(edges_.begin(), edges_.end(), edge);
@@ -685,11 +688,12 @@ void SegmentedFusion::Impl::cleanUnused() {
       owning_fusion_->edges().begin(), owning_fusion_->edges().end());
 
   // Remove any edges that are no longer in use
-  for (auto edge : owning_fusion_->edges()) {
-    if (e_used.count(edge) == 0) {
-      owning_fusion_->removeEdge(edge);
-    }
-  }
+  edges_.erase(
+      std::remove_if(
+          edges_.begin(),
+          edges_.end(),
+          [&e_used](auto& e) { return e_used.count(e) == 0; }),
+      edges_.end());
 
   // Remove any groups that are no longer in use
   groups_.erase(
@@ -2071,39 +2075,16 @@ std::vector<std::shared_ptr<SegmentedEdge>> SegmentedFusion::getEdgesBetween(
     }
   }
 
-  // Look through consumer's producer edges
-  for (auto edge : consumer->producer_edges) {
-    if (edge->from == producer) {
-      // Don't add duplicates
-      if (std::find(edges_between.begin(), edges_between.end(), edge) ==
-          edges_between.end()) {
-        edges_between.push_back(edge);
-      }
-    }
-  }
-
   return edges_between;
 }
 
 void SegmentedFusion::connectGroups(
-    SegmentedGroup* from,
-    SegmentedGroup* to,
+    SegmentedGroup* producer,
+    SegmentedGroup* consumer,
     Val* val) {
-  auto new_edge = newEdge(from, to, val);
-  from->consumer_edges.push_back(new_edge);
-  to->producer_edges.push_back(new_edge);
-}
-
-void SegmentedFusion::disconnectGroups(
-    SegmentedGroup* group1,
-    SegmentedGroup* group2) {
-  // Get all edges between the two groups
-  auto edges_between = getEdgesBetween(group1, group2);
-
-  // Remove each edge between the groups
-  for (auto edge : edges_between) {
-    removeEdge(edge);
-  }
+  auto new_edge = newEdge(producer, consumer, val);
+  producer->consumer_edges.push_back(new_edge);
+  consumer->producer_edges.push_back(new_edge);
 }
 
 SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
@@ -2111,7 +2092,6 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
   SegmentedGroup* last_merged = nullptr;
   auto it = to_merge_.begin();
   NVF_ERROR(to_merge_.size() % 2 == 0);
-
   while (it != to_merge_.end()) {
     auto group1 = *it++;
     auto group2 = *it++;
@@ -2193,7 +2173,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
       !groups_to_merge.empty(),
       "fusion segment :(mergeAllGivenGroups) tried to merge no groups");
 
-  // Make a set for quick lookup
+  // Make a set to detect internal edges
   std::unordered_set<SegmentedGroup*> group_set(
       groups_to_merge.begin(), groups_to_merge.end());
 
@@ -2304,8 +2284,9 @@ class FusionSegmentGuard : public NonCopyable {
     num_original_exprs_ = fusion_->exprs().size();
     original_tvs_ = fusion_->allTvs();
 #endif // NDEBUG
-    lowered_edges_ = segmented_fusion_->castInputOutputToLowerPrecision(
-        segmented_fusion_->edges());
+    lowered_precision_edges_ =
+        segmented_fusion_->castInputOutputToLowerPrecision(
+            segmented_fusion_->edges());
   }
 
   // Insert cast and narrow the fusion to a merged group of a and b
@@ -2329,7 +2310,7 @@ class FusionSegmentGuard : public NonCopyable {
         consumer_edges.begin(),
         consumer_edges.end(),
         std::back_inserter(all_edges));
-    lowered_edges_ =
+    lowered_precision_edges_ =
         segmented_fusion_->castInputOutputToLowerPrecision(all_edges, {a, b});
 
     auto new_inputs = getAllInputs(a, b);
@@ -2353,8 +2334,9 @@ class FusionSegmentGuard : public NonCopyable {
     // Cast inputs and outputs of a merged group consisting of
     // segmented_groups.
     auto all_edges = getAllEdges(segmented_groups);
-    lowered_edges_ = segmented_fusion_->castInputOutputToLowerPrecision(
-        all_edges, segmented_groups);
+    lowered_precision_edges_ =
+        segmented_fusion_->castInputOutputToLowerPrecision(
+            all_edges, segmented_groups);
 
     auto new_inputs = allInputsIfTrueElseOutputs(segmented_groups, true);
     auto new_outputs = allInputsIfTrueElseOutputs(segmented_groups, false);
@@ -2373,8 +2355,9 @@ class FusionSegmentGuard : public NonCopyable {
     restoreOriginalSegment();
 
     // Revert the cast
-    if (segmented_fusion_ != nullptr && !lowered_edges_.empty()) {
-      segmented_fusion_->revertInputOutputPrecisionChanges(lowered_edges_);
+    if (segmented_fusion_ != nullptr && !lowered_precision_edges_.empty()) {
+      segmented_fusion_->revertInputOutputPrecisionChanges(
+          lowered_precision_edges_);
     }
 
 #ifndef NDEBUG
@@ -2453,7 +2436,7 @@ class FusionSegmentGuard : public NonCopyable {
   Fusion* const fusion_ = nullptr;
   std::vector<Val*> old_inputs_;
   std::vector<Val*> old_outputs_;
-  std::vector<std::shared_ptr<SegmentedEdge>> lowered_edges_;
+  std::vector<std::shared_ptr<SegmentedEdge>> lowered_precision_edges_;
 #ifndef NDEBUG
   size_t num_original_exprs_ = 0;
   std::vector<TensorView*> original_tvs_;
@@ -4694,17 +4677,22 @@ void SegmentCandidateFinder::resolveNonscalarForwardedInput(
 
   for (SegmentedGroup* consumer : consumers) {
     SegmentedGroup* input_group = createInputGroup(forwarded_input);
-
-    for (std::shared_ptr<SegmentedEdge>& edge : consumer->producer_edges) {
+    std::vector<std::shared_ptr<SegmentedEdge>> edges_to_remove;
+    std::vector<std::shared_ptr<SegmentedEdge>> producer_edge_copy = consumer->producer_edges;
+    // Use a copy to iterate over edges as connect group can invalidate the
+    // original iterator
+    for (std::shared_ptr<SegmentedEdge>& edge : producer_edge_copy) {
       if (edge->from == aux_group && edge->val == forwarded_input) {
         // Create new edges before removing old ones
         segmented_fusion_->connectGroups(
             input_group, consumer, forwarded_input);
         // Now safe to remove old edges
-        segmented_fusion_->removeEdge(edge);
+        edges_to_remove.push_back(edge);
       }
     }
-
+    for (auto edge_to_remove : edges_to_remove) {
+      segmented_fusion_->removeEdge(edge_to_remove);
+    }
     consumer->input_vals_.erase(forwarded_input);
 
     if (codeGenSupportedMerge(input_group, consumer)) {
