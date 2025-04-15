@@ -467,7 +467,7 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
           }
 
           // if (!isNonDivisibleSplit(use_of_unmapped_output)) {
-          if (split->factor()->isOneInt()) {
+          if (split_of_unmapped_output->factor()->isOneInt()) {
             // std::cerr << "not\n";
             continue;
           }
