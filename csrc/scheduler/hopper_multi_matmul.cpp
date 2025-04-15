@@ -237,6 +237,25 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
   }
 }
 
+TensorView* HopperMultipleMatmulScheduler::cacheBefore(
+    TensorView* orig,
+    LoadStoreOpType op_type) {
+  TensorView* c = orig->cacheBefore(op_type);
+
+  const std::vector<IterDomain*> orig_logical =
+      TensorDomain::noReductions(orig->getLogicalDomain());
+  const std::vector<IterDomain*> cache_logical = c->getLogicalDomain();
+  NVF_ERROR(orig_logical.size() == cache_logical.size());
+  for (size_t i : arange(orig_logical.size())) {
+    // The domain of orig gets transferred to c and a new domain is applied to
+    // orig
+    ValGroup vg = graph_->toGroup(cache_logical[i]);
+    graph_->initializeVal(orig_logical[i], vg);
+  }
+
+  return c;
+}
+
 TensorView* HopperMultipleMatmulScheduler::cacheAfter(
     TensorView* orig,
     LoadStoreOpType op_type,
@@ -623,12 +642,9 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
       TensorView* dc = d->definition()->input(0)->as<TensorView>();
 
-      // NOTE: cacheBefore does not work with blockTileTensors
-      // cacheInputsAndOutputs creates a cache_before for each output.
-      // Apply cacheAfter to the existing cache tensor for output.
       // The chain of operations storing data to global memory:
       //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
-      TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
+      TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
       bool dc_in_mma_results =
