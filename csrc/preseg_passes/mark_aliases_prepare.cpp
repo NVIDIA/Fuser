@@ -13,6 +13,7 @@
 #include <options.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <transform_replay.h>
+#include <multidevice/utils.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -110,12 +111,14 @@ void insertSegmentSetAfter(
     copy->setAllocationDomain(
         replayed_domain->allocation(), replayed_domain->contiguity());
   }
+  copy->setLoopDomain(replayed_domain->loop());
   std::for_each(first_user, last_user, [&](const Use& use) {
     ir_utils::replaceValInExprInputs(use.user, use_of, copy);
   });
   if (use_of->isFusionOutput()) {
     use_of->fusion()->replaceOutput(use_of, copy);
   }
+  shardAllLike(use_of, {copy});
 }
 
 } // namespace

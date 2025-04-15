@@ -360,21 +360,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     shardAllLike(ref_output, sharding_candidates);
   }
 
-  bool has_mesh = validateMeshes(fusion);
-  if (has_mesh) {
-    // Reorder the loop domain since the transform propagator may
-    // have reordered the iterdomains in loop domain. For example: Consider
-    // linear op: in = [b, m, k] weight = [DIDx(d), n/d, k] After
-    // transformation, the loop domain of linear output is [DIDx(d), n/d, b,
-    // m, r{k}]. Since, we set allocation to be the same as loop, we reorder it
-    // as allocation domain in the interim. Ideally, this should follow logical
-    // domain and DIDx axis at the front. The allocation domain should follow
-    // any stride order specified/inferred.
-    for (auto tv : fusion->allTvs()) {
-      auto contiguity = reorderLoopAsAllocation(tv);   
-      tv->setAllocationDomain(tv->getLoopDomain(), contiguity);  
-    }
-  }
 }
 
 } // namespace nvfuser::preseg_passes
