@@ -36,6 +36,7 @@ std::vector<SizeParams> generateSizeOneParams() {
       }
     }
   }
+  return params;
 }
 
 class IndexPutAccumulate : public NVFuserFixtureParamTest<SizeParams> {
@@ -49,16 +50,13 @@ class IndexPutAccumulate : public NVFuserFixtureParamTest<SizeParams> {
 INSTANTIATE_TEST_SUITE_P(
     ,
     IndexPutAccumulate,
-    ::testing::ValuesIn(generateReshapeReductionParams()));
+    ::testing::ValuesIn(generateSizeOneParams()));
 
 }
 
 // Note: The semantics doesn't support broadcast on operands, adding `size 1`
 // check just to ensure the ID mapping is done correctly.
 TEST_P(IndexPutAccumulate, BroadcastIDs) {
-  int64_t vocab = size_one_vocab ? 1 : vocab_size;
-  int64_t hidden = size_one_hidden ? 1 : hidden_size;
-  int64_t seq = size_one_seq ? 1 : seq_size;
 
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
