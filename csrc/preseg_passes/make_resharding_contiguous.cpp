@@ -18,7 +18,6 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
-
 // Validates meshes (i.e. all TensorViews have a device mesh or none) and returns true if any TensorView has a device mesh.
 bool validateMeshes(Fusion* fusion) {
   // Validate that meshes are assigned to all TensorViews or none.

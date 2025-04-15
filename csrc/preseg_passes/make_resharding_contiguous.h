@@ -15,11 +15,18 @@
 
 namespace nvfuser::preseg_passes {
 
-// Resharding expressions are mapped to collective libraries which expect
+// This pass:
+// 1. Validates that all TensorViews have a device mesh or none.
+// 2. Resharding expressions are mapped to collective libraries which expect
 // contiguous tensors and output contiguous buffers. This pass checks that
-// inputs are contiguous and sets the allocation domain of inputs and outputs of
-// all resharding expressions. This pass should run after all passes that add or
-// update resharding expressions.
+// inputs are contiguous.
+// 3. Sets the allocation domain of all fusion tvs if they have a device mesh.
+// The allocation domain is obtained by transforming the `maybeAllocationDomain` using
+// the transforms to loop domain. This ensures that the allocation domain has DID loop splits.
+// All iterdomains derived from a given logical iterdomain are placed together.
+// See `reorderLoopAsAllocation` for more details.
+// Eventually, this pass should run after `markAliasesPrepare` and `AllocationDomainPass`
+// after they are fixed.
 class MakeReshardingContiguousPass
     : public OptimizationPass<MakeReshardingContiguousPass> {
   friend class OptimizationPass<MakeReshardingContiguousPass>;
