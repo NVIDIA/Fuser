@@ -2596,8 +2596,7 @@ Val* indexBlackwellMmaOutput(
   Val* stride = tmem_tv->fusion()->oneVal();
   Val* column_index = tmem_tv->fusion()->zeroVal();
   for (const auto& [id, idx] :
-       zip(std::ranges::views::reverse(column_allocation_domain),
-           std::ranges::views::reverse(indices))) {
+       std::ranges::views::reverse(zip(column_allocation_domain, indices))) {
     column_index = SimplifyingIrBuilder::addExpr(
         column_index, SimplifyingIrBuilder::mulExpr(idx, stride));
     stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
