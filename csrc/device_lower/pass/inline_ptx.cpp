@@ -244,6 +244,46 @@ class LowerToInlinePtx : public kir::ExprMutator {
     registerRemove(mma);
   }
 
+  // Determine if we want to do D = D + A * B or D = A * B.
+  // We want to do the latter for the first iteration, and the former for the
+  // rest.
+  Val* getUseInputAcc(MmaOp* mma) {
+    Val* dont_use_input_acc = mma->fusion()->trueVal();
+    std::vector<IterDomain*> reduction_ids;
+    for (IterDomain* id : ir_utils::getTvOutput(mma)->getLoopDomain()) {
+      if (id->isReduction()) {
+        reduction_ids.push_back(id);
+      }
+    }
+    for (auto fl : for_loops_) {
+      // Skip non-reduction loops.
+      if (!std::ranges::any_of(reduction_ids, [fl](IterDomain* id) {
+            return GpuLower::current()
+                ->idModel()
+                .idGraph(IdMappingMode::LOOP)
+                .disjointValSets()
+                .strictAreMapped(fl->iter_domain(), id);
+          })) {
+        continue;
+      }
+      // The Epilogue loop is never the first iteration.
+      if (fl->circularBufferLoopStage() == CircularBufferLoopStage::Epilog) {
+        dont_use_input_acc = mma->fusion()->falseVal();
+        break;
+      }
+      // Skip trivial loops as they are always the first iteration.
+      if (fl->isTrivial()) {
+        continue;
+      }
+      Val* loop_index = GpuLower::current()->tensorIndexer().getLoopIndex(
+          fl->iter_domain(), for_loops_);
+      dont_use_input_acc = SimplifyingIrBuilder::logicalAndExpr(
+          dont_use_input_acc,
+          SimplifyingIrBuilder::eqExpr(loop_index, fl->start()));
+    }
+    return SimplifyingIrBuilder::logicalNotExpr(dont_use_input_acc);
+  }
+
   void handleHopperMma(MmaOp* mma) {
     // Reference:
     // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#asynchronous-warpgroup-level-matrix-multiply-accumulate-instructions
@@ -258,13 +298,14 @@ class LowerToInlinePtx : public kir::ExprMutator {
     } else {
       inst_ss << ".f16.f16";
     }
+
     bool a_on_smem =
         mma->inA()->as<kir::TensorIndex>()->view()->getMemoryType() ==
         MemoryType::Shared;
     std::vector<Val*> inputs{
         a_on_smem ? mma->inA()->as<kir::TensorIndex>()->index() : mma->inA(),
         mma->inB()->as<kir::TensorIndex>()->index(),
-        /*scaleD=*/IrBuilder::create<Val>(true),
+        /*scaleD=*/getUseInputAcc(mma),
         /*scaleA=*/IrBuilder::create<Val>(1, DataType::Int32),
         /*scaleB=*/IrBuilder::create<Val>(1, DataType::Int32)};
     auto layout = lower_utils::getMmaLayout(mma);
@@ -334,9 +375,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
             SimplifyingIrBuilder::bitwiseOrExpr(n, m)));
 
     // Switch between C = A * B and C = A * B + C.
-    // TODO: For now, we always use the former, because we do not have a good
-    // way to zero out the accumulator yet.
-    Val* enable_input_d = IrBuilder::create<Val>(false, DataType::Bool);
+    Val* enable_input_d = getUseInputAcc(mma);
 
     // Do MMA
     registerInsertBefore(
@@ -363,7 +402,8 @@ class LowerToInlinePtx : public kir::ExprMutator {
         IrBuilder::create<kir::Asm>(
             "nanosleep.u32",
             std::vector<Val*>{},
-            std::vector<Val*>{IrBuilder::create<Val>(100000, DataType::UInt32)},
+            std::vector<Val*>{
+                IrBuilder::create<Val>(100000000, DataType::UInt32)},
             kir::Asm::Options{/*volatile=*/true}));
   }
 
