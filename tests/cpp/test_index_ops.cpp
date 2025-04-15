@@ -79,10 +79,8 @@ TEST_P(IndexPutAccumulate, BroadcastIDs) {
   auto out = indexPutAccumulate(buf, tv_index, tv_value);
   fusion.addOutput(out);
 
-  auto options =
-      at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto options_i =
-      at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t_value = at::randn(shape1, options);
   auto t_index = at::randint(0, vocab, shape2, options_i);
 
