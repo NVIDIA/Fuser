@@ -77,7 +77,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
   NVF_CHECK(hic, "Expected HostIrContainer");
 
   IdModel id_model(fusion);
-  id_model.buildAlmostExactGraph();
+  id_model.buildBroadcastGraph();
 
   std::vector<Expr*> new_top_level_exprs;
 
@@ -139,7 +139,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
     // Check if expression can be merged with previous stream for-loop
     if (!new_top_level_exprs.empty() &&
         new_top_level_exprs.back()->isA<ForLoop>() &&
-        id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+        id_model.idGraph(IdMappingMode::BROADCAST)
             .disjointValSets()
             .strictAreMapped(
                 stream_axis,
@@ -191,7 +191,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
         // Find stream axis index in input tensor
         int64_t input_stream_id_logical_index = -1;
         for (auto id : input->getLoopDomain()) {
-          if (id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+          if (id_model.idGraph(IdMappingMode::BROADCAST)
                   .disjointValSets()
                   .strictAreMapped(for_loop->iterDomain(), id)) {
             // Verify only one stream axis exists
@@ -255,7 +255,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
         // Find stream axis index in output tensor
         int64_t output_stream_id_logical_index = -1;
         for (auto id : output->getLoopDomain()) {
-          if (id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+          if (id_model.idGraph(IdMappingMode::BROADCAST)
                   .disjointValSets()
                   .strictAreMapped(for_loop->iterDomain(), id)) {
             // Verify only one stream axis exists
