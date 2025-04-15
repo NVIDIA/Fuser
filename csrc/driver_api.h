@@ -8,6 +8,7 @@
 #pragma once
 
 #include <cuda.h>
+#include <cudaTypedefs.h>
 
 // How to lazily load a driver API and invoke it? Just forget about lazy loading
 // and write code as if you are using the driver API directly. Magic will
@@ -16,8 +17,7 @@
 
 namespace nvfuser {
 
-#define DECLARE_DRIVER_API_WRAPPER(funcName) \
-  extern decltype(::funcName)* funcName;
+#define DECLARE_DRIVER_API_WRAPPER(funcName) extern PFN_##funcName funcName;
 
 // List of driver APIs that you want the magic to happen.
 #define ALL_DRIVER_API_WRAPPER_CUDA11(fn) \
@@ -32,6 +32,9 @@ namespace nvfuser {
   fn(cuModuleGetFunction);                \
   fn(cuModuleLoadDataEx);                 \
   fn(cuModuleUnload);                     \
+  fn(cuStreamWriteValue32);               \
+  fn(cuStreamWaitValue32);                \
+  fn(cuMemGetAddressRange);               \
   fn(cuOccupancyMaxActiveBlocksPerMultiprocessor)
 
 #if (CUDA_VERSION >= 12000)

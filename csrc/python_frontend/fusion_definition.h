@@ -164,12 +164,16 @@ struct Vector {
 //!
 //! (Experimental) `use_multidevice_executor` toggles using MultiDeviceExecutor
 //! directly instead of the main stack
+//!
+//! (Experimental) `backend_type` selects the communicator backend for
+//! MultiDeviceExecutor if `use_multidevice_executor` is true
 class NVF_API FusionDefinition : public FusionState {
  public:
   FusionDefinition(
       std::optional<size_t> id,
       size_t max_length = 256,
-      bool use_multidevice_executor = false);
+      bool use_multidevice_executor = false,
+      CommunicatorBackend backend_type = CommunicatorBackend::kNccl);
 
   // The copy/move/assign constructors/operators are removed
   FusionDefinition(const FusionDefinition& fd) = delete;
@@ -380,6 +384,7 @@ class NVF_API FusionDefinition : public FusionState {
  private:
   mutable std::optional<std::string> debug_output_ = std::nullopt;
   const bool use_multidevice_executor_;
+  const CommunicatorBackend backend_type_;
 };
 
 } // namespace nvfuser::python_frontend

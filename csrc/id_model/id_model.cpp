@@ -454,8 +454,15 @@ std::vector<std::vector<Val*>> getTriviallyMappedIds(Expr* expr) {
         mapped_ids.push_back({split->in(), split->inner()});
       }
     } else {
-      // Rare, but don't want to deal with zero-dim IDs
-      if (!split->in()->extent()->isZeroInt()) {
+      // Rare, but don't want to deal with zero-dim IDs.
+      // If the input ID is a size-one ID (not necessarily broadcast,
+      // e.g., may be reduction) and the factor is not one, mapping
+      // the input and the size-one output can be inconvenient for
+      // predicate indexing. See
+      // PredicateIndexingTest.NonTrivialSizeOneDomain for a concrete
+      // example.
+      if (!split->in()->extent()->isZeroInt() &&
+          !split->in()->extent()->isOneInt()) {
         // Even when the factor is not known to be 1, as long as the
         // input and output have the same extent, they should be
         // mapped. This happens, for example, split 32 by 32 -> 1, 32.
@@ -1186,15 +1193,17 @@ void IdModel::allocateLoopIndexVariables() {
 
     if (GpuLower::current()->circularBufferInfo().isCircularBufferedIterDomain(
             loop_group->front()->as<IterDomain>())) {
-      // Allocate index variable for each stage of the circular buffered loop.
+      // Allocate index variable for each stage of the circular
+      // buffered loop.
+      auto indices = std::make_unique<CircularBufferIndices>();
+      for (auto i :
+           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+        indices->emplace(
+            static_cast<CircularBufferLoopStage>(i),
+            IrBuilder::create<Val>(DataType::Index));
+      }
       circular_buffered_loop_index_variable_map_[loop_group] =
-          std::make_unique<CircularBufferIndices>(CircularBufferIndices(
-              {{CircularBufferLoopStage::Prolog,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Main,
-                IrBuilder::create<Val>(DataType::Index)},
-               {CircularBufferLoopStage::Epilog,
-                IrBuilder::create<Val>(DataType::Index)}}));
+          std::move(indices);
       continue;
     }
 

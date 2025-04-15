@@ -350,6 +350,9 @@ bool fillDefaultHopperHeuristic(
   //  Use a non-persistent kernel by default for now
   mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
 
+  //  Use a non-persistent kernel by default for now
+  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
   // Use warp specialization on hopper by default
   mparams->circular_buffering_strategy =
       MatmulParams::CircularBufferingStrategy::WarpSpecialized;
@@ -400,15 +403,14 @@ bool fillDefaultHopperHeuristic(
 
   // We also swizzle the tiles as much as possible up to 16 tiles. Like choosing
   // the rasterization order, this is used to increase L2 locality
-  mparams->grid_swizzle_factor = std::min(swizzled_tiles, 16L);
-  while (swizzled_tiles % mparams->grid_swizzle_factor != 0) {
+  int grid_traversal_factor = std::min(swizzled_tiles, 16L);
+  while (swizzled_tiles % grid_traversal_factor != 0) {
     // Decrease the swizzle factor if it would result in nondivisible splits,
     // since this would unnecessarily increase the grid size.
-    mparams->grid_swizzle_factor--;
+    grid_traversal_factor--;
   }
-  // TODO: grid swizzling is currently disabled on Hopper since we cannot
-  // properly inline when we swizzle unmapped loop broadcasts
-  mparams->grid_swizzle_factor = 1L;
+  // TODO: Use only 1D grid traversal factor for now
+  mparams->grid_traversal_factor = {grid_traversal_factor, 1};
 
   // TODO: Finally, we set the CGA size
 

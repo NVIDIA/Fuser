@@ -767,6 +767,15 @@ void IterDomainGraph::build(Fusion* fusion) {
     if (!visited.emplace(def).second) {
       continue;
     }
+
+    // If there's an input that is not included in the map, this expr
+    // should not be considered
+    if (std::ranges::any_of(def->inputs(), [&](Val* inp) {
+          return !allIds().has(inp->as<IterDomain>());
+        })) {
+      continue;
+    }
+
     if (auto merge = dynamic_cast<Merge*>(def)) {
       if (merge->inner()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->outer(), merge->out());

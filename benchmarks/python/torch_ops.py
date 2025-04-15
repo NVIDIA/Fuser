@@ -81,3 +81,8 @@ def silu_mul(inputs: list):
 def softmax(inputs: list):
     inp, reduction_axis = inputs
     return F.softmax(inp, dim=reduction_axis)
+
+
+def embedding(inputs: list):
+    indices, embedding_table = inputs
+    return F.embedding(indices, embedding_table)
