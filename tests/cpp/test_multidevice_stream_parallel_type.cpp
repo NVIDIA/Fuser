@@ -36,9 +36,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allgather) {
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 2);
+  EXPECT_EQ(container->topLevelExprs().size(), 3);
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
@@ -69,9 +70,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, Allreduce) {
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 2);
+  EXPECT_EQ(container->topLevelExprs().size(), 3);
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
@@ -104,9 +106,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatter) {
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 2);
+  EXPECT_EQ(container->topLevelExprs().size(), 3);
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
 
   auto options =
       at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
@@ -154,10 +157,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul) {
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 3);
+  EXPECT_EQ(container->topLevelExprs().size(), 4);
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
@@ -214,10 +218,11 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 3);
+  EXPECT_EQ(container->topLevelExprs().size(), 4);
   EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
@@ -277,12 +282,13 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 4);
+  EXPECT_EQ(container->topLevelExprs().size(), 5);
   EXPECT_TRUE(
       container->topLevelExprs().at(0)->isA<hir::PostOnStream>()); // Broadcast
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(2)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(4)->isA<ForLoop>());
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());

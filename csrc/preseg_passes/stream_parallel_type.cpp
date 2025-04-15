@@ -336,31 +336,46 @@ void StreamParallelType::runPass(Fusion* fusion) {
   }
 
   // Step 3: Add stream management and synchronization
-  for (auto* top_level_expr : new_top_level_exprs) {
+  top_level_exprs = std::move(new_top_level_exprs);
+  new_top_level_exprs.clear();
+  for (auto* top_level_expr : top_level_exprs) {
     if (!top_level_expr->isA<ForLoop>()) {
+      new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
     auto* for_loop = top_level_expr->as<ForLoop>();
-    std::vector<Expr*> new_loop_body;
 
     // Get current stream for later synchronization
     auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
     hir::Stream* original_stream = get_current_stream->stream();
-    new_loop_body.push_back(get_current_stream);
-
     // Set up stream for current iteration
     auto* number_of_streams =
         IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
     auto* stream_index = mod(for_loop->index(), number_of_streams);
     auto* stream = IrBuilder::create<hir::Stream>(stream_index);
     auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
-    new_loop_body.push_back(set_stream);
-
     // Synchronize with original stream
     auto* initial_sync_stream =
         IrBuilder::create<hir::Synchronize>(original_stream);
-    new_loop_body.push_back(initial_sync_stream);
 
+    auto* for_loop_for_initial_sync = IrBuilder::create<ForLoop>(
+        for_loop->iterDomain(),
+        for_loop->index(),
+        for_loop->start(),
+        for_loop->stop(),
+        for_loop->step(),
+        /*vectorize=*/false,
+        /*vectorize_shift=*/nullptr,
+        /*unroll_required=*/false,
+        CircularBufferLoopStage::NotApplicable,
+        /*circular_buffer_loop_stage_depth=*/0);
+
+    for_loop_for_initial_sync->body().push_back(get_current_stream);
+    for_loop_for_initial_sync->body().push_back(set_stream);
+    for_loop_for_initial_sync->body().push_back(initial_sync_stream);
+
+    std::vector<Expr*> new_loop_body;
+    new_loop_body.push_back(set_stream);
     // Add the actual computation expressions
     for (auto* expr : for_loop->body().exprs()) {
       new_loop_body.push_back(expr);
@@ -378,6 +393,9 @@ void StreamParallelType::runPass(Fusion* fusion) {
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
     }
+
+    new_top_level_exprs.push_back(for_loop_for_initial_sync);
+    new_top_level_exprs.push_back(for_loop);
   }
 
   // Update the container's top-level expressions
