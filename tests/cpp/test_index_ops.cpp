@@ -52,8 +52,6 @@ INSTANTIATE_TEST_SUITE_P(
     IndexPutAccumulate,
     ::testing::ValuesIn(generateSizeOneParams()));
 
-}
-
 // Note: The semantics doesn't support broadcast on operands, adding `size 1`
 // check just to ensure the ID mapping is done correctly.
 TEST_P(IndexPutAccumulate, BroadcastIDs) {
