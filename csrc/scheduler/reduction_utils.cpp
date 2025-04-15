@@ -670,7 +670,8 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   // This way, each thread only needs to cache 8 × 4 elements instead of
   // 8 × 7 × 4 elements.
   // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
-  if (std::all_of(domain.begin(), domain.end(), [](IterDomain* id) {
+  if (!scheduler_utils::isFastestDimReduction(tv) &&
+      std::all_of(domain.begin(), domain.end(), [](IterDomain* id) {
         return !id->isReduction() ||
             (id->extent()->isConstScalar() && !id->isThread());
       })) {
