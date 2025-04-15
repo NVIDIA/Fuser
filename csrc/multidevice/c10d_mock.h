@@ -170,6 +170,21 @@ struct TCPStoreOptions {
   static constexpr uint16_t kDefaultPort = 0;
 };
 
-class TCPStore : public torch::CustomClassHolder {};
+class TCPStore : public torch::CustomClassHolder {
+ public:
+  std::vector<uint8_t> get(const std::string&) {
+    return {};
+  }
+
+  void set(const std::string&, const std::vector<uint8_t>&) {}
+
+  bool check(const std::vector<std::string>&) {
+    return false;
+  }
+
+  bool deleteKey(const std::string&) {
+    return false;
+  }
+};
 
 } // namespace c10d
