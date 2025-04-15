@@ -426,11 +426,15 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(outer_loop != nullptr);
     NVF_ERROR(inner_loop != nullptr);
     NVF_ERROR(!outer_loop->iter_domain()->isParallelized());
-    NVF_ERROR(inner_loop->iter_domain()->isBlockDim());
     NVF_ERROR(outer_loop->index() != nullptr);
     NVF_ERROR(outer_loop->stop() != nullptr);
     NVF_ERROR(inner_loop->index() != nullptr);
     NVF_ERROR(inner_loop->stop() != nullptr);
+
+    // Only add short-circuit if inner for-loop is grid dimension
+    if (!inner_loop->iter_domain()->isBlockDim()) {
+      return nullptr;
+    }
 
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
