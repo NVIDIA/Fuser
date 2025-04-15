@@ -20,7 +20,7 @@
 
 namespace nvfuser {
 
-constexpr int64_t b = 2, s = 3, h = 64, a = 8;
+constexpr int64_t b = 2, s = 3, h = 16, a = 2;
 constexpr double dropout_p = 0.0;
 constexpr bool is_causal = false;
 
@@ -133,7 +133,6 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
-  const int64_t b = 2, s = 3, h = 128, a = 8;
 
   auto mesh = DeviceMesh::createForNumDevices(d);
 
