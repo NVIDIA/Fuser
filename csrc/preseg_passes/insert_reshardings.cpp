@@ -110,7 +110,17 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
       shardAllLike(output, {new_output});
-      shardAllLike(input, {output});
+
+      // Consider a reshard after case:
+      // input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
+      // This is decomposed into:
+      // input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
+      // new_output [i0, DIDx(i1)] ParallelType::Serial is required here so the
+      // output is sharded as [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)]
+      std::unordered_set<ParallelType> parallel_types{
+          kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
+      parallel_types.insert(ParallelType::Serial);
+      shardAllLike(input, {output}, parallel_types);
     }
   }
 }
