@@ -449,19 +449,16 @@ class CloneTmaCircularBufferLoopAndInsertSync
         SimplifyingIrBuilder::mulExpr(outer_loop->index(), inner_loop->stop());
     lhs = SimplifyingIrBuilder::addExpr(lhs, inner_loop->index());
 
-    // rhs := outer_fl->stop()->definition()->lhs() *
-    //                                outer_fl->stop()->definition()->rhs()
+    // Check that outer_loop matches known invariants for persistent kernel.
     Expr* def = outer_loop->stop()->definition();
     NVF_ERROR(def != nullptr);
     BinaryOp* bop = def->as<BinaryOp>();
     NVF_ERROR(
         bop != nullptr && bop->getBinaryOpType() == BinaryOpType::CeilDiv);
     NVF_ERROR(bop->lhs() != nullptr);
-    NVF_ERROR(bop->rhs() != nullptr);
-    Val* rhs = SimplifyingIrBuilder::mulExpr(bop->lhs(), bop->rhs());
 
-    // predicate := (lhs >= rhs)
-    Val* predicate_val = SimplifyingIrBuilder::geExpr(lhs, rhs);
+    // predicate := (lhs >= outer_fl->stop()->definition()->lhs())
+    Val* predicate_val = SimplifyingIrBuilder::geExpr(lhs, bop->lhs());
     kir::Predicate* predicate =
         IrBuilder::create<kir::Predicate>(predicate_val);
     kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
