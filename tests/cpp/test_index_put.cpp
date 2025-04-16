@@ -91,18 +91,18 @@ TEST_P(IndexPutAccumulate, BroadcastIDs) {
 
   auto buf_to_out_map =
       PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
-  EXPECT_TRUE(map_logical(buf_to_out_map, buf, out, 0, 0));
-  EXPECT_TRUE(map_logical(buf_to_out_map, buf, out, 1, 1));
+  EXPECT_TRUE(map_logical(buf_to_out_map, buf, 0, out, 0));
+  EXPECT_TRUE(map_logical(buf_to_out_map, buf, 1, out, 1));
 
   auto index_to_out_map =
       PairwiseLogicalDomainMap(tv_index, out).mapProducerToConsumer();
-  EXPECT_FALSE(map_logical(index_to_out_map, tv_index, out, 0, 0));
-  EXPECT_TRUE(map_logical(index_to_out_map, tv_index, out, 1, 1));
+  EXPECT_FALSE(map_logical(index_to_out_map, tv_index, 0, out, 0));
+  EXPECT_TRUE(map_logical(index_to_out_map, tv_index, 0, out, 1));
 
   auto value_to_out_map =
       PairwiseLogicalDomainMap(tv_value, out).mapProducerToConsumer();
-  EXPECT_FALSE(map_logical(value_to_out_map, tv_value, out, 0, 0));
-  EXPECT_TRUE(map_logical(value_to_out_map, tv_value, out, 1, 1));
+  EXPECT_FALSE(map_logical(value_to_out_map, tv_value, 0, out, 0));
+  EXPECT_TRUE(map_logical(value_to_out_map, tv_value, 1, out, 1));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
