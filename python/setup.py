@@ -90,6 +90,12 @@ INSTALL_REQUIRES = []
 EXTRAS_REQUIRE = {}
 CPP_STANDARD = 20
 forward_args = []
+
+# For build_wheel_stable_20 and build_wheel_nightly_20, we cannot build with
+# tests because they use the old gcc toolchain.
+if "egg_info" in sys.argv:
+    NO_TEST = True
+
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
         CMAKE_ONLY = True
