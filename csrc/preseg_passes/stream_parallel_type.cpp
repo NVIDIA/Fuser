@@ -112,7 +112,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
     // Verify expression can be handled as a standalone host operation
     NVF_ERROR(
-        HostIrLower::isLoweredAsStandaloneHostOp(expr),
+        HostIrLower::isLowerableAsStandaloneHostOp(expr),
         "Stream parallel type not supported for expr ",
         expr);
 
