@@ -76,25 +76,33 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   auto out = indexPutAccumulate(buf, tv_index, tv_value);
   fusion.addOutput(out);
 
-  // check PairwiseLogicalDomainMap
-  auto map_logical =
-      [](
-         const std::vector<bool> expect_to_map,
-         TensorView* tv0,
-         TensorView* tv1,
-         ) -> bool {
-    std::unordered_map<IterDomain*, IterDomain*>& pairwise_map =
-      PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
+  // check PairwiseLogicalDomainMap check if tv0 and tv1 map pairwise on
+  // position according to `expect_to_map`
+  auto map_logical = [](const std::vector<bool>& expect_to_map,
+                        TensorView* tv0,
+                        TensorView* tv1) {
+    std::unordered_map<IterDomain*, IterDomain*> pairwise_map =
+        PairwiseLogicalDomainMap(tv0, tv1).mapProducerToConsumer();
     for (auto index : arange(expect_to_map.size())) {
       IterDomain* id0 = tv0->getLogicalDomain().at(index);
       IterDomain* id1 = tv1->getLogicalDomain().at(index);
       EXPECT_EQ(
-      pairwise_map.find(id0) != pairwise_map.end() &&
-          pairwise_map.at(id0) == id1, expect_to_map[index]);
+          pairwise_map.find(id0) != pairwise_map.end() &&
+              pairwise_map[id0] == id1,
+          expect_to_map[index]);
     }
   };
 
+  // see [ Note -- IndexPutAccumulateOp semantics ]
+  // args:
+  //     buf      [ ID_indexed_g0, ID_g0 ]
+  //     tv_index [ ID_indexing_g1, ID_broadcast ]
+  //     tv_value [ ID_indexing_g1, ID_g0 ]
+  // output:
+  //     out      [ ID_indexed_g0, ID_g0 ]
   map_logical({true, true}, buf, out);
+  // depends on the size of ID_g0, it would map to ID_broadcast when hidden is
+  // size-1 dimension
   map_logical({false, hidden == 1}, tv_index, out);
   map_logical({false, true}, tv_value, out);
 
