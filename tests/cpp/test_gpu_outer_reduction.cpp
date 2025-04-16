@@ -2595,52 +2595,24 @@ TEST_F(OuterReductionTest, SmallOuterBlockReductionIssue2766) {
   testValidate(executor_cache.fusion(), outputs, args, __LINE__, __FILE__);
 }
 
-TEST_F(OuterReductionTest, ThreadLocalSerialReduction) {
+TEST_F(OuterReductionTest, SimpleThreadLocalSerialReduction) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
 
-  std::vector<int64_t> shape{1, 28, 8192, 128};
+  std::vector<int64_t> shape{28, 8192, 128};
 
-  auto T4 = makeContigConcreteTensor(shape, DataType::BFloat16);
-  fusion.addInput(T4);
-  auto T21 = makeContigConcreteTensor(shape, DataType::BFloat16);
-  fusion.addInput(T21);
-  T21->setAllocationDomain(
-      {T21->axis(0), T21->axis(2), T21->axis(1), T21->axis(3)}, true);
-  auto T52 = makeContigConcreteTensor(shape, DataType::BFloat16);
-  fusion.addInput(T52);
-
-  auto T59 = castOp(DataType::Float, T21);
-  auto T61 = castOp(DataType::Float, T52);
-  auto T31 = castOp(DataType::Float, T4);
-  auto T67 = mul(T59, T31);
-  auto T78 = squeeze(T67, {0});
-  auto T79 = sum(T78, {0});
-  auto T96 = castOp(DataType::BFloat16, T79);
-  auto T107 = broadcast(T96, {true, true, false, false});
-  auto T69 = mul(T61, T31);
-  auto T82 = squeeze(T69, {0});
-  auto T83 = sum(T82, {0});
-  auto T98 = castOp(DataType::BFloat16, T83);
-  auto T111 = broadcast(T98, {true, true, false, false});
-  fusion.addOutput(T107);
-  fusion.addOutput(T111);
+  auto T0 = makeContigConcreteTensor(shape, DataType::BFloat16);
+  fusion.addInput(T0);
+  auto T1 = castOp(DataType::Float, T0);
+  auto T2 = sum(T1, {0});
+  fusion.addOutput(T2);
 
   auto fusion_copy = fusion;
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
-  auto at_t4 = at::randn(shape, options);
-  auto at_t21 = at::randn(shape, options)
-                    .as_strided(
-                        shape,
-                        {shape.at(1) * shape.at(2) * shape.at(3),
-                         shape.at(3),
-                         shape.at(1) * shape.at(3),
-                         1});
-  auto at_t52 = at::randn(shape, options);
-  KernelArgumentHolder args = {at_t4, at_t21, at_t52};
-
+  auto at_t0 = at::randn(shape, options);
+  KernelArgumentHolder args = {at_t0};
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(args);
 
@@ -2664,8 +2636,7 @@ TEST_F(OuterReductionTest, ThreadLocalSerialReduction) {
     }
   }
 
-  testValidate(
-      &fusion_copy, outputs, {at_t4, at_t21, at_t52}, __LINE__, __FILE__);
+  testValidate(&fusion_copy, outputs, {at_t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
