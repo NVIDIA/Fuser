@@ -124,6 +124,7 @@ class Val;
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
   f(SetMaxNReg);                      \
+  f(Continue);                        \
   f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
