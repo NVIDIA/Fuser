@@ -78,31 +78,25 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
 
   // check PairwiseLogicalDomainMap
   auto map_logical =
-      [](const std::unordered_map<IterDomain*, IterDomain*>& pairwise_map,
+      [](
+         const std::vector<bool> expect_to_map,
          TensorView* tv0,
-         size_t index0,
          TensorView* tv1,
-         size_t index1) -> bool {
-    IterDomain* id0 = tv0->getLogicalDomain().at(index0);
-    IterDomain* id1 = tv1->getLogicalDomain().at(index1);
-    return pairwise_map.find(id0) != pairwise_map.end() &&
-        pairwise_map.at(id0) == id1;
+         ) -> bool {
+    std::unordered_map<IterDomain*, IterDomain*>& pairwise_map =
+      PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
+    for (auto index : arange(expect_to_map.size())) {
+      IterDomain* id0 = tv0->getLogicalDomain().at(index);
+      IterDomain* id1 = tv1->getLogicalDomain().at(index);
+      EXPECT_EQ(
+      pairwise_map.find(id0) != pairwise_map.end() &&
+          pairwise_map.at(id0) == id1, expect_to_map[index]);
+    }
   };
 
-  auto buf_to_out_map =
-      PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
-  EXPECT_TRUE(map_logical(buf_to_out_map, buf, 0, out, 0));
-  EXPECT_TRUE(map_logical(buf_to_out_map, buf, 1, out, 1));
-
-  auto index_to_out_map =
-      PairwiseLogicalDomainMap(tv_index, out).mapProducerToConsumer();
-  EXPECT_FALSE(map_logical(index_to_out_map, tv_index, 0, out, 0));
-  EXPECT_TRUE(map_logical(index_to_out_map, tv_index, 1, out, 1));
-
-  auto value_to_out_map =
-      PairwiseLogicalDomainMap(tv_value, out).mapProducerToConsumer();
-  EXPECT_FALSE(map_logical(value_to_out_map, tv_value, 0, out, 0));
-  EXPECT_TRUE(map_logical(value_to_out_map, tv_value, 1, out, 1));
+  map_logical({true, true}, buf, out);
+  map_logical({false, hidden == 1}, tv_index, out);
+  map_logical({false, true}, tv_value, out);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
