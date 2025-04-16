@@ -43,7 +43,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
   OptimizationPass<InsertReshardingsPass>::runPass(fusion);
   OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
-  OptimizationPass<MakeReshardingContiguousPass>::runPass(fusion); 
+  OptimizationPass<MakeReshardingContiguousPass>::runPass(fusion);
 
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
@@ -81,7 +81,6 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
-
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
   OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
