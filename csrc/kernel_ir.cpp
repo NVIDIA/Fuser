@@ -670,6 +670,25 @@ std::string SetMaxNReg::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
 
+Continue::Continue(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Continue::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "continue\n";
+  return ss.str();
+}
+
+std::string Continue::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Continue can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Continue)
+
 Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(

@@ -42,6 +42,7 @@ class GridSync;
 class FenceAsyncProxy;
 class WgMmaFence;
 class SetMaxNReg;
+class Continue;
 class Return;
 class MBarrierInit;
 class MBarrierInvalidate;
@@ -611,6 +612,22 @@ class SetMaxNReg final : public Expr {
   Val* numberOfRegisters() const {
     return input(0);
   }
+};
+
+class Continue final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Continue(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Continue";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 };
 
 class Return final : public Expr {
