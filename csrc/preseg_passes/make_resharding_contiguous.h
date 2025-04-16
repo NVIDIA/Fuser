@@ -21,12 +21,12 @@ namespace nvfuser::preseg_passes {
 // contiguous tensors and output contiguous buffers. This pass checks that
 // inputs are contiguous.
 // 3. Sets the allocation domain of all fusion tvs if they have a device mesh.
-// The allocation domain is obtained by transforming the `maybeAllocationDomain` using
-// the transforms to loop domain. This ensures that the allocation domain has DID loop splits.
-// All iterdomains derived from a given logical iterdomain are placed together.
-// See `reorderLoopAsAllocation` for more details.
-// Eventually, this pass should run after `markAliasesPrepare` and `AllocationDomainPass`
-// after they are fixed.
+// The allocation domain is obtained by transforming the `maybeAllocationDomain`
+// using the transforms to loop domain. This ensures that the allocation domain
+// has DID loop splits. All iterdomains derived from a given logical iterdomain
+// are placed together. See `reorderLoopAsAllocation` for more details.
+// Eventually, this pass should run after `markAliasesPrepare` and
+// `AllocationDomainPass` after they are fixed.
 class MakeReshardingContiguousPass
     : public OptimizationPass<MakeReshardingContiguousPass> {
   friend class OptimizationPass<MakeReshardingContiguousPass>;

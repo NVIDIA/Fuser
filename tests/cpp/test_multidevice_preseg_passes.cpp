@@ -58,7 +58,10 @@ TEST_F(MultiDevicePresegPassesTest, ResidualAdd) {
   preseg_passes::OptimizationPass<
       preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
   NVF_CHECK(tv1->hasDeviceMesh());
-  NVF_CHECK(getShardedLogicalAxis(tv1, ParallelType::DIDx) == getShardedLogicalAxis(tv0, ParallelType::DIDx), "Expected tv1 to be sharded like tv0 due to backpropagation of shardings.");
+  NVF_CHECK(
+      getShardedLogicalAxis(tv1, ParallelType::DIDx) ==
+          getShardedLogicalAxis(tv0, ParallelType::DIDx),
+      "Expected tv1 to be sharded like tv0 due to backpropagation of shardings.");
 }
 
 namespace {
@@ -93,15 +96,15 @@ TEST_F(MultiDevicePresegPassesTest, MLP) {
   auto mesh = DeviceMesh::createForNumDevices(d);
 
   TensorView* inp = makeContigConcreteTensor({b, s, h});
-  TensorView* w0 = makeContigConcreteTensor({4*d*h, h});
-  TensorView* w1 = makeContigConcreteTensor({h, 4*d*h});
+  TensorView* w0 = makeContigConcreteTensor({4 * d * h, h});
+  TensorView* w1 = makeContigConcreteTensor({h, 4 * d * h});
 
   TensorView* linear0 = linear(inp, w0);
   TensorView* gelu = tanh_gelu(linear0);
   TensorView* linear1 = linear(gelu, w1);
 
-  std::vector<TensorView*> fusion_inputs {inp, w0, w1};
-  for (auto tv: fusion_inputs){
+  std::vector<TensorView*> fusion_inputs{inp, w0, w1};
+  for (auto tv : fusion_inputs) {
     fusion->addInput(tv);
     tv->setDeviceMesh(mesh);
   }
@@ -113,9 +116,12 @@ TEST_F(MultiDevicePresegPassesTest, MLP) {
   w1->axis(1)->parallelize(ParallelType::DIDx);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor inp_tensor = at::randn({b, s, h}, tensor_options.dtype(at::kFloat));
-  at::Tensor w0_tensor = at::randn({4*d*h, h}, tensor_options.dtype(at::kFloat));
-  at::Tensor w1_tensor = at::randn({h, 4*d*h}, tensor_options.dtype(at::kFloat));
+  at::Tensor inp_tensor =
+      at::randn({b, s, h}, tensor_options.dtype(at::kFloat));
+  at::Tensor w0_tensor =
+      at::randn({4 * d * h, h}, tensor_options.dtype(at::kFloat));
+  at::Tensor w1_tensor =
+      at::randn({h, 4 * d * h}, tensor_options.dtype(at::kFloat));
 
   at::Tensor w0_sharded = shardTensor(w0_tensor, 0, mesh);
   at::Tensor w1_sharded = shardTensor(w1_tensor, 1, mesh);
@@ -136,7 +142,8 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
 
   auto mesh = DeviceMesh::createForNumDevices(d);
 
-  TensorView* qkv = makeContigConcreteTensor({b, s, d * a, 3 * h / a}, DataType::Half);
+  TensorView* qkv =
+      makeContigConcreteTensor({b, s, d * a, 3 * h / a}, DataType::Half);
   TensorView* q = slice(qkv, {0, 0, 0, 0}, {b, s, d * a, h / a});
   TensorView* k = slice(qkv, {0, 0, 0, h / a}, {b, s, d * a, 2 * h / a});
   TensorView* v = slice(qkv, {0, 0, 0, 2 * h / a}, {b, s, d * a, 3 * h / a});
@@ -164,7 +171,8 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
   qkv->axis(2)->parallelize(ParallelType::DIDx);
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor unsharded_inp_tensor = at::randn({b, s, d * a, 3 * h / a}, tensor_options.dtype(at::kHalf));
+  at::Tensor unsharded_inp_tensor =
+      at::randn({b, s, d * a, 3 * h / a}, tensor_options.dtype(at::kHalf));
   at::Tensor inp_tensor = shardTensor(unsharded_inp_tensor, 2, mesh);
 
   KernelArgumentHolder args = {inp_tensor};
@@ -174,5 +182,5 @@ TEST_F(MultiDevicePresegPassesTest, MHAFwd) {
   at::Tensor ref_out = reference_mha(inp_tensor);
   EXPECT_TRUE(at::allclose(nvf_out, ref_out));
 }
-  
+
 } // namespace nvfuser

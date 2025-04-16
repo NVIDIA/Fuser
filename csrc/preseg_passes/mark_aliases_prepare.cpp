@@ -13,7 +13,6 @@
 #include <options.h>
 #include <preseg_passes/mark_aliases_prepare.h>
 #include <transform_replay.h>
-#include <multidevice/utils.h>
 
 namespace nvfuser::preseg_passes {
 

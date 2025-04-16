@@ -142,7 +142,8 @@ int64_t selectiveReorderDIDToFront(
 }
 
 // Returns the set of parallel types seen on the loop domain of the given tvs.
-std::unordered_set<ParallelType> getTvParallelTypes(std::vector<TensorView*> tvs) {
+std::unordered_set<ParallelType> getTvParallelTypes(
+    std::vector<TensorView*> tvs) {
   std::unordered_set<ParallelType> parallel_types;
   for (auto tv : tvs) {
     for (auto id : tv->getLoopDomain()) {
@@ -154,14 +155,16 @@ std::unordered_set<ParallelType> getTvParallelTypes(std::vector<TensorView*> tvs
   return parallel_types;
 }
 
-void propagateDIDTransform(TensorView* ref, std::vector<TensorView*> tvs, int64_t did_pos, bool allow_c2p, bool allow_p2c) {
+void propagateDIDTransform(
+    TensorView* ref,
+    std::vector<TensorView*> tvs,
+    int64_t did_pos,
+    bool allow_c2p,
+    bool allow_p2c) {
   TransformPropagator propagator(ref, did_pos);
   PropagateShardingsSelector selector(
-      {tvs.begin(), tvs.end()},
-      allow_c2p,
-      allow_p2c);
-  MaxLogicalDomainInfoSpanningTree(ref, &selector)
-      .traverse(&propagator);
+      {tvs.begin(), tvs.end()}, allow_c2p, allow_p2c);
+  MaxLogicalDomainInfoSpanningTree(ref, &selector).traverse(&propagator);
 }
 
 } // namespace
@@ -206,14 +209,20 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
       // Reorder the DID axis to the front only if it does not have a parallel
       // type already seen on the outputs.
-      std::unordered_set<ParallelType> existing_parallel_types = getTvParallelTypes(outputs_without_mesh);
-      
+      std::unordered_set<ParallelType> existing_parallel_types =
+          getTvParallelTypes(outputs_without_mesh);
+
       // This restricts the transform propagation to only the relevant DID axis.
       int64_t did_pos =
           selectiveReorderDIDToFront(ref_input, existing_parallel_types);
 
       // Propagate the DID loop split to the outputs without mesh.
-      propagateDIDTransform(/*ref=*/ref_input, /*tvs=*/outputs_without_mesh, /*did_pos=*/did_pos, /*allow_c2p=*/false, /*allow_p2c=*/true);
+      propagateDIDTransform(
+          /*ref=*/ref_input,
+          /*tvs=*/outputs_without_mesh,
+          /*did_pos=*/did_pos,
+          /*allow_c2p=*/false,
+          /*allow_p2c=*/true);
 
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh);
@@ -234,7 +243,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // We pick the most parallel output as the reference.
     // This is to avoid picking seed/offset tvs in SDPA.
     std::vector<TensorView*> sorted_outputs = sortTvsByDeviceDims(outputs);
-    
+
     if (sorted_outputs.empty()) {
       // No output with a device mesh.
       continue;
@@ -248,8 +257,9 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         " has no device mesh.");
 
     // For fusion inputs, only check if they have a device mesh. We do not
-    // modify their sharding. For non-fusion inputs, we try to propagate shardings
-    // from the reference output for parallel types that are not already present.
+    // modify their sharding. For non-fusion inputs, we try to propagate
+    // shardings from the reference output for parallel types that are not
+    // already present.
     const auto& inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     std::vector<TensorView*> sharding_candidates;
     for (auto* tv : inputs) {
@@ -273,11 +283,11 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     // TransformPropagator can handle reshapes when going from consumer to
     // producer.
     propagateDIDTransform(
-      /*ref=*/ref_output, 
-      /*tvs=*/sharding_candidates, 
-      /*did_pos=*/did_pos, 
-      /*allow_c2p=*/true, 
-      /*allow_p2c=*/false);
+        /*ref=*/ref_output,
+        /*tvs=*/sharding_candidates,
+        /*did_pos=*/did_pos,
+        /*allow_c2p=*/true,
+        /*allow_p2c=*/false);
     shardAllLike(ref_output, sharding_candidates);
   }
 }
