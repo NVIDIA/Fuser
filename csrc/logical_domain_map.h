@@ -117,6 +117,11 @@ class PairwiseLogicalDomainMap : public LogicalDomainMap {
     return *this;
   }
 
+  PairwiseLogicalDomainMap& mapReductionDomains(bool b) {
+    map_reduction_domains_ = b;
+    return *this;
+  }
+
   const TensorView* producerTv() const {
     return producer_tv_;
   }
@@ -160,6 +165,8 @@ class PairwiseLogicalDomainMap : public LogicalDomainMap {
   bool map_different_extents_ = false;
   //! Map domains that are indirectly accessed, e.g., indexSelect
   bool map_indexed_domains_ = false;
+  //! Map reduction domains, e.g., select
+  bool map_reduction_domains_ = false;
 };
 
 //! Represents an iteration domain of a TensorDomain. Only used for
