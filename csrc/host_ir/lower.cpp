@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
@@ -19,7 +20,6 @@
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
-#include <preseg_passes/stream_parallel_type.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <limits>
 

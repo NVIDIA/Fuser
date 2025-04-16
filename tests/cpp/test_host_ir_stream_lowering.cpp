@@ -11,12 +11,12 @@
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <kernel_ir.h>
 #include <multidevice/executor.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/stream_parallel_type.h>
 #include <tests/cpp/utils.h>
 
 #include <algorithm>

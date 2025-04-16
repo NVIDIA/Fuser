@@ -9,9 +9,9 @@
 #include <fusion.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
+#include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
-#include <preseg_passes/stream_parallel_type.h>
 #include <tests/cpp/multidevice.h>
 
 namespace nvfuser {
