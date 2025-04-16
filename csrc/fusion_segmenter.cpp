@@ -3919,6 +3919,10 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   NVF_ERROR(
       areDirectlyConnected(group1, group2),
       "only support testing immediate producer-consumer groups");
+  // The segmemter should ideally be redesigned to be more flexible and
+  // decoupled from the schedulers, but for now, we just return
+  // `SchedulerType::None` as it is not relevant when the segmenter is
+  // used with a custom should-merge function.
   if (options_.custom_should_merge_groups != nullptr) {
     return (options_.custom_should_merge_groups)(group1, group2);
   }
