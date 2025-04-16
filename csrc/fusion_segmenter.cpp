@@ -4388,7 +4388,7 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
 // fusion. Currently, we forward an input only when its single use is a UnaryOp.
 // Therefore, this function returns `v`'s single unary use or nullptr if it
 // decides not to forward.
-UnaryOp* shouldForward(Val* v) {
+Expr* shouldForward(Val* v) {
   const std::vector<Expr*>& uses = v->uses();
   // Just allow stripping out input with single use.
   // Stripping out multi-used inputs can lead to:
@@ -4398,8 +4398,10 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
-  auto* unary_use = dynamic_cast<UnaryOp*>(uses.front());
-  auto* ldst_use = dynamic_cast<LoadStoreOp*>(uses.front());
+  auto use_expr = uses.front();
+
+  auto* unary_use = dynamic_cast<UnaryOp*>(use_expr);
+  auto* ldst_use = dynamic_cast<LoadStoreOp*>(use_expr);
   if (unary_use == nullptr && ldst_use == nullptr) {
     return nullptr;
   }
@@ -4413,19 +4415,19 @@ UnaryOp* shouldForward(Val* v) {
     }
   }
 
+  auto out = use_expr->output(0);
+
   // Don't forward an input to an output yet. Doing that would lead to an empty
   // group that ought to work in theory but doesn't work in practice with the
   // downstream logic. See #1813 for an example.
-  if (unary_use->out()->isFusionOutput()) {
+  if (out->isFusionOutput()) {
     return nullptr;
   }
 
   // prevent forward to a SegmenterSet, which could cause unary op forward to a
   // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
   if (std::any_of(
-          unary_use->out()->uses().begin(),
-          unary_use->out()->uses().end(),
-          [](const Expr* next_use) {
+          out->uses().begin(), out->uses().end(), [](const Expr* next_use) {
             if (const LoadStoreOp* use =
                     dynamic_cast<const LoadStoreOp*>(next_use)) {
               if (use->opType() == LoadStoreOpType::SegmenterSet) {
@@ -4437,7 +4439,7 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
-  return unary_use;
+  return use_expr;
 }
 
 void SegmentCandidateFinder::forwardInputs() {
@@ -4448,23 +4450,23 @@ void SegmentCandidateFinder::forwardInputs() {
   // treated as complete fusion inputs.
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
-    std::deque<UnaryOp*> to_visit;
+    std::deque<Expr*> to_visit;
     for (Val* inp : completeFusion()->inputs()) {
-      if (UnaryOp* unary_use = shouldForward(inp)) {
-        to_visit.push_back(unary_use);
+      if (auto forwarded_use = shouldForward(inp)) {
+        to_visit.push_back(forwarded_use);
       }
     }
 
     while (!to_visit.empty()) {
-      UnaryOp* uop = to_visit.front();
+      auto uop = to_visit.front();
       to_visit.pop_front();
 
-      if (UnaryOp* unary_use = shouldForward(uop->out())) {
-        to_visit.push_back(unary_use);
+      if (auto forwarded_use = shouldForward(uop->output(0))) {
+        to_visit.push_back(forwarded_use);
       } else {
         // We cannot extend the chain of unary ops, so we finalize this chain by
         // saving its output as a forwarded input.
-        forwarded_inputs.pushBack(uop->out());
+        forwarded_inputs.pushBack(uop->output(0));
       }
       // Either way, `uop` is excluded from merging until
       // `resolveNonscalarForwardedInput` adds it back to one of the segments.
