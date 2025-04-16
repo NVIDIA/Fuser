@@ -31,28 +31,6 @@ NVF_API bool distributedEnabled() {
 #endif
 }
 
-namespace {
-
-// Returns the position where an axis is allocated in a tv, skipping trivial
-// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
-// tv's loop domain WAR: today we assume that the loop domain match with the
-// actual allocation, but this will have to change in the future.
-int64_t allocationIndex(TensorView* tv, IterDomain* id) {
-  int64_t index = 0;
-  for (auto* loop_id : tv->getLoopDomain()) {
-    if (loop_id == id) {
-      return index;
-    }
-    if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-        !loop_id->isBroadcast()) {
-      index++;
-    }
-  }
-  return -1;
-}
-
-} // namespace
-
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
     TensorView* producer,
     TensorView* consumer) {
@@ -408,6 +386,7 @@ bool haveDifferentShardings(
     const std::unordered_map<IterDomain*, IterDomain*>& c2p =
         PairwiseLogicalDomainMap(producer, consumer)
             .mapBroadcast(false)
+            .mapReductionDomains(true)
             .mapConsumerToProducer();
     return !std::all_of(
         consumer->getLoopDomain().begin(),
@@ -416,6 +395,28 @@ bool haveDifferentShardings(
           auto p_id = c2p.at(c_id);
           return c_id->isDeviceDim() == p_id->isDeviceDim();
         });
+  }
+
+  // Special handling of Matmul for a quick fix
+  // TODO: work on a proper implementation
+  if (consumer->definition()->isA<MatmulOp>()) {
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+        PairwiseLogicalDomainMap(producer, consumer)
+            .mapBroadcast(true)
+            .mapConsumerToProducer();
+    for (auto* c_id : consumer->getLoopDomain()) {
+      if (c2p.count(c_id) == 0) {
+        continue;
+      }
+      auto p_id = c2p.at(c_id);
+      if (p_id->isDeviceDim() != c_id->isDeviceDim()) {
+        if (p_id->isBroadcast()) {
+          continue;
+        }
+        return true;
+      }
+    }
+    return false;
   }
 
   // The rest of this function tries to do the following: for each pair of
@@ -622,11 +623,50 @@ bool isInnerResharding(Expr* expr) {
       NVF_ERROR(
           shard_additions.size() + shard_deletions.size() <= 1,
           "Resharding expr can only support one axis")
-      if ((!shard_deletions.empty() &&
-           allocationIndex(input, shard_deletions.at(0)) > 0) ||
-          (!shard_additions.empty() &&
-           allocationIndex(output, shard_additions.at(0)) > 0)) {
-        return true;
+
+      // process the output. Check if the resharding axis is in the first axis
+      // that is not a broadcast, reduction, or stream
+      if (!shard_additions.empty()) {
+        int64_t index = 0;
+        for (auto* loop_id : output->getLoopDomain()) {
+          if (loop_id == shard_additions.at(0)) {
+            if (index > 0) {
+              return true;
+            }
+            break;
+          }
+          if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
+              !loop_id->isBroadcast() &&
+              loop_id->getParallelType() != ParallelType::Stream) {
+            index++;
+          }
+        }
+      }
+
+      // process the input. Check if the resharding axis is in the first axis
+      // that is not a broadcast, reduction, or mapping to a consumer's stream
+      // axis (because in this case, the expr is going to be placed in a host
+      // for-loop and will operate on tiles)
+      auto pairwise_map =
+          PairwiseLogicalDomainMap(input, output).mapBroadcast(false);
+      const auto c2p_map = pairwise_map.mapProducerToConsumer();
+      if (!shard_deletions.empty()) {
+        int64_t index = 0;
+        for (auto* loop_id : input->getLoopDomain()) {
+          if (loop_id == shard_deletions.at(0)) {
+            if (index > 0) {
+              return true;
+            }
+            break;
+          }
+          if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
+              !loop_id->isBroadcast() &&
+              (c2p_map.count(loop_id) == 0 ||
+               c2p_map.at(loop_id)->getParallelType() !=
+                   ParallelType::Stream)) {
+            index++;
+          }
+        }
       }
     }
   }

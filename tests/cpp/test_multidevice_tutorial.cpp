@@ -916,7 +916,7 @@ TEST_F(MultiDeviceTutorial, HostIrGemmReduceScatter) {
       /*team=*/all_devices,
       /*(unused)root=*/-1,
       RedOpType::SUM,
-      /*scattered_axis=*/0);
+      /*scattered_axis=*/1);
 
   // Since communications are non-blocking, it is always required to wait for a
   // posted communication. Node that "wait" blocks the stream but not the CPU

@@ -123,7 +123,7 @@ std::vector<PolymorphicValue> SelectOp::evaluate(
     const std::vector<PolymorphicValue>& inputs) const {
   const auto& in = inputs.at(0).as<at::Tensor>();
   int64_t dimension = dim();
-  int64_t index = (int64_t)inputs.at(1);
+  int64_t index = getIndexedID()->isBroadcast() ? 0 : (int64_t)inputs.at(1);
   return {in.select(dimension, index)};
 }
 

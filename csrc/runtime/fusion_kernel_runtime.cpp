@@ -15,6 +15,7 @@
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
+#include <preseg_passes/convert_op_to_communication.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -519,9 +520,11 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           NVF_ERROR(
               group_to_run->exprs().size() == 1,
               "Communication segments must contain only one Expr");
-          HostIrLower lower;
-          for (auto* expr : lower.lower(
-                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+          for (auto* expr : preseg_passes::ConvertOpToCommunication::
+                   ConvertSingleOpToCommunication(
+                       ir_cloner.clone(group_to_run->exprs().at(0)),
+                       deviceid,
+                       HostIrLowerParams())) {
             NVF_ERROR(
                 expr->isA<Communication>(),
                 "Exprs in a Communication group should be Communication");
