@@ -26,7 +26,7 @@ HostIrContainer::HostIrContainer(int64_t num_kernel_executors)
 HostIrContainer::~HostIrContainer() = default;
 
 Stream* HostIrContainer::getDefaultStream() {
-  if (!default_stream_) {
+  if (default_stream_ == nullptr) {
     default_stream_ = IrBuilder::createInContainer<Stream>(this);
   }
   return default_stream_;

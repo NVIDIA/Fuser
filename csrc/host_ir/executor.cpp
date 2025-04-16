@@ -15,12 +15,14 @@
 #include <instrumentation.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
+#include <multidevice/cuda_p2p.h>
 #include <multidevice/utils.h>
 #include <options.h>
 #include <runtime/allocations.h>
 #include <runtime/executor_dispatch.h>
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/fusion_kernel_runtime.h>
+#include <tensor_metadata.h>
 
 namespace nvfuser {
 
@@ -88,6 +90,22 @@ bool HostIrExecutor::isCompiled() const {
   return (bool)host_ir_container_;
 }
 
+namespace {
+// Validates the sizes and strides of the input and output tensors
+// against the tensorviews
+void validateTensors(
+    const std::vector<at::Tensor>& tensors,
+    const std::vector<TensorView*>& tvs,
+    const ExpressionEvaluator& expr_eval) {
+  NVF_ERROR(tensors.size() == tvs.size());
+  for (const auto& [tensor, tv] : zip(tensors, tvs)) {
+    if (tensor.defined()) {
+      inferAndValidateAllocationSizesAndStrides(tensor, tv, expr_eval);
+    }
+  }
+}
+} // namespace
+
 KernelArgumentHolder HostIrExecutor::run(
     KernelArgumentHolder& args,
     KernelArgumentHolder output_args) {
@@ -139,6 +157,8 @@ KernelArgumentHolder HostIrExecutor::run(
         "Output tensor not found in fusion outputs");
     auto out_tensor = output_args[out_idx].as<at::Tensor>();
 
+    // Inputs are already validated in bindInputs.
+    validateTensors({out_tensor}, {communication->out()}, expr_eval);
     c10::intrusive_ptr<c10d::Work> work = postSingleCommunication(
         communication,
         communicator_->deviceId(),
@@ -178,7 +198,9 @@ HostIrEvaluator::HostIrEvaluator(
     : container_(std::move(container)),
       communicator_(communicator),
       params_(params),
-      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0) {
+      expr_evaluator_(),
+      my_local_device_index_(communicator_ ? communicator_->local_rank() : 0),
+      ipc_handle_cache_(expr_evaluator_) {
   const DeviceIdxType device_index =
       (communicator_ != nullptr && communicator_->is_available())
       ? communicator_->deviceId()
@@ -305,7 +327,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
   for (auto& input : launch_kernel->inputs()) {
-    args.push(getKnownConcreteData(input));
+    args.push(getKnownConcreteValue(input));
   }
   args.setDeviceIndex();
 
@@ -327,7 +349,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
-    input_args.push(getKnownConcreteData(input));
+    input_args.push(getKnownConcreteValue(input));
   }
   input_args.setDeviceIndex();
   // placeholder for storing the outputs
@@ -346,7 +368,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       post_ir);
   if (use_preallocated_outputs) {
     for (auto output : post_ir->outputs()) {
-      outputs.push(getKnownConcreteData(output));
+      outputs.push(getKnownConcreteValue(output));
     }
   }
 
@@ -415,6 +437,10 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
   }
 }
 
+void HostIrEvaluator::handle(ShareMemHandles* share_mem_handles) {
+  ipc_handle_cache_.exchangeHandles(share_mem_handles->communications());
+}
+
 void HostIrEvaluator::handle(Communication* communication) {
   NVF_ERROR(
       communicator_ != nullptr && communicator_->is_available(),
@@ -427,6 +453,12 @@ void HostIrEvaluator::handle(Communication* communication) {
   CommunicatorBackend backend_type = communication->backend();
   c10d::Backend* backend =
       communicator_->getBackendForTeam(communication->team(), backend_type);
+
+  validateTensors(
+      {input_tensor, output_tensor},
+      {communication->in(), communication->out()},
+      expr_evaluator_);
+
   works_[communication] = postSingleCommunication(
       communication,
       communicator_->deviceId(),
@@ -442,22 +474,51 @@ void HostIrEvaluator::handle(P2PCommunication* communication) {
 
   at::Tensor buffer = getKnownTensorOrUndefined(communication->buffer());
 
-  works_[communication] = postSingleCommunication(
-      communication,
-      communicator_->deviceId(),
-      expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
-      communicator_->getWorld(communication->backend()),
-      buffer);
+  CommunicatorBackend backend_type = communication->backend();
+  if (backend_type == CommunicatorBackend::kCuda) {
+    const P2pIpcHandle& p2p_ipc_handle = ipc_handle_cache_.get(communication);
+    const auto current_stream = static_cast<CUstream>(
+        c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+    if (communication->type() == P2PCommunicationType::RECV) {
+      get_zcopy::recvPost(
+          p2p_ipc_handle,
+          buffer.numel() * buffer.element_size(),
+          current_stream);
+    } else {
+      get_zcopy::sendPost(p2p_ipc_handle, current_stream);
+    }
+  } else {
+    validateTensors({buffer}, {communication->buffer()}, expr_evaluator_);
+    works_[communication] = postSingleCommunication(
+        communication,
+        communicator_->deviceId(),
+        expr_evaluator_.evaluate(communication->peer()).as<int64_t>(),
+        communicator_->getWorld(communication->backend()),
+        buffer);
+  }
 }
 
 void HostIrEvaluator::handle(Wait* wait) {
   Expr* communication = wait->communication();
-  NVF_ERROR(works_.find(communication) != works_.end(), "no wait req");
-  auto& work = works_.at(communication);
-  if (work != nullptr) {
-    work->wait();
+  auto* p2p_comm = dynamic_cast<P2PCommunication*>(communication);
+  if (p2p_comm && p2p_comm->backend() == CommunicatorBackend::kCuda) {
+    if (p2p_comm->type() == P2PCommunicationType::SEND) {
+      const auto current_stream = static_cast<CUstream>(
+          c10::cuda::getCurrentCUDAStream(my_local_device_index_).stream());
+      const P2pIpcHandle& ipc_handles = ipc_handle_cache_.get(p2p_comm);
+      get_zcopy::sendWait(ipc_handles, current_stream);
+    }
+  } else {
+    auto i = works_.find(communication);
+    NVF_ERROR(i != works_.end(), "no wait req");
+
+    auto work = i->second;
+    if (work != nullptr) {
+      work->wait();
+    }
+
+    works_.erase(communication);
   }
-  works_.erase(communication);
 }
 
 namespace {
@@ -538,9 +599,9 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* out = matmul->out();
 
   if (isKnown(out)) {
-    auto t_a = getKnownConcreteData(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteData(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteData(out).as<at::Tensor>();
+    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
     at::matmul_out(t_out, t_a, t_b);
   } else {
     unhandled(matmul);
@@ -558,12 +619,12 @@ void HostIrEvaluator::handle(LinearOp* linear) {
     return;
   }
 
-  auto in_at = getKnownConcreteData(in).as<at::Tensor>();
-  auto weight_at = getKnownConcreteData(weight).as<at::Tensor>();
-  auto out_at = getKnownConcreteData(out).as<at::Tensor>();
+  auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
+  auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
+  auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
   if (linear->has_bias()) {
-    auto bias_at = getKnownConcreteData(bias).as<at::Tensor>();
+    auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
     at::linear_out(out_at, in_at, weight_at.squeeze());
@@ -574,7 +635,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
       load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();
-  auto in_tensor = getKnownConcreteData(load_store_op->in()).as<at::Tensor>();
+  auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
 
   // If output has root domain, compute and apply permutation
   if (out_tv->hasRoot()) {
@@ -590,7 +651,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
     bind(load_store_op->out(), in_tensor);
   } else {
     auto out_tensor =
-        getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
+        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
     out_tensor.copy_(in_tensor);
   }
 }
@@ -623,10 +684,10 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
     return unhandled(binary_op);
   }
 
-  auto lhs = getKnownConcreteData(binary_op->inputs().at(0)).as<at::Tensor>();
-  auto rhs = getKnownConcreteData(binary_op->inputs().at(1)).as<at::Tensor>();
+  auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
+  auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
   auto output =
-      getKnownConcreteData(binary_op->outputs().at(0)).as<at::Tensor>();
+      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
 
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
@@ -661,8 +722,8 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   NVF_ERROR(
       !output_tv->hasRoot(),
       "Evaluation for rFactored reductions is not supported.");
-  auto input = getKnownConcreteData(input_tv).as<at::Tensor>();
-  auto output = getKnownConcreteData(output_tv).as<at::Tensor>();
+  auto input = getKnownConcreteValue(input_tv).as<at::Tensor>();
+  auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
 
   std::vector<int64_t> reduction_axes;
   for (const auto i :
@@ -699,7 +760,7 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   for (auto input : expr->inputs()) {
     if (input->isA<TensorView>()) {
       // Tensor inputs must be already computed at this point
-      inputs.push_back(getKnownConcreteData(input));
+      inputs.push_back(getKnownConcreteValue(input));
     } else {
       inputs.push_back(expr_evaluator_.evaluate(input));
     }
