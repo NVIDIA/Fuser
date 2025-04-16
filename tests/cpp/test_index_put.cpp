@@ -39,7 +39,7 @@ std::vector<SizeParams> generateSizeOneParams() {
   return params;
 }
 
-class IndexPutAccumulate : public NVFuserFixtureParamTest<SizeParams> {
+class IndexPut : public NVFuserFixtureParamTest<SizeParams> {
  protected:
   void SetUp() override {
     EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -49,12 +49,12 @@ class IndexPutAccumulate : public NVFuserFixtureParamTest<SizeParams> {
 
 INSTANTIATE_TEST_SUITE_P(
     ,
-    IndexPutAccumulate,
+    IndexPut,
     ::testing::ValuesIn(generateSizeOneParams()));
 
 // Note: The semantics doesn't support broadcast on operands, adding `size 1`
 // check just to ensure the ID mapping is done correctly.
-TEST_P(IndexPutAccumulate, BroadcastIDs) {
+TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
@@ -87,7 +87,7 @@ TEST_P(IndexPutAccumulate, BroadcastIDs) {
     IterDomain* id1 = tv1->getLogicalDomain().at(index1);
     return pairwise_map.find(id0) != pairwise_map.end() &&
         pairwise_map.at(id0) == id1;
-  }
+  };
 
   auto buf_to_out_map =
       PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
