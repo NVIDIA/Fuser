@@ -11,6 +11,7 @@
 #include <multidevice/utils.h>
 #include <options.h>
 #include <preseg_passes/pre_segmenter.h>
+#include <preseg_passes/stream_parallel_type.h>
 #include <python_frontend/distributed_tensor.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -452,6 +453,10 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
       if (scheds->multi_device_executor == nullptr) {
         MultiDeviceExecutorParams params;
         params.lower.communicator_backend = backend_type_;
+        // Disable StreamParallelType pass temporarily as proper stream lowering gets
+        // implemented
+        preseg_passes::OptimizationPassGuard<preseg_passes::StreamParallelType> guard(
+            false);
         scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
             std::make_unique<Fusion>(*scheds->preschedFusion()),
             Communicator::getInstance(),
