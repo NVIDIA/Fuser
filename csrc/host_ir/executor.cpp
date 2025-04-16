@@ -645,7 +645,7 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
         permutation.has_value(),
         "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
         out_tv->toString());
-    in_tensor = in_tensor.permute(*permutation);
+    in_tensor = in_tensor.permute(*permutation).contiguous();
   }
   if (!isKnown(load_store_op->out())) {
     bind(load_store_op->out(), in_tensor);
