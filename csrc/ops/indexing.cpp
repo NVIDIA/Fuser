@@ -108,6 +108,11 @@ TensorView* indexPutAccumulate(
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
+  // broadcast index_tv if applicable
+  if (index_domain.size() == 1) {
+    index_tv = unsqueeze(index_tv, -1);
+  }
+
   std::vector<IterDomain*> acc_domain =
       TensorDomain::noReductions(acc_tv->getLogicalDomain());
   std::vector<IterDomain*> index_domain =
@@ -116,9 +121,9 @@ TensorView* indexPutAccumulate(
       TensorDomain::noReductions(value_tv->getLogicalDomain());
 
   NVF_CHECK(acc_domain.size() == 2);
-  NVF_CHECK(index_domain.size() == 1);
+  NVF_CHECK(index_domain.size() == 2);
+  NVF_CHECK(index_domain.at(1)->isBroadcast());
   NVF_CHECK(value_domain.size() == 2);
-
   // IndexPutAccumulateOp semantics
   //
   // Producers:
@@ -127,8 +132,6 @@ TensorView* indexPutAccumulate(
   //     value [ seq, hidden ]
   // Consumers:
   //     output [ vocab, hidden ]
-  TensorView* broadcast_index_tv = unsqueeze(index_tv, -1);
-
   TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
   IrBuilder::create<IndexPutAccumulateOp>(
       out, acc_tv, broadcast_index_tv, value_tv);

@@ -13,7 +13,7 @@
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
 
-namespace nvfuser::IndexPutAccumulate {
+namespace nvfuser {
 
 struct SizeParams {
   int64_t vocab_size;
@@ -62,7 +62,7 @@ TEST_P(IndexPutAccumulate, BroadcastIDs) {
   auto [vocab, hidden, seq] = GetParam();
 
   std::vector<int64_t> shape1({seq, hidden});
-  std::vector<int64_t> shape2({seq});
+  std::vector<int64_t> shape2({seq, 1});
 
   auto tv_value = makeSymbolicTensor(shape1);
   fusion.addInput(tv_value);
@@ -72,9 +72,28 @@ TEST_P(IndexPutAccumulate, BroadcastIDs) {
   std::vector<nvfuser::Val*> buffer_size = {
       s_vocab, tv_value->axis(-1)->extent()};
   auto buf = zeros(buffer_size, DataType::Float, true);
-  // this should be an inplace. handle it when we have codegen support
+  // TODO: this should be an inplace. handle it when we have codegen support
   auto out = indexPutAccumulate(buf, tv_index, tv_value);
   fusion.addOutput(out);
+
+  // check PairwiseLogicalDomainMap
+  auto map_logical = [](const std::unordered_map<IterDomain*, IterDomain*>& pairwise_map, TensorView* tv0, size_t index0, TensorView* tv1, size_t index1) -> bool {
+    IterDomain* id0 = tv0->getLogicalDomain().at(index0);
+    IterDomain* id1 = tv1->getLogicalDomain().at(index1);
+    return pairwise_map.find(id0) != pairwise_map.end() && pairwise_map[id0] == id1;
+  }
+
+  buf_to_out_map = PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
+  EXPECT_TRUE(map_logical(buf_to_out_map, buf, out, 0, 0));
+  EXPECT_TRUE(map_logical(buf_to_out_map, buf, out, 1, 1));
+
+  index_to_out_map = PairwiseLogicalDomainMap(tv_index, out).mapProducerToConsumer();
+  EXPECT_FALSE(map_logical(index_to_out_map, tv_index, out, 0, 0));
+  EXPECT_TRUE(map_logical(index_to_out_map, tv_index, out, 1, 1));
+
+  value_to_out_map = PairwiseLogicalDomainMap(tv_value, out).mapProducerToConsumer();
+  EXPECT_FALSE(map_logical(value_to_out_map, tv_value, out, 0, 0));
+  EXPECT_TRUE(map_logical(value_to_out_map, tv_value, out, 1, 1));
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto options_i = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
@@ -87,4 +106,4 @@ TEST_P(IndexPutAccumulate, BroadcastIDs) {
   testValidate(&fusion, outputs, {t_value, t_index}, __LINE__, __FILE__);
 }
 
-} // namespace nvfuser::IndexPutAccumulate
+} // namespace nvfuser

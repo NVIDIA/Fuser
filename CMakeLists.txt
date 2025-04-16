@@ -578,7 +578,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
-  ${NVFUSER_ROOT}/tests/cpp/test_index_ops.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
