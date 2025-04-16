@@ -378,7 +378,8 @@ IterDomain* DomainMap::anyMapped(
 // output
 bool DomainMap::isValidReference(TensorView* tv, bool check_inputs) const {
   if (check_inputs) {
-    for (auto input_tv : ir_utils::filterByType<TensorView>(fusion_->inputs())) {
+    for (auto input_tv :
+         ir_utils::filterByType<TensorView>(fusion_->inputs())) {
       if (input_tv->uses().empty()) {
         continue;
       }
