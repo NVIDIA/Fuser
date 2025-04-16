@@ -15,6 +15,7 @@
 #include <multidevice/multidevice.h>
 #include <scheduler/utils.h>
 #include <visibility.h>
+#include <val_graph.h>
 
 namespace nvfuser {
 
@@ -55,6 +56,13 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 
 // Returns whether an Expr embeds multi-device resharding
 bool isResharding(const Expr* expr);
+
+std::vector<IterDomain*> getInputsInTargetDomain(
+    IterDomain* loop_id,
+    const std::vector<IterDomain*>& target_domain);
+
+// Returns the index of an IterDomain in a domain skipping trivial dimensions
+int64_t axisIndex(std::vector<IterDomain*> domain, IterDomain* find_id);
 
 // Returns whether two tensors have different shardings. Expect a
 // producer/consumer relationship between the arguments.
@@ -105,6 +113,12 @@ int64_t requestedNumberOfDevices(Fusion*);
 // remove the multi-device scheduling annotations
 void unshard(Fusion*);
 void unshard(TensorView*);
+
+std::optional<std::pair<IterDomain*, IterDomain*>> getReshardingIdPair(
+  TensorView* producer, 
+  TensorView* consumer, 
+  ValGraph& graph
+);
 
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
