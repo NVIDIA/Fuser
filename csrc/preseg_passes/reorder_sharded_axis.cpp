@@ -16,6 +16,8 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <id_model/id_model.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -23,11 +25,15 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   const std::vector<Expr*>& exprs = fusion->exprs();
+  IdModel id_model(fusion);
+  id_model.buildExactGraph();
+  ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (HostIrLower::canLower(expr)) {
-      continue;
-    }
+    // if (HostIrLower::canLower(expr)) {
+    //   continue;
+    // }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
         "Non-tv op is not supported: ",
@@ -147,51 +153,41 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
           output_permute->getLoopDomain(), true);
     }
 
-    ComputeAtMap ca_map(fusion);
-
     // 1. Get the resharding id pair between producer and consumer.
-    const auto& [p_loop_id, c_loop_id] = getReshardingIdPair(expr, ca_map)
+    std::optional<std::pair<IterDomain*, IterDomain*>> resharding_id_pair = getReshardingIdPair(input, output, exact_graph);
+    if (!resharding_id_pair.has_value()) {
+      continue;
+    }
+
+    auto [p_loop_id, c_loop_id] = resharding_id_pair.value();
 
     // 2. These ids may not be present in the logical domain. Find the logical id that p_id was derived from.
-    auto p_logical_dom = input->getMaybeAllocationDomain();
+    auto p_logical_dom = input->getLogicalDomain();
     auto p_inputs_in_logical = getInputsInTargetDomain(p_loop_id, p_logical_dom);
     NVF_ERROR(p_inputs_in_logical.size() == 1, "Expected exactly one input in logical domain");
     auto p_logical_id = p_inputs_in_logical.at(0);
-
-    // 3. Get ids derived from p_logical_id: We reorder them as a group instead of just p_loop_id.
-    auto p_transforms = DependencyCheck::getAllExprsBetween({p_logical_id}, {input->getLoopDomain().begin(), input->getLoopDomain().end()});
-    auto p_derived_loop_ids = {p_logical_id};
-    scheduler_utils::applyTransforms({p_derived_loop_ids}, p_transforms);
-    auto p_logical_idx = axisIndex(input->getMaybeAllocationDomain(), p_derived_loop_ids.at(0)); // This remains fixed through all sets.
+    auto p_logical_idx = std::distance(p_logical_dom.begin(), std::find(p_logical_dom.begin(), p_logical_dom.end(), p_logical_id));
     
-    // 4. Create a map from old to new index for p_derived_loop_ids. Track the index of p_loop_id.
-    int64_t p_idx = -1;
-    std::unordered_set<int64_t, int64_t> old2new;
-    for (auto idx : c10::irange(p_derived_loop_ids.size())) {
-      auto p_id = p_derived_loop_ids.at(idx);
-      old2new.insert({input->domain()->rootPosOf(p_id), idx});
-      if (p_loop_id == p_id) {
-        p_idx = idx;
+    auto propagateTransform = [] (TensorView* ref, std::vector<TensorView*> tvs) -> void {
+      TransformPropagator propagator(ref);
+      SetSelector selector({tvs.begin(), tvs.end()});
+      MaxLogicalDomainInfoSpanningTree(ref, &selector).traverse(&propagator);
+    };
+
+    if (p_loop_id->isDeviceDim() && axisIndex(input->getMaybeAllocationDomain(), p_logical_id) > 0){
+      TensorView* inp_copy = set(input); // Allocates sharded axis at the front
+      TensorView* out_copy = set(inp_copy); // Communication op
+      TensorView* new_output = set(out_copy); // Reverts the sharded axis to the original position
+
+      propagateTransform(input, {inp_copy});
+      shardAllLike(input, {inp_copy});
+
+      propagateTransform(output, {out_copy, new_output});
+      shardAllLike(output, {out_copy, new_output});
+
+      for (auto tv : {inp_copy, out_copy}) {
+        tv->setAllocationDomain(TensorDomain::orderedAs(tv->getMaybeAllocationDomain(), {{p_logical_idx, 0}}), true);
       }
-    }
-    
-    if (p_id->isDeviceDim() && axisIndex(p_alloc_dom, p_alloc_id) > 0){
-      // Gathered axis -> move it to front.
-      int64_t p_idx = input->domain()->rootPosOf(p_id);
-      int64_t c_idx = output->domain()->rootPosOf(c_id);
-
-      TensorView* inp_copy = set(input);
-      TensorView* out_copy = set(inp_copy);
-      TensorView* new_output = set(out_copy);
-
-      inp_copy->setAllocationDomain(TensorDomain::orderedAs(inp_copy->domain(), {{p_logical_idx, 0}}));
-      out_copy->setAllocationDomain(TensorDomain::orderedAs(out_copy->domain(), {{p_logical_idx, 0}}));
-      new_output->setAllocationDomain(TensorDomain::orderedAs(new_output->domain(), {{0, p_logical_idx}}));
-      
-      // TransformPropagator + shardAllLike on new tvs
-      auto parallel_type = p_id->getParallelType();
-      // Find this parallel type in out and replace with serial
-      // Set device mesh for out_copy and new_output same as output.
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
     }
   }
