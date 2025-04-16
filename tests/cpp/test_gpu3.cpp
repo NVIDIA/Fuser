@@ -9090,25 +9090,21 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
-TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDNormalization) {
+TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalization) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  auto tv0 = makeContigConcreteTensor({-1, -1, -1});
+  auto tv0 = makeContigConcreteTensor({1, -1, -1});
   fusion.addInput(tv0);
   auto tv1 = makeContigTensor(3);
   fusion.addInput(tv1);
 
-  auto tv2 = sum(tv0, {2}, /*keep_dim=*/true);
+  auto tv2 = sum(tv0, {0, 1}, /*keep_dim=*/true);
   auto tv3 = add(tv0, tv2);
   fusion.addOutput(tv3);
-  auto tv7 = sin(tv0);
-  auto tv5 = sum(tv7, {0, 1}, /*keep_dim=*/true);
-  auto tv6 = add(tv7, tv5);
-  fusion.addOutput(tv6);
-  // auto tv4 = add(tv0, tv1);
-  // fusion.addOutput(tv4);
+  auto tv4 = add(tv0, tv1);
+  fusion.addOutput(tv4);
 
   fusion.printMath();
 
