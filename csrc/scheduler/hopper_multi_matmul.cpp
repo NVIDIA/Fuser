@@ -169,10 +169,13 @@ void HopperMultipleMatmulScheduler::run() {
   setUpCircularBuffering();
 }
 
-void HopperMultipleMatmulScheduler::swizzleBlockTiles(
+void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
-  if (params_->grid_swizzle_factor != 1) {
+  NVF_ERROR(
+      params_->grid_traversal_factor.second == 1,
+      "Hopper matmul scheduler does not support 2d grid traversal");
+  if (params_->grid_traversal_factor.first != 1) {
     // Find position of outer M and N dims in schedule_.tiled
     int64_t Mo_pos = -1, No_pos = -1;
     for (size_t i : arange(outer_dim_roles.size())) {
@@ -183,7 +186,8 @@ void HopperMultipleMatmulScheduler::swizzleBlockTiles(
       }
     }
 
-    int factor = std::max(1, params_->grid_swizzle_factor); // must be >=1
+    int factor =
+        std::max(1, params_->grid_traversal_factor.first); // must be >=1
     switch (params_->cta_order) {
       case MatmulParams::TileRasterizationOrder::RowMajor:
         // split   [I1, I2/factor, factor]
@@ -327,7 +331,7 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     // scheduling is the next step in this modernization.
     mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    swizzleBlockTiles(tv, merged_roles);
+    reorderBlockTileTraversal(tv, merged_roles);
 
     all_merged_roles.push_back(merged_roles);
 
@@ -765,39 +769,33 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         break;
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        if (params_->tiling_strategy ==
-            MatmulParams::TilingStrategy::OneTilePerCTA) {
-          int64_t num_math_warp_groups = 1L;
-          NVF_ERROR(!mma_results_.empty());
-          for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
-            if (id->getParallelType() == ParallelType::TIDy) {
-              num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
-            }
+        int64_t num_math_warp_groups = 1L;
+        NVF_ERROR(!mma_results_.empty());
+        for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+          if (id->getParallelType() == ParallelType::TIDy) {
+            num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
           }
-          if (num_math_warp_groups != 2) {
-            // Disable register sharing when there is only one math warp group.
-            // In such case we will have 128 math threads and 128 dma threads,
-            // for a total of 256 threads per CTA. The register file size on
-            // Hopper is 64K registers, which is filled when a 256-thread CTA
-            // has 256 registers per thread. Since 256 is already the maximum
-            // number of registers per thread even with register sharing, there
-            // is no point in doing register sharing to try and increase it.
-            //
-            // When there is more than one math warp group, we also disable
-            // register sharing, since we don't currently compute the number of
-            // register properly in that case.
-            cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
-          } else {
-            constexpr int64_t num_registers_load_warp = 40;
-            constexpr int64_t num_registers_compute_warp = 232;
-            cb_type = (CircularBufferType)WarpSpecialized(
-                ParallelType::TIDy,
-                std::make_pair(
-                    num_registers_load_warp, num_registers_compute_warp));
-          }
-        } else {
-          // Persistent kernels cannot yet use register sharing
+        }
+        if (num_math_warp_groups != 2) {
+          // Disable register sharing when there is only one math warp group.
+          // In such case we will have 128 math threads and 128 dma threads,
+          // for a total of 256 threads per CTA. The register file size on
+          // Hopper is 64K registers, which is filled when a 256-thread CTA
+          // has 256 registers per thread. Since 256 is already the maximum
+          // number of registers per thread even with register sharing, there
+          // is no point in doing register sharing to try and increase it.
+          //
+          // When there is more than one math warp group, we also disable
+          // register sharing, since we don't currently compute the number of
+          // register properly in that case.
           cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        } else {
+          constexpr int64_t num_registers_load_warp = 40;
+          constexpr int64_t num_registers_compute_warp = 232;
+          cb_type = (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_load_warp, num_registers_compute_warp));
         }
         break;
       }
