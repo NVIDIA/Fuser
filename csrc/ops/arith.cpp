@@ -2275,15 +2275,22 @@ TensorView* scan(
     return set(tv);
   }
 
-  TensorView* out = nullptr;
+  std::vector<IterDomain*> new_dom;
+  DataType dtype = tv->dtype();
   if (discount_factor == nullptr) {
-    out = ops::newOutputTV({tv}, tv->dtype());
+    new_dom = ops::newOutputDomain({tv});
   } else {
-    DataType dtype = promoteType(tv->dtype(), discount_factor->dtype());
+    new_dom = ops::newOutputDomain({tv, discount_factor});
+    dtype = promoteType(tv->dtype(), discount_factor->dtype());
     tv = maybeCastOp(dtype, tv);
     discount_factor = maybeCastOp(dtype, discount_factor);
-    out = ops::newOutputTV({tv, discount_factor}, dtype);
   }
+  new_dom.at((size_t)dim) = IterDomainBuilder(new_dom.at((size_t)dim))
+                                .iter_type(IterType::Scan)
+                                .build();
+  auto* td = IrBuilder::create<TensorDomain>(
+      new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
+  TensorView* out = IrBuilder::create<TensorView>(td, tv->dtype());
 
   IrBuilder::createInContainer<ScanOp>(
       tv->container(),
