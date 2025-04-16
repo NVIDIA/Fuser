@@ -327,7 +327,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
   for (auto& input : launch_kernel->inputs()) {
-    args.push(getKnownConcreteData(input));
+    args.push(getKnownConcreteValue(input));
   }
   args.setDeviceIndex();
 
@@ -349,7 +349,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
-    input_args.push(getKnownConcreteData(input));
+    input_args.push(getKnownConcreteValue(input));
   }
   input_args.setDeviceIndex();
   // placeholder for storing the outputs
@@ -368,7 +368,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       post_ir);
   if (use_preallocated_outputs) {
     for (auto output : post_ir->outputs()) {
-      outputs.push(getKnownConcreteData(output));
+      outputs.push(getKnownConcreteValue(output));
     }
   }
 
@@ -599,9 +599,9 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* out = matmul->out();
 
   if (isKnown(out)) {
-    auto t_a = getKnownConcreteData(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteData(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteData(out).as<at::Tensor>();
+    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
     at::matmul_out(t_out, t_a, t_b);
   } else {
     unhandled(matmul);
@@ -619,12 +619,12 @@ void HostIrEvaluator::handle(LinearOp* linear) {
     return;
   }
 
-  auto in_at = getKnownConcreteData(in).as<at::Tensor>();
-  auto weight_at = getKnownConcreteData(weight).as<at::Tensor>();
-  auto out_at = getKnownConcreteData(out).as<at::Tensor>();
+  auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
+  auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
+  auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
   if (linear->has_bias()) {
-    auto bias_at = getKnownConcreteData(bias).as<at::Tensor>();
+    auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
     at::linear_out(out_at, in_at, weight_at.squeeze());
@@ -661,7 +661,7 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   for (auto input : expr->inputs()) {
     if (input->isA<TensorView>()) {
       // Tensor inputs must be already computed at this point
-      inputs.push_back(getKnownConcreteData(input));
+      inputs.push_back(getKnownConcreteValue(input));
     } else {
       inputs.push_back(expr_evaluator_.evaluate(input));
     }

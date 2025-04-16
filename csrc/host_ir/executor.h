@@ -149,7 +149,7 @@ class HostIrEvaluator final : public OptOutDispatch {
     return expr_evaluator_.isKnown(getAlias(value));
   }
 
-  PolymorphicValue getKnownConcreteData(Val* val) const {
+  PolymorphicValue getKnownConcreteValue(Val* val) const {
     NVF_ERROR(
         isKnown(val),
         "value ",
