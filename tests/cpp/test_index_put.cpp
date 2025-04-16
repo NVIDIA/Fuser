@@ -97,7 +97,7 @@ TEST_P(IndexPut, AccumulateOpWithBroadcastIDs) {
   auto index_to_out_map =
       PairwiseLogicalDomainMap(tv_index, out).mapProducerToConsumer();
   EXPECT_FALSE(map_logical(index_to_out_map, tv_index, 0, out, 0));
-  EXPECT_TRUE(map_logical(index_to_out_map, tv_index, 0, out, 1));
+  EXPECT_TRUE(map_logical(index_to_out_map, tv_index, 1, out, 1));
 
   auto value_to_out_map =
       PairwiseLogicalDomainMap(tv_value, out).mapProducerToConsumer();
