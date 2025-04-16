@@ -70,7 +70,19 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       new_inputs.push_back(new_input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
     }
-    shardAllLike(output, new_inputs);
+
+    // Consider a reshard before case:
+    // A [DIDx(i0), i1] + B [i0, i1] = C [i0, DIDx(i1)]
+    // This is decomposed into:
+    // A [DIDx(i0), i1] -> set -> new_A [i0, DIDx(i1)]
+    // B [i0, i1] -> set -> new_B [i0, DIDx(i1)]
+    // new_A [i0, DIDx(i1)] + new_B [i0, DIDx(i1)] = C [i0, DIDx(i1)]
+    // ParallelType::Serial is required here so the
+    // A is sharded as [i0, DIDx(i1)] instead of [DIDx(i0), DIDx(i1)]
+    std::unordered_set<ParallelType> parallel_types{
+        kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
+    parallel_types.insert(ParallelType::Serial);
+    shardAllLike(output, new_inputs, parallel_types);
   }
 }
 
