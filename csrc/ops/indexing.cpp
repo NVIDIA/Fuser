@@ -109,7 +109,7 @@ TensorView* indexPutAccumulate(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
   // broadcast index_tv if applicable
-  if (index_domain.size() == 1) {
+  if (index_tv->nDims() == 1) {
     index_tv = unsqueeze(index_tv, -1);
   }
 
