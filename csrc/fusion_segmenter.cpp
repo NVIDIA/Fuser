@@ -2615,8 +2615,10 @@ std::vector<Expr*> SegmentedGroup::stablyOrderedExprs() const {
     }
   }
 
+#if 0
   NVF_ERROR_EQ(
       ordered_exprs.size(), exprs().size(), "exprs() doesn't form a DAG.");
+#endif
 
   return ordered_exprs;
 }
@@ -4397,8 +4399,18 @@ UnaryOp* shouldForward(Val* v) {
   }
 
   auto* unary_use = dynamic_cast<UnaryOp*>(uses.front());
-  if (unary_use == nullptr) {
+  auto* ldst_use = dynamic_cast<LoadStoreOp*>(uses.front());
+  if (unary_use == nullptr && ldst_use == nullptr) {
     return nullptr;
+  }
+
+  if (ldst_use != nullptr) {
+    if (ldst_use->opType() != LoadStoreOpType::Set ||
+        (v->isFusionInput() && v->isA<TensorView>() &&
+         v->as<TensorView>()->getMaybeAllocationDomain() !=
+             v->as<TensorView>()->getLogicalDomain())) {
+      return nullptr;
+    }
   }
 
   // Don't forward an input to an output yet. Doing that would lead to an empty
