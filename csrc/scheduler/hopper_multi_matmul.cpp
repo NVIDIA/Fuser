@@ -647,11 +647,14 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-      bool dc_in_mma_results =
+      bool dc_is_mma_result =
           std::find(mma_results_.begin(), mma_results_.end(), dc) !=
           mma_results_.end();
+      bool dc_is_splitk_sum = params_->splitk_factor > 1 &&
+          std::find(splitk_sums_.begin(), splitk_sums_.end(), dc) !=
+              splitk_sums_.end();
 
-      if (!dc_in_mma_results) {
+      if (!dc_is_mma_result && !dc_is_splitk_sum) {
         // Skip scheduling dc if it is an mma_result. This can happen if we are
         // not casting back to half-precision in the output
         tvs_to_schedule.push_back(dc);
@@ -682,7 +685,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Should not propagate if the dc is a mma output as the mma output has
       // already been scheduled.
-      if (!dc_in_mma_results) {
+      if (!dc_is_mma_result && !dc_is_splitk_sum) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());

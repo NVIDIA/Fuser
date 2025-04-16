@@ -5348,7 +5348,8 @@ TEST_F(HopperMatmulTest, HSS_NT_UseScheduler) {
   auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
   auto t0 = at::randn({K, M, 1}, options);
   auto t1 = at::randn({K, 1, N}, options);
-  auto out_ref = at::matmul(t0.squeeze().t(), t1.squeeze()).to(at::kHalf);
+  auto out_ref =
+      at::matmul(t0.squeeze().t().to(at::kFloat), t1.squeeze().to(at::kFloat));
 
   MatMulTileOptions gemm_tile;
   gemm_tile.cta_tile = GemmTile(128, 256, 64);
