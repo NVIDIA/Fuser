@@ -346,7 +346,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
           ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
         options.setBuildTensorIndexer(true);
-        if(ldst->opType() == LoadStoreOpType::CpAsyncBulk){
+        if (ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
           options.setInlinePredicate(true);
         }
         continue;
