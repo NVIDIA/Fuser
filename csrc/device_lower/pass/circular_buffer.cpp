@@ -482,12 +482,18 @@ class CloneTmaCircularBufferLoopAndInsertSync
     insertWarMBarrierArriveAfterLastRead();
   }
 
-  // Current compute index: loop_index
-  Val* currentComputeIndex() const {
+  // Get the linear index of all nested serial for-loops. It is used in
+  // currentComputeIndex, currentCompletionStage, and currentLoadIndex.
+  Val* linearIndex() const {
     return GpuLower::current()
         ->circularBufferInfo()
         .getLinearIndexRelativeForLoopStack(
             for_loop_stack_, insertion_position_);
+  }
+
+  // Current compute index: loop_index
+  Val* currentComputeIndex() const {
+    return linearIndex();
   }
 
   // Current compute stage: loop_index % stages
@@ -518,13 +524,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     const auto& opt =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop_->iter_domain());
-
-    Val* linearized_index = GpuLower::current()
-                                ->circularBufferInfo()
-                                .getLinearIndexRelativeForLoopStack(
-                                    for_loop_stack_, insertion_position_);
     auto current_load_stage = SimplifyingIrBuilder::modExpr(
-        SimplifyingIrBuilder::addExpr(linearized_index, opt.prefetch + 1),
+        SimplifyingIrBuilder::addExpr(linearIndex(), opt.prefetch + 1),
         IrBuilder::create<Val>(opt.stage, PrimDataType::Index));
     return GpuLower::current()->commonScalarMap().hoistScalar(
         current_load_stage, for_loop_stack_);
@@ -540,10 +541,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
             ->circularBufferInfo()
             .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
             .prefetch;
-    Val* linearized_index = GpuLower::current()
-                                ->circularBufferInfo()
-                                .getLinearIndexRelativeForLoopStack(
-                                    for_loop_stack_, insertion_position_);
+    Val* linearized_index = linearIndex();
     if (loop_type_ == CircularBufferLoopStage::Main) {
       auto current_load_index =
           SimplifyingIrBuilder::addExpr(linearized_index, prefetch);
@@ -1101,8 +1099,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // The insertion_point is the number of nested for-loops relative to the
   // top-level cloned for-loop where the mbarrier synchronization is inserted.
   // By default, the insertion_point is 1, which is the top-level cloned
-  // for-loop. However, for register sharing warp specialization, it can be
-  // different.
+  // for-loop. However, for warp specialization, it can be different.
   int64_t insertion_position_;
 };
 
