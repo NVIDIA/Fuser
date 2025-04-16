@@ -552,7 +552,10 @@ Val* createSingleExpressionElectSync(
     const std::vector<ForLoop*>& loops) {
   NVF_ERROR(pred->expr() != nullptr);
   NVF_ERROR(
-      ir_utils::isCpAsyncBulk(pred->expr()), "Limited to TMA expressions");
+      ir_utils::isCpAsyncBulk(pred->expr()) ||
+          (pred->expr()->isA<MmaOp>() &&
+           pred->expr()->as<MmaOp>()->isBlackwell()),
+      "Limited to TMA/Blackwell MMA expressions");
 
   TensorView* out_tv = ir_utils::getTvOutput(pred->expr());
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
@@ -566,7 +569,7 @@ Val* createSingleExpressionElectSync(
       continue;
     }
 
-    // Case 1: TMA expression uses ParallelDim to launch multiple
+    // Case 1: TMA/Blackwell MMA expression uses ParallelDim to launch multiple
     // operations simultaneously. Use parallel domain predicate if it
     // exists.
     auto pred_info_it = pred_map.find(pt);
@@ -577,8 +580,8 @@ Val* createSingleExpressionElectSync(
           SimplifyingIrBuilder::logicalAndExpr(parallel_dom_pred, tid_pred);
     }
 
-    // Case 2: ParallelDim is used by CTA but not the TMA expression.
-    // Select a single thread along ParallelDim.
+    // Case 2: ParallelDim is used by CTA but not the TMA/Blackwell MMA
+    // expression. Select a single thread along ParallelDim.
     bool is_tv_tid_parallelized = std::any_of(
         out_tv->domain()->loop().begin(),
         out_tv->domain()->loop().end(),

@@ -19,14 +19,18 @@ from typing import Callable, cast
 multidevice_test = fixtures.multidevice_test
 
 
+# Set up the default process group for torch APIs like
+# dist.device_mesh.init_device_mesh.
 @pytest.fixture(scope="module")
-def setup_process_group(multidevice_test):
+def setup_process_group():
+    communicator = nvfuser.Communicator.instance()
+
     # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
     dist.init_process_group(
         backend="nccl",
         init_method="tcp://localhost:29500",
-        world_size=multidevice_test.size,
-        rank=multidevice_test.rank,
+        world_size=communicator.size(),
+        rank=communicator.rank(),
     )
     yield
     dist.destroy_process_group()
@@ -94,7 +98,7 @@ class FusionDefinitionWrapper:
 
 
 @pytest.mark.mpi
-def test_plus_one(setup_process_group):
+def test_plus_one(setup_process_group, multidevice_test):
     def define_fusion(fd: FusionDefinition):
         inp = fd.define_tensor((-1, -1), contiguity=False, dtype=DataType.Float)
         one = fd.define_scalar(1.0, dtype=DataType.Float)
@@ -118,7 +122,7 @@ def test_plus_one(setup_process_group):
 
 
 @pytest.mark.mpi
-def test_linear(setup_process_group):
+def test_linear(setup_process_group, multidevice_test):
     @dataclass
     class LinearConfig:
         def __init__(self, num_devices: int, batch: int, sequence: int, hidden: int):
