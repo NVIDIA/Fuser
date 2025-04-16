@@ -343,10 +343,7 @@ std::vector<Expr*> HostIrLower::lower(Expr* c, DeviceIdxType my_device_idx) {
       "Lowering expression ",
       c->toString(),
       " to communication is not supported");
-  NVF_ERROR(
-      !isInnerResharding(c),
-      "Resharding on an inner axis is not lowerable ",
-      c->toString());
+
   bool is_reduction = c->isA<ReductionOp>();
 
   if (is_reduction) {
@@ -388,9 +385,9 @@ std::vector<Expr*> HostIrLower::lower(Expr* c, DeviceIdxType my_device_idx) {
 }
 
 bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
-  if (!isResharding(expr)) {
-    return true;
-  }
+  // if (!isResharding(expr)) {
+  //   return true;
+  // }
   if (!ir_utils::isTvOp(expr)) {
     return false;
   }

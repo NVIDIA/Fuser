@@ -38,14 +38,15 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       continue;
     }
 
-    // Verify that multi-output expression requires no resharding.
-    if (expr->outputs().size() > 1) {
-      NVF_CHECK(
-          !isResharding(expr),
-          "Cannot handle resharding a multi-output expression: ",
-          expr);
+    if (!isResharding(expr)) {
       continue;
     }
+
+    // Verify that multi-output expression requires no resharding.
+    NVF_CHECK(
+        expr->outputs().size() == 1,
+        "Cannot handle resharding a multi-output expression: ",
+        expr);
 
     if (!expr->output(0)->isA<TensorView>()) {
       continue;
@@ -85,6 +86,10 @@ void insertReshardingSetsAfter(Fusion* fusion) {
     Expr* expr = *it;
     if (HostIrLower::canLower(expr, /*ignore_inner_resharding=*/true) ||
         !shouldReshardAfter(expr)) {
+      continue;
+    }
+
+    if (!isResharding(expr)) {
       continue;
     }
 
