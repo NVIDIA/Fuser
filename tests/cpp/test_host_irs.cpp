@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <gtest/gtest.h>
-#include <gmock/gmock-matchers.h>
 
 #include <fusion.h>
 #include <fusion_segmenter.h>
