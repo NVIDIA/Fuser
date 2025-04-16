@@ -77,21 +77,30 @@ TEST_P(IndexPutAccumulate, BroadcastIDs) {
   fusion.addOutput(out);
 
   // check PairwiseLogicalDomainMap
-  auto map_logical = [](const std::unordered_map<IterDomain*, IterDomain*>& pairwise_map, TensorView* tv0, size_t index0, TensorView* tv1, size_t index1) -> bool {
+  auto map_logical =
+      [](const std::unordered_map<IterDomain*, IterDomain*>& pairwise_map,
+         TensorView* tv0,
+         size_t index0,
+         TensorView* tv1,
+         size_t index1) -> bool {
     IterDomain* id0 = tv0->getLogicalDomain().at(index0);
     IterDomain* id1 = tv1->getLogicalDomain().at(index1);
-    return pairwise_map.find(id0) != pairwise_map.end() && pairwise_map[id0] == id1;
+    return pairwise_map.find(id0) != pairwise_map.end() &&
+        pairwise_map.at(id0) == id1;
   }
 
-  buf_to_out_map = PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
+  auto buf_to_out_map =
+      PairwiseLogicalDomainMap(buf, out).mapProducerToConsumer();
   EXPECT_TRUE(map_logical(buf_to_out_map, buf, out, 0, 0));
   EXPECT_TRUE(map_logical(buf_to_out_map, buf, out, 1, 1));
 
-  index_to_out_map = PairwiseLogicalDomainMap(tv_index, out).mapProducerToConsumer();
+  auto index_to_out_map =
+      PairwiseLogicalDomainMap(tv_index, out).mapProducerToConsumer();
   EXPECT_FALSE(map_logical(index_to_out_map, tv_index, out, 0, 0));
   EXPECT_TRUE(map_logical(index_to_out_map, tv_index, out, 1, 1));
 
-  value_to_out_map = PairwiseLogicalDomainMap(tv_value, out).mapProducerToConsumer();
+  auto value_to_out_map =
+      PairwiseLogicalDomainMap(tv_value, out).mapProducerToConsumer();
   EXPECT_FALSE(map_logical(value_to_out_map, tv_value, out, 0, 0));
   EXPECT_TRUE(map_logical(value_to_out_map, tv_value, out, 1, 1));
 
