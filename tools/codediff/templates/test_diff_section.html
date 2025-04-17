@@ -58,7 +58,7 @@ SPDX-License-Identifier: BSD-3-Clause
                 {%- set loop_vars.warned = True -%}
             {% elif loop_vars.total_diffs < max_diffs %}
                 &nbsp;&nbsp;<span style="display: inline-block; width: 70pt">Kernel {{ kernel_diff.kernel_num }}</span>
-                {% if kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none %}
+                {% if (kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none) or  (kernel_diff.kernel1.sass is not none and kernel_diff.kernel2.sass is not none) %}
                     <button disabled="true"
                             id="cudabutton_{{ outer_index }}_{{ loop.index }}"
                             {% if kernel_diff.diff|length > 0 %}class="differing"{% endif %}
@@ -66,6 +66,9 @@ SPDX-License-Identifier: BSD-3-Clause
                     <button id="ptxbutton_{{ outer_index }}_{{ loop.index }}"
                             {% if kernel_diff.ptx_diff|length > 0 %}class="differing"{% endif %}
                             onclick="switchToPTX({{ outer_index }}, {{ loop.index }})">PTX</button>
+                    <button id="sassbutton_{{ outer_index }}_{{ loop.index }}"
+                            {% if kernel_diff.sass_diff|length > 0 %}class="differing"{% endif %}
+                            onclick="switchToSASS({{ outer_index }}, {{ loop.index }})">SASS</button>
                     &nbsp;&nbsp;
                 {% endif %}
                 <button id="oldcodebutton_{{ outer_index }}_{{ loop.index }}"
@@ -125,7 +128,6 @@ SPDX-License-Identifier: BSD-3-Clause
     <div id="diff_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-diff">{{ kernel_diff.diff|e }}</code></pre>
     </div>
-    {#{% if kernel_diff.kernel1.ptx is not none and kernel_diff.kernel2.ptx is not none %}#}
     <div id="oldptx_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-cpp">{{ kernel_diff.kernel1.ptx|e }}</code></pre>
     </div>
@@ -134,6 +136,15 @@ SPDX-License-Identifier: BSD-3-Clause
     </div>
     <div id="ptxdiff_{{ outer_index }}_{{ loop.index }}" style="display:none">
         <pre><code class="language-diff">{{ kernel_diff.ptx_diff|e }}</code></pre>
+    </div>
+    <div id="oldsass_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel_diff.kernel1.sass|e }}</code></pre>
+    </div>
+    <div id="newsass_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-cpp">{{ kernel_diff.kernel2.sass|e }}</code></pre>
+    </div>
+    <div id="sassdiff_{{ outer_index }}_{{ loop.index }}" style="display:none">
+        <pre><code class="language-diff">{{ kernel_diff.sass_diff|e }}</code></pre>
     </div>
 {%- endif -%}
 {%- set loop_vars.total_diffs = loop_vars.total_diffs + 1 -%}

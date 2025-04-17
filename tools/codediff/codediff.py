@@ -937,9 +937,13 @@ class TestDifferences:
                     )
                     or (
                         kernel_inclusion_criterion
-                        in ["mismatched_cuda_or_ptx", "mismatched_ptx"]
-                        and ptx_diff_lines is not None
-                        and len(ptx_diff_lines) > 0
+                        in [
+                            "mismatched_cuda_or_ptx",
+                            "mismatched_ptx",
+                            "mismatched_sass",
+                        ]
+                        and sass_diff_lines is not None
+                        and len(sass_diff_lines) > 0
                     )
                 ):
                     kd = KernelDiff(
