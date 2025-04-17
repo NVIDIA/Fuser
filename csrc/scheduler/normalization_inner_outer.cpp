@@ -214,7 +214,7 @@ PersistentBufferStorageParams getPersistentBufferStorageParams(
   // reload from gmem for each iteration.
   // Note: in current use cases (layer norm bwd and RMS norm bwd), there are
   // outer broadcast tvs and always project to inputs.
-  // Warp specialized persistent kernel alwadys cache inputs in shared memory,
+  // Warp specialized persistent kernel always cache inputs in shared memory,
   // should project to inputs.
   const auto& outer_broadcast_tvs = getOuterBroadcastTvs(fusion, reduction_tvs);
   bool skip_check_buffer_size = !outer_broadcast_tvs.empty() ||
