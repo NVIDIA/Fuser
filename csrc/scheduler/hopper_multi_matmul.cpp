@@ -467,8 +467,6 @@ void HopperMultipleMatmulScheduler::scheduleMmaResults() {
 
 void HopperMultipleMatmulScheduler::scheduleEpilogue() {
   std::vector<TensorView*> cached_tvs;
-  // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
-  std::vector<TensorView*> tma_load_epilogue_inputs;
 
   // Propagate to (not including) the splitk output if there is a splitk
   // else this is just mma_results_
@@ -497,7 +495,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
           mma_utils::tmaSwizzleSharedMemory(c_cache);
       c_cache->applyMmaSwizzleForTMALoad(swizzle_type);
 
-      tma_load_epilogue_inputs.push_back(c_cache);
+      tma_load_epilogue_inputs_.push_back(c_cache);
       // Do not propagate any other changes to TMA load.
       propagate_to.push_back(c_cache);
     } else {
@@ -551,7 +549,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
     // For each TMA load, create and schedule LdMatrix to load from shared
     // memory to registers
-    for (TensorView* smem_tv : tma_load_epilogue_inputs) {
+    for (TensorView* smem_tv : tma_load_epilogue_inputs_) {
       TensorView* reg_tv = cacheAfter(smem_tv);
       reg_tv->definition()->as<LoadStoreOp>()->setOpType(
           LoadStoreOpType::LdMatrix);
@@ -782,6 +780,18 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
               params_->circular_buffer_options
                   .smem_circular_buffer_prefetch_gap,
           /*type=*/cb_type);
+    }
+    // Only optimize shared memory epilogue tensors with WarpSpecialized
+    // circular buffering by loading them in a separate pipeline in AsyncWarp.
+    if (std::holds_alternative<WarpSpecialized>(cb_type)) {
+      // TODO: Group epilogue inputs by their uses.
+      NVF_ERROR(
+          tma_load_epilogue_inputs_.size() <= 3,
+          "Only three warps are available for other pipelines on Hopper.");
+      for (TensorView* epilogue_tv : tma_load_epilogue_inputs_) {
+        epilogue_tv->circularBuffer(
+            /*number_of_stages=*/1, /*prefetch_distance=*/0, /*type=*/cb_type);
+      }
     }
   }
 

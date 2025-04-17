@@ -190,6 +190,10 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
 
   // This is like the above method, but tv should not have any K dimension
   void transformLikeMmaOutputWithoutK(TensorView* tv);
+
+ private:
+  // Apply LdMatrix to any epilogue inputs loaded to smem with TMA.
+  std::vector<TensorView*> tma_load_epilogue_inputs_;
 };
 
 } // namespace nvfuser
