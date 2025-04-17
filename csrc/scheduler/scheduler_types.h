@@ -69,7 +69,7 @@ constexpr std::array<SchedulerType, 11> all_heuristics_in_priority_order = {
     SchedulerType::Matmul,
     SchedulerType::Reduction,
     SchedulerType::Resize,
-    SchedulerType::Transpose,
+    // SchedulerType::Transpose,
     SchedulerType::PointWise,
     SchedulerType::InnerPersistent,
     SchedulerType::OuterPersistent,
