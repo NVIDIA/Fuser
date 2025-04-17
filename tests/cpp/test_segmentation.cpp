@@ -695,7 +695,7 @@ TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
 }
 
 // Test to verify an upcast is replicated between different segments
-TEST_F(NVFuserTest, PrivatizeUpcast) {
+TEST_F(SegmentationTest, PrivatizeUpcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -741,7 +741,7 @@ TEST_F(NVFuserTest, PrivatizeUpcast) {
 
 // Unlike PrivatizeUpcast, verify replicated upcast ops are
 // consolidated back as they are grouped into the same segment
-TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
+TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -793,6 +793,31 @@ TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
     }
     EXPECT_EQ(num_upcast_ops, 1);
   }
+}
+
+TEST_F(SegmentationTest, ForwardFactoryOp) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  auto tv1 = full({tv0->axis(0)->extent()}, fusion.oneVal(), DataType::Float);
+
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = segment_set(tv2);
+  // fusion.addOutput(tv3);
+
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
