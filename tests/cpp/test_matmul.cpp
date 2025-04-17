@@ -3656,6 +3656,32 @@ class HopperMatmulTest : public HopperBase {
   }
 };
 
+// 2 math group, non-persistent, non-warp specialized, no CGA
+// TODO: This could be in HopperMatmulTest::SetUp() instead
+MatmulParams defaultHopperParams() {
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+  return mparams;
+}
+
 TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -5360,7 +5386,8 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
       cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
 }
 
-TEST_F(HopperMatmulTest, HSS_NT_UseScheduler) {
+// See https://github.com/NVIDIA/Fuser/issues/4159
+TEST_F(HopperMatmulTest, HSS_NT_SplitKTMAStore) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -5387,24 +5414,9 @@ TEST_F(HopperMatmulTest, HSS_NT_UseScheduler) {
   auto out_ref =
       at::matmul(t0.squeeze().t().to(at::kFloat), t1.squeeze().to(at::kFloat));
 
-  MatMulTileOptions gemm_tile;
-  gemm_tile.cta_tile = GemmTile(128, 256, 64);
-  gemm_tile.warp_tile = GemmTile(64, 256, 64);
-
-  MatmulParams mparams;
-  mparams.supported_vec_size = {8, 8, 8};
-  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-  mparams.tile_sizes = gemm_tile;
-  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
-  mparams.async_gmem_load_operands = true;
-  mparams.circular_buffer_options.circular_buffer_smem_write = true;
-  mparams.circular_buffer_options.circular_buffer_smem_read = false;
-  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
-  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
-  mparams.splitk_factor = 2;
+  MatmulParams mparams = defaultHopperParams();
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
-  mparams.promote_prologue_smem_reuse = true;
+  mparams.splitk_factor = 2;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
