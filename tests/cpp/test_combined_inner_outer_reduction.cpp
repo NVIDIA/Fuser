@@ -37,7 +37,16 @@ using testing::UnorderedElementsAre;
 
 // tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
-using CombinedSchedulerTest = NVFuserFixtureParamTest<CombinedSchedulerParams>;
+
+class CombinedSchedulerTest
+    : public NVFuserFixtureParamTest<CombinedSchedulerParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<CombinedSchedulerParams>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
 TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());

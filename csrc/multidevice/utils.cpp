@@ -131,6 +131,13 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
       continue;
     }
 
+    // rDIDx{i0}, usually a product of an Allreduce or a ReduceScatter, is
+    // treated as replicated. This way `iDIDx{i0} => rDIDx{i0}` is considered
+    // resharding.
+    if (id->isReduction()) {
+      continue;
+    }
+
     NVF_ERROR(
         parallel_type_to_id.try_emplace(parallel_type, id).second,
         "Found multiple loop IterDomains with the same parallel type (",
@@ -561,16 +568,6 @@ bool haveDifferentShardings(
       }
 
       if (p_index == nullptr || c_index == nullptr) {
-        return false;
-      }
-
-      // iDIDx{i0} => rDIDx{i0} triggers an allreduce even though the two `i0`s
-      // are equivalent.
-      if (c_id->isReduction()) {
-        NVF_ERROR(
-            !p_id->isReduction(),
-            "Reduction IterDomains in the producer's logical shouldn't be mapped: ",
-            p_id);
         return false;
       }
 
