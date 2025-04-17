@@ -107,7 +107,7 @@ bool isTvContiguous(TensorView* tv) {
   return std::all_of(
       tv->getContiguity().begin(),
       tv->getContiguity().end(),
-      [](std::optional<bool> c) { return c.value_or(true); });
+      [](const std::optional<bool>& c) { return c.value_or(true); });
 }
 
 template <typename Range>
