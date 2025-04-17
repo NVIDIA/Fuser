@@ -68,34 +68,40 @@ import setuptools
 import setuptools.command.build_ext
 from setuptools import Extension, setup, find_packages
 
-# pick args used by this script
-CMAKE_ONLY = False
-BUILD_SETUP = True
-NO_PYTHON = False
-NO_TEST = False
-NO_BENCHMARK = False
-NO_NINJA = False
-BUILD_WITH_UCC = False
-BUILD_WITH_ASAN = False
-BUILD_WITHOUT_DISTRIBUTED = False
-BUILD_WITH_SYSTEM_NVTX = True
-OVERWRITE_VERSION = False
-EXPLICIT_ERROR_CHECK = False
-VERSION_TAG = None
-BUILD_TYPE = "Release"
-WHEEL_NAME = "nvfuser"
-BUILD_DIR = ""
-INSTALL_DIR = ""
-INSTALL_REQUIRES = []
-EXTRAS_REQUIRE = {}
-CPP_STANDARD = 20
+def check_env_flag_bool(name: str, default: str = "") -> bool:
+    if name not in os.environ:
+        return default
+    return os.getenv(name).upper() in ["ON", "1", "YES", "TRUE", "Y"]
+
+# Command line arguments don't work on PEP517 builds and will be silently ignored,
+# so we need to pass those options as environment variables instead.
+CMAKE_ONLY = check_env_flag_bool('NVFUSER_BUILD_CMAKE_ONLY', False)
+BUILD_SETUP = check_env_flag_bool('NVFUSER_BUILD_SETUP', True)
+NO_PYTHON = check_env_flag_bool('NVFUSER_BUILD_NO_PYTHON', False)
+NO_TEST = check_env_flag_bool("NVFUSER_BUILD_NO_TEST", False)
+NO_BENCHMARK = check_env_flag_bool("NVFUSER_BUILD_NO_BENCHMARK", False)
+NO_NINJA = check_env_flag_bool("NVFUSER_BUILD_NO_NINJA", False)
+BUILD_WITH_UCC = check_env_flag_bool("NVFUSER_BUILD_WITH_UCC", False)
+BUILD_WITH_ASAN = check_env_flag_bool("NVFUSER_BUILD_WITH_ASAN", False)
+BUILD_WITHOUT_DISTRIBUTED = check_env_flag_bool("NVFUSER_BUILD_WITHOUT_DISTRIBUTED", False)
+BUILD_WITH_SYSTEM_NVTX = check_env_flag_bool("NVFUSER_BUILD_WITH_SYSTEM_NVTX", True)
+EXPLICIT_ERROR_CHECK = check_env_flag_bool("NVFUSER_BUILD_EXPLICIT_ERROR_CHECK", False)
+if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
+    VERSION_TAG = os.getenv("NVFUSER_BUILD_VERSION_TAG")
+    OVERWRITE_VERSION = True
+else:
+    VERSION_TAG = None
+    OVERWRITE_VERSION = False
+BUILD_TYPE = os.getenv("NVFUSER_BUILD_TYPE", "Release")
+WHEEL_NAME = os.getenv("NVFUSER_BUILD_WHEEL_NAME", "nvfuser")
+BUILD_DIR = os.getenv("NVFUSER_BUILD_DIR", "")
+INSTALL_DIR = os.getenv("NVFUSER_BUILD_INSTALL_DIR", "")
+INSTALL_REQUIRES = os.getenv("NVFUSER_BUILD_INSTALL_REQUIRES", "").split(',')
+EXTRAS_REQUIRE = eval(os.getenv("NVFUSER_BUILD_EXTRA_REQUIRES", "{}"))
+CPP_STANDARD = int(os.getenv("NVFUSER_BUILD_CPP_STANDARD", 20))
 forward_args = []
 
-# For build_wheel_stable_20 and build_wheel_nightly_20, we cannot build with
-# tests because they use the old gcc toolchain.
-if "egg_info" in sys.argv:
-    NO_TEST = True
-
+# Todo: rewrite those logic with argparser.
 for i, arg in enumerate(sys.argv):
     if arg == "--cmake-only":
         CMAKE_ONLY = True
@@ -154,8 +160,6 @@ for i, arg in enumerate(sys.argv):
         continue
     if arg.startswith("--cpp="):
         CPP_STANDARD = int(arg.split("=")[1])
-        if CPP_STANDARD < 20:
-            raise ValueError("nvfuser requires C++20 standard or higher")
         continue
     if arg in ["clean"]:
         # only disables BUILD_SETUP, but keep the argument for setuptools
@@ -163,6 +167,8 @@ for i, arg in enumerate(sys.argv):
     forward_args.append(arg)
 sys.argv = forward_args
 
+if CPP_STANDARD < 20:
+    raise ValueError("nvfuser requires C++20 standard or higher")
 
 def get_cmake_bin():
     # TODO: double check cmake version here and retrieve later version if necessary
