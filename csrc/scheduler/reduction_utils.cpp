@@ -304,7 +304,7 @@ TensorView* scheduleReductionTV(
     }
   }
   const bool is_non_persistent_outer_reduction =
-      rparams->persistent_kernel && !rparams->fastest_dim;
+      !rparams->persistent_kernel && !rparams->fastest_dim;
   auto reduction_rf_tv =
       sortAndRFactor(reduction_tv, is_non_persistent_outer_reduction);
 
