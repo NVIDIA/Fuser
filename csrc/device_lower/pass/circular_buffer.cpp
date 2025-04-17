@@ -462,8 +462,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     kir::Predicate* predicate =
         IrBuilder::create<kir::Predicate>(predicate_val);
     kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
-    kir::Return* ret = IrBuilder::create<kir::Return>();
-    ite->thenBody().push_back(ret);
+    kir::Continue* cont = IrBuilder::create<kir::Continue>();
+    ite->thenBody().push_back(cont);
     return ite;
   }
 
