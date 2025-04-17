@@ -8,11 +8,9 @@
 #include <instrumentation.h>
 #include <ops/arith.h>
 #include <scheduler/debug_utils.h>
-#include <scheduler/normalization_inner_outer.h>
 #include <scheduler/normalization_inner_outer_multi_wave.h>
 #include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
-#include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
@@ -596,7 +594,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
           fusion,
           rparams,
           inner_reduction_tvs,
-          InnerOuterPersistentKernelScheduler::schedulerType());
+          SchedulerType::InnerOuterPersistent);
 
   // schedule outer reduction, schedule all the outer reduction tvs since we
   // need to store the intermediate results.

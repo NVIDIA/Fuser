@@ -7,19 +7,8 @@
 // clang-format on
 #pragma once
 
-#include <exceptions.h>
-#include <id_model/id_model.h>
 #include <ir/all_nodes.h>
-#include <runtime/executor_params.h>
-#include <scheduler/reduction_utils.h>
-#include <scheduler/scheduler_types.h>
 #include <scheduler/utils.h>
-#include <val_graph.h>
-
-#include <cmath>
-#include <optional>
-#include <ostream>
-#include <vector>
 
 namespace nvfuser {
 class SchedulerRuntimeInfo;

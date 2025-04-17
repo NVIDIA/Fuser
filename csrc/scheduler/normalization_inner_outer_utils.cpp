@@ -12,8 +12,8 @@
 #include <iter_visitor.h>
 #include <scheduler/cache_policy_refiner.h>
 #include <scheduler/debug_utils.h>
-#include <scheduler/normalization_utils.h>
 #include <scheduler/normalization_inner_outer_utils.h>
+#include <scheduler/normalization_utils.h>
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
