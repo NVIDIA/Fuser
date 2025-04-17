@@ -4455,7 +4455,8 @@ void SegmentCandidateFinder::forwardInputs() {
 
   std::vector<Val*> factory_created_vals;
   for (auto expr : completeFusion()->exprs()) {
-    if (!getenv("DISABLE_FORWARD_FULL") && expr->isA<FullOp>()) {
+    if (!getenv("DISABLE_FORWARD_FULL") && expr->isA<FullOp>() &&
+        !expr->as<FullOp>()->output(0)->isFusionOutput()) {
       original_fusion_inputs.push_back(expr->output(0));
       excluded_inp_unary_exprs_.pushBack(expr);
       factory_created_vals.push_back(expr->output(0));
