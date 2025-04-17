@@ -661,34 +661,39 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
     reorder_map[old_i] = domain_pos.at(reference_tv->axis(old_i));
   }
   reference_tv->reorder(reorder_map);
-
-  // For outer reduction, if all reduction dimensions are constants and not
-  // parallelized by threads or blocks, move the first reduction dim to the left
-  // of the vectorization dim to reduce register usage. For example, in a
-  // thread-local outer reduction, we want to transform:
+  // For outer reduction, if an Id after vectorization Id is a constant
+  // serial Id, swap it with the vectorization Id to reduce register usage.
+  // For example, in a thread-local outer reduction, we want to transform:
   //   [..., iV{8}, rS{7}, rUS{1}, rUR{4}]
   // to:
   //   [..., rS{7}, iV{8}, rUS{1}, rUR{4}]
-  // This way, each thread only needs to cache 8 × 4 elements instead of
+  // After change, each thread only needs to cache 8 × 4 elements instead of
   // 8 × 7 × 4 elements.
   // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
-  if (is_outer_reduction &&
-      std::all_of(domain.begin(), domain.end(), [](IterDomain* id) {
-        return !id->isReduction() ||
-            (id->extent()->isConstScalar() && !id->isThread());
-      })) {
-    auto redu_iter =
-        std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {
-          return id->isReduction() && id->extent()->isConstScalar();
-        });
+  if (is_outer_reduction) {
     auto vect_iter =
         std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {
           return id->getParallelType() == ParallelType::Vectorize;
         });
-    if (redu_iter != domain.end() && vect_iter != domain.end()) {
-      int64_t first_reduction_axis = redu_iter - domain.begin();
-      int64_t vectorization_axis = vect_iter - domain.begin();
-      reference_tv->reorder({{first_reduction_axis, vectorization_axis}});
+    if (vect_iter != domain.end()) {
+      int64_t vect_id_pos = vect_iter - domain.begin();
+      std::unordered_map<int64_t, int64_t> reorder_map;
+      for (auto iter = vect_iter + 1; iter != domain.end(); iter++) {
+        if ((*iter)->getParallelType() == ParallelType::Serial &&
+            (*iter)->extent()->isConstScalar()) {
+          int64_t id_pos = iter - domain.begin();
+          reorder_map[id_pos] = vect_id_pos++;
+        }
+      }
+      // Although we support reordering multiple constant serial IDs after the
+      // vectorization ID, the current scheduler only emits one. It may be worth
+      // exploring performance implications if multiple such IDs are introduced
+      // in the future.
+      NVF_ERROR(
+          reorder_map.size() <= 1,
+          "Expect one constant serial Id after vectorization Id, but found ",
+          reorder_map.size());
+      reference_tv->reorder(reorder_map);
     }
   }
 
