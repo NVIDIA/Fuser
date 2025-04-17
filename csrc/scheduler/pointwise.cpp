@@ -1040,6 +1040,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     auto output = entry.second;
     inner_most_tensors.erase(output);
   }
+  for (auto idx_sel : ir_utils::getOpsOfType<IndexSelectOp>(fusion)) {
+    inner_most_tensors.erase(idx_sel->output(0));
+  }
+
   inlineMost(inner_most_tensors);
 
   scheduler_utils::promoteProducerMemoryTypes(fusion, cached_inputs);
