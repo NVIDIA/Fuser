@@ -108,7 +108,8 @@ Val* getOffsetForCircularBufferTensor(
   const CircularBufferLoopStage stage =
       circular_buffer_loop->circularBufferLoopStage();
 
-  auto loop_index = circular_buffer_loop->indexOrStartIfTrivial();
+  Val* loop_index = gpu_lower->circularBufferInfo().getLinearIndex(
+      circular_buffer_tv, for_loops);
 
   const auto& opt =
       GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(

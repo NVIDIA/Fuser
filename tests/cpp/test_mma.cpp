@@ -1305,7 +1305,7 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
   auto shapes = matmulAtInputShape3DSS(
       num_tiles * getM(macro),
       num_tiles * getN(macro),
-      getK(macro), // TODO: num_tiles * getK(macro),
+      num_tiles * getK(macro),
       layout);
 
   auto tv0 = makeConcreteTensor(shapes.first, dtype);
@@ -1410,10 +1410,14 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
     mma_result->axis(-2)->parallelize(ParallelType::Mma);
     mma_result->axis(-3)->parallelize(ParallelType::Mma);
     // Set the allocation domain
-    AbstractTensor s(mma_result->getLoopDomain());
     // [Mo, No, Ko, Mi, Ni, Ki] -> [Mi, |, Mo, No, Ko, Ni, Ki]
-    s.reorder({{3, 0}});
-    mma_result->setAllocationDomain(s.as<IterDomain*>(), true);
+    // Note that we intentionally reorder both the loop domain and the
+    // allocation domain. The reason for reordering the loop domain is to
+    // prevent `inlineMost` from inlining the MmaOp. The reason for not
+    // wanting to inline is because we want to test the case where the
+    // TMem has multiple tiles, so that we know our indexing is correct.
+    mma_result->reorder({{3, 0}});
+    mma_result->setAllocationDomain(mma_result->getLoopDomain(), true);
     mma_result->setTMemDimSepPos(1);
   }
 
@@ -1436,7 +1440,7 @@ TEST_P(Blackwell1CTAM128SS, MultipleTile) {
   auto inputs = matmulAtInput3DSS(
       num_tiles * getM(macro),
       num_tiles * getN(macro),
-      getK(macro), // TODO: num_tiles * getK(macro),
+      num_tiles * getK(macro),
       layout,
       data_type_to_aten(dtype));
 

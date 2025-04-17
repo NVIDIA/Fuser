@@ -394,17 +394,6 @@ class LowerToInlinePtx : public kir::ExprMutator {
                 /*volatile=*/true,
                 /*memory=*/false,
                 /*readable_outputs=*/{0}}));
-    // TODO: This is clearly a wrong way to sync, but as an intermediate step to
-    // enable incremental development, we use nanosleep to sync the mma. We
-    // should replace this with a correct sync method.
-    registerReplace(
-        mma,
-        IrBuilder::create<kir::Asm>(
-            "nanosleep.u32",
-            std::vector<Val*>{},
-            std::vector<Val*>{
-                IrBuilder::create<Val>(100000000, DataType::UInt32)},
-            kir::Asm::Options{/*volatile=*/true}));
   }
 
   void handle(MmaOp* mma) final {
