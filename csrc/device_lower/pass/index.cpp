@@ -2805,6 +2805,11 @@ void IndexLowering::handle(const kir::SetMaxNReg* maxnreg) {
   pushBack(const_cast<kir::SetMaxNReg*>(maxnreg)); // NOLINT
 }
 
+void IndexLowering::handle(const kir::Continue* cont) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Continue*>(cont)); // NOLINT
+}
+
 void IndexLowering::handle(const kir::Return* ret) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::Return*>(ret)); // NOLINT
