@@ -2187,7 +2187,21 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
     const std::vector<SegmentedGroup*>& groups_to_merge) {
   NVF_ERROR(
       !groups_to_merge.empty(),
-      "fusion segment :(mergeAllGivenGroups) tried to merge no groups")
+      "fusion segment :(mergeAllGivenGroups) tried to merge no groups");
+
+  const auto& aux_input_groups = getAuxiliaryInputGroups();
+  std::vector<SegmentedGroup*> aux_groups_to_merge;
+  std::ranges::copy_if(
+      groups_to_merge,
+      std::back_inserter(aux_groups_to_merge),
+      [&](SegmentedGroup* group) {
+        return std::ranges::find(aux_input_groups, group) !=
+            aux_input_groups.end();
+      });
+  NVF_ERROR(
+      aux_groups_to_merge.empty(),
+      "Trying to merge auxiliary input groups: ",
+      toDelimitedString(aux_groups_to_merge));
 
   // Make a set to detect internal edges
   std::unordered_set<SegmentedGroup*> group_set(
@@ -3354,7 +3368,6 @@ class CombineReductions {
                       return groups_to_merge_set.has(group);
                     }),
                 groups_with_reductions_.end());
-
             return joined_group;
           }
         }
@@ -3658,6 +3671,10 @@ class MergeUpAndDownCast {
     while (!to_visit.empty()) {
       SegmentedGroup* group = to_visit.front();
       to_visit.pop_front();
+
+      if (group->exprs().empty()) {
+        continue;
+      }
 
       if (groups_to_merge_set.count(group)) {
         continue;
@@ -4449,12 +4466,23 @@ void SegmentCandidateFinder::forwardInputs() {
   excluded_inp_unary_exprs_ = {};
   input2group_.clear();
 
+  std::vector<Val*> original_fusion_inputs = completeFusion()->inputs();
+
+  std::vector<Val*> factory_created_vals;
+  for (auto expr : completeFusion()->exprs()) {
+    if (!getenv("DISABLE_FORWARD_FULL") && expr->isA<FullOp>()) {
+      original_fusion_inputs.push_back(expr->output(0));
+      excluded_inp_unary_exprs_.pushBack(expr);
+      factory_created_vals.push_back(expr->output(0));
+    }
+  }
+
   // "Terminating" outputs from the excluded input unary exprs, these will be
   // treated as complete fusion inputs.
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
     std::deque<Expr*> to_visit;
-    for (Val* inp : completeFusion()->inputs()) {
+    for (Val* inp : original_fusion_inputs) {
       if (auto forwarded_use = shouldForward(inp)) {
         to_visit.push_back(forwarded_use);
       }
@@ -4477,11 +4505,14 @@ void SegmentCandidateFinder::forwardInputs() {
     }
   }
 
-  auto excluded_fusion_inputs = IterVisitor::getInputsTo(
-      {forwarded_inputs.begin(), forwarded_inputs.end()});
+  // Stop traversing back at factory vals (and fusion inputs)
+  auto excluded_fusion_inputs = InputsOf::getInputsTo(
+      {forwarded_inputs.begin(), forwarded_inputs.end()},
+      original_fusion_inputs);
 
   // List of vals to treat as complete fusion inputs for segmentation
-  forwarded_fusion_inputs_ = completeFusion()->inputs();
+  // forwarded_fusion_inputs_ = completeFusion()->inputs();
+  forwarded_fusion_inputs_ = original_fusion_inputs;
 
   forwarded_fusion_inputs_.erase(
       std::remove_if(
@@ -4518,6 +4549,16 @@ void SegmentCandidateFinder::cleanupForwardedInputs() {
   excluded_inp_unary_exprs_ = {};
   forwarded_fusion_inputs_.clear();
   input2group_.clear();
+}
+
+std::vector<SegmentedGroup*> SegmentCandidateFinder::getAuxiliaryInputGroups()
+    const {
+  std::vector<SegmentedGroup*> aux_groups;
+  aux_groups.reserve(input2group_.size());
+  std::ranges::transform(input2group_, aux_groups.begin(), [](const auto& kv) {
+    return kv.second;
+  });
+  return aux_groups;
 }
 
 void SegmentCandidateFinder::finalMerge() {
@@ -4732,7 +4773,12 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
 
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
   SegmentedGroup* group = segmented_fusion_->newGroup();
-  group->input_vals_ = IterVisitor::getInputsTo({forwarded_input});
+  for (auto inp : IterVisitor::getInputsTo({forwarded_input})) {
+    if (std::ranges::find(completeFusion()->inputs(), inp) !=
+        completeFusion()->inputs().end()) {
+      group->input_vals_.pushBack(inp);
+    }
+  }
   group->exprs_ = StmtSort::getExprsTo({forwarded_input});
   return group;
 }

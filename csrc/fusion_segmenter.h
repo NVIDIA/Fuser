@@ -690,6 +690,8 @@ class SegmentCandidateFinder {
                val) != forwarded_fusion_inputs_.end();
   };
 
+  std::vector<SegmentedGroup*> getAuxiliaryInputGroups() const;
+
  protected:
   //! These are the merge node heuristic passes, should
   //!  eventually should have a dedicated interface
