@@ -720,11 +720,11 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
           dumpCompiledCodeToFile(compiled_kernel->cubin, func_name, ".cubin");
     }
     if (isDebugDumpEnabled(DebugDumpOption::SassToFile)) {
-      compiled_kernel->sass = disassembledKernelSASS();
-      std::vector<char> sass_vec(
-          compiled_kernel->sass.begin(), compiled_kernel->sass.end());
+      std::string sass_str =
+          disassembleBinary(compiled_kernel->cubin, "-fun 1 -c");
+      compiled_kernel->sass = {sass_str.begin(), sass_str.end()};
       compiled_kernel->sass_filename =
-          dumpCompiledCodeToFile(sass_vec, func_name, ".sass");
+          dumpCompiledCodeToFile(compiled_kernel->sass, func_name, ".sass");
     }
   }
 
