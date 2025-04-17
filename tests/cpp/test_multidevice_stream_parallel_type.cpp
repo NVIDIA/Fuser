@@ -311,4 +311,38 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
       << "Output: " << t2 << " Expected: " << t2_ref;
 }
 
+TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = set(tv0);
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  const DeviceMesh mesh =
+      DeviceMesh::createForNumDevices(communicator_->size());
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv1->axis(0)->parallelize(ParallelType::Stream);
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+
+  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container->topLevelExprs().size(), 3);
+  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
+
+  auto options =
+      at::TensorOptions().device(at::kCUDA, communicator_->deviceId());
+  at::Tensor unsharded_input = at::rand({communicator_->size(), 4}, options);
+  at::Tensor input = shardTensor(unsharded_input, /*axis=*/0, mesh);
+  auto output =
+      executor.runWithInput(KernelArgumentHolder({input}))[0].as<at::Tensor>();
+
+  EXPECT_TRUE(torch::allclose(output, unsharded_input, 1e-2, 1e-2))
+      << "Output: " << output << "\nExpected: " << unsharded_input;
+}
+
 } // namespace nvfuser

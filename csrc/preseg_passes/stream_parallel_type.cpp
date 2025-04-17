@@ -186,6 +186,8 @@ void StreamParallelType::runPass(Fusion* fusion) {
          ++it_expr) {
       Expr* expr = *it_expr;
 
+      bool expr_needs_special_handling_for_p2p_pipeline;
+
       // Process input tensors
       for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
         // Find stream axis index in input tensor
@@ -224,6 +226,12 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
         // Skip if no stream axis found
         if (input_stream_id_logical_index == -1) {
+          continue;
+        }
+
+        expr_needs_special_handling_for_p2p_pipeline = input->getLogicalDomain()[input_stream_id_logical_index]->isDeviceDim();
+        if (expr_needs_special_handling_for_p2p_pipeline) {
+          NVF_ERROR(expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set, "expected a set operation but got ", expr);
           continue;
         }
 
@@ -324,7 +332,40 @@ void StreamParallelType::runPass(Fusion* fusion) {
           }
         }
       }
-      new_loop_body.push_back(*it_expr);
+      if (expr_needs_special_handling_for_p2p_pipeline) {
+        NVF_ERROR(expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set, "expected a set operation but got ", expr);
+        NVF_ERROR(ir_utils::isTvOp(expr), "expected a Tv operation but got ", expr);
+        auto* set_op = expr->as<LoadStoreOp>();
+        auto* input_tv = set_op->in()->as<TensorView>();
+        auto* output_tv = set_op->out()->as<TensorView>();
+        NVF_ERROR(input_tv->axis(0)->isDeviceDim(), "expected a sharded first axis on the input but got ", input_tv);
+
+        auto* peer = for_loop->index();
+        auto* is_sending_to_self = IrBuilder::create<kir::Predicate>(eq(peer, IrBuilder::create<NamedScalar>("myDeviceId", DataType::Int)));
+        auto if_then_else = IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
+
+        auto* selected_in = select(input_tv, /*dim=*/0, /*index=*/hic->zeroVal(), /*keep_reduction_axis=*/true);
+        auto* local_copy = IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output_tv, selected_in);
+
+        if_then_else->thenBody().push_back(selected_in->definition());
+        if_then_else->thenBody().push_back(local_copy);
+
+        auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
+        auto recv = IrBuilder::create<P2PCommunication>(P2PCommunicationType::RECV, output_tv, /*peer*/for_loop->index(), CommunicatorBackend::kNccl);
+        auto send = IrBuilder::create<P2PCommunication>(P2PCommunicationType::SEND, input_tv, /*peer*/for_loop->index(), CommunicatorBackend::kNccl);
+        auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
+        auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
+
+        if_then_else->elseBody().push_back(start_coalescing);
+        if_then_else->elseBody().push_back(recv);
+        if_then_else->elseBody().push_back(send);
+        if_then_else->elseBody().push_back(end_coalescing);
+        if_then_else->elseBody().push_back(wait);
+
+        new_loop_body.push_back(if_then_else);
+      } else {
+        new_loop_body.push_back(*it_expr);
+      }
     }
 
     // Update for-loop body with processed expressions
