@@ -112,7 +112,7 @@ bool isTvContiguous(TensorView* tv) {
 
 template <typename Range>
 void setShardedAllocationDomain(Range tvs) {
-  for (auto tv : tvs) {
+  for (TensorView* tv : tvs) {
     auto contiguity = reorderLoopAsAllocation(tv);
     tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
   }
