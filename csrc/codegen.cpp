@@ -3749,6 +3749,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
+  void handle(const kir::Continue* cont) final {
+    indent() << "continue;\n";
+  }
+
   void handle(const kir::Return* ret) final {
     indent() << "return;\n";
   }
