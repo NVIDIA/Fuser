@@ -68,10 +68,12 @@ import setuptools
 import setuptools.command.build_ext
 from setuptools import Extension, setup, find_packages
 
+
 def check_env_flag_bool(name: str, default: str = "") -> bool:
     if name not in os.environ:
         return default
     return os.getenv(name).upper() in ["ON", "1", "YES", "TRUE", "Y"]
+
 
 # Command line arguments don't work on PEP517 builds and will be silently ignored,
 # so we need to pass those options as environment variables instead.
