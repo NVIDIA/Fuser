@@ -767,6 +767,42 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
     return sanitary_lines
 
 
+def sanitize_sass_lines(lines: list[str]) -> list[str]:
+    """Remove comments and remove kernel id"""
+    sanitary_lines = []
+    for l in lines:
+        # Replace mangled kernel names like
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+        # or
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
+        # or
+        #   _ZN57_GLOBAL__N__00000000_18___tmp_nvfuser_5_cu_badbb5a6_975149nvfuser_5ENS_6TensorINS_6__halfELi3ELi3EEES2_NS_9TensorMapES3_NS0_IS1_Li2ELi2EEE,(.L_x_28 - _ZN11kernelscope6kernelENS_6TensorINS_6__halfELi3ELi3EEES2_NS_9TensorMapES3_NS0_IS1_Li2ELi2EEE)
+
+        # with
+        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
+
+        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
+        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
+        if m is not None:
+            d = m.groupdict()
+            scopenamelen = int(d["scopenamelen"])
+            # demangle second part in remainder after scope name
+            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
+            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
+            if mrem is not None:
+                drem = mrem.groupdict()
+                varnamelen = int(drem["varnamelen"])
+                remainder = (
+                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
+                )
+            l = d["prefix"] + "11kernelscope" + remainder
+
+        # Remove comments that tell us the address such as /*08a0*/
+        l = re.sub(r"/\*[0-9a-f]{4}\*/", "/*addr*/", l)
+        sanitary_lines.append(l)
+    return sanitary_lines
+
+
 @dataclass_json
 @dataclass
 class TestDifferences:
@@ -869,9 +905,8 @@ class TestDifferences:
                 if kern1.sass is not None and kern2.sass is not None:
                     sass_diff_lines = list(
                         difflib.unified_diff(
-                            # TODO: sanitize SASS differently from PTX?
-                            sanitize_ptx_lines(kern1.sass.splitlines()),
-                            sanitize_ptx_lines(kern2.sass.splitlines()),
+                            sanitize_sass_lines(kern1.sass.splitlines()),
+                            sanitize_sass_lines(kern2.sass.splitlines()),
                             fromfile=self.run1.name,
                             tofile=self.run2.name,
                             n=5,
