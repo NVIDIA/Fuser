@@ -106,7 +106,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::AsyncWarp:
       case CircularBufferLoopStage::ComputeWarp: {
         break;
       }
@@ -1462,24 +1462,24 @@ class CircularBufferInserter : private kir::ExprMutator {
               .num_registers.value();
       GpuLower::current()->decIncRegisterUsage() =
           std::make_pair(decrease_num_registers, increase_num_registers);
-      // Decrease registers in load warp group
-      kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+      // Decrease registers in async warp group
+      kir::SetMaxNReg* dec_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
           /*increase_registers=*/false);
-      warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
+      warp_dispatch_ite->thenBody().push_back(dec_reg_async_warp);
 
       // Increase registers in compute warp group
-      kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+      kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(increase_num_registers, DataType::Index),
           /*increase_registers*/ true);
-      warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
+      warp_dispatch_ite->elseBody().push_back(inc_reg_async_warp);
     }
 
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop,
         loads,
-        CircularBufferLoopStage::LoadWarp,
+        CircularBufferLoopStage::AsyncWarp,
         insertion_position);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
