@@ -303,8 +303,10 @@ TensorView* scheduleReductionTV(
       }
     }
   }
-
-  auto reduction_rf_tv = sortAndRFactor(reduction_tv);
+  const bool is_non_persistent_outer_reduction =
+      rparams->persistent_kernel && !rparams->fastest_dim;
+  auto reduction_rf_tv =
+      sortAndRFactor(reduction_tv, is_non_persistent_outer_reduction);
 
   // In the case of outer grid persistence, make sure the vectorized
   // domain placed at the innermost position.
@@ -647,9 +649,9 @@ bool placedBefore(const IterDomain* id0, const IterDomain* id1) {
 }
 } // namespace
 
-TensorView* sortAndRFactor(TensorView* reference_tv) {
-  bool is_outer_reduction =
-      !scheduler_utils::isFastestDimReduction(reference_tv);
+TensorView* sortAndRFactor(
+    TensorView* reference_tv,
+    bool is_non_persistent_outer_reduction) {
   auto domain = reference_tv->getLoopDomain();
   std::sort(domain.begin(), domain.end(), placedBefore);
   std::unordered_map<int64_t, int64_t> reorder_map;
@@ -670,7 +672,7 @@ TensorView* sortAndRFactor(TensorView* reference_tv) {
   // After change, each thread only needs to cache 8 × 4 elements instead of
   // 8 × 7 × 4 elements.
   // See https://github.com/NVIDIA/Fuser/issues/4172 for real examples.
-  if (is_outer_reduction) {
+  if (is_non_persistent_outer_reduction) {
     auto vect_iter =
         std::find_if(domain.begin(), domain.end(), [](IterDomain* id) {
           return id->getParallelType() == ParallelType::Vectorize;
