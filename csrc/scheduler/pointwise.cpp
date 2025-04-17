@@ -1041,7 +1041,7 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     inner_most_tensors.erase(output);
   }
   for (auto idx_sel : ir_utils::getOpsOfType<IndexSelectOp>(fusion)) {
-    inner_most_tensors.erase(idx_sel->output(0));
+    inner_most_tensors.erase(idx_sel->output(0)->as<TensorView>());
   }
 
   inlineMost(inner_most_tensors);
