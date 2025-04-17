@@ -750,19 +750,31 @@ TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
   fusion.addInput(tv0);
 
   auto tv1 = segment_set(tv0);
-  auto tv2 = castOp(DataType::Float, tv1);
 
-  auto tv3 = sum(tv2, {1});
-  fusion.addOutput(tv3);
+  auto tv2 = set(tv1);
+  auto tv3 = castOp(DataType::Float, tv2);
 
-  auto tv4 = sum(tv2, {1});
+  auto tv4 = sum(tv3, {1});
   fusion.addOutput(tv4);
+
+  auto tv5 = sum(tv3, {1});
+  fusion.addOutput(tv5);
 
   auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   auto t0 = at::randn({16, 32}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs({t0});
+  KernelArgumentHolder outputs;
+
+  // Make sure NVFUSER_DUMP=segmented_fusion works
+  {
+    DebugDumpOptionsGuard options_guard;
+    DebugDumpOptionsGuard::getCurOptions().set(DebugDumpOption::FusionSegments);
+    std::ostringstream tmp_buf;
+    DebugStreamGuard debug_stream_guard(tmp_buf);
+    outputs = executor_cache.runFusionWithInputs({t0});
+  }
+
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   // There must be two segments, one with ExprEvalExecutor and another
@@ -787,7 +799,7 @@ TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
         continue;
       }
 
-      EXPECT_EQ(uop->in()->as<kir::TensorIndex>()->view()->name(), 1);
+      EXPECT_EQ(uop->in()->as<kir::TensorIndex>()->view()->name(), 2);
 
       ++num_upcast_ops;
     }
