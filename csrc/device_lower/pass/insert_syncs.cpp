@@ -20,10 +20,10 @@ namespace nvfuser {
 
 namespace {
 
-// Determine if any for loop is a LoadWarp circular buffering stage
-bool isWithinLoadWarp(const std::vector<ForLoop*> for_loops) {
+// Determine if any for loop is a AsyncWarp circular buffering stage
+bool isWithinAsyncWarp(const std::vector<ForLoop*> for_loops) {
   return std::any_of(for_loops.begin(), for_loops.end(), [](ForLoop* fl) {
-    return fl->circularBufferLoopStage() == CircularBufferLoopStage::LoadWarp;
+    return fl->circularBufferLoopStage() == CircularBufferLoopStage::AsyncWarp;
   });
 }
 
@@ -36,16 +36,16 @@ bool isWithinComputeWarp(const std::vector<ForLoop*> for_loops) {
 }
 
 // Return true if any for loop is ComputeWarp.
-// Return false if any for loop is LoadWarp.
+// Return false if any for loop is AsyncWarp.
 // Return std:nullopt if none of the for loops are a warp specialized stage.
 std::optional<bool> isOptionalComputeSync(
     const std::vector<ForLoop*> for_loops) {
-  bool contains_load_warp = isWithinLoadWarp(for_loops);
+  bool contains_load_warp = isWithinAsyncWarp(for_loops);
   bool contains_compute_warp = isWithinComputeWarp(for_loops);
   NVF_ERROR(
       !contains_load_warp || !contains_compute_warp,
-      "The list of for-loops contains both LoadWarp and ComputeWarp stages.");
-  if (isWithinLoadWarp(for_loops)) {
+      "The list of for-loops contains both AsyncWarp and ComputeWarp stages.");
+  if (isWithinAsyncWarp(for_loops)) {
     return false;
   } else if (isWithinComputeWarp(for_loops)) {
     return true;
@@ -1027,7 +1027,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       return;
     }
 
-    // Gather all async inputs in LoadWarp
+    // Gather all async inputs in AsyncWarp
     TensorView* out_tv = ir_utils::getTvOutput(expr);
     NVF_ERROR(out_tv != nullptr);
     auto circular_buffer_loop =
@@ -1035,7 +1035,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             out_tv, for_loops_);
     if (circular_buffer_loop != nullptr &&
         circular_buffer_loop->circularBufferLoopStage() ==
-            CircularBufferLoopStage::LoadWarp) {
+            CircularBufferLoopStage::AsyncWarp) {
       auto use_async_ops = getUseAsyncOpTypes(out_tv);
       if (!use_async_ops.empty()) {
         warp_specialized_async_inputs_in_current_scope_.emplace(out_tv);
@@ -1175,7 +1175,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
   // Special logic is required for warp specialized circular buffering because
   // the TMA loads and wgmma ops are separated by an IfThenElse.
   // kir::ExprMutator traverses the fusion in depth-wise order, so TMA loads in
-  // the LoadWarp are detected before the wgmma expressions in the ComputeWarp.
+  // the AsyncWarp are detected before the wgmma expressions in the ComputeWarp.
   //
   // This function inserts wgmma.commit_group and wgmma.wait_group expressions
   // before the mbarrier::arrive, which allows load warp to launch next TMA
@@ -1198,7 +1198,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
     NVF_ERROR(
         warp_specialized_async_exprs_to_protect_.empty() ||
             !warp_specialized_async_inputs_in_current_scope_.empty(),
-        "Expected TMA loads in LoadWarp for WgMma operations were detected in ComputeWarp.");
+        "Expected TMA loads in AsyncWarp for WgMma operations were detected in ComputeWarp.");
 
     // short-circuit: no wgmma expressions to protect in computeWarp.
     if (warp_specialized_async_exprs_to_protect_.empty()) {
@@ -1206,7 +1206,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       return;
     }
 
-    // Establish all tma loads in LoadWarp are used by WgMma operations in
+    // Establish all tma loads in AsyncWarp are used by WgMma operations in
     // ComputeWarp.
     for (Expr* expr : warp_specialized_async_exprs_to_protect_) {
       if (ir_utils::isCpAsyncBulkStore(expr)) {

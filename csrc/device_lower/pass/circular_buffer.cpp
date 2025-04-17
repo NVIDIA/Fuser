@@ -106,7 +106,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::AsyncWarp:
       case CircularBufferLoopStage::ComputeWarp: {
         break;
       }
@@ -1479,7 +1479,7 @@ class CircularBufferInserter : private kir::ExprMutator {
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop,
         loads,
-        CircularBufferLoopStage::LoadWarp,
+        CircularBufferLoopStage::AsyncWarp,
         insertion_position);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 

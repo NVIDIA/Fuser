@@ -628,7 +628,7 @@ Val* createMultipleExpressionElectSync(
   auto load_warp_loop_it =
       std::find_if(loops.begin(), loops.end(), [](ForLoop* fl) {
         return fl->circularBufferLoopStage() ==
-            CircularBufferLoopStage::LoadWarp;
+            CircularBufferLoopStage::AsyncWarp;
       });
   bool is_register_sharing = false;
   if (load_warp_loop_it != loops.end()) {
