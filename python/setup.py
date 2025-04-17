@@ -75,15 +75,17 @@ def check_env_flag_bool(name: str, default: str = "") -> bool:
 
 # Command line arguments don't work on PEP517 builds and will be silently ignored,
 # so we need to pass those options as environment variables instead.
-CMAKE_ONLY = check_env_flag_bool('NVFUSER_BUILD_CMAKE_ONLY', False)
-BUILD_SETUP = check_env_flag_bool('NVFUSER_BUILD_SETUP', True)
-NO_PYTHON = check_env_flag_bool('NVFUSER_BUILD_NO_PYTHON', False)
+CMAKE_ONLY = check_env_flag_bool("NVFUSER_BUILD_CMAKE_ONLY", False)
+BUILD_SETUP = check_env_flag_bool("NVFUSER_BUILD_SETUP", True)
+NO_PYTHON = check_env_flag_bool("NVFUSER_BUILD_NO_PYTHON", False)
 NO_TEST = check_env_flag_bool("NVFUSER_BUILD_NO_TEST", False)
 NO_BENCHMARK = check_env_flag_bool("NVFUSER_BUILD_NO_BENCHMARK", False)
 NO_NINJA = check_env_flag_bool("NVFUSER_BUILD_NO_NINJA", False)
 BUILD_WITH_UCC = check_env_flag_bool("NVFUSER_BUILD_WITH_UCC", False)
 BUILD_WITH_ASAN = check_env_flag_bool("NVFUSER_BUILD_WITH_ASAN", False)
-BUILD_WITHOUT_DISTRIBUTED = check_env_flag_bool("NVFUSER_BUILD_WITHOUT_DISTRIBUTED", False)
+BUILD_WITHOUT_DISTRIBUTED = check_env_flag_bool(
+    "NVFUSER_BUILD_WITHOUT_DISTRIBUTED", False
+)
 BUILD_WITH_SYSTEM_NVTX = check_env_flag_bool("NVFUSER_BUILD_WITH_SYSTEM_NVTX", True)
 EXPLICIT_ERROR_CHECK = check_env_flag_bool("NVFUSER_BUILD_EXPLICIT_ERROR_CHECK", False)
 if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
@@ -96,7 +98,7 @@ BUILD_TYPE = os.getenv("NVFUSER_BUILD_TYPE", "Release")
 WHEEL_NAME = os.getenv("NVFUSER_BUILD_WHEEL_NAME", "nvfuser")
 BUILD_DIR = os.getenv("NVFUSER_BUILD_DIR", "")
 INSTALL_DIR = os.getenv("NVFUSER_BUILD_INSTALL_DIR", "")
-INSTALL_REQUIRES = os.getenv("NVFUSER_BUILD_INSTALL_REQUIRES", "").split(',')
+INSTALL_REQUIRES = os.getenv("NVFUSER_BUILD_INSTALL_REQUIRES", "").split(",")
 EXTRAS_REQUIRE = eval(os.getenv("NVFUSER_BUILD_EXTRA_REQUIRES", "{}"))
 CPP_STANDARD = int(os.getenv("NVFUSER_BUILD_CPP_STANDARD", 20))
 forward_args = []
@@ -169,6 +171,7 @@ sys.argv = forward_args
 
 if CPP_STANDARD < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")
+
 
 def get_cmake_bin():
     # TODO: double check cmake version here and retrieve later version if necessary
