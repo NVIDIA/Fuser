@@ -516,7 +516,7 @@ class FusionDefinition(_C._FusionDefinition):
             for i in inputs:
                 if isinstance(i, torch.Tensor):
                     if i.is_contiguous():
-                        msg += f"    torch.testing.make_tensor({tuple(i.size())}, dtype={i.dtype}, device='{i.device}'), \n"
+                        msg += f"    torch.testing.make_tensor({tuple(i.size())}, dtype={i.dtype}, device='{i.device}'),\n"
                     else:
                         # max linear index determines number of elements to generate
                         sz = 1
@@ -528,13 +528,13 @@ class FusionDefinition(_C._FusionDefinition):
                         if i.dtype.is_floating_point:
                             msg += (
                                 f"    torch.randn({sz}, dtype={i.dtype}, device='{i.device}')"
-                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}), \n"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                             )
                         else:
                             upper_bound = 2 if i.dtype == torch.bool else 10
                             msg += (
                                 f"    torch.randint(0, {upper_bound}, ({sz},), dtype={i.dtype}, device='{i.device}')"
-                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}), \n"
+                                f".as_strided({tuple(i.size())}, {tuple(i.stride())}),\n"
                             )
                 else:
                     input_as_string = str(i)
@@ -548,7 +548,7 @@ class FusionDefinition(_C._FusionDefinition):
                     input_as_string = re.sub(
                         r"\bnan\b", 'float("nan")', input_as_string
                     )
-                    msg += f"    {input_as_string}, \n"
+                    msg += f"    {input_as_string},\n"
             msg += "]"
             msg += "\nfd.execute(inputs)\n"
 
@@ -559,7 +559,7 @@ class FusionDefinition(_C._FusionDefinition):
             f"An error occurred while {section} nvFuser FusionDefinition {self.id()}.\n"
             "If you believe this is a bug or need assistance, please file an issue at "
             "https://github.com/NVIDIA/Fuser/issues/new\n"
-            f"Here's a script to reproduce the error: \n"
+            f"Here's a script to reproduce the error:\n"
             "```python\n"
         )
         msg += self.repro_script_for(inputs)
