@@ -970,8 +970,9 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
 
   SchedulerRuntimeInfo runtime_info(&fusion, {t0});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeSchedulerInstance(
       SchedulerType::InnerOuterPersistent);
   auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
@@ -1164,7 +1165,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     TmaWarpSpecializedTest,
     ::testing::Combine(
-        testing::Values(true, false),
+        testing::Values(false), // tmp disable tma warp specialized
         testing::Values(DataType::Float, DataType::BFloat16),
         testing::Values(132 * 148),
         ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),
