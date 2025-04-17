@@ -37,7 +37,16 @@ using testing::UnorderedElementsAre;
 
 // tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
-using CombinedSchedulerTest = NVFuserFixtureParamTest<CombinedSchedulerParams>;
+
+class CombinedSchedulerTest
+    : public NVFuserFixtureParamTest<CombinedSchedulerParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<CombinedSchedulerParams>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
 TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1149,13 +1158,15 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
       __LINE__,
       __FILE__);
 }
+// batch size is revised to 132*148 which is divisible by sm count on H100 &
+// B200 will change back to 32 & 2048 after predicate for 1D TMA is added.
 INSTANTIATE_TEST_SUITE_P(
     ,
     TmaWarpSpecializedTest,
     ::testing::Combine(
         testing::Values(true, false),
         testing::Values(DataType::Float, DataType::BFloat16),
-        testing::Values(32, 2048),
+        testing::Values(132 * 148),
         ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),
     [](const testing::TestParamInfo<TmaWarpSpecializedParams>& info)
         -> std::string {
