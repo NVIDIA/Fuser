@@ -140,7 +140,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul) {
 
   TensorView* tv0 = makeContigTensor(4); //[S, DIDx(D), M/(S*D), K]
   TensorView* tv1 = makeContigTensor(2); //[K, N]
-  TensorView* tv2 = matmul(tv0, tv1); //[S, D, M/(S*D), N]
+  TensorView* tv2 = matmul(tv0, tv1); //[Stream(S), D, M/(S*D), N]
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -196,8 +196,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_AR) {
 
   TensorView* tv0 = makeContigTensor(4); //[S, DIDx(D), M/S, K/D]
   TensorView* tv1 = makeContigTensor(3); //[DIDx(D), K/D, N]
-  TensorView* tv2_unreduced = matmul(tv0, tv1); //[S, DIDx(D), M/S, N]
-  TensorView* tv2 = sum(tv2_unreduced, {1}); //[S, r(D), M/S, N]
+  TensorView* tv2_unreduced = matmul(tv0, tv1); //[Stream(S), DIDx(D), M/S, N]
+  TensorView* tv2 = sum(tv2_unreduced, {1}); //[Stream(S), r(D), M/S, N]
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -259,8 +259,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
   TensorView* tv1 = makeContigTensor(3); //[DIDx(D), K/D, N]
   TensorView* tv1b = broadcast(
       tv1, {true, false, true, false, false}); //[1, DIDx(D), 1, K/D, N]
-  TensorView* tv2_unreduced = matmul(tv0, tv1b); //[S, DIDx(D), D, M/S, N]
-  TensorView* tv2 = sum(tv2_unreduced, {1}); //[S, r(D), DIDx(D), M/S, N]
+  TensorView* tv2_unreduced = matmul(tv0, tv1b); //[Stream(S), DIDx(D), D, M/S, N]
+  TensorView* tv2 = sum(tv2_unreduced, {1}); //[Stream(S), r(D), DIDx(D), M/S, N]
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -343,6 +343,57 @@ TEST_F(MultiDeviceStreamParallelTypeTest, AllgatherP2p) {
 
   EXPECT_TRUE(torch::allclose(output, unsharded_input, 1e-2, 1e-2))
       << "Output: " << output << "\nExpected: " << unsharded_input;
+}
+
+TEST_F(MultiDeviceStreamParallelTypeTest, AG_matmul_P2p) {
+  constexpr int64_t M = 32768;
+  constexpr int64_t K = 32768;
+  constexpr int64_t N = 1024;
+  const int64_t D = communicator_->size();
+  if (M % D != 0) {
+    GTEST_SKIP() << "M must be a multiple of D, but got M = " << M
+                 << ", D = " << D;
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* tv0 = makeContigTensor(3); //[DIDx(D), M/D, K]
+  TensorView* tv1 = makeContigTensor(2); //[K, N]
+  TensorView* tv2 = matmul(tv0, tv1); //[Stream(D), M/D, N]
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv2);
+
+  auto mesh = DeviceMesh::createForNumDevices(D);
+  tv0->setDeviceMesh(mesh);
+  tv1->setDeviceMesh(mesh);
+  tv2->setDeviceMesh(mesh);
+
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+  tv2->axis(0)->parallelize(ParallelType::Stream);
+
+  MultiDeviceExecutor executor(std::move(fusion), *communicator_);
+
+  hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
+  EXPECT_EQ(container->topLevelExprs().size(), 4);
+  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
+  EXPECT_TRUE(container->topLevelExprs().at(2)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
+
+  auto tensor_options =
+      at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
+  auto t0_unsharded = at::randn({D, M / D, K}, tensor_options);
+  auto t0 = t0_unsharded.slice(
+      0, communicator_->deviceId(), communicator_->deviceId() + 1);
+  auto t1 = at::randn({K, N}, tensor_options);
+
+  auto t2 = executor.runWithInput({t0, t1})[0].as<at::Tensor>();
+
+  auto t2_ref = at::matmul(t0_unsharded, t1);
+  EXPECT_TRUE(torch::allclose(t2_ref, t2, 1e-2, 1e-2));
 }
 
 } // namespace nvfuser
