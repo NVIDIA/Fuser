@@ -1327,7 +1327,9 @@ void TensorView::circularBuffer(
   // Early correctness checking. May miss eventual errors as the
   // checks depend on memory types and parallelization, which may not
   // be finalized until lowering.
-  NVF_CHECK(number_of_stages > 1, "Unsupported stage number");
+  NVF_CHECK(
+      !std::holds_alternative<Pipelined>(type) || number_of_stages > 1,
+      "Unsupported stage number");
   if (prefetch_distance < 0) {
     prefetch_distance += number_of_stages;
   }
