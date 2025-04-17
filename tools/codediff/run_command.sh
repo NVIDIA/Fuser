@@ -219,7 +219,7 @@ echo "$testcmd" > "$testdir/command"
 if [[ -z $commandtype ]]
 then
     case "$testcmd" in
-        *test_nvfuser*)
+        *test_*)
             ;&
         *tutorial_*)
             ;&
