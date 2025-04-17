@@ -70,7 +70,8 @@ enum class DebugDumpOption {
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
   Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
+  Sass, //! Dump disassembled SASS
+  SassToFile, //!< Dump disassembled SASS to File
   Ptx, //! Dump compiled PTX
   BankConflictInfo, //! Dump bank confliction info
   SyncMap, //! RAW dependency info
@@ -79,7 +80,7 @@ enum class DebugDumpOption {
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
-  Occupancy, // Dump occupancy
+  Occupancy, //! Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing

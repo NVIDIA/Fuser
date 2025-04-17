@@ -119,9 +119,10 @@ then
 fi
 mkdir -p "$testdir"
 movecudafiles() {
-    mkdir -p "$1/cuda" "$1/ptx"
+    mkdir -p "$1/cuda" "$1/ptx" "$1/sass"
     find . -maxdepth 1 -name '__tmp_*.cu' -print0 | xargs -0 --no-run-if-empty mv -t "$1/cuda"
     find . -maxdepth 1 -name '__tmp_*.ptx' -print0 | xargs -0 --no-run-if-empty mv -t "$1/ptx"
+    find . -maxdepth 1 -name '__tmp_*.sass' -print0 | xargs -0 --no-run-if-empty mv -t "$1/sass"
 }
 removecudafiles() {
     tmpdir="./.nvfuser_run_command_tmp"
@@ -150,9 +151,10 @@ fi
 cleanup() {
     numcu=$(find . -maxdepth 1 -name '__tmp_*.cu' | wc -l)
     numptx=$(find . -maxdepth 1 -name '__tmp_*.ptx' | wc -l)
-    if (( numcu + numptx > 0 ))
+    numsass=$(find . -maxdepth 1 -name '__tmp_*.sass' | wc -l)
+    if (( numcu + numptx + numsass > 0 ))
     then
-        echo "Interrupted. Removing $numcu temporary .cu files and $numptx temporary .ptx files"
+        echo "Interrupted. Removing $numcu .cu, $numptx .ptx, and $numsass .sass temporary files"
         removecudafiles
     fi
     # strip incomplete- from base name
@@ -192,7 +194,7 @@ ensure_in_list() {
     echo "${l[*]}"
 }
 # ensure some NVFUSER_DUMP options are enabled
-appended_dump=$(ensure_in_list "$NVFUSER_DUMP" cuda_to_file ptxas_verbose ptx)
+appended_dump=$(ensure_in_list "$NVFUSER_DUMP" cuda_to_file ptxas_verbose ptx sass_to_file)
 export NVFUSER_DUMP=$appended_dump
 appended_enable=$(ensure_in_list "$NVFUSER_ENABLE" static_fusion_count)
 export NVFUSER_ENABLE=$appended_enable
@@ -217,7 +219,7 @@ echo "$testcmd" > "$testdir/command"
 if [[ -z $commandtype ]]
 then
     case "$testcmd" in
-        *test_nvfuser*)
+        *test_*)
             ;&
         *tutorial_*)
             ;&
@@ -269,5 +271,5 @@ hostname > "$testdir/hostname"
 printenv | sort > "$testdir/env"
 nvcc --version > "$testdir/nvcc_version"
 nvidia-smi --query-gpu=gpu_name --format=csv,noheader > "$testdir/gpu_names"
-# save generated cuda and ptx files
+# save generated cuda, ptx, sass files
 movecudafiles "$testdir"

@@ -139,6 +139,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"python_definition_segments", DebugDumpOption::PythonDefinitionSegments},
       {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
       {"sass", DebugDumpOption::Sass},
+      {"sass_to_file", DebugDumpOption::SassToFile},
       {"segmented_fusion", DebugDumpOption::FusionSegments},
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"scheduler_params", DebugDumpOption::SchedulerDebug},
