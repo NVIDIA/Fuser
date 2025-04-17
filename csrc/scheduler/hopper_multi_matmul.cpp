@@ -237,41 +237,6 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
   }
 }
 
-TensorView* HopperMultipleMatmulScheduler::cacheAfter(
-    TensorView* orig,
-    LoadStoreOpType op_type,
-    CacheOp cache_op,
-    bool propagate_allocation_domain) {
-  const std::vector<IterDomain*> orig_alloc = orig->getMaybeAllocationDomain();
-
-  TensorView* c =
-      orig->cacheAfter(op_type, cache_op, propagate_allocation_domain);
-
-  if (propagate_allocation_domain) {
-    const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
-    NVF_ERROR(orig_alloc.size() == cache_alloc.size());
-    for (size_t i : arange(orig_alloc.size())) {
-      ValGroup vg = graph_->toGroup(orig_alloc[i]);
-      graph_->initializeVal(cache_alloc[i], vg);
-    }
-  }
-
-  const std::vector<IterDomain*> orig_logical =
-      TensorDomain::noReductions(orig->getLogicalDomain());
-  const std::vector<IterDomain*> cache_logical = c->getLogicalDomain();
-  // in split-K we do rFactor which gives us a full = sum(partial)
-  // where partial has root domain that matches the logical domain of the
-  // original tensor. The logical domain contains Iteration transforms of the
-  // Reduction axis in the original mma output.
-  NVF_ERROR(orig_logical.size() == cache_logical.size());
-  for (size_t i : arange(orig_logical.size())) {
-    ValGroup vg = graph_->toGroup(orig_logical[i]);
-    graph_->initializeVal(cache_logical[i], vg);
-  }
-
-  return c;
-}
-
 std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     blockTileTensors(const std::vector<TensorView*>& tvs) {
   if (canonical_dim_ordering_.empty()) {
@@ -623,19 +588,19 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
       TensorView* dc = d->definition()->input(0)->as<TensorView>();
 
-      // NOTE: cacheBefore does not work with blockTileTensors
-      // cacheInputsAndOutputs creates a cache_before for each output.
-      // Apply cacheAfter to the existing cache tensor for output.
       // The chain of operations storing data to global memory:
       //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
-      TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
+      TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-      bool dc_in_mma_results =
+      bool dc_is_mma_result =
           std::find(mma_results_.begin(), mma_results_.end(), dc) !=
           mma_results_.end();
+      bool dc_is_splitk_sum = params_->splitk_factor > 1 &&
+          std::find(splitk_sums_.begin(), splitk_sums_.end(), dc) !=
+              splitk_sums_.end();
 
-      if (!dc_in_mma_results) {
+      if (!dc_is_mma_result && !dc_is_splitk_sum) {
         // Skip scheduling dc if it is an mma_result. This can happen if we are
         // not casting back to half-precision in the output
         tvs_to_schedule.push_back(dc);
@@ -666,7 +631,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Should not propagate if the dc is a mma output as the mma output has
       // already been scheduled.
-      if (!dc_in_mma_results) {
+      if (!dc_is_mma_result && !dc_is_splitk_sum) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
