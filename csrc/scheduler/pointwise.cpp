@@ -1040,6 +1040,8 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     auto output = entry.second;
     inner_most_tensors.erase(output);
   }
+  // IndexSelectOp supports vectorized load on lookupTv. It should be treated
+  // the same as a cached input and excluded from inner_most_tensors.
   for (auto idx_sel : ir_utils::getOpsOfType<IndexSelectOp>(fusion)) {
     inner_most_tensors.erase(idx_sel->output(0)->as<TensorView>());
   }
