@@ -372,8 +372,9 @@ class WarSyncInserter : private kir::ExprMutator {
       mem_info.ca_loop = ca_loop;
       auto entry_it =
           smem_allocations_
-              .insert(std::make_pair(
-                  maybe_aliased_tv, std::vector<WarMemoryInfo>({mem_info})))
+              .insert(
+                  std::make_pair(
+                      maybe_aliased_tv, std::vector<WarMemoryInfo>({mem_info})))
               .first;
       return entry_it->second.back();
     } else if (
@@ -486,19 +487,21 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         // async mma pipeline has not been flushed yet.
         flush_async_mma_pipeline_ = false;
       } else if (mma->isBlackwell()) {
-        // TODO: This is clearly a wrong way to sync, but as an intermediate
-        // step to enable incremental development, we use nanosleep to sync the
-        // mma. We should replace this with a correct sync method.
-        registerInsertBefore(expr, IrBuilder::create<kir::BlockSync>());
+        registerInsertAfter(
+            expr,
+            IrBuilder::create<kir::MBarrierWaitParity>(
+                IrBuilder::create<kir::TensorIndex>(
+                    GpuLower::current()->mbarrierMap().at(expr),
+                    expr->fusion()->zeroVal()),
+                expr->fusion()->zeroVal(DataType::UInt32)));
         registerInsertAfter(
             expr,
             IrBuilder::create<kir::Asm>(
-                "nanosleep.u32",
+                "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
                 std::vector<Val*>{},
-                std::vector<Val*>{
-                    IrBuilder::create<Val>(4000000000, DataType::UInt32)},
+                std::vector<Val*>{lower_utils::u32IndexScalarSmemTv(
+                    GpuLower::current()->mbarrierMap().at(expr))},
                 kir::Asm::Options{/*volatile=*/true}));
-        registerInsertAfter(expr, IrBuilder::create<kir::BlockSync>());
       }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
       // Add a fence before TMA store so that writes in the generic proxy is
@@ -1237,10 +1240,12 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       if (ir_utils::isCpAsyncBulkStore(expr)) {
         continue;
       }
-      NVF_ERROR(std::all_of(
-          expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
-            return warp_specialized_async_inputs_in_current_scope_.count(val);
-          }));
+      NVF_ERROR(
+          std::all_of(
+              expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
+                return warp_specialized_async_inputs_in_current_scope_.count(
+                    val);
+              }));
       NVF_ERROR(ir_utils::getAsyncOpType(expr) == AsyncOpType::WgMma);
     }
 

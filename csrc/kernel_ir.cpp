@@ -432,6 +432,7 @@ std::string Asm::utility() const {
        "tcgen05::relinquishAllocPermit"},
       {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tcgen05::dealloc"},
       {"tcgen05.mma.cta_group::1.kind::f16", "tcgen05::mma_f16"},
+      {"tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64", "tcgen05::commit"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},

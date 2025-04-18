@@ -227,12 +227,12 @@ class GpuLower : public NonCopyable {
     return profile_;
   }
 
-  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() {
-    return ldst_mbarrier_map_;
+  std::unordered_map<const Expr*, TensorView*>& mbarrierMap() {
+    return mbarrier_map_;
   }
 
-  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
-    return ldst_mbarrier_map_;
+  const std::unordered_map<const Expr*, TensorView*>& mbarrierMap() const {
+    return mbarrier_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -432,8 +432,8 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // Keep track of the mbarrier used for each load/store operation
-  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+  // Keep track of the mbarrier used for each load/store and mma operation
+  std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;
