@@ -7,12 +7,9 @@ import torch
 from enum import Enum, auto
 from torch.nn.attention import SDPBackend
 
-import fixtures
 import nvfuser
 from nvfuser import DataType, FusionDefinition
 from nvfuser.testing.utils import create_sdpa_rng_tensors, define_sdpa_rng_state
-
-multidevice_test = fixtures.multidevice_test
 
 
 @pytest.mark.mpi
