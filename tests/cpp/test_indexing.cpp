@@ -25,6 +25,8 @@
 #include <scheduler/tools/inlining.h>
 #include <scheduler/tools/resize_utils.h>
 #include <scheduler/utils.h>
+#include <transform_iter.h>
+#include <val_graph_visitor.h>
 
 #include <algorithm>
 #include <utility>
@@ -204,6 +206,30 @@ class AbstractGetReference {
       CircularBufferLoopStage::NotApplicable;
 };
 
+void compareRecursively(Val* x, Val* y) {
+  std::cout << "Checking " << x->toInlineString() << ", " << y->toInlineString()
+            << std::endl;
+  if (x->sameAs(y)) {
+    std::cout << "Same: " << x->toString() << " (" << x->dtype()
+              << ")"
+                 ", "
+              << y->toString() << " (" << y->dtype() << ")" << std::endl;
+  } else if (x->definition() != nullptr) {
+    auto x_def = x->definition();
+    auto y_def = y->definition();
+    NVF_ERROR(y_def != nullptr);
+    NVF_ERROR(x_def->inputs().size() == y_def->inputs().size());
+    for (auto i : c10::irange(x->definition()->inputs().size())) {
+      std::cout << "Checking input " << i << std::endl;
+      compareRecursively(x_def->input(i), y_def->input(i));
+    }
+  } else {
+    std::cout << "Not same: " << x->toString() << " (" << x->dtype() << ") "
+              << ", " << y->toString() << " (" << y->dtype() << ") "
+              << std::endl;
+  }
+}
+
 template <typename GetReference>
 class IndexValidator : public kir::IrVisitor {
  public:
@@ -236,6 +262,18 @@ class IndexValidator : public kir::IrVisitor {
     auto out_ti = expr->output(0)->as<kir::TensorIndex>();
     for (auto inp : expr->inputs()) {
       if (inp->isA<kir::TensorIndex>()) {
+        // Since this is KIR, inp can be equal to out_ti when it was
+        // originally a reduction op in Fusion
+        if (inp == out_ti) {
+          Expr* original_def = out_ti->view()->definition();
+          NVF_ERROR(
+              original_def != nullptr && original_def->isA<ReductionOp>(),
+              "Unexpected input, ",
+              inp->toString(),
+              " in ",
+              expr->toString());
+          continue;
+        }
         validate(inp->as<kir::TensorIndex>(), out_ti);
       }
     }
@@ -260,6 +298,9 @@ class IndexValidator : public kir::IrVisitor {
           << (out_ti != nullptr ? "producer" : "consumer")
           << "\nRef: " << ref->toInlineString()
           << "\nActual: " << actual->toInlineString();
+      if (!actual->sameAs(ref)) {
+        compareRecursively(actual, ref);
+      }
       return;
     }
 
@@ -5360,6 +5401,168 @@ TEST_F(ContigPredicateIndexingTest, NonDivisibleSplit1) {
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({10, 20}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, NonDivisibleSplit2) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+
+  // auto tv2 = set(tv1);
+  // fusion.addOutput(tv2);
+  fusion.addOutput(tv1);
+
+  // [i(8)]
+  tv1->split(0, 10);
+  // [b(1), i(10)]
+  tv1->split(0, 4);
+  // [b(1), i(4), i(8)]
+
+  // tv1->axis(1)->parallelize(ParallelType::TIDy);
+  // tv1->axis(2)->parallelize(ParallelType::TIDx);
+
+  fusion.print();
+  fusion.printKernel();
+#if 0
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // For tv1, since it's fully contiguous, the predicate should be
+      // just:
+      //
+      // i >= 0 && i < I0 * I1
+      //
+      // where i is the loop index of the sole loop.
+      //
+      // For tv2, since it isn't contiguous:
+      //
+      // I0: i / (5 * I1) * 5 + i % (5 * I1) / I1
+      // I1: i % (5 * I1) % I1
+
+      auto i = loop_indices.at(0);
+
+      if (tv->name() == 2) {
+        auto i0_ext = tv->getLogicalDomain().at(0)->extent();
+        auto i1_ext = tv->getLogicalDomain().at(1)->extent();
+        auto five_i1 = mulExpr(createInt(5), i1_ext);
+        auto i0 = addExpr(
+            mulExpr(divExpr(i, five_i1), createInt(5)),
+            divExpr(modExpr(i, five_i1), i1_ext));
+        auto i1 = modExpr(modExpr(i, five_i1), i1_ext);
+        return andExpr(
+            andExpr(
+                andExpr(geExpr(i0, zero), ltExpr(i0, i0_ext)),
+                geExpr(i1, zero)),
+            ltExpr(i1, i1_ext));
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+#endif
+
+  // EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
+TEST_F(NVFuserTest, NonDivisibleSplit3) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+
+  // auto tv2 = set(tv1);
+  // fusion.addOutput(tv2);
+  fusion.addOutput(tv1);
+
+  // [r(8)]
+  tv1->split(0, 1);
+  // [r(8), r(1)]
+  tv1->split(1, 4);
+  // [r(8), r(1), r(4)]
+
+  // tv1->axis(1)->parallelize(ParallelType::TIDy);
+  // tv1->axis(2)->parallelize(ParallelType::TIDx);
+
+  fusion.print();
+  fusion.printKernel();
+#if 0
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // For tv1, since it's fully contiguous, the predicate should be
+      // just:
+      //
+      // i >= 0 && i < I0 * I1
+      //
+      // where i is the loop index of the sole loop.
+      //
+      // For tv2, since it isn't contiguous:
+      //
+      // I0: i / (5 * I1) * 5 + i % (5 * I1) / I1
+      // I1: i % (5 * I1) % I1
+
+      auto i = loop_indices.at(0);
+
+      if (tv->name() == 2) {
+        auto i0_ext = tv->getLogicalDomain().at(0)->extent();
+        auto i1_ext = tv->getLogicalDomain().at(1)->extent();
+        auto five_i1 = mulExpr(createInt(5), i1_ext);
+        auto i0 = addExpr(
+            mulExpr(divExpr(i, five_i1), createInt(5)),
+            divExpr(modExpr(i, five_i1), i1_ext));
+        auto i1 = modExpr(modExpr(i, five_i1), i1_ext);
+        return andExpr(
+            andExpr(
+                andExpr(geExpr(i0, zero), ltExpr(i0, i0_ext)),
+                geExpr(i1, zero)),
+            ltExpr(i1, i1_ext));
+      } else {
+        return nullptr;
+      }
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, true);
+#endif
+
+  // EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8}, options);
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
