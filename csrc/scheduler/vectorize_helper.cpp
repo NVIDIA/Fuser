@@ -17,6 +17,7 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <iter_visitor.h>
+#include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/resize_utils.h>
@@ -842,6 +843,53 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
+ValGraphBFS::ExprPath getPartialExprGroups(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGraphBFS::ExprPath& all_paths) {
+  ValGraphBFS::ExprPath partial_path;
+
+  ValGroups dep_groups = from;
+
+  bool something_has_changed = true;
+
+  while (something_has_changed) {
+    something_has_changed = false;
+    for (const auto& [expr_g, dir] : all_paths) {
+      const auto inputs = getInputsOfExprGroup(graph, expr_g, dir);
+      if (std::ranges::none_of(inputs, [&](const ValGroup& inp) {
+            return dep_groups.has(inp);
+          })) {
+        continue;
+      }
+
+      partial_path.emplace_back(expr_g, dir);
+
+      if (dep_groups.pushBack(getOutputsOfExprGroup(graph, expr_g, dir))) {
+        something_has_changed = true;
+      }
+    }
+  }
+
+  return partial_path;
+}
+
+ValGroups getAllReachableVals(
+    const ValGraph& graph,
+    const ValGroups& from,
+    const ValGraphBFS::ExprPath& all_paths) {
+  ValGroups all_reachable_vals = from;
+
+  auto path = getPartialExprGroups(graph, from, all_paths);
+
+  for (const auto& [expr_g, dir] : path) {
+    all_reachable_vals.pushBack(getInputsOfExprGroup(graph, expr_g, dir));
+    all_reachable_vals.pushBack(getOutputsOfExprGroup(graph, expr_g, dir));
+  }
+
+  return all_reachable_vals;
+}
+
 // This is a WAR for vectorizing through resized iter domains. The
 // spanning tree based analysis is not guaranteed to take all resize
 // ops into considerations (issue
@@ -850,7 +898,11 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 // vectorization factors.
 std::unordered_set<Val*> getResizeVectorizationFactors(
     TensorView* reference_tv,
-    int64_t break_point) {
+    int64_t break_point,
+    const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
+  std::cerr << "getResizeVectorizationFactors: " << reference_tv->toString()
+            << ", " << break_point << "\n";
+  reference_tv->printTransforms();
   Fusion* fusion = reference_tv->fusion();
   std::unordered_set<Val*> factors;
   const auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
@@ -862,7 +914,12 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
   IdModel id_model(reference_tv->fusion());
   const auto& graph = id_model.buildExactGraph();
 
-  const auto ref_groups = graph.toGroups(reference_tv->getLogicalDomain());
+  auto ref_logical = reference_tv->getLogicalDomain();
+  if (!logical_reorder_map.empty()) {
+    ref_logical = TensorDomain::orderedAs(ref_logical, logical_reorder_map);
+  }
+
+  const auto ref_groups = graph.toGroups(ref_logical);
 
   // For each of resize-based tensor ops, find all resize ops
   // that exist between the vectorized reference IDs and the output
@@ -871,12 +928,32 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     auto resize_out = resize_based_op->output(0)->as<TensorView>();
     NVF_ERROR(
         resize_out->hasRoot(), "Unexpected op: ", resize_based_op->toString());
+    const auto& root = resize_out->getRootDomain();
+    const auto& logical = resize_out->getLogicalDomain();
+    NVF_ERROR_EQ(root.size(), logical.size());
+    std::vector<Resize*> resize_ops;
+    for (const auto i : arange(root.size())) {
+      if (root.at(i) == logical.at(i)) {
+        continue;
+      }
+      auto resize = dynamic_cast<Resize*>(logical.at(i)->definition());
+      NVF_ERROR(
+          resize != nullptr,
+          "Unexpected op between root (",
+          root.at(i)->toString(),
+          ") and logical (",
+          logical.at(i)->toString());
+      resize_ops.push_back(resize);
+    }
+
     // getAllExprGroupsBetween finds exprs between IDs. To make sure
     // the the resize op of this resize_based_op tensor op is found,
     // use both the root and logical domains as the traversal targets.
     ValGroups resize_inp_out;
-    resize_inp_out.pushBack(graph.toGroups(resize_out->getRootDomain()));
-    resize_inp_out.pushBack(graph.toGroups(resize_out->getLogicalDomain()));
+    for (auto resize : resize_ops) {
+      resize_inp_out.pushBack(graph.toGroup(resize->in()));
+      resize_inp_out.pushBack(graph.toGroup(resize->out()));
+    }
 
     auto expr_path = getAllExprGroupsBetween(
                          graph,
@@ -885,9 +962,10 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
                          /*require_all_to_visited=*/false)
                          .first;
 
+    auto expr_path_rev = reverse(expr_path);
+
     ValGroups vectorized_groups;
-    for (auto it = reference_tv->getLogicalDomain().begin() + break_point;
-         it != reference_tv->getLogicalDomain().end();
+    for (auto it = ref_logical.begin() + break_point; it != ref_logical.end();
          ++it) {
       vectorized_groups.pushBack(graph.toGroup(*it));
     }
@@ -902,10 +980,9 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
       something_has_changed = false;
       for (const auto& [expr_g, dir] : expr_path) {
         const auto inputs = getInputsOfExprGroup(graph, expr_g, dir);
-        if (std::none_of(
-                inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
-                  return vectorized_groups.has(inp);
-                })) {
+        if (std::ranges::none_of(inputs, [&](const ValGroup& inp) {
+              return vectorized_groups.has(inp);
+            })) {
           continue;
         }
 
@@ -919,14 +996,44 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
           continue;
         }
 
+        // Find which reference IDs are reachable.
+        auto all_reachable_vals_from_resize = getAllReachableVals(
+            graph, {graph.toGroup(resize->out())}, expr_path);
+        Val* non_resized_inner_factor = resize->fusion()->oneVal();
+        for (auto it = ref_logical.rbegin();
+             it != ref_logical.rbegin() + (ref_logical.size() - break_point);
+             ++it) {
+          IterDomain* ref_logical_id = *it;
+          if (all_reachable_vals_from_resize.has(
+                  graph.toGroup(ref_logical_id))) {
+            break;
+          }
+
+          non_resized_inner_factor = SimplifyingIrBuilder::mulExpr(
+              ref_logical_id->extent(), non_resized_inner_factor);
+        }
+
         // These three vals need to be divisible
-        factors.emplace(resize->leftExpand());
-        factors.emplace(resize->rightExpand());
-        factors.emplace(
+        std::vector<Val*> resize_factors{
+            resize->leftExpand(),
+            resize->rightExpand(),
             dir == Direction::Forward ? resize->out()->extent()
-                                      : resize->in()->extent());
+                                      : resize->in()->extent()};
+
+        std::ranges::transform(
+            resize_factors, resize_factors.begin(), [&](Val* factor) {
+              return SimplifyingIrBuilder::mulExpr(
+                  factor, non_resized_inner_factor);
+            });
+
+        factors.insert(resize_factors.begin(), resize_factors.end());
       }
     }
+  }
+
+  std::cerr << "Resize factors:\n";
+  for (auto v : factors) {
+    std::cerr << "\t" << v->toInlineString() << "\n";
   }
 
   return factors;
@@ -962,19 +1069,23 @@ int64_t getVectorizationFactor(
           });
 
   if (vectorizable_inputs_outputs.empty()) {
+    scheduler_debug_utils::log(
+        "No vectorizable input or output tensors detected");
     return 1;
   }
 
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
+    scheduler_debug_utils::log("Invalid break point: ", break_point);
     return 1;
   }
 
   auto resize_factors_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationFactors>(
-          data_cache, [&reference_tv, &break_point]() {
+          data_cache, [&reference_tv, &break_point, &logical_reorder_map]() {
             return std::make_unique<std::unordered_set<Val*>>(
-                getResizeVectorizationFactors(reference_tv, break_point));
+                getResizeVectorizationFactors(
+                    reference_tv, break_point, logical_reorder_map));
           });
 
   const auto& resize_factors = resize_factors_entry.get();
@@ -1018,6 +1129,12 @@ int64_t getVectorizationFactor(
         max_vec_size);
   }
 
+  scheduler_debug_utils::log(
+      "Vectorization factor without considering resize: ", max_vec_size);
+
+  if (getenv("SKIP")) {
+    return max_vec_size;
+  }
   // This is a WAR for vectorization through resize as the spanning
   // tree based traversal is not guaranteed to reflect all resize ops
   // that may affect vectorization. This is a safe but conservative
@@ -1030,6 +1147,8 @@ int64_t getVectorizationFactor(
     }
     max_vec_size = std::gcd(max_vec_size, inferred_val.as<int64_t>());
   }
+
+  scheduler_debug_utils::log("Vectorization factor: ", max_vec_size);
 
   return max_vec_size;
 }
