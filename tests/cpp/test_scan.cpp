@@ -204,7 +204,10 @@ TEST_F(ScanTest, OnlineSoftmax) {
   for (TensorView* tv : {m, m_prev, denoms}) {
     tv->computeWith(-1);
     for (Val* v : tv->definition()->inputs()) {
-      v->as<TensorView>()->computeWith(-1);
+      // By using `uninlineable_ids` above, we prevent producers of scan from
+      // inlining with the ScanOp past the scan dim, even though this is
+      // desired. Here we do this inlining manually instead.
+      v->as<TensorView>()->inlineAt(-1);
     }
   }
 
@@ -292,7 +295,10 @@ TEST_F(ScanTest, OnlineSoftmaxOuter) {
   for (TensorView* tv : {m, m_prev, denoms}) {
     tv->computeWith(-1);
     for (Val* v : tv->definition()->inputs()) {
-      v->as<TensorView>()->computeWith(-1);
+      // By using `uninlineable_ids` above, we prevent producers of scan from
+      // inlining with the ScanOp past the scan dim, even though this is
+      // desired. Here we do this inlining manually instead.
+      v->as<TensorView>()->inlineAt(-1);
     }
   }
 
