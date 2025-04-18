@@ -20,6 +20,14 @@ namespace nvfuser {
 
 namespace {
 
+bool isWarpSpecialized(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
+
 // The epilogue loop is only created when the producer of a circular
 // buffer tensor is on smem, in which case it would otherwise require
 // an additional predicate to guard buffer overruns. When it's on
@@ -858,6 +866,13 @@ class CloneTmaCircularBufferLoopAndInsertSync
     return elect_sync_if_then_else_;
   }
 
+  Scope& getScope() {
+    if (isWarpSpecialized(circular_buffer_loop_)) {
+      return for_loop_stack_.back()->body();
+    }
+    return getElectSyncIfThenElse()->thenBody();
+  }
+
   // This function selects a single thread to launch tma load and mbarrier
   // arrive_expected_tx operations. The remaining threads will simply arrive
   // at the mbarrier.
@@ -877,9 +892,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(mbarrier_arrive_tx_ != nullptr);
     NVF_ERROR(expr != nullptr);
 
-    // Use the if-then-else with electSync() predicate for the arrive expect
-    // and cpAsyncBulk operations.
-    kir::IfThenElse* if_expr = getElectSyncIfThenElse();
+    Scope& scope = getScope();
 
     // Wait for WAR
     if (usesMBarrierForWAR()) {
@@ -887,7 +900,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
            it != war_mbarriers_to_wait_.end();) {
         auto wait = it->second;
         if (wait != nullptr) {
-          if_expr->thenBody().push_back(wait);
+          scope.push_back(wait);
           it = war_mbarriers_to_wait_.erase(it);
         } else {
           ++it;
@@ -896,8 +909,8 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
 
     // Arrive expect tx for RAW
-    if_expr->thenBody().push_back(mbarrier_arrive_tx_);
-    if_expr->thenBody().push_back(expr);
+    scope.push_back(mbarrier_arrive_tx_);
+    scope.push_back(expr);
 
     mbarrier_arrive_tx_ = nullptr;
   }
@@ -1143,18 +1156,6 @@ class IsCircularBufferLoadLoop : public kir::IrVisitor {
   const std::vector<Expr*>& circular_buffer_load_exprs_;
   bool result_ = false;
 };
-
-namespace {
-
-bool isWarpSpecialized(ForLoop* loop) {
-  return std::holds_alternative<WarpSpecialized>(
-      GpuLower::current()
-          ->circularBufferInfo()
-          .getCircularBufferOptionsFor(loop->iter_domain())
-          .type);
-}
-
-} // namespace
 
 // Traverse lowered loop-nests and find all circular buffer loops and
 // associated load expressions.
@@ -1458,7 +1459,10 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         loads,
         CircularBufferLoopStage::AsyncWarp,
         insertion_position);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
+    kir::IfThenElse* elect_sync_ite = IrBuilder::create<kir::IfThenElse>(
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+    elect_sync_ite->thenBody().push_back(load_loop);
+    warp_dispatch_ite->thenBody().push_back(elect_sync_ite);
 
     if (enable_register_sharing) {
       // Terminate the warp group handling Load loop immediately after
