@@ -1522,7 +1522,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
-    TensorView* mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* mbarrier = GpuLower::current()->mbarrierMap().at(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
