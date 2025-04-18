@@ -8,7 +8,6 @@ import transformers
 import torch
 import torch.distributed as dist
 from contextlib import contextmanager
-from multidevice import fixtures
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
