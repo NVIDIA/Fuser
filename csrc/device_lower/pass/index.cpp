@@ -2698,13 +2698,12 @@ void IndexLowering::handle(const MmaOp* mma) {
       IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
   if (mma->isBlackwell()) {
-    pushBack(
-        IrBuilder::create<kir::Asm>(
-            "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
-            std::vector<Val*>{},
-            std::vector<Val*>{lower_utils::u32IndexScalarSmemTv(
-                GpuLower::current()->mbarrierMap().at(mma))},
-            kir::Asm::Options{/*volatile=*/true}));
+    pushBack(IrBuilder::create<kir::Asm>(
+        "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
+        std::vector<Val*>{},
+        std::vector<Val*>{lower_utils::u32IndexScalarSmemTv(
+            GpuLower::current()->mbarrierMap().at(mma))},
+        kir::Asm::Options{/*volatile=*/true}));
   }
   GpuLower::current()->propagateExprInfo(mma, back());
 }
