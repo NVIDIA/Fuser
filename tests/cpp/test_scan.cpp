@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include <fusion.h>
-#include <ops/arith.h>
+#include <ops/all_ops.h>
 #include <options.h>
 #include <scheduler/tools/inlining.h>
 #include <tests/cpp/utils.h>
@@ -236,7 +236,7 @@ TEST_F(ScanTest, OnlineSoftmaxOuter) {
   FusionGuard fg(fusion.get());
 
   // TODO: Allow outer dim to be symbolic
-  auto x = makeSymbolicTensor(2);
+  auto x = makeConcreteTensor({-1, 32});
   fusion->addInput(x);
 
   int64_t scan_dim = 0;
