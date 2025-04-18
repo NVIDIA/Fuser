@@ -39,55 +39,12 @@ IterDomain* getStreamAxis(const std::vector<IterDomain*>& domain) {
   return ret;
 }
 
-// StreamParallelType pass implementation.
-// This pass handles stream parallelization of operations in a fusion.
-// It works by:
-// 1. Identifying stream-parallelized axes in tensor operations
-// 2. Grouping compatible operations into stream-parallel for-loops
-// 3. Setting up proper stream synchronization and management
-//
-// The pass ensures that:
-// - Input tensors don't have stream axes
-// - Only one stream axis exists per tensor
-// - Stream axes are properly synchronized
-// - Operations are correctly grouped into stream-parallel regions
-// - The resulting HostIrContainer's top level expression is valid for execution
-// and does not contain any stream axes
-//
-// TODO: Here, we assume that the fusion input is a HostIrContainer and use the
-// linear structure of the HostIrContainer::topLevelExpr to greedily merge the
-// adjacent compatible stream for-loop bodies. Ideally we should look at the dag
-// and use the segmenter.
-void StreamParallelType::runPass(Fusion* fusion) {
-  // Verify that input tensors don't have stream axes
-  NVF_CHECK(
-      std::all_of(
-          fusion->inputs().begin(),
-          fusion->inputs().end(),
-          [](Val* input) {
-            auto input_tv = dynamic_cast<TensorView*>(input);
-            return input_tv == nullptr ||
-                getStreamAxis(input_tv->getLoopDomain()) == nullptr;
-          }),
-      "Expected no stream axis in the TensorView inputs.");
-
-  // Set up the fusion environment and build the ID model
-  FusionGuard fg(fusion);
-  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
-  NVF_CHECK(hic, "Expected HostIrContainer");
-
-  IdModel id_model(fusion);
-  id_model.buildAlmostExactGraph();
-
+// Step 1: Group expressions into stream-parallel regions
+std::vector<Expr*> groupStreamParallelRegions(
+    hir::HostIrContainer* hic,
+    const IdModel& id_model) {
   std::vector<Expr*> new_top_level_exprs;
 
-  // Step 1: Group expressions into stream-parallel regions
-  // This step identifies which expressions can be merged into single stream
-  // for-loops
-  //
-  // After this step, new_top_level_exprs contains a
-  // list of expressions including newly created for-loops representing
-  // the stream parallelization containing and the relevant expressions
   for (auto expr : hic->topLevelExprs()) {
     // Skip expressions with no outputs
     if (expr->outputs().size() == 0) {
@@ -130,15 +87,16 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
     // Verify stream axis is an iteration axis (not reduction/broadcast)
     NVF_CHECK(
-        stream_axis->getIterType() == IterType::Iteration,
+        stream_axis->getIterType() == IterType::Iteration ||
+            stream_axis->getIterType() == IterType::Broadcast,
         "Stream axis ",
         stream_axis,
-        " should be an iteration axis.");
+        " should be an iteration or broadcast axis.");
 
     // Check if expression can be merged with previous stream for-loop
     if (!new_top_level_exprs.empty() &&
         new_top_level_exprs.back()->isA<ForLoop>() &&
-        id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+        id_model.idGraph(IdMappingMode::BROADCAST)
             .disjointValSets()
             .strictAreMapped(
                 stream_axis,
@@ -149,7 +107,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
       // Create new for-loop for stream parallelization
       auto* for_loop = IrBuilder::create<ForLoop>(
           stream_axis,
-          /*index=*/IrBuilder::create<Val>(DataType::Index),
+          /*index=*/NamedScalar::getParallelIndex(ParallelType::Stream),
           /*start=*/hic->zeroVal(),
           /*stop=*/stream_axis->extent(),
           /*step=*/hic->oneVal(),
@@ -164,10 +122,15 @@ void StreamParallelType::runPass(Fusion* fusion) {
     }
   }
 
-  // Step 2: Process each for-loop's body by slicing tensors
-  // This step handles the actual tensor slicing for stream parallelization
-  std::vector<Expr*> top_level_exprs = std::move(new_top_level_exprs);
-  new_top_level_exprs.clear();
+  return new_top_level_exprs;
+}
+
+// Step 2: Process for-loop bodies by slicing tensors
+std::vector<Expr*> processForLoopBodies(
+    hir::HostIrContainer* hic,
+    const IdModel& id_model,
+    std::vector<Expr*> top_level_exprs) {
+  std::vector<Expr*> new_top_level_exprs;
 
   for (auto top_level_expr : top_level_exprs) {
     if (!top_level_expr->isA<ForLoop>()) {
@@ -190,7 +153,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
         // Find stream axis index in input tensor
         int64_t input_stream_id_logical_index = -1;
         for (auto id : input->getLoopDomain()) {
-          if (id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+          if (id_model.idGraph(IdMappingMode::BROADCAST)
                   .disjointValSets()
                   .strictAreMapped(for_loop->iterDomain(), id)) {
             // Verify only one stream axis exists
@@ -254,7 +217,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
         // Find stream axis index in output tensor
         int64_t output_stream_id_logical_index = -1;
         for (auto id : output->getLoopDomain()) {
-          if (id_model.idGraph(IdMappingMode::ALMOSTEXACT)
+          if (id_model.idGraph(IdMappingMode::BROADCAST)
                   .disjointValSets()
                   .strictAreMapped(for_loop->iterDomain(), id)) {
             // Verify only one stream axis exists
@@ -334,9 +297,16 @@ void StreamParallelType::runPass(Fusion* fusion) {
     new_top_level_exprs.push_back(top_level_expr);
   }
 
-  // Step 3: Add stream management and synchronization
-  for (auto* top_level_expr : new_top_level_exprs) {
+  return new_top_level_exprs;
+}
+
+// Step 3: Add stream management and synchronization
+std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
+  std::vector<Expr*> new_top_level_exprs;
+
+  for (auto* top_level_expr : top_level_exprs) {
     if (!top_level_expr->isA<ForLoop>()) {
+      new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
     auto* for_loop = top_level_expr->as<ForLoop>();
@@ -377,10 +347,63 @@ void StreamParallelType::runPass(Fusion* fusion) {
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
     }
+    new_top_level_exprs.push_back(top_level_expr);
   }
 
+  return new_top_level_exprs;
+}
+
+// StreamParallelType pass implementation.
+// This pass handles stream parallelization of operations in a fusion.
+// It works by:
+// 1. Identifying stream-parallelized axes in tensor operations
+// 2. Grouping compatible operations into stream-parallel for-loops
+// 3. Setting up proper stream synchronization and management
+//
+// The pass ensures that:
+// - Input tensors don't have stream axes
+// - Only one stream axis exists per tensor
+// - Stream axes are properly synchronized
+// - Operations are correctly grouped into stream-parallel regions
+// - The resulting HostIrContainer's top level expression is valid for execution
+// and does not contain any stream axes
+//
+// TODO: Here, we assume that the fusion input is a HostIrContainer and use the
+// linear structure of the HostIrContainer::topLevelExpr to greedily merge the
+// adjacent compatible stream for-loop bodies. Ideally we should look at the dag
+// and use the segmenter.
+void StreamParallelType::runPass(Fusion* fusion) {
+  // Verify that input tensors don't have stream axes
+  NVF_CHECK(
+      std::all_of(
+          fusion->inputs().begin(),
+          fusion->inputs().end(),
+          [](Val* input) {
+            auto input_tv = dynamic_cast<TensorView*>(input);
+            return input_tv == nullptr ||
+                getStreamAxis(input_tv->getLoopDomain()) == nullptr;
+          }),
+      "Expected no stream axis in the TensorView inputs.");
+
+  // Set up the fusion environment and build the ID model
+  FusionGuard fg(fusion);
+  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  NVF_CHECK(hic, "Expected HostIrContainer");
+
+  IdModel id_model(fusion);
+  id_model.buildBroadcastGraph();
+
+  // Step 1: Group expressions into stream-parallel regions
+  std::vector<Expr*> top_level_exprs = groupStreamParallelRegions(hic, id_model);
+
+  // Step 2: Process for-loop bodies by slicing tensors
+  top_level_exprs = processForLoopBodies(hic, id_model, std::move(top_level_exprs));
+
+  // Step 3: Add stream management and synchronization
+  top_level_exprs = addStreamManagement(std::move(top_level_exprs));
+
   // Update the container's top-level expressions
-  hic->resetTopLevelExprs(new_top_level_exprs);
+  hic->resetTopLevelExprs(top_level_exprs);
 }
 
 } // namespace nvfuser::preseg_passes
