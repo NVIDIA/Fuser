@@ -22,6 +22,7 @@ namespace nvfuser::preseg_passes {
 
 namespace {
 
+// Finds the stream axis in a tensor's domain. There should be at most one stream axis.
 IterDomain* getStreamAxis(const std::vector<IterDomain*>& domain) {
   IterDomain* ret = nullptr;
   for (auto id : domain) {
@@ -38,6 +39,7 @@ IterDomain* getStreamAxis(const std::vector<IterDomain*>& domain) {
   return ret;
 }
 
+// Validates that a stream axis is valid in a tensor
 void validateStreamAxis(IterDomain* stream_axis, const TensorView* tv) {
   // Find the stream axis in the logical domain
   auto it_logical_stream_axis = std::find(
@@ -60,12 +62,14 @@ void validateStreamAxis(IterDomain* stream_axis, const TensorView* tv) {
       " should be an iteration or broadcast axis.");
 }
 
+// Checks if two iteration domains are mapped in the ID model
 bool areIdsMapped(const IdModel& id_model, IterDomain* id1, IterDomain* id2) {
   return id_model.idGraph(IdMappingMode::BROADCAST)
       .disjointValSets()
       .strictAreMapped(id1, id2);
 }
 
+// Determines if a stream-parallel for-loop can be merged with the previous one
 bool canMergeWithPreviousForLoop(
     const std::vector<Expr*>& new_top_level_exprs,
     IterDomain* stream_axis,
@@ -78,6 +82,7 @@ bool canMergeWithPreviousForLoop(
           new_top_level_exprs.back()->as<ForLoop>()->iterDomain());
 }
 
+// Finds where a stream axis appears in a tensor's logical domain
 int64_t findStreamAxisIndex(
     const TensorView* tv,
     IterDomain* stream_axis,
@@ -121,6 +126,7 @@ std::vector<Expr*> groupStreamParallelRegions(
     const IdModel& id_model) {
   std::vector<Expr*> new_top_level_exprs;
 
+  // Process each top-level expression
   for (auto expr : hic->topLevelExprs()) {
     // Skip expressions with no outputs
     if (expr->outputs().size() == 0) {
@@ -128,7 +134,7 @@ std::vector<Expr*> groupStreamParallelRegions(
       continue;
     }
 
-    // Verify single output constraint
+    // Each expression should have exactly one output
     NVF_CHECK(
         expr->outputs().size() == 1,
         "Each expr should have at most one output.");
@@ -137,13 +143,13 @@ std::vector<Expr*> groupStreamParallelRegions(
     TensorView* output = expr->output(0)->as<TensorView>();
     IterDomain* stream_axis = getStreamAxis(output->getLoopDomain());
 
-    // If no stream axis, keep expression as is
+    // If no stream axis found, keep the expression as is
     if (stream_axis == nullptr) {
       new_top_level_exprs.push_back(expr);
       continue;
     }
 
-    // Verify expression can be handled as a standalone host operation
+    // Verify that the expression can be handled as a standalone host operation
     NVF_ERROR(
         HostIrLower::isLowerableAsStandaloneHostOp(expr),
         "Stream parallel type not supported for expr ",
@@ -152,12 +158,12 @@ std::vector<Expr*> groupStreamParallelRegions(
     // Validate stream axis
     validateStreamAxis(stream_axis, output);
 
-    // Check if expression can be merged with previous stream for-loop
+    // Check if we can merge this expression with the previous for-loop
     if (canMergeWithPreviousForLoop(new_top_level_exprs, stream_axis, id_model)) {
-      // Merge with existing for-loop
+      // Merge with existing for-loop by adding the expression to its body
       new_top_level_exprs.back()->as<ForLoop>()->body().push_back(expr);
     } else {
-      // Create new for-loop for stream parallelization
+      // Create a new for-loop for stream parallelization
       auto* for_loop = IrBuilder::create<ForLoop>(
           stream_axis,
           /*index=*/NamedScalar::getParallelIndex(ParallelType::Stream),
@@ -169,6 +175,7 @@ std::vector<Expr*> groupStreamParallelRegions(
           /*unroll_required=*/false,
           CircularBufferLoopStage::NotApplicable,
           /*circular_buffer_loop_stage_depth=*/0);
+      // Add the expression to the new for-loop's body
       for_loop->body().push_back(expr);
       new_top_level_exprs.push_back(for_loop);
     }
@@ -184,7 +191,9 @@ std::vector<Expr*> processForLoopBodies(
     std::vector<Expr*> top_level_exprs) {
   std::vector<Expr*> new_top_level_exprs;
 
+  // Process each top-level expression
   for (auto top_level_expr : top_level_exprs) {
+    // Skip non-for-loop expressions
     if (!top_level_expr->isA<ForLoop>()) {
       new_top_level_exprs.push_back(top_level_expr);
       continue;
@@ -192,24 +201,26 @@ std::vector<Expr*> processForLoopBodies(
 
     auto* for_loop = top_level_expr->as<ForLoop>();
     std::vector<Expr*> new_loop_body;
+    std::vector<Expr*> current_loop_body = for_loop->body().exprs();
 
     // Process each expression in the loop body
-    std::vector<Expr*> current_loop_body = for_loop->body().exprs();
     for (auto it_expr = current_loop_body.begin();
          it_expr != current_loop_body.end();
          ++it_expr) {
       Expr* expr = *it_expr;
 
-      // Process input tensors
+      // Process input tensors that might have stream axes
       for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
+        // Find if this input has a stream axis
         int64_t input_stream_id_logical_index = findStreamAxisIndex(
             input, for_loop->iterDomain(), id_model);
 
+        // Skip if no stream axis found
         if (input_stream_id_logical_index == -1) {
           continue;
         }
 
-        // Create sliced tensor for current stream iteration
+        // Create a sliced version of the input tensor for this stream iterdomain
         TensorView* input_j = select(
             input,
             input_stream_id_logical_index,
@@ -217,7 +228,7 @@ std::vector<Expr*> processForLoopBodies(
             /*keep_reduction_axis=*/true);
         new_loop_body.push_back(input_j->definition());
 
-        // Update all expressions using this input
+        // Update all expressions that use this input to use the sliced version
         for (auto it_running_expr = current_loop_body.begin();
              it_running_expr != current_loop_body.end();
              ++it_running_expr) {
@@ -232,28 +243,30 @@ std::vector<Expr*> processForLoopBodies(
         }
       }
 
-      // Process output tensors
+      // Process output tensors that might have stream axes
       for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // Find if this output has a stream axis
         int64_t output_stream_id_logical_index = findStreamAxisIndex(
             output, for_loop->iterDomain(), id_model);
 
+        // Skip if no stream axis found
         if (output_stream_id_logical_index == -1) {
           continue;
         }
 
-        // Create sliced tensor for current stream iteration
+        // Create a sliced version of the output tensor for this stream axis
         TensorView* output_j = select(
             output,
             output_stream_id_logical_index,
             for_loop->index(),
             /*keep_reduction_axis=*/true);
 
-        // Allocate memory for the output tensor
+        // Allocate memory for the output tensor, and place the allocation IR before the for-loop, at the top level
         new_top_level_exprs.push_back(
             IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
         new_loop_body.push_back(output_j->definition());
 
-        // Update all expressions using this output
+        // Update all expressions that use this output to use the sliced version
         for (auto it_running_expr = current_loop_body.begin();
              it_running_expr != current_loop_body.end();
              ++it_running_expr) {
@@ -261,7 +274,8 @@ std::vector<Expr*> processForLoopBodies(
           for (auto* running_output :
                ir_utils::filterByType<TensorView>(running_expr->outputs())) {
             if (running_output == output) {
-              // Create alias for the sliced output
+              // Create an alias for the sliced output to maintain the original tensor's properties
+              // Alias is needed here to avoid that transferDefinitionToNewOutputs throws. Indeed, HIC does not make the SSA assumption, but the util functions we use (such as transferDefinitionToNewOutputs) do, therefore we need to create an alias for the sliced output to not create loops in the dag.
               TensorView* output_j_alias =
                   ops::newValLike(output_j, output_j->dtype(), true)
                       ->as<TensorView>();
@@ -270,13 +284,14 @@ std::vector<Expr*> processForLoopBodies(
                   running_expr, {output_j_alias});
             }
           }
-
         }
       }
+
+      // Add the original expression to the new loop body
       new_loop_body.push_back(*it_expr);
     }
 
-    // Update for-loop body with processed expressions
+    // Update the for-loop body with all the processed expressions
     for_loop->body().clear();
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
@@ -291,20 +306,23 @@ std::vector<Expr*> processForLoopBodies(
 std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
   std::vector<Expr*> new_top_level_exprs;
 
+  // Process each top-level expression
   for (auto* top_level_expr : top_level_exprs) {
+    // Skip non-for-loop expressions
     if (!top_level_expr->isA<ForLoop>()) {
       new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
+
     auto* for_loop = top_level_expr->as<ForLoop>();
     std::vector<Expr*> new_loop_body;
 
-    // Get current stream for later synchronization
+    // Get the current stream before entering the loop
     auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
     hir::Stream* original_stream = get_current_stream->stream();
     new_loop_body.push_back(get_current_stream);
 
-    // Set up stream for current iteration
+    // Set up a new stream for this iteration based on the loop index
     auto* number_of_streams =
         IrBuilder::create<NamedScalar>("numberOfStreams", DataType::Int);
     auto* stream_index = mod(for_loop->index(), number_of_streams);
@@ -312,24 +330,24 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
     new_loop_body.push_back(set_stream);
 
-    // Synchronize with original stream
+    // Synchronize with the original stream before starting computation
     auto* initial_sync_stream =
         IrBuilder::create<hir::Synchronize>(original_stream);
     new_loop_body.push_back(initial_sync_stream);
 
-    // Add the actual computation expressions
+    // Add all the expressions to the loop body
     for (auto* expr : for_loop->body().exprs()) {
       new_loop_body.push_back(expr);
     }
 
-    // Restore original stream and synchronize
+    // Restore the original stream and synchronize with the iteration's stream
     auto* set_back_original_stream =
         IrBuilder::create<hir::SetCurrentStream>(original_stream);
     new_loop_body.push_back(set_back_original_stream);
     auto* sync_stream = IrBuilder::create<hir::Synchronize>(stream);
     new_loop_body.push_back(sync_stream);
 
-    // Update for-loop body with stream management
+    // Update the for-loop body with the new expressions
     for_loop->body().clear();
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
@@ -396,4 +414,3 @@ void StreamParallelType::runPass(Fusion* fusion) {
 }
 
 } // namespace nvfuser::preseg_passes
-
