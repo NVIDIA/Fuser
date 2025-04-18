@@ -159,7 +159,8 @@ void SegmentedGroup::makeClonedFusion() {
       });
 }
 
-std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
+std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups()
+    const {
   std::vector<NeighborGroup> neighbors;
   for (auto inp : producer_edges) {
     if (inp->val->isFusionOutput() || inp->from->exprs_.empty()) {
@@ -194,8 +195,8 @@ std::vector<SegmentedGroup*> SegmentedGroup::getNeighbors() {
   return neighbors;
 }
 
-std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
-    getMergeCandidates() {
+std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getMergeCandidates()
+    const {
   // Don't look for candidates if already merged. Input groups should
   // be also ignored from the merge process
   if (merged_ || exprs_.empty()) {
@@ -3962,10 +3963,12 @@ class PreferredMergeCandidatePicker {
         candidates_.emplace_back(group, *neighbor_to_merge);
         continue;
       }
-      if (auto neighbor_to_merge = mergePadWithConsumers(group);
-          neighbor_to_merge.has_value()) {
-        candidates_.emplace_back(group, *neighbor_to_merge);
-        continue;
+      if (!getenv("DISABLE_PREFER_PAD")) {
+        if (auto neighbor_to_merge = mergePadWithConsumers(group);
+            neighbor_to_merge.has_value()) {
+          candidates_.emplace_back(group, *neighbor_to_merge);
+          continue;
+        }
       }
     }
   }
@@ -4055,7 +4058,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
 std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     mergePadWithConsumers(SegmentedGroup* group) const {
-  if (group->consumer_edges.empty()) {
+  if (group->consumer_edges.empty() || group->isMerged()) {
     return std::nullopt;
   }
 
@@ -4086,8 +4089,22 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       continue;
     }
 
-    return SegmentedGroup::NeighborGroup(
-        (*consumer_edge_it)->to, *consumer_edge_it);
+    auto consumer_group = (*consumer_edge_it)->to;
+    if (consumer_group->isMerged()) {
+      return std::nullopt;
+    }
+
+    // Don't try to merge if not a candidate
+    auto merge_candidates = group->getMergeCandidates();
+    if (std::ranges::find_if(
+            merge_candidates,
+            [&](const SegmentedGroup::NeighborGroup& neighbor) {
+              return neighbor.group == consumer_group;
+            }) == merge_candidates.end()) {
+      return std::nullopt;
+    }
+
+    return SegmentedGroup::NeighborGroup(consumer_group, *consumer_edge_it);
   }
 
   return std::nullopt;
@@ -4124,6 +4141,12 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
     return SchedulerType::None;
   }
   auto scheduler_type = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
+  if (scheduler_type == SchedulerType::None) {
+    std::cerr << "Failed to find a scheduler\n" << group << "\n";
+    for (auto expr : group->exprs()) {
+      std::cerr << expr->toString();
+    }
+  }
   NVF_ERROR(
       scheduler_type != SchedulerType::None,
       "Can not find a scheduler to schedule fusion segment");
@@ -4249,7 +4272,7 @@ void SegmentCandidateFinder::trySetUpMerge(
   }
 
   auto candidate_it = candidates.begin();
-  while (candidate_it != candidates.end() &&
+  while (candidate_it != candidates.end() && !candidate_it->group->isMerged() &&
          !codeGenSupportedMerge(group, candidate_it->group)) {
     candidate_it++;
   }
@@ -4343,8 +4366,10 @@ void SegmentCandidateFinder::findSegments() {
   MergeUpAndDownCast::run(this);
   validateIfDebug(true);
 
-  MergeRopeGroups::run(this);
-  validateIfDebug();
+  if (getenv("MERGE_ROPE")) {
+    MergeRopeGroups::run(this);
+    validateIfDebug();
+  }
 
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
@@ -4364,7 +4389,9 @@ void SegmentCandidateFinder::findSegments() {
       // Try preferred merge first
       for (auto& [group, neighbor] :
            PreferredMergeCandidatePicker::get(groups())) {
-        trySetUpMerge(group, {neighbor});
+        if (!neighbor.group->isMerged()) {
+          trySetUpMerge(group, {neighbor});
+        }
       }
 
       // If there are preferred groups to merge, merge them first
@@ -4633,7 +4660,7 @@ Expr* shouldForward(Val* v) {
     return nullptr;
   }
 
-  if (ldst_use != nullptr && !getenv("DISABLE_LD_FORWARD")) {
+  if (ldst_use != nullptr && getenv("LD_FORWARD")) {
     if (ldst_use->opType() != LoadStoreOpType::Set ||
         (v->isFusionInput() && v->isA<TensorView>() &&
          v->as<TensorView>()->getMaybeAllocationDomain() !=

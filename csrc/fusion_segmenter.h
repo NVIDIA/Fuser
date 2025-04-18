@@ -154,6 +154,10 @@ class SegmentedGroup {
   //! Query if this is a group for a fusion input
   bool isFusionInputGroup() const;
 
+  //! Look at all neighbors of this and return who this could merge with based
+  //! on level values of this, neighbors, and merged neighbors of neighbors
+  std::vector<NeighborGroup> getMergeCandidates() const;
+
  public:
   //! "Ancestor nodes", towards inputs of segmentedDAG
   std::vector<SegmentedEdge*> producer_edges;
@@ -225,11 +229,7 @@ class SegmentedGroup {
   //! TODO: May want to sort this based on size of connections between this and
   //! neighbors as well as if the connection is an output of the fusion (has to
   //! be saved to gmem anyways)
-  std::vector<NeighborGroup> getNeighborGroups();
-
-  //! Look at all neighbors of this and return who this could merge with based
-  //! on level values of this, neighbors, and merged neighbors of neighbors
-  std::vector<NeighborGroup> getMergeCandidates();
+  std::vector<NeighborGroup> getNeighborGroups() const;
 
   //! Assign scheduler type to this group
   void setSchedulerType(SchedulerType scheduler_type) {

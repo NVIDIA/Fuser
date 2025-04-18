@@ -1031,11 +1031,6 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     }
   }
 
-  std::cerr << "Resize factors:\n";
-  for (auto v : factors) {
-    std::cerr << "\t" << v->toInlineString() << "\n";
-  }
-
   return factors;
 }
 

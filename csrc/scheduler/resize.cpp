@@ -51,7 +51,7 @@ TensorView* getReferenceTensor(Fusion* fusion) {
 
   for (auto tensor_op : scheduler_tools::getResizeBasedOps(fusion)) {
     auto dep_vals = DependencyCheck::getAllValsBetween(
-        {tensor_op->input(0)}, fusion->outputs());
+        {tensor_op->output(0)}, fusion->outputs());
     if (is_first) {
       std::ranges::copy_if(
           dep_vals,

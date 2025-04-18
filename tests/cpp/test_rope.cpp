@@ -1696,4 +1696,40 @@ TEST_F(RopeTest, EndingRepeat) {
   }
 }
 
+TEST_F(RopeTest, PadAndPermute) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  // T62
+  auto tv0 = makeContigConcreteTensor({1, 8, 1, 8192, 256}, DataType::BFloat16);
+  fusion.addInput(tv0);
+  // T64
+  auto tv1 = makeContigConcreteTensor({1, 8, 1, 8192, 256}, DataType::BFloat16);
+  fusion.addInput(tv1);
+  // T66
+  auto tv2 = makeContigConcreteTensor({1, 8, 2, 8192, 256}, DataType::BFloat16);
+  fusion.addInput(tv2);
+
+  auto tv3 = cat({tv2, tv0, tv1}, 2);
+  auto out = tv3;
+
+  if (getenv("PERMUTE")) {
+    auto tv4 = permute(tv3, {0, 3, 1, 2, 4});
+    auto tv5 = reshape(tv4, {1, 8192, 8, 4, 256}, {1, 8192, 8192});
+    out = tv5;
+  }
+
+  fusion.addOutput(out);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({1, 8, 1, 8192, 256}, options);
+  auto t1 = at::randn({1, 8, 1, 8192, 256}, options);
+  auto t2 = at::randn({1, 8, 2, 8192, 256}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
