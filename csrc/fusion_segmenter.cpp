@@ -3953,11 +3953,16 @@ class PreferredMergeCandidatePicker {
     for (auto& group : groups_) {
       // Currently there's only one preference for select-like
       // ops. Additional preferences can be added similarly.
-      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
-      if (!neighbor_to_merge.has_value()) {
+      if (auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
         continue;
       }
-      candidates_.emplace_back(group, *neighbor_to_merge);
+      if (auto neighbor_to_merge = mergePadWithConsumers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
+        continue;
+      }
     }
   }
 
@@ -3978,6 +3983,9 @@ class PreferredMergeCandidatePicker {
   //! want to segment the fusion between the takeAlongAxis and the
   //! reduction, not between the softmax and takeAlongAxis.
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
+      SegmentedGroup* group) const;
+
+  std::optional<SegmentedGroup::NeighborGroup> mergePadWithConsumers(
       SegmentedGroup* group) const;
 
  private:
@@ -4039,6 +4047,46 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
 
   return SegmentedGroup::NeighborGroup(
       (*producer_edge_it)->from, *producer_edge_it);
+}
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergePadWithConsumers(SegmentedGroup* group) const {
+  if (group->consumer_edges.empty()) {
+    return std::nullopt;
+  }
+
+  for (auto expr : group->exprs()) {
+    auto pad = dynamic_cast<PadOp*>(expr);
+    if (pad == nullptr) {
+      continue;
+    }
+
+    if (pad->out()->isFusionOutput()) {
+      continue;
+    }
+
+    // If the input of pad is already in the same segment, don't
+    // bother
+    auto pad_inp = pad->in();
+    if (std::ranges::find_if(group->producer_edges, [&](SegmentedEdge* edge) {
+          return edge->val == pad_inp;
+        }) == group->producer_edges.end()) {
+      continue;
+    }
+
+    auto consumer_edge_it = std::ranges::find_if(
+        group->consumer_edges,
+        [&](SegmentedEdge* edge) { return edge->val == pad->out(); });
+
+    if (consumer_edge_it == group->consumer_edges.end()) {
+      continue;
+    }
+
+    return SegmentedGroup::NeighborGroup(
+        (*consumer_edge_it)->to, *consumer_edge_it);
+  }
+
+  return std::nullopt;
 }
 
 } // namespace
