@@ -615,7 +615,16 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 }
 
 bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
-  return isResharding(expr);
+  return expr->isOneOf<
+      MatmulOp,
+      SliceOp,
+      SelectOp,
+      LinearOp,
+      LoadStoreOp,
+      BinaryOp,
+      ReductionOp,
+      Communication,
+      P2PCommunication>();
 }
 
 bool HostIrLower::shouldMergeSegmentedGroups(
