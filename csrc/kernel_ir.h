@@ -516,7 +516,7 @@ class BlockSync final : public Expr {
     return attribute<std::optional<bool>>(1).value_or(false);
   }
 
-  bool isLoadWarpSync() const {
+  bool isAsyncWarpSync() const {
     auto optional_compute_or_load_sync = attribute<std::optional<bool>>(1);
     return optional_compute_or_load_sync.has_value() &&
         !optional_compute_or_load_sync.value();
