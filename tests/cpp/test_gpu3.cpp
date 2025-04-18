@@ -9072,7 +9072,8 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
   auto tv0 = makeContigConcreteTensor({1, -1});
   fusion.addInput(tv0);
   // tv1 [ i2, i1 ]
-  // since i2 is not covered by reference TV, reduction scheduler should reject operation involving tv1 as inputs
+  // since i2 is not covered by reference TV, reduction scheduler should reject
+  // operation involving tv1 as inputs
   auto tv1 = makeContigTensor(2);
   fusion.addInput(tv1);
 
