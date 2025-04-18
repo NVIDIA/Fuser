@@ -20,9 +20,8 @@
 
 namespace nvfuser::preseg_passes {
 
-// Helper function to find the first stream-parallelized axis in a domain.
-// This function throws if multiple stream-parallelized axes are found (only one
-// is allowed)
+namespace {
+
 IterDomain* getStreamAxis(const std::vector<IterDomain*>& domain) {
   IterDomain* ret = nullptr;
   for (auto id : domain) {
@@ -37,6 +36,83 @@ IterDomain* getStreamAxis(const std::vector<IterDomain*>& domain) {
     }
   }
   return ret;
+}
+
+void validateStreamAxis(IterDomain* stream_axis, const TensorView* tv) {
+  // Find the stream axis in the logical domain
+  auto it_logical_stream_axis = std::find(
+      tv->getLogicalDomain().begin(),
+      tv->getLogicalDomain().end(),
+      stream_axis);
+
+  // Verify stream axis is not split/merged
+  NVF_ERROR(
+      it_logical_stream_axis != tv->getLogicalDomain().end(),
+      "Cannot stream parallelize on a split/merge axis ",
+      stream_axis);
+
+  // Verify stream axis is an iteration or broadcast axis
+  NVF_CHECK(
+      stream_axis->getIterType() == IterType::Iteration ||
+          stream_axis->getIterType() == IterType::Broadcast,
+      "Stream axis ",
+      stream_axis,
+      " should be an iteration or broadcast axis.");
+}
+
+bool areIdsMapped(const IdModel& id_model, IterDomain* id1, IterDomain* id2) {
+  return id_model.idGraph(IdMappingMode::BROADCAST)
+      .disjointValSets()
+      .strictAreMapped(id1, id2);
+}
+
+bool canMergeWithPreviousForLoop(
+    const std::vector<Expr*>& new_top_level_exprs,
+    IterDomain* stream_axis,
+    const IdModel& id_model) {
+  return !new_top_level_exprs.empty() &&
+      new_top_level_exprs.back()->isA<ForLoop>() &&
+      areIdsMapped(
+          id_model,
+          stream_axis,
+          new_top_level_exprs.back()->as<ForLoop>()->iterDomain());
+}
+
+int64_t findStreamAxisIndex(
+    const TensorView* tv,
+    IterDomain* stream_axis,
+    const IdModel& id_model) {
+  int64_t stream_id_logical_index = -1;
+  for (auto id : tv->getLoopDomain()) {
+    if (areIdsMapped(id_model, stream_axis, id)) {
+      // Verify only one stream axis exists
+      NVF_CHECK(
+          stream_id_logical_index == -1,
+          "Expected at most one axis mapping to the stream axis ",
+          stream_axis,
+          " in the tensor ",
+          tv,
+          " loop's domain ",
+          tv->getLoopDomain());
+
+      // Find stream axis in logical domain
+      auto it_stream_id_logical = std::find(
+          tv->getLogicalDomain().begin(),
+          tv->getLogicalDomain().end(),
+          id);
+      NVF_CHECK(
+          it_stream_id_logical != tv->getLogicalDomain().end(),
+          "Expected to find ",
+          id,
+          " in ",
+          tv,
+          "'s logical domain ",
+          tv->getLogicalDomain());
+      stream_id_logical_index = std::distance(
+          tv->getLogicalDomain().begin(), it_stream_id_logical);
+    }
+  }
+  return stream_id_logical_index;
 }
 
 // Step 1: Group expressions into stream-parallel regions
@@ -73,34 +149,11 @@ std::vector<Expr*> groupStreamParallelRegions(
         "Stream parallel type not supported for expr ",
         expr);
 
-    // Find the stream axis in the logical (and not loop) domain
-    auto it_logical_stream_axis = std::find(
-        output->getLogicalDomain().begin(),
-        output->getLogicalDomain().end(),
-        stream_axis);
-
-    // Verify stream axis is not split/merged
-    NVF_ERROR(
-        it_logical_stream_axis != output->getLogicalDomain().end(),
-        "Cannot stream parallelize on a split/merge axis ",
-        stream_axis);
-
-    // Verify stream axis is an iteration axis (not reduction/broadcast)
-    NVF_CHECK(
-        stream_axis->getIterType() == IterType::Iteration ||
-            stream_axis->getIterType() == IterType::Broadcast,
-        "Stream axis ",
-        stream_axis,
-        " should be an iteration or broadcast axis.");
+    // Validate stream axis
+    validateStreamAxis(stream_axis, output);
 
     // Check if expression can be merged with previous stream for-loop
-    if (!new_top_level_exprs.empty() &&
-        new_top_level_exprs.back()->isA<ForLoop>() &&
-        id_model.idGraph(IdMappingMode::BROADCAST)
-            .disjointValSets()
-            .strictAreMapped(
-                stream_axis,
-                new_top_level_exprs.back()->as<ForLoop>()->iterDomain())) {
+    if (canMergeWithPreviousForLoop(new_top_level_exprs, stream_axis, id_model)) {
       // Merge with existing for-loop
       new_top_level_exprs.back()->as<ForLoop>()->body().push_back(expr);
     } else {
@@ -117,7 +170,6 @@ std::vector<Expr*> groupStreamParallelRegions(
           CircularBufferLoopStage::NotApplicable,
           /*circular_buffer_loop_stage_depth=*/0);
       for_loop->body().push_back(expr);
-      // replace the current expr by the for-loop containing it
       new_top_level_exprs.push_back(for_loop);
     }
   }
@@ -150,41 +202,9 @@ std::vector<Expr*> processForLoopBodies(
 
       // Process input tensors
       for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        // Find stream axis index in input tensor
-        int64_t input_stream_id_logical_index = -1;
-        for (auto id : input->getLoopDomain()) {
-          if (id_model.idGraph(IdMappingMode::BROADCAST)
-                  .disjointValSets()
-                  .strictAreMapped(for_loop->iterDomain(), id)) {
-            // Verify only one stream axis exists
-            NVF_CHECK(
-                input_stream_id_logical_index == -1,
-                "Expected at most one axis mapping to the stream axis ",
-                for_loop->iterDomain(),
-                " in the tensor ",
-                input,
-                " loop's domain ",
-                input->getLoopDomain());
+        int64_t input_stream_id_logical_index = findStreamAxisIndex(
+            input, for_loop->iterDomain(), id_model);
 
-            // Find stream axis in logical domain
-            auto it_input_stream_id_logical = std::find(
-                input->getLogicalDomain().begin(),
-                input->getLogicalDomain().end(),
-                id);
-            NVF_CHECK(
-                it_input_stream_id_logical != input->getLogicalDomain().end(),
-                "Expected to find ",
-                id,
-                " in ",
-                input,
-                "'s logical domain ",
-                input->getLogicalDomain());
-            input_stream_id_logical_index = std::distance(
-                input->getLogicalDomain().begin(), it_input_stream_id_logical);
-          }
-        }
-
-        // Skip if no stream axis found
         if (input_stream_id_logical_index == -1) {
           continue;
         }
@@ -214,42 +234,9 @@ std::vector<Expr*> processForLoopBodies(
 
       // Process output tensors
       for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // Find stream axis index in output tensor
-        int64_t output_stream_id_logical_index = -1;
-        for (auto id : output->getLoopDomain()) {
-          if (id_model.idGraph(IdMappingMode::BROADCAST)
-                  .disjointValSets()
-                  .strictAreMapped(for_loop->iterDomain(), id)) {
-            // Verify only one stream axis exists
-            NVF_CHECK(
-                output_stream_id_logical_index == -1,
-                "Expected at most one axis mapping to the stream axis ",
-                for_loop->iterDomain(),
-                " in the tensor ",
-                output,
-                " loop's domain ",
-                output->getLoopDomain());
+        int64_t output_stream_id_logical_index = findStreamAxisIndex(
+            output, for_loop->iterDomain(), id_model);
 
-            // Find stream axis in logical domain
-            auto it_output_stream_id_logical = std::find(
-                output->getLogicalDomain().begin(),
-                output->getLogicalDomain().end(),
-                id);
-            NVF_CHECK(
-                it_output_stream_id_logical != output->getLogicalDomain().end(),
-                "Expected to find ",
-                id,
-                " in ",
-                output,
-                "'s logical domain ",
-                output->getLogicalDomain());
-            output_stream_id_logical_index = std::distance(
-                output->getLogicalDomain().begin(),
-                it_output_stream_id_logical);
-          }
-        }
-
-        // Skip if no stream axis found
         if (output_stream_id_logical_index == -1) {
           continue;
         }
@@ -276,14 +263,14 @@ std::vector<Expr*> processForLoopBodies(
             if (running_output == output) {
               // Create alias for the sliced output
               TensorView* output_j_alias =
-                  ops::newValLike(
-                      output_j, output_j->dtype(), /*keep_reduction_axis=*/true)
+                  ops::newValLike(output_j, output_j->dtype(), true)
                       ->as<TensorView>();
               hic->markAlias(output_j, output_j_alias);
               *it_running_expr = ir_utils::transferDefinitionToNewOutputs(
                   running_expr, {output_j_alias});
             }
           }
+
         }
       }
       new_loop_body.push_back(*it_expr);
@@ -353,6 +340,8 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
   return new_top_level_exprs;
 }
 
+} // anonymous namespace
+
 // StreamParallelType pass implementation.
 // This pass handles stream parallelization of operations in a fusion.
 // It works by:
@@ -407,3 +396,4 @@ void StreamParallelType::runPass(Fusion* fusion) {
 }
 
 } // namespace nvfuser::preseg_passes
+
