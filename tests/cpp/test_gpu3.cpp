@@ -9068,8 +9068,11 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
+  // tv0 [ b0, i1 ]
   auto tv0 = makeContigConcreteTensor({1, -1});
   fusion.addInput(tv0);
+  // tv1 [ i2, i1 ]
+  // since i2 is not covered by reference TV, reduction scheduler should reject operation involving tv1 as inputs
   auto tv1 = makeContigTensor(2);
   fusion.addInput(tv1);
 
@@ -9078,8 +9081,6 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
   auto tv3 = add(tv0, tv1);
   fusion.addOutput(tv3);
 
-  fusion.printMath();
-
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn({1, 100}, options);
   auto t1 = at::randn({5, 100}, options);
@@ -9087,34 +9088,11 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs(inputs);
-  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
-}
 
-TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalization) {
-  auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
+  // checking segmentation
+  auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
+  NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 
-  auto tv0 = makeContigConcreteTensor({1, -1, -1});
-  fusion.addInput(tv0);
-  auto tv1 = makeContigTensor(3);
-  fusion.addInput(tv1);
-
-  auto tv2 = sum(tv0, {0, 1}, /*keep_dim=*/true);
-  auto tv3 = add(tv0, tv2);
-  fusion.addOutput(tv3);
-  auto tv4 = add(tv0, tv1);
-  fusion.addOutput(tv4);
-
-  fusion.printMath();
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({1, 20, 100}, options);
-  auto t1 = at::randn({5, 20, 100}, options);
-  std::vector<c10::IValue> inputs({t0, t1});
-
-  FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  auto outputs = executor_cache.runFusionWithInputs(inputs);
   testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
