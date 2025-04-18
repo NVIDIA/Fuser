@@ -1306,7 +1306,7 @@ void validateScans(Fusion* fusion) {
         scan_pos != -1L,
         "Could not find scan dimension ",
         scan_id->toString(),
-        " in loop domain. Scan dimensions mus t not be scheduled with splits or merges");
+        " in loop domain. Scan dimensions must not be scheduled with splits or merges");
 
     const auto check_uses = [&](TensorView* output) {
       for (Expr* use : output->uses()) {

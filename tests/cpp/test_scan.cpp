@@ -145,7 +145,7 @@ TEST_F(ScanTest, OnlineSoftmax) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  auto x = makeConcreteTensor({32});
+  auto x = makeSymbolicTensor(1);
   fusion->addInput(x);
 
   int64_t scan_dim = 0;
@@ -236,7 +236,7 @@ TEST_F(ScanTest, OnlineSoftmaxOuter) {
   FusionGuard fg(fusion.get());
 
   // TODO: Allow outer dim to be symbolic
-  auto x = makeConcreteTensor({16, 32});
+  auto x = makeSymbolicTensor(2);
   fusion->addInput(x);
 
   int64_t scan_dim = 0;

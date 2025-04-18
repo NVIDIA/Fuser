@@ -2318,8 +2318,6 @@ std::pair<TensorView*, TensorView*> scanWithExclusive(
 
   IterDomain* scan_id = logical_dom.at((size_t)dim);
 
-  NVF_ERROR(scan_id->extent()->isConstInt(), "Scan dimension must be concrete");
-
   // Special case: scanning along broadcast dimension is no-op
   // Assumes init is identity for op_type
   if (scan_id->isBroadcast()) {
