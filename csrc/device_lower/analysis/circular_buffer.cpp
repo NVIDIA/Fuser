@@ -298,13 +298,13 @@ const CircularBufferOptions& CircularBufferInfo::getCircularBufferOptionsFor(
     circular_buffer_axis = lower_utils::getConcreteLoopID(circular_buffer_axis);
   }
 
-  auto maybe_depth_it = circular_buffer_options_.find(circular_buffer_axis);
+  auto maybe_it = circular_buffer_options_.find(circular_buffer_axis);
 
   NVF_ERROR(
-      maybe_depth_it != circular_buffer_options_.end(),
-      "Prefetch distance not found");
+      maybe_it != circular_buffer_options_.end(),
+      "CircularBufferOptions is not found.");
 
-  return maybe_depth_it->second;
+  return maybe_it->second;
 }
 
 int64_t CircularBufferInfo::getCircularBufferInsertionPosition(

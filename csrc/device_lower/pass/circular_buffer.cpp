@@ -418,6 +418,55 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
   }
 
+  // If there is a persistent outer-loop, this IfThenElse short-circuits
+  // computation for quantized waves.
+  kir::IfThenElse* createPersistentShortCircuit(
+      ForLoop* outer_loop,
+      ForLoop* inner_loop) {
+    NVF_ERROR(outer_loop != nullptr);
+    NVF_ERROR(inner_loop != nullptr);
+    NVF_ERROR(!outer_loop->iter_domain()->isParallelized());
+    NVF_ERROR(outer_loop->index() != nullptr);
+    NVF_ERROR(outer_loop->stop() != nullptr);
+    NVF_ERROR(inner_loop->index() != nullptr);
+    NVF_ERROR(inner_loop->stop() != nullptr);
+
+    // Only add short-circuit if inner for-loop is grid dimension
+    if (!inner_loop->iter_domain()->isBlockDim()) {
+      return nullptr;
+    }
+
+    const auto& opt =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            outer_loop->iter_domain());
+    // Only add short-circuit for warp specialized circular buffering
+    if (!std::holds_alternative<WarpSpecialized>(opt.type)) {
+      return nullptr;
+    }
+
+    // lhs := (outer_fl->index() * inner_fl->stop() + inner_fl->index())
+    Val* lhs =
+        SimplifyingIrBuilder::mulExpr(outer_loop->index(), inner_loop->stop());
+    lhs = SimplifyingIrBuilder::addExpr(lhs, inner_loop->index());
+
+    // Check that outer_loop matches known invariants for persistent kernel.
+    Expr* def = outer_loop->stop()->definition();
+    NVF_ERROR(def != nullptr);
+    BinaryOp* bop = def->as<BinaryOp>();
+    NVF_ERROR(
+        bop != nullptr && bop->getBinaryOpType() == BinaryOpType::CeilDiv);
+    NVF_ERROR(bop->lhs() != nullptr);
+
+    // predicate := (lhs >= outer_fl->stop()->definition()->lhs())
+    Val* predicate_val = SimplifyingIrBuilder::geExpr(lhs, bop->lhs());
+    kir::Predicate* predicate =
+        IrBuilder::create<kir::Predicate>(predicate_val);
+    kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
+    kir::Continue* cont = IrBuilder::create<kir::Continue>();
+    ite->thenBody().push_back(cont);
+    return ite;
+  }
+
   // This function inserts arrive and wait expressions for RAW and WAR
   // hazards. The argument `cloned_loop` can be:
   // 1. A loop containing TMA expressions loading circular buffer tensors.
@@ -448,6 +497,16 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // Skip if there is not an active for-loop structure
     if (for_loop_stack_.empty()) {
       return;
+    }
+
+    // Create outer for-loop short-circuit to minimize wave quantization.
+    // Apply to cloned top-level for-loop and persistent kernels.
+    if (for_loop_stack_.size() == 1 && insertion_position_ != 1) {
+      kir::IfThenElse* ite =
+          createPersistentShortCircuit(for_loop_stack_.front(), cloned_loop);
+      if (ite != nullptr) {
+        for_loop_stack_.back()->body().push_back(ite);
+      }
     }
 
     insertMBarrierWaitBeforeFirstRead();
