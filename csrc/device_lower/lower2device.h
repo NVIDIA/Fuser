@@ -432,7 +432,7 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // Keep track of the mbarrier used for each load/store and blackwell utcmma operation
+  // Keep track of the mbarrier used for each load/store and blackwell utcmma
   std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
 
   // Information about tensor memory usage
