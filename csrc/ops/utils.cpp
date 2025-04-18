@@ -432,7 +432,9 @@ IterDomain* newOutputIterDomain(
 #pragma GCC diagnostic pop
 #endif
 
-std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
+std::vector<IterDomain*> newOutputDomain(
+    const std::vector<Val*>& vals,
+    bool keep_reduction_axis) {
   std::vector<TensorView*> tvs;
   for (auto val : vals) {
     if (auto* tv = dynamic_cast<TensorView*>(val)) {
@@ -443,14 +445,20 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
       !tvs.empty(),
       "Tried to create new output TensorView but received empty list.");
 
-  std::vector<IterDomain*> out_domain(
-      TensorDomain::noReductions(tvs[0]->getLogicalDomain()).size(), nullptr);
+  auto getLogicalDomain =
+      [keep_reduction_axis](TensorView* tv) -> std::vector<IterDomain*> {
+    return keep_reduction_axis
+        ? tv->getLogicalDomain()
+        : TensorDomain::noReductions(tv->getLogicalDomain());
+  };
+
+  std::vector<IterDomain*> out_domain(getLogicalDomain(tvs[0]).size(), nullptr);
 
   for (const auto dim_i : arange(out_domain.size())) {
     std::vector<IterDomain*> input_ids;
     input_ids.reserve(tvs.size());
     for (auto* tv : tvs) {
-      auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
+      auto dom = getLogicalDomain(tv);
       input_ids.emplace_back(dom[dim_i]);
     }
     out_domain[dim_i] = newOutputIterDomain(input_ids);
@@ -458,8 +466,11 @@ std::vector<IterDomain*> newOutputDomain(const std::vector<Val*>& vals) {
   return out_domain;
 }
 
-TensorView* newOutputTV(const std::vector<Val*>& vals, DataType dtype) {
-  auto out_domain = newOutputDomain(vals);
+TensorView* newOutputTV(
+    const std::vector<Val*>& vals,
+    DataType dtype,
+    bool keep_reduction_axis) {
+  auto out_domain = newOutputDomain(vals, keep_reduction_axis);
   auto* new_out = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
           out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
@@ -502,12 +513,12 @@ std::vector<Val*> maybeBroadcast(const std::vector<Val*>& vals) {
   return out_vals;
 }
 
-Val* newValLike(Val* val, DataType dtype) {
+Val* newValLike(Val* val, DataType dtype, bool keep_reduction_axis) {
   NVF_CHECK(
       dtype != DataType::Null, "Invalid datatype provided for new value.");
 
   if (val->isA<TensorView>()) {
-    return newOutputTV({val}, dtype);
+    return newOutputTV({val}, dtype, keep_reduction_axis);
   }
 
   return newScalar(ValType::Others, dtype);
