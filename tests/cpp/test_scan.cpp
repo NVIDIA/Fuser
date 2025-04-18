@@ -162,16 +162,15 @@ TEST_F(ScanTest, OnlineSoftmax) {
   //
   // Final denominator is d[N-1]
 
+  auto* neg_infty = IrBuilder::create<Val>(
+      -std::numeric_limits<double>::infinity(), DataType::Double);
   TensorView* m;
   TensorView* m_prev;
   std::tie(m, m_prev) = scanWithExclusive(
-      x,
+      set(x),
       scan_dim,
       BinaryOpType::Max,
-      /*init=*/
-      IrBuilder::create<Val>(
-          -std::numeric_limits<double>::infinity(),
-          DataType::Double)); // max x[j] over j = 0 .. i
+      /*init=*/neg_infty); // max x[j] over j = 0 .. i
   // normalize by running max and exponentiate
   TensorView* exp_x_m = exp(sub(x, m));
   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
@@ -185,9 +184,25 @@ TEST_F(ScanTest, OnlineSoftmax) {
       /*init=*/fusion->zeroVal(DataType::Float),
       denoms);
 
-  fusion->addOutput(norm_factor);
+  auto full_max = reductionOp(
+      BinaryOpType::RHS,
+      {scan_dim},
+      /*init=*/neg_infty,
+      m);
 
-  scheduler_utils::cacheInputs(fusion.get(), /*unroll=*/true);
+  auto max_bcast = broadcast(full_max, {true});
+  auto norm_factor_bcast = broadcast(norm_factor, {true});
+  // Recompute numerator
+  auto numer = exp(sub(set(x), max_bcast));
+
+  auto result = div(numer, norm_factor_bcast);
+
+  fusion->addOutput(result);
+
+  // Don't cache inputs for this fusion because we will need to recompute
+  // exp((x-m)) using the final max in a separate loop so caching would mean
+  // we'd need to hold the whole tensor in registers. Instead, we manually call
+  // set(x) twice in the definition above to give us two separate caches.
   scheduler_utils::cacheAndForkOutputs(fusion.get(), /*unroll=*/true);
 
   // We don't inline the scans past the scan dimension
@@ -219,7 +234,7 @@ TEST_F(ScanTest, OnlineSoftmax) {
 
   auto cg_outputs = ke.run({t0});
 
-  auto ref = (t0 - t0.max()).exp().sum();
+  auto ref = at::softmax(t0, 0);
   EXPECT_TRUE(at::allclose(cg_outputs[0].as<at::Tensor>(), ref))
       << " returned " << cg_outputs[0].as<at::Tensor>().item()
       << " but expected " << ref.item();
