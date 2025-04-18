@@ -28,6 +28,9 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
     if (HostIrLower::canLower(expr)) {
       continue;
     }
+    if (!isResharding(expr)) {
+      continue;
+    }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
         "Non-tv op is not supported: ",

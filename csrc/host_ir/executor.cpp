@@ -37,20 +37,21 @@ HostIrExecutor::HostIrExecutor(
 bool HostIrExecutor::supported(Fusion* fusion) {
   FUSER_PERF_SCOPE("HostIrExecutor::supported");
   std::vector<Expr*> exprs = fusion->exprs();
-  if (std::any_of(exprs.begin(), exprs.end(), [](Expr* e) {
+
+  size_t num_reshardings = std::count_if(
+      exprs.begin(),
+      exprs.end(),
+      [](Expr* e) {
         return isResharding(e) && HostIrLower::canLower(e);
-      })) {
-    NVF_ERROR(
-        std::all_of(
-            exprs.begin(),
-            exprs.end(),
-            [](Expr* e) {
-              return isResharding(e) && HostIrLower::canLower(e);
-            }),
-        "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
-    return true;
+      });
+  if (num_reshardings == 0) {
+    // No communication required.
+    return false;
   }
-  return false;
+  NVF_CHECK(
+      num_reshardings == exprs.size(),
+      "Could not execute fusion as all expressions in a host IR container must be communication based at this point.");
+  return true;
 }
 
 void HostIrExecutor::compile(Fusion* fusion) {
