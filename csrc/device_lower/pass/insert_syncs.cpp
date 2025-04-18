@@ -54,6 +54,30 @@ std::optional<bool> isOptionalComputeSync(
   }
 }
 
+// Commit a series of operations to an async group.
+// Create wgmma.fence for AsyncOpType::WgMma
+// Otherwise, create fence.proxy.async
+Expr* getAsyncFence(AsyncOpType async_type) {
+  if (async_type == AsyncOpType::WgMma) {
+    return IrBuilder::create<kir::WgMmaFence>();
+  }
+  return IrBuilder::create<kir::FenceAsyncProxy>();
+}
+
+// Commit a series of operations to an async group.
+// Create wgmma.commit_group.sync.aligned for AsyncOpType::WgMma
+// Create cpAsyncBulkCommitGroup for AsyncOpType::CpAsyncBulk
+Expr* getAsyncCommit(AsyncOpType async_type) {
+  return IrBuilder::create<kir::AsyncCommit>(async_type);
+}
+
+// Wait for a number of async groups to finish.
+// Create wgmma.wait_group.sync.aligned for AsyncOpType::WgMma
+// Create cpAsyncBulkWaitGroup for AsyncOpType::CpAsyncBulk
+Expr* getAsyncWait(AsyncOpType async_type, int64_t keep_stages = 0) {
+  return IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
+}
+
 // Tensor memory is similar to shared memory because they are both
 // shared between threads in a block. In that sense, we can consider
 // tensor memory as special type of shared memory. In this file, we use
@@ -449,8 +473,7 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
         //  except when these are accumulator register accesses across multiple
         //  wgmma.mma_async instructions of the same shape. In the latter case,
         //  an ordering guarantee is provided by default.
-        auto wgmma_fence = IrBuilder::create<kir::WgMmaFence>();
-        registerInsertBefore(expr, wgmma_fence, scope);
+        registerInsertBefore(expr, getAsyncFence(AsyncOpType::WgMma), scope);
         if (!lower_utils::allMmaInputsGuardedByMBarrier(mma)) {
           // fence.proxy.async makes sure that writes to operands in the generic
           // proxy are visible to the async proxy
@@ -522,10 +545,11 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
       }
     }
     for (const auto& [async_type, ops] : input_async_ops) {
-      auto sync_exprs = lower_utils::getSyncExprs(
-          async_type,
-          /*keep_stages=*/0,
-          /*requires_commit=*/async_type != AsyncOpType::WgMma);
+      std::vector<Expr*> sync_exprs;
+      if (async_type != AsyncOpType::WgMma) {
+        sync_exprs.push_back(getAsyncCommit(async_type));
+      }
+      sync_exprs.push_back(getAsyncWait(async_type, /*keep_stages=*/0));
       for (auto sync_expr : sync_exprs) {
         insertSyncExpr(ops, expr, sync_expr, nullptr);
       }
@@ -843,8 +867,9 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
     // kernel.
     for (auto expr : async_exprs_writing_fusion_output_) {
       auto async_type = ir_utils::getAsyncOpType(expr);
-      auto sync_exprs =
-          lower_utils::getSyncExprs(async_type, /*keep_stages=*/0);
+      std::vector<Expr*> sync_exprs{
+          getAsyncCommit(async_type),
+          getAsyncWait(async_type, /*keep_stages=*/0)};
       exprs_.insert(exprs_.end(), sync_exprs.begin(), sync_exprs.end());
     }
 
@@ -1225,8 +1250,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
             active_compute_for_loop_->iter_domain());
     int64_t pending_ops = opt.stage - opt.prefetch - 1;
 
-    auto sync_exprs =
-        lower_utils::getSyncExprs(AsyncOpType::WgMma, pending_ops);
+    std::vector<Expr*> sync_exprs{
+        getAsyncCommit(AsyncOpType::WgMma),
+        getAsyncWait(AsyncOpType::WgMma, /*keep_stages=*/pending_ops)};
     size_t num_exprs = for_loop->body().exprs().size();
     NVF_ERROR(num_exprs > 1);
     NVF_ERROR(for_loop->body().exprs().back()->isA<kir::MBarrierArrive>());
@@ -1308,7 +1334,9 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
       // Actually insert these wait expressions.
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
-        auto sync_exprs = lower_utils::getSyncExprs(type, pending_ops);
+        std::vector<Expr*> sync_exprs{
+            getAsyncCommit(type),
+            getAsyncWait(type, /*keep_stages=*/pending_ops)};
         NVF_ERROR(!for_loop->body().exprs().empty());
 
         // Default position is last expression in for loop

@@ -2099,21 +2099,6 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
 }
 
-std::vector<Expr*> getSyncExprs(
-    AsyncOpType async_type,
-    int64_t keep_stages,
-    bool requires_commit) {
-  std::vector<Expr*> sync_exprs;
-  sync_exprs.reserve(2);
-  if (requires_commit) {
-    auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-    sync_exprs.push_back(commit);
-  }
-  auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
-  sync_exprs.push_back(wait);
-  return sync_exprs;
-}
-
 } // namespace lower_utils
 
 } // namespace nvfuser
