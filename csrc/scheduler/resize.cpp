@@ -29,9 +29,58 @@ namespace nvfuser {
 
 namespace {
 
-// Just use the pointwise version for now
 TensorView* getReferenceTensor(Fusion* fusion) {
-  return pointwise_utils::getReferenceTensor(fusion);
+  // return pointwise_utils::getReferenceTensor(fusion);
+  scheduler_tools::PointwiseDomainMap domain_map(fusion);
+
+  std::unordered_set<TensorView*> candidate_outputs;
+  for (auto tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    if (tv->isFusionInput() || !domain_map.isValidReference(tv)) {
+      continue;
+    }
+    candidate_outputs.insert(tv);
+  }
+
+  if (candidate_outputs.empty()) {
+    std::cerr << "No ref found\n";
+    return nullptr;
+  }
+
+  bool is_first = true;
+  std::unordered_set<Val*> common_outputs;
+
+  for (auto tensor_op : scheduler_tools::getResizeBasedOps(fusion)) {
+    auto dep_vals = DependencyCheck::getAllValsBetween(
+        {tensor_op->input(0)}, fusion->outputs());
+    if (is_first) {
+      std::ranges::copy_if(
+          dep_vals,
+          std::inserter(common_outputs, common_outputs.begin()),
+          [&](Val* dep_val) { return dep_val->isFusionOutput(); });
+      is_first = false;
+    } else {
+      for (auto it = common_outputs.begin(); it != common_outputs.end();) {
+        if (std::ranges::find(dep_vals, *it) == dep_vals.end()) {
+          it = common_outputs.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    }
+  }
+
+  std::cerr << "Common outputs: " << toDelimitedString(common_outputs) << "\n";
+
+  for (auto output_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
+    if (candidate_outputs.contains(output_tv) &&
+        common_outputs.contains(output_tv)) {
+      std::cerr << "Ref: " << output_tv->toString() << "\n";
+      return output_tv;
+    }
+  }
+
+  std::cerr << "No valid ref that is a common output found\n";
+  return nullptr;
 }
 
 // Returns the largest tensor with its number of elements
@@ -160,8 +209,9 @@ bool ResizeScheduler::canScheduleCompileTime(Fusion* fusion) {
   // different resize ops, although in this case, since the extents of t1 and
   // t2 are the same, it should be relatively straightforward to fuse them
   // together.
-  for (auto out_tv : ir_utils::filterByType<TensorView>(fusion->outputs())) {
-    if (out_tv == ref_tv) {
+  for (auto out_val : fusion->getTerminatingOutputs()) {
+    auto out_tv = dynamic_cast<TensorView*>(out_val);
+    if (out_tv == nullptr || out_tv == ref_tv) {
       continue;
     }
     auto exprs = ValGraphBFS::getExprGroupsBetween(

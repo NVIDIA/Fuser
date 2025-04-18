@@ -23,6 +23,7 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/tools/resize_utils.h>
 #include <transform_iter.h>
 
 namespace nvfuser {
@@ -3766,6 +3767,155 @@ class MergeUpAndDownCast {
   SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
 };
 
+class MergeRopeGroups {
+ public:
+  static void run(SegmentCandidateFinder* segment_candidate_finder) {
+    MergeRopeGroups(segment_candidate_finder).merge();
+  }
+
+ private:
+  MergeRopeGroups(SegmentCandidateFinder* segment_candidate_finder)
+      : segment_candidate_finder_(segment_candidate_finder) {}
+
+  void merge() {
+    auto all_resize_based_ops = scheduler_tools::getResizeBasedOps(
+        segment_candidate_finder_->completeFusion());
+
+    std::vector<SliceOp*> all_slices;
+    for (auto expr : all_resize_based_ops) {
+      if (auto slice = dynamic_cast<SliceOp*>(expr)) {
+        all_slices.push_back(slice);
+      }
+    }
+
+    std::unordered_set<SliceOp*> merged_slices;
+    for (const auto i : arange(all_slices.size() - 1)) {
+      auto slice_i = all_slices.at(i);
+      if (merged_slices.contains(slice_i)) {
+        continue;
+      }
+      // bool merged = false;
+      for (const auto j : arange(i + 1, all_slices.size())) {
+        auto slice_j = all_slices.at(j);
+        if (merged_slices.contains(slice_j)) {
+          continue;
+        }
+        std::cerr << "Checking " << slice_i->toString() << " and "
+                  << slice_j->toString();
+        if (slice_i->in() == slice_j->in()) {
+          // Common parent found
+          auto exprs = findMergePoint(all_slices.at(i), all_slices.at(j));
+          if (exprs.empty()) {
+            continue;
+          }
+          if (merge(exprs) != nullptr) {
+            merged_slices.insert(slice_i);
+            merged_slices.insert(slice_j);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  std::vector<Expr*> findMergePoint(SliceOp* slice_i, SliceOp* slice_j) {
+    std::cerr << "Find merge point of " << slice_i->toString()
+              << slice_j->toString();
+    struct FindMergePoint : public IterVisitor {
+      FindMergePoint(SliceOp* slice_i, SliceOp* slice_j)
+          : slice_i(slice_i), slice_j(slice_j) {
+        all_dep_exprs.push_back(slice_i);
+        all_dep_exprs.push_back(slice_j);
+        traverseBetween(
+            {slice_i->out(), slice_j->out()}, slice_i->fusion()->outputs());
+      }
+
+      void dispatch(Val* val) override {
+        if (val == slice_i->out()) {
+          dep_i.insert(val);
+          return;
+        } else if (val == slice_j->out()) {
+          dep_j.insert(val);
+          return;
+        }
+
+        auto def = val->definition();
+        if (def == nullptr) {
+          return;
+        }
+
+        bool depends_on_i = std::ranges::any_of(
+            def->inputs(), [&](Val* inp) { return dep_i.contains(inp); });
+        bool depends_on_j = std::ranges::any_of(
+            def->inputs(), [&](Val* inp) { return dep_j.contains(inp); });
+
+        if (!depends_on_i && !depends_on_j) {
+          return;
+        }
+
+        all_dep_exprs.push_back(def);
+
+        if (depends_on_i && depends_on_j) {
+          merge_point = val;
+          return;
+        } else if (depends_on_i) {
+          dep_i.insert(val);
+        } else if (depends_on_j) {
+          dep_j.insert(val);
+        }
+      }
+
+      SliceOp* slice_i = nullptr;
+      SliceOp* slice_j = nullptr;
+      std::unordered_set<Val*> dep_i;
+      std::unordered_set<Val*> dep_j;
+      std::vector<Expr*> all_dep_exprs;
+      Val* merge_point = nullptr;
+    };
+
+    FindMergePoint find_merge_point(slice_i, slice_j);
+
+    if (find_merge_point.merge_point == nullptr) {
+      return {};
+    }
+
+    return find_merge_point.all_dep_exprs;
+  }
+
+  SegmentedGroup* merge(const std::vector<Expr*> exprs) {
+    std::cerr << "Trying to merge:\n:";
+    for (auto expr : exprs) {
+      std::cerr << "\t" << expr->toString();
+    }
+
+    std::vector<SegmentedGroup*> groups_to_merge;
+    for (auto expr : exprs) {
+      auto group_it = std::ranges::find_if(
+          segment_candidate_finder_->groups(), [&](SegmentedGroup* group) {
+            return std::ranges::find(group->exprs(), expr) !=
+                group->exprs().end();
+          });
+      NVF_ERROR(
+          group_it != segment_candidate_finder_->groups().end(),
+          "Cannot find SegmentedGroup for ",
+          expr->toString());
+      groups_to_merge.push_back(*group_it);
+    }
+
+    if (tryMerge(
+            segment_candidate_finder_->segmented_fusion_.get(),
+            segment_candidate_finder_->runtimeInfo(),
+            groups_to_merge) != SchedulerType::Resize) {
+      return nullptr;
+    }
+
+    return segment_candidate_finder_->mergeAllGivenGroups(groups_to_merge);
+  }
+
+ private:
+  SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
+};
+
 namespace {
 
 //! Returns true if group1 and group2 are an immediate producer-consumer pair.
@@ -4141,11 +4291,17 @@ void SegmentCandidateFinder::findSegments() {
   MergeUpAndDownCast::run(this);
   validateIfDebug(true);
 
+  MergeRopeGroups::run(this);
+  validateIfDebug();
+
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
   }
 
   validateIfDebug();
+
+  std::cerr << "Before hermann merge\n";
+  std::cerr << segmented_fusion_.get() << "\n";
 
   if (options_.run_herrmann_merge) {
     bool merged_nodes = true;
@@ -4425,7 +4581,7 @@ Expr* shouldForward(Val* v) {
     return nullptr;
   }
 
-  if (ldst_use != nullptr) {
+  if (ldst_use != nullptr && !getenv("DISABLE_LD_FORWARD")) {
     if (ldst_use->opType() != LoadStoreOpType::Set ||
         (v->isFusionInput() && v->isA<TensorView>() &&
          v->as<TensorView>()->getMaybeAllocationDomain() !=
