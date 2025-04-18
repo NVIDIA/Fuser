@@ -45,7 +45,8 @@ void assertOnWarpOps(const Expr* expr) {
     NVF_ERROR(in_tv != nullptr);
 
     NVF_ERROR(in_tv->definition() != nullptr);
-    bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition());
+    bool is_tma_ldmatrix = ir_utils::isCpAsyncBulkLoad(in_tv->definition()) &&
+        !ir_utils::isCpAsyncUblk(in_tv->definition());
 
     TensorView* out_tv = ir_utils::getTv(ldst->out());
     NVF_ERROR(out_tv != nullptr);
@@ -237,7 +238,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   static bool needsPredicate(TensorView* producer, TensorView* consumer) {
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(consumer->definition())) {
+    if (ir_utils::isCpAsyncBulkTensorTile(consumer->definition())) {
       return false;
     }
     // Both tensors must be on local or shared memory. Global tensors must be
@@ -561,7 +562,7 @@ class PredicateChcker : public IterVisitor {
     DEBUG_PRINT_SCOPE(expr);
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
       RECORD_AND_RETURN(false);
     }
     for (auto output : ir_utils::filterByType<TensorView>(expr->outputs())) {
@@ -617,7 +618,7 @@ class PredicateChcker : public IterVisitor {
     DEBUG_PRINT_SCOPE(expr);
     // TMA ops handles out of bound accesses automatically in hardware, there is
     // no need for us to predicate it.
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    if (ir_utils::isCpAsyncBulkTensorTile(expr)) {
       RECORD_AND_RETURN(false);
     }
     const auto& non_divisible_split_info =

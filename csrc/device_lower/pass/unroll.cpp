@@ -46,7 +46,8 @@ void UnrollPass::dispatch(Expr* expr) {
   bool is_arrive_expect_tx = expr->isA<kir::MBarrierArriveExpectTx>();
   bool is_circular_buffer_tma_load = ir_utils::isCpAsyncBulkLoad(expr) &&
       expr->output(0)->as<TensorView>()->isCircularBuffered();
-  if (is_arrive_expect_tx || is_circular_buffer_tma_load) {
+  if (is_arrive_expect_tx ||
+      (is_circular_buffer_tma_load && !ir_utils::isCpAsyncUblk(expr))) {
     return;
   }
 
@@ -159,7 +160,7 @@ void UnrollPass::dispatch(Expr* expr) {
 
     // short-circuit: wrap tma and blackwell mma expressions with elect sync
     // predicate
-    if (ir_utils::isCpAsyncBulk(expr) ||
+    if (ir_utils::isCpAsyncBulkTensorTile(expr) ||
         (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
       // If we need a predicate, put expr inside an if then else
       auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
