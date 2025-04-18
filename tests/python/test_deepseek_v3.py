@@ -2,12 +2,13 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import multidevice_fixtures
+import nvfuser
 import pytest
 import transformers
 import torch
 import torch.distributed as dist
 from contextlib import contextmanager
+from multidevice import fixtures
 from torch.distributed.tensor import DTensor
 from torch.distributed.tensor.parallel import (
     parallelize_module,
@@ -16,17 +17,18 @@ from torch.distributed.tensor.parallel import (
 )
 
 
-multidevice_test = multidevice_fixtures.multidevice_test
-
-
+# Set up the default process group for torch APIs like
+# dist.device_mesh.init_device_mesh.
 @pytest.fixture(scope="module")
-def setup_process_group(multidevice_test):
+def setup_process_group():
+    communicator = nvfuser.Communicator.instance()
+
     # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
     dist.init_process_group(
         backend="nccl",
         init_method="tcp://localhost:29500",
-        world_size=multidevice_test.size,
-        rank=multidevice_test.rank,
+        world_size=communicator.size(),
+        rank=communicator.rank(),
     )
     yield
     dist.destroy_process_group()
