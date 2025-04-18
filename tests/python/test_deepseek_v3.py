@@ -71,6 +71,12 @@ def test_transformer_layer(setup_process_group):
     d = dist.get_world_size()
     rank = dist.get_rank()
     torch.cuda.set_device(rank)
+    # This ensures the input tokens are identically replicated on all ranks.
+    # Otherwise, some ranks may skip an expert because they have no tokens to
+    # send, while other ranks don't. This will cause a deadlock because a NCCL
+    # collective is expected to be called by all ranks in the process group.
+    torch.manual_seed(0)
+
     mesh = dist.device_mesh.init_device_mesh("cuda", [d])
 
     with default_tensor_type(dtype=config.torch_dtype, device="cuda"):
@@ -129,6 +135,9 @@ def test_transformer_layer(setup_process_group):
             None, [batch_size, seq_len], inp, past_key_values_length=0
         )
         (out,) = transformer_layer(inp, attention_mask=mask)
+        # Finish all computation and communication. Otherwise,
+        # destroy_process_group may deadlock.
+        torch.cuda.synchronize()
 
         assert out.size() == (batch_size, seq_len, config.hidden_size)
         assert out.dtype == config.torch_dtype
