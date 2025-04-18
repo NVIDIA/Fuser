@@ -192,7 +192,7 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
   NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 }
 
-TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalizationInner) {
+TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDInnerNormalization) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -224,7 +224,7 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalizationInner) {
   NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 }
 
-TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalizationOuter) {
+TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalization) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
