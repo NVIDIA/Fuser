@@ -3967,8 +3967,11 @@ class PreferredMergeCandidatePicker {
         if (auto neighbor_to_merge = mergePadWithConsumers(group);
             neighbor_to_merge.has_value()) {
           candidates_.emplace_back(group, *neighbor_to_merge);
+          std::cerr << "Prefer pad: " << group << " and "
+                    << neighbor_to_merge->group << "\n";
           continue;
         }
+        std::cerr << "No preferred Pad for " << group << "\n";
       }
     }
   }
@@ -4099,7 +4102,7 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     if (std::ranges::find_if(
             merge_candidates,
             [&](const SegmentedGroup::NeighborGroup& neighbor) {
-              return neighbor.group == consumer_group;
+              return neighbor.group != consumer_group;
             }) == merge_candidates.end()) {
       return std::nullopt;
     }
@@ -4366,7 +4369,7 @@ void SegmentCandidateFinder::findSegments() {
   MergeUpAndDownCast::run(this);
   validateIfDebug(true);
 
-  if (getenv("MERGE_ROPE")) {
+  if (!getenv("DISABLE_MERGE_ROPE")) {
     MergeRopeGroups::run(this);
     validateIfDebug();
   }
