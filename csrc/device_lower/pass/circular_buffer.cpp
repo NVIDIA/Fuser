@@ -1148,9 +1148,38 @@ class IsCircularBufferLoadLoop : public kir::IrVisitor {
 // associated load expressions.
 class CircularBufferLoopNestInspector : private kir::IrVisitor {
  public:
-  static InsertionInfo run(const std::vector<Expr*>& exprs) {
+  static std::pair<InsertionInfo, InsertionInfo> run(
+      const std::vector<Expr*>& exprs) {
     CircularBufferLoopNestInspector inspector(exprs);
-    return inspector.insertion_info_;
+
+    // InsertionInfo holds all circular buffer for-loops and is ordered from
+    // inner-most to outer-most. Split it into warp specialized and pipeline
+    // circular buffers. Enforce that we can only nest pipeline circular
+    // buffering inside of warp-specialization.
+    InsertionInfo ws_info;
+    InsertionInfo pipeline_info;
+    for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
+      bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+          GpuLower::current()
+              ->circularBufferInfo()
+              .getCircularBufferOptionsFor(cb_loop->iter_domain())
+              .type);
+      if (use_warp_specialization) {
+        ws_info[cb_loop] = cb_exprs;
+      } else {
+        NVF_ERROR(
+            ws_info.empty(),
+            "Warp Specialization cannot be nested in Pipeline circular buffering!");
+        pipeline_info[cb_loop] = cb_exprs;
+      }
+    }
+    NVF_ERROR(
+        ws_info.size() <= 4,
+        "At most four for-loops can run concurrently inside the AsyncWarp.\n",
+        "Detected ",
+        ws_info.size(),
+        " WarpSpecialized for-loops.");
+    return {ws_info, pipeline_info};
   }
 
  private:
@@ -1728,8 +1757,14 @@ kir::TensorIndex* TmaCircularBufferInfo::getTensorIndex(const Expr* expr) {
 }
 
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
-  InsertionInfo insertion_info = CircularBufferLoopNestInspector::run(exprs);
-  return CircularBufferInserter::run(exprs, insertion_info);
+  auto&& [ws_insertion_info, pipeline_insertion_info] =
+      CircularBufferLoopNestInspector::run(exprs);
+  // Process circular buffer for-loops from inner to outer-most.
+  // Pipeline must come before WarpSpecialized. We cannot nest WarpSpecialized
+  // inside of Pipeline circular buffering.
+  std::vector<Expr*> result_exprs =
+      CircularBufferInserter::run(exprs, pipeline_insertion_info);
+  return CircularBufferInserter::run(result_exprs, ws_insertion_info);
 }
 
 } // namespace nvfuser
