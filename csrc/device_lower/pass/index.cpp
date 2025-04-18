@@ -3017,6 +3017,7 @@ void IndexLowering::handle(const ScanOp* scop) {
     auto* save_exc_op =
         IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, exc_ti, prev_sum);
     pushBack(save_exc_op);
+    prev_sum = exc_ti;
   }
 
   if (Val* f = scop->discountFactor()) {
