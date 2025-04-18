@@ -51,6 +51,10 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
     torch.set_default_device(prev_device)
 
 
+# This test timed out once when downloading
+# "/deepseek-ai/DeepSeek-V3/resolve/main/configuration_deepseek.py" (cf.
+# http://nv/eCm). I consider this a one-off, but please let me know if this
+# error becomes consistent.
 @pytest.mark.mpi
 def test_transformer_layer(setup_process_group):
     config = transformers.AutoConfig.from_pretrained(
