@@ -15,7 +15,14 @@
 
 namespace nvfuser {
 
-NVF_API TensorView* select(TensorView* tv, int64_t dim, Val* index);
+// When keep_reduction_axis is true, all reduction axis are kept in the
+// SelectOp's consumer. This is used in the context of HostIr where SelectOp is
+// used to index into Stream-parallelized axes.
+NVF_API TensorView* select(
+    TensorView* tv,
+    int64_t dim,
+    Val* index,
+    bool keep_reduction_axis = false);
 
 // torch.index_select
 NVF_API TensorView* indexSelect(

@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
@@ -718,6 +719,10 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     hic->addOutput(ir_cloner.clone(output));
   }
 
+  for (auto tv : hic->allTvs()) {
+    tv->setMemoryType(MemoryType::Global);
+  }
+
   std::vector<Expr*> new_top_level_exprs;
   for (auto top_level_expr : hic->topLevelExprs()) {
     if (!isResharding(top_level_expr)) {
@@ -743,6 +748,9 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     }
   }
   hic->resetTopLevelExprs(new_top_level_exprs);
+
+  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+      hic.get());
 
   return hic;
 }
