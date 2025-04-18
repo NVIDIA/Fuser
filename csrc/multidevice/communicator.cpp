@@ -179,6 +179,7 @@ Communicator::Communicator(
     return;
   }
 
+  std::cout << "start communicator::communicator" << std::endl;
   // retrieves rank and communicator size
   is_available_ = parseEnv(
       rank_, size_, local_rank_, local_size_, master_addr_, master_port_);
@@ -212,6 +213,7 @@ Communicator::Communicator(
 #ifdef USE_C10D_NCCL
   nccl_available_ = true;
 #endif
+  std::cout << "end communicator::communicator" << std::endl;
 }
 
 namespace {
@@ -315,6 +317,8 @@ void Communicator::cleanup() {
       "likely because Communicator::cleanup was called more than once");
   cleaned_up = true;
 
+  std::cout << "start communicator::cleanup" << std::endl;
+
   // Without this, the TCPStore server can be cleaned up before TCPStore
   // clients are created, causing an hang. This happened with
   // test_multidevice.py::test_sizes_and_ranks.
@@ -341,6 +345,7 @@ void Communicator::cleanup() {
   backends_.clear();
 
   is_available_ = false;
+  std::cout << "stop communicator::cleanup" << std::endl;
 }
 
 c10d::Backend* Communicator::getBackendForTeam(
