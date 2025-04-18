@@ -378,7 +378,7 @@ class LowerToInlinePtx : public kir::ExprMutator {
     Val* enable_input_d = getUseInputAcc(mma);
 
     // Do MMA
-    registerReplace(
+    registerInsertBefore(
         mma,
         IrBuilder::create<kir::Asm>(
             "tcgen05.mma.cta_group::1.kind::f16",
