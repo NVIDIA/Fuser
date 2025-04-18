@@ -703,8 +703,7 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
       at::div_out(output, lhs, rhs);
       break;
     default:
-      NVF_CHECK(
-          false,
+      NVF_THROW(
           "Unexpected operator type: ",
           binary_op->getBinaryOpType(),
           " in ",
@@ -744,8 +743,7 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
       at::amin_out(output, input, reduction_axes);
       return;
     default:
-      NVF_CHECK(
-          false,
+      NVF_THROW(
           "Unexpected operator type: ",
           reduction_op->getReductionOpType(),
           " in ",
