@@ -494,14 +494,6 @@ class ReadAfterWriteSyncs : public kir::ExprMutator {
                     GpuLower::current()->mbarrierMap().at(expr),
                     expr->fusion()->zeroVal()),
                 expr->fusion()->zeroVal(DataType::UInt32)));
-        registerInsertAfter(
-            expr,
-            IrBuilder::create<kir::Asm>(
-                "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
-                std::vector<Val*>{},
-                std::vector<Val*>{lower_utils::u32IndexScalarSmemTv(
-                    GpuLower::current()->mbarrierMap().at(expr))},
-                kir::Asm::Options{/*volatile=*/true}));
       }
     } else if (ir_utils::isCpAsyncBulkStore(expr)) {
       // Add a fence before TMA store so that writes in the generic proxy is
