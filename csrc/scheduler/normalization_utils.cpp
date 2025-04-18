@@ -1172,7 +1172,7 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
   scheduler_tools::DomainMap domain_map(fusion);
   if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
     scheduler_debug_utils::canScheduleRejectReason(
-        schedulerType(),
+        scheduler_type,
         "Output contains ID that's not scheduled by reference tv.");
     return false;
   }
