@@ -1522,7 +1522,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
-    TensorView* mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* mbarrier = GpuLower::current()->mbarrierMap().at(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
@@ -2803,6 +2803,11 @@ void IndexLowering::handle(const kir::WgMmaFence* fence) {
 void IndexLowering::handle(const kir::SetMaxNReg* maxnreg) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::SetMaxNReg*>(maxnreg)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::Continue* cont) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Continue*>(cont)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::Return* ret) {
