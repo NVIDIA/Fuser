@@ -4375,6 +4375,8 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
         maybe_deduplicate_edge(consumer_edge_to_update);
       }
 
+      std::erase(group->exprs_, uop);
+
       // Note that it should not be necessary to do anything with
       // group->output_vals since the inserted upcast ops should never produce
       // fusion outputs.

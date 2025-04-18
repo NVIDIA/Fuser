@@ -124,14 +124,6 @@ class HopperMultipleMatmulScheduler : public MultipleMatmulScheduler {
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
-  //! This calls orig->cacheAfter() and also updates the broadcast graph to
-  //! reflect the new IterDomain mappings
-  TensorView* cacheAfter(
-      TensorView* orig,
-      LoadStoreOpType op_type = LoadStoreOpType::Set,
-      CacheOp cache_op = CacheOp::AllLevels,
-      bool propagate_allocation_domain = false);
-
   //! Do block tiling for a collection of TensorViews. The tensors should be
   //! unscheduled before this method is called.
   //!   1) Axes will be ordered according to canonicalDimOrdering, and then axes
