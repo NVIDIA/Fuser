@@ -621,7 +621,10 @@ bool isInnerResharding(Expr* expr) {
       auto [shard_additions, shard_deletions] =
           getShardingChanges(input, output);
       NVF_ERROR(
-          shard_additions.size() + shard_deletions.size() <= 1,
+          shard_additions.size() <= 1,
+          "Resharding expr can only support one axis")
+      NVF_ERROR(
+          shard_deletions.size() <= 1,
           "Resharding expr can only support one axis")
 
       // process the output. Check if the resharding axis is in the first axis

@@ -356,7 +356,8 @@ IterDomain* newOutputIterDomain(
 
     NVF_ERROR(
         id->getParallelType() == ParallelType::Serial ||
-            isParallelTypeDeviceDim(id->getParallelType()),
+            isParallelTypeDeviceDim(id->getParallelType())
+            || id->getParallelType() == ParallelType::Stream,
         id->getParallelType(),
         " is not expected when building ops.");
     parallel_type = promoteParallelType(parallel_type, id->getParallelType());

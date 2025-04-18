@@ -27,7 +27,7 @@ namespace {
 // We do no support resharding multi-output expressions. Fusions may contain
 // multi-output expressions if they don't require resharding.
 bool shouldReshardAfter(Expr* expr) {
-  return expr->inputs().size() == 1 && expr->outputs().size() == 1;
+  return true;
 }
 
 void propagateParallelization(TensorView* ref, std::vector<TensorView*> tvs) {
@@ -119,6 +119,65 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // output takes input's sharding
       propagateParallelization(output, {new_output});
       propagateParallelization(input, {output});
+
+      // TODO: put this in a separate pass to propagate Stream parallelization
+
+      // Find the stream parallelized axis in new_output
+      IterDomain* stream_axis = nullptr;
+      for (auto* id : new_output->getLoopDomain()) {
+        if (id->getParallelType() == ParallelType::Stream) {
+          stream_axis = id;
+          break;
+        }
+      }
+      if (stream_axis == nullptr) {
+        return;
+      }
+
+      // Step 1: build the mapping of DIDx axis
+      // collect the set of all loop domain axis between output and new_output that are DID-x parallelized.
+      // Collect all DIDx parallelized axes from output and new_output
+  
+      // Build exact mapping model between output and new_output
+      IdModel id_model(fusion);
+      id_model.buildExactGraph();
+
+      // Collect all DIDx parallelized axes from output and new_output
+      std::unordered_set<IterDomain*> didx_axes;
+      for (auto* tv : {output, new_output}) {
+        auto loop_domain = tv->getLoopDomain();
+        std::copy_if(
+            loop_domain.begin(),
+            loop_domain.end(), 
+            std::inserter(didx_axes, didx_axes.begin()),
+            [](IterDomain* id) { return id->getParallelType() == ParallelType::DIDx; });
+      }
+
+      // Helper to check if an axis maps to any DIDx axis
+      auto is_mapped_to_didx = [&](IterDomain* id) {
+        return std::any_of(
+            didx_axes.begin(),
+            didx_axes.end(),
+            [&](IterDomain* didx_id) {
+              return id_model.idGraph(IdMappingMode::EXACT)
+                  .disjointValSets()
+                  .strictAreMapped(id, didx_id);
+            });
+      };
+
+      // Step 2:
+      if (!is_mapped_to_didx(stream_axis)) {
+        return;
+      }
+
+      // Step 3:
+      // Find first Serial axis in output that maps to DIDx
+      for (auto* id : output->getLoopDomain()) {
+        if (id->getParallelType() == ParallelType::Serial && is_mapped_to_didx(id)) {
+          id->parallelize(ParallelType::Stream);
+          break;
+        }
+      }
     }
   }
 }

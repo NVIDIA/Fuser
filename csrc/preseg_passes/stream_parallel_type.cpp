@@ -12,8 +12,10 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
+#include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 #include <preseg_passes/stream_parallel_type.h>
@@ -81,6 +83,11 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
   std::vector<Expr*> new_top_level_exprs;
 
+  if (Communicator::getInstance().deviceId() == 0) {
+    std::cout << "Step0: " << std::endl;
+    hic->print(debug());
+  }
+
   // Step 1: Group expressions into stream-parallel regions
   // This step identifies which expressions can be merged into single stream
   // for-loops
@@ -88,6 +95,9 @@ void StreamParallelType::runPass(Fusion* fusion) {
   // After this step, new_top_level_exprs contains a
   // list of expressions including newly created for-loops representing
   // the stream parallelization containing and the relevant expressions
+
+  // stores the previous axis to check if the current for-loop can be merged with the previous one
+  IterDomain* previous_for_loop_stream_axis = nullptr;
   for (auto expr : hic->topLevelExprs()) {
     // Skip expressions with no outputs
     if (expr->outputs().size() == 0) {
@@ -135,16 +145,17 @@ void StreamParallelType::runPass(Fusion* fusion) {
         "Stream axis ",
         stream_axis,
         " should be an iteration or broadcast axis.");
-
     // Check if expression can be merged with previous stream for-loop
-    if (!new_top_level_exprs.empty() &&
-        new_top_level_exprs.back()->isA<ForLoop>() &&
-        id_model.idGraph(IdMappingMode::BROADCAST)
+    if (previous_for_loop_stream_axis && !new_top_level_exprs.empty() && new_top_level_exprs.back()->isA<ForLoop>() && id_model.idGraph(IdMappingMode::BROADCAST)
             .disjointValSets()
             .strictAreMapped(
                 stream_axis,
-                new_top_level_exprs.back()->as<ForLoop>()->iterDomain())) {
-      // Merge with existing for-loop
+                previous_for_loop_stream_axis)) {
+      // If the stream axis are mapped, merge with existing for-loop
+      new_top_level_exprs.back()->as<ForLoop>()->body().push_back(expr);
+    } else if (previous_for_loop_stream_axis && !new_top_level_exprs.empty() && new_top_level_exprs.back()->isA<ForLoop>() && isResharding(expr)) {
+      // if it is resharding, it will include the necessary syncrhonization so we can merge the for-loops
+      previous_for_loop_stream_axis = stream_axis;
       new_top_level_exprs.back()->as<ForLoop>()->body().push_back(expr);
     } else {
       // Create new for-loop for stream parallelization
@@ -162,6 +173,14 @@ void StreamParallelType::runPass(Fusion* fusion) {
       for_loop->body().push_back(expr);
       // replace the current expr by the for-loop containing it
       new_top_level_exprs.push_back(for_loop);
+      previous_for_loop_stream_axis = stream_axis;
+    }
+  }
+
+  if (Communicator::getInstance().deviceId() == 0) {
+    std::cout << "Step1: new_top_level_exprs" << std::endl;
+    for (auto expr : new_top_level_exprs) {
+      std::cout << expr << std::endl;
     }
   }
 
@@ -260,6 +279,9 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
       // Process output tensors
       for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
+        // if (expr_needs_special_handling_for_p2p_pipeline) {
+        //   continue;
+        // }
         // Find stream axis index in output tensor
         int64_t output_stream_id_logical_index = -1;
         for (auto id : output->getLoopDomain()) {
@@ -376,6 +398,15 @@ void StreamParallelType::runPass(Fusion* fusion) {
     new_top_level_exprs.push_back(top_level_expr);
   }
 
+  if (Communicator::getInstance().deviceId() == 0) {
+    std::cout << "Step3: new_top_level_exprs:" << std::endl;
+    for (auto expr : new_top_level_exprs) {
+      std::cout << expr << std::endl;
+    }
+  }
+
+
+
   // Step 3: Add stream management and synchronization
   top_level_exprs = std::move(new_top_level_exprs);
   new_top_level_exprs.clear();
@@ -441,6 +472,13 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
   // Update the container's top-level expressions
   hic->resetTopLevelExprs(new_top_level_exprs);
+
+  if (Communicator::getInstance().deviceId() == 0) {
+    std::cout << "Step4: " << std::endl;
+    hic->print(debug());
+  }
+
+
 }
 
 } // namespace nvfuser::preseg_passes
