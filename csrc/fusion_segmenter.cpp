@@ -3788,6 +3788,10 @@ class MergeRopeGroups {
       }
     }
 
+    if (all_slices.size() < 2) {
+      return;
+    }
+
     std::unordered_set<SliceOp*> merged_slices;
     for (const auto i : arange(all_slices.size() - 1)) {
       auto slice_i = all_slices.at(i);
