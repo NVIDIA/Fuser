@@ -29,6 +29,20 @@ bool shouldReshardAfter(Expr* expr) {
   return expr->inputs().size() == 1 && expr->outputs().size() == 1;
 }
 
+std::unordered_set<ParallelType> getParallelTypesForResharding() {
+  // Consider a reshard case:
+  // input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
+  // This is decomposed into:
+  // input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
+  // new_output [i0, DIDx(i1)] ParallelType::Serial is required here so the
+  // output is sharded as [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)]
+  // when sharding using input as the reference.
+  std::unordered_set<ParallelType> parallel_types{
+      kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
+  parallel_types.insert(ParallelType::Serial);
+  return parallel_types;
+}
+
 void insertReshardingSetsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
@@ -71,18 +85,7 @@ void insertReshardingSetsBefore(Fusion* fusion) {
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
     }
 
-    // Consider a reshard before case:
-    // A [DIDx(i0), i1] + B [i0, i1] = C [i0, DIDx(i1)]
-    // This is decomposed into:
-    // A [DIDx(i0), i1] -> set -> new_A [i0, DIDx(i1)]
-    // B [i0, i1] -> set -> new_B [i0, DIDx(i1)]
-    // new_A [i0, DIDx(i1)] + new_B [i0, DIDx(i1)] = C [i0, DIDx(i1)]
-    // ParallelType::Serial is required here so the
-    // A is sharded as [i0, DIDx(i1)] instead of [DIDx(i0), DIDx(i1)]
-    std::unordered_set<ParallelType> parallel_types{
-        kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
-    parallel_types.insert(ParallelType::Serial);
-    shardAllLike(output, new_inputs, parallel_types);
+    shardAllLike(output, new_inputs, getParallelTypesForResharding());
   }
 }
 
@@ -123,16 +126,7 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       // output takes input's sharding
       shardAllLike(output, {new_output});
 
-      // Consider a reshard after case:
-      // input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
-      // This is decomposed into:
-      // input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
-      // new_output [i0, DIDx(i1)] ParallelType::Serial is required here so the
-      // output is sharded as [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)]
-      std::unordered_set<ParallelType> parallel_types{
-          kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
-      parallel_types.insert(ParallelType::Serial);
-      shardAllLike(input, {output}, parallel_types);
+      shardAllLike(input, {output}, getParallelTypesForResharding());
     }
   }
 }

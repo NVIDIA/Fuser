@@ -57,11 +57,15 @@ bool haveDifferentShardings(
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
 
-// Shards all tensors in tvs like reference
+// Shards all tensors in tvs like reference.
+// Accepts a set of parallel types to shard on.
+// If empty, all DID parallel types are used.
 void shardAllLike(
     TensorView* ref,
-    std::vector<TensorView*> tvs,
-    std::unordered_set<ParallelType> parallel_types = {});
+    const std::vector<TensorView*>& tvs,
+    const std::unordered_set<ParallelType>& parallel_types = {
+        kParallelTypeDIDs.begin(),
+        kParallelTypeDIDs.end()});
 
 // Shards all TVs between from and to AND between TVs created inside a fusion
 // and to. This is required for (1) expressions like rng_uniform that create a

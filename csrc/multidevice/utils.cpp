@@ -637,15 +637,13 @@ void shardAllLike(
     TensorView* ref,
     const std::vector<TensorView*>& tvs,
     const std::unordered_set<ParallelType>& parallel_types) {
+  if (tvs.empty()) {
+    return;
+  }
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  if (parallel_types.empty()) {
-    parallel_types = {kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
-  }
-  if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
-  }
+  scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
 }
 
 void shardBetween(
