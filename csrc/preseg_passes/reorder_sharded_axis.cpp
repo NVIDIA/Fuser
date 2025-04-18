@@ -16,6 +16,8 @@
 #include <multidevice/utils.h>
 #include <ops/alias.h>
 #include <ops/arith.h>
+#include <id_model/id_model.h>
+#include <transform_replay.h>
 
 namespace nvfuser::preseg_passes {
 
@@ -23,11 +25,15 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
   FusionGuard fg(fusion);
 
   const std::vector<Expr*>& exprs = fusion->exprs();
+  IdModel id_model(fusion);
+  id_model.buildExactGraph();
+  ValGraph& exact_graph = id_model.idGraph(IdMappingMode::EXACT);
+
   for (auto it = std::rbegin(exprs); it != std::rend(exprs); it++) {
     Expr* expr = *it;
-    if (HostIrLower::canLower(expr)) {
-      continue;
-    }
+    // if (HostIrLower::canLower(expr)) {
+    //   continue;
+    // }
     NVF_ERROR(
         ir_utils::isTvOp(expr),
         "Non-tv op is not supported: ",
@@ -72,6 +78,7 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       new_output->axis(sharding_axis)->parallelize(ParallelType::Serial);
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
+      continue;
     }
     // For scatter operations i.e. ID goes from unsharded to sharded
     // Update input to push the scattered axis to the front -> collective ->
@@ -132,6 +139,45 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       // between `input_permute` and `output_permute`.
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
+      continue;
+    }
+
+    // 1. Get the resharding id pair between producer and consumer.
+    std::optional<std::pair<IterDomain*, IterDomain*>> resharding_id_pair = getReshardingIdPair(input, output, exact_graph);
+    if (!resharding_id_pair.has_value()) {
+      continue;
+    }
+
+    auto [p_loop_id, c_loop_id] = resharding_id_pair.value();
+
+    // 2. These ids may not be present in the logical domain. Find the logical id that p_id was derived from.
+    auto p_logical_dom = input->getLogicalDomain();
+    auto p_inputs_in_logical = getInputsInTargetDomain(p_loop_id, p_logical_dom);
+    NVF_ERROR(p_inputs_in_logical.size() == 1, "Expected exactly one input in logical domain");
+    auto p_logical_id = p_inputs_in_logical.at(0);
+    auto p_logical_idx = std::distance(p_logical_dom.begin(), std::find(p_logical_dom.begin(), p_logical_dom.end(), p_logical_id));
+    
+    auto propagateTransform = [] (TensorView* ref, std::vector<TensorView*> tvs) -> void {
+      TransformPropagator propagator(ref);
+      SetSelector selector({tvs.begin(), tvs.end()});
+      MaxLogicalDomainInfoSpanningTree(ref, &selector).traverse(&propagator);
+    };
+
+    if (p_loop_id->isDeviceDim() && axisIndex(input->getMaybeAllocationDomain(), p_logical_id) > 0){
+      TensorView* inp_copy = set(input); // Allocates sharded axis at the front
+      TensorView* out_copy = set(inp_copy); // Communication op
+      TensorView* new_output = set(out_copy); // Reverts the sharded axis to the original position
+
+      propagateTransform(input, {inp_copy});
+      shardAllLike(input, {inp_copy});
+
+      propagateTransform(output, {out_copy, new_output});
+      shardAllLike(output, {out_copy, new_output});
+
+      for (auto tv : {inp_copy, out_copy}) {
+        tv->setAllocationDomain(TensorDomain::orderedAs(tv->getMaybeAllocationDomain(), {{p_logical_idx, 0}}), true);
+      }
+      ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
     }
   }
 }
