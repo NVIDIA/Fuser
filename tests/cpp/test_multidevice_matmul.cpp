@@ -180,7 +180,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_NoComms) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(2));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
@@ -238,7 +238,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutTN_Allgather) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(2));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
@@ -289,7 +289,7 @@ TEST_F(DistributedMatmulTest, Matmul_LayoutNT_AllReduce) {
       executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       kernel_runtime->fusionSegments()->groups(),
-      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(1));
+      Contains(HeuristicIs(SchedulerType::ExprEval)).Times(2));
 }
 
 TEST_F(DistributedMatmulTest, Matmul_LayoutNT_ReduceScatter) {
