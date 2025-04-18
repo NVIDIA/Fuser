@@ -25,7 +25,6 @@
 #include <device_lower/pass/loop_rotation.h>
 #include <device_lower/pass/loops.h>
 #include <device_lower/pass/magic_zero.h>
-#include <device_lower/pass/misaligned_vectorization.h>
 #include <device_lower/pass/predicate.h>
 #include <device_lower/pass/replace_size.h>
 #include <device_lower/pass/rng.h>
@@ -271,14 +270,13 @@ GpuLower::GpuLower(Fusion* fusion, const CompileParams& cparams)
            {"loadStoreOpInserter", loadStoreOpInserter},
            {"insertGridSerializationSyncs", insertGridSerializationSyncs},
            {"insertAllocations", insertAllocations},
-           {"insertRawThreadSynchronization", insertRawThreadSynchronization},
            {"reuseMemoryAllocations", reuseMemoryAllocations},
-           {"insertWarThreadSynchronization", insertWarThreadSynchronization},
            {"CircularBufferPass", CircularBufferPass::run},
+           {"insertRawThreadSynchronization", insertRawThreadSynchronization},
+           {"insertWarThreadSynchronization", insertWarThreadSynchronization},
            {"insertWarAsyncWait", insertWarAsyncWait},
            {"rotateLoops", rotateLoops},
            {"UnrollPass", UnrollPass::runPass},
-           {"processMisalignedVectorization", processMisalignedVectorization},
            {"IndexLowering", IndexLowering::getIndexedExprs},
            {"fuseWarpReduce", fuseWarpReduce},
            {"generateConditionalFromPredicate",
@@ -429,6 +427,16 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
     }
   }
 
+  // If not supported, disable use of TensorIndexer by default. It is
+  // still used if explicitly opted-in (see, for example,
+  // Index::getConsumerIndex)
+  if (!TensorIndexer::isSupported(fusion)) {
+    // Do not disable building of TensorIndexer as it may be still used
+    options.setIndex(false);
+    options.setPredicate(false);
+    options.setLoop(false);
+  }
+
   return options;
 }
 
@@ -486,12 +494,6 @@ void GpuLower::analysis(Fusion* fusion) {
   replaceSymbolicSizes(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "replaceSymbolicSizes");
 
-  // Build what's refered to as the compute at map. This map contains the
-  // mappings of all iteration domains across the fusion. There are three types
-  // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
-  // information.
-  compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
-
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
   if (idModelOptions().buildIdModel()) {
@@ -503,6 +505,15 @@ void GpuLower::analysis(Fusion* fusion) {
     id_model_->validateAndPropagatePType();
   }
 
+  // Build what's refered to as the compute at map. This map contains the
+  // mappings of all iteration domains across the fusion. There are three types
+  // of mappings Permissive, Exact, and Loop, see compute_at_map.h/cpp for more
+  // information.
+  //
+  // Depends on IdModel
+  compute_at_map_ = std::make_shared<ComputeAtMap>(fusion_);
+
+  // Requires IdModel as expression sorting is necessary
   resolveComputeWith(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "resolveComputeWith");
 
@@ -659,6 +670,14 @@ bool GpuLower::resolveComputeWith(Fusion* fusion) {
     }
   }
 
+  // The Loop graph needs to be updated as the compute positions of
+  // the updated tensors differ
+  if (updated && hasIdModel()) {
+    id_model_->removeGraph(IdMappingMode::LOOP);
+    id_model_->buildGraph(IdMappingMode::LOOP);
+    id_model_->validateAndPropagatePType();
+  }
+
   return updated;
 }
 
@@ -694,6 +713,15 @@ void GpuLower::aliasTensorProducer(TensorView* consumer, TensorView* producer) {
       p = producer;
     }
   }
+}
+
+const AllocationDomainInfo& GpuLower::getAllocationInfo(TensorView* tv) const {
+  auto it = allocationInfo().find(tv);
+  NVF_ERROR(
+      it != allocationInfo().end(),
+      "Allocation info not found for ",
+      tv->toString());
+  return it->second;
 }
 
 } // namespace nvfuser

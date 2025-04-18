@@ -139,6 +139,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"python_definition_segments", DebugDumpOption::PythonDefinitionSegments},
       {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
       {"sass", DebugDumpOption::Sass},
+      {"sass_to_file", DebugDumpOption::SassToFile},
       {"segmented_fusion", DebugDumpOption::FusionSegments},
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"scheduler_params", DebugDumpOption::SchedulerDebug},
@@ -163,10 +164,10 @@ const std::unordered_map<std::string, EnableOption>& getEnableOptions() {
           {"kernel_profile", EnableOption::KernelProfile},
           {"memory_promotion", EnableOption::MemoryPromotion},
           {"reuse_zeroed_memory", EnableOption::ReuseZeroedMemory},
-          {"resize_scheduler", EnableOption::ResizeScheduler},
           {"static_fusion_count", EnableOption::StaticFusionCount},
           {"wait_debugger", EnableOption::WaitDebugger},
           {"warn_register_spill", EnableOption::WarnRegisterSpill},
+          {"ws_normalization", EnableOption::WarpSpecializedNormalization},
           {"host_ir_lowering", EnableOption::HostIrLowering},
       };
   return available_options;
@@ -211,6 +212,7 @@ const std::unordered_map<std::string, DisableOption>& getDisableOptions() {
           {"kernel_reuse", DisableOption::KernelReuse},
           {"var_name_remapping", DisableOption::VarNameRemapping},
           {"welford_vectorization", DisableOption::WelfordVectorization},
+          {"resize_scheduler", DisableOption::ResizeScheduler},
           {"reuse_mismatched_type_registers",
            DisableOption::ReuseMismatchedTypeRegisters},
           {"multidevice", DisableOption::Multidevice}};

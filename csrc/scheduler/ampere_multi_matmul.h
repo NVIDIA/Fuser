@@ -77,8 +77,6 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
  private:
   void validate() const;
 
-  void cacheInputsAndOutputs();
-
   // Including current tensor naming convention for reference,
   //  this is very temporary and will change over time and
   //  in fact the whole body of this function will
@@ -134,7 +132,7 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! This updates outer_dim_roles if we introduce a new dimension, which can
   //! happen if tv is missing a merged axis, in which case we skip merging after
   //! the split. This is analogous to forwarding during transform propagation.
-  void swizzleBlockTiles(
+  void reorderBlockTileTraversal(
       TensorView* tv,
       std::vector<MatmulDimRole>& outer_dim_roles);
 
@@ -152,7 +150,8 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
   //! with the same role will be merged.
   //!   2) After that, we perform splits according to
   //!   params_->tile_sizes.cta_tile, e.g. [M, K] -> [Mo, Ko, Mi, Ki].
-  //!   3) Depending on the value of params_->grid_swizzle_factor, if the TV has
+  //!   3) Depending on the value of params_->grid_traversal_factor, if the TV
+  //!   has
   //! both M and N dimensions, we perform a 2D swizzle of the outer dimensions
   //! Mo and No.
   //!   4) Finally, we do a split-K split if the splitk_factor is not 1
@@ -192,13 +191,13 @@ class AmpereMultipleMatmulScheduler : public MultipleMatmulScheduler {
   // transforms have been applied and inlining
   void setUpCircularBuffering();
 
+  void setOperandSmemLoadAndCacheOps(TensorView* operand, int64_t vec_size)
+      final;
+
  private:
-  std::vector<std::pair<TensorView*, TensorView*>> cached_outputs_;
-
-  std::vector<ValGroup> canonical_dim_ordering_;
-
-  std::vector<TensorView*> acw_smems_, bcw_smems_, acrs_, bcrs_, abs_, bbs_,
-      splitk_sums_, smem_epilogues_;
+  // Tensors used for loading operands from smem to registers, and the
+  // broadcasted mma op inputs (abs_, bbs_)
+  std::vector<TensorView*> acrs_, bcrs_, abs_, bbs_;
 };
 
 } // namespace nvfuser

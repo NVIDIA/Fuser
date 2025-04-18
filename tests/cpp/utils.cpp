@@ -5,17 +5,88 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <tests/cpp/utils.h>
-
-#include <ops/all_ops.h>
-#include <scheduler/mma_utils.h>
-
 #include <regex>
 #include <sstream>
 #include <string>
 #include <string_view>
 
+#include <c10/core/Allocator.h>
+#include <c10/core/CachingDeviceAllocator.h>
+#include <c10/cuda/CUDACachingAllocator.h>
+
+#include <exceptions.h>
+#include <ops/all_ops.h>
+#include <scheduler/mma_utils.h>
+#include <tests/cpp/utils.h>
+
 namespace nvfuser {
+
+NVFuserTest::NVFuserTest() {
+  // Enable logging so debug messages in PyTorch can be printed out
+  // via `TORCH_CPP_LOG_LEVEL`.
+  c10::initLogging();
+
+  setFillAllocationWithNan(true);
+
+  maybeClearAllocator();
+
+  // If NVFUSER_TEST_RANDOM_SEED is provided, use that for the C random seed.
+  // Otherwise, use system time. If a test fails, this seed will be printed.
+  at::manual_seed(getATenRandomSeed());
+
+  // If NVFUSER_TEST_ATEN_RANDOM_SEED is provided, use that for the ATen
+  // random seed. Otherwise, use zero. If a test fails, this seed will be
+  // printed.
+  std::srand(getCRandomSeed());
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
+}
+
+void NVFuserTest::SetUp() {
+  // requires PASCAL or newer
+  if (!deviceMajorMinorCheck(6)) {
+    GTEST_SKIP() << "skipping tests on pre-PASCAL GPUs";
+  }
+}
+
+NVFuserTest::~NVFuserTest() {
+  if (::testing::Test::HasFailure()) {
+    auto test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+    std::cerr << "To reproduce: NVFUSER_TEST_RANDOM_SEED=" << getCRandomSeed()
+              << " NVFUSER_TEST_ATEN_RANDOM_SEED=" << getATenRandomSeed()
+              << " test_nvfuser --gtest_filter='"
+              << test_info->test_suite_name() << "." << test_info->name() << "'"
+              << std::endl;
+  }
+
+  // Make sure capturing of stdout is stopped
+  ensureStopCaptureStdout();
+
+  // Make sure profiler is unset in case it was set during test
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::Enable);
+  ProfilerOptionsGuard::getCurOptions().unset(ProfilerOption::EnableNocupti);
+}
+
+void NVFuserTest::captureStdout() {
+  if (!capturing_) {
+    testing::internal::CaptureStdout();
+    capturing_ = true;
+  }
+}
+
+void NVFuserTest::ensureStopCaptureStdout() {
+  if (capturing_) {
+    testing::internal::GetCapturedStdout();
+    capturing_ = false;
+  }
+}
+
+std::string NVFuserTest::getCapturedStdout() {
+  NVF_ERROR(capturing_, "Not captured");
+  auto str = testing::internal::GetCapturedStdout();
+  capturing_ = false;
+  return str;
+}
 
 const KernelExecutor* onlyKernelExecutorInMostRecentRuntime(
     const FusionExecutorCache& executor_cache) {
@@ -822,6 +893,84 @@ std::string macroToString(const MmaMacro macro) {
   ss << "_n" << getN(macro);
   ss << "_k" << getK(macro);
   return ss.str();
+}
+
+std::pair<TensorView*, TensorView*> createSdpaRngTvs() {
+  DataType dtype = DataType::Int;
+  std::vector<int64_t> philox_shape = {};
+
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+  dtype = DataType::UInt64;
+  philox_shape = {2};
+#endif
+  TensorView* philox_seed =
+      TensorViewBuilder().shape(philox_shape).dtype(dtype).build();
+  TensorView* philox_offset = TensorViewBuilder().dtype(dtype).build();
+#if !(NVF_TORCH_VERSION_NO_LESS(2, 7, 0))
+  philox_seed->setCpuScalar(true);
+  philox_offset->setCpuScalar(true);
+#endif
+  return std::make_pair(philox_seed, philox_offset);
+}
+
+std::pair<at::Tensor, at::Tensor> createSdpaRngTensors() {
+  at::Tensor philox_seed, philox_offset;
+  int64_t max_int64 = std::numeric_limits<int64_t>::max();
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+  philox_seed = at::randint(
+      max_int64, // Using int64_t range to avoid
+                 // overflow in randint
+      {2}, // shape
+      at::dtype(c10::kUInt64).device(at::kCUDA));
+  philox_offset = at::empty({}, at::dtype(c10::kUInt64).device(at::kCUDA));
+#else
+  philox_seed = at::randint(max_int64, {}, at::kLong);
+  philox_offset = at::randint(max_int64, {}, at::kLong);
+#endif
+  return std::make_pair(philox_seed, philox_offset);
+}
+
+void resetPeakMemoryStats(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  allocator->resetPeakStats(device);
+}
+
+namespace {
+// Stats like allocated_bytes comes as a size-3 array (cf.
+// https://github.com/pytorch/pytorch/blob/feb503c1df78afd46962ed04e446d6e88ac0522d/c10/core/Allocator.h#L365-L370).
+// The 0-th element is an aggregation of both the small pool and the large.
+constexpr auto kAggregateStatsIndex = static_cast<uint64_t>(
+#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
+    c10::CachingAllocator::StatType::AGGREGATE
+#else
+    c10::CachingDeviceAllocator::StatType::AGGREGATE
+#endif
+);
+} // namespace
+
+int64_t maxMemoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).peak;
+}
+
+int64_t memoryAllocated(const c10::DeviceIndex device) {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  c10::CachingDeviceAllocator::DeviceStats device_stats =
+      allocator->getDeviceStats(device);
+
+  return device_stats.allocated_bytes.at(kAggregateStatsIndex).current;
 }
 
 } // namespace nvfuser

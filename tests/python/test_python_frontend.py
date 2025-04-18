@@ -28,7 +28,7 @@ from nvfuser import (
 )
 from nvfuser.pytorch_utils import torch_dtype_to_nvfuser_dtype
 
-from utils import (
+from nvfuser.testing.utils import (
     is_pre_volta,
     is_pre_ampere,
     is_pre_hopper,
@@ -1993,7 +1993,7 @@ class TestNvFuserFrontend(NVFuserTest):
             # t5 = fd.ops.cat([t0, t3], 0)
             # fd.add_output(t5)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         self.assertEqual(torch.cat([inputs[0], inputs[1]], dim=1), nvf_out[0])
         self.assertEqual(torch.cat([inputs[0], inputs[2]], dim=0), nvf_out[1])
@@ -2016,7 +2016,7 @@ class TestNvFuserFrontend(NVFuserTest):
             t3 = fd.ops.cat([t0_pad, t1_pad], 1)
             fd.add_output(t3)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, is_clonable=True)
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
 
         # pad tensors t0 and t1, so their first dimension are size 10.
         pad_input0 = torch.nn.functional.pad(inputs[0], [0, 0, 0, 8])
@@ -2961,7 +2961,8 @@ class TestNvFuserFrontend(NVFuserTest):
             T37 = fd.ops.reshape(T33, new_shape=[2, 2])
             fd.add_output(T37)
 
-        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs)
+        # `supports_segmentation` is to work around #3856
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
         t7 = inputs[0].reshape((2, 1, 2))
         t8 = t7.var(dim=2, unbiased=False)
         t9 = t7.mean(dim=2)
@@ -3284,6 +3285,16 @@ class TestNvFuserFrontend(NVFuserTest):
         nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
         # self.assertEqual(nvf_out[0], t24)
 
+        # This fusion takes a long time to segment and schedule
+        # because of the resized extents, which seem to stress the
+        # expression simplifier a lot. Serializing this fusion would
+        # significantly increase the test time as it would be
+        # deserialized every time, which includes segmentation and
+        # scheduling. Ideally, we should optimize the expression
+        # simplifier, but for now resetting the cache should avoid the
+        # issue.
+        FusionCache.reset()
+
     # Test that symbolic IterDomains can be concatenated
     # https://github.com/NVIDIA/Fuser/issues/1554
     def test_cat_symbolic(self):
@@ -3354,9 +3365,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T28)
 
         # TODO: Support segmentation. See #3594.
-        nvf_out, _ = self.exec_nvfuser(
-            fusion_func, inputs, is_clonable=True, supports_segmentation=False
-        )
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
         t12 = inputs[1] * inputs[-2]
         t13 = torch.permute(t12, [0, 1, 3, 2])
@@ -3387,14 +3396,14 @@ class TestNvFuserFrontend(NVFuserTest):
         def fusion_func(fd: FusionDefinition) -> None:
             T0 = fd.define_tensor(
                 shape=[1, -1, -1],
-                contiguity=[None, True, True],
+                contiguity=True,
                 dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[2, 1, 0],
             )
             T1 = fd.define_tensor(
                 shape=[-1, -1],
-                contiguity=[True, True],
+                contiguity=True,
                 dtype=DataType.Float,
                 is_cpu=False,
                 stride_order=[1, 0],
@@ -4409,9 +4418,7 @@ class TestNvFuserFrontend(NVFuserTest):
             fd.add_output(T16)
 
         # TODO: Support segmentation. See #3594.
-        nvf_out, _ = self.exec_nvfuser(
-            fusion_func, inputs, is_clonable=True, supports_segmentation=False
-        )
+        nvf_out, _ = self.exec_nvfuser(fusion_func, inputs, supports_segmentation=False)
 
     def test_returning_aliased_outputs(self):
         inputs = [torch.randn((1, 2, 3, 4), dtype=torch.float32, device="cuda:0")]

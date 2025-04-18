@@ -57,7 +57,7 @@ class ArgumentBuilder {
   //! Build an argument list where each argument has its own line
   ArgumentBuilder(int indent_level, const char* tab) {
     std::stringstream ss;
-    for (const auto i : c10::irange(indent_level)) {
+    for (const auto i : arange(indent_level)) {
       (void)i; // Suppress unused variable warning
       ss << tab;
     }
@@ -335,7 +335,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Generate parameter declarations
     kernel_params_.reserve(kernel_->parameters().size());
     unsigned int duplicate_counter = 0;
-    for (auto i : c10::irange(kernel_->parameters().size())) {
+    for (auto i : arange(kernel_->parameters().size())) {
       std::stringstream var_name_ss;
       auto param = kernel_->parameters().at(i);
       kernel_params_.insert(param);
@@ -557,7 +557,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   std::ostream& indent() {
-    for (const auto i : c10::irange(block_nest_level_)) {
+    for (const auto i : arange(block_nest_level_)) {
       (void)i; // Suppress unused variable warning
       code_ << kTab;
     }
@@ -817,7 +817,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     }
     auto dtype = std::get<StructType>(sop->output(0)->dtype().type);
     code_ << dtype.name << "{ ";
-    for (auto i : c10::irange(sop->inputs().size())) {
+    for (auto i : arange(sop->inputs().size())) {
       if (i > 0) {
         code_ << ", ";
       }
@@ -906,7 +906,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       // Generate other datatypes in double
     }
     code_ << "(" << gen(rop->input(0));
-    for (auto inp_i : c10::irange(1, rop->inputs().size())) {
+    for (auto inp_i : arange(1, rop->inputs().size())) {
       code_ << ", " << gen(rop->input(inp_i));
     }
     code_ << ");\n";
@@ -1234,7 +1234,22 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   void handle(const IndexSelectOp* sop) final {
-    // generate code
+    NVF_ERROR(sop->output(0)->isA<kir::TensorIndex>());
+
+    // Get vectorization information
+    auto out_tv = sop->output(0)->as<kir::TensorIndex>()->view();
+    int64_t vector_word_size = ir_utils::getVectorizeSize(out_tv);
+    bool is_vector_op = vectorize_scope_ && vector_word_size != 1;
+    // generate vectorized load and return.
+    if (is_vector_op) {
+      indent();
+      generateVectorizedLdSt(
+          sop->input(0), sop->output(0), CacheOp::AllLevels, vector_word_size);
+      code_ << ";\n";
+      return;
+    }
+
+    // generate non-vectorized load
     if (!print_inline_) {
       indent() << gen(sop->output(0));
       if (!sop->output(0)->isScalar()) {
@@ -1256,6 +1271,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     } else {
       NVF_THROW("unkown scatterOp");
     }
+  }
+
+  std::string genLoadBlockDim() {
+    std::stringstream ss;
+    const auto& pdim_map = kernel_->summary().parallel_dimension_map;
+    Val* tidx = pdim_map.getRawLoad(ParallelType::TIDx);
+    Val* tidy = pdim_map.getRawLoad(ParallelType::TIDy);
+    Val* tidz = pdim_map.getRawLoad(ParallelType::TIDz);
+    int64_t num_threads = tidx->value().as<int64_t>() +
+        tidy->value().as<int64_t>() + tidz->value().as<int64_t>();
+    NVF_ERROR(
+        num_threads == 128,
+        "Expected 128 threads in AsyncWarp, but found ",
+        num_threads);
+    NVF_ERROR(pdim_map.hasWarpSpecialization());
+    ss << "dim3(" << genInlineOrOne(tidx) << ", " << genInlineOrOne(tidy)
+       << ", " << genInlineOrOne(tidz) << ")";
+    return ss.str();
   }
 
   std::string genComputeBlockDim() {
@@ -2091,8 +2124,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder func_args(block_nest_level_ + 1, kTab);
 
     // Append arguments for each reduction
-    for (const auto i :
-         c10::irange(grouped_grop->numHorizontallyGroupedExprs())) {
+    for (const auto i : arange(grouped_grop->numHorizontallyGroupedExprs())) {
       NVF_ERROR(
           grouped_grop->reduction_buffers().at(i)->buffer()->isA<TensorView>());
       const auto work_buffer =
@@ -2206,7 +2238,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     for (const auto& index_values : index_val_sets) {
       NVF_ERROR(loop_indices.size() == index_values.size());
       std::unordered_map<const Val*, int64_t> index_val_map;
-      for (const auto i : c10::irange(loop_indices.size())) {
+      for (const auto i : arange(loop_indices.size())) {
         auto loop_index = loop_indices.at(i);
         auto index_val = index_values.at(i);
         index_val_map.emplace(loop_index, index_val);
@@ -2265,15 +2297,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     ArgumentBuilder write_preds;
 
     for (const auto expr_index :
-         c10::irange(grouped_grop->numHorizontallyGroupedExprs())) {
+         arange(grouped_grop->numHorizontallyGroupedExprs())) {
       const auto data_type = grouped_grop->outputs().at(expr_index)->dtype();
       NVF_ERROR(grouped_grop->reduction_buffers()
                     .at(expr_index)
                     ->buffer()
                     ->isA<TensorView>());
 
-      for (const auto& group_index :
-           c10::irange(index_replacement_maps.size())) {
+      for (const auto& group_index : arange(index_replacement_maps.size())) {
         // Set the index replacement map with the concrete values of
         // indices of grouped loops.
         index_replacement_map_ = index_replacement_maps.at(group_index);
@@ -2407,13 +2438,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     auto init_vals = grouped_gwop->initVals();
 
     for (const auto expr_index :
-         c10::irange(grouped_gwop->numHorizontallyGroupedExprs())) {
+         arange(grouped_gwop->numHorizontallyGroupedExprs())) {
       const auto& output = output_vals.at(expr_index);
       const auto& input = input_vals.at(expr_index);
       const auto& init = init_vals.at(expr_index);
 
-      for (const auto& group_index :
-           c10::irange(index_replacement_maps.size())) {
+      for (const auto& group_index : arange(index_replacement_maps.size())) {
         // Set the index replacement map with the concrete values of
         // indices of grouped loops.
         index_replacement_map_ = index_replacement_maps.at(group_index);
@@ -2427,7 +2457,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
                std::to_string(group_index));
 
         // Setup arguments for avg, var, and N
-        for (const auto i : c10::irange(3)) {
+        for (const auto i : arange(3)) {
           out_args[i].arg(gen(output.get(i)));
           in_args[i].arg(gen(input.get(i)));
           init_args[i].arg(gen(init.get(i)));
@@ -2574,7 +2604,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genComputeBlockDim());
 
     // global buf
-    for (const auto i : c10::irange(3)) {
+    for (const auto i : arange(3)) {
       const auto work_buffer = grouped_gwop->reduction_buffers()[i]
                                    .at(0)
                                    ->buffer()
@@ -2990,7 +3020,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           grouped_rop->writePredicate());
     }
 
-    for (const auto i : c10::irange(num_grouped_exprs)) {
+    for (const auto i : arange(num_grouped_exprs)) {
       NVF_ERROR(grouped_rop->output(i)->isA<kir::TensorIndex>());
 
       const auto output = grouped_rop->output(i)->as<kir::TensorIndex>();
@@ -3242,7 +3272,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool utility_generated = false; // Is the same utility function already
                                     // generated when handling another asm_?
     if (as_utility) {
-      if (!generated_utilities_.insert(utility_name).second) {
+      if (!generated_utilities_.insert(asm_->signature()).second) {
         utility_generated = true;
       }
     }
@@ -3252,7 +3282,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     // Indentation for the PTX code
     int utility_block_nest_level = 1;
     std::function<std::ostream&()> indent_utility = [&]() -> std::ostream& {
-      for (auto _ : c10::irange(utility_block_nest_level)) {
+      for (auto _ : arange(utility_block_nest_level)) {
         (void)_;
         utilities << kTab;
       }
@@ -3279,7 +3309,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (!asm_->options().immediate_inputs.empty()) {
           utilities << "template <";
           bool first = true;
-          for (auto in_i : c10::irange((int64_t)inputs.size())) {
+          for (auto in_i : arange((int64_t)inputs.size())) {
             if (asm_->options().immediate_inputs.count(in_i)) {
               if (!first) {
                 utilities << ", ";
@@ -3291,7 +3321,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           utilities << ">\n";
         }
         utilities << "__device__ __inline__ void " << utility_name_no_ns << "(";
-        for (auto out_i : c10::irange(outputs.size())) {
+        for (auto out_i : arange(outputs.size())) {
           if (out_i > 0) {
             utilities << ", ";
           }
@@ -3300,7 +3330,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         if (!outputs.empty()) {
           utilities << ", ";
         }
-        for (auto in_i : c10::irange((int64_t)inputs.size())) {
+        for (auto in_i : arange((int64_t)inputs.size())) {
           if (asm_->options().immediate_inputs.count(in_i)) {
             continue;
           }
@@ -3412,7 +3442,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
               auto reg_dtype = get_type_or_index_type(register_);
               if (std::holds_alternative<ArrayType>(reg_dtype.type)) {
                 for (auto i :
-                     c10::irange(std::get<ArrayType>(reg_dtype.type).size)) {
+                     arange(std::get<ArrayType>(reg_dtype.type).size)) {
                   if (i > 0) {
                     next_line();
                   }
@@ -3527,6 +3557,20 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
+    } else if (sync->isAsyncWarpSync()) {
+      ArgumentBuilder template_args;
+      template_args.arg(isAligned());
+      ArgumentBuilder func_args;
+      func_args.arg(genLoadBlockDim());
+      indent() << genCall("block_sync::sync", template_args, func_args)
+               << ";\n";
+    } else if (sync->isComputeWarpSync()) {
+      ArgumentBuilder template_args;
+      template_args.arg(isAligned());
+      ArgumentBuilder func_args;
+      func_args.arg(genComputeBlockDim());
+      indent() << genCall("block_sync::sync", template_args, func_args)
+               << ";\n";
     } else {
       indent() << "__barrier_sync(0);\n";
     }
@@ -3703,6 +3747,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
   void handle(const kir::UpdateMagicZero*) final {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
+  }
+
+  void handle(const kir::Continue* cont) final {
+    indent() << "continue;\n";
   }
 
   void handle(const kir::Return* ret) final {

@@ -8,7 +8,6 @@
 #include <device_lower/pass/unroll.h>
 
 #include <device_lower/lower2device.h>
-#include <device_lower/pass/misaligned_vectorization.h>
 #include <device_lower/utils.h>
 #include <expr_evaluator.h>
 #include <index_compute.h>
@@ -158,8 +157,10 @@ void UnrollPass::dispatch(Expr* expr) {
       pred = IrBuilder::create<kir::Predicate>(PredicateType::Vectorize);
     }
 
-    // short-circuit: wrap tma expressions with elect sync predicate
-    if (ir_utils::isCpAsyncBulk(expr)) {
+    // short-circuit: wrap tma and blackwell mma expressions with elect sync
+    // predicate
+    if (ir_utils::isCpAsyncBulk(expr) ||
+        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
       // If we need a predicate, put expr inside an if then else
       auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
           PredicateType::ElectSync, expr, thread_pred);
@@ -224,11 +225,8 @@ void UnrollPass::handle(ForLoop* fl) {
     // Make copy of exprs because we replace them inplace in fl
     const auto exprs_copy = fl->body().exprs();
 
-    // Skip Misaligned Vectorization For-Loops here
-    if (!containsAnyDirectChildMisalignedVectorize(fl)) {
-      for (auto expr : exprs_copy) {
-        dispatch(expr);
-      }
+    for (auto expr : exprs_copy) {
+      dispatch(expr);
     }
 
     for_loops_.pop_back();
@@ -313,7 +311,7 @@ bool UnrollPass::canOmitElseClause(ForLoop* fl) {
     // When the loop stop is the same as the extent of its IterDomain,
     // the per-thread visit count is guaranteed to be one at most (see
     // CudaKernelGenerator::handle(ForLoop*) as well. Also, when a
-    // loop is vectorized (not misaligned), the count must be one at
+    // loop is vectorized, the count must be one at
     // most. Even if not parallelized nor vectoirzed, it is also
     // sufficient if the loop stop is in fact one.
     bool visit_once = false;

@@ -329,7 +329,8 @@ TEST_F(PersistentBufferTest, FusionPersistentBufferProjection_CUDA) {
 
   fusion.addOutput(tv9);
 
-  reduction_scheduler_utils::projectPersistentBuffers(&fusion, true);
+  reduction_scheduler_utils::projectPersistentBuffers(
+      &fusion, scheduler_utils::persistentBuffers(&fusion), true);
 
   auto tv5_producers = ir_utils::producerTvsOf(tv5);
   auto tv7_producers = ir_utils::producerTvsOf(tv7);
@@ -659,7 +660,8 @@ TEST_F(PersistentBufferTest, FusionRecomputePersistentBuffer_CUDA) {
       persistent_buffer_info1.persistent_buffers.size() == 2,
       "Before project to other buffers, should have two persistent buffers!");
 
-  reduction_scheduler_utils::projectPersistentBuffers(fusion, false);
+  reduction_scheduler_utils::projectPersistentBuffers(
+      fusion, scheduler_utils::persistentBuffers(fusion), false);
   auto persistent_buffer_info2 = scheduler_utils::persistentBuffers(fusion);
   NVF_CHECK(
       persistent_buffer_info2.persistent_buffers.size() == 1,
@@ -1557,4 +1559,348 @@ INSTANTIATE_TEST_SUITE_P(
       return sanitizeTestName(ss.str());
     });
 
+// If the persistent buffer is the output of an upcast op, project
+// it back to the input to save register usage. This is similar to
+// project to inputs, not abosutely necessary but we always do it to
+// save register usage.
+TEST_F(PersistentBufferTest, ProjectToUpcastInput) {
+  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  int64_t dim0 = 128, dim1 = 1024;
+  auto tv0 = makeSymbolicTensor(2);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = gt(tv1, IrBuilder::create<Val>(0.5));
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = sum(tv3, {1});
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = add(tv5, tv3);
+  fusion.addOutput(tv6);
+  auto fusion_copy = fusion;
+
+  // tv3 is the persistent tensor
+  auto persistent_buffer_info = scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_EQ(
+      persistent_buffer_info.persistent_buffers, std::vector<TensorView*>{tv3});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor aten_input = at::randn({dim0, dim1}, options);
+
+  // The persistent buffer size is dim1 * sizeof(bool) not sizeof(float)
+  // becase tv3 is the output of an upcast op, the scheduler will project it
+  // back to the input which is tv2 and its data type is bool.
+  SchedulerRuntimeInfo runtime_info(&fusion, {aten_input});
+  auto persistent_buffer_size = scheduler_utils::persistentBufferSize(
+      &fusion, runtime_info, persistent_buffer_info);
+  EXPECT_EQ(
+      persistent_buffer_size.persistent_buffer_size,
+      dim1 * dataTypeSize(DataType::Bool));
+
+  // Check the compute position of the bool tensor, tv2, is at the top of the
+  // kernel.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto cg_outputs = executor_cache.runFusionWithInputs({aten_input});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .back()
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+  for (auto tv : scheduled_fusion->allTvs()) {
+    if (tv->getDataType() == DataType::Bool) {
+      EXPECT_EQ(tv->getComputeAtPosition(), 1);
+    }
+  }
+  testValidate(&fusion_copy, cg_outputs, {aten_input}, __LINE__, __FILE__, "");
+}
+
+TEST_F(NVFuserTest, FalsePersistentBuffer) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({320});
+  fusion.addInput(tv0);
+
+  // Extracted from issue #4020
+  auto tv1 = reshape(tv0, {320}, {10, 32});
+  auto tv2 = reshape(tv0, {320}, {10, 32});
+  auto tv3 = add(tv1, tv2);
+  auto tv4 = set(tv3);
+  fusion.addOutput(tv4);
+  auto tv5 = sum(tv3, {1});
+  fusion.addOutput(tv5);
+  auto tv6 = sum(tv2, {1});
+  auto tv7 = set(tv6);
+  fusion.addOutput(tv7);
+
+  // In this fusion, ComputeAtLogicalDomainMap tells
+  // tv0 has an unmappable consumer IDs, making
+  // tv0 be a candidate of persistent buffers, even though it doesn't
+  // need to be persistent. As a result, before PR #4083,
+  // persistentBuffers(Fusion*) tries to find a resolution point, but it fails
+  // there's no such tensor.
+  scheduler_utils::PersistentBufferInfo info =
+      scheduler_utils::persistentBuffers(&fusion);
+  EXPECT_TRUE(info.persistent_buffers.empty());
+}
+
+// Repro of issue #4052 (https://github.com/NVIDIA/Fuser/issues/4052)
+// without the input projection. Note that the original repro is triggered
+// by the input projection.
+TEST_F(PersistentBufferTest, BroadcastSync1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {0, 1});
+  auto tv7 = broadcast(tv6, {true, true});
+
+  {
+    // Same sequence of the ops above
+    auto tv2 = broadcast(tv0, {false, true});
+    auto tv3 = castOp(DataType::Float, tv2);
+    auto tv4 = castOp(DataType::Float, tv1);
+    auto tv5 = add(tv3, tv4);
+
+    auto tv9 = add(tv5, tv7);
+    auto tv10 = castOp(DataType::BFloat16, tv9);
+    fusion.addOutput(tv10);
+  }
+
+  auto unscheduled_fusion_copy = fusion;
+
+  auto pb_info = scheduler_utils::persistentBuffers(&fusion);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({64}, options);
+  auto t1 = at::randn({64, 16}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  // Lowering should succeed. Prior to the fix of the issue, the sync
+  // analysis raises an exception as there's mismatched
+  // parallelization between the cache of tv0 and its consumer
+  GpuLower gpulw(&fusion);
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Similar to BroadcastSync1 but just one of the reduction IDs is
+// resolved with the input tensor
+TEST_F(PersistentBufferTest, BroadcastSync2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {0, 1});
+  auto tv7 = broadcast(tv6, {true});
+
+  {
+    auto tv3 = castOp(DataType::Float, tv0);
+
+    auto tv9 = add(tv3, tv7);
+    auto tv10 = castOp(DataType::BFloat16, tv9);
+    fusion.addOutput(tv10);
+  }
+
+  // In this case, there's no persistent buffer, so it should not be
+  // scheduled as a persistent kernel. Note that it's possible to
+  // schedule it like a persistent kernel without segmentation, which
+  // may be more favorable.
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({64}, options);
+  auto t1 = at::randn({64, 16}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  EXPECT_FALSE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+}
+
+// Make sure isCacheableUnmappableTv does not falsely claim not
+// cacheable when an unmappable tensor is reduced through a reshape
+TEST_F(PersistentBufferTest, BroadcastSyncReshape) {
+  GTEST_SKIP() << "Disabled for now";
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeConcreteTensor({2, 32});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {IrBuilder::create<Val>(-1)});
+  auto tv3 = sum(tv2, {0});
+  auto tv4 = broadcast(tv3, {true});
+
+  auto tv5 = reshape(tv1, {IrBuilder::create<Val>(-1)});
+  auto tv6 = add(tv4, tv5);
+  fusion.addOutput(tv6);
+
+  fusion.printMath();
+
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({2, 32}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0});
+
+  // This fusion has only one unmappable tensor. If it's falsely
+  // detected as non cacheable, it will not be scheduled as a
+  // persistent kernel.
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0});
+  auto outputs =
+      ke.run({t0}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Simplified version to reproduce the issue #4052
+TEST_F(PersistentBufferTest, BroadcastSyncProjectToInputs) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = broadcast(tv0, {false, true});
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {0, 1});
+  auto tv7 = broadcast(tv6, {true, true});
+  auto tv8 = add(tv5, tv7);
+  fusion.addOutput(tv8);
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({64}, options);
+  auto t1 = at::randn({64, 16}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  EXPECT_FALSE(
+      heuristic_params->as<ReductionParams>()->project_persistent_buffers);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+namespace {
+
+inline TensorView* makeBroadcastTensor(
+    const std::vector<bool>& is_broadcast_dim,
+    DataType input_dtype = DataType::Float) {
+  std::vector<IterDomain*> out_domain;
+  out_domain.reserve(is_broadcast_dim.size());
+  for (auto is_broadcast : is_broadcast_dim) {
+    out_domain.push_back(
+        IterDomainBuilder(
+            FusionGuard::getCurFusion()->zeroVal(),
+            is_broadcast ? FusionGuard::getCurFusion()->oneVal()
+                         : IrBuilder::create<Val>(DataType::Index))
+            .iter_type(is_broadcast ? IterType::Broadcast : IterType::Iteration)
+            .build());
+  }
+  return IrBuilder::create<TensorView>(
+      IrBuilder::create<TensorDomain>(
+          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+      input_dtype);
+}
+
+} // namespace
+
+// Different from BroadcastSyncProjectToInputs, this test has a broadcast
+// domain in one of the inputs. The scheduler should project the persistent
+// to inputs.
+TEST_F(PersistentBufferTest, BroadcastSyncInputsHasBcast) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeBroadcastTensor({false, true}, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv1);
+
+  auto tv2 = set(tv0);
+  auto tv3 = castOp(DataType::Float, tv2);
+  auto tv4 = castOp(DataType::Float, tv1);
+  auto tv5 = add(tv3, tv4);
+  auto tv6 = sum(tv5, {1});
+  auto tv7 = broadcast(tv6, {false, true});
+  auto tv8 = add(tv5, tv7);
+  fusion.addOutput(tv8);
+  auto unscheduled_fusion_copy = fusion;
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn({64}, options).unsqueeze(-1);
+  auto t1 = at::randn({64, 16}, options);
+  SchedulerRuntimeInfo runtime_info(fusion_ptr.get(), {t0, t1});
+  ASSERT_TRUE(Schedule::canSchedule(
+      SchedulerType::InnerPersistent, fusion_ptr.get(), runtime_info));
+  auto scheduler =
+      SchedulerEntry::makeSchedulerInstance(SchedulerType::InnerPersistent);
+  auto heuristic_params =
+      scheduler->computeHeuristics(fusion_ptr.get(), runtime_info);
+  EXPECT_TRUE(
+      heuristic_params->as<ReductionParams>()->project_persistent_buffers);
+  scheduler->schedule(fusion_ptr.get(), heuristic_params.get());
+
+  KernelExecutor ke;
+  ke.compile(fusion_ptr.get(), {t0, t1});
+  auto outputs =
+      ke.run({t0, t1}, {}, heuristic_params->as<ReductionParams>()->lparams);
+  testValidate(&unscheduled_fusion_copy, outputs, {t0, t1}, __LINE__, __FILE__);
+}
 } // namespace nvfuser

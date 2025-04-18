@@ -216,7 +216,7 @@ void IterDomainGraph::mapThroughExpr(Expr* first, Expr* second, bool forward) {
       first->toString(),
       "\nand\n",
       second->toString());
-  for (auto out_i : c10::irange(first_ids.size())) {
+  for (auto out_i : arange(first_ids.size())) {
     exact_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
     permissive_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
     permissive_resize_nodes_.mapEntries(first_ids[out_i], second_ids[out_i]);
@@ -393,7 +393,7 @@ void IterDomainGraph::build(Fusion* fusion) {
           // p->f, c->c
           std::unordered_map<IterDomain*, IterDomain*> c2f_root_map;
           for (const auto i :
-               c10::irange(first_output_tv->getMaybeRootDomain().size())) {
+               arange(first_output_tv->getMaybeRootDomain().size())) {
             c2f_root_map.insert(std::make_pair(
                 c_tv->getMaybeRootDomain()[i],
                 first_output_tv->getMaybeRootDomain()[i]));
@@ -504,7 +504,7 @@ void IterDomainGraph::build(Fusion* fusion) {
 
         for (auto& dset : permissive_disjoint_sets.disjointSets()) {
           auto& vec = dset->vector();
-          for (auto i : c10::irange(vec.size())) {
+          for (auto i : arange(vec.size())) {
             auto id1 = vec[i];
             permissive_nodes_.mapEntries(id1, vec[0]);
 
@@ -513,7 +513,7 @@ void IterDomainGraph::build(Fusion* fusion) {
             //  or p_id is swizzle output.
             mapMaybeSwizzleOp(permissive_nodes_, id1);
 
-            for (auto j : c10::irange(i + 1, vec.size())) {
+            for (auto j : arange(i + 1, vec.size())) {
               auto id2 = vec[j];
               if (p_ids.count(id1) && c_ids.count(id2)) {
                 if (idIsAComputeAtLeafDomain(id1, p_tv, c_tv) &&
@@ -538,11 +538,11 @@ void IterDomainGraph::build(Fusion* fusion) {
         // permissive-resize mappings.
         for (auto& dset : permissive_resize_disjoint_sets.disjointSets()) {
           auto& vec = dset->vector();
-          for (auto i : c10::irange(vec.size())) {
+          for (auto i : arange(vec.size())) {
             auto id1 = vec[i];
             permissive_resize_nodes_.mapEntries(id1, vec[0]);
             mapMaybeSwizzleOp(permissive_resize_nodes_, id1);
-            for (auto j : c10::irange(i + 1, vec.size())) {
+            for (auto j : arange(i + 1, vec.size())) {
               auto id2 = vec[j];
               if (p_ids.count(id1) && c_ids.count(id2)) {
                 consumers_.at(id1).pushBack(id2);
@@ -651,7 +651,7 @@ void IterDomainGraph::build(Fusion* fusion) {
   for (auto prop_forward : {true, false}) {
     std::unordered_set<Expr*> visited_exprs;
 
-    for (auto logical_id_i : c10::irange(logical_id_order.size())) {
+    for (auto logical_id_i : arange(logical_id_order.size())) {
       auto first_logical_id = prop_forward
           ? logical_id_order[logical_id_i]
           : logical_id_order[logical_id_order.size() - 1 - logical_id_i];
@@ -721,6 +721,39 @@ void IterDomainGraph::build(Fusion* fusion) {
     }
   }
 
+  // Adds more mappings from IdModel if available
+  auto expand_by_id_model = [](DisjointSets<IterDomain*>& nodes,
+                               IdMappingMode mode) {
+    if (!GpuLower::hasCurrent() || !GpuLower::current()->hasIdModel()) {
+      return;
+    }
+
+    const ValGraph& graph = GpuLower::current()->idModel().idGraph(mode);
+    for (const auto& vg : graph.disjointValSets().disjointSets()) {
+      IterDomain* first_id = nullptr;
+      for (const auto& val : *vg) {
+        auto id = val->as<IterDomain>();
+        if (!nodes.mappingExists(id)) {
+          continue;
+        }
+        if (first_id == nullptr) {
+          first_id = id;
+        } else if (!nodes.strictAreMapped(first_id, id)) {
+          nodes.mapEntries(first_id, id);
+        }
+      }
+    }
+  };
+
+  // Expand the exact sets with the IdModel exact graph so that
+  // the legacy and new indexers would produce less mismatching
+  // results.
+  expand_by_id_model(exact_nodes_, IdMappingMode::EXACT);
+  // Expand the permissive sets with the IdModel exact graph. The
+  // permissive IdModel graph may be used instead, but the exact graph
+  // seems sufficient to fill the gap with IdModel
+  expand_by_id_model(permissive_nodes_, IdMappingMode::EXACT);
+
   innermost_nodes_ = permissive_resize_nodes_;
   // Build almost exact map by forwarding through broadcast axes
   almost_exact_nodes_ = exact_nodes_;
@@ -734,6 +767,15 @@ void IterDomainGraph::build(Fusion* fusion) {
     if (!visited.emplace(def).second) {
       continue;
     }
+
+    // If there's an input that is not included in the map, this expr
+    // should not be considered
+    if (std::ranges::any_of(def->inputs(), [&](Val* inp) {
+          return !allIds().has(inp->as<IterDomain>());
+        })) {
+      continue;
+    }
+
     if (auto merge = dynamic_cast<Merge*>(def)) {
       if (merge->inner()->extent()->isOneInt()) {
         almost_exact_nodes_.mapEntries(merge->outer(), merge->out());
@@ -763,6 +805,8 @@ void IterDomainGraph::build(Fusion* fusion) {
       }
     }
   }
+
+  expand_by_id_model(almost_exact_nodes_, IdMappingMode::ALMOSTEXACT);
 
   self_mapping_info_ = findFirstSelfMapping(fusion, *this);
 }
@@ -881,8 +925,8 @@ void ComputeAtMap::allocateIndexVariables() {
       // Allocate index variable for each stage of the circular buffered loop.
       circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()] =
           std::make_unique<CircularBufferIndices>();
-      for (auto i : c10::irange(
-               static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
+      for (auto i :
+           arange(static_cast<int>(CircularBufferLoopStage::EndOfStages))) {
         auto stage = static_cast<CircularBufferLoopStage>(i);
         circular_buffered_loop_index_variable_map_[loop_disjoint_set.get()]
             ->emplace(stage, IrBuilder::create<Val>(DataType::Index));
@@ -1260,7 +1304,7 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
           expr_1->outputs().size() == expr_2->outputs().size(),
       "Expr traversal doesn't support variable number of inputs and outputs.");
 
-  for (auto input_i : c10::irange(expr_1->inputs().size())) {
+  for (auto input_i : arange(expr_1->inputs().size())) {
     if (expr_1->inputs()[input_i]->isA<IterDomain>() &&
         !areMapped(
             expr_1->inputs()[input_i]->as<IterDomain>(),
@@ -1271,7 +1315,7 @@ bool ComputeAtMap::areExactExprs(Expr* expr_1, Expr* expr_2) {
     }
   }
 
-  for (auto output_i : c10::irange(expr_1->outputs().size())) {
+  for (auto output_i : arange(expr_1->outputs().size())) {
     if (expr_1->outputs()[output_i]->isA<IterDomain>() &&
         !areMapped(
             expr_1->outputs()[output_i]->as<IterDomain>(),

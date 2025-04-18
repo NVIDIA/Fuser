@@ -86,7 +86,7 @@ class FusionTranslator : public OptInConstDispatch {
       return true;
     }
 
-    for (size_t idx : c10::irange(logical.size())) {
+    for (size_t idx : arange(logical.size())) {
       if (logical.at(idx) != loop.at(idx)) {
         return true;
       }
@@ -457,7 +457,7 @@ class FusionTranslator : public OptInConstDispatch {
   std::vector<int64_t> getReductionAxes(TensorView* tv) {
     std::vector<int64_t> axes;
     const std::vector<IterDomain*>& logical_domain = tv->domain()->logical();
-    for (int64_t dim : c10::irange((int64_t)logical_domain.size())) {
+    for (int64_t dim : arange((int64_t)logical_domain.size())) {
       if (logical_domain.at(dim)->isReduction()) {
         axes.push_back(dim);
       }
@@ -807,7 +807,7 @@ class FusionTranslator : public OptInConstDispatch {
   void handle(const SqueezeOp* sop) final {
     std::vector<int64_t> squeeze_dims;
     const std::vector<bool>& is_squeeze_dims = sop->getSqueezeDimFlags();
-    for (int64_t dim : c10::irange((int64_t)is_squeeze_dims.size())) {
+    for (int64_t dim : arange((int64_t)is_squeeze_dims.size())) {
       if (is_squeeze_dims.at(dim)) {
         squeeze_dims.push_back(dim);
       }
@@ -1117,13 +1117,13 @@ class FusionTranslator : public OptInConstDispatch {
         sop->dim()));
   }
 
-  // Map TorchGatherOp to python frontend
-  void handle(const TorchGatherOp* gop) final {
+  // Map GatherOp to python frontend
+  void handle(const GatherOp* gop) final {
     TensorView* out_tv = gop->output(0)->as<TensorView>();
     Tensor output = fd_->defineTensor(out_tv->nDims());
     map_val_to_fd_index_.emplace(out_tv, output());
 
-    fd_->defineRecord(new TorchGatherOpRecord(
+    fd_->defineRecord(new GatherOpRecord(
         {fd_->recordingState(map_val_to_fd_index_.at(gop->lookupTv())),
          fd_->recordingState(map_val_to_fd_index_.at(gop->indexTv()))},
         {fd_->recordingState(output())},

@@ -83,10 +83,10 @@ PostOnStream::PostOnStream(
         this->outputs().size() ==
         host_op->as<HostUnit>()->fusion_to_execute()->outputs().size());
     // TODO: harden the assert checks with smth like
-    // for (int i : c10::irange(inputs.size())) {
+    // for (int i : arange(inputs.size())) {
     //     NVF_ERROR(inputs.at(i)->sameAs(executable_fusion->inputs().at(i)));
     // }
-    // for (int i : c10::irange(outputs.size())) {
+    // for (int i : arange(outputs.size())) {
     //     NVF_ERROR(outputs.at(i)->sameAs(executable_fusion->outputs().at(i)));
     // }
   }
@@ -325,6 +325,34 @@ std::string EndCoalescing::toString(int indent_size) const {
 
 std::string EndCoalescing::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Cannot be printed inline");
+}
+
+ShareMemHandles::ShareMemHandles(
+    IrBuilderPasskey passkey,
+    std::vector<P2PCommunication*> communications)
+    : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer");
+  addDataAttribute(std::move(communications));
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(ShareMemHandles)
+
+std::string ShareMemHandles::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "ShareMemHandles(";
+  for (auto communication : communications()) {
+    ss << communication->toInlineString() << ", ";
+  }
+  ss << std::endl;
+  return ss.str();
+}
+
+std::string ShareMemHandles::toInlineString(int indent_size) const {
+  NVF_THROW("Cannot be printed inline");
 }
 
 } // namespace hir

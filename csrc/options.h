@@ -70,7 +70,8 @@ enum class DebugDumpOption {
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
   Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
+  Sass, //! Dump disassembled SASS
+  SassToFile, //!< Dump disassembled SASS to File
   Ptx, //! Dump compiled PTX
   BankConflictInfo, //! Dump bank confliction info
   SyncMap, //! RAW dependency info
@@ -79,7 +80,7 @@ enum class DebugDumpOption {
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
-  Occupancy, // Dump occupancy
+  Occupancy, //! Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
@@ -104,11 +105,11 @@ enum class EnableOption {
   KernelProfile, //! Enable intra-kernel performance profiling
   MemoryPromotion, //! Enable promotion of memory types for non-pointwise ops
   ReuseZeroedMemory, //! Re-use zeroed memory used for grid synchronization
-  ResizeScheduler, //! Enable the resize scheduler
   StaticFusionCount, //! Enable using single static count in kernel name
   WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
                 // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
+  WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   EndOfOption //! Placeholder for counting the number of elements
 };
@@ -148,6 +149,7 @@ enum class DisableOption {
                //! need this in particular to investigate possible conflicts
                //! between nvFuser communicator and the framework also setting
                //! up `c10d::ProcessGroup`
+  ResizeScheduler, //! Disable the resize scheduler
   EndOfOption //! Placeholder for counting the number of elements
 };
 

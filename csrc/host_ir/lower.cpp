@@ -6,8 +6,8 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
-#include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
@@ -58,6 +58,10 @@ void lowerToScatter(
     std::vector<Expr*>& comms) {
   // we arbitrarily choose the first device of the sender mesh to be the root
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
+  NVF_ERROR(
+      receiver_mesh.rank() == 1,
+      "Gather only supported on a 1D mesh. Given ",
+      receiver_mesh);
   auto root = input_tv->getDeviceMesh().at(0);
   Team team = receiver_mesh.vector();
   if (!receiver_mesh.has(root)) {
@@ -78,7 +82,7 @@ void lowerToScatter(
 Adds zero or multiple Gather communications to the vector 'comms'
 
 Note that since the root of a Gather collective is a destination, we possibly
-need multiple Gather if the tensor is replicated in the receiver mesh.
+need multiple Gathers if the tensor is replicated in the receiver mesh.
 */
 void lowerToGather(
     TensorView* input_tv,
@@ -87,6 +91,10 @@ void lowerToGather(
     std::vector<Expr*>& comms) {
   // we create as many 'Gathers' as there are devices in the receiver mesh
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
+  NVF_ERROR(
+      sender_mesh.rank() == 1,
+      "Currently only lower Gather on a 1D mesh. Given ",
+      sender_mesh);
   for (auto root : output_tv->getDeviceMesh().vector()) {
     Team team = sender_mesh.vector();
     if (!sender_mesh.has(root)) {
@@ -109,13 +117,15 @@ void lowerToAllgather(
     TensorView* input_tv,
     TensorView* output_tv,
     const HostIrLowerParams& params,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
+  Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allgather,
       output_tv,
       input_tv,
-      mesh.vector(),
+      team,
       /*root=*/-1,
       c10d::ReduceOp::RedOpType::UNUSED,
       /*scatter_axis=*/-1,
@@ -130,6 +140,8 @@ void lowerToBroadcast(
     const HostIrLowerParams& params,
     std::vector<Expr*>& comms) {
   const DeviceMesh& mesh = output_tv->getDeviceMesh();
+  NVF_ERROR(
+      mesh.rank() == 1, "Broadcast only supported a 1D mesh. Given ", mesh);
   Team team = mesh.vector();
   if (!mesh.has(root)) {
     team.push_back(root);
@@ -156,6 +168,14 @@ void lowerToBroadcastOrSendRecv(
     std::vector<Expr*>& comms) {
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
+  NVF_ERROR(
+      sender_mesh.rank() == 1,
+      "Broadcast only supported a 1D mesh. Given ",
+      sender_mesh);
+  NVF_ERROR(
+      receiver_mesh.rank() == 1,
+      "Broadcast only supported a 1D mesh. Given ",
+      receiver_mesh);
   if (isSharded(input_tv) && sender_mesh.size() > 1) {
     // if the inputs and ouputs are parallelized,
     // we create as many Broadcast as that will be handled in parallel
@@ -165,7 +185,7 @@ void lowerToBroadcastOrSendRecv(
         sender_mesh.size(),
         " vs ",
         receiver_mesh.size());
-    for (auto i : c10::irange(sender_mesh.size())) {
+    for (auto i : arange(sender_mesh.size())) {
       const DeviceIdxType sender = sender_mesh.at(i);
       const DeviceIdxType receiver = receiver_mesh.at(i);
       comms.push_back(IrBuilder::create<Communication>(
@@ -202,6 +222,14 @@ void lowerToReduce(
     std::vector<Expr*>& comms) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const DeviceMesh& sender_mesh = input_tv->getDeviceMesh();
+  NVF_ERROR(
+      sender_mesh.rank() == 1,
+      "Reduce only supported a 1D mesh. Given ",
+      sender_mesh);
+  NVF_ERROR(
+      receiver_mesh.rank() == 1,
+      "Reduce only supported a 1D mesh. Given ",
+      receiver_mesh);
   const auto reduce_op_type = getC10dReduceOpType(op_type);
   // we create as many Reduces as there are devices in the receiver mesh
   for (auto root : receiver_mesh.vector()) {
@@ -226,13 +254,15 @@ void lowerToAllreduce(
     TensorView* output_tv,
     BinaryOpType op_type,
     const HostIrLowerParams& params,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
+  Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
   comms.push_back(IrBuilder::create<Communication>(
       CommunicationType::Allreduce,
       output_tv,
       input_tv,
-      mesh.vector(),
+      team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
       /*scatter_axis=*/-1,
@@ -244,8 +274,10 @@ void lowerToReduceScatter(
     TensorView* output_tv,
     BinaryOpType op_type,
     const HostIrLowerParams& params,
-    std::vector<Expr*>& comms) {
+    std::vector<Expr*>& comms,
+    DeviceIdxType my_device_idx) {
   const DeviceMesh& mesh = input_tv->getDeviceMesh();
+  Team team = mesh.getSlice(my_device_idx, ParallelType::DIDx);
   auto reduction_axis = output_tv->getReductionAxis().value();
   auto scattered_axis = getShardedLogicalAxis(output_tv, ParallelType::DIDx);
   // The output tensor is sharded on scattered_axis and needs to be mapped
@@ -260,7 +292,7 @@ void lowerToReduceScatter(
       CommunicationType::ReduceScatter,
       output_tv,
       input_tv,
-      /*team=*/mesh.vector(),
+      /*team=*/team,
       /*root=*/-1,
       getC10dReduceOpType(op_type),
       scattered_axis,
@@ -278,7 +310,7 @@ TODO:
    sources
 *) Leverage the topology to ensure that the senders and recerivers are close
 */
-std::vector<Expr*> HostIrLower::lower(Expr* c) {
+std::vector<Expr*> HostIrLower::lower(Expr* c, DeviceIdxType my_device_idx) {
   FusionGuard fg(c->fusion());
 
   if (c->isOneOf<MatmulOp, LinearOp>()) {
@@ -301,7 +333,7 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
   const DeviceMesh& receiver_mesh = output_tv->getDeviceMesh();
   const bool same_mesh = sender_mesh == receiver_mesh;
 
-  // Stores whether the I/O has its first axis parallelized on Didx
+  // Stores whether the I/O has its first axis parallelized on DIDx
   const bool is_input_sharded = isSharded(input_tv) && sender_mesh.size() > 1;
   const bool is_output_sharded =
       isSharded(output_tv) && receiver_mesh.size() > 1;
@@ -328,10 +360,12 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
           same_mesh,
           "ReduceScatter operation must have the same sender and receiver device mesh. "
           "Insert a Set operation before or after the reduction to reshard ot another device mesh");
-      lowerToReduceScatter(input_tv, output_tv, op_type, params_, comms);
+      lowerToReduceScatter(
+          input_tv, output_tv, op_type, params_, comms, my_device_idx);
     } else {
       if (same_mesh) {
-        lowerToAllreduce(input_tv, output_tv, op_type, params_, comms);
+        lowerToAllreduce(
+            input_tv, output_tv, op_type, params_, comms, my_device_idx);
       } else {
         lowerToReduce(input_tv, output_tv, op_type, params_, comms);
       }
@@ -341,7 +375,7 @@ std::vector<Expr*> HostIrLower::lower(Expr* c) {
       lowerToScatter(input_tv, output_tv, params_, comms);
     } else if (is_input_sharded && !is_output_sharded) {
       if (same_mesh) {
-        lowerToAllgather(input_tv, output_tv, params_, comms);
+        lowerToAllgather(input_tv, output_tv, params_, comms, my_device_idx);
       } else {
         lowerToGather(input_tv, output_tv, params_, comms);
       }
@@ -401,7 +435,8 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
     // stream-parallelized on axis 0.
     auto* a = linear->inA()->as<TensorView>();
     auto* b = linear->inB()->as<TensorView>();
-    auto* bias = linear->bias()->as<TensorView>();
+    auto* bias =
+        (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
     auto* out = linear->out()->as<TensorView>();
     return !isSharded(b) && !(linear->has_bias() && isSharded(bias)) &&
         !isSharded(out) &&
@@ -430,7 +465,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
     auto* linear = expr->as<LinearOp>();
     tva = linear->inA()->as<TensorView>();
     tvb = linear->inB()->as<TensorView>();
-    tv_bias = linear->bias()->as<TensorView>();
+    tv_bias = (linear->has_bias() ? linear->bias()->as<TensorView>() : nullptr);
     tv_out = linear->out()->as<TensorView>();
     NVF_ERROR(
         !(linear->has_bias() && isSharded(tv_bias)),
@@ -482,7 +517,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* start = hic->zeroVal();
   auto* stop = stream_axis->extent();
   auto* step = hic->oneVal();
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
       stream_axis,
       /*index=*/j,
       start,
@@ -501,6 +536,25 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
   auto* initial_sync_stream =
       IrBuilder::create<hir::Synchronize>(original_stream);
+
+  // the initial sync of the streams with the user's stream is done in a
+  // separate for-loop for performance reasons with comms/compute overlap
+  std::vector<Expr*> loop_body_initial_sync = {set_stream, initial_sync_stream};
+  for (Expr* expr : loop_body_initial_sync) {
+    for_loop_initial_sync->body().push_back(expr);
+  }
+
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      stream_axis,
+      /*index=*/j,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
@@ -540,7 +594,6 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
   std::vector<Expr*> loop_body = {
       set_stream,
-      initial_sync_stream,
       tva_j->definition(),
       tva_allgathered_j->definition(),
       communication,
@@ -554,12 +607,33 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   }
 
   return {
-      get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
+      get_current_stream,
+      allocate_tva_allgathered,
+      allocate_tv_out,
+      for_loop_initial_sync,
+      for_loop};
+}
+
+bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
+  return isResharding(expr);
+}
+
+bool HostIrLower::shouldMergeSegmentedGroups(
+    SegmentedGroup* group1,
+    SegmentedGroup* group2) {
+  for (auto group : {group1, group2}) {
+    for (Expr* expr : group->exprs()) {
+      if (isLowerableAsStandaloneHostOp(expr)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     std::unique_ptr<Fusion> fusion,
-    int64_t my_device_index) {
+    DeviceIdxType my_device_index) {
   // Sharding PreSegmenter passes.
   // Note: passes run before PreSegmenter optimization passes.
   preseg_passes::OptimizationPass<
@@ -580,7 +654,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       .run_combine_reductions = false,
       .run_herrmann_merge = true,
       .run_final_merge = true,
-      .only_segment_resharding_exprs = true};
+      .custom_should_merge_groups = &shouldMergeSegmentedGroups};
   std::unique_ptr<SegmentedFusion> staged_fusion =
       SegmentCandidateFinder::segment(
           std::move(fusion), KernelArgumentHolder(), options, true);
@@ -604,37 +678,22 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   };
 
   for (auto group : workspace.group_run_order) {
-    std::vector<Expr*> host_exprs;
     NVF_ERROR(!group->exprs().empty(), "invalid segmentation");
     if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
       continue;
     }
-    const bool is_resharding = std::any_of(
-        group->exprs().begin(), group->exprs().end(), [](auto expr) {
-          return isResharding(expr);
-        });
-    if (is_resharding) {
+    // we decide whether to insert the Expr as a standalone op in the
+    // HostIRContainer, which will result in using ATen Op to evaluate it --
+    // or, alternatively, to wrap them into a PostOnStream(HostUnit(.)) which
+    // will result in a kernel code generation.
+    if (std::all_of(
+            group->exprs().begin(),
+            group->exprs().end(),
+            isLowerableAsStandaloneHostOp)) {
       NVF_ERROR(
           group->exprs().size() == 1,
-          "Communication segments must contain only one Expr");
-      for (auto* expr :
-           HostIrLower::lower(ir_cloner.clone(group->exprs().at(0)))) {
-        // Allocate the recv buffers of communications
-        if (expr->isA<Communication>()) {
-          auto* communication = expr->as<Communication>();
-          TensorView* tv = communication->out();
-          if (tv->getDeviceMesh().has(my_device_index)) {
-            auto* allocate =
-                IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-            hic->pushBackTopLevelExprs(allocate);
-          }
-        }
-        hic->pushBackTopLevelExprs(expr);
-        if (expr->isA<Communication>()) {
-          auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
-          hic->pushBackTopLevelExprs(wait);
-        }
-      }
+          "Expr executed as a standalone op cannot be fused");
+      hic->pushBackTopLevelExprs(ir_cloner.clone(group->exprs().at(0)));
     } else {
       auto host_unit = IrBuilder::create<hir::HostUnit>(
           staged_fusion->makeFusion(group).second);
@@ -649,6 +708,32 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   for (auto output : staged_fusion->outputs()) {
     hic->addOutput(ir_cloner.clone(output));
   }
+
+  std::vector<Expr*> new_top_level_exprs;
+  for (auto top_level_expr : hic->topLevelExprs()) {
+    if (!isResharding(top_level_expr)) {
+      new_top_level_exprs.push_back(top_level_expr);
+      continue;
+    }
+    for (auto* expr : HostIrLower::lower(top_level_expr, my_device_index)) {
+      // Allocate the recv buffers of communications
+      if (expr->isA<Communication>()) {
+        auto* communication = expr->as<Communication>();
+        TensorView* tv = communication->out();
+        if (tv->getDeviceMesh().has(my_device_index)) {
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          new_top_level_exprs.push_back(allocate);
+        }
+      }
+      new_top_level_exprs.push_back(expr);
+      if (expr->isA<Communication>()) {
+        auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
+        new_top_level_exprs.push_back(wait);
+      }
+    }
+  }
+  hic->resetTopLevelExprs(new_top_level_exprs);
 
   return hic;
 }

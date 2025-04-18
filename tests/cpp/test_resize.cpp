@@ -55,21 +55,9 @@ void checkLoopDomainEquivalence(
 
 } // namespace
 
-class ResizeTest : public NVFuserTest {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserTest::SetUp();
-  }
-};
+using ResizeTest = NVFuserTest;
 
-class ResizeSchedulerTest : public NVFuserFixtureParamTest<bool> {
- protected:
-  void SetUp() override {
-    EnableOptionsGuard::getCurOptions().set(EnableOption::ResizeScheduler);
-    NVFuserFixtureParamTest<bool>::SetUp();
-  }
-};
+using ResizeSchedulerTest = NVFuserFixtureParamTest<bool>;
 
 using testing::Each;
 using testing::HasSubstr;
@@ -826,7 +814,7 @@ TEST_F(ResizeTest, Cat7) {
     FusionGuard fg(&fusion);
 
     std::vector<TensorView*> inputs;
-    for (const auto i : c10::irange(num_tensors_to_concat)) {
+    for (const auto i : arange(num_tensors_to_concat)) {
       (void)i;
       // concrete shapes to avoid dynamic Fusion
       auto shape = base_shape;
@@ -854,7 +842,7 @@ TEST_F(ResizeTest, Cat7) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     KernelArgumentHolder aten_inputs;
-    for (const auto i : c10::irange(num_tensors_to_concat)) {
+    for (const auto i : arange(num_tensors_to_concat)) {
       auto shape = base_shape;
       shape[concat_dim] = 10 + (i % 5);
       aten_inputs.push(at::randn(shape, options));
@@ -2384,7 +2372,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
                      ->definition()
                      ->inputs()[1]
                      ->as<TensorView>();
-  for (auto i : c10::irange(expected_itertypes.size())) {
+  for (auto i : arange(expected_itertypes.size())) {
     EXPECT_EQ(conc_t2->axis(i)->getIterType(), expected_itertypes.at(i));
   }
 
@@ -3001,7 +2989,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
 
-  for (const auto i : c10::irange(3)) {
+  for (const auto i : arange(3)) {
     auto slice_out_ref = t0.index(
         {at::indexing::Slice(0, at::indexing::None),
          at::indexing::Slice(0, at::indexing::None),
@@ -4756,7 +4744,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   Fusion& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
 
-  std::vector<int64_t> shape({-1, 128});
+  std::vector<int64_t> shape({-1, 100});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -4782,7 +4770,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCat) {
   auto tv5 = cat({tv4, tv2}, 1);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  auto t0 = at::randn({16, 128}, options);
+  auto t0 = at::randn({16, 100}, options);
 
   fusion.addOutput(tv5);
 
@@ -4888,7 +4876,7 @@ TEST_P(ResizeSchedulerTest, SliceRotateCatResidual) {
   // slicing paths as well. For now, in order to avoid the error due
   // to issue #3640, use a size that is divisible by 8.
   // std::vector<int64_t> shape({16, 100});
-  std::vector<int64_t> shape({16, 96});
+  std::vector<int64_t> shape({16, 100});
 
   EnableOptionsGuard enable_options_guard;
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
@@ -5626,7 +5614,7 @@ TEST_F(ResizeTest, TraversalForInliningPosition) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto tv0 = makeContigConcreteTensor({16});
   fusion.addInput(tv0);
@@ -5727,7 +5715,7 @@ TEST_F(ResizeTest, Repro3801) {
 
   // Disable the resize schedule because the original issue happened
   // with the pointwise scheduler
-  EnableOptionsGuard::getCurOptions().unset(EnableOption::ResizeScheduler);
+  DisableOptionsGuard::getCurOptions().set(DisableOption::ResizeScheduler);
 
   auto T13 = makeContigConcreteTensor({1, 16});
   fusion.addInput(T13);
@@ -5814,7 +5802,7 @@ TEST_F(ResizeTest, DoNotFuseResizeAndIndexOps) {
       if (scheduler_tools::isResizeBasedOp(expr)) {
         has_resize = true;
       } else if (
-          expr->isOneOf<TorchGatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
+          expr->isOneOf<GatherOp, ScatterOp, IndexSelectOp, SelectOp>()) {
         has_index_op = true;
       }
     }
@@ -5903,8 +5891,6 @@ TEST_F(ResizeTest, VectorizeInnermostWithReshapeMerge) {
   EXPECT_EQ(tv3->getLoopDomain().back()->extent()->evaluate(), 4);
 }
 
-// don't cache if the input tv is used by slice.
-// https://github.com/NVIDIA/Fuser/issues/1697
 TEST_F(ResizeTest, AvoidCachingSliceInput) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -5963,7 +5949,7 @@ TEST_F(ResizeTest, AvoidCachingSliceInput) {
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
   EXPECT_EQ(num_segments, 3) << "Expect 3 segments, got: " << num_segments;
-  for (const auto i : c10::irange(kernel_runtime->executors().size())) {
+  for (const auto i : arange(kernel_runtime->executors().size())) {
     const auto& exec = kernel_runtime->executors().at(i);
     if (!exec->isA<KernelExecutor>()) {
       continue;
@@ -5982,6 +5968,76 @@ TEST_F(ResizeTest, AvoidCachingSliceInput) {
       }
     }
   }
+}
+
+TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t size = 128;
+
+  auto tv0 = makeContigConcreteTensor({size});
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 =
+      slice(tv1, {{IrBuilder::create<Val>(4L), IrBuilder::create<Val>(size)}});
+  auto tv3 = slice(
+      tv1, {{IrBuilder::create<Val>(2L), IrBuilder::create<Val>(size - 2)}});
+  auto tv4 = slice(
+      tv1, {{IrBuilder::create<Val>(0L), IrBuilder::create<Val>(size - 4)}});
+  auto tv5 = add(tv2, tv3);
+  auto tv6 = add(tv5, tv4);
+  fusion.addOutput(tv6);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({size}, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // Should be vector by a factor of 2 because of the tv3 slice. The
+  // spanning tree based vectorization analysis may return 4 as only
+  // one of the paths from tv6 to tv0 is considered.
+  EXPECT_EQ(
+      tv6->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
+  EXPECT_EQ(tv6->getLoopDomain().back()->extent()->evaluate(), 2);
+}
+
+// Repro of issue #4202
+TEST_F(ResizeTest, PropagateResizeThroughMultiplePaths) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t size = 16;
+  auto tv0 = makeContigConcreteTensor({size});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({size});
+  fusion.addInput(tv1);
+
+  auto tv2 = full(
+      {IrBuilder::create<Val>(size)},
+      fusion.zeroVal(DataType::Float),
+      DataType::Float);
+
+  auto tv3 = add(sin(tv0), tv2);
+  auto tv4 = pad(tv3, {IrBuilder::create<Val>(size), fusion.zeroVal()});
+
+  auto tv5 = add(sin(tv1), tv2);
+  auto tv6 = pad(tv5, {fusion.zeroVal(), IrBuilder::create<Val>(size)});
+
+  auto tv7 = add(tv4, tv6);
+
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({size}, options);
+  auto t1 = at::randn({size}, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0, t1});
+  testValidate(&fusion, outputs.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
