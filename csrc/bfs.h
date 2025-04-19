@@ -918,7 +918,6 @@ std::vector<typename BFSType::ValType> getValsBetween(
     const std::vector<typename BFSType::ValType>& from,
     const std::vector<typename BFSType::ValType>& to,
     const AdditionalArgs&... additional_args) {
-  using ValType = typename BFSType::ValType;
   auto path = getExprsBetween<BFSType>(
                   from,
                   to,
@@ -926,6 +925,18 @@ std::vector<typename BFSType::ValType> getValsBetween(
                   /*allowed_direction=*/Direction::Undefined,
                   additional_args...)
                   .first;
+  return getValsBetween<BFSType>(path, from, to, additional_args...);
+}
+
+// Similar to the above version of getValsBetween, but for when the
+// traversal path is already obtained.
+template <typename BFSType, typename... AdditionalArgs>
+std::vector<typename BFSType::ValType> getValsBetween(
+    const typename BFSType::ExprPath& path,
+    const std::vector<typename BFSType::ValType>& from,
+    const std::vector<typename BFSType::ValType>& to,
+    const AdditionalArgs&... additional_args) {
+  using ValType = typename BFSType::ValType;
 
   VectorOfUniqueEntries<ValType> unique_vals;
   for (auto [expr, dir] : path) {
