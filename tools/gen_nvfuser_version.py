@@ -1,0 +1,1 @@
+../python/tools/gen_nvfuser_version.py

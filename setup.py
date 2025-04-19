@@ -62,6 +62,10 @@
 #     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
 
+# TODO Remove nvfuser symbolic link to python/nvfuser
+# TODO Remove tools/gen_nvfuser_version.py symbolic link to python/tools/gen_nvfuser_version.py
+# TODO Remove tools/memory.py symbolic link to python/tools/memory.py
+
 import os
 import shutil
 import sys
