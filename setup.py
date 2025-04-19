@@ -68,43 +68,10 @@ import setuptools
 import setuptools.command.build_ext
 from setuptools import Extension, setup, find_packages
 
-from python.utils import parse_args
+from python.utils import parse_args, BuildConfig
 
 # Parse arguments and set global variables accordingly
 args, forward_args = parse_args()
-
-from dataclasses import dataclass
-
-
-@dataclass
-class BuildConfig:
-    cmake_only: bool = False
-    build_setup: bool = True
-    no_python: bool = False
-    no_test: bool = False
-    no_benchmark: bool = False
-    no_ninja: bool = False
-    build_with_ucc: bool = False
-    build_with_asan: bool = False
-    build_without_distributed: bool = False
-    build_with_system_nvtx: bool = True
-    explicit_error_check: bool = False
-    overwrite_version: bool = False
-    version_tag: str = None
-    build_type: str = "Release"
-    wheel_name: str = "nvfuser"
-    build_dir: str = ""
-    install_dir: str = ""
-    install_requires: list = None
-    extras_require: dict = None
-    cpp_standard: int = 20
-
-    def __post_init__(self):
-        # dataclass cannot have mutable default values in the class definition
-        if self.install_requires is None:
-            self.install_requires = []
-        if self.extras_require is None:
-            self.extras_require = {}
 
 
 # Create a BuildConfig from args
