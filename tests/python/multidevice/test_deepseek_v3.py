@@ -2,7 +2,6 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import nvfuser
 import pytest
 import transformers
 import torch
@@ -14,23 +13,6 @@ from torch.distributed.tensor.parallel import (
     RowwiseParallel,
     ColwiseParallel,
 )
-
-
-# Set up the default process group for torch APIs like
-# dist.device_mesh.init_device_mesh.
-@pytest.fixture(scope="module")
-def setup_process_group():
-    communicator = nvfuser.Communicator.instance()
-
-    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
-    dist.init_process_group(
-        backend="nccl",
-        init_method="tcp://localhost:29500",
-        world_size=communicator.size(),
-        rank=communicator.rank(),
-    )
-    yield
-    dist.destroy_process_group()
 
 
 @contextmanager
@@ -55,7 +37,7 @@ def default_tensor_type(dtype=torch.float32, device="cpu"):
 # http://nv/eCm). I consider this a one-off, but please let me know if this
 # error becomes consistent.
 @pytest.mark.mpi
-def test_transformer_layer(setup_process_group):
+def test_transformer_layer(setup_default_process_group):
     config = transformers.AutoConfig.from_pretrained(
         "deepseek-ai/deepseek-v3", trust_remote_code=True
     )

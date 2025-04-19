@@ -5,12 +5,8 @@
 import pytest
 import torch
 
-import fixtures
 import nvfuser
 from nvfuser import DataType, FusionDefinition
-
-
-multidevice_test = fixtures.multidevice_test
 
 
 @pytest.mark.mpi

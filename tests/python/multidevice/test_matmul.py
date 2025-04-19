@@ -5,11 +5,8 @@
 import pytest
 import torch
 
-import fixtures
 import nvfuser
 from nvfuser import DataType, FusionDefinition
-
-multidevice_test = fixtures.multidevice_test
 
 
 # Avoid doing this when possible. This test started to exist before nvFuser

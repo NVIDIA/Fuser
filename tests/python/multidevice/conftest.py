@@ -5,6 +5,7 @@
 import nvfuser
 import pytest
 import torch
+import torch.distributed as dist
 
 
 class MultideviceTest:
@@ -65,3 +66,24 @@ def multidevice_test():
     yield fixture
     # Sync all ranks after each test for isolation.
     fixture.communicator.barrier()
+
+
+# Set up the default process group for torch APIs like
+# dist.device_mesh.init_device_mesh.
+#
+# This fixture is used by multi-GPU tests that use torch.distributed.
+@pytest.fixture(scope="session")
+def setup_default_process_group():
+    print("dist.init_process_group")
+    communicator = nvfuser.Communicator.instance()
+
+    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
+    dist.init_process_group(
+        backend="nccl",
+        init_method="tcp://localhost:29500",
+        world_size=communicator.size(),
+        rank=communicator.rank(),
+    )
+    yield
+    print("dist.destroy_process_group")
+    dist.destroy_process_group()
