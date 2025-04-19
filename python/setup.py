@@ -65,6 +65,7 @@
 #
 
 import os
+import sys
 import shutil
 
 import setuptools
@@ -86,9 +87,9 @@ config, forward_args = create_build_config()
 # Override build config from environment variables
 override_build_config_from_env(config)
 
-# Append forward_args to sys.argv
-# forward_args is a list of arguments that are not handled by argparse
-sys.argv.extend(forward_args)
+if "clean" in sys.argv:
+    # only disables BUILD_SETUP, but keep the argument for setuptools
+    config.build_setup = False
 
 if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")

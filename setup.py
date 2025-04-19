@@ -77,7 +77,6 @@ from setuptools import Extension, setup, find_packages
 from python.utils import (
     create_build_config,
     cmake,
-    version_tag,
     build_whl,
     build_ext,
 )
@@ -85,9 +84,9 @@ from python.utils import (
 # Parse arguments using argparse
 config, forward_args = create_build_config()
 
-# append forward_args to sys.argv
-# forward_args is a list of arguments that are not handled by argparse
-sys.argv.extend(forward_args)
+if "clean" in sys.argv:
+    # only disables BUILD_SETUP, but keep the argument for setuptools
+    config.build_setup = False
 
 if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")
@@ -117,6 +116,16 @@ class clean(setuptools.Command):
                         except OSError:
                             shutil.rmtree(filename, ignore_errors=True)
 
+def version_tag(config):
+    from python.tools.gen_nvfuser_version import get_version
+
+    version = get_version()
+    if config.overwrite_version:
+        version = version.split("+")[0]
+        if len(config.version_tag) != 0:
+            # use "." to be pypi friendly
+            version = ".".join([version, config.version_tag])
+    return version
 
 def main():
     # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can
