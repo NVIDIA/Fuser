@@ -234,6 +234,41 @@ TEST_F(ShardingTest, MultiDimDeviceMesh) {
   EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDx), slice_didx);
 }
 
+TEST_F(ShardingTest, ResidualAdd) {
+  // This is similar to the residual add after MHA dropout in the transformer.
+  // The output of linear following MHA is all-gathered and sharded on the
+  // sequence dim. This sharding can be propagated to the linear output through
+  // backpropagating the shardings from residual add. This information is not
+  // present during forward propagation.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1});
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = uniform(
+      shape(tv0),
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float);
+  TensorView* tv2 = add(tv0, tv1);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(0, mesh.size());
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  NVF_CHECK(tv1->hasDeviceMesh());
+  NVF_CHECK(
+      getShardedLogicalAxis(tv1, ParallelType::DIDx) ==
+          getShardedLogicalAxis(tv0, ParallelType::DIDx),
+      "Expected tv1 to be sharded like tv0 due to backpropagation of shardings.");
+}
+
 INSTANTIATE_TEST_SUITE_P(
     ,
     ShardingTest,
