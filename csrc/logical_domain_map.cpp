@@ -874,6 +874,11 @@ class ComputeAtLogicalDomainMapBuilder
 
   void handle(EyeOp* op) override {}
 
+  void handle(ScatterOp* op) override {
+    // TODO: I think we should map all dims like pointwise here other than
+    // op->dim()
+  }
+
   void handle(TensorView* tv) override;
 
   //! Maps all pending mappings.
