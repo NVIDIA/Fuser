@@ -23,6 +23,7 @@
 #include <options.h>
 #include <scheduler/debug_utils.h>
 #include <scheduler/normalization_utils.h>
+#include <scheduler/tools/resize_utils.h>
 #include <transform_iter.h>
 
 namespace nvfuser {
@@ -158,7 +159,8 @@ void SegmentedGroup::makeClonedFusion() {
       });
 }
 
-std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups() {
+std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getNeighborGroups()
+    const {
   std::vector<NeighborGroup> neighbors;
   for (auto inp : producer_edges) {
     if (inp->val->isFusionOutput() || inp->from->exprs_.empty()) {
@@ -193,8 +195,8 @@ std::vector<SegmentedGroup*> SegmentedGroup::getNeighbors() {
   return neighbors;
 }
 
-std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::
-    getMergeCandidates() {
+std::vector<SegmentedGroup::NeighborGroup> SegmentedGroup::getMergeCandidates()
+    const {
   // Don't look for candidates if already merged. Input groups should
   // be also ignored from the merge process
   if (merged_ || exprs_.empty()) {
@@ -2187,7 +2189,21 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
     const std::vector<SegmentedGroup*>& groups_to_merge) {
   NVF_ERROR(
       !groups_to_merge.empty(),
-      "fusion segment :(mergeAllGivenGroups) tried to merge no groups")
+      "fusion segment :(mergeAllGivenGroups) tried to merge no groups");
+
+  const auto& aux_input_groups = getAuxiliaryInputGroups();
+  std::vector<SegmentedGroup*> aux_groups_to_merge;
+  std::ranges::copy_if(
+      groups_to_merge,
+      std::back_inserter(aux_groups_to_merge),
+      [&](SegmentedGroup* group) {
+        return std::ranges::find(aux_input_groups, group) !=
+            aux_input_groups.end();
+      });
+  NVF_ERROR(
+      aux_groups_to_merge.empty(),
+      "Trying to merge auxiliary input groups: ",
+      toDelimitedString(aux_groups_to_merge));
 
   // Make a set to detect internal edges
   std::unordered_set<SegmentedGroup*> group_set(
@@ -2615,8 +2631,10 @@ std::vector<Expr*> SegmentedGroup::stablyOrderedExprs() const {
     }
   }
 
+#if 0
   NVF_ERROR_EQ(
       ordered_exprs.size(), exprs().size(), "exprs() doesn't form a DAG.");
+#endif
 
   return ordered_exprs;
 }
@@ -3352,7 +3370,6 @@ class CombineReductions {
                       return groups_to_merge_set.has(group);
                     }),
                 groups_with_reductions_.end());
-
             return joined_group;
           }
         }
@@ -3657,6 +3674,10 @@ class MergeUpAndDownCast {
       SegmentedGroup* group = to_visit.front();
       to_visit.pop_front();
 
+      if (group->exprs().empty()) {
+        continue;
+      }
+
       if (groups_to_merge_set.count(group)) {
         continue;
       }
@@ -3747,6 +3768,159 @@ class MergeUpAndDownCast {
   SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
 };
 
+class MergeRopeGroups {
+ public:
+  static void run(SegmentCandidateFinder* segment_candidate_finder) {
+    MergeRopeGroups(segment_candidate_finder).merge();
+  }
+
+ private:
+  MergeRopeGroups(SegmentCandidateFinder* segment_candidate_finder)
+      : segment_candidate_finder_(segment_candidate_finder) {}
+
+  void merge() {
+    auto all_resize_based_ops = scheduler_tools::getResizeBasedOps(
+        segment_candidate_finder_->completeFusion());
+
+    std::vector<SliceOp*> all_slices;
+    for (auto expr : all_resize_based_ops) {
+      if (auto slice = dynamic_cast<SliceOp*>(expr)) {
+        all_slices.push_back(slice);
+      }
+    }
+
+    if (all_slices.size() < 2) {
+      return;
+    }
+
+    std::unordered_set<SliceOp*> merged_slices;
+    for (const auto i : arange(all_slices.size() - 1)) {
+      auto slice_i = all_slices.at(i);
+      if (merged_slices.contains(slice_i)) {
+        continue;
+      }
+      // bool merged = false;
+      for (const auto j : arange(i + 1, all_slices.size())) {
+        auto slice_j = all_slices.at(j);
+        if (merged_slices.contains(slice_j)) {
+          continue;
+        }
+        std::cerr << "Checking " << slice_i->toString() << " and "
+                  << slice_j->toString();
+        if (slice_i->in() == slice_j->in()) {
+          // Common parent found
+          auto exprs = findMergePoint(all_slices.at(i), all_slices.at(j));
+          if (exprs.empty()) {
+            continue;
+          }
+          if (merge(exprs) != nullptr) {
+            merged_slices.insert(slice_i);
+            merged_slices.insert(slice_j);
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  std::vector<Expr*> findMergePoint(SliceOp* slice_i, SliceOp* slice_j) {
+    std::cerr << "Find merge point of " << slice_i->toString()
+              << slice_j->toString();
+    struct FindMergePoint : public IterVisitor {
+      FindMergePoint(SliceOp* slice_i, SliceOp* slice_j)
+          : slice_i(slice_i), slice_j(slice_j) {
+        all_dep_exprs.push_back(slice_i);
+        all_dep_exprs.push_back(slice_j);
+        traverseBetween(
+            {slice_i->out(), slice_j->out()}, slice_i->fusion()->outputs());
+      }
+
+      void dispatch(Val* val) override {
+        if (val == slice_i->out()) {
+          dep_i.insert(val);
+          return;
+        } else if (val == slice_j->out()) {
+          dep_j.insert(val);
+          return;
+        }
+
+        auto def = val->definition();
+        if (def == nullptr) {
+          return;
+        }
+
+        bool depends_on_i = std::ranges::any_of(
+            def->inputs(), [&](Val* inp) { return dep_i.contains(inp); });
+        bool depends_on_j = std::ranges::any_of(
+            def->inputs(), [&](Val* inp) { return dep_j.contains(inp); });
+
+        if (!depends_on_i && !depends_on_j) {
+          return;
+        }
+
+        all_dep_exprs.push_back(def);
+
+        if (depends_on_i && depends_on_j) {
+          merge_point = val;
+          return;
+        } else if (depends_on_i) {
+          dep_i.insert(val);
+        } else if (depends_on_j) {
+          dep_j.insert(val);
+        }
+      }
+
+      SliceOp* slice_i = nullptr;
+      SliceOp* slice_j = nullptr;
+      std::unordered_set<Val*> dep_i;
+      std::unordered_set<Val*> dep_j;
+      std::vector<Expr*> all_dep_exprs;
+      Val* merge_point = nullptr;
+    };
+
+    FindMergePoint find_merge_point(slice_i, slice_j);
+
+    if (find_merge_point.merge_point == nullptr) {
+      return {};
+    }
+
+    return find_merge_point.all_dep_exprs;
+  }
+
+  SegmentedGroup* merge(const std::vector<Expr*> exprs) {
+    std::cerr << "Trying to merge:\n:";
+    for (auto expr : exprs) {
+      std::cerr << "\t" << expr->toString();
+    }
+
+    std::vector<SegmentedGroup*> groups_to_merge;
+    for (auto expr : exprs) {
+      auto group_it = std::ranges::find_if(
+          segment_candidate_finder_->groups(), [&](SegmentedGroup* group) {
+            return std::ranges::find(group->exprs(), expr) !=
+                group->exprs().end();
+          });
+      NVF_ERROR(
+          group_it != segment_candidate_finder_->groups().end(),
+          "Cannot find SegmentedGroup for ",
+          expr->toString());
+      groups_to_merge.push_back(*group_it);
+    }
+
+    if (tryMerge(
+            segment_candidate_finder_->segmented_fusion_.get(),
+            segment_candidate_finder_->runtimeInfo(),
+            groups_to_merge) != SchedulerType::Resize) {
+      return nullptr;
+    }
+
+    return segment_candidate_finder_->mergeAllGivenGroups(groups_to_merge);
+  }
+
+ private:
+  SegmentCandidateFinder* segment_candidate_finder_ = nullptr;
+};
+
 namespace {
 
 //! Returns true if group1 and group2 are an immediate producer-consumer pair.
@@ -3784,11 +3958,21 @@ class PreferredMergeCandidatePicker {
     for (auto& group : groups_) {
       // Currently there's only one preference for select-like
       // ops. Additional preferences can be added similarly.
-      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
-      if (!neighbor_to_merge.has_value()) {
+      if (auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
         continue;
       }
-      candidates_.emplace_back(group, *neighbor_to_merge);
+      if (!getenv("DISABLE_PREFER_PAD")) {
+        if (auto neighbor_to_merge = mergePadWithConsumers(group);
+            neighbor_to_merge.has_value()) {
+          candidates_.emplace_back(group, *neighbor_to_merge);
+          std::cerr << "Prefer pad: " << group << " and "
+                    << neighbor_to_merge->group << "\n";
+          continue;
+        }
+        std::cerr << "No preferred Pad for " << group << "\n";
+      }
     }
   }
 
@@ -3809,6 +3993,9 @@ class PreferredMergeCandidatePicker {
   //! want to segment the fusion between the takeAlongAxis and the
   //! reduction, not between the softmax and takeAlongAxis.
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
+      SegmentedGroup* group) const;
+
+  std::optional<SegmentedGroup::NeighborGroup> mergePadWithConsumers(
       SegmentedGroup* group) const;
 
  private:
@@ -3872,6 +4059,60 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       (*producer_edge_it)->from, *producer_edge_it);
 }
 
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergePadWithConsumers(SegmentedGroup* group) const {
+  if (group->consumer_edges.empty() || group->isMerged()) {
+    return std::nullopt;
+  }
+
+  for (auto expr : group->exprs()) {
+    auto pad = dynamic_cast<PadOp*>(expr);
+    if (pad == nullptr) {
+      continue;
+    }
+
+    if (pad->out()->isFusionOutput()) {
+      continue;
+    }
+
+    // If the input of pad is already in the same segment, don't
+    // bother
+    auto pad_inp = pad->in();
+    if (std::ranges::find_if(group->producer_edges, [&](SegmentedEdge* edge) {
+          return edge->val == pad_inp;
+        }) == group->producer_edges.end()) {
+      continue;
+    }
+
+    auto consumer_edge_it = std::ranges::find_if(
+        group->consumer_edges,
+        [&](SegmentedEdge* edge) { return edge->val == pad->out(); });
+
+    if (consumer_edge_it == group->consumer_edges.end()) {
+      continue;
+    }
+
+    auto consumer_group = (*consumer_edge_it)->to;
+    if (consumer_group->isMerged()) {
+      return std::nullopt;
+    }
+
+    // Don't try to merge if not a candidate
+    auto merge_candidates = group->getMergeCandidates();
+    if (std::ranges::find_if(
+            merge_candidates,
+            [&](const SegmentedGroup::NeighborGroup& neighbor) {
+              return neighbor.group != consumer_group;
+            }) == merge_candidates.end()) {
+      return std::nullopt;
+    }
+
+    return SegmentedGroup::NeighborGroup(consumer_group, *consumer_edge_it);
+  }
+
+  return std::nullopt;
+}
+
 } // namespace
 
 bool SegmentCandidateFinder::codeGenSupportedMerge(
@@ -3903,6 +4144,12 @@ SchedulerType SegmentCandidateFinder::deriveSchedulerType(
     return SchedulerType::None;
   }
   auto scheduler_type = tryMerge(segmented_fusion_.get(), runtimeInfo(), group);
+  if (scheduler_type == SchedulerType::None) {
+    std::cerr << "Failed to find a scheduler\n" << group << "\n";
+    for (auto expr : group->exprs()) {
+      std::cerr << expr->toString();
+    }
+  }
   NVF_ERROR(
       scheduler_type != SchedulerType::None,
       "Can not find a scheduler to schedule fusion segment");
@@ -4028,7 +4275,7 @@ void SegmentCandidateFinder::trySetUpMerge(
   }
 
   auto candidate_it = candidates.begin();
-  while (candidate_it != candidates.end() &&
+  while (candidate_it != candidates.end() && !candidate_it->group->isMerged() &&
          !codeGenSupportedMerge(group, candidate_it->group)) {
     candidate_it++;
   }
@@ -4122,11 +4369,19 @@ void SegmentCandidateFinder::findSegments() {
   MergeUpAndDownCast::run(this);
   validateIfDebug(true);
 
+  if (!getenv("DISABLE_MERGE_ROPE")) {
+    MergeRopeGroups::run(this);
+    validateIfDebug();
+  }
+
   if (options_.run_combine_reductions && CombineReductions::shouldRun(this)) {
     CombineReductions::run(this);
   }
 
   validateIfDebug();
+
+  std::cerr << "Before hermann merge\n";
+  std::cerr << segmented_fusion_.get() << "\n";
 
   if (options_.run_herrmann_merge) {
     bool merged_nodes = true;
@@ -4137,7 +4392,9 @@ void SegmentCandidateFinder::findSegments() {
       // Try preferred merge first
       for (auto& [group, neighbor] :
            PreferredMergeCandidatePicker::get(groups())) {
-        trySetUpMerge(group, {neighbor});
+        if (!neighbor.group->isMerged()) {
+          trySetUpMerge(group, {neighbor});
+        }
       }
 
       // If there are preferred groups to merge, merge them first
@@ -4388,7 +4645,7 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
 // fusion. Currently, we forward an input only when its single use is a UnaryOp.
 // Therefore, this function returns `v`'s single unary use or nullptr if it
 // decides not to forward.
-UnaryOp* shouldForward(Val* v) {
+Expr* shouldForward(Val* v) {
   const std::vector<Expr*>& uses = v->uses();
   // Just allow stripping out input with single use.
   // Stripping out multi-used inputs can lead to:
@@ -4398,24 +4655,46 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
-  auto* unary_use = dynamic_cast<UnaryOp*>(uses.front());
-  if (unary_use == nullptr) {
+  auto use_expr = uses.front();
+
+  if (use_expr->outputs().size() == 0) {
     return nullptr;
   }
+
+  auto out = use_expr->output(0);
 
   // Don't forward an input to an output yet. Doing that would lead to an empty
   // group that ought to work in theory but doesn't work in practice with the
   // downstream logic. See #1813 for an example.
-  if (unary_use->out()->isFusionOutput()) {
+  if (out->isFusionOutput()) {
     return nullptr;
+  }
+
+  if (!use_expr->isOneOf<UnaryOp, LoadStoreOp, BroadcastOp, ExpandOp>()) {
+    return nullptr;
+  }
+
+  auto* ldst_use = dynamic_cast<LoadStoreOp*>(use_expr);
+
+  if (ldst_use != nullptr) {
+    if (!getenv("LD_FORWARD")) {
+      // Not enabled
+      return nullptr;
+    }
+
+    if (ldst_use->opType() != LoadStoreOpType::Set ||
+        (v->isFusionInput() && v->isA<TensorView>() &&
+         v->as<TensorView>()->getMaybeAllocationDomain() !=
+             v->as<TensorView>()->getLogicalDomain()) ||
+        isResharding(use_expr)) {
+      return nullptr;
+    }
   }
 
   // prevent forward to a SegmenterSet, which could cause unary op forward to a
   // no-op segment. See issue: https://github.com/NVIDIA/Fuser/issues/2658
   if (std::any_of(
-          unary_use->out()->uses().begin(),
-          unary_use->out()->uses().end(),
-          [](const Expr* next_use) {
+          out->uses().begin(), out->uses().end(), [](const Expr* next_use) {
             if (const LoadStoreOp* use =
                     dynamic_cast<const LoadStoreOp*>(next_use)) {
               if (use->opType() == LoadStoreOpType::SegmenterSet) {
@@ -4427,34 +4706,46 @@ UnaryOp* shouldForward(Val* v) {
     return nullptr;
   }
 
-  return unary_use;
+  return use_expr;
 }
 
 void SegmentCandidateFinder::forwardInputs() {
   excluded_inp_unary_exprs_ = {};
   input2group_.clear();
 
+  std::vector<Val*> original_fusion_inputs = completeFusion()->inputs();
+
+  std::vector<Val*> factory_created_vals;
+  for (auto expr : completeFusion()->exprs()) {
+    if (!getenv("DISABLE_FORWARD_FULL") && expr->isA<FullOp>() &&
+        !expr->as<FullOp>()->output(0)->isFusionOutput()) {
+      original_fusion_inputs.push_back(expr->output(0));
+      excluded_inp_unary_exprs_.pushBack(expr);
+      factory_created_vals.push_back(expr->output(0));
+    }
+  }
+
   // "Terminating" outputs from the excluded input unary exprs, these will be
   // treated as complete fusion inputs.
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
-    std::deque<UnaryOp*> to_visit;
-    for (Val* inp : completeFusion()->inputs()) {
-      if (UnaryOp* unary_use = shouldForward(inp)) {
-        to_visit.push_back(unary_use);
+    std::deque<Expr*> to_visit;
+    for (Val* inp : original_fusion_inputs) {
+      if (auto forwarded_use = shouldForward(inp)) {
+        to_visit.push_back(forwarded_use);
       }
     }
 
     while (!to_visit.empty()) {
-      UnaryOp* uop = to_visit.front();
+      auto uop = to_visit.front();
       to_visit.pop_front();
 
-      if (UnaryOp* unary_use = shouldForward(uop->out())) {
-        to_visit.push_back(unary_use);
+      if (auto forwarded_use = shouldForward(uop->output(0))) {
+        to_visit.push_back(forwarded_use);
       } else {
         // We cannot extend the chain of unary ops, so we finalize this chain by
         // saving its output as a forwarded input.
-        forwarded_inputs.pushBack(uop->out());
+        forwarded_inputs.pushBack(uop->output(0));
       }
       // Either way, `uop` is excluded from merging until
       // `resolveNonscalarForwardedInput` adds it back to one of the segments.
@@ -4462,11 +4753,14 @@ void SegmentCandidateFinder::forwardInputs() {
     }
   }
 
-  auto excluded_fusion_inputs = IterVisitor::getInputsTo(
-      {forwarded_inputs.begin(), forwarded_inputs.end()});
+  // Stop traversing back at factory vals (and fusion inputs)
+  auto excluded_fusion_inputs = InputsOf::getInputsTo(
+      {forwarded_inputs.begin(), forwarded_inputs.end()},
+      original_fusion_inputs);
 
   // List of vals to treat as complete fusion inputs for segmentation
-  forwarded_fusion_inputs_ = completeFusion()->inputs();
+  // forwarded_fusion_inputs_ = completeFusion()->inputs();
+  forwarded_fusion_inputs_ = original_fusion_inputs;
 
   forwarded_fusion_inputs_.erase(
       std::remove_if(
@@ -4503,6 +4797,16 @@ void SegmentCandidateFinder::cleanupForwardedInputs() {
   excluded_inp_unary_exprs_ = {};
   forwarded_fusion_inputs_.clear();
   input2group_.clear();
+}
+
+std::vector<SegmentedGroup*> SegmentCandidateFinder::getAuxiliaryInputGroups()
+    const {
+  std::vector<SegmentedGroup*> aux_groups;
+  aux_groups.reserve(input2group_.size());
+  std::ranges::transform(input2group_, aux_groups.begin(), [](const auto& kv) {
+    return kv.second;
+  });
+  return aux_groups;
 }
 
 void SegmentCandidateFinder::finalMerge() {
@@ -4717,7 +5021,12 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
 
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
   SegmentedGroup* group = segmented_fusion_->newGroup();
-  group->input_vals_ = IterVisitor::getInputsTo({forwarded_input});
+  for (auto inp : IterVisitor::getInputsTo({forwarded_input})) {
+    if (std::ranges::find(completeFusion()->inputs(), inp) !=
+        completeFusion()->inputs().end()) {
+      group->input_vals_.pushBack(inp);
+    }
+  }
   group->exprs_ = StmtSort::getExprsTo({forwarded_input});
   return group;
 }
