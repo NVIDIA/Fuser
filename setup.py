@@ -73,50 +73,77 @@ from python.utils import parse_args
 # Parse arguments and set global variables accordingly
 args, forward_args = parse_args()
 
-# Apply parsed arguments to global variables
-CMAKE_ONLY = args.cmake_only
-BUILD_SETUP = True
-NO_PYTHON = args.no_python
-NO_TEST = args.no_test
-NO_BENCHMARK = args.no_benchmark
-NO_NINJA = args.no_ninja
-BUILD_WITH_UCC = args.build_with_ucc
-BUILD_WITH_ASAN = args.build_with_asan
-BUILD_WITHOUT_DISTRIBUTED = args.build_without_distributed
-BUILD_WITH_SYSTEM_NVTX = not args.no_system_nvtx
-OVERWRITE_VERSION = False
-EXPLICIT_ERROR_CHECK = args.explicit_error_check
-VERSION_TAG = None
-BUILD_TYPE = "Release"
-WHEEL_NAME = args.wheel_name
-BUILD_DIR = args.build_dir
-INSTALL_DIR = args.install_dir
-INSTALL_REQUIRES = []
-EXTRAS_REQUIRE = {}
-CPP_STANDARD = args.cpp_standard
+from dataclasses import dataclass
 
+
+@dataclass
+class BuildConfig:
+    cmake_only: bool = False
+    build_setup: bool = True
+    no_python: bool = False
+    no_test: bool = False
+    no_benchmark: bool = False
+    no_ninja: bool = False
+    build_with_ucc: bool = False
+    build_with_asan: bool = False
+    build_without_distributed: bool = False
+    build_with_system_nvtx: bool = True
+    explicit_error_check: bool = False
+    overwrite_version: bool = False
+    version_tag: str = None
+    build_type: str = "Release"
+    wheel_name: str = "nvfuser"
+    build_dir: str = ""
+    install_dir: str = ""
+    install_requires: list = None
+    extras_require: dict = None
+    cpp_standard: int = 20
+
+    def __post_init__(self):
+        # dataclass cannot have mutable default values in the class definition
+        if self.install_requires is None:
+            self.install_requires = []
+        if self.extras_require is None:
+            self.extras_require = {}
+
+
+# Create a BuildConfig from args
+config = BuildConfig(
+    cmake_only=args.cmake_only,
+    no_python=args.no_python,
+    no_test=args.no_test,
+    no_benchmark=args.no_benchmark,
+    no_ninja=args.no_ninja,
+    build_with_ucc=args.build_with_ucc,
+    build_with_asan=args.build_with_asan,
+    build_without_distributed=args.build_without_distributed,
+    build_with_system_nvtx=not args.no_system_nvtx,
+    explicit_error_check=args.explicit_error_check,
+    wheel_name=args.wheel_name,
+    build_dir=args.build_dir,
+    install_dir=args.install_dir,
+    cpp_standard=args.cpp_standard,
+)
+
+# Apply remaining options
 if args.debug_mode:
-    BUILD_TYPE = "Debug"
+    config.build_type = "Debug"
 if args.debinfo_mode:
-    BUILD_TYPE = "RelwithDebInfo"
+    config.build_type = "RelwithDebInfo"
 if args.install_requires:
-    INSTALL_REQUIRES = args.install_requires.split(",")
+    config.install_requires = args.install_requires.split(",")
 if args.extras_require:
-    EXTRAS_REQUIRE = eval(args.extras_require)
+    config.extras_require = eval(args.extras_require)
 if args.version_tag:
-    VERSION_TAG = args.version_tag
-    OVERWRITE_VERSION = True
-
-# If 'clean' is in forward_args, disable BUILD_SETUP
-if 'clean' in forward_args:
-    BUILD_SETUP = False
+    config.version_tag = args.version_tag
+    config.overwrite_version = True
 
 # append forward_args to sys.argv
 # forward_args is a list of arguments that are not handled by argparse
 sys.argv.extend(forward_args)
 
 
-if CPP_STANDARD < 20:
+if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")
 
 
@@ -250,25 +277,32 @@ def version_tag():
     from tools.gen_nvfuser_version import get_version
 
     version = get_version()
-    if OVERWRITE_VERSION:
+    if config.overwrite_version:
         version = version.split("+")[0]
-        if len(VERSION_TAG) != 0:
+        if len(config.version_tag) != 0:
             # use "." to be pypi friendly
-            version = ".".join([version, VERSION_TAG])
+            version = ".".join([version, config.version_tag])
     return version
 
 
-from tools.memory import get_available_memory_gb
-
-
 def cmake():
+    from tools.memory import get_available_memory_gb
+
     # make build directories
     cwd = os.path.dirname(os.path.abspath(__file__))
-    cmake_build_dir = os.path.join(cwd, "python", "build") if not BUILD_DIR else BUILD_DIR
+    cmake_build_dir = (
+        os.path.join(cwd, "python", "build")
+        if not config.build_dir
+        else config.build_dir
+    )
     if not os.path.exists(cmake_build_dir):
         os.makedirs(cmake_build_dir)
 
-    install_prefix = os.path.join(cwd, "python", "nvfuser") if not INSTALL_DIR else INSTALL_DIR
+    install_prefix = (
+        os.path.join(cwd, "python", "nvfuser")
+        if not config.install_dir
+        else config.install_dir
+    )
 
     from tools.gen_nvfuser_version import (
         get_pytorch_cmake_prefix,
@@ -293,32 +327,32 @@ def cmake():
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
-        "-DCMAKE_BUILD_TYPE=" + BUILD_TYPE,
+        "-DCMAKE_BUILD_TYPE=" + config.build_type,
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
-        f"-DNVFUSER_CPP_STANDARD={CPP_STANDARD}",
+        f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         "-B",
         cmake_build_dir,
     ]
-    if BUILD_WITH_UCC:
+    if config.build_with_ucc:
         cmd_str.append("-DNVFUSER_STANDALONE_BUILD_WITH_UCC=ON")
-    if EXPLICIT_ERROR_CHECK:
+    if config.explicit_error_check:
         cmd_str.append("-DNVFUSER_EXPLICIT_ERROR_CHECK=ON")
-    if not NO_NINJA:
+    if not config.no_ninja:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
-    if not NO_TEST:
+    if not config.no_test:
         cmd_str.append("-DBUILD_TEST=ON")
-    if not NO_PYTHON:
+    if not config.no_python:
         cmd_str.append("-DBUILD_PYTHON=ON")
         cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
-    if not NO_BENCHMARK:
+    if not config.no_benchmark:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
-    if BUILD_WITH_ASAN:
+    if config.build_with_asan:
         cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
-    if BUILD_WITHOUT_DISTRIBUTED:
+    if config.build_without_distributed:
         cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
-    if BUILD_WITH_SYSTEM_NVTX:
+    if config.build_with_system_nvtx:
         cmd_str.append("-DUSE_SYSTEM_NVTX=ON")
     cmd_str.append(".")
 
@@ -332,7 +366,7 @@ def cmake():
         max_jobs_mem = int(available_mem / mem_gb_per_task)
         max_jobs = min(max_jobs, max_jobs_mem)
 
-    if not CMAKE_ONLY:
+    if not config.cmake_only:
         # build binary
         max_jobs = os.getenv("MAX_JOBS", str(max_jobs))
         print(f"Using {max_jobs} jobs for compilation")
@@ -353,9 +387,9 @@ def main():
     # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can
     # be treated as "nvfuser_package_data". This function call will put the two of "nvfuser" and
     # "nvfuser_codegen" into "./nvfuser/lib", and the former will be "nvfuser._C".
-    if BUILD_SETUP:
+    if config.build_setup:
         cmake()
-    if not CMAKE_ONLY:
+    if not config.cmake_only:
         # NOTE: package include files for cmake
         # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
         # might can be treated by using `exclude_package_data`.
@@ -387,7 +421,7 @@ def main():
         ]
 
         setup(
-            name=WHEEL_NAME,
+            name=config.wheel_name,
             version=version_tag(),
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
@@ -402,10 +436,10 @@ def main():
             package_data={
                 "nvfuser": nvfuser_package_data,
             },
-            install_requires=INSTALL_REQUIRES,
+            install_requires=config.install_requires,
             extras_require={
                 "test": ["numpy", "expecttest", "pytest"],
-                **EXTRAS_REQUIRE,
+                **config.extras_require,
             },
             license="BSD-3-Clause",
         )
