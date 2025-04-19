@@ -4657,20 +4657,8 @@ Expr* shouldForward(Val* v) {
 
   auto use_expr = uses.front();
 
-  auto* unary_use = dynamic_cast<UnaryOp*>(use_expr);
-  auto* ldst_use = dynamic_cast<LoadStoreOp*>(use_expr);
-  if (unary_use == nullptr && ldst_use == nullptr) {
+  if (use_expr->outputs().size() == 0) {
     return nullptr;
-  }
-
-  if (ldst_use != nullptr && getenv("LD_FORWARD")) {
-    if (ldst_use->opType() != LoadStoreOpType::Set ||
-        (v->isFusionInput() && v->isA<TensorView>() &&
-         v->as<TensorView>()->getMaybeAllocationDomain() !=
-             v->as<TensorView>()->getLogicalDomain()) ||
-        isResharding(use_expr)) {
-      return nullptr;
-    }
   }
 
   auto out = use_expr->output(0);
@@ -4680,6 +4668,27 @@ Expr* shouldForward(Val* v) {
   // downstream logic. See #1813 for an example.
   if (out->isFusionOutput()) {
     return nullptr;
+  }
+
+  if (!use_expr->isOneOf<UnaryOp, LoadStoreOp, BroadcastOp, ExpandOp>()) {
+    return nullptr;
+  }
+
+  auto* ldst_use = dynamic_cast<LoadStoreOp*>(use_expr);
+
+  if (ldst_use != nullptr) {
+    if (!getenv("LD_FORWARD")) {
+      // Not enabled
+      return nullptr;
+    }
+
+    if (ldst_use->opType() != LoadStoreOpType::Set ||
+        (v->isFusionInput() && v->isA<TensorView>() &&
+         v->as<TensorView>()->getMaybeAllocationDomain() !=
+             v->as<TensorView>()->getLogicalDomain()) ||
+        isResharding(use_expr)) {
+      return nullptr;
+    }
   }
 
   // prevent forward to a SegmenterSet, which could cause unary op forward to a

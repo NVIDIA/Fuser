@@ -900,9 +900,6 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     TensorView* reference_tv,
     int64_t break_point,
     const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
-  std::cerr << "getResizeVectorizationFactors: " << reference_tv->toString()
-            << ", " << break_point << "\n";
-  reference_tv->printTransforms();
   Fusion* fusion = reference_tv->fusion();
   std::unordered_set<Val*> factors;
   const auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
