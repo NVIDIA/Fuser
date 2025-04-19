@@ -178,6 +178,81 @@ def parse_args():
     return args, forward_args
 
 
+def create_build_config():
+    # Parse arguments and set global variables accordingly
+    args, forward_args = parse_args()
+
+    # Create a BuildConfig from args
+    config = BuildConfig(
+        cmake_only=args.cmake_only,
+        no_python=args.no_python,
+        no_test=args.no_test,
+        no_benchmark=args.no_benchmark,
+        no_ninja=args.no_ninja,
+        build_with_ucc=args.build_with_ucc,
+        build_with_asan=args.build_with_asan,
+        build_without_distributed=args.build_without_distributed,
+        build_with_system_nvtx=not args.no_system_nvtx,
+        explicit_error_check=args.explicit_error_check,
+        wheel_name=args.wheel_name,
+        build_dir=args.build_dir,
+        install_dir=args.install_dir,
+        cpp_standard=args.cpp_standard,
+    )
+
+    # Apply remaining options
+    if args.debug_mode:
+        config.build_type = "Debug"
+    if args.debinfo_mode:
+        config.build_type = "RelwithDebInfo"
+    if args.install_requires:
+        config.install_requires = args.install_requires.split(",")
+    if args.extras_require:
+        config.extras_require = eval(args.extras_require)
+    if args.version_tag:
+        config.version_tag = args.version_tag
+        config.overwrite_version = True
+    return config, forward_args
+
+
+def override_build_config_from_env(config):
+    # Command line arguments don't work on PEP517 builds and will be silently ignored,
+    # so we need to pass those options as environment variables instead.
+    # Create a BuildConfig from environment variables
+    config.cmake_only = check_env_flag_bool("NVFUSER_BUILD_CMAKE_ONLY", False)
+    config.build_setup = check_env_flag_bool("NVFUSER_BUILD_SETUP", True)
+    config.no_python = check_env_flag_bool("NVFUSER_BUILD_NO_PYTHON", False)
+    config.no_test = check_env_flag_bool("NVFUSER_BUILD_NO_TEST", False)
+    config.no_benchmark = check_env_flag_bool("NVFUSER_BUILD_NO_BENCHMARK", False)
+    config.no_ninja = check_env_flag_bool("NVFUSER_BUILD_NO_NINJA", False)
+    config.build_with_ucc = check_env_flag_bool("NVFUSER_BUILD_WITH_UCC", False)
+    config.build_with_asan = check_env_flag_bool("NVFUSER_BUILD_WITH_ASAN", False)
+    config.build_without_distributed = check_env_flag_bool(
+        "NVFUSER_BUILD_WITHOUT_DISTRIBUTED", False
+    )
+    config.build_with_system_nvtx = check_env_flag_bool(
+        "NVFUSER_BUILD_WITH_SYSTEM_NVTX", True
+    )
+    config.explicit_error_check = check_env_flag_bool(
+        "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK", False
+    )
+    config.build_type = os.getenv("NVFUSER_BUILD_TYPE", "Release")
+    config.wheel_name = os.getenv("NVFUSER_BUILD_WHEEL_NAME", "nvfuser")
+    config.build_dir = os.getenv("NVFUSER_BUILD_DIR", "")
+    config.install_dir = os.getenv("NVFUSER_BUILD_INSTALL_DIR", "")
+    config.install_requires = os.getenv("NVFUSER_BUILD_INSTALL_REQUIRES", "").split(",")
+    config.extras_require = eval(os.getenv("NVFUSER_BUILD_EXTRA_REQUIRES", "{}"))
+    config.cpp_standard = int(os.getenv("NVFUSER_BUILD_CPP_STANDARD", 20))
+
+    # Apply remaining options
+    if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
+        config.overwrite_version = True
+        config.version_tag = os.getenv("NVFUSER_BUILD_VERSION_TAG")
+    else:
+        config.overwrite_version = False
+        config.version_tag = None
+
+
 class build_ext(setuptools.command.build_ext.build_ext):
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":

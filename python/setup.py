@@ -71,49 +71,24 @@ import setuptools
 from setuptools import Extension, setup, find_packages
 
 from utils import (
-    check_env_flag_bool,
-    BuildConfig,
+    create_build_config,
+    override_build_config_from_env,
     cmake,
     version_tag,
     build_whl,
     build_ext,
 )
 
-# Command line arguments don't work on PEP517 builds and will be silently ignored,
-# so we need to pass those options as environment variables instead.
-# Create a BuildConfig from environment variables
-config = BuildConfig(
-    cmake_only=check_env_flag_bool("NVFUSER_BUILD_CMAKE_ONLY", False),
-    build_setup=check_env_flag_bool("NVFUSER_BUILD_SETUP", True),
-    no_python=check_env_flag_bool("NVFUSER_BUILD_NO_PYTHON", False),
-    no_test=check_env_flag_bool("NVFUSER_BUILD_NO_TEST", False),
-    no_benchmark=check_env_flag_bool("NVFUSER_BUILD_NO_BENCHMARK", False),
-    no_ninja=check_env_flag_bool("NVFUSER_BUILD_NO_NINJA", False),
-    build_with_ucc=check_env_flag_bool("NVFUSER_BUILD_WITH_UCC", False),
-    build_with_asan=check_env_flag_bool("NVFUSER_BUILD_WITH_ASAN", False),
-    build_without_distributed=check_env_flag_bool(
-        "NVFUSER_BUILD_WITHOUT_DISTRIBUTED", False
-    ),
-    build_with_system_nvtx=check_env_flag_bool("NVFUSER_BUILD_WITH_SYSTEM_NVTX", True),
-    explicit_error_check=check_env_flag_bool(
-        "NVFUSER_BUILD_EXPLICIT_ERROR_CHECK", False
-    ),
-    build_type=os.getenv("NVFUSER_BUILD_TYPE", "Release"),
-    wheel_name=os.getenv("NVFUSER_BUILD_WHEEL_NAME", "nvfuser"),
-    build_dir=os.getenv("NVFUSER_BUILD_DIR", ""),
-    install_dir=os.getenv("NVFUSER_BUILD_INSTALL_DIR", ""),
-    install_requires=os.getenv("NVFUSER_BUILD_INSTALL_REQUIRES", "").split(","),
-    extras_require=eval(os.getenv("NVFUSER_BUILD_EXTRA_REQUIRES", "{}")),
-    cpp_standard=int(os.getenv("NVFUSER_BUILD_CPP_STANDARD", 20)),
-)
+# Parse arguments using argparse
+# Use argparse to create description of arguments from command line
+config, forward_args = create_build_config()
 
-# Apply remaining options
-if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
-    config.overwrite_version = True
-    config.version_tag = os.getenv("NVFUSER_BUILD_VERSION_TAG")
-else:
-    config.overwrite_version = False
-    config.version_tag = None
+# Override build config from environment variables
+override_build_config_from_env(config)
+
+# Append forward_args to sys.argv
+# forward_args is a list of arguments that are not handled by argparse
+sys.argv.extend(forward_args)
 
 if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")

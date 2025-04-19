@@ -75,53 +75,19 @@ import setuptools.command.build_ext
 from setuptools import Extension, setup, find_packages
 
 from python.utils import (
-    parse_args,
-    BuildConfig,
+    create_build_config,
     cmake,
     version_tag,
     build_whl,
     build_ext,
 )
 
-# Parse arguments and set global variables accordingly
-args, forward_args = parse_args()
-
-
-# Create a BuildConfig from args
-config = BuildConfig(
-    cmake_only=args.cmake_only,
-    no_python=args.no_python,
-    no_test=args.no_test,
-    no_benchmark=args.no_benchmark,
-    no_ninja=args.no_ninja,
-    build_with_ucc=args.build_with_ucc,
-    build_with_asan=args.build_with_asan,
-    build_without_distributed=args.build_without_distributed,
-    build_with_system_nvtx=not args.no_system_nvtx,
-    explicit_error_check=args.explicit_error_check,
-    wheel_name=args.wheel_name,
-    build_dir=args.build_dir,
-    install_dir=args.install_dir,
-    cpp_standard=args.cpp_standard,
-)
-
-# Apply remaining options
-if args.debug_mode:
-    config.build_type = "Debug"
-if args.debinfo_mode:
-    config.build_type = "RelwithDebInfo"
-if args.install_requires:
-    config.install_requires = args.install_requires.split(",")
-if args.extras_require:
-    config.extras_require = eval(args.extras_require)
-if args.version_tag:
-    config.version_tag = args.version_tag
-    config.overwrite_version = True
+# Parse arguments using argparse
+config, forward_args = create_build_config()
 
 # append forward_args to sys.argv
 # forward_args is a list of arguments that are not handled by argparse
 sys.argv.extend(forward_args)
-
 
 if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")
