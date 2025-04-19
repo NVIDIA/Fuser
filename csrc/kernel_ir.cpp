@@ -459,7 +459,7 @@ std::string Asm::utility() const {
     std::regex ld_pattern(R"(tcgen05\.ld\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, ld_pattern)) {
-      std::string result = "tmem::load";
+      std::string result = "tcgen05::load";
       result.append(match[1]);
       return result;
     }
@@ -468,7 +468,7 @@ std::string Asm::utility() const {
     std::regex st_pattern(R"(tcgen05\.st\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, st_pattern)) {
-      std::string result = "tmem::store";
+      std::string result = "tcgen05::store";
       result.append(match[1]);
       return result;
     }
