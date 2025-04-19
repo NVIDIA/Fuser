@@ -116,6 +116,7 @@ class clean(setuptools.Command):
                         except OSError:
                             shutil.rmtree(filename, ignore_errors=True)
 
+
 def version_tag(config):
     from python.tools.gen_nvfuser_version import get_version
 
@@ -126,6 +127,7 @@ def version_tag(config):
             # use "." to be pypi friendly
             version = ".".join([version, config.version_tag])
     return version
+
 
 def main():
     # NOTE(crcrpar): Deliberately build basically two dynamic libraries here so that they can

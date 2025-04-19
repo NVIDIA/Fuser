@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 #
 # Usage:
-# pip install --no-build-isolation --e python -v
+# pip install --no-build-isolation -e python -v
 #   This build command is equivalent to: python setup.py develop
 #   Options:
 #     -v: verbose output
