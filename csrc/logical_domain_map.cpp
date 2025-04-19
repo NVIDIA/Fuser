@@ -6,6 +6,7 @@
  */
 // clang-format on
 #include <debug.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <iter_visitor.h>
@@ -729,8 +730,8 @@ class BackwardVisitorNoDefaultHandlers : public BackwardVisitor {
  protected:
   using BackwardVisitor::handle;
 
-#define M(e)                                    \
-  void handle(e* uop) override {                \
+#define M(e)                                     \
+  void handle(e* uop) override {                 \
     NVF_THROW("Unhandled expression type: " #e); \
   }
   DISPATCH_FOR_ALL_EXPRS(M);
@@ -862,6 +863,16 @@ class ComputeAtLogicalDomainMapBuilder
   void handle(EmbeddingFwdOp* op) override {
     mapPointwiseLikeOp(op);
   }
+
+  void handle(FullOp* op) override {}
+
+  void handle(GetItem* op) override {
+    mapPointwiseLikeOp(op);
+  }
+
+  void handle(IotaOp* op) override {}
+
+  void handle(EyeOp* op) override {}
 
   void handle(TensorView* tv) override;
 
