@@ -54,6 +54,11 @@ namespace scheduler_tools {
 // schedulers.
 
 struct StaticRepeatInfo {
+  // The first input tensor of the detected repeat pattern, e.g.,
+  // t0 in the above example case.
+  TensorView* repeat_input_tv = nullptr;
+  // TODO
+  IterDomain* repeat_input_id = nullptr;
   // The final output tensor of the detected repeat pattern, e.g.,
   // t3 in the above example case.
   TensorView* repeat_output_tv = nullptr;

@@ -8,6 +8,7 @@
 
 #include <ir/all_nodes.h>
 #include <ir/utils.h>
+#include <logical_domain_map.h>
 #include <scheduler/tools/static_repeat.h>
 
 namespace nvfuser {
@@ -64,7 +65,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     return std::nullopt;
   }
 
-  auto inp_tv = broadcast->in();
+  auto inp_tv = broadcast->in()->as<TensorView>();
 
   // Not sure if this is really necessary to check, but assume there's
   // only single chain of the ops and tensors from inp_tv to
@@ -153,7 +154,21 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     return std::nullopt;
   }
 
+  IterDomain* reshape_root_inp_id =
+      reshape_merge->outer() == reshape_root_broadcast ? reshape_merge->inner()
+                                                       : reshape_merge->outer();
+
+  int64_t inp_id_pos = std::distance(
+      reshape_out->getRootDomain().begin(),
+      std::ranges::find(reshape_out->getRootDomain(), reshape_root_inp_id));
+  auto broadcast_inp_id = broadcast_out->getLogicalDomain().at(inp_id_pos);
+  auto inp_tv_id = PairwiseLogicalDomainMap(inp_tv, broadcast_out)
+                       .mapConsumerToProducer()
+                       .at(broadcast_inp_id);
+
   StaticRepeatInfo info;
+  info.repeat_input_tv = inp_tv;
+  info.repeat_input_id = inp_tv_id;
   info.repeat_output_tv = maybe_repeat_out;
   info.reshape_output_tv = reshape_out;
   info.reshape_repeat_id = reshape_out->getRootDomain().at(broadcast_pos);

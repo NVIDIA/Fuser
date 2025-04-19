@@ -205,6 +205,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/make_resharding_contiguous.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_pad.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_repeat_forward.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp

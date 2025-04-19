@@ -1696,6 +1696,88 @@ TEST_F(RopeTest, EndingRepeat) {
   }
 }
 
+TEST_F(RopeTest, MoveRepeatForward) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{8, 126};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {2, 1});
+  auto tv2 = sin(tv1);
+  fusion.addOutput(tv2);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+#if 0
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+
+  // Check the loop domain of the reference. It should look like:
+  //
+  // T4_g_float[iS19{2 ex 2}, iblockIdx.x22{8}, ithreadIdx.x23{128}] ca_pos( 3 )
+  // produce_pos( 3 )
+  //  logical domain : (iS17{( 2 * 8 )}, iS18{128})
+  //  contiguity: t t
+  //   Merge: iS20{8} and iS18{128} -> iS21{1024}
+  //   Split: iS21{1024} by factor 128 -> iblockIdx.x22{8}, ithreadIdx.x23{128}
+  //  loop domain : (iS19{2 ex 2}, iblockIdx.x22{8}, ithreadIdx.x23{128})
+  //
+  // iS19 is the repeat ID, which should be just a Serial ID with an
+  // extent of 2.
+  auto ref_tv = scheduled_fusion->outputs().at(0)->as<TensorView>();
+  // The outermost loop ID should be a Serial ID with an extent of 2.
+  EXPECT_EQ(
+      ref_tv->getLoopDomain().at(0)->getParallelType(), ParallelType::Serial);
+  EXPECT_TRUE(ref_tv->getLoopDomain().at(0)->extent()->isConstInt());
+  EXPECT_EQ(
+      ref_tv->getLoopDomain().at(0)->extent()->evaluate().as<int64_t>(), 2L);
+
+  IdModel id_model(scheduled_fusion, /*build_graphs=*/false);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  const auto ref_loop = exact_graph.toGroups(ref_tv->getLoopDomain());
+
+  // The other tensors, except for the pad output, should be fully inlined into
+  // the reference tensor.
+  for (auto tv : scheduled_fusion->allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+    auto tv_loop = exact_graph.toGroups(tv->getLoopDomain());
+    if (tv->definition() != nullptr && tv->definition()->isA<PadOp>()) {
+      ValGroups ref_groups{ref_loop.begin() + 1, ref_loop.end()};
+      // In the case of pad, the loop domain of the output tensor
+      // should be mapped with the loop domain of the reference
+      // without the outermost ID.
+      EXPECT_EQ(tv_loop, ref_groups);
+    } else {
+      EXPECT_EQ(tv_loop, ref_loop);
+      EXPECT_EQ(tv->getLoopDomain().size(), tv->getComputeAtPosition());
+    }
+  }
+#endif
+}
+
 TEST_F(RopeTest, PadAndPermute) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
@@ -1730,6 +1812,28 @@ TEST_F(RopeTest, PadAndPermute) {
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
   testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+}
+
+TEST_F(RopeTest, RepeatTest) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  auto tv0 = makeContigConcreteTensor({8, 32});
+  fusion.addInput(tv0);
+
+  auto tv1 = makeContigConcreteTensor({1, 32});
+  fusion.addInput(tv1);
+
+  auto tv2 =
+      expand(tv1, {IrBuilder::create<Val>(4), IrBuilder::create<Val>(32)});
+
+  auto tv3 = add(tv0, tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  fusion.printKernel();
 }
 
 } // namespace nvfuser

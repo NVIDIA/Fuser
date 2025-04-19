@@ -3805,8 +3805,8 @@ class MergeRopeGroups {
         if (merged_slices.contains(slice_j)) {
           continue;
         }
-        std::cerr << "Checking " << slice_i->toString() << " and "
-                  << slice_j->toString();
+        // std::cerr << "Checking " << slice_i->toString() << " and "
+        //<< slice_j->toString();
         if (slice_i->in() == slice_j->in()) {
           // Common parent found
           auto exprs = findMergePoint(all_slices.at(i), all_slices.at(j));
@@ -3824,8 +3824,6 @@ class MergeRopeGroups {
   }
 
   std::vector<Expr*> findMergePoint(SliceOp* slice_i, SliceOp* slice_j) {
-    std::cerr << "Find merge point of " << slice_i->toString()
-              << slice_j->toString();
     struct FindMergePoint : public IterVisitor {
       FindMergePoint(SliceOp* slice_i, SliceOp* slice_j)
           : slice_i(slice_i), slice_j(slice_j) {
@@ -3888,11 +3886,6 @@ class MergeRopeGroups {
   }
 
   SegmentedGroup* merge(const std::vector<Expr*> exprs) {
-    std::cerr << "Trying to merge:\n:";
-    for (auto expr : exprs) {
-      std::cerr << "\t" << expr->toString();
-    }
-
     std::vector<SegmentedGroup*> groups_to_merge;
     for (auto expr : exprs) {
       auto group_it = std::ranges::find_if(
@@ -4380,8 +4373,8 @@ void SegmentCandidateFinder::findSegments() {
 
   validateIfDebug();
 
-  std::cerr << "Before hermann merge\n";
-  std::cerr << segmented_fusion_.get() << "\n";
+  // std::cerr << "Before hermann merge\n";
+  // std::cerr << segmented_fusion_.get() << "\n";
 
   if (options_.run_herrmann_merge) {
     bool merged_nodes = true;
