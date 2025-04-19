@@ -1,12 +1,16 @@
 # SPDX-FileCopyrightText: Copyright (c) 2024-present NVIDIA CORPORATION & AFFILIATES.
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
+#
+# Usage:
+# [MAX_JOBS] python setup.py develop [args]
+#
 # Environment variables used during build:
 #
-#   MAX_JOBS
+#  MAX_JOBS
 #     maximum number of compile jobs we should use to compile your code
 #
-# build argument:
+# NvFuser build arguments:
 #
 #   --cmake-only
 #     Only generate ./build directory with cmake setup
