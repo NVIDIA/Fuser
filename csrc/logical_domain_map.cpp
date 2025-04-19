@@ -731,7 +731,7 @@ class BackwardVisitorNoDefaultHandlers : public BackwardVisitor {
 
 #define M(e)                                    \
   void handle(e* uop) override {                \
-    NVF_THROW("Unhandled expression type: #e"); \
+    NVF_THROW("Unhandled expression type: " #e); \
   }
   DISPATCH_FOR_ALL_EXPRS(M);
 #undef M
