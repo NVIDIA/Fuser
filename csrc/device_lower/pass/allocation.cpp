@@ -1347,7 +1347,8 @@ class AllocationInserter : public kir::ExprMutator {
     // circular buffering pass.
     // * Assume that the tma load is in ComputeWarp if it is not circular
     // buffered.
-    if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
+    if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
+        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
@@ -1359,8 +1360,9 @@ class AllocationInserter : public kir::ExprMutator {
           mbarrier,
           simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
               DataType::UInt32,
-              lower_utils::getNumThreadsInTensorView(
-                  expr->output(0)->as<TensorView>()))));
+              expr->isA<MmaOp>() ? expr->fusion()->oneVal()
+                                 : lower_utils::getNumThreadsInTensorView(
+                                       expr->output(0)->as<TensorView>()))));
       auto sync_init = IrBuilder::create<kir::BlockSync>(
           /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
       auto mbarrier_inval =
