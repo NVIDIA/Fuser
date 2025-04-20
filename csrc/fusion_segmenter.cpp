@@ -2052,7 +2052,7 @@ std::vector<SegmentedEdge*> SegmentedFusion::getEdgesBetween(
   std::vector<SegmentedEdge*> edges_between;
 
   // Look through producer's consumer edges
-  for (auto edge : producer->consumer_edges) {
+  for (SegmentedEdge* edge : producer->consumer_edges) {
     if (edge->to == consumer) {
       edges_between.push_back(edge);
     }
@@ -2065,7 +2065,7 @@ void SegmentedFusion::connectGroups(
     SegmentedGroup* producer,
     SegmentedGroup* consumer,
     Val* val) {
-  auto new_edge = newEdge(producer, consumer, val);
+  SegmentedEdge* new_edge = newEdge(producer, consumer, val);
   producer->consumer_edges.push_back(new_edge);
   consumer->producer_edges.push_back(new_edge);
 }
