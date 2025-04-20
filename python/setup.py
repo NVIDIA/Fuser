@@ -94,6 +94,8 @@ if "clean" in sys.argv:
 if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")
 
+sys.argv = [sys.argv[0]] + forward_args
+
 
 class clean(setuptools.Command):
     user_options = []
