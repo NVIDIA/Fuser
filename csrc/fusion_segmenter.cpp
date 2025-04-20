@@ -3807,15 +3807,12 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
       !segmented_fusion_->getEdgesBetween(group1, group2).empty() ||
           !segmented_fusion_->getEdgesBetween(group2, group1).empty(),
       "only support testing immediate producer-consumer groups");
-  if (options_.only_segment_resharding_exprs) {
-    for (auto group : {group1, group2}) {
-      for (auto expr : group->exprs()) {
-        if (isResharding(expr)) {
-          return false;
-        }
-      }
-    }
-    return true;
+  // The segmemter should ideally be redesigned to be more flexible and
+  // decoupled from the schedulers, but for now, we just return
+  // `SchedulerType::None` as it is not relevant when the segmenter is
+  // used with a custom should-merge function.
+  if (options_.custom_should_merge_groups != nullptr) {
+    return (options_.custom_should_merge_groups)(group1, group2);
   }
   return tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2) !=
       SchedulerType::None;
@@ -3826,7 +3823,7 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
 SchedulerType SegmentCandidateFinder::deriveSchedulerType(
     SegmentedGroup* group) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::deriveSchedulerType");
-  if (options_.only_segment_resharding_exprs) {
+  if (options_.custom_should_merge_groups != nullptr) {
     // We don't need to generate a SchedulerType for multidevice segments at
     // this moment
     return SchedulerType::None;
@@ -3846,7 +3843,7 @@ SegmentCandidateFinder::SegmentCandidateFinder(
     : options_(options), runtime_inputs_(inputs) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::SegmentCandidateFinder");
   NVF_ERROR(
-      !options_.only_segment_resharding_exprs ||
+      options_.custom_should_merge_groups == nullptr ||
           (!options_.run_translate_welford &&
            !options_.run_combine_reductions && options_.run_herrmann_merge &&
            options_.run_final_merge),
@@ -4299,6 +4296,8 @@ void SegmentCandidateFinder::revertPrivatizedUpcast(SegmentedGroup* group) {
       if (consumer_edge_to_update != nullptr) {
         maybe_deduplicate_edge(consumer_edge_to_update);
       }
+
+      std::erase(group->exprs_, uop);
 
       // Note that it should not be necessary to do anything with
       // group->output_vals since the inserted upcast ops should never produce

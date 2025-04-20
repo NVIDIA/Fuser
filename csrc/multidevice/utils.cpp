@@ -12,6 +12,7 @@
 #include <instrumentation.h>
 #include <ir/container.h>
 #include <ir/internal_base_nodes.h>
+#include <ir/internal_nodes.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
@@ -127,6 +128,13 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
   for (IterDomain* id : domain) {
     const ParallelType parallel_type = id->getParallelType();
     if (!isParallelTypeDeviceDim(parallel_type)) {
+      continue;
+    }
+
+    // rDIDx{i0}, usually a product of an Allreduce or a ReduceScatter, is
+    // treated as replicated. This way `iDIDx{i0} => rDIDx{i0}` is considered
+    // resharding.
+    if (id->isReduction()) {
       continue;
     }
 
@@ -380,6 +388,43 @@ bool haveDifferentShardings(
     return true;
   }
 
+  // Special handling of SelectOp for a quick fix
+  // TODO: work on a proper implementation
+  if (consumer->definition()->isA<SelectOp>()) {
+    auto* select_op = consumer->definition()->as<SelectOp>();
+    NVF_ERROR(
+        select_op->input(0) == producer, "SelectOp input 0 is not producer");
+    // If we select into the sharded axis, the op is resharding because the
+    // axis doesn't exist in the consumer and so becomes "replicated".
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {0,1,2,3}
+    //
+    // The long term better solution would actually to "select" into the
+    // DeviceMesh, e.g.,
+    //
+    // tv0 = makeContigTensor(2); // [DIDx(4), 8] on mesh {0,1,2,3}
+    // tv1 = select(tv0, /*axis=*/0, /*index=*/1); // [8] on mesh {1}
+    // But for achieving this with symbolic "index" we need to make DeviceMesh
+    // symbolic.
+    if (select_op->getIndexedID()->isDeviceDim()) {
+      return true;
+    }
+    // If the sharded axis is not selected into, then we still need to check
+    // that other axis do not get resharded.
+    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
+        PairwiseLogicalDomainMap(producer, consumer)
+            .mapBroadcast(false)
+            .mapConsumerToProducer();
+    return !std::all_of(
+        consumer->getLoopDomain().begin(),
+        consumer->getLoopDomain().end(),
+        [&c2p](IterDomain* c_id) {
+          auto p_id = c2p.at(c_id);
+          return c_id->isDeviceDim() == p_id->isDeviceDim();
+        });
+  }
+
   // The rest of this function tries to do the following: for each pair of
   // logical-domain-mapped IterDomains (i.e. those mapped by
   // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,
@@ -526,16 +571,6 @@ bool haveDifferentShardings(
         return false;
       }
 
-      // iDIDx{i0} => rDIDx{i0} triggers an allreduce even though the two `i0`s
-      // are equivalent.
-      if (c_id->isReduction()) {
-        NVF_ERROR(
-            !p_id->isReduction(),
-            "Reduction IterDomains in the producer's logical shouldn't be mapped: ",
-            p_id);
-        return false;
-      }
-
       return simplifyExpr(
                  SimplifyingIrBuilder::eqExpr(p_index, c_index),
                  /*variables=*/{},
@@ -595,14 +630,17 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
+void shardAllLike(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  if (tvs.empty()) {
+    return;
+  }
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
-  }
+  scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
 }
 
 void shardBetween(
