@@ -1696,12 +1696,12 @@ TEST_F(RopeTest, EndingRepeat) {
   }
 }
 
-TEST_F(RopeTest, MoveRepeatForward) {
+TEST_F(RopeTest, MoveRepeatSimple) {
   auto fusion_ptr = std::make_unique<Fusion>();
   FusionGuard fg(fusion_ptr.get());
   Fusion& fusion = *fusion_ptr;
 
-  std::vector<int64_t> shape1{8, 126};
+  std::vector<int64_t> shape1{8, 128};
 
   auto tv0 = makeContigConcreteTensor(shape1);
   fusion.addInput(tv0);
@@ -1719,7 +1719,53 @@ TEST_F(RopeTest, MoveRepeatForward) {
   auto outputs = executor_cache.runFusionWithInputs({t0});
   testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
-#if 0
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+
+  for (auto e : scheduled_fusion->exprs()) {
+    // The sin op should operate on a tensor of the pre-repeat size
+    if (auto uop = dynamic_cast<UnaryOp*>(e);
+        uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
+      auto repeated_id = uop->out()->as<TensorView>()->getLogicalDomain().at(1);
+      EXPECT_EQ(repeated_id->extent()->evaluate().as<int64_t>(), 128);
+    }
+  }
+}
+
+TEST_F(RopeTest, MoveRepeatBeyondSlice) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{8, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {2, 1});
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(64)}});
+  auto tv3 = sin(tv2);
+  fusion.addOutput(tv3);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_FALSE(runtime->isSegmented());
@@ -1732,50 +1778,221 @@ TEST_F(RopeTest, MoveRepeatForward) {
                                  ->compiledKernel()
                                  ->kernel();
 
-  // Check the loop domain of the reference. It should look like:
-  //
-  // T4_g_float[iS19{2 ex 2}, iblockIdx.x22{8}, ithreadIdx.x23{128}] ca_pos( 3 )
-  // produce_pos( 3 )
-  //  logical domain : (iS17{( 2 * 8 )}, iS18{128})
-  //  contiguity: t t
-  //   Merge: iS20{8} and iS18{128} -> iS21{1024}
-  //   Split: iS21{1024} by factor 128 -> iblockIdx.x22{8}, ithreadIdx.x23{128}
-  //  loop domain : (iS19{2 ex 2}, iblockIdx.x22{8}, ithreadIdx.x23{128})
-  //
-  // iS19 is the repeat ID, which should be just a Serial ID with an
-  // extent of 2.
-  auto ref_tv = scheduled_fusion->outputs().at(0)->as<TensorView>();
-  // The outermost loop ID should be a Serial ID with an extent of 2.
-  EXPECT_EQ(
-      ref_tv->getLoopDomain().at(0)->getParallelType(), ParallelType::Serial);
-  EXPECT_TRUE(ref_tv->getLoopDomain().at(0)->extent()->isConstInt());
-  EXPECT_EQ(
-      ref_tv->getLoopDomain().at(0)->extent()->evaluate().as<int64_t>(), 2L);
-
-  IdModel id_model(scheduled_fusion, /*build_graphs=*/false);
-  const auto& exact_graph = id_model.buildExactGraph();
-
-  const auto ref_loop = exact_graph.toGroups(ref_tv->getLoopDomain());
-
-  // The other tensors, except for the pad output, should be fully inlined into
-  // the reference tensor.
-  for (auto tv : scheduled_fusion->allTvs()) {
-    if (tv->isFusionInput()) {
-      continue;
-    }
-    auto tv_loop = exact_graph.toGroups(tv->getLoopDomain());
-    if (tv->definition() != nullptr && tv->definition()->isA<PadOp>()) {
-      ValGroups ref_groups{ref_loop.begin() + 1, ref_loop.end()};
-      // In the case of pad, the loop domain of the output tensor
-      // should be mapped with the loop domain of the reference
-      // without the outermost ID.
-      EXPECT_EQ(tv_loop, ref_groups);
-    } else {
-      EXPECT_EQ(tv_loop, ref_loop);
-      EXPECT_EQ(tv->getLoopDomain().size(), tv->getComputeAtPosition());
+  for (auto e : scheduled_fusion->exprs()) {
+    std::cerr << e->toString();
+    // The sin op should operate on a tensor of the pre-repeat size
+    if (auto uop = dynamic_cast<UnaryOp*>(e);
+        uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
+      auto repeated_id = uop->out()->as<TensorView>()->getLogicalDomain().at(0);
+      EXPECT_EQ(
+          repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0) * 2);
     }
   }
-#endif
+}
+
+TEST_F(RopeTest, MoveRepeatWithConflictingSlice) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{8, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {1, 2});
+  auto tv2 = sin(tv1);
+  auto tv3 = slice(
+      tv2,
+      {{fusion.zeroVal(), tv2->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(64)}});
+  auto tv4 = cos(tv3);
+  fusion.addOutput(tv4);
+
+  // Should be moved past sin but not slice as it resizes the repeated ID
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+
+  auto exprs = runtime->executors()
+                   .at(0)
+                   ->as<KernelExecutor>()
+                   ->compiledKernel()
+                   ->kernel()
+                   ->exprs();
+  // The sin should operate on the pre-repeat size
+  auto sin_it = std::ranges::find_if(exprs, [](Expr* e) {
+    auto uop = dynamic_cast<UnaryOp*>(e);
+    return uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin;
+  });
+  ASSERT_NE(sin_it, exprs.end());
+  auto sin_repeated_id =
+      (*sin_it)->input(0)->as<TensorView>()->getLogicalDomain().at(1);
+  EXPECT_EQ(sin_repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(1));
+
+  // The slice should operate on the post-repeat size
+  auto slice_it =
+      std::ranges::find_if(exprs, [](Expr* e) { return e->isA<SliceOp>(); });
+  ASSERT_NE(slice_it, exprs.end());
+  EXPECT_EQ(
+      (*slice_it)
+          ->input(0)
+          ->as<TensorView>()
+          ->getLogicalDomain()
+          .at(1)
+          ->extent()
+          ->evaluate()
+          .as<int64_t>(),
+      shape1.at(1) * 2);
+
+  // The cos should follow the slice
+  auto cos_it = std::ranges::find_if(exprs, [](Expr* e) {
+    auto uop = dynamic_cast<UnaryOp*>(e);
+    return uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cos;
+  });
+  ASSERT_NE(cos_it, exprs.end());
+  EXPECT_EQ((*cos_it)->input(0)->definition(), *slice_it);
+}
+
+TEST_F(RopeTest, MoveRepeatBeyondRotation) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{8, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = repeat(tv0, {2, 1});
+
+  // Rotation pattern
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(64)}});
+  auto tv3 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {IrBuilder::create<Val>(64), tv1->getLogicalDomain().at(1)->extent()}});
+  auto tv4 = cat({tv3, tv2}, 1);
+  auto tv5 = sin(tv4);
+  fusion.addOutput(tv5);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::Resize);
+  Fusion* scheduled_fusion = runtime->executors()
+                                 .at(0)
+                                 ->as<KernelExecutor>()
+                                 ->compiledKernel()
+                                 ->kernel();
+
+  for (auto e : scheduled_fusion->exprs()) {
+    std::cerr << e->toString();
+    // The sin op should operate on a tensor of the pre-repeat size
+    if (auto uop = dynamic_cast<UnaryOp*>(e);
+        uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
+      auto repeated_id = uop->out()->as<TensorView>()->getLogicalDomain().at(0);
+      EXPECT_EQ(
+          repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0) * 2);
+    }
+  }
+}
+
+// Repeat should be moved across exprs even when other non-repeated
+// operands are not repeated as long as their corresponding IDs are
+// broadcast.
+TEST_F(RopeTest, MoveRepeatWithNonRepeatedInputs) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{8};
+  std::vector<int64_t> shape2{1};
+  std::vector<int64_t> shape3{16};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor(shape2);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigConcreteTensor(shape3);
+  fusion.addInput(tv2);
+
+  auto tv3 = repeat(tv0, {2});
+  auto tv4 = add(tv3, tv1);
+  auto tv5 = sin(tv4);
+  auto tv6 = add(tv5, tv2);
+  auto tv7 = cos(tv6);
+  fusion.addOutput(tv7);
+
+  // Should be moved past the sin but not cos since the other operand
+  // of the cos has the extent equal to the repeated size
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  auto t2 = at::randn(shape3, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1, t2});
+  testValidate(&fusion, outputs, {t0, t1, t2}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_FALSE(runtime->isSegmented());
+  const auto& heuristic_param =
+      runtime->schedulerHeuristics()->heuristicsList().front();
+  EXPECT_EQ(heuristic_param->scheduler_type, SchedulerType::PointWise);
+  auto exprs = runtime->executors()
+                   .at(0)
+                   ->as<KernelExecutor>()
+                   ->compiledKernel()
+                   ->kernel()
+                   ->exprs();
+
+  // The sin should operate on the pre-repeat size
+  auto sin_it = std::ranges::find_if(exprs, [](Expr* e) {
+    auto uop = dynamic_cast<UnaryOp*>(e);
+    return uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin;
+  });
+  ASSERT_NE(sin_it, exprs.end());
+  auto sin_repeated_id =
+      (*sin_it)->input(0)->as<TensorView>()->getLogicalDomain().at(0);
+  EXPECT_EQ(sin_repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0));
+
+  // The cos should operate on the pre-repeat size
+  auto cos_it = std::ranges::find_if(exprs, [](Expr* e) {
+    auto uop = dynamic_cast<UnaryOp*>(e);
+    return uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Cos;
+  });
+  ASSERT_NE(sin_it, exprs.end());
+  auto cos_repeated_id =
+      (*cos_it)->input(0)->as<TensorView>()->getLogicalDomain().at(0);
+  EXPECT_EQ(
+      cos_repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0) * 2);
 }
 
 TEST_F(RopeTest, PadAndPermute) {

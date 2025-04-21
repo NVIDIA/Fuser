@@ -285,6 +285,8 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 
   // Only consider the innermost dimension to vectorize for now.
   // TODO: Consider vectorizing merged IDs, not just the innermost
+  // TODO: Do not assume the logical domain is ordered the same as the
+  // allocation domain
   params->vectorization_factor = vectorize_helper::getVectorizationFactor(
       runtime_info,
       ref_tv,
@@ -306,6 +308,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   auto ref_tv = getReferenceTensor(fusion);
   NVF_ERROR(ref_tv != nullptr);
+
+  std::cerr << "Ref tv: " << ref_tv->toString() << "\n";
 
   scheduler_utils::cacheInputs(fusion, true);
   scheduler_utils::cacheAndForkOutputs(fusion, true);
@@ -356,6 +360,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
+  std::cerr << "Resize propagated\n";
+  std::cout << std::endl;
+  fusion->print();
+  std::cout << std::endl;
+
   // Update the IdModel
   id_model = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
   id_model->buildExactGraph();
@@ -386,12 +395,20 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     // Reorder the reference as the allocation domain of the largest fusion
     // input
     scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
+    std::cerr << "Ref reordered: " << ref_tv->toString() << " with "
+              << toDelimitedString(ref_alloc) << "\n";
+
+    scheduler_utils::reorderTensorLike(
+        ref_tv, {ref_tv->getMaybeAllocationDomain().back()});
+    std::cerr << "Ref fixed: " << ref_tv->toString() << "\n";
   }
 
   const int64_t bdimx = 128;
 
   // Make sure the DID ID located at the outermost position
   auto outermost_pos = scheduler_utils::reorderDevicesToOuter(ref_tv);
+
+  std::cerr << "Ref before repeat: " << ref_tv->toString() << "\n";
 
   // [DID, ..., ...]
   //        ^
@@ -401,7 +418,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // detected. The repeat ID then just remains there with no
   // scheduling.
   bool repeat_id_moved_to_outermost = false;
-  if (static_repeat_info.has_value()) {
+  if (static_repeat_info.has_value() && !getenv("DISABLE_REPEAT_SCHED")) {
     NVF_ERROR(ref_tv == static_repeat_info->repeat_output_tv);
     auto ref_repeat_id_it = std::find_if(
         ref_tv->getLoopDomain().begin(),
@@ -431,6 +448,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       //                   +--- outermost_pos
 
       repeat_id_moved_to_outermost = true;
+      std::cerr << "Post-repeat sched: " << ref_tv->toString() << "\n";
     }
   }
 
@@ -442,6 +460,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   //        +--- next_innermost_pos
 
   if (vec_factor > 1) {
+    std::cerr << "Ref tv before vec split: " << ref_tv->toString() << "\n";
     ref_tv->split(-1, vec_factor);
     --next_innermost_pos;
     // [..., vec_factor]
@@ -537,6 +556,10 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   inlineMost();
 
   markAliases(fusion);
+
+  std::cout << "Resize scheduler completed\n";
+  fusion->print();
+  std::cout << std::endl;
 }
 
 } // namespace nvfuser
