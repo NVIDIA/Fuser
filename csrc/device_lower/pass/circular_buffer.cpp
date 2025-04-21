@@ -106,7 +106,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::AsyncWarp:
       case CircularBufferLoopStage::ComputeWarp: {
         break;
       }
@@ -677,7 +677,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
 
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
       // short-circuit: The TensorView input for current expression is not
@@ -716,7 +716,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         !hasCircularBufferLoad()) {
       return;
     }
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // short-circuit: The current expression is not a circular buffer load, so
@@ -753,7 +753,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
 
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
     // remove expr from war_mbarriers_to_uses_
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto tv : input_tvs) {
@@ -858,7 +858,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // expressions
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
   getAllMbarriersToWait() {
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
     std::unordered_map<TensorView*, kir::MBarrierWaitParity*> wait_exprs;
     for (auto tv : circular_buffer_load_tvs_) {
       LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
@@ -879,7 +879,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // buffer tensor tracked by this mbarrier.
   std::unordered_map<TensorView*, std::unordered_set<Expr*>>
   getAllWarMbarriersToUses() {
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
     std::unordered_map<TensorView*, std::unordered_set<Expr*>> mbarrier_to_uses;
     auto exprs =
         ir_utils::flattenScopedExprs(circular_buffer_loop_->body().exprs());
@@ -1008,7 +1008,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(ldst != nullptr);
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentLoadStage());
 
@@ -1044,7 +1044,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(ldst != nullptr);
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers, currentComputeStage());
 
@@ -1066,7 +1066,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
             .stage;
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers,
         SimplifyingIrBuilder::addExpr(currentLoadStage(), stage_depth));
@@ -1392,8 +1392,8 @@ class CircularBufferInserter : private kir::ExprMutator {
     for (auto tv : circular_buffer_tvs) {
       auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
       NVF_ERROR(ldst != nullptr);
-      auto it = GpuLower::current()->ldstMBarrierMap().find(ldst);
-      if (it == GpuLower::current()->ldstMBarrierMap().end()) {
+      auto it = GpuLower::current()->mbarrierMap().find(ldst);
+      if (it == GpuLower::current()->mbarrierMap().end()) {
         continue;
       }
       mbarriers.pushBack(it->second);
@@ -1521,24 +1521,24 @@ class CircularBufferInserter : private kir::ExprMutator {
               .num_registers.value();
       GpuLower::current()->decIncRegisterUsage() =
           std::make_pair(decrease_num_registers, increase_num_registers);
-      // Decrease registers in load warp group
-      kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+      // Decrease registers in async warp group
+      kir::SetMaxNReg* dec_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
           /*increase_registers=*/false);
-      warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
+      warp_dispatch_ite->thenBody().push_back(dec_reg_async_warp);
 
       // Increase registers in compute warp group
-      kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
+      kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
           IrBuilder::create<Val>(increase_num_registers, DataType::Index),
           /*increase_registers*/ true);
-      warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
+      warp_dispatch_ite->elseBody().push_back(inc_reg_async_warp);
     }
 
     // Load loop:
     ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
         circular_buffer_loop,
         loads,
-        CircularBufferLoopStage::LoadWarp,
+        CircularBufferLoopStage::AsyncWarp,
         insertion_position);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 

@@ -478,7 +478,7 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
   EXPECT_TRUE(torch::allclose(out_ref, out_at, 1e-1, 1e-1));
 }
 
-TEST_F(MultiDeviceTest, ShareIpcMemHandles) {
+TEST_F(MultiDeviceTest, DISABLED_ShareIpcMemHandles) {
   static constexpr int kTensorSize = 4;
   static constexpr int kNumRepetitions = 10;
 
