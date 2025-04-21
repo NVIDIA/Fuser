@@ -261,18 +261,15 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
 
 namespace {
 
-// These may need to be thread local, or their modifications may need to
-// be protected by mutual exclusion for thread safety. At this
-// moment, the correctness of modifying option values has to be
-// guaranteed by the modifying code.
+// making options thread_local to avoid race condition.
 
-DebugDumpOptions active_dump_options;
+thread_local DebugDumpOptions active_dump_options;
 
-EnableOptions active_enable_options;
+thread_local EnableOptions active_enable_options;
 
-DisableOptions active_disable_options;
+thread_local DisableOptions active_disable_options;
 
-ProfilerOptions active_profiler_options;
+thread_local ProfilerOptions active_profiler_options;
 
 } // namespace
 
