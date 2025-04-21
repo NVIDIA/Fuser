@@ -1,0 +1,9 @@
+libdir=/opt/pytorch/nvfuser/python/nvfuser/lib
+includedir=/opt/pytorch/nvfuser/python/nvfuser/include
+
+Name: FlatBuffers
+Description: Memory Efficient Serialization Library
+Version: 23.3.3
+
+Libs: -L${libdir} -lflatbuffers
+Cflags: -I${includedir}
