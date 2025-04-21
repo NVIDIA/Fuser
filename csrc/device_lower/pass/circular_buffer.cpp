@@ -1179,6 +1179,24 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
       inner_most_ws_position = std::max(
           inner_most_ws_position, inspector.loop_position_.at(cb_loop));
     }
+
+    // WarpSpecialized circular buffering pads the thread block size by 128
+    // threads. This is to support register sharing, which shares registers from
+    // four warps to another four warps. Thus, we can have four warps running
+    // concurrently in AsyncWarp. Each warp can launch an asynchronous operation
+    // with mbarrier completion mechanism such as TMA Load and Blackwell UTCMMA.
+    //
+    // if (Select AsyncWarp) {
+    //   if (Select Warp 0 AND elect-sync()) {
+    //     do-something
+    //   } else if (Select Warp 1 AND elect-sync()) {
+    //     do-something
+    //   } else if (Select Warp 2 AND elect-sync()) {
+    //      do-something
+    //   } else if (Select Warp 3 AND elect-sync()) {
+    //      do-something
+    //   }
+    // }
     NVF_ERROR(
         ws_info.size() <= 4,
         "At most four for-loops can run concurrently inside the AsyncWarp.\n",
@@ -1192,6 +1210,39 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
       if (isWarpSpecialized(cb_loop)) {
         continue;
       }
+
+      // An example of WarpSpecialized circular buffer nested in Pipeline
+      // circular buffer.
+      //  * Register sharing would fail because of the return in the AsyncLoop.
+      //  * This scenario is not actively tested, so prohibit it until a valid
+      //    use-case occurs.
+      //
+      // warp-specialized mbarrier init
+      // for (prologue) {
+      //   load something for Prologue
+      // }
+      //
+      // for (main) {
+      //   load something for Main
+      //   if (AsyncWarp) {
+      //     launch async
+      //     maybe return for register sharing
+      //   } else {
+      //     compute something for ComputeWarp
+      //   }
+      //   compute something for Main
+      // }
+      //
+      // for (epilogue) {
+      //   if (AsyncWarp) {
+      //     launch async
+      //     maybe return for register sharing
+      //   } else {
+      //     compute something
+      //   }
+      //   compute something for Epilogue
+      //  }
+      // warp-specialized mbarrier inval
       NVF_ERROR(
           inspector.loop_position_.at(cb_loop) > inner_most_ws_position,
           "Warp Specialization cannot be nested in Pipeline circular buffering!");
