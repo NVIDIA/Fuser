@@ -822,7 +822,7 @@ def index_select_error_generator(
     # yield SampleInput(a, b, 0), RuntimeError, "out of bounds index value."
 
 
-def index_accumulate_generator(
+def index_put_accumulate_generator(
     op: OpInfo, dtype: torch.dtype, requires_grad: bool = False, **kwargs
 ):
     make_arg = partial(

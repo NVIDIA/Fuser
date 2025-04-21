@@ -29,7 +29,7 @@ from opinfo_input_generators import (
     gather_generator,
     index_select_generator,
     index_select_error_generator,
-    index_accumulate_generator,
+    index_put_accumulate_generator,
     iota_error_generator,
     pad_error_generator,
     permute_generator,
@@ -1025,7 +1025,7 @@ index_select_opinfo = OpInfo(
 shape_ops.append(index_select_opinfo)
 
 
-def index_accumulate_ref(acc: torch.Tensor, index: torch.Tensor, value: torch.Tensor):
+def index_put_accumulate_ref(acc: torch.Tensor, index: torch.Tensor, value: torch.Tensor):
     return torch.index_put(
         acc,
         [
@@ -1036,18 +1036,18 @@ def index_accumulate_ref(acc: torch.Tensor, index: torch.Tensor, value: torch.Te
     )
 
 
-index_accumulate_opinfo = OpInfo(
-    lambda fd: fd.ops.index_accumulate,
-    "index_accumulate",
-    sample_input_generator=index_accumulate_generator,
-    reference=index_accumulate_ref,
+index_put_accumulate_opinfo = OpInfo(
+    lambda fd: fd.ops.index_put_accumulate,
+    "index_put_accumulate",
+    sample_input_generator=index_put_accumulate_generator,
+    reference=index_put_accumulate_ref,
     symbolic_parameter_list=(
         ArgumentType.Symbolic,
         ArgumentType.Symbolic,
         ArgumentType.Symbolic,
     ),
 )
-shape_ops.append(index_accumulate_opinfo)
+shape_ops.append(index_put_accumulate_opinfo)
 
 # NvFuser's API is significantly different than JAX.
 # TODO: Change python frontend api to match JAX using a cpp wrapper function.

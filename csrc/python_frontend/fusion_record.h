@@ -3100,7 +3100,7 @@ struct IndexPutAccumulateOpRecord : RecordFunctor {
       : RecordFunctor(
             std::move(args),
             std::move(outputs),
-            "ops.index_accumulate",
+            "ops.index_put_accumulate",
             serde::RecordType::IndexPutAccumulateOp) {}
   ~IndexPutAccumulateOpRecord() override = default;
   RecordFunctor* clone() final {

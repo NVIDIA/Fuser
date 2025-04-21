@@ -3092,12 +3092,12 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("dim"),
       py::return_value_policy::reference);
   nvf_ops.def(
-      "index_accumulate",
+      "index_put_accumulate",
       [](FusionDefinition::Operators& self,
          Tensor acc,
          Tensor index,
          Tensor value) -> Tensor {
-        FUSER_PERF_SCOPE("Operators.index_accumulate");
+        FUSER_PERF_SCOPE("Operators.index_put_accumulate");
         NVF_CHECK(
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
