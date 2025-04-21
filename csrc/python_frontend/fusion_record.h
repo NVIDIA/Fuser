@@ -3096,7 +3096,9 @@ struct EmbeddingFwdOpRecord : RecordFunctor {
 };
 
 struct IndexPutAccumulateOpRecord : RecordFunctor {
-  IndexPutAccumulateOpRecord(std::vector<State> args, std::vector<State> outputs)
+  IndexPutAccumulateOpRecord(
+      std::vector<State> args,
+      std::vector<State> outputs)
       : RecordFunctor(
             std::move(args),
             std::move(outputs),

@@ -3114,7 +3114,25 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("acc"),
       py::arg("index"),
       py::arg("value"),
-      py::return_value_policy::reference);
+      py::return_value_policy::reference,
+      R"doc(
+        Accumulates values into a tensor at specified indices.
+
+        This function performs a restricted version of `torch.index_put`.
+        It adds the values from `value_tv` to the elements of `acc_tv` at the indices
+        specified by `index_tv`.
+
+        acc_tv: The tensor to accumulate into (in-place modification).
+        index_tv: The tensor containing the indices.
+        value_tv: The tensor containing the values to accumulate.
+
+        Returns:
+            An alias to the modified `acc_tv` tensor.
+
+        Note:
+            This is a restricted version and may not support all features of the
+            full `torch.index_put(..., accumulate=true)` function.
+    )doc");
   nvf_ops.def(
       "select",
       [](FusionDefinition::Operators& self,
