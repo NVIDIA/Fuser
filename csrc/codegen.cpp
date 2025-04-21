@@ -1283,7 +1283,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         tidy->value().as<int64_t>() + tidz->value().as<int64_t>();
     NVF_ERROR(
         num_threads == 128,
-        "Expected 128 threads in LoadWarp, but found ",
+        "Expected 128 threads in AsyncWarp, but found ",
         num_threads);
     NVF_ERROR(pdim_map.hasWarpSpecialization());
     ss << "dim3(" << genInlineOrOne(tidx) << ", " << genInlineOrOne(tidy)
@@ -3557,7 +3557,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
-    } else if (sync->isLoadWarpSync()) {
+    } else if (sync->isAsyncWarpSync()) {
       ArgumentBuilder template_args;
       template_args.arg(isAligned());
       ArgumentBuilder func_args;

@@ -630,14 +630,17 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
+void shardAllLike(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  if (tvs.empty()) {
+    return;
+  }
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
-  }
+  scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
 }
 
 void shardBetween(

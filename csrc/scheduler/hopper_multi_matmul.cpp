@@ -755,12 +755,12 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
           // register properly in that case.
           cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
         } else {
-          constexpr int64_t num_registers_load_warp = 40;
+          constexpr int64_t num_registers_async_warp = 40;
           constexpr int64_t num_registers_compute_warp = 232;
           cb_type = (CircularBufferType)WarpSpecialized(
               ParallelType::TIDy,
               std::make_pair(
-                  num_registers_load_warp, num_registers_compute_warp));
+                  num_registers_async_warp, num_registers_compute_warp));
         }
         break;
       }
