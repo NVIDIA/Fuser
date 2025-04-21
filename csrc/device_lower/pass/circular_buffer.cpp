@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <device_lower/lower2device.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
@@ -425,22 +426,58 @@ class CloneTmaCircularBufferLoopAndInsertSync
       ForLoop* inner_loop) {
     NVF_ERROR(outer_loop != nullptr);
     NVF_ERROR(inner_loop != nullptr);
-    NVF_ERROR(!outer_loop->iter_domain()->isParallelized());
     NVF_ERROR(outer_loop->index() != nullptr);
     NVF_ERROR(outer_loop->stop() != nullptr);
     NVF_ERROR(inner_loop->index() != nullptr);
     NVF_ERROR(inner_loop->stop() != nullptr);
+    NVF_ERROR(outer_loop->iter_domain() != nullptr);
+    NVF_ERROR(inner_loop->iter_domain() != nullptr);
 
-    // Only add short-circuit if inner for-loop is grid dimension
-    if (!inner_loop->iter_domain()->isBlockDim()) {
+    IterDomain* outer_loop_id = outer_loop->iter_domain();
+    IterDomain* inner_loop_id = inner_loop->iter_domain();
+
+    // Check that the outer and inner loop iterDomains have the same definition.
+    bool has_same_definition = outer_loop_id->definition() &&
+        inner_loop_id->definition() &&
+        outer_loop_id->definition() == inner_loop_id->definition();
+    if (!has_same_definition) {
       return nullptr;
     }
 
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            outer_loop->iter_domain());
-    // Only add short-circuit for warp specialized circular buffering
-    if (!std::holds_alternative<WarpSpecialized>(opt.type)) {
+    // Check that outer_fl, inner_fl = split(x,  inner_fl->stop()) where
+    // inner_fl->stop() == number of SMs.
+    Expr* id_def = outer_loop_id->definition();
+    if (!id_def->isA<Split>()) {
+      return nullptr;
+    }
+    Split* id_def_split = id_def->as<Split>();
+    if (id_def_split->factor() != inner_loop->stop()) {
+      return nullptr;
+    }
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    if (!id_def_split->factor()->isConstScalar() ||
+        id_def_split->factor()->evaluate().as<int64_t>() != num_sms) {
+      return nullptr;
+    }
+
+    // Check that the outer loop is a serial for-loop.
+    if (outer_loop_id->isParallelized()) {
+      return nullptr;
+    }
+
+    // Check that the inner loop is grid parallelized.
+    if (!inner_loop_id->isBlockDim()) {
+      return nullptr;
+    }
+
+    // Only add short-circuit predicate for warp specialized circular buffering
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(outer_loop->iter_domain())
+            .type);
+    if (!use_warp_specialization) {
       return nullptr;
     }
 
