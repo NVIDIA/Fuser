@@ -1210,4 +1210,128 @@ TEST_F(GatherTest, GatherIterGoupedReduction) {
       lparams);
 }
 
+TEST_F(GatherTest, TestMoveGatherPass) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  auto tv2 = castOp(DataType::Float, tv0);
+  auto s3 = IrBuilder::create<Val>(-100.0, DataType::Int);
+  auto s4 = IrBuilder::create<Val>(0, DataType::Int);
+
+  auto tv3 = ne(tv1, s3);
+  auto tv4 = where(tv3, tv1, s4);
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = takeAlongAxis(tv2, tv5, -1);
+  auto tv7 = squeeze(tv6, {1});
+
+  auto tv8 = max(tv2, {-1});
+  auto tv9 = sub(tv7, tv8);
+
+  fusion.addOutput(tv9);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_2 = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({8, 16}, options);
+  auto t1 = at::randint(0, 5, {8}, options_2);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  std::cout << outputs[0] << std::endl;
+}
+
+TEST_F(GatherTest, TestMoveGatherPass2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  tv0 = broadcast(tv0, {true, false, false});
+  tv1 = broadcast(tv1, {true, false });
+
+  // auto tv2 = castOp(DataType::Float, tv0);
+  auto tv2 = squeeze(tv0, {0});
+  auto tv0_squeezed = squeeze(tv0, {0});
+  auto tv1_squeezed = squeeze(tv1, {0});
+  auto s3 = IrBuilder::create<Val>(-100.0, DataType::Int);
+  auto s4 = IrBuilder::create<Val>(0, DataType::Int);
+
+  auto tv3 = ne(tv1_squeezed, s3);
+  auto tv4 = where(tv3, tv1_squeezed, s4);
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = takeAlongAxis(tv0_squeezed, tv5, -1);
+  auto tv6_cast = castOp(DataType::Float, tv6);
+  auto tv7 = squeeze(tv6_cast, {1});
+
+  auto tv8 = max(tv2, {-1});
+  auto tv9 = sub(tv7, tv8);
+
+  fusion.addOutput(tv9);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_2 = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({8, 16}, options);
+  auto t1 = at::randint(0, 5, {8}, options_2);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  std::cout << outputs[0] << std::endl;
+}
+
+TEST_F(GatherTest, TestMoveGatherPass3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  tv0 = castOp(DataType::Float, tv0);
+  tv0 = broadcast(tv0, {true, false, false});
+  tv1 = broadcast(tv1, {true, false });
+
+  // auto tv2 = castOp(DataType::Float, tv0);
+  auto tv2 = squeeze(tv0, {0});
+  auto tv0_squeezed = squeeze(tv0, {0});
+  auto tv1_squeezed = squeeze(tv1, {0});
+  auto s3 = IrBuilder::create<Val>(-100.0, DataType::Int);
+  auto s4 = IrBuilder::create<Val>(0, DataType::Int);
+
+  auto tv3 = ne(tv1_squeezed, s3);
+  auto tv4 = where(tv3, tv1_squeezed, s4);
+  auto tv5 = broadcast(tv4, {false, true});
+  auto tv6 = takeAlongAxis(tv0_squeezed, tv5, -1);
+  auto tv6_cast = castOp(DataType::Float, tv6);
+  auto tv7 = squeeze(tv6_cast, {1});
+
+  auto tv8 = max(tv2, {-1});
+  auto tv9 = sub(tv7, tv8);
+
+  fusion.addOutput(tv9);
+
+  fusion.printMath();
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto options_2 = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({8, 16}, options);
+  auto t1 = at::randint(0, 5, {8}, options_2);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0, t1});
+  std::cout << outputs[0] << std::endl;
+}
+
 } // namespace nvfuser

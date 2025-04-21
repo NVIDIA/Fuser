@@ -18,6 +18,7 @@
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/mark_aliases_prepare.h>
+#include <preseg_passes/move_gather.h>
 #include <preseg_passes/move_pad.h>
 #include <preseg_passes/move_split_cat.h>
 #include <preseg_passes/propagate_shardings.h>
@@ -84,6 +85,7 @@ namespace nvfuser::preseg_passes {
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
   OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
+  OptimizationPass<MoveGatherPass>::runPass(fusion);
 }
 
 } // namespace nvfuser::preseg_passes
