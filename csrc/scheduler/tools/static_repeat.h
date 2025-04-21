@@ -59,6 +59,8 @@ struct StaticRepeatInfo {
   TensorView* repeat_input_tv = nullptr;
   // TODO
   IterDomain* repeat_input_id = nullptr;
+  // TODO
+  IterDomain* input_broadcast_id = nullptr;
   // The final output tensor of the detected repeat pattern, e.g.,
   // t3 in the above example case.
   TensorView* repeat_output_tv = nullptr;

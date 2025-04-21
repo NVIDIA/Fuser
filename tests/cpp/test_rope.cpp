@@ -1683,7 +1683,9 @@ TEST_F(RopeTest, EndingRepeat) {
       continue;
     }
     auto tv_loop = exact_graph.toGroups(tv->getLoopDomain());
-    if (tv->definition() != nullptr && tv->definition()->isA<PadOp>()) {
+    if (tv->definition() != nullptr &&
+        (tv->definition()->isA<PadOp>() ||
+         tv->definition()->isA<BroadcastOp>())) {
       ValGroups ref_groups{ref_loop.begin() + 1, ref_loop.end()};
       // In the case of pad, the loop domain of the output tensor
       // should be mapped with the loop domain of the reference

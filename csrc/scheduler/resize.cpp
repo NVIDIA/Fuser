@@ -360,11 +360,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
-  std::cerr << "Resize propagated\n";
-  std::cout << std::endl;
-  fusion->print();
-  std::cout << std::endl;
-
   // Update the IdModel
   id_model = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
   id_model->buildExactGraph();
@@ -448,7 +443,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
       //                   +--- outermost_pos
 
       repeat_id_moved_to_outermost = true;
-      std::cerr << "Post-repeat sched: " << ref_tv->toString() << "\n";
     }
   }
 
@@ -460,7 +454,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   //        +--- next_innermost_pos
 
   if (vec_factor > 1) {
-    std::cerr << "Ref tv before vec split: " << ref_tv->toString() << "\n";
     ref_tv->split(-1, vec_factor);
     --next_innermost_pos;
     // [..., vec_factor]

@@ -34,14 +34,23 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   std::unordered_set<TensorView*> repeat_tvs;
   repeat_tvs.insert(maybe_repeat_out);
 
-  auto reshape_out = maybe_repeat_out;
+  auto current_out = maybe_repeat_out;
 
   // Check if there's a cache
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(maybe_repeat_out->definition());
-      ldst != nullptr && ldst->opType() == LoadStoreOpType::Set) {
-    reshape_out = ldst->in()->as<TensorView>();
-    repeat_tvs.insert(reshape_out);
+  while (true) {
+    if (auto ldst = dynamic_cast<LoadStoreOp*>(current_out->definition());
+        ldst != nullptr &&
+        (ldst->opType() == LoadStoreOpType::Set ||
+         ldst->opType() == LoadStoreOpType::SegmenterSet)) {
+      auto ldst_in = ldst->in()->as<TensorView>();
+      repeat_tvs.insert(ldst_in);
+      current_out = ldst_in;
+    } else {
+      break;
+    }
   }
+
+  auto reshape_out = current_out;
 
   // Detect reshape
   auto reshape = dynamic_cast<ViewOp*>(reshape_out->definition());
@@ -57,15 +66,21 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     return std::nullopt;
   }
 
-  // Detect broadcast
-  auto broadcast_out = expand->in();
-  repeat_tvs.insert(broadcast_out);
-  auto broadcast = dynamic_cast<BroadcastOp*>(broadcast_out->definition());
-  if (broadcast == nullptr) {
-    return std::nullopt;
-  }
+  auto inp_tv = expand->in()->as<TensorView>();
+  BroadcastOp* broadcast = nullptr;
+  TensorView* broadcast_out = nullptr;
 
-  auto inp_tv = broadcast->in()->as<TensorView>();
+  if (getenv("REQUIRE_BROADCAST")) {
+    // Detect broadcast
+    broadcast_out = expand->in();
+    repeat_tvs.insert(broadcast_out);
+    broadcast = dynamic_cast<BroadcastOp*>(broadcast_out->definition());
+    if (broadcast == nullptr) {
+      return std::nullopt;
+    }
+
+    inp_tv = broadcast->in()->as<TensorView>();
+  }
 
   // Not sure if this is really necessary to check, but assume there's
   // only single chain of the ops and tensors from inp_tv to
@@ -80,40 +95,41 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   // Check if the ops match with the repeat pattern. Currently only
   // one iter domain can be repeated
   IterDomain* broadcast_id = nullptr;
-  int64_t broadcast_pos = -1;
-  for (const auto i : arange(broadcast_out->getLogicalDomain().size())) {
-    if (broadcast->getBroadcastDimFlags().at(i)) {
-      if (broadcast_id != nullptr) {
-        // Multiple broadcast IDs not supported
-        return std::nullopt;
+  if (getenv("REQUIRE_BROADCAST")) {
+    for (const auto i : arange(broadcast_out->getLogicalDomain().size())) {
+      if (broadcast->getBroadcastDimFlags().at(i)) {
+        if (broadcast_id != nullptr) {
+          // Multiple broadcast IDs not supported
+          return std::nullopt;
+        }
+        broadcast_id = broadcast_out->getLogicalDomain().at(i);
       }
-      broadcast_id = broadcast_out->getLogicalDomain().at(i);
-      broadcast_pos = (int64_t)i;
     }
-  }
-
-  if (broadcast_id == nullptr) {
-    return std::nullopt;
   }
 
   // Check if and only if the broadcast ID is expanded
   IterDomain* expanded_id = nullptr;
-  for (const auto i : arange(broadcast_out->getLogicalDomain().size())) {
-    auto p_id = broadcast_out->getLogicalDomain().at(i);
-    auto c_id = expand_out->getLogicalDomain().at(i);
-    if (p_id == broadcast_id && c_id->isBroadcast() &&
-        c_id->hasExpandedExtent()) {
-      expanded_id = c_id;
-    } else if (
-        p_id->isBroadcast() && !p_id->hasExpandedExtent() &&
+  auto expand_c2p = PairwiseLogicalDomainMap(expand->in(), expand->out())
+                        .mapConsumerToProducer();
+  for (const auto i : arange(expand->out()->getLogicalDomain().size())) {
+    auto c_id = expand->out()->getLogicalDomain().at(i);
+    auto p_id = expand_c2p.at(c_id);
+    if (p_id->isBroadcast() && p_id->extent()->isOneInt() &&
         c_id->isBroadcast() && c_id->hasExpandedExtent()) {
-      // Expanded but this broadcast was not introduced by the
-      // preceding broadcast op
-      return std::nullopt;
+      if (broadcast_id == p_id) {
+        expanded_id = c_id;
+      } else {
+        expanded_id = c_id;
+        broadcast_id = p_id;
+      }
     }
   }
 
   if (expanded_id == nullptr) {
+    return std::nullopt;
+  }
+
+  if (broadcast_id == nullptr) {
     return std::nullopt;
   }
 
@@ -140,7 +156,10 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
 
   // The corresponding root ID of the outout tv should be one of the
   // inputs of the merge
-  auto reshape_root_broadcast = reshape_out->getRootDomain().at(broadcast_pos);
+  auto reshape_root_broadcast =
+      PairwiseLogicalDomainMap(expand_out, reshape_out)
+          .mapProducerToConsumer()
+          .at(expanded_id);
   if (reshape_merge->outer() != reshape_root_broadcast &&
       reshape_merge->inner() != reshape_root_broadcast) {
     return std::nullopt;
@@ -161,18 +180,27 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
   int64_t inp_id_pos = std::distance(
       reshape_out->getRootDomain().begin(),
       std::ranges::find(reshape_out->getRootDomain(), reshape_root_inp_id));
-  auto broadcast_inp_id = broadcast_out->getLogicalDomain().at(inp_id_pos);
-  auto inp_tv_id = PairwiseLogicalDomainMap(inp_tv, broadcast_out)
-                       .mapConsumerToProducer()
-                       .at(broadcast_inp_id);
+  IterDomain* inp_tv_id = nullptr;
+  if (getenv("REQUIRE_BROADCAST")) {
+    auto broadcast_inp_id = broadcast_out->getLogicalDomain().at(inp_id_pos);
+    inp_tv_id = PairwiseLogicalDomainMap(inp_tv, broadcast_out)
+                    .mapConsumerToProducer()
+                    .at(broadcast_inp_id);
+  } else {
+    inp_tv_id = PairwiseLogicalDomainMap(inp_tv, expand_out)
+                    .mapConsumerToProducer()
+                    .at(expand_out->getLogicalDomain().at(inp_id_pos));
+  }
 
   StaticRepeatInfo info;
   info.repeat_input_tv = inp_tv;
   info.repeat_input_id = inp_tv_id;
   info.repeat_output_tv = maybe_repeat_out;
   info.reshape_output_tv = reshape_out;
-  info.reshape_repeat_id = reshape_out->getRootDomain().at(broadcast_pos);
+  info.reshape_repeat_id = reshape_root_broadcast;
   info.repeat_tvs = repeat_tvs;
+
+  info.input_broadcast_id = broadcast_id;
 
   return info;
 }

@@ -251,53 +251,36 @@ class MoveRepeatForward {
 
  private:
   std::optional<scheduler_tools::StaticRepeatInfo> getMaybeStaticRepeat() {
-    auto getStraightUseExprs = [](Val* inp,
-                                  int num_exprs) -> std::vector<Expr*> {
-      std::vector<Expr*> exprs;
-      exprs.reserve(num_exprs);
-
-      Val* cur_val = inp;
-      for (auto i : arange(num_exprs)) {
-        (void)i;
-        if (cur_val->uses().size() != 1) {
-          return {};
-        }
-        auto use_expr = cur_val->uses().at(0);
-        if (use_expr->outputs().size() != 1) {
-          return {};
-        }
-        exprs.push_back(use_expr);
-        cur_val = use_expr->output(0);
-      }
-
-      return exprs;
-    };
-
-    scheduler_tools::StaticRepeatInfo info;
-
-    for (auto tv : fusion_->allTvs()) {
-      // Quick filtering before using getMaybeStaticRepeatInfo
-      auto use_exprs = getStraightUseExprs(tv, 3);
-      if (use_exprs.empty()) {
+    // Repeat concretizes an expanded produce ID. Look for the pattern
+    // as a signature
+    for (auto reshape : ir_utils::getOpsOfType<ViewOp>(fusion_)) {
+      const auto p2c = PairwiseLogicalDomainMap(reshape->in(), reshape->out())
+                           .mapProducerToConsumer();
+      auto p2c_it = std::ranges::find_if(p2c, [](const auto& p2c_mapping) {
+        return p2c_mapping.first->isBroadcast() &&
+            p2c_mapping.first->hasExpandedExtent() &&
+            !p2c_mapping.second->isBroadcast();
+      });
+      if (p2c_it == p2c.end()) {
         continue;
       }
 
-      if (!use_exprs.at(0)->isA<BroadcastOp>() ||
-          !use_exprs.at(1)->isA<ExpandOp>() ||
-          !use_exprs.at(2)->isA<ViewOp>()) {
-        continue;
-      }
+      auto repeat_out = reshape->out();
 
-      auto repeat_out = use_exprs.at(2)->output(0)->as<TensorView>();
       if (excluded_tvs_.contains(repeat_out)) {
         continue;
       }
+
+      std::cerr << "Maybe repeat output: " << repeat_out->toString() << "\n";
 
       auto static_repeat_info =
           scheduler_tools::getMaybeStaticRepeatInfo(repeat_out);
       if (!static_repeat_info.has_value()) {
         continue;
       }
+
+      std::cerr << "Static repeat found: "
+                << static_repeat_info->repeat_output_tv->toString() << "\n";
 
       return *static_repeat_info;
     }
@@ -391,7 +374,8 @@ class MoveRepeatForward {
     all_use_val_sets.reserve(all_use_chains.size());
 
     for (const auto& use_chain : all_use_chains) {
-      all_use_val_sets.emplace_back(use_chain.begin(), use_chain.end());
+      // Skip the first val
+      all_use_val_sets.emplace_back(use_chain.begin() + 1, use_chain.end());
     }
 
     const auto& use_chain = all_use_chains.at(0);
@@ -465,9 +449,23 @@ class MoveRepeatForward {
 
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(target_tv, repeated_tv);
 
+    // Squeeze the broadcast of the tensor input to the repeat pattern
+    TensorView* squeeze_out = nullptr;
+    {
+      auto repeat_inp_logical =
+          TensorDomain::noReductions(info.repeat_input_tv->getLogicalDomain());
+      auto broadcast_it =
+          std::ranges::find(repeat_inp_logical, info.input_broadcast_id);
+      NVF_ERROR(broadcast_it != repeat_inp_logical.end());
+      auto broadcast_pos =
+          std::distance(repeat_inp_logical.begin(), broadcast_it);
+      squeeze_out = squeeze(info.repeat_input_tv, {broadcast_pos});
+      std::cerr << "Squeezed: " << squeeze_out->toString() << "\n";
+    }
+
     // Remove the original repeat exprs
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(
-        info.repeat_output_tv, info.repeat_input_tv);
+        info.repeat_output_tv, squeeze_out);
     std::cout << std::endl;
     std::cerr << "Moved\n";
     fusion_->printMath();
@@ -483,6 +481,10 @@ class MoveRepeatForward {
 
 void MoveRepeatForwardPass::runPass(Fusion* fusion) {
   FusionGuard fg(fusion);
+  std::cout << std::endl;
+  std::cerr << "Before moveRepeat\n";
+  fusion->print();
+  std::cout << std::endl;
   MoveRepeatForward(fusion).run();
 }
 
