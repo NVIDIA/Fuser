@@ -2303,7 +2303,7 @@ ScanResult scan(
   }
 
   if (return_reduction) {
-    red_dom = ops::newOutputDomain({tv});
+    std::vector<IterDomain*> red_dom = ops::newOutputDomain({tv});
     red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
                                   .iter_type(IterType::Reduction)
                                   .build();
