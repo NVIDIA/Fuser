@@ -78,7 +78,6 @@ def multidevice_test():
 # when reinitializing process groups.
 @pytest.fixture(scope="session")
 def setup_default_process_group():
-    print("dist.init_process_group")
     communicator = nvfuser.Communicator.instance()
 
     # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
@@ -89,5 +88,4 @@ def setup_default_process_group():
         rank=communicator.rank(),
     )
     yield
-    print("dist.destroy_process_group")
     dist.destroy_process_group()
