@@ -327,8 +327,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     return dom_map;
   }
 
-  if (IndexAccumulateOp* iaop =
-          dynamic_cast<IndexAccumulateOp*>(consumer_tv_->definition())) {
+  if (IndexPutAccumulateOp* iaop =
+          dynamic_cast<IndexPutAccumulateOp*>(consumer_tv_->definition())) {
     // Producers:
     //     accumulate [ vocab, hidden ]
     //     index [ * ]

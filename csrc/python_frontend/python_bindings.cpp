@@ -3102,7 +3102,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             self.validUse(), "Attempting to add to a completed definition!");
         FusionDefinition* fd = self.fusion_definition;
         Tensor output = fd->defineTensor(acc.dims);
-        fd->defineRecord(new IndexAccumulateOpRecord(
+        fd->defineRecord(new IndexPutAccumulateOpRecord(
             {
                 fd->recordingState(acc()),
                 fd->recordingState(index()),

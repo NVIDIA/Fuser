@@ -3095,16 +3095,16 @@ struct EmbeddingFwdOpRecord : RecordFunctor {
   }
 };
 
-struct IndexAccumulateOpRecord : RecordFunctor {
-  IndexAccumulateOpRecord(std::vector<State> args, std::vector<State> outputs)
+struct IndexPutAccumulateOpRecord : RecordFunctor {
+  IndexPutAccumulateOpRecord(std::vector<State> args, std::vector<State> outputs)
       : RecordFunctor(
             std::move(args),
             std::move(outputs),
             "ops.index_accumulate",
-            serde::RecordType::IndexAccumulateOp) {}
-  ~IndexAccumulateOpRecord() override = default;
+            serde::RecordType::IndexPutAccumulateOp) {}
+  ~IndexPutAccumulateOpRecord() override = default;
   RecordFunctor* clone() final {
-    return new IndexAccumulateOpRecord(*this);
+    return new IndexPutAccumulateOpRecord(*this);
   }
 
   void operator()(FusionState& fd) final {
@@ -3112,7 +3112,7 @@ struct IndexAccumulateOpRecord : RecordFunctor {
     auto index = fd.getFusionState(args_.at(1).index)->as<TensorView>();
     auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
 
-    auto output = indexAccumulate(acc, index, value);
+    auto output = indexPutAccumulate(acc, index, value);
     fd.setFusionState(outputs_.at(0).index, output);
   }
 };
