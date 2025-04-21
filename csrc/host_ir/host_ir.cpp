@@ -160,6 +160,10 @@ Deallocate::Deallocate(IrBuilderPasskey passkey, kir::Allocate* allocate)
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Deallocate)
 
+const kir::Allocate* Deallocate::allocation() const {
+  return attributes_.at(0)->as<kir::Allocate>();
+}
+
 std::string Deallocate::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Deallocate {" << std::endl;

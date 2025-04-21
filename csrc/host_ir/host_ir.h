@@ -173,9 +173,7 @@ class Deallocate : public Expr {
     return "hir::Deallocate";
   }
 
-  const auto allocation() const {
-    return attributes_.at(0)->as<kir::Allocate>();
-  }
+  const kir::Allocate* allocation() const;
 };
 
 class Stream : public Val {
