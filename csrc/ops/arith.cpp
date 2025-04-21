@@ -2252,65 +2252,14 @@ TensorView* tensor(Val* val) {
   return out;
 }
 
-TensorView* scan(
+ScanResult scan(
     TensorView* tv,
     int64_t dim,
     BinaryOpType op_type,
     Val* init,
-    Val* discount_factor) {
-  const std::vector<IterDomain*> logical_dom =
-      TensorDomain::noReductions(tv->getLogicalDomain());
-
-  dim = wrapDim(dim, (int64_t)logical_dom.size());
-
-  IterDomain* scan_id = logical_dom.at((size_t)dim);
-
-  // Special case: scanning along broadcast dimension is no-op
-  // Assumes init is identity for op_type
-  if (scan_id->isBroadcast()) {
-    if (scan_id->hasExpandedExtent()) {
-      NVF_THROW(
-          "Closed-form scan of expanded dimension is not yet implemented");
-    }
-    return set(tv);
-  }
-
-  std::vector<IterDomain*> new_dom;
-  DataType dtype = tv->dtype();
-  if (discount_factor == nullptr) {
-    new_dom = ops::newOutputDomain({tv});
-  } else {
-    new_dom = ops::newOutputDomain({tv, discount_factor});
-    dtype = promoteType(tv->dtype(), discount_factor->dtype());
-    tv = maybeCastOp(dtype, tv);
-    discount_factor = maybeCastOp(dtype, discount_factor);
-  }
-  new_dom.at((size_t)dim) = IterDomainBuilder(new_dom.at((size_t)dim))
-                                .iter_type(IterType::Scan)
-                                .build();
-  auto* td = IrBuilder::create<TensorDomain>(
-      new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
-  TensorView* out = IrBuilder::create<TensorView>(td, tv->dtype());
-
-  IrBuilder::createInContainer<ScanOp>(
-      tv->container(),
-      op_type,
-      out,
-      /*output_exclusive=*/nullptr,
-      tv,
-      discount_factor,
-      init,
-      dim);
-
-  return out;
-}
-
-std::pair<TensorView*, TensorView*> scanWithExclusive(
-    TensorView* tv,
-    int64_t dim,
-    BinaryOpType op_type,
-    Val* init,
-    Val* discount_factor) {
+    Val* discount_factor,
+    bool return_exclusive,
+    bool return_reduction) {
   const std::vector<IterDomain*> logical_dom =
       TensorDomain::noReductions(tv->getLogicalDomain());
 
@@ -2344,30 +2293,38 @@ std::pair<TensorView*, TensorView*> scanWithExclusive(
                                 .build();
   auto* td = IrBuilder::create<TensorDomain>(
       new_dom, TensorDomain::getContiguityFilledWith(new_dom, true));
-  TensorView* out = IrBuilder::create<TensorView>(td, tv->dtype());
 
-  TensorView* out_exclusive = ops::newOutputTV({out}, out->dtype());
+  ScanResult result;
+
+  result.inclusive = IrBuilder::create<TensorView>(td, tv->dtype());
+
+  if (return_exclusive) {
+    result.exclusive = ops::newOutputTV({result.inclusive}, tv->dtype());
+  }
+
+  NVF_ERROR(!return_reduction);
 
   IrBuilder::createInContainer<ScanOp>(
       tv->container(),
       op_type,
-      out,
-      out_exclusive,
+      result.inclusive,
+      result.exclusive,
       tv,
       discount_factor,
       init,
       dim);
 
-  return {out, out_exclusive};
+  return result;
 }
 
 TensorView* prefixSum(TensorView* tv, int64_t dim, Val* discount_factor) {
   return scan(
-      tv,
-      dim,
-      BinaryOpType::Add,
-      /*init=*/tv->fusion()->zeroVal(tv->dtype()),
-      discount_factor);
+             tv,
+             dim,
+             BinaryOpType::Add,
+             /*init=*/tv->fusion()->zeroVal(tv->dtype()),
+             discount_factor)
+      .inclusive;
 }
 
 } // namespace nvfuser

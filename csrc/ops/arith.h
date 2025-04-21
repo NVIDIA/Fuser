@@ -710,6 +710,12 @@ NVF_API TensorView* tensor(const std::vector<T>& vals) {
   return tensor(IrBuilder::arrayExpr(vals));
 }
 
+struct ScanResult {
+  TensorView* inclusive = nullptr;
+  TensorView* exclusive = nullptr;
+  TensorView* reduction = nullptr;
+};
+
 //! Computes an inclusive scan of a tensor in a single dimension.
 //!
 //! Given a 1D input tensor x and discount factor f, this computes the output
@@ -734,21 +740,14 @@ NVF_API TensorView* tensor(const std::vector<T>& vals) {
 //!   y[i] = y[i-1] + x[i] for 0 < i < n
 //!
 //! If the dimension being scanned is an expanded broadcast, we throw an error.
-NVF_API TensorView* scan(
+NVF_API ScanResult scan(
     TensorView* tv,
     int64_t dim,
     BinaryOpType op_type,
     Val* init,
-    Val* discount_factor = nullptr);
-
-//! This is like scan but returns a pair (inclusive, exclusive) that also
-//! includes the exclusive scan.
-NVF_API std::pair<TensorView*, TensorView*> scanWithExclusive(
-    TensorView* tv,
-    int64_t dim,
-    BinaryOpType op_type,
-    Val* init,
-    Val* discount_factor = nullptr);
+    Val* discount_factor = nullptr,
+    bool return_exclusive = false,
+    bool return_reduction = false);
 
 //! This is an alias for scan(tv, dim, BinaryOpType::Add, zeroVal(),
 //! discount_factor)

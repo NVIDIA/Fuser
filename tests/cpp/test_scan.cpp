@@ -164,13 +164,15 @@ TEST_F(ScanTest, OnlineSoftmax) {
 
   auto* neg_infty = IrBuilder::create<Val>(
       -std::numeric_limits<double>::infinity(), DataType::Double);
-  TensorView* m;
-  TensorView* m_prev;
-  std::tie(m, m_prev) = scanWithExclusive(
+  ScanResult max_scan_result = scan(
       set(x),
       scan_dim,
       BinaryOpType::Max,
-      /*init=*/neg_infty); // max x[j] over j = 0 .. i
+      /*init=*/neg_infty,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true); // max x[j] over j = 0 .. i
+  TensorView* m = max_scan_result.inclusive;
+  TensorView* m_prev = max_scan_result.exclusive;
   // normalize by running max and exponentiate
   TensorView* exp_x_m = exp(sub(x, m));
   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
@@ -268,16 +270,17 @@ TEST_F(ScanTest, OnlineSoftmaxOuter) {
   //
   // Final denominator is d[N-1]
 
-  TensorView* m;
-  TensorView* m_prev;
-  std::tie(m, m_prev) = scanWithExclusive(
-      x,
+  auto* neg_infty = IrBuilder::create<Val>(
+      -std::numeric_limits<double>::infinity(), DataType::Double);
+  ScanResult max_scan_result = scan(
+      set(x),
       scan_dim,
       BinaryOpType::Max,
-      /*init=*/
-      IrBuilder::create<Val>(
-          -std::numeric_limits<double>::infinity(),
-          DataType::Double)); // max x[j] over j = 0 .. i
+      /*init=*/neg_infty,
+      /*discount_factor=*/nullptr,
+      /*return_exclusive=*/true); // max x[j] over j = 0 .. i
+  TensorView* m = max_scan_result.inclusive;
+  TensorView* m_prev = max_scan_result.exclusive;
   // normalize by running max and exponentiate
   TensorView* exp_x_m = exp(sub(x, m));
   // Discount factor is exponentiated delta: exp(m[i-1] - m[i])
