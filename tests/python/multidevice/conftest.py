@@ -72,6 +72,10 @@ def multidevice_test():
 # dist.device_mesh.init_device_mesh.
 #
 # This fixture is used by multi-GPU tests that use torch.distributed.
+#
+# I use "session" instead of "module" because
+# https://github.com/pytorch/pytorch/issues/119196 reported race conditions
+# when reinitializing process groups.
 @pytest.fixture(scope="session")
 def setup_default_process_group():
     print("dist.init_process_group")
