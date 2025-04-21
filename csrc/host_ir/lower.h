@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <fusion_segmenter.h>
 #include <host_ir/container.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -29,11 +30,17 @@ class HostIrLower {
   static bool canLower(Expr* expr, bool ignore_inner_resharding = false);
 
   // Lower a sharded Expr into a series of Communication.
-  std::vector<Expr*> lower(Expr* c);
+  std::vector<Expr*> lower(Expr* c, DeviceIdxType my_device_index);
 
   std::unique_ptr<hir::HostIrContainer> lower(
       std::unique_ptr<Fusion> fusion,
-      int64_t my_device_index);
+      DeviceIdxType my_device_index);
+
+  static bool isLowerableAsStandaloneHostOp(Expr* expr);
+
+  static bool shouldMergeSegmentedGroups(
+      SegmentedGroup* group1,
+      SegmentedGroup* group2);
 
  private:
   std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);

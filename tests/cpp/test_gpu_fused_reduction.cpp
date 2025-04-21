@@ -1329,7 +1329,7 @@ TEST_F(NVFuserTest, FusionPersistentBNBackwardAllreduce_CUDA) {
   std::vector<int64_t> reduction_axes;
   std::vector<bool> broadcast_mask(kNumberOfDims, false);
   Val* num_features = nullptr;
-  for (const auto axis : c10::irange(kNumberOfDims)) {
+  for (const auto axis : arange(kNumberOfDims)) {
     if (axis != c_axis) {
       reduction_axes.push_back(axis);
       broadcast_mask[axis] = true;
@@ -2562,7 +2562,7 @@ TEST_F(NVFuserTest, FusionCrossEntropyGatherPattern_CUDA) {
   fusion.addInput(labels);
 
   auto tv2 = broadcast(labels, {false, true});
-  auto tv3 = torchGather(log_probs, 1, tv2);
+  auto tv3 = gather(log_probs, 1, tv2);
   auto tv4 = squeeze(tv3, std::vector<bool>({false, true}));
 
   fusion.addOutput(tv4);
@@ -2603,7 +2603,7 @@ TEST_F(NVFuserTest, FusionTensorRankLimit) {
   FusionGuard fg(fusion.get());
 
   std::vector<int64_t> input_shape;
-  for (__attribute__((unused)) auto i : c10::irange(12)) {
+  for (__attribute__((unused)) auto i : arange(12)) {
     input_shape.push_back(3);
   }
 

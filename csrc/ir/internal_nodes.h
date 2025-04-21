@@ -129,11 +129,24 @@ class IndexSelectOp : public Expr {
   }
 };
 
-class IndexAccumulateOp : public Expr {
+class IndexPutAccumulateOp : public Expr {
  public:
   using Expr::Expr;
 
-  IndexAccumulateOp(
+  // [ Note -- IndexPutAccumulateOp semantics ]
+  //
+  // logical ID groups of IndexPutAccumulateOp
+  // args:
+  //     acc   [ ID_indexed_g0, ID_g0 ]
+  //     index [ ID_indexing_g1, ID_broadcast ]
+  //     value [ ID_indexing_g1, ID_g0 ]
+  // output:
+  //     out   [ ID_indexed_g0, ID_g0 ]
+  //
+  // Note that:
+  //     1. indexed ID for `out` and `acc` share the same extent.
+  //     2. indexed ID for `index` and `value` share the same extent.
+  IndexPutAccumulateOp(
       IrBuilderPasskey,
       Val* out,
       Val* acc,
@@ -143,7 +156,7 @@ class IndexAccumulateOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "IndexAccumulateOp";
+    return "IndexPutAccumulateOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -164,21 +177,22 @@ class IndexAccumulateOp : public Expr {
     return input(2)->as<TensorView>();
   }
 
-  IterDomain* getIndexedID() const;
+  // return ID_indexing_g1 from value
+  IterDomain* getIndexingIDOfValue() const;
 
-  IterDomain* getConsumerOfIndexedID() const;
+  // return ID_indexing_g1 from index, for IndexPutAccumulate, there's only one
+  // indexing ID, while the remaining ID is broadcast
+  IterDomain* getIndexingID() const;
 };
 
-class NVF_API TorchGatherOp : public Expr {
+class NVF_API GatherOp : public Expr {
  public:
   using Expr::Expr;
 
   //! Parameter exact_sizes indicates whether the non-indexed domains
   //! of the index tensor have the same extents of those of the input
-  //! tensor. It's true in the case of torch.take_along_dim and
-  //! numpy_take_along_axis. torch.take_along_axis does not guarantee
-  //! they are the same.
-  TorchGatherOp(
+  //! tensor. It's true in the case of take_along_axis.
+  GatherOp(
       IrBuilderPasskey,
       Val* out,
       Val* in,
@@ -189,7 +203,7 @@ class NVF_API TorchGatherOp : public Expr {
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
   const char* getOpString() const override {
-    return "TorchGatherOp";
+    return "GatherOp";
   }
 
   std::string toString(int indent_size = 0) const override;
@@ -1020,7 +1034,7 @@ class GroupedReductionOp : public Expr {
     auto size = numHorizontallyGroupedExprs();
     std::vector<Val*> result;
     result.reserve(size);
-    for (auto i : c10::irange(2, 2 + size)) {
+    for (auto i : arange(2, 2 + size)) {
       result.emplace_back(attribute(i)->as<Val>());
     }
     return result;
@@ -1319,7 +1333,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = outputs().size() / 3;
     result.reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result.emplace_back(outAvg(i), outVar(i), outN(i));
     }
     return result;
@@ -1329,7 +1343,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = inputs().size() / 3;
     result.reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result.emplace_back(inAvg(i), inVar(i), inN(i));
     }
     return result;
@@ -1339,7 +1353,7 @@ class GroupedWelfordOp : public Expr {
     std::vector<WelfordTriplet> result;
     auto size = inputs().size() / 3;
     result.reserve(size);
-    for (auto i : c10::irange(size)) {
+    for (auto i : arange(size)) {
       result.emplace_back(initAvg(i), initVar(i), initN(i));
     }
     return result;
@@ -1405,53 +1419,9 @@ class GroupedWelfordOp : public Expr {
 class NVF_API MmaOp : public Expr {
  public:
   using AxesData = std::vector<int64_t>;
-  // AxisMapping denotes the pairing of two input dimensions to produce an
-  // output dimension. It holds two vectors of integers indicating the
-  // corresponding position of each output axis in either the A or B input.
-  // Positions refer to the noReductions logical domain of each input.
-  // NOTE: Axis positions are absolute, meaning you cannot specify them
-  // relative to the last dimension since -1 has special meaning.
-  // NOTE: -1 indicates that the axis does not exist, so Broadcast input
-  // domains should be listed with their actual position and not -1.
-  //
-  // Example 1:
-  //    a [ K, 1, M ]
-  //    b [ 1, N, K ]
-  //    out [ M, N, rK ]
-  //    axisMapping:
-  //      a_axes = [ 2, 1, 0 ]
-  //      b_axes = [ 0, 1, 2 ]
-  //    This results in the following groups of mapped axes:
-  //      { tv_a->axis(2), tv_b->axis(0), out->axis(0) }
-  //      { tv_a->axis(1), tv_b->axis(1), out->axis(1) }
-  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
-  //
-  // Example 1:
-  //    a [ K, M ]
-  //    b [ 1, N, K ]
-  //    out [ M, N, rK ]
-  //    axisMapping:
-  //      a_axes = [ 1, -1, 0 ]
-  //      b_axes = [ 0, 1, 2 ]
-  //    This results in the following groups of mapped axes:
-  //      { tv_a->axis(1), tv_b->axis(0), out->axis(0) }
-  //      { tv_b->axis(1), out->axis(1) }
-  //      { tv_a->axis(0), tv_b->axis(2), out->axis(2) }
-  struct AxisMapping {
-    AxesData a_axes;
-    AxesData b_axes;
-
-    static AxisMapping trivialMapping(size_t dimension);
-  };
   using Expr::Expr;
 
-  MmaOp(
-      IrBuilderPasskey,
-      Val* out,
-      Val* in_a,
-      Val* in_b,
-      Val* init,
-      const AxisMapping& axis_mapping);
+  MmaOp(IrBuilderPasskey, Val* out, Val* in_a, Val* in_b, Val* init);
 
   MmaOp(
       IrBuilderPasskey,
@@ -1459,7 +1429,6 @@ class NVF_API MmaOp : public Expr {
       Val* in_a,
       Val* in_b,
       Val* init,
-      const AxisMapping& axis_mapping,
       const MmaMacro& options);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
@@ -1515,11 +1484,19 @@ class NVF_API MmaOp : public Expr {
     return nvfuser::isHopper(macro());
   }
 
-  void setMacro(MmaMacro options);
-
-  const AxisMapping& axisMapping() const {
-    return attribute<AxisMapping>(ATTR_POS_AXIS_MAPPING);
+  bool isBlackwell1CTA() const {
+    return nvfuser::isBlackwell1CTA(macro());
   }
+
+  bool isBlackwell2CTA() const {
+    return nvfuser::isBlackwell2CTA(macro());
+  }
+
+  bool isBlackwell() const {
+    return nvfuser::isBlackwell(macro());
+  }
+
+  void setMacro(MmaMacro options);
 
  private:
   // Predefined indices of attributes stored for this IR node, to avoid
@@ -1527,7 +1504,6 @@ class NVF_API MmaOp : public Expr {
   //  in constructor
   static constexpr size_t ATTR_POS_INIT = 0;
   static constexpr size_t ATTR_POS_MACRO = 1;
-  static constexpr size_t ATTR_POS_AXIS_MAPPING = 2;
 };
 
 //! The semantics are identical to torch.broadcast_to.
@@ -2320,10 +2296,15 @@ output = [N, H, L, Ev]
 logsumexp = [N, H, L]
 query_seq_len = scalar(int)
 key_seq_len = scalar(int)
-philox_seed = scalar tensor
-philox_offset = scalar tensor
+philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)
 debug_attn_mask = scalar tensor (Thunder does not return a debug attn mask by
 setting `return_debug_mask=False` when invoking flash attention)
+
+Note: For older versions, torch returns CPU scalar tensors for philox_seed and
+philox_offset. For torch 2.7.0 and above, torch returns philox_seed -> rng_state
+(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
+contains both seed and offset.
 
 query = [N, H, L, E]
 key = [N, H, S, E]
@@ -2649,9 +2630,14 @@ output = [N, H, L, Ev]
 logsumexp = [N, H, L]
 dropout_p = scalar(double)
 is_causal = scalar(bool)
-philox_seed = scalar CPU tensor
-philox_offset = scalar CPU tensor
-scale = scalar(double)
+philox_seed = CPU scalar tensor or uint64_t[2] tensor (for > 2.7.0)
+philox_offset = CPU scalar tensor or empty uint64_t tensor (for > 2.7.0)scale =
+scalar(double)
+
+Note: For older versions, torch accepts CPU scalar tensors for philox_seed and
+philox_offset. For torch 2.7.0 and above, torch accepts philox_seed -> rng_state
+(uint64_t[2]) and philox_offset -> _unused (empty tensor). The rng state
+contains both seed and offset.
 
 N = number of sequences / batch size
 H = num of heads

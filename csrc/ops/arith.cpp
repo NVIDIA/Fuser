@@ -14,7 +14,6 @@
 #include <ops/alias.h>
 #include <ops/arith.h>
 #include <ops/utils.h>
-#include <scheduler/mma_utils.h>
 #include <type.h>
 #include <type_promotion.h>
 
@@ -22,7 +21,6 @@
 #include <c10/util/Float8_e4m3fn.h>
 #include <c10/util/Float8_e5m2.h>
 #include <c10/util/Half.h>
-#include <c10/util/irange.h>
 
 #include <cfloat>
 
@@ -564,6 +562,23 @@ TensorView* bitwise_not(TensorView* tv) {
     return logical_not(tv);
   }
   return unaryOp(UnaryOpType::BitwiseNot, tv);
+}
+
+// https://en.cppreference.com/w/cpp/numeric/bit_ceil
+Val* bitceil(Val* v) {
+  NVF_CHECK(
+      isIntegralType(v->dtype()),
+      "input must have integral or boolean type, but got ",
+      v->dtype());
+  return unaryOp(UnaryOpType::BitCeil, v);
+}
+
+TensorView* bitceil(TensorView* tv) {
+  NVF_CHECK(
+      isIntegralType(tv->dtype()),
+      "input must have integral or boolean type, but got ",
+      tv->dtype());
+  return unaryOp(UnaryOpType::BitCeil, tv);
 }
 
 // The output of abs(complex_tensor) are real numbers
@@ -1176,7 +1191,7 @@ TensorView* newForReduction(
       "). Keep in mind reductions are relative to root domains, not modified views.");
 
   auto reduced_axis_iter = axes_set.begin();
-  for (const auto dim : c10::irange(orig_domain.size())) {
+  for (const auto dim : arange(orig_domain.size())) {
     bool is_reduction = false;
     if (reduced_axis_iter != axes_set.end() && *reduced_axis_iter == dim) {
       is_reduction = true;
@@ -1305,7 +1320,7 @@ TensorView* maybeFullInsteadOfReduction(
       std::vector<IterDomain*> new_root;
       new_root.reserve(keep_dim ? ndims : ndims - axes.size());
       int cur_pos = 0;
-      for (auto j : c10::irange(ndims)) {
+      for (auto j : arange(ndims)) {
         bool is_reduction = cur_pos < (int)axes.size() && axes.at(cur_pos) == j;
         if (is_reduction) {
           cur_pos++;
@@ -1988,7 +2003,7 @@ TensorView* sum_to(TensorView* in, const std::vector<Val*>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, (int64_t)logical.size())) {
+  for (const auto i : arange(leading_dims, (int64_t)logical.size())) {
     if (sum_to_size[i - leading_dims]->isOneInt() &&
         !logical[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
@@ -2035,7 +2050,7 @@ TensorView* sum_to(TensorView* in, const std::vector<int64_t>& sum_to_size) {
   bool reduction_within_shape = false;
 
   // Reduce rest of the dims with keep_dim
-  for (const auto i : c10::irange(leading_dims, (int64_t)logical.size())) {
+  for (const auto i : arange(leading_dims, (int64_t)logical.size())) {
     if (sum_to_size[i - leading_dims] == 1 &&
         !logical[i]->extent()->isOneInt()) {
       inner_red_dims[i - leading_dims] = true;
@@ -2088,111 +2103,100 @@ TensorView* viewAsScalar(TensorView* inp) {
   return out;
 }
 
+namespace {
+
+//! Create new output for mma
+static TensorView* newForMma(
+    TensorView* tv_a,
+    TensorView* tv_b,
+    const std::vector<unsigned int>& axes,
+    DataType data_type = DataType::Float) {
+  auto orig_domain_a = TensorDomain::noReductions(tv_a->getLogicalDomain());
+  auto orig_domain_b = TensorDomain::noReductions(tv_b->getLogicalDomain());
+
+  NVF_ERROR(
+      orig_domain_a.size() == orig_domain_b.size(),
+      "MMA op: need matching dim input");
+
+  std::vector<bool> is_reduction;
+  is_reduction.resize(orig_domain_a.size(), false);
+  for (unsigned int ax : axes) {
+    NVF_CHECK(
+        ax < is_reduction.size(),
+        "Error setting up reduction, reduction axis (",
+        ax,
+        ") is outside nDims (",
+        orig_domain_a.size(),
+        "). Keep in mind reductions are relative to root domains, not modified views.");
+    is_reduction[ax] = true;
+  }
+  std::vector<IterDomain*> new_domain;
+
+  NVF_ERROR(
+      !axes.empty(),
+      "Asked for output of reduction, but no reduction axis provided.");
+
+  for (const int64_t dim : c10::irange(orig_domain_a.size())) {
+    bool dim_is_reduction = is_reduction.at((size_t)dim);
+
+    const IterDomain* id = orig_domain_a[dim]->isBroadcast()
+        ? orig_domain_b[dim]
+        : orig_domain_a[dim];
+
+    NVF_CHECK(
+        !(dim_is_reduction && id->isBroadcast() && !id->isImplicitBroadcast()),
+        "Cannot reduce an axis that is marked as broadcasted as it has an undetermined size. Tried to reduce ID = ",
+        id,
+        " of tensor ",
+        tv_a,
+        "and",
+        tv_b);
+
+    new_domain.push_back(
+        IterDomainBuilder(id->start(), id->extent())
+            .stop_offset(id->stopOffset())
+            .iter_type(
+                dim_is_reduction ? IterType::Reduction : id->getIterType())
+            .build());
+  }
+
+  TensorDomain* td = IrBuilder::create<TensorDomain>(
+      new_domain, TensorDomain::getContiguityFilledWith(new_domain, true));
+
+  return IrBuilder::create<TensorView>(td, data_type);
+}
+
+} // namespace
+
 TensorView* fusedMultiplySum(
     TensorView* tv_a,
     TensorView* tv_b,
     const std::vector<int64_t>& axes,
-    Val* init,
-    const std::optional<MmaOp::AxisMapping>& axis_mapping_opt) {
-  const std::vector<IterDomain*>& a_logical =
-      TensorDomain::noReductions(tv_a->getLogicalDomain());
-  const std::vector<IterDomain*>& b_logical =
-      TensorDomain::noReductions(tv_b->getLogicalDomain());
-
-  NVF_CHECK(
-      !a_logical.empty() && !b_logical.empty(),
-      "Tried to reduce a 0-dim tensor");
-
-  std::unique_ptr<MmaOp::AxisMapping> axis_mapping_ptr;
-  if (!axis_mapping_opt.has_value()) {
-    NVF_CHECK(
-        a_logical.size() == b_logical.size(),
-        "If tv_a and tv_b have different dimensions, axis_mapping_opt must be provided");
-    axis_mapping_ptr = std::make_unique<MmaOp::AxisMapping>(
-        MmaOp::AxisMapping::trivialMapping(a_logical.size()));
-  }
-  const MmaOp::AxisMapping& axis_mapping =
-      axis_mapping_opt.has_value() ? *axis_mapping_opt : *axis_mapping_ptr;
-
-  NVF_CHECK(
-      axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
-      "Axis mapping should contain same number of output axes for each operand");
-  const size_t out_dims = axis_mapping.a_axes.size();
-
-  std::unordered_set<size_t> axes_set;
-  for (int64_t axis : axes) {
-    if (axis < 0) {
-      axis += (int64_t)out_dims;
-    }
-    NVF_ERROR(axis >= 0 && axis < (int64_t)out_dims);
-    axes_set.insert((size_t)axis);
-  }
+    Val* init) {
+  // TODO:
+  //  Validate axis relationships between a and b
+  NVF_CHECK(tv_a->nDims() > 0, "Tried to reduce a 0-dim tensor");
 
   // TODO:
   //  Add tf32 and other mma data types
   //  Add fallback path for non-mma data types.
   NVF_CHECK(
-      tv_a->dtype() == DataType::Half || tv_a->dtype() == DataType::BFloat16);
-  NVF_CHECK(tv_a->dtype() == tv_b->dtype());
-  DataType out_dtype = DataType::Float;
+      tv_a->getDataType().value() == DataType::Half ||
+      tv_a->getDataType().value() == DataType::BFloat16);
+  NVF_CHECK(tv_a->getDataType().value() == tv_b->getDataType().value());
 
-  // Prepare output domain based on domain mapping and IterTypes of inputs
-  std::vector<IterDomain*> out_domain;
-  out_domain.reserve(axis_mapping.a_axes.size());
-  for (size_t i : c10::irange(out_dims)) {
-    int64_t a_pos = axis_mapping.a_axes[i];
-    int64_t b_pos = axis_mapping.b_axes[i];
-    NVF_CHECK(
-        a_pos != -1 || b_pos != -1,
-        "Output axis ",
-        i,
-        " cannot be missing in both operands");
-    NVF_CHECK(
-        a_pos == -1 || (a_pos >= 0 && a_pos < (int64_t)a_logical.size()),
-        "Position ",
-        i,
-        " in output of axis mapping for operand A is ",
-        a_pos,
-        " which is out of bounds for A which has dimension ",
-        a_logical.size());
-    NVF_CHECK(
-        b_pos == -1 || (b_pos >= 0 && b_pos < (int64_t)b_logical.size()),
-        "Position ",
-        i,
-        " in output of axis mapping for operand B is ",
-        b_pos,
-        " which is out of bounds for B which has dimension ",
-        b_logical.size());
-    IterDomain* a_id = a_pos == -1 ? nullptr : a_logical[(size_t)a_pos];
-    IterDomain* b_id = b_pos == -1 ? nullptr : b_logical[(size_t)b_pos];
+  NVF_CHECK(!axes.empty(), "No reduction axis specified");
 
-    bool a_concrete = a_id == nullptr ? false : !a_id->isBroadcast();
-    bool b_concrete = b_id == nullptr ? false : !b_id->isBroadcast();
-    // NOTE: we can have !a_concrete && !b_concrete if there are broadcast batch
-    // dims
+  // TODO:
+  //  will lift this in a follow up when we have a
+  //  more generic axes matching.
+  NVF_CHECK(
+      axes.size() == 1, "Single axis reduction only for mma op instantiation.")
 
-    // Check for K dimensions
-    bool is_reduction = false;
-    if (axes_set.count(i)) {
-      NVF_CHECK(
-          a_concrete && b_concrete,
-          "Reduction dimensions must be concrete in both operands");
-      is_reduction = true;
-    }
+  std::vector<unsigned int> uint_axes = ops::canonicalizeAxes(
+      axes, (int64_t)tv_a->domain()->noReductions().size());
 
-    IterDomain* orig_id = a_concrete ? a_id : b_id;
-    out_domain.push_back(
-        IterDomainBuilder(orig_id->start(), orig_id->extent())
-            .stop_offset(orig_id->stopOffset())
-            .iter_type(
-                is_reduction ? IterType::Reduction : orig_id->getIterType())
-            .build());
-  }
-
-  TensorDomain* td = IrBuilder::create<TensorDomain>(
-      out_domain, TensorDomain::getContiguityFilledWith(out_domain, true));
-
-  TensorView* out = IrBuilder::create<TensorView>(td, out_dtype);
+  TensorView* out = newForMma(tv_a, tv_b, uint_axes);
 
   if (init == nullptr) {
     init = IrBuilder::create<Val>(0.0, out->dtype());
@@ -2204,8 +2208,11 @@ TensorView* fusedMultiplySum(
   NVF_CHECK(
       init->isConstScalar(),
       "Cannot create a reduction operation where the initial value is not a const scalar.");
+  NVF_CHECK(
+      init->dtype() == out->dtype(),
+      "Init value dtype for fusedMultiplySum must match output.");
 
-  IrBuilder::create<MmaOp>(out, tv_a, tv_b, init, axis_mapping);
+  IrBuilder::create<MmaOp>(out, tv_a, tv_b, init);
 
   return out;
 }

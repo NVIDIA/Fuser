@@ -66,7 +66,7 @@ void validate(
   ASSERT_THAT(expected_outputs, SizeIs(num_outputs));
   ASSERT_THAT(atols, SizeIs(num_outputs));
 
-  for (const auto i : c10::irange(num_outputs)) {
+  for (const auto i : arange(num_outputs)) {
     // allclose can catch this as well. However, it would throw an exception,
     // not showing which output was problematic.
     NVF_ERROR(
@@ -657,8 +657,7 @@ TEST_P(DistributedTransformerTest, MHA_Backward) {
       makeContigConcreteTensor({D, B, H / D, S, E / H}, dtype);
   TensorView* tvsdpa_log_sumexp =
       makeContigConcreteTensor({D, B, H / D, S}, DataType::Float);
-  TensorView* tvsdpa_seed = makeSymbolicTensor({}, DataType::Int);
-  TensorView* tvsdpa_offset = makeSymbolicTensor({}, DataType::Int);
+  auto [tvsdpa_seed, tvsdpa_offset] = createSdpaRngTvs();
   TensorView* linear0 = makeSymbolicTensor(3, dtype);
 
   fusion->addInput(tvx);

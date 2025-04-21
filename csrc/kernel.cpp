@@ -368,8 +368,8 @@ Kernel::Kernel(Fusion* fusion, PrimDataType index_type)
     : Fusion(*fusion), index_type_(index_type) {
   // Index type must be resolved to either int32 or int64
   NVF_ERROR(
-      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32 ||
-          "Invalid index type: ",
+      index_type_ == PrimDataType::Int || index_type_ == PrimDataType::Int32,
+      "Invalid index type: ",
       index_type_);
 }
 
@@ -391,6 +391,7 @@ void Kernel::finalize(std::vector<Expr*> top_level_exprs) {
   summary_.min_device_version = GpuLower::current()->minDeviceVersion();
   summary_.min_device_version_reason =
       GpuLower::current()->minDeviceVersionReason();
+  summary_.dec_inc_register_usage = GpuLower::current()->decIncRegisterUsage();
   parameters_ = GpuLower::current()->allKnownVals();
   parameters_.insert(parameters_.end(), outputs().begin(), outputs().end());
   for (auto alloc : summary_.global_allocations) {
@@ -514,7 +515,9 @@ std::string KernelPerformanceProfile::toString(const at::Tensor& buffer) const {
     return ss.str();
   }
 
-  double kilo_freq = at::cuda::getCurrentDeviceProperties()->clockRate;
+  const auto dev_idx = at::cuda::current_device();
+  int gpu_clock_khz;
+  cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
 
   ss << std::setprecision(3) << std::fixed;
 
@@ -525,7 +528,7 @@ std::string KernelPerformanceProfile::toString(const at::Tensor& buffer) const {
     double cycles = static_cast<double>(buffer[index][0].item<int64_t>());
     auto count = buffer[index][1].item<int64_t>();
     auto cycles_per_call = count == 0 ? 0.0 : cycles / (double)count;
-    auto us_per_call = cycles_per_call / kilo_freq * 1000.0;
+    auto us_per_call = cycles_per_call / (double)gpu_clock_khz * 1000.0;
     ss << expr->getOpString() << ", T" << out_tv->name() << ", " << us_per_call
        << " us, " << count << "\n";
   }

@@ -51,13 +51,13 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
     return false;
   }
 
-  // TODO: remove IndexAccumulateOp
+  // TODO: remove IndexPutAccumulateOp
   if (exprs.front()
           ->isOneOf<
               SdpaFwdOp,
               SdpaBwdOp,
               EmbeddingFwdOp,
-              IndexAccumulateOp>()) {
+              IndexPutAccumulateOp>()) {
     return true;
   }
 

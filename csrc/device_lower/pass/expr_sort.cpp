@@ -493,7 +493,7 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
 
   // Find neighbors with a level that is only 1 different than this group's
   // level
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : arange(neighbors.size())) {
     if (std::abs(neighbors[i]->payload()->level - payload()->level) > 1) {
       can_merge.at(i) = false;
       if (isDebugDumpEnabled(DebugDumpOption::ExprSortVerbose)) {
@@ -506,7 +506,7 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
   // Check neighbor of neighbors we're considering, if any of them are merged
   // with another node, make sure the resulting edge wouldn't have a level
   // difference of 1
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : arange(neighbors.size())) {
     if (!can_merge.at(i)) {
       continue;
     }
@@ -570,7 +570,7 @@ std::vector<ExprGroup*> ExprGroup::getMergeCandidates(
   }
 
   std::vector<ExprGroup*> merge_candidates;
-  for (const auto i : c10::irange(neighbors.size())) {
+  for (const auto i : arange(neighbors.size())) {
     if ((can_merge.at(i) && !fallback_mode_enabled) ||
         (!can_merge.at(i) && fallback_mode_enabled)) {
       auto neighbor = neighbors.at(i);
@@ -668,7 +668,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
       // Each non-terminating TV expr should at least have the kernel
       // scope to enforce the global dependency
       group->payload()->ca_domains.push_back(kernelScopeDomain());
-      for (const auto tv_i : c10::irange(
+      for (const auto tv_i : arange(
                out_tv->hasResolvedComputeWith()
                    ? out_tv->getComputeWithPosition()
                    : out_tv->getComputeAtPosition())) {
@@ -683,7 +683,7 @@ ExprGroup* ExprSegmentationSorter::makeEmptyGroup(
         })) {
       group->payload()->pa_domains.push_back(kernelScopeDomain());
     }
-    for (const auto tv_i : c10::irange(out_tv->getMaxProducerPosition())) {
+    for (const auto tv_i : arange(out_tv->getMaxProducerPosition())) {
       auto concrete_id = getConcreteID(out_tv->axis(tv_i));
       group->payload()->pa_domains.push_back(concrete_id);
     }
@@ -930,7 +930,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
           dynamic_cast<TensorView*>(consumer_group_edge->consumer_val);
       NVF_ERROR(consumer_of_consumer_edge != nullptr);
       for (const auto tv_i :
-           c10::irange(producer_of_consumer_edge->getComputePosition(
+           arange(producer_of_consumer_edge->getComputePosition(
                consumer_of_consumer_edge))) {
         ca_ids.emplace(getConcreteID(producer_of_consumer_edge->axis(tv_i)));
       }
@@ -951,7 +951,7 @@ ExprGroup* ExprSegmentationSorter::makeMergedNode(
         pa_ids.emplace(kernelScopeDomain());
       }
       auto tv = consumer_of_producer_edge->as<TensorView>();
-      for (const auto tv_i : c10::irange(tv->getMaxProducerPosition())) {
+      for (const auto tv_i : arange(tv->getMaxProducerPosition())) {
         pa_ids.emplace(getConcreteID(tv->axis(tv_i)));
       }
     }
@@ -1030,7 +1030,7 @@ bool ExprSegmentationSorter::canReducePA(ExprGroup* group) const {
     // If this consumer_tv doesn't map to the last producer domain of this group
     // it can't decide if it can be reduced
     bool has_matching_pa = false;
-    for (const auto i : c10::irange(consumer_tv->getMaxProducerPosition())) {
+    for (const auto i : arange(consumer_tv->getMaxProducerPosition())) {
       if (areMapped(consumer_tv->axis(i), group_pa_last_id)) {
         has_matching_pa = true;
         break;

@@ -415,11 +415,11 @@ bool isSqueezeInput(const TensorView* tv);
 bool isSqueezedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly accessed by,
-// e.g., indexSelect, torchGather and scatter
+// e.g., indexSelect, gather and scatter
 bool isIndexedID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly read by,
-// e.g., indexSelect and torchGather
+// e.g., indexSelect gather
 bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 
 // Test if the given ID in the given tensor is indirectly written to by,
@@ -427,7 +427,7 @@ bool isIndexedProducerID(const TensorView* tv, const IterDomain* id);
 bool isIndexedConsumerID(const TensorView* tv, const IterDomain* id);
 
 // Return a producer ID, if any, that is indirectly accessed by, e.g.,
-// indexSelect and torchGather.
+// indexSelect and gather.
 IterDomain* getIndexedProducerID(const Expr* expr);
 
 // Return the corresponding consumer if of a producer ID that is
@@ -440,7 +440,7 @@ bool isIndexSelectLookupTv(const TensorView* tv);
 // Check if the given tv is third argment of indexSelect(lookup, dim, indices)
 bool isIndexSelectIndicesTv(const TensorView* tv);
 
-bool isTorchGatherLookupTv(const Val* tv);
+bool isGatherLookupTv(const Val* tv);
 
 std::string varName(const Val* val);
 
@@ -797,5 +797,13 @@ std::vector<IterDomain*> strideOrderToAllocation(
 // consumer tensors of a cast unary op
 std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors(
     UnaryOp* cast_op);
+
+// Get the <size> in the PTX instruction of TMem load/store:
+//   tcgen05.st.sync.aligned.32x32b.x<size>.b32
+// The minimum unit of TMem load/store is 4 bytes, and the .x<size>
+// in the PTX instruction is the number of this unit, not the number of items.
+// For example, tcgen05.st.sync.aligned.32x32b.x4.b32 could mean 1 complex
+// double, 2 doubles, 4 floats, 8 halfs, or 16 bytes.
+int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv);
 
 } // namespace nvfuser::ir_utils
