@@ -2773,6 +2773,7 @@ class ScanOp : public Expr {
       BinaryOpType op_type,
       TensorView* output_inclusive,
       TensorView* output_exclusive,
+      TensorView* output_reduction,
       TensorView* input,
       Val* discount_factor,
       Val* init,
@@ -2794,7 +2795,18 @@ class ScanOp : public Expr {
 
   //! Returns the exclusive scan output if available, otherwise nullptr
   TensorView* outExclusive() const {
-    return outputs().size() == 2 ? output(1)->as<TensorView>() : nullptr;
+    if (!hasExclusive()) {
+      return nullptr;
+    }
+    return output(1)->as<TensorView>();
+  }
+
+  //! Returns the exclusive scan output if available, otherwise nullptr
+  TensorView* outReduction() const {
+    if (!hasReduction()) {
+      return nullptr;
+    }
+    return output(hasExclusive() ? 2 : 1)->as<TensorView>();
   }
 
   TensorView* in() const {
@@ -2813,8 +2825,16 @@ class ScanOp : public Expr {
     return attribute<int64_t>(1);
   }
 
+  bool hasExclusive() const {
+    return attribute<bool>(2);
+  }
+
+  bool hasReduction() const {
+    return attribute<bool>(3);
+  }
+
   Val* init() const {
-    return attributeVal(2);
+    return attributeVal(4);
   }
 
   std::vector<PolymorphicValue> evaluate(

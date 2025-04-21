@@ -2302,13 +2302,23 @@ ScanResult scan(
     result.exclusive = ops::newOutputTV({result.inclusive}, tv->dtype());
   }
 
-  NVF_ERROR(!return_reduction);
+  if (return_reduction) {
+    red_dom = ops::newOutputDomain({tv});
+    red_dom.at((size_t)dim) = IterDomainBuilder(red_dom.at((size_t)dim))
+                                  .iter_type(IterType::Reduction)
+                                  .build();
+    auto* red_td = IrBuilder::create<TensorDomain>(
+        red_dom, TensorDomain::getContiguityFilledWith(red_dom, true));
+
+    result.reduction = IrBuilder::create<TensorView>(red_td, tv->dtype());
+  }
 
   IrBuilder::createInContainer<ScanOp>(
       tv->container(),
       op_type,
       result.inclusive,
       result.exclusive,
+      result.reduction,
       tv,
       discount_factor,
       init,

@@ -5524,6 +5524,7 @@ ScanOp::ScanOp(
     BinaryOpType op_type,
     TensorView* output_inclusive,
     TensorView* output_exclusive,
+    TensorView* output_reduction,
     TensorView* input,
     Val* discount_factor,
     Val* init,
@@ -5533,21 +5534,30 @@ ScanOp::ScanOp(
   if (output_exclusive != nullptr) {
     addOutput(output_exclusive);
   }
+  if (output_reduction != nullptr) {
+    addOutput(output_reduction);
+  }
   addInput(input);
   if (discount_factor != nullptr) {
     addInput(discount_factor);
   }
   addDataAttribute(op_type);
   addDataAttribute(dim);
+  addDataAttribute(output_exclusive != nullptr);
+  addDataAttribute(output_reduction != nullptr);
   addAttribute(init);
 }
 
 std::string ScanOp::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << out()->toString();
-  if (outExclusive() != nullptr) {
+  if (hasExclusive()) {
     ss << ",\n";
     indent(ss, indent_size) << outExclusive()->toString();
+  }
+  if (hasReduction()) {
+    ss << ",\n";
+    indent(ss, indent_size) << outReduction()->toString();
   }
   ss << "\n";
   indent(ss, indent_size + 1) << " = scan(" << opType() << ",\n";
