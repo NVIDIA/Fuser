@@ -481,10 +481,6 @@ class MoveRepeatForward {
 
 void MoveRepeatForwardPass::runPass(Fusion* fusion) {
   FusionGuard fg(fusion);
-  std::cout << std::endl;
-  std::cerr << "Before moveRepeat\n";
-  fusion->print();
-  std::cout << std::endl;
   MoveRepeatForward(fusion).run();
 }
 

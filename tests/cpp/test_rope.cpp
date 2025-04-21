@@ -1787,7 +1787,7 @@ TEST_F(RopeTest, MoveRepeatBeyondSlice) {
         uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
       auto repeated_id = uop->out()->as<TensorView>()->getLogicalDomain().at(0);
       EXPECT_EQ(
-          repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0) * 2);
+          repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0));
     }
   }
 }
@@ -1918,7 +1918,7 @@ TEST_F(RopeTest, MoveRepeatBeyondRotation) {
         uop != nullptr && uop->getUnaryOpType() == UnaryOpType::Sin) {
       auto repeated_id = uop->out()->as<TensorView>()->getLogicalDomain().at(0);
       EXPECT_EQ(
-          repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0) * 2);
+          repeated_id->extent()->evaluate().as<int64_t>(), shape1.at(0));
     }
   }
 }
