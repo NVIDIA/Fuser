@@ -330,7 +330,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   for (auto& input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
-  
+
   // If all output buffers are known already, pass them to the executor
   for (auto& output : launch_kernel->outputs()) {
     if (expr_evaluator_.isKnown(output)) {
@@ -346,11 +346,11 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // run the compiled kernel
   outputs = container_->getKernelExecutor(launch_kernel->getIndex())
-              ->run(
-                  args,
-                  outputs,
-                  launch_kernel->launch_params(),
-                  launch_kernel->compile_params());
+                ->run(
+                    args,
+                    outputs,
+                    launch_kernel->launch_params(),
+                    launch_kernel->compile_params());
 
   if (!preallocated_outputs) {
     // Store the outputs in the context
@@ -670,8 +670,11 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {
   TensorView* tv = deallocate->allocation()->buffer()->as<TensorView>();
-  NVF_ERROR(expr_evaluator_.isKnown(tv), "Tried to free buffer associated with unknown TensorView", tv);
-  expr_evaluator_.invalidate(tv);
+  NVF_ERROR(
+      expr_evaluator_.isKnown(tv),
+      "Tried to free buffer associated with unknown TensorView",
+      tv);
+  invalidate(tv);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {

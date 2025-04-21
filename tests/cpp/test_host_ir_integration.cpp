@@ -125,8 +125,8 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
   for (int i = 0; i < 10; i++) {
     TensorView* tv = makeConcreteTensor(sizes);
     tv->setMemoryType(MemoryType::Global);
-    auto *allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-    auto *deallocate = IrBuilder::create<Deallocate>(allocate);
+    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+    auto* deallocate = IrBuilder::create<Deallocate>(allocate);
 
     hic->pushBackTopLevelExprs(allocate);
     hic->pushBackTopLevelExprs(deallocate);

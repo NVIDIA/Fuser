@@ -158,9 +158,7 @@ class LaunchKernel : public Expr {
 class Deallocate : public Expr {
  public:
   using Expr::Expr;
-  Deallocate(
-      IrBuilderPasskey passkey,
-      kir::Allocate* allocate);
+  Deallocate(IrBuilderPasskey passkey, kir::Allocate* allocate);
 
   Deallocate(const Deallocate& other) = delete;
   Deallocate& operator=(const Deallocate& other) = delete;
