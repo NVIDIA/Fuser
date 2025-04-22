@@ -7,6 +7,7 @@ import os
 import multiprocessing
 import subprocess
 import sys
+import shutil
 from dataclasses import dataclass
 import setuptools.command.build_ext
 
@@ -269,7 +270,7 @@ def override_build_config_from_env(config):
     if "NVFUSER_BUILD_INSTALL_REQUIRES" in os.environ:
         config.install_requires = os.getenv("NVFUSER_BUILD_INSTALL_REQUIRES").split(",")
     if "NVFUSER_BUILD_EXTRAS_REQUIRE" in os.environ:
-        config.extras_require = eval(os.getenv("NVFUSER_BUILD_EXTRA_REQUIRE"))
+        config.extras_require = eval(os.getenv("NVFUSER_BUILD_EXTRAS_REQUIRE"))
     if "NVFUSER_BUILD_CPP_STANDARD" in os.environ:
         config.cpp_standard = int(os.getenv("NVFUSER_BUILD_CPP_STANDARD"))
     if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
@@ -482,3 +483,33 @@ def cmake(config, *, relative_path):
             max_jobs,
         ]
         subprocess.check_call(cmd_str)
+
+
+def create_clean(relative_path):
+    class clean(setuptools.Command):
+        user_options = []
+
+        def initialize_options(self):
+            pass
+
+        def finalize_options(self):
+            pass
+
+        def run(self):
+            import glob
+
+            gitignore_path = os.path.join(relative_path, ".gitignore")
+            assert os.path.exists(gitignore_path)
+            with open(gitignore_path, "r") as f:
+                ignores = f.read()
+                for entry in ignores.split("\n"):
+                    # ignore comment in .gitignore
+                    if len(entry) >= 1 and entry[0] != "#":
+                        for filename in glob.glob(entry):
+                            print("removing: ", filename)
+                            try:
+                                os.remove(filename)
+                            except OSError:
+                                shutil.rmtree(filename, ignore_errors=True)
+
+    return clean

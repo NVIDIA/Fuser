@@ -64,11 +64,7 @@
 #     Specify the C++ standard to use for building nvfuser. The default is C++20.
 #
 
-import os
 import sys
-import shutil
-
-import setuptools
 from setuptools import Extension, setup, find_packages
 
 from utils import (
@@ -78,6 +74,7 @@ from utils import (
     version_tag,
     build_whl,
     build_ext,
+    create_clean,
 )
 
 # Parse arguments using argparse
@@ -95,31 +92,6 @@ if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")
 
 sys.argv = [sys.argv[0]] + forward_args
-
-
-class clean(setuptools.Command):
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        import glob
-
-        with open("../.gitignore", "r") as f:
-            ignores = f.read()
-            for entry in ignores.split("\n"):
-                # ignore comment in .gitignore
-                if len(entry) >= 1 and entry[0] != "#":
-                    for filename in glob.glob(entry):
-                        print("removing: ", filename)
-                        try:
-                            os.remove(filename)
-                        except OSError:
-                            shutil.rmtree(filename, ignore_errors=True)
 
 
 def main():
@@ -170,7 +142,7 @@ def main():
             cmdclass={
                 "bdist_wheel": build_whl,
                 "build_ext": build_ext,
-                "clean": clean,
+                "clean": create_clean(relative_path=".."),
             },
             package_data={
                 "nvfuser": nvfuser_package_data,

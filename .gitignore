@@ -4,6 +4,11 @@ bin
 # cmake build directory
 build
 .lintbin
+nvfuser/version.py
+nvfuser/include
+nvfuser/lib
+nvfuser/share
+nvfuser/cmake
 
 # pip wheel directory
 dist

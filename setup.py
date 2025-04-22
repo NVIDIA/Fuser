@@ -66,12 +66,8 @@
 # TODO Remove tools/gen_nvfuser_version.py symbolic link to python/tools/gen_nvfuser_version.py
 # TODO Remove tools/memory.py symbolic link to python/tools/memory.py
 
-import os
-import shutil
 import sys
 
-import setuptools
-import setuptools.command.build_ext
 from setuptools import Extension, setup, find_packages
 
 from python.utils import (
@@ -79,6 +75,7 @@ from python.utils import (
     cmake,
     build_whl,
     build_ext,
+    create_clean,
 )
 
 # Parse arguments using argparse
@@ -92,31 +89,6 @@ if config.cpp_standard < 20:
     raise ValueError("nvfuser requires C++20 standard or higher")
 
 sys.argv = [sys.argv[0]] + forward_args
-
-
-class clean(setuptools.Command):
-    user_options = []
-
-    def initialize_options(self):
-        pass
-
-    def finalize_options(self):
-        pass
-
-    def run(self):
-        import glob
-
-        with open(".gitignore", "r") as f:
-            ignores = f.read()
-            for entry in ignores.split("\n"):
-                # ignore comment in .gitignore
-                if len(entry) >= 1 and entry[0] != "#":
-                    for filename in glob.glob(entry):
-                        print("removing: ", filename)
-                        try:
-                            os.remove(filename)
-                        except OSError:
-                            shutil.rmtree(filename, ignore_errors=True)
 
 
 def version_tag(config):
@@ -179,7 +151,7 @@ def main():
             cmdclass={
                 "bdist_wheel": build_whl,
                 "build_ext": build_ext,
-                "clean": clean,
+                "clean": create_clean(relative_path="."),
             },
             package_data={
                 "nvfuser": nvfuser_package_data,
