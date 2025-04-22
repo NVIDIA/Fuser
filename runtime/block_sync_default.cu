@@ -25,6 +25,7 @@ namespace block_sync {
 __forceinline__ __device__ void init() {}
 
 // Thread-block synchronization
+// barrier 0 is reserved for the default block synchronization
 template <bool aligned, typename BlockDimT>
 __forceinline__ __device__ void sync(
     BlockDimT block_dim,

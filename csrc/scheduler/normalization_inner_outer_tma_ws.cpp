@@ -33,22 +33,19 @@ void getHeuristics(
   const int64_t device_multiprocessor_count =
       (int64_t)dev_prop->multiProcessorCount;
   // Parameters for inner reduction:
-  // Reduction dim: inner_vect, inner_batch, bdimx and bdimy
+  // Reduction dim: inner_vect, inner_batch, and bdimx
   // Iteration dim: gdimy
 
   // Parameters for outer reduction:
-  // Reduction dim: bdimy
+  // Reduction dim: serial
   // Iteration dim: vectorization_factor_outer, bdimx, gdimy
   struct InnerOuterParams {
     int64_t inner_vect = -1;
     int64_t inner_batch = -1;
-    int64_t bdimx = -1;
-    int64_t bdimy = -1;
-    int64_t bdimz = -1;
     int64_t gdimy = -1;
     int64_t tmp_gmem_write_vect = -1;
     int64_t vectorization_factor_outer = -1;
-    int64_t threads_per_block = -1;
+    int64_t bdimx = -1;
     // derived metrics for sorting
     int64_t warps_per_sm = -1;
     int64_t required_register_per_thread = -1;
@@ -57,8 +54,6 @@ void getHeuristics(
     void verify() {
       NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
       NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
-      NVF_ERROR(bdimx != -1, "bdimx is not set.");
-      NVF_ERROR(bdimy != -1, "bdimy is not set.");
       NVF_ERROR(gdimy != -1, "gdimy is not set.");
       NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
       NVF_ERROR(
@@ -68,12 +63,10 @@ void getHeuristics(
     std::string toString() const {
       std::stringstream ss;
       ss << "inner_vect: " << inner_vect << ", inner_batch: " << inner_batch
-         << ", bdimx: " << bdimx << ", bdimy: " << bdimy << ", bdimz: " << bdimz
          << ", gdimy: " << gdimy
          << ", tmp_gmem_write_vect: " << tmp_gmem_write_vect
          << ", vectorization_factor_outer: " << vectorization_factor_outer
-         << ", threads_per_block: " << threads_per_block
-         << ", warps_per_sm: " << warps_per_sm
+         << ", bdimx: " << bdimx << ", warps_per_sm: " << warps_per_sm
          << ", required_register_per_thread: " << required_register_per_thread
          << ", available_register_per_thread: "
          << available_register_per_thread;
@@ -114,29 +107,26 @@ void getHeuristics(
     return std::make_pair(tmp_gmem_write_vect, vectorization_factor_outer);
   };
 
-  // Get the heuristics given vectorization factor and threads per block
+  // Get the heuristics given vectorization factor and bdimx.
   auto get_heuristics_given_vect_threads = [&](int64_t vect_factor,
-                                               int64_t threads_per_block) {
+                                               int64_t bdimx) {
     InnerOuterParams iop;
     // (1) inner reduction
-    // Reduction dim: inner_batch, threads_per_block, vect_factor
+    // Reduction dim: inner_batch, bdimx, vect_factor
     // Iteration dim: gdimy
     iop.inner_vect = vect_factor;
-    iop.threads_per_block = threads_per_block;
-    iop.inner_batch =
-        ceilDiv(inner_dim_numel / iop.inner_vect, iop.threads_per_block);
+    iop.bdimx = bdimx;
+    iop.inner_batch = ceilDiv(inner_dim_numel / iop.inner_vect, iop.bdimx);
     iop.gdimy = device_multiprocessor_count;
 
     // (2) outer reduction
     // Iteration dim: gdimy, bdimx, vectorization_factor_outer
-    // Reduction dim: bdimy
+    // Reduction dim: serial
     std::tie(iop.tmp_gmem_write_vect, iop.vectorization_factor_outer) =
         get_outer_reduction_buffer_vect_factor(iop.inner_vect);
-    iop.bdimx = threads_per_block;
-    iop.bdimy = 1;
     // (3) Derived metrics warps_per_sm and register usage for sorting
-    iop.warps_per_sm = ceilDiv(iop.threads_per_block, dev_prop->warpSize) *
-        iop.gdimy / device_multiprocessor_count;
+    iop.warps_per_sm = ceilDiv(iop.bdimx, dev_prop->warpSize) * iop.gdimy /
+        device_multiprocessor_count;
     iop.available_register_per_thread =
         getRegPerThreadGivenThreadsPerSM(dev_prop->warpSize * iop.warps_per_sm);
     iop.required_register_per_thread =
@@ -147,18 +137,18 @@ void getHeuristics(
   // Use the maximum vectorization factor
   const int64_t vect_factor = (int64_t)vectorize_factor;
 
-  // Set threads per block, will be revised in heuristics tuning.
+  // Set bdimx, will be revised in heuristics tuning.
+  // bdimy is reserved for warp specialization
+  // bdimz is not used
   const int64_t max_persistent_batch = 10L;
   const int64_t after_vect = inner_dim_numel / vect_factor;
-  int64_t threads_per_block = std::min(128L, after_vect);
-  threads_per_block =
-      std::max(threads_per_block, ceilDiv(after_vect, max_persistent_batch));
-  threads_per_block = scheduler_utils::roundUpToN(threads_per_block, 128L);
+  int64_t bdimx = std::min(128L, after_vect);
+  bdimx = std::max(bdimx, ceilDiv(after_vect, max_persistent_batch));
+  bdimx = scheduler_utils::roundUpToN(bdimx, 128L);
 
-  auto iop = get_heuristics_given_vect_threads(vect_factor, threads_per_block);
+  auto iop = get_heuristics_given_vect_threads(vect_factor, bdimx);
   rparams->combined_split_grid_inner_dim =
-      iop.vectorization_factor_outer * iop.threads_per_block * iop.gdimy <
-      inner_dim_numel;
+      iop.vectorization_factor_outer * iop.bdimx * iop.gdimy < inner_dim_numel;
 
   // check all the parameters in InnerOuterParams are set.
   iop.verify();
@@ -208,7 +198,7 @@ void getHeuristics(
       LaunchParams::UNINITIALIZED_VAL,
       iop.gdimy,
       LaunchParams::UNINITIALIZED_VAL,
-      iop.threads_per_block,
+      iop.bdimx,
       LaunchParams::UNINITIALIZED_VAL,
       LaunchParams::UNINITIALIZED_VAL);
 
@@ -229,8 +219,7 @@ void getHeuristics(
             << "multiple_reds_per_blk: " << rparams->multiple_reds_per_blk
             << "\n"
             << "warps_per_sm: " << iop.warps_per_sm << "\n"
-            << "gdimy: " << iop.gdimy << "\n"
-            << "block(" << (iop.bdimx) << ", " << iop.bdimy << ", " << 1 << ")";
+            << "gdimy: " << iop.gdimy << "\n";
     debug() << rparams->toString() << std::endl;
   }
 }
