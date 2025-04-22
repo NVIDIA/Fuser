@@ -604,15 +604,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     for (auto tv : tma_load_tvs) {
       if (tv->getComputeAtPosition() > 0) {
         tv->circularBuffer(
-            number_of_stages,
-            prefetch_distance,
-            circular_buffer_type);
+            number_of_stages, prefetch_distance, circular_buffer_type);
       }
-    }    
+    }
   } else {
     inlineMost();
   }
-
 }
 } // namespace inner_outer_tma_warp_specialized
 } // namespace nvfuser
