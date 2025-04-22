@@ -136,7 +136,7 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
 
   hie.runWithInput({});
 
-  EXPECT_LE(memoryAllocated(device_index), 0);
+  EXPECT_EQ(memoryAllocated(device_index), 0);
 }
 
 } // namespace hir
