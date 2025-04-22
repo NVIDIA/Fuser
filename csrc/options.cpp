@@ -261,15 +261,19 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
 
 namespace {
 
-// making options thread_local to avoid race condition.
+// Note: Make options thread_local.
+// We want the behavior that new threads would inherit options from the *base*
+// threads. We need to figure out how to automatically do that before switching
+// to thread_local. For now we are using mutex to guard option access, which is
+// necessary to avoid data racing.
 
-thread_local DebugDumpOptions active_dump_options;
+DebugDumpOptions active_dump_options;
 
-thread_local EnableOptions active_enable_options;
+EnableOptions active_enable_options;
 
-thread_local DisableOptions active_disable_options;
+DisableOptions active_disable_options;
 
-thread_local ProfilerOptions active_profiler_options;
+ProfilerOptions active_profiler_options;
 
 } // namespace
 

@@ -181,15 +181,18 @@ class Options {
   Options() : options_(getOptionsFromEnv()) {}
 
   bool has(OptionEnum option) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.count(option);
   }
 
   bool hasAny() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return !options_.empty();
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
     NVF_ERROR(has(option), "Option not set");
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.at(option);
   }
 
@@ -202,10 +205,12 @@ class Options {
   }
 
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_[option_type] = option;
   }
 
   void unset(OptionEnum option_type) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_.erase(option_type);
   }
 
@@ -214,6 +219,7 @@ class Options {
 
  protected:
   std::unordered_map<OptionEnum, std::vector<std::string>> options_;
+  std::mutex mutex_;
 };
 
 //! Utility class to temporarily overrride the Enable options,
