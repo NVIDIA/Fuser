@@ -471,16 +471,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return nullptr;
     }
 
-    // Only add short-circuit predicate for warp specialized circular buffering
-    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
-        GpuLower::current()
-            ->circularBufferInfo()
-            .getCircularBufferOptionsFor(outer_loop->iter_domain())
-            .type);
-    if (!use_warp_specialization) {
-      return nullptr;
-    }
-
     // lhs := (outer_fl->index() * inner_fl->stop() + inner_fl->index())
     Val* lhs =
         SimplifyingIrBuilder::mulExpr(outer_loop->index(), inner_loop->stop());
