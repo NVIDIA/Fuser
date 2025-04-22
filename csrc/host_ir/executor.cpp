@@ -335,7 +335,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   bool preallocated_outputs = true;
   for (Val* output : launch_kernel->outputs()) {
     if (isKnown(output)) {
-      outputs.push(expr_evaluator_.evaluate(output));
+      outputs.push(getKnownConcreteValue(output));
     } else {
       outputs = {};
       preallocated_outputs = false;
