@@ -290,7 +290,7 @@ TEST_F(TMemTestCompileOnly, SetTMemDimSepPosNonTMem) {
 // But in the TMem load/store's loop domain, Ix (the ID parallelized on TIDx)
 // have extent 32. Then we will generate code like:
 //   if (threadIdx.x < 32) {
-//     tmem::load
+//     tcgen05::load
 //   }
 // For threadIdx.y == 0, it is correct. But for threadIdx.y == 1, it is wrong
 // because we are using the thread id 33-65 for the load, which is not a warp.
@@ -342,7 +342,7 @@ TEST_F(TMemTestCompileOnly, WrongStride) {
 // map is [TIDy, TIDx] = [2, 33], but in the TMem load/store's loop domain,
 // we have Iy{1}, Ix{32}. the generated code will be like:
 //   if (threadIdx.x < 32 && threadIdx.y < 1) {
-//     tmem::load
+//     tcgen05::load
 //   }
 // This is valid because we are using a whole warp for the load.
 TEST_F(TMemTest, InexactParallelType) {
