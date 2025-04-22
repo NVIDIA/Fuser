@@ -334,7 +334,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder outputs;
   bool preallocated_outputs = true;
   for (Val* output : launch_kernel->outputs()) {
-    if (expr_evaluator_.isKnown(output)) {
+    if (isKnown(output)) {
       outputs.push(expr_evaluator_.evaluate(output));
     } else {
       outputs = {};
@@ -652,7 +652,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
   TensorView* tv = allocate->buffer()->as<TensorView>();
-  if (expr_evaluator_.isKnown(tv)) {
+  if (isKnown(tv)) {
     return;
   }
   GlobalBufferInfo info =
