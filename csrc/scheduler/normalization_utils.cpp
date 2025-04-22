@@ -616,7 +616,7 @@ bool isReductionIterationAxisMatched(
   // vector of bool.
   auto reference_tv = inner_reduction_tvs[0];
   std::vector<bool> is_reduction(reference_tv->nDims(), false);
-  for (const auto i : c10::irange(reference_tv->nDims())) {
+  for (const auto i : arange(reference_tv->nDims())) {
     auto id = reference_tv->axis(i);
     NVF_CHECK(
         id->getIterType() == IterType::Iteration ||
@@ -629,9 +629,9 @@ bool isReductionIterationAxisMatched(
   }
   // check other inner reduction tvs, the corresponding axis should be
   // reduction.
-  for (auto i : c10::irange(1, inner_reduction_tvs.size())) {
+  for (auto i : arange(1, inner_reduction_tvs.size())) {
     auto tv = inner_reduction_tvs[i];
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
@@ -646,7 +646,7 @@ bool isReductionIterationAxisMatched(
   }
   // check outer reduction tvs, the corresponding axis should be iteration.
   for (auto tv : outer_reduction_tvs) {
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto id = tv->axis(i);
       NVF_CHECK(
           id->getIterType() == IterType::Iteration ||
@@ -1113,7 +1113,7 @@ bool checkReductionPattern(
   // Helper function to check the pattern equivalence for a list of
   // TensorViews
   auto checkPattern = [&](const std::vector<TensorView*>& rtvs) -> bool {
-    for (const auto it : c10::irange(1, rtvs.size())) {
+    for (const auto it : arange(1, rtvs.size())) {
       if (!registry_utils::checkPatternEquivalence(
               rtvs[it - 1], rtvs[it], logical_map)) {
         scheduler_debug_utils::canScheduleRejectReason(
@@ -1319,11 +1319,15 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      // When loading from global memory (gmem), use CpAsync with a short data
-      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
-      // data path from gmem to shared memory (smem) follows this sequence: gmem
-      // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
+      // Use 1D TMA, CpAsyncBulk
+      if (rparams->tma_warp_specialized && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulk);
+      } else if (supportCpAsync(tv) && is_cached_input) {
+        // When loading from global memory (gmem), use CpAsync with a short data
+        // path of gmem -> smem to reduce temporary register usage. Otherwise,
+        // the data path from gmem to shared memory (smem) follows this
+        // sequence: gmem -> L1 cache -> register -> smem.
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);

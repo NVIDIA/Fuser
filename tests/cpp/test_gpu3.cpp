@@ -773,7 +773,7 @@ TEST_F(NVFuserTest, FusionIssue1430_CUDA) {
 
   for (auto tv : fusion.allTvs()) {
     if (tv != tv1 || tv != tv3) {
-      for (auto i : c10::irange(tv->nDims())) {
+      for (auto i : arange(tv->nDims())) {
         if (isParallelTypeVectorize(tv->axis(i)->getParallelType())) {
           tv->axis(i)->parallelize(ParallelType::Serial);
         }
@@ -1992,7 +1992,7 @@ TEST_F(NVFuserTest, FusionPropagateParallelTypesToSiblings_CUDA) {
           ref->nDims() == sibling->nDims(),
           "Invalid sibling: ",
           sibling->toString());
-      for (const auto i : c10::irange(ref->nDims())) {
+      for (const auto i : arange(ref->nDims())) {
         NVF_CHECK(
             ref->axis(i)->getParallelType() ==
                 sibling->axis(i)->getParallelType(),
@@ -3388,6 +3388,8 @@ TEST_F(NVFuserTest, FusionIssueRepro1844_CUDA) {
 }
 
 TEST_F(NVFuserTest, FusionInsertMagicZero1_CUDA) {
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -3432,7 +3434,7 @@ TEST_F(NVFuserTest, FusionExpandRepro1860_CUDA) {
   fusion.addInput(tv2);
 
   std::vector<IterDomain*> domain1(3, nullptr);
-  for (const auto i : c10::irange(3)) {
+  for (const auto i : arange(3)) {
     if (i == 0) {
       domain1[i] = IterDomainBuilder(
                        FusionGuard::getCurFusion()->zeroVal(),
@@ -3870,48 +3872,6 @@ TEST_F(NVFuserTest, FusionMergeBroadcastingTrivialReduction1_CUDA) {
 
   testValidate(
       fusion, cg_outputs, {t0, t1}, {t1 + t0.flatten()}, __LINE__, __FILE__);
-}
-
-TEST_F(NVFuserTest, FusionMappingRelation_CUDA) {
-  // See https://github.com/csarofeen/pytorch/pull/1960
-  // and https://github.com/csarofeen/pytorch/pull/2113
-  std::unique_ptr<Fusion> fusion_ptr = std::make_unique<Fusion>();
-  auto fusion = fusion_ptr.get();
-  FusionGuard fg(fusion);
-
-  TensorView* tv0 = makeConcreteTensor({1, 1});
-  TensorView* tv1 = makeConcreteTensor({-1, 1, 1});
-  fusion->addInput(tv0);
-  fusion->addInput(tv1);
-  auto tv2 = set(tv0);
-  auto tv3 = broadcast(tv2, {true, false, false});
-  auto tv4 = add(tv3, tv1);
-
-  fusion->addOutput(tv4);
-
-  tv4->merge(-2);
-  tv4->merge(-2);
-
-  tv0->computeAt(tv4, -1);
-  tv1->computeAt(tv4, -1);
-
-  ComputeAtMap ca_map(fusion);
-
-  auto tv4_inner_node = tv4->axis(0)->definition()->input(1)->as<IterDomain>();
-  NVF_CHECK(
-      ca_map.areMapped(tv2->axis(0), tv4_inner_node, IdMappingMode::EXACT));
-  NVF_CHECK(ca_map.areMapped(
-      tv2->axis(0), tv4_inner_node, IdMappingMode::PERMISSIVE));
-
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({1, 1}, options);
-  at::Tensor t1 = at::randn({2, 1, 1}, options);
-
-  KernelExecutor ke;
-  ke.compile(fusion, {t0, t1});
-  auto cg_outputs = ke.run({t0, t1});
-
-  testValidate(fusion, cg_outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 TEST_F(NVFuserTest, FusionInlineAt_CUDA) {
@@ -8409,7 +8369,7 @@ TEST_F(NVFuserTest, MoveNonConcretizedBroadcastInPointwise) {
   // tv2 and tv3 have non-concretized broadcasts. Make sure they are
   // moved to the innermost position of the loop domain
   for (auto tv : {tv2, tv3}) {
-    for (const auto i : c10::irange(2)) {
+    for (const auto i : arange(2)) {
       auto broadcast_domain = tv->getLogicalDomain().at(i);
       ASSERT_TRUE(broadcast_domain->isBroadcast());
       EXPECT_EQ(

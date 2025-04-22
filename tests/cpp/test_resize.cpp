@@ -814,7 +814,7 @@ TEST_F(ResizeTest, Cat7) {
     FusionGuard fg(&fusion);
 
     std::vector<TensorView*> inputs;
-    for (const auto i : c10::irange(num_tensors_to_concat)) {
+    for (const auto i : arange(num_tensors_to_concat)) {
       (void)i;
       // concrete shapes to avoid dynamic Fusion
       auto shape = base_shape;
@@ -842,7 +842,7 @@ TEST_F(ResizeTest, Cat7) {
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
 
     KernelArgumentHolder aten_inputs;
-    for (const auto i : c10::irange(num_tensors_to_concat)) {
+    for (const auto i : arange(num_tensors_to_concat)) {
       auto shape = base_shape;
       shape[concat_dim] = 10 + (i % 5);
       aten_inputs.push(at::randn(shape, options));
@@ -2372,7 +2372,7 @@ TEST_F(ResizeTest, ResizePadToBroadcastStatic) {
                      ->definition()
                      ->inputs()[1]
                      ->as<TensorView>();
-  for (auto i : c10::irange(expected_itertypes.size())) {
+  for (auto i : arange(expected_itertypes.size())) {
     EXPECT_EQ(conc_t2->axis(i)->getIterType(), expected_itertypes.at(i));
   }
 
@@ -2989,7 +2989,7 @@ TEST_F(ResizeTest, SliceAndReshapeRepro540Manual) {
   ke.compile(&fusion, {t0});
   auto cg_outputs = ke.run({t0});
 
-  for (const auto i : c10::irange(3)) {
+  for (const auto i : arange(3)) {
     auto slice_out_ref = t0.index(
         {at::indexing::Slice(0, at::indexing::None),
          at::indexing::Slice(0, at::indexing::None),
@@ -5949,7 +5949,7 @@ TEST_F(ResizeTest, AvoidCachingSliceInput) {
   auto kernel_runtime = executor_cache.getMostRecentKernelRuntime();
   const auto num_segments = kernel_runtime->fusionSegments()->groups().size();
   EXPECT_EQ(num_segments, 3) << "Expect 3 segments, got: " << num_segments;
-  for (const auto i : c10::irange(kernel_runtime->executors().size())) {
+  for (const auto i : arange(kernel_runtime->executors().size())) {
     const auto& exec = kernel_runtime->executors().at(i);
     if (!exec->isA<KernelExecutor>()) {
       continue;
@@ -6003,6 +6003,41 @@ TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
   EXPECT_EQ(
       tv6->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
   EXPECT_EQ(tv6->getLoopDomain().back()->extent()->evaluate(), 2);
+}
+
+// Repro of issue #4202
+TEST_F(ResizeTest, PropagateResizeThroughMultiplePaths) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const int64_t size = 16;
+  auto tv0 = makeContigConcreteTensor({size});
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor({size});
+  fusion.addInput(tv1);
+
+  auto tv2 = full(
+      {IrBuilder::create<Val>(size)},
+      fusion.zeroVal(DataType::Float),
+      DataType::Float);
+
+  auto tv3 = add(sin(tv0), tv2);
+  auto tv4 = pad(tv3, {IrBuilder::create<Val>(size), fusion.zeroVal()});
+
+  auto tv5 = add(sin(tv1), tv2);
+  auto tv6 = pad(tv5, {fusion.zeroVal(), IrBuilder::create<Val>(size)});
+
+  auto tv7 = add(tv4, tv6);
+
+  fusion.addOutput(tv7);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({size}, options);
+  auto t1 = at::randn({size}, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0, t1});
+  testValidate(&fusion, outputs.outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser

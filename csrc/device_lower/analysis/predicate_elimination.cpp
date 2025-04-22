@@ -18,8 +18,6 @@
 #include <predicate_compute.h>
 #include <transform_iter.h>
 #include <transform_replay.h>
-#include "id_model/utils.h"
-#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
@@ -77,7 +75,7 @@ namespace {
 bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
   // TODO: This function can not find all the expressions in the compute
   // warp. For example, if we have:
-  //   if (load warp) {
+  //   if (async warp) {
   //     T1 = T0;
   //   } else {
   //     T2 = T1;
@@ -260,52 +258,7 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
             producer, consumer, /*consumer_compute_at_axis=*/-1, pairwise_map)
             .getReplay();
 
-    // The variables graph and alloc_to_loop_groups are used to check whether we
-    // need to check a particular consumer ID. The alloc_to_loop_groups set
-    // constaints ValGroups along a shortest path in the loop graph from
-    // non-trivial dimensions in the allocation domain of the producer to the
-    // consumer's loop domain. Other domains might exist in the loop domain of
-    // the consumer: for example, for MmaOp we sometimes do not map the N
-    // dimension of the output logical domain to any ID in the A operand. We
-    // use this set to avoid performing unnecessary checks on these types of
-    // irrelevant consumer IDs.
-    //
-    // NOTE: if graph is nullptr, it will be
-    // ignored. We only fill it for MmaOp for now in order to limit our changes
-    // to the only op that currently requires this analysis.
-    const ValGraph* graph = nullptr;
-    std::unordered_set<ValGroup> alloc_to_loop_groups;
-    if (consumer->definition()->isA<MmaOp>()) {
-      // Fill ValGraph and grab all ValGroups on path from producer alloc to
-      // consumer loop.
-
-      const IdModel& id_model = GpuLower::current()->idModel();
-      graph = &id_model.idGraph(TensorIndexer::traversalGraphType());
-
-      // We flow from the producer's allocation domain to the consumer's loop
-      // domain. Here we assume that producer->getMaybeAllocationDomain()
-      // returns the actual indexed IDs, which is not always the case in
-      // general. However, it is always the case for MmaOp.
-      std::vector<ValGroup> alloc_groups;
-      for (IterDomain* id : producer->getMaybeAllocationDomain()) {
-        if (!id->isBroadcast() && !id->isReduction()) {
-          alloc_groups.push_back(graph->toGroup(id));
-        }
-      }
-      std::vector<ValGroup> loop_groups;
-      for (IterDomain* id : consumer->getLoopDomain()) {
-        id = getLoopPromotion(id, id_model);
-        loop_groups.push_back(graph->toGroup(id));
-      }
-
-      std::vector<ValGroup> indexing_groups =
-          getValsBetween<ValGraphBFS>(alloc_groups, loop_groups, *graph);
-
-      alloc_to_loop_groups.insert(
-          indexing_groups.begin(), indexing_groups.end());
-    }
-    ProducerConsumerPairAnalyzer analyzer(
-        consumer, c2p, graph, alloc_to_loop_groups);
+    ProducerConsumerPairAnalyzer analyzer(consumer, c2p);
 
     for (auto id : consumer->getLoopDomain()) {
       if (analyzer.needsPredicate(id)) {
@@ -319,34 +272,18 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
  private:
   ProducerConsumerPairAnalyzer(
       TensorView* consumer,
-      const std::unordered_map<IterDomain*, IterDomain*>& c2p,
-      const ValGraph* graph,
-      const std::unordered_set<ValGroup> alloc_to_loop_groups)
-      : consumer_(consumer),
-        c2p_(c2p),
-        graph_(graph),
-        alloc_to_loop_groups_(alloc_to_loop_groups) {}
+      const std::unordered_map<IterDomain*, IterDomain*>& c2p)
+      : consumer_(consumer), c2p_(c2p) {}
 
   // Returns true if no out-of-bound accesses could occur with a
   // producer
   bool needsPredicate(IterDomain* consumer_id) {
-    // Check that this consumer_id is actually involved in indexing the
-    // producer. If it is not connected to the producer allocation domain in
-    // the indexing graph, then we can skip processing it.
-    if (graph_ != nullptr &&
-        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
-      return false;
-    }
     needs_predicate_ = false;
     handle(consumer_id);
     return needs_predicate_;
   }
 
   void handle(IterDomain* consumer_id) override {
-    if (graph_ != nullptr &&
-        alloc_to_loop_groups_.count(graph_->toGroup(consumer_id)) == 0) {
-      return;
-    }
     // The traversal should have ended if needs_predicate_ was true
     NVF_ERROR(!needs_predicate_);
 
@@ -433,8 +370,6 @@ class ProducerConsumerPairAnalyzer : public OptOutDispatch {
   //! BestEffort map from consumer IDs to producer IDs
   const std::unordered_map<IterDomain*, IterDomain*>& c2p_;
   bool needs_predicate_ = false;
-  const ValGraph* graph_ = nullptr;
-  const std::unordered_set<ValGroup> alloc_to_loop_groups_;
 };
 
 class PredicateChcker : public IterVisitor {
@@ -541,7 +476,7 @@ class PredicateChcker : public IterVisitor {
         "Was expecting matching number of inputs and outputs for expression: ",
         expr->toString());
 
-    for (auto i : c10::irange(tv_inputs.size())) {
+    for (auto i : arange(tv_inputs.size())) {
       const auto root_p2c =
           PairwiseLogicalDomainMap(tv_inputs[i], tv_outputs[i])
               .mapProducerToConsumer();
@@ -577,7 +512,7 @@ class PredicateChcker : public IterVisitor {
   //  lower index pass.
   std::vector<Val*> getZeroLoopIds(const TensorView* tv) const {
     std::vector<Val*> zero_loop_ids;
-    for (const auto i : c10::irange(tv->nDims())) {
+    for (const auto i : arange(tv->nDims())) {
       auto loop_id = tv->axis(i);
       if (ir_utils::isMemorySharedAcross(
               tv->getMemoryType(), loop_id->getParallelType())) {
@@ -750,7 +685,7 @@ class PredicateChcker : public IterVisitor {
 
   // Welford. See FusionPredicateElimination5.
   void handle(WelfordOp* wop) final {
-    for (const auto i : c10::irange(3)) {
+    for (const auto i : arange(3)) {
       auto init = wop->getInitVals()[i];
 
       // Welford input can be a scalar. Predicate is required unless
@@ -801,8 +736,7 @@ class PredicateChcker : public IterVisitor {
   }
 
   void handle(GroupedReductionOp* grouped_rop) final {
-    for (const auto i :
-         c10::irange(grouped_rop->numHorizontallyGroupedExprs())) {
+    for (const auto i : arange(grouped_rop->numHorizontallyGroupedExprs())) {
       auto input = grouped_rop->input(i)->as<TensorView>();
       auto input_def = input->definition();
       // When input_def is null, input must be an input to the fusion,
@@ -865,8 +799,8 @@ class PredicateChcker : public IterVisitor {
 
   void handle(GroupedWelfordOp* grouped_wop) final {
     for (const auto expr_idx :
-         c10::irange(grouped_wop->numHorizontallyGroupedExprs())) {
-      for (const auto val_idx : c10::irange(3)) {
+         arange(grouped_wop->numHorizontallyGroupedExprs())) {
+      for (const auto val_idx : arange(3)) {
         auto init = grouped_wop->initVals().at(expr_idx).get(val_idx);
 
         // Welford input can be a scalar. Predicate is required unless
@@ -1004,7 +938,7 @@ void PredicateElimination::dispatch(Expr* expr) {
 
   // Ensure all inputs have some values set at the out-of-bound
   // regions
-  for (const auto i : c10::irange(expr->inputs().size())) {
+  for (const auto i : arange(expr->inputs().size())) {
     auto input = dynamic_cast<TensorView*>(expr->inputs()[i]);
     if (input == nullptr) {
       continue;

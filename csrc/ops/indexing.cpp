@@ -16,7 +16,6 @@
 
 #include <c10/util/BFloat16.h>
 #include <c10/util/Half.h>
-#include <c10/util/irange.h>
 
 namespace nvfuser {
 
@@ -28,7 +27,7 @@ TensorView* select(TensorView* tv, int64_t dim, Val* index) {
   new_root.reserve(dom.size() - 1);
   dim = wrapDim(dim, (int64_t)dom.size());
 
-  for (auto i : c10::irange((int64_t)dom.size())) {
+  for (auto i : arange((int64_t)dom.size())) {
     if (i != dim) {
       new_root.emplace_back(dom[i]->cloneWithoutRFactor());
     }
@@ -79,7 +78,7 @@ TensorView* indexSelect(
   // create logical domain for output tensorview.
   std::vector<IterDomain*> new_logical;
   new_logical.reserve(n_dims);
-  for (auto i : c10::irange(n_dims)) {
+  for (auto i : arange(n_dims)) {
     if (i != dim) {
       new_logical.emplace_back(lookup_domain.at(i)->cloneWithoutRFactor());
     } else {
@@ -97,6 +96,44 @@ TensorView* indexSelect(
 
   // create index_select expression
   IrBuilder::create<IndexSelectOp>(out, lookup_tv, dim, index_tv);
+  return out;
+}
+
+// This is a restricted version of torch.index_put(..., accumulate=true)
+TensorView* indexPutAccumulate(
+    TensorView* acc_tv,
+    TensorView* index_tv,
+    TensorView* value_tv) {
+  DataType dtype = acc_tv->getDataType().value();
+  NVF_CHECK(
+      dtype != DataType::Null, "Invalid datatype provided for new value.");
+
+  // broadcast index_tv if applicable
+  if (index_tv->nDims() == 1) {
+    index_tv = unsqueeze(index_tv, -1);
+  }
+
+  std::vector<IterDomain*> acc_domain =
+      TensorDomain::noReductions(acc_tv->getLogicalDomain());
+  std::vector<IterDomain*> index_domain =
+      TensorDomain::noReductions(index_tv->getLogicalDomain());
+  std::vector<IterDomain*> value_domain =
+      TensorDomain::noReductions(value_tv->getLogicalDomain());
+
+  NVF_CHECK(acc_domain.size() == 2);
+  NVF_CHECK(index_domain.size() == 2);
+  NVF_CHECK(index_domain.at(1)->isBroadcast());
+  NVF_CHECK(value_domain.size() == 2);
+  // IndexPutAccumulateOp semantics
+  //
+  // Producers:
+  //     accumulate [ vocab, hidden ]
+  //     broadcast_index [ seq, broadcast ]
+  //     value [ seq, hidden ]
+  // Consumers:
+  //     output [ vocab, hidden ]
+  TensorView* out = ops::newValLike(acc_tv, dtype)->as<TensorView>();
+  IrBuilder::create<IndexPutAccumulateOp>(out, acc_tv, index_tv, value_tv);
   return out;
 }
 
@@ -151,7 +188,7 @@ TensorView* scatterOp(
 
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_domain;
-  for (const auto i : c10::irange(self_dom.size())) {
+  for (const auto i : arange(self_dom.size())) {
     out_domain.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
@@ -192,7 +229,7 @@ TensorView* takeAlongAxis(TensorView* inp, TensorView* index, int64_t dim) {
 
   std::vector<IterDomain*> out_domain(idx_domain.size());
 
-  for (const auto i : c10::irange(idx_domain.size())) {
+  for (const auto i : arange(idx_domain.size())) {
     auto inp_id = inp_domain.at(i);
     auto idx_id = idx_domain.at(i);
 

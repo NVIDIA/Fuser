@@ -37,7 +37,6 @@
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include <c10/util/irange.h>
 
 #include <cmath>
 #include <cstring>
@@ -596,7 +595,7 @@ void dumpFusionArgs(
     const KernelArgumentHolder& outputs) {
   debug() << "Arguments for fusion" << fusion_id << ":" << std::endl
           << "Inputs:" << std::endl;
-  for (auto i : c10::irange(args.size())) {
+  for (auto i : arange(args.size())) {
     debug() << "  " << args[i] << std::endl;
   }
   debug() << "Outputs:" << std::endl;
@@ -624,7 +623,7 @@ void dumpKernelArgs(
   debug() << "Arguments for fusion " << fusion_id << " group " << group_id
           << ":" << std::endl
           << "Inputs:" << std::endl;
-  for (auto i : c10::irange(num_inputs)) {
+  for (auto i : arange(num_inputs)) {
     debug() << "  " << toString(args[i]) << std::endl;
   }
   debug() << "Outputs:" << std::endl;
@@ -634,7 +633,7 @@ void dumpKernelArgs(
             << std::endl;
   }
   debug() << "Intermediate global buffers:" << std::endl;
-  for (const auto i : c10::irange(intermediates.size())) {
+  for (const auto i : arange(intermediates.size())) {
     const auto& zero_init = intermediates_info.at(i).zero_init;
     const auto& resets_to_zero = intermediates_info.at(i).resets_to_zero;
     debug() << "  " << PolymorphicValue_functions::toString(intermediates[i])
@@ -694,8 +693,7 @@ void KernelExecutor::initializeExecutorEntry(
       compiled_kernel_->kernel()->inputs().size(),
       " got: ",
       args.size());
-  for (auto inp_idx :
-       c10::irange(compiled_kernel_->kernel()->inputs().size())) {
+  for (auto inp_idx : arange(compiled_kernel_->kernel()->inputs().size())) {
     auto input = compiled_kernel_->kernel()->inputs()[inp_idx];
     if (auto input_tv = dynamic_cast<TensorView*>(input)) {
       auto at_tensor = args[inp_idx].as<at::Tensor>();
@@ -738,7 +736,7 @@ void KernelExecutor::initializeExecutorEntry(
     // Need to save the information necessary for allocations as
     // future uses of this KernelExecutorEntry may not be provided with
     // allocated outputs
-    for (auto output_idx : c10::irange(output_args.size())) {
+    for (auto output_idx : arange(output_args.size())) {
       NVF_ERROR(
           output_args[output_idx].hasValue() &&
               output_args[output_idx].is<at::Tensor>(),
@@ -957,7 +955,7 @@ KernelArgumentHolder KernelExecutor::resolveTMA(
   NVF_ERROR(
       entry.inputs.size() == compiled_kernel_->kernel()->inputs().size(),
       "Input size mismatch");
-  for (auto inp_idx : c10::irange(entry.inputs.size())) {
+  for (auto inp_idx : arange(entry.inputs.size())) {
     expr_eval.bind(
         compiled_kernel_->kernel()->inputs()[inp_idx], args[arg_idx++]);
   }
@@ -965,7 +963,7 @@ KernelArgumentHolder KernelExecutor::resolveTMA(
   NVF_ERROR(
       entry.outputs.size() == compiled_kernel_->kernel()->outputs().size(),
       "Output size mismatch");
-  for (auto out_idx : c10::irange(entry.outputs.size())) {
+  for (auto out_idx : arange(entry.outputs.size())) {
     expr_eval.bind(
         compiled_kernel_->kernel()->outputs()[out_idx], args[arg_idx++]);
   }
@@ -1077,7 +1075,7 @@ KernelArgumentHolder KernelExecutor::run(
       }
 
       for (const auto i :
-           c10::irange(compiled_kernel_->kernel()->outputs().size())) {
+           arange(compiled_kernel_->kernel()->outputs().size())) {
         auto param = compiled_kernel_->kernel()->outputs()[i];
         if (!param->isA<TensorView>()) {
           continue;
@@ -1111,7 +1109,7 @@ KernelArgumentHolder KernelExecutor::run(
     // This is simply because the convention used is that allocation
     // sizes/strides are optional, logical are not.
     for (const auto intermediate_i :
-         c10::irange(executor_entry->intermediates.size())) {
+         arange(executor_entry->intermediates.size())) {
       const auto& buf_info = executor_entry->intermediates.at(intermediate_i);
       bool has_expansion = false;
       std::vector<int64_t> unexpanded_sizes;
@@ -1119,8 +1117,7 @@ KernelArgumentHolder KernelExecutor::run(
       NVF_ERROR(
           buf_info.shape_info.logical_sizes.size() ==
           buf_info.shape_info.logical_strides.size())
-      for (const auto j :
-           c10::irange(buf_info.shape_info.logical_sizes.size())) {
+      for (const auto j : arange(buf_info.shape_info.logical_sizes.size())) {
         if (buf_info.shape_info.logical_strides[j] == 0) {
           has_expansion = true;
           unexpanded_sizes.push_back(1L);
@@ -1544,7 +1541,7 @@ void KernelExecutor::deserialize(
   compiled_kernel_->deserialize(buffer);
 
   // GlobalBufferInfo requires lowered kernel before deserialization
-  for (auto idx : c10::irange(buffer->executor_entry_lookup_keys()->size())) {
+  for (auto idx : arange(buffer->executor_entry_lookup_keys()->size())) {
     executor_entry_lookup_.emplace(
         buffer->executor_entry_lookup_keys()->Get(idx),
         deserialize(buffer->executor_entry_lookup_values()->Get(idx)));

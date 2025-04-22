@@ -428,6 +428,8 @@ static const char* unary_op_type2string(UnaryOpType t) {
       return "bit_cast";
     case UnaryOpType::Neg:
       return "neg";
+    case UnaryOpType::BitCeil:
+      return "bit_ceil";
     case UnaryOpType::LogicalNot:
       return "logical_not";
     case UnaryOpType::BitwiseNot:
@@ -1627,8 +1629,8 @@ std::ostream& operator<<(
     case CircularBufferLoopStage::Epilog:
       os << "{CircularBufferEpilog}";
       break;
-    case CircularBufferLoopStage::LoadWarp:
-      os << "{LoadWarp}";
+    case CircularBufferLoopStage::AsyncWarp:
+      os << "{AsyncWarp}";
       break;
     case CircularBufferLoopStage::ComputeWarp:
       os << "{ComputeWarp}";

@@ -9,8 +9,6 @@
 #include <ATen/cuda/CUDAGeneratorImpl.h>
 #include <ATen/native/cuda/jit_utils.h>
 
-#include <c10/util/irange.h>
-
 #include <contiguity.h>
 #include <debug.h>
 #include <device_lower/utils.h>
@@ -42,7 +40,7 @@ bool checkSameStride(const std::vector<at::Tensor>& tensors) {
   if (tensors.size() < 2) {
     return true;
   }
-  for (const auto idx : c10::irange(tensors.size() - 1)) {
+  for (const auto idx : arange(tensors.size() - 1)) {
     const auto& current_tensor = tensors[idx];
     const auto& next_tensor = tensors[idx + 1];
 
@@ -50,7 +48,7 @@ bool checkSameStride(const std::vector<at::Tensor>& tensors) {
       return false;
     }
 
-    for (const auto i : c10::irange(current_tensor.ndimension())) {
+    for (const auto i : arange(current_tensor.ndimension())) {
       if (current_tensor.stride(i) != next_tensor.stride(i)) {
         return false;
       }
@@ -68,7 +66,7 @@ bool checkSameContiguity(const std::vector<at::Tensor>& tensors) {
   // Determine if the reference tensor is contiguous
   const auto& reference_tensor = tensors.front();
   int64_t expected_stride = 1;
-  for (const auto i : c10::irange(1, reference_tensor.ndimension() + 1)) {
+  for (const auto i : arange(1, reference_tensor.ndimension() + 1)) {
     int64_t ind = reference_tensor.ndimension() - i;
     if (reference_tensor.size(ind) == 1) {
       continue;
@@ -248,7 +246,7 @@ getTensorOffsets(
     const auto slice_info = slice->getRanges();
 
     size_t offset = 0;
-    for (const auto i : c10::irange(logical_ids.size())) {
+    for (const auto i : arange(logical_ids.size())) {
       auto slice_start_eval = eval.evaluate(slice_info.at(i).start);
       NVF_ERROR(slice_start_eval.hasValue());
       auto slice_stop_eval = eval.evaluate(slice_info.at(i).stop);
@@ -290,7 +288,7 @@ void validateAlignedVectorizedFusionInputOutput(
       is_sliced ? tv->getLogicalDomain() : tv->getMaybeAllocationDomain();
 
   std::vector<int64_t> no_reduction_to_full;
-  for (int64_t i : c10::irange((int64_t)domain_to_validate.size())) {
+  for (int64_t i : arange((int64_t)domain_to_validate.size())) {
     auto alloc_id = domain_to_validate.at(i);
     if (!alloc_id->isReduction()) {
       no_reduction_to_full.emplace_back(i);
@@ -432,6 +430,14 @@ void validateCircularBuffering(
     ExpressionEvaluator& expr_eval) {
   const CircularBufferInfo& cb_info = kernel->summary().circular_buffer_info;
   for (const TensorView* cb_tv : cb_info.getCircularBufferTvs()) {
+    // There is always a valid load and compute for loop with warp
+    // specialization.
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        cb_tv->circularBufferOptions().type);
+    if (use_warp_specialization) {
+      continue;
+    }
+
     IterDomain* axis = cb_info.getCircularBufferAxis(cb_tv);
     NVF_ERROR(axis != nullptr);
     PolymorphicValue runtime_axis_size = expr_eval.evaluate(axis->extent());
@@ -471,7 +477,7 @@ ExpressionEvaluator bindInputs(
 
   ExpressionEvaluator expr_eval;
   const auto& inputs = kernel->inputs();
-  for (const auto i : c10::irange(inputs.size())) {
+  for (const auto i : arange(inputs.size())) {
     // NOTE: we bind all inputs here, including at::Tensors. This means that
     // expr_eval will create a PolymorphicValue containing *args[i], which means
     // that at::Tensor's lifetime will be at least as long as that of expr_eval.
@@ -497,7 +503,7 @@ ExpressionEvaluator bindInputs(
 
 std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
   std::vector<int> output_to_input_map(fusion->outputs().size(), -1);
-  for (auto output_idx : c10::irange(fusion->outputs().size())) {
+  for (auto output_idx : arange(fusion->outputs().size())) {
     auto alias_info = fusion->getOutputAlias(fusion->outputs()[output_idx]);
     if (alias_info.type == AllocationType::New) {
       continue;

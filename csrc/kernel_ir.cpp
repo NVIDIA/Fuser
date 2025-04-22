@@ -31,6 +31,13 @@ inline const char* boolLiteral(bool value) {
   return value ? "true" : "false";
 }
 
+inline const char* optionalBoolLiteral(std::optional<bool> optional_value) {
+  if (!optional_value.has_value()) {
+    return "std::nullopt";
+  }
+  return boolLiteral(optional_value.value());
+}
+
 } // namespace
 
 Predicate::Predicate(
@@ -311,7 +318,7 @@ const char* getPTXConstraints(Val* value) {
 
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (auto i : c10::irange((int64_t)(outputs().size()))) {
+  for (auto i : arange((int64_t)(outputs().size()))) {
     std::string prefix;
     if (options().readable_outputs.count(i) > 0) {
       prefix = "+";
@@ -326,7 +333,7 @@ std::vector<std::pair<std::string, Val*>> Asm::constraintsAndOutputs() const {
 }
 std::vector<std::pair<std::string, Val*>> Asm::constraintsAndInputs() const {
   std::vector<std::pair<std::string, Val*>> result;
-  for (int64_t i : c10::irange((int64_t)inputs().size())) {
+  for (int64_t i : arange((int64_t)inputs().size())) {
     auto in = input(i);
     const char* constraint = nullptr;
     if (options().immediate_inputs.count(i) > 0) {
@@ -358,7 +365,7 @@ std::string Asm::parameters() const {
     } else if (std::holds_alternative<ArrayType>(dtype.type)) {
       auto type = std::get<ArrayType>(dtype.type);
       ss << "{";
-      for (auto i : c10::irange(type.size)) {
+      for (auto i : arange(type.size)) {
         if (i > 0) {
           ss << ", ";
         }
@@ -417,13 +424,16 @@ std::string Asm::toInlineString(int indent_size) const {
 
 std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
-      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
+      {"tcgen05.wait::ld.sync.aligned", "tcgen05::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tcgen05::waitStore"},
       {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
-       "tmem::alloc"},
+       "tcgen05::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "tmem::relinquishAllocPermit"},
-      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
+       "tcgen05::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tcgen05::dealloc"},
+      {"tcgen05.mma.cta_group::1.kind::f16", "tcgen05::mma_f16"},
+      {"tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
+       "tcgen05::commit"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
@@ -449,7 +459,7 @@ std::string Asm::utility() const {
     std::regex ld_pattern(R"(tcgen05\.ld\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, ld_pattern)) {
-      std::string result = "tmem::load";
+      std::string result = "tcgen05::load";
       result.append(match[1]);
       return result;
     }
@@ -458,7 +468,7 @@ std::string Asm::utility() const {
     std::regex st_pattern(R"(tcgen05\.st\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, st_pattern)) {
-      std::string result = "tmem::store";
+      std::string result = "tcgen05::store";
       result.append(match[1]);
       return result;
     }
@@ -547,18 +557,26 @@ std::string AllocTMem::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocTMem)
 
-BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
+BlockSync::BlockSync(
+    IrBuilderPasskey passkey,
+    bool war_sync,
+    std::optional<bool> optional_compute_or_load_sync)
+    : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(war_sync);
+  addDataAttribute(optional_compute_or_load_sync);
 }
 
 std::string BlockSync::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "BLOCKSYNC(war_hazard="
-                          << boolLiteral(isWarHazardSync()) << ")\n";
+                          << boolLiteral(isWarHazardSync())
+                          << ", optional_compute_or_load_sync="
+                          << optionalBoolLiteral(warpSpecializedState())
+                          << ")\n";
   return ss.str();
 }
 
@@ -653,6 +671,25 @@ std::string SetMaxNReg::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
+
+Continue::Continue(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Continue::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "continue\n";
+  return ss.str();
+}
+
+std::string Continue::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Continue can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Continue)
 
 Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
@@ -1143,7 +1180,7 @@ std::string GroupedGridReduction::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridReduction(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size)
         << output(i)->toString() << " = reduction( " << input(i)->toString()
         << ", op = " << getReductionOpType(i)
@@ -1339,7 +1376,7 @@ GroupedGridWelford::GroupedGridWelford(
   addDataAttribute(ParallelTypeBitmap{});
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[1].size());
   NVF_ERROR(reduction_buffers[0].size() == reduction_buffers[2].size());
-  for (auto i : c10::irange(reduction_buffers[0].size())) {
+  for (auto i : arange(reduction_buffers[0].size())) {
     addAttribute(reduction_buffers[0].at(i));
     addAttribute(reduction_buffers[1].at(i));
     addAttribute(reduction_buffers[2].at(i));
@@ -1393,7 +1430,7 @@ std::string GroupedGridWelford::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "GroupedGridWelford(\n";
   ++indent_size;
-  for (const auto i : c10::irange(numHorizontallyGroupedExprs())) {
+  for (const auto i : arange(numHorizontallyGroupedExprs())) {
     indent(ss, indent_size) << outAvg(i)->toString() << " (Avg),\n";
     indent(ss, indent_size) << outVar(i)->toString() << " (Var),\n";
     indent(ss, indent_size) << outN(i)->toString() << " (Count)\n";
@@ -1685,7 +1722,7 @@ std::string RNGOp::toString(int indent_size) const {
   std::stringstream ss;
   ss << output(0)->toString() << " = " << getRNGOpType() << "("
      << input(0)->toString();
-  for (auto inp_i : c10::irange(1, inputs().size())) {
+  for (auto inp_i : arange(1, inputs().size())) {
     ss << ", " << input(inp_i)->toString();
   }
   ss << ")\n";
@@ -1695,7 +1732,7 @@ std::string RNGOp::toString(int indent_size) const {
 std::string RNGOp::toInlineString(int indent_size) const {
   std::stringstream ss;
   ss << getRNGOpType() << "(" << input(0)->toString();
-  for (auto inp_i : c10::irange(1, inputs().size())) {
+  for (auto inp_i : arange(1, inputs().size())) {
     ss << ", " << input(inp_i)->toString();
   }
   ss << ")";

@@ -136,6 +136,9 @@ class ReductionParams : public HeuristicParams {
   // in outer reduction part of inner-outer persistent scheduler, may further
   // split inner dim by grid
   bool combined_split_grid_inner_dim = false;
+
+  // TMA warp specialized, only used in inner-outer persistent scheduler
+  bool tma_warp_specialized = false;
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write

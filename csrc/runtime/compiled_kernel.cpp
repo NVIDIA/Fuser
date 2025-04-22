@@ -41,7 +41,6 @@
 #include <c10/core/DeviceGuard.h>
 #include <c10/cuda/CUDAFunctions.h>
 #include <c10/cuda/CUDAStream.h>
-#include <c10/util/irange.h>
 #include <torch/csrc/jit/resource_guard.h>
 
 #include <array>
@@ -182,7 +181,7 @@ class NvrtcCompileDriver {
   // Get options that can be passed to nvrtcCompileProgram
   std::vector<const char*> getOptions() const {
     std::vector<const char*> opts(options_.size());
-    for (const auto i : c10::irange(options_.size())) {
+    for (const auto i : arange(options_.size())) {
       opts.at(i) = options_.at(i).c_str();
     }
     return opts;
@@ -419,7 +418,7 @@ class CuModuleLoadDataDriver {
     // matrixMulDynlinkJIT sample
     // https://github.com/NVIDIA/cuda-samples/blob/master/Samples/0_Introduction/matrixMulDynlinkJIT/matrixMulDynlinkJIT.cpp#L169-L204.
     std::vector<void*> opt_val_voidp(opt_vals.size());
-    for (const auto i : c10::irange(opt_vals.size())) {
+    for (const auto i : arange(opt_vals.size())) {
       auto opt_val = opt_vals.at(i);
       if (std::holds_alternative<int>(opt_val)) {
         // NOLINTNEXTLINE(performance-no-int-to-ptr)
@@ -719,6 +718,13 @@ std::unique_ptr<executor_utils::CudaExecutable> compileSource(
     if (isDebugDumpEnabled(DebugDumpOption::Cubin)) {
       compiled_kernel->cubin_filename =
           dumpCompiledCodeToFile(compiled_kernel->cubin, func_name, ".cubin");
+    }
+    if (isDebugDumpEnabled(DebugDumpOption::SassToFile)) {
+      std::string sass_str =
+          disassembleBinary(compiled_kernel->cubin, "-fun 1 -c");
+      compiled_kernel->sass = {sass_str.begin(), sass_str.end()};
+      compiled_kernel->sass_filename =
+          dumpCompiledCodeToFile(compiled_kernel->sass, func_name, ".sass");
     }
   }
 

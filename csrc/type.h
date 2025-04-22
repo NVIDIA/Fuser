@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <iostream>
 #include <optional>
+#include <ranges>
 #include <string>
 #include <type_traits>
 #include <typeinfo>
@@ -221,7 +222,7 @@ bool StructType::operator==(const StructType& other) const {
   if (fields.size() != other.fields.size()) {
     return false;
   }
-  for (auto i : c10::irange(fields.size())) {
+  for (auto i : std::ranges::iota_view(0u, fields.size())) {
     if (fields[i].name != other.fields[i].name ||
         *fields[i].type != *other.fields[i].type ||
         fields[i].used_in_kernel != other.fields[i].used_in_kernel) {
@@ -511,7 +512,7 @@ inline bool isCompatibleDataType(DataType dtype, DataType dtype2) {
     if (struct_type.fields.size() != struct_type2.fields.size()) {
       return false;
     }
-    for (auto i : c10::irange(struct_type.fields.size())) {
+    for (auto i : std::ranges::iota_view(0u, struct_type.fields.size())) {
       if (struct_type.fields[i].name != struct_type2.fields[i].name ||
           !isCompatibleDataType(
               *struct_type.fields[i].type, *struct_type2.fields[i].type)) {
@@ -611,6 +612,7 @@ enum class UnaryOpType {
   Tan,
   Tanh,
   Trunc,
+  BitCeil,
 
   // Tools to help debugging
   Print,
@@ -817,7 +819,7 @@ enum class CircularBufferLoopStage {
   Prolog = 0,
   Main,
   Epilog,
-  LoadWarp,
+  AsyncWarp,
   ComputeWarp,
   EndOfStages, // A special placeholder used to iterate over all stages
   NotApplicable
@@ -829,7 +831,7 @@ enum class CircularBufferLoopStage {
 inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Prolog ||
       stage == CircularBufferLoopStage::Main ||
-      stage == CircularBufferLoopStage::LoadWarp;
+      stage == CircularBufferLoopStage::AsyncWarp;
 }
 
 // The consuming expressions of circular buffer are cloned for these circular
@@ -849,7 +851,7 @@ inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
 //   somewhere (*may or may not be in this loop*)
 inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Main ||
-      stage == CircularBufferLoopStage::LoadWarp ||
+      stage == CircularBufferLoopStage::AsyncWarp ||
       stage == CircularBufferLoopStage::ComputeWarp;
 }
 

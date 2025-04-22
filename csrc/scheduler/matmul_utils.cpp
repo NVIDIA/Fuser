@@ -350,6 +350,9 @@ bool fillDefaultHopperHeuristic(
   //  Use a non-persistent kernel by default for now
   mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
 
+  //  Use a non-persistent kernel by default for now
+  mparams->tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+
   // Use warp specialization on hopper by default
   mparams->circular_buffering_strategy =
       MatmulParams::CircularBufferingStrategy::WarpSpecialized;
@@ -400,15 +403,14 @@ bool fillDefaultHopperHeuristic(
 
   // We also swizzle the tiles as much as possible up to 16 tiles. Like choosing
   // the rasterization order, this is used to increase L2 locality
-  mparams->grid_swizzle_factor = std::min(swizzled_tiles, 16L);
-  while (swizzled_tiles % mparams->grid_swizzle_factor != 0) {
+  int grid_traversal_factor = std::min(swizzled_tiles, 16L);
+  while (swizzled_tiles % grid_traversal_factor != 0) {
     // Decrease the swizzle factor if it would result in nondivisible splits,
     // since this would unnecessarily increase the grid size.
-    mparams->grid_swizzle_factor--;
+    grid_traversal_factor--;
   }
-  // TODO: grid swizzling is currently disabled on Hopper since we cannot
-  // properly inline when we swizzle unmapped loop broadcasts
-  mparams->grid_swizzle_factor = 1L;
+  // TODO: Use only 1D grid traversal factor for now
+  mparams->grid_traversal_factor = {grid_traversal_factor, 1};
 
   // TODO: Finally, we set the CGA size
 
@@ -797,7 +799,7 @@ class VectorizationCalculator {
     int64_t vec_size = scheduler_utils::maxVectorizationWidth(inner_dims_numel);
 
     // Account for misaligned rows due to outer strides
-    for (size_t i : c10::irange(inner_dim_pos)) {
+    for (size_t i : arange(inner_dim_pos)) {
       if (sizes.at(i) == 1) {
         // outer size-1 dimensions don't affect vectorizability
         continue;
@@ -1122,18 +1124,26 @@ std::string getMatmulCompileTimeRejectReason(Fusion* fusion) {
       Expr* op = pattern.output->definition();
       if (device_prop->major >= 9) {
         for (TensorView* operand : {pattern.A, pattern.B}) {
-          if (!operand->isFusionInput() &&
-              (operand->definition() == nullptr ||
-               !operand->definition()->isA<LoadStoreOp>() ||
-               !operand->definition()->input(0)->isFusionInput() ||
-               operand->hasRoot())) {
-            return "Operand " + operand->toString() +
-                " must be a fusion input or non-permuting LoadStoreOp of an input on Hopper";
+          // Check that the prologue is trivial
+          TensorView* tv = operand;
+          while (!tv->isFusionInput()) {
+            Expr* def = tv->definition();
+            NVF_ERROR(
+                def != nullptr,
+                "Unexpected undefined tensor ",
+                tv->toString(),
+                " which is not a fusion input");
+            if (!def->isOneOf<LoadStoreOp, BroadcastOp, SqueezeOp>()) {
+              return "Operand " + operand->toString() +
+                  " must have only trivial prologue ops (set, broadcast, squeeze) but found " +
+                  def->toString();
+            }
+            tv = ir_utils::getTvInput(def);
           }
         }
         if (op->isA<ReductionOp>()) {
           bool found_reduction = false;
-          for (size_t dim : c10::irange((size_t)pattern.output->nDims())) {
+          for (size_t dim : arange((size_t)pattern.output->nDims())) {
             if (found_reduction &&
                 !pattern.output->axis((int64_t)dim)->isReduction()) {
               return "Mul+Sum patterns can only be translated to MmaOp "
@@ -1259,7 +1269,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
   std::vector<int64_t> broadcast_pos;
   std::vector<int64_t> nonbroadcast_pos;
 
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : arange(number_of_inner_pos)) {
     auto axis_idx = i - number_of_inner_pos;
     auto id = tv->axis(axis_idx);
     if (id->isBroadcast()) {
@@ -1274,7 +1284,7 @@ void moveInnerBroadcastLeft(TensorView* tv, int64_t number_of_inner_pos) {
       combined_pos_vec.end(), nonbroadcast_pos.begin(), nonbroadcast_pos.end());
 
   std::unordered_map<int64_t, int64_t> order_map;
-  for (auto i : c10::irange(number_of_inner_pos)) {
+  for (auto i : arange(number_of_inner_pos)) {
     order_map[combined_pos_vec.at(i)] = i - number_of_inner_pos;
   }
 

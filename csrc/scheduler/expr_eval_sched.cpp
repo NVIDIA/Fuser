@@ -86,7 +86,7 @@ bool ExprEvalScheduler::canScheduleCompileTime(Fusion* fusion) {
   }
 
   auto expr_check = [](Expr* expr) {
-    return expr->isOneOf<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp, GetMetaData>() ||
+    return expr->isOneOf<SdpaFwdOp, SdpaBwdOp, EmbeddingFwdOp, GetMetaData, IndexPutAccumulateOp>() ||
         (expr->isOneOf<LinearOp, MatmulOp>() &&
          !isOptionDisabled(DisableOption::MatmulExprEval)) ||
         ir_utils::isScalarOp(expr) || isNoOp(expr);

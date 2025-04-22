@@ -74,32 +74,47 @@ PairwiseLogicalDomainMap::PairwiseLogicalDomainMap(
 
 namespace {
 
-// Returns a producer ID that is indirectly accessed. A bool is also
-// returned indicating there's a corresponding consumer ID. For
-// example, select doesn't have a consumer ID, whereas index_select
-// does.
-std::pair<IterDomain*, bool> getIndexedDomainInfo(
+// Returns producer IDs that don't map identically to consumer. A bool is
+// returned indicating whether corresponding consumer IDs exists. For example,
+// select doesn't have a consumer ID, whereas index_select does.
+std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
     const TensorView* consumer_tv) {
-  IterDomain* indexed_id = nullptr;
+  std::unordered_set<IterDomain*> non_mapping_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
-    indexed_id = sop->getIndexedID();
+    // indexed ID is indirectly accessed
+    non_mapping_ids.insert(sop->getIndexedID());
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == sop->lookupTv()) {
-      indexed_id = sop->getIndexedID();
+      non_mapping_ids.insert(sop->getIndexedID());
       has_consumer_id = true;
     }
   } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == gop->lookupTv()) {
-      indexed_id = gop->getIndexedID();
+      non_mapping_ids.insert(gop->getIndexedID());
+      has_consumer_id = true;
+    }
+  } else if (
+      auto iaop =
+          dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
+    // see [ Note -- IndexPutAccumulateOp semantics ]
+    if (producer_tv == iaop->indexTv()) {
+      // Indexing ID of index tv do not map to output.
+      non_mapping_ids.insert(iaop->getIndexingID());
+      has_consumer_id = true;
+    } else if (producer_tv == iaop->valueTv()) {
+      // indexing ID of value tv do not map to output.
+      non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
   }
 
-  return std::make_pair(indexed_id, has_consumer_id);
+  return std::make_pair(non_mapping_ids, has_consumer_id);
 }
 
 } // namespace
@@ -120,8 +135,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     squeeze_flags = sop->getSqueezeDimFlags();
   }
 
-  auto [indexed_producer_id, has_consumer_of_indexed_id] =
-      getIndexedDomainInfo(producer_tv_, consumer_tv_);
+  auto [non_mapping_producer_id, has_consumer_of_indexed_id] =
+      getNonMappingDomainInfo(producer_tv_, consumer_tv_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_logical = TensorDomain::noReductions(producer->logical());
@@ -174,7 +189,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
   auto pairwiseMapAllIds = [&](std::vector<IterDomain*> producer_ids,
                                std::vector<IterDomain*> consumer_ids) {
     NVF_ERROR(producer_ids.size() == consumer_ids.size());
-    for (auto idx : c10::irange(consumer_ids.size())) {
+    for (auto idx : arange(consumer_ids.size())) {
       IterDomain* producer_id = producer_ids.at(idx);
       IterDomain* consumer_id = consumer_ids.at(idx);
       if (producer_id == nullptr) {
@@ -183,24 +198,6 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       updatePairwiseLogicalDomainMap(producer_id, consumer_id);
     }
   };
-
-  if (auto* mma = dynamic_cast<MmaOp*>(consumer_tv_->definition())) {
-    // producer_tv_ is either A or B
-    const MmaOp::AxesData& operand_axes = producer_tv_ == mma->inA()
-        ? mma->axisMapping().a_axes
-        : mma->axisMapping().b_axes;
-    NVF_ERROR(operand_axes.size() == consumer_root.size());
-    for (size_t idx : c10::irange(operand_axes.size())) {
-      int64_t operand_pos = operand_axes[idx];
-      if (operand_pos == -1) {
-        continue;
-      }
-      IterDomain* operand_id = producer_logical.at((size_t)operand_pos);
-      IterDomain* out_id = consumer_root.at(idx);
-      updatePairwiseLogicalDomainMap(operand_id, out_id);
-    }
-    return dom_map;
-  }
 
   // For MatmulOp, use the corresponding mapped input iterdomains.
   if (MatmulOp* op = dynamic_cast<MatmulOp*>(consumer_tv_->definition())) {
@@ -267,7 +264,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     }
     size_t num_device_dim = producer_logical.at(0)->isDeviceDim() ? 1 : 0;
     // Map N, H from any input (query/key/value)
-    for (auto idx : c10::irange(consumer_root.size())) {
+    for (auto idx : arange(consumer_root.size())) {
       if (idx < (2 + num_device_dim)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
@@ -316,7 +313,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     size_t num_device_dim =
         !producer_logical.empty() && producer_logical.at(0)->isDeviceDim() ? 1
                                                                            : 0;
-    for (auto idx : c10::irange(producer_logical.size())) {
+    for (auto idx : arange(producer_logical.size())) {
       // Map N, H from all producers to consumers
       // producer/consumer[2] = L/S
       // producer/consumer[3] = E/Ev
@@ -339,7 +336,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //   output = [*, embedding_dim]
     auto ndims_out = consumer_root.size();
     if (producer_tv_->sameAs(op->in())) {
-      for (auto idx : c10::irange(ndims_out - 1)) {
+      for (auto idx : arange(ndims_out - 1)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
@@ -357,13 +354,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     IterDomain* consumer_id = consumer_root.at(itc);
 
     // Conditions to check:
-    // 1. Indirectly accessed IDs (e.g., select)
+    // 1. Non mapping IDs (e.g., select)
     // 2. IDs that may have different extents (e.g., non indexed
     //  domains of torchGather)
     // 3. Squeeze and unsqueeze
 
-    // Condition 1: when the producer ID is the dim of a select-like op
-    if (producer_id == indexed_producer_id) {
+    // Condition 1: when the producer ID is the dim of a select-like op, or when
+    // it doesn't map to the output IDs, like indexing IDs of indexPutAccumulate
+    if (non_mapping_producer_id.count(producer_id) != 0) {
       // If there's no corresponding consumer, skip the indexed producer
       if (!has_consumer_of_indexed_id) {
         itp++;
@@ -380,7 +378,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Condition 2: Different extents
     if (auto gop = dynamic_cast<GatherOp*>(consumer_tv_->definition());
         gop != nullptr && !gop->exactSizes() &&
-        producer_tv_ == gop->lookupTv() && producer_id != indexed_producer_id &&
+        producer_tv_ == gop->lookupTv() &&
+        non_mapping_producer_id.count(producer_id) == 0 &&
         !map_different_extents_) {
       itp++;
       itc++;
@@ -1095,7 +1094,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
   // Next, check if any pair is invalid to map.
   const auto num_keys = domains.size();
   const std::vector<DomainKey> domains_vec({domains.begin(), domains.end()});
-  for (const auto i : c10::irange(num_keys)) {
+  for (const auto i : arange(num_keys)) {
     const auto& key_i = domains_vec[i];
     // If no invalid keys found for key_i, it can be skipped.
     const auto invalid_key_map_it = invalid_key_map.find(key_i);
@@ -1108,7 +1107,7 @@ bool ComputeAtLogicalDomainMapBuilder::isInvalid(
 
     // If any other key in domains is identified mappable with any of
     // the keys in this set, the mapping with key_i is invalid.
-    for (const auto j : c10::irange(i + 1, num_keys)) {
+    for (const auto j : arange(i + 1, num_keys)) {
       const auto& key_j = domains_vec[j];
       if (std::any_of(
               invalid_keys_for_i.begin(),

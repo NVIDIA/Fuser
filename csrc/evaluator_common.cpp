@@ -187,7 +187,7 @@ void PrecomputedValues::bindValues(
   NVF_ERROR(
       args.size() == inputs.size(), "kernel inputs size does not match args");
 
-  for (const auto i : c10::irange((int64_t)inputs.size())) {
+  for (const auto i : arange((int64_t)inputs.size())) {
     const auto input = inputs[i];
     NVF_ERROR(input != nullptr);
     if (auto* tv = dynamic_cast<TensorView*>(input)) {
@@ -210,7 +210,7 @@ void PrecomputedValues::initializeValueList(
   values_ = std::vector<PolymorphicValue>(num_of_values_, PolymorphicValue());
 
   // Fill in constants and assign evaluator indices
-  for (const auto i : c10::irange(num_of_values_)) {
+  for (const auto i : arange(num_of_values_)) {
     // Use an expression evaluator to test if value is const
     // Structs must be bound directly
     if (!isStructType(sorted_value_list[i]->dtype()) &&
@@ -236,7 +236,7 @@ const PolymorphicValue& PrecomputedValues::getMaybeValueFor(
 
 void PrecomputedValues::print() const {
   debug() << "Precomputed Values:\n";
-  for (auto i : c10::irange(symbols_.size())) {
+  for (auto i : arange(symbols_.size())) {
     if (defined_[i]) {
       debug() << symbols_[i]->toInlineString() << " = "
               << PolymorphicValue_functions::toString(values_[i]) << std::endl;
@@ -282,7 +282,7 @@ PrecomputedValues PrecomputedValues::clone(IrCloner& ir_cloner) const {
       pv.binding_log_.end(), binding_log_.begin(), binding_log_.end());
 
   pv.symbols_.resize(symbols_.size());
-  for (const auto i : c10::irange(symbols_.size())) {
+  for (const auto i : arange(symbols_.size())) {
     pv.symbols_[i] = ir_cloner.clone(symbols_[i]);
   }
 
@@ -350,8 +350,7 @@ void PrecomputedValues::bindTensorMetaData(
       "Something went wrong configuring launch. Inputs do not match.");
 
   std::vector<int64_t> logical_sizes = unshardedSizes(tv, tensor.sizes());
-  for (const auto dim :
-       c10::irange(static_cast<int64_t>(logical_domain.size()))) {
+  for (const auto dim : arange(static_cast<int64_t>(logical_domain.size()))) {
     IterDomain* id = logical_domain[dim];
     const auto dim_size = logical_sizes.at(dim);
     if (id->isBroadcast()) {
@@ -442,7 +441,7 @@ void NaiveValueMachine::copyFrom(const NaiveValueMachine& other) {
 }
 
 void NaiveValueMachine::run() {
-  for (const auto i : c10::irange(num_of_instructions_)) {
+  for (const auto i : arange(num_of_instructions_)) {
     // Skip this instruction if the dest location
     //  has already been computed or is constant.
     if (precomputed_values_.defined_[dest_[i]] ||

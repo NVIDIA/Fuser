@@ -10,8 +10,11 @@
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
+#include <host_ir/lower.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
+#include <multidevice/communication.h>
+#include <multidevice/utils.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -196,6 +199,56 @@ flatbuffers::Offset<serde::FusionKernelRuntime> FusionKernelRuntime::serialize(
       segmented_fusion_fb);
 }
 
+namespace {
+std::vector<Expr*> toposortExprs(
+    SegmentedFusion* fusion,
+    SegmentedGroup* group) {
+  const std::vector<Expr*>& exprs = group->exprs();
+  std::vector<Expr*> exprs_to_print(exprs.begin(), exprs.end());
+  std::unordered_set<Expr*> exprs_to_print_set(exprs.begin(), exprs.end());
+  std::unordered_set<Expr*> exprs_visited;
+  std::vector<Expr*> sorted_list;
+  while (!std::all_of(
+      exprs_to_print.begin(),
+      exprs_to_print.end(),
+      [&exprs_visited](auto expr) { return exprs_visited.count(expr); })) {
+    bool expr_added_to_sorted_list = false;
+    for (auto expr : exprs_to_print) {
+      if (!exprs_visited.count(expr)) {
+        bool add_this_expr = true;
+        // Check if any of the inputs of current
+        //  expression within the group
+        //  hasn't been visited
+        for (auto input : expr->inputs()) {
+          if (input->definition() &&
+              exprs_to_print_set.count(input->definition()) &&
+              !exprs_visited.count(input->definition())) {
+            add_this_expr = false;
+            break;
+          }
+        }
+
+        // Append the current group to sorted list
+        //  and mark visited
+        if (add_this_expr) {
+          expr_added_to_sorted_list = true;
+          exprs_visited.insert(expr);
+          sorted_list.push_back(expr);
+          break;
+        }
+      }
+    }
+    NVF_ERROR(
+        expr_added_to_sorted_list,
+        "group debug print failed, exprs within given vector not a DAG");
+  }
+  NVF_CHECK(
+      sorted_list.size() == group->exprs().size(),
+      "Exprs should not have been lost during toposortExprs");
+  return sorted_list;
+}
+} // namespace
+
 void FusionKernelRuntime::deserialize(
     const serde::FusionKernelRuntime* buffer,
     int8_t device_index) {
@@ -225,7 +278,7 @@ void FusionKernelRuntime::deserialize(
   };
 
   // 1. Deserialize KernelExecutor objects
-  for (auto idx : c10::irange(executors_.size())) {
+  for (auto idx : arange(executors_.size())) {
     auto sg = runtime_workspace_.group_run_order.at(idx);
 
     // Create and schedule Fusion for this SegmentedGroup
@@ -290,7 +343,7 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
     }
 
     std::unordered_map<Val*, PolymorphicValue> tensor_map;
-    for (const auto i : c10::irange(args.size())) {
+    for (const auto i : arange(args.size())) {
       tensor_map.emplace(hie_->inputs()[i], args[i]);
     }
     auto outputs = hie_->runWithInput(tensor_map);
@@ -425,39 +478,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         group_to_run->outputs(), group_runtime_outputs, run_order_id);
   }
 
-  // add all expressions and compiled kernels to the host ir container
-  if (hic != nullptr) {
-    IrCloner ir_cloner(hic.get());
-    FusionGuard::setCurFusion(hic.get());
-    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
-      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      if (hic->hasKernelExecutor(run_order_id)) {
-        auto in_clone = ir_cloner.clone(group_to_run->inputs());
-        auto out_clone = ir_cloner.clone(group_to_run->outputs());
-        auto heuristic_params = schedulers().at(run_order_id).get();
-        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
-            run_order_id,
-            heuristic_params->lparams,
-            heuristic_params->cparams,
-            std::vector<Val*>{in_clone},
-            std::vector<Val*>{out_clone});
-        hic->pushBackTopLevelExprs(launch_kernel);
-      } else {
-        // push back segment's exprs into the container as top level expressions
-        for (auto* expr : group_to_run->exprs()) {
-          auto cloned_expr = ir_cloner.clone(expr);
-          hic->pushBackTopLevelExprs(cloned_expr);
-        }
-      }
-    }
-    for (const Val* in : segmented_fusion_->inputs()) {
-      hic->addInput(ir_cloner.clone(in));
-    }
-    for (const Val* out : segmented_fusion_->outputs()) {
-      hic->addOutput(ir_cloner.clone(out));
-    }
-  }
-
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
@@ -469,9 +489,74 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
 
+  // add all expressions and compiled kernels to the host ir container
   if (hic != nullptr) {
+    IrCloner ir_cloner(hic.get());
+    FusionGuard::setCurFusion(hic.get());
+    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
+      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+      if (hic->hasKernelExecutor(group_to_run->groupId())) {
+        auto in_clone = ir_cloner.clone(group_to_run->inputs());
+        auto out_clone = ir_cloner.clone(group_to_run->outputs());
+        auto heuristic_params = schedulers().at(group_to_run->groupId()).get();
+        auto launch_kernel = IrBuilder::create<hir::LaunchKernel>(
+            group_to_run->groupId(),
+            heuristic_params->lparams,
+            heuristic_params->cparams,
+            std::vector<Val*>{in_clone},
+            std::vector<Val*>{out_clone});
+        hic->pushBackTopLevelExprs(launch_kernel);
+      } else {
+        NVF_CHECK(
+            group_to_run->schedulerType() == SchedulerType::Communication ||
+                group_to_run->schedulerType() == SchedulerType::ExprEval,
+            "Expected SchedulerType::Communication or SchedulerType::ExprEval for group ",
+            run_order_id,
+            ", got ",
+            group_to_run->schedulerType());
+        if (group_to_run->schedulerType() == SchedulerType::Communication) {
+          auto deviceid = Communicator::getInstance().deviceId();
+          NVF_ERROR(
+              group_to_run->exprs().size() == 1,
+              "Communication segments must contain only one Expr");
+          HostIrLower lower;
+          for (auto* expr : lower.lower(
+                   ir_cloner.clone(group_to_run->exprs().at(0)), deviceid)) {
+            NVF_ERROR(
+                expr->isA<Communication>(),
+                "Exprs in a Communication group should be Communication");
+            // Allocate the recv buffers of communications
+            auto* communication = expr->as<Communication>();
+            TensorView* tv = communication->out();
+            if (tv->getDeviceMesh().has(deviceid)) {
+              auto* allocate =
+                  IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+              hic->pushBackTopLevelExprs(allocate);
+            }
+            hic->pushBackTopLevelExprs(expr);
+            auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
+            hic->pushBackTopLevelExprs(wait);
+          }
+        } else {
+          // push back segment's exprs into the container as top level
+          // expressions
+          for (auto* expr :
+               toposortExprs(segmented_fusion_.get(), group_to_run)) {
+            auto cloned_expr = ir_cloner.clone(expr);
+            hic->pushBackTopLevelExprs(cloned_expr);
+          }
+        }
+      }
+    }
+    for (const Val* in : segmented_fusion_->inputs()) {
+      hic->addInput(ir_cloner.clone(in));
+    }
+    for (const Val* out : segmented_fusion_->outputs()) {
+      hic->addOutput(ir_cloner.clone(out));
+    }
+
     hie_ = std::make_unique<hir::HostIrEvaluator>(
-        hir::HostIrEvaluator(std::move(hic)));
+        std::move(hic), &Communicator::getInstance());
   }
 
   if (isProfilerEnabled()) {
@@ -521,7 +606,7 @@ std::optional<std::unique_ptr<HeuristicParamsList>> FusionKernelRuntime::
   ArgumentManager args_manager(
       args, runtime_workspace_, segmented_fusion_->inputs());
   // Follow group run order
-  for (int64_t group_id : c10::irange(num_groups)) {
+  for (int64_t group_id : arange(num_groups)) {
     auto group_to_run = runtime_workspace_.group_run_order.at(group_id);
 
     // Create fusion for this segmented group
@@ -609,7 +694,7 @@ void FusionKernelRuntime::updateHeuristicsLaunchParams(
   auto scheduler_list_length = heuristics_->heuristicsList().size();
   NVF_ERROR(
       update_heuristics->heuristicsList().size() == scheduler_list_length);
-  for (const auto i : c10::irange(scheduler_list_length)) {
+  for (const auto i : arange(scheduler_list_length)) {
     auto& heuristic_params = heuristics_->heuristicsList()[i];
     heuristic_params->lparams = update_heuristics->heuristicsList()[i]->lparams;
   }
@@ -637,7 +722,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
   auto group_cache_id = args.getCacheId();
   const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
   kernel_time_ms_ = 0;
-  for (auto run_order_id : c10::irange(num_groups)) {
+  for (auto run_order_id : arange(num_groups)) {
     // TODO: index mode should be updated per segmented kernel
     // Prepare input vector
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);

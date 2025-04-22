@@ -10,7 +10,6 @@
 #include <tuple>
 
 #include <c10/util/ArrayRef.h>
-#include <c10/util/irange.h>
 #include <torch/csrc/jit/python/pybind_utils.h>
 
 #include <pybind11/complex.h>
@@ -23,6 +22,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <mma_type.h>
+#include <multidevice/communicator.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -322,7 +322,7 @@ Tensor slice_fn(
     // Note: we cannot re-use the same ScalarRecord, otherwise, serialized
     // python program uses `define_vector`, which would create multiple
     // ScalarRecord, causing a cache miss.
-    for (auto i : c10::irange(new_start.size)) {
+    for (auto i : arange(new_start.size)) {
       (void)i; // Supress unused variable warning
       Scalar out = fd->defineScalar();
       fd->defineRecord(new ScalarRecord(
@@ -467,7 +467,7 @@ computeTensorDescriptor(
       "Sizes and strides must have the same number of dimensions");
   std::vector<DimInfo> non_broadcast_dim_info_vec;
   std::vector<DimInfo> stride_zero_dims;
-  for (auto i : c10::irange(sizes.size())) {
+  for (auto i : arange(sizes.size())) {
     // NOTE: not supporting negative stride yet, but we can probably allow it on
     // broadcast dims
     NVF_CHECK(
@@ -786,7 +786,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, circular_buffer_options)
       .PARAM(MatmulParams, supported_vec_size)
       .PARAM(MatmulParams, async_gmem_load_operands)
-      .PARAM(MatmulParams, grid_swizzle_factor)
+      .PARAM(MatmulParams, grid_traversal_factor)
       .PARAM(MatmulParams, use_smem_epilogue)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
@@ -874,6 +874,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("transpose", SchedulerType::Transpose)
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
+
+  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+      .value("nccl", CommunicatorBackend::kNccl)
+      .value("ucc", CommunicatorBackend::kUcc);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -1085,10 +1089,11 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<std::optional<size_t>, size_t, bool>(),
+          py::init<std::optional<size_t>, size_t, bool, CommunicatorBackend>(),
           py::arg("id") = py::none(),
           py::arg("max_length") = int(1024),
-          py::arg("use_multidevice_executor") = false)
+          py::arg("use_multidevice_executor") = false,
+          py::arg("backend_type") = CommunicatorBackend::kNccl)
       .def_readwrite("ops", &FusionDefinition::ops)
       .def_readwrite("sched", &FusionDefinition::sched)
       .def(
@@ -1454,7 +1459,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Alternatively, I can extend TensorRecord to allow contiguity as
             // a boolean. If you think it's worth doing, I'm happy to pursue it
             // in a separate PR.
-            for (const auto index : c10::irange(rank)) {
+            for (const auto index : arange(rank)) {
               const auto contig_index =
                   stride_order.empty() ? index : rank - 1 - stride_order[index];
               if (shape[index] == 1) {
@@ -1506,7 +1511,7 @@ void initNvFuserPythonBindings(PyObject* module) {
             // Translate to TensorViewBuilder's view of the world.
             std::vector<int64_t> dim_sizes;
             dim_sizes.reserve(sizes.size());
-            for (const auto i : c10::irange(sizes.size())) {
+            for (const auto i : arange(sizes.size())) {
               NVF_ERROR(
                   sizes[i] >= 0,
                   "Size of ",
@@ -3413,7 +3418,7 @@ void initNvFuserPythonBindings(PyObject* module) {
         FusionDefinition* fd = self.fusion_definition;
         std::vector<Scalar> outputs;
         std::vector<State> output_state;
-        for (const auto idx : c10::irange(arg.dims)) {
+        for (const auto idx : arange(arg.dims)) {
           outputs.push_back(fd->defineScalar());
           output_state.push_back(fd->recordingState(outputs[idx]()));
         }

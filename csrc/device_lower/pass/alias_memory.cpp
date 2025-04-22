@@ -297,7 +297,7 @@ class BufferReuseDebugPrinter {
   void printAllocInfo(const kir::Allocate* alloc);
 
   std::stringstream& indent() {
-    for (const auto i : c10::irange(indent_level_)) {
+    for (const auto i : arange(indent_level_)) {
       (void)i; // Suppress unused variable warning
       os_ << "  ";
     }
@@ -763,25 +763,6 @@ class AllocationInfoMap : private kir::IrVisitor {
     collectLivenessInfoOfExpr(expr);
   }
 
-  std::optional<MmaInputSmemSwizzle> getTmaSwizzle(TensorView* tv) {
-    bool is_tma_load = tv->definition() != nullptr &&
-        ir_utils::isCpAsyncBulk(tv->definition());
-    if (is_tma_load) {
-      return GpuLower::current()->consumerToTMAInfo().at(tv).swizzle();
-    }
-
-    for (Expr* e : tv->uses()) {
-      if (ir_utils::isCpAsyncBulk(e)) {
-        TensorView* consumer_tv = ir_utils::getTvOutput(e);
-        return GpuLower::current()
-            ->consumerToTMAInfo()
-            .at(consumer_tv)
-            .swizzle();
-      }
-    }
-    return std::nullopt;
-  }
-
   void handle(ForLoop* for_loop) final {
     auto loop_info = scope_map_.getLoopScopeInfo(for_loop);
     if (!for_loop->isTrivial()) {
@@ -869,9 +850,8 @@ class AllocationInfoMap : private kir::IrVisitor {
     alloc_info->loop_info = current_stack_.back();
     alloc_info->should_try_alias = should_try_alias;
 
-    std::optional<MmaInputSmemSwizzle> tma_swizzle = getTmaSwizzle(tv);
-    alloc_info->alignment = (tma_swizzle.has_value())
-        ? getSharedMemoryByteAlignment(tma_swizzle.value())
+    alloc_info->alignment = (ir_utils::isTMAOrMMASmemTv(tv))
+        ? getSharedMemoryByteAlignment(ir_utils::getSwizzleMode(tv))
         : 16;
 
     // record short cuts
@@ -1019,7 +999,7 @@ class AllocationInfoMap : private kir::IrVisitor {
       return nullptr;
     }
 
-    for (const auto idx : c10::irange(current_stack_.size() - 1)) {
+    for (const auto idx : arange(current_stack_.size() - 1)) {
       if (current_stack_[idx] == allocate_loop_info) {
         return current_stack_[idx + 1];
       }
@@ -1412,7 +1392,7 @@ class ReusableAllocationFinder : private kir::IrVisitor {
     }
 
     // Check index map for the corresponding axes.
-    for (const auto id_it : c10::irange(alloc_domains.size())) {
+    for (const auto id_it : arange(alloc_domains.size())) {
       if (!GpuLower::current()->caMap()->areMapped(
               alloc_domains[id_it],
               reuse_domains[id_it],
