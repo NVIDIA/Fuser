@@ -319,9 +319,6 @@ class SegmentedFusion {
   //! API shortcut for adding a singleton group
   SegmentedGroup* newGroup(Expr* expr);
 
-  //! API shortcut for adding a new group for a fusion input
-  SegmentedGroup* newFusionInputGroup();
-
   //! API for adding edges
   SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
@@ -331,6 +328,7 @@ class SegmentedFusion {
   void removeEdge(SegmentedEdge* edge);
 
   void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+  void disconnectGroups(SegmentedGroup* from, SegmentedGroup* to);
 
   HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
@@ -562,8 +560,6 @@ class SegmentCandidateFinder {
   bool codeGenSupportedMerge(SegmentedGroup* group1, SegmentedGroup* group2);
 
   void buildInitialSegments();
-
-  // SegmentedGroup* initializeExprGroup(Expr* expr);
 
   // Replicate upcast ops when consumed by multiple expressions. This
   // promotes segmented fusions to share pre-upcast tensors rather

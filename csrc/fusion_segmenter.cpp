@@ -48,77 +48,6 @@ std::vector<V> convertContainer(
   return result;
 }
 
-// Utility function to disconnect all edges between two SegmentedGroups
-void disconnectGroups(
-    SegmentedGroup* group1,
-    SegmentedGroup* group2,
-    SegmentedFusion* segmented_fusion) {
-  // First collect all edges between the groups
-  std::vector<SegmentedEdge*> edges_to_remove;
-
-  // Find edges where group1 is producer and group2 is consumer
-  for (auto edge : group1->consumer_edges) {
-    if (edge->to == group2) {
-      edges_to_remove.push_back(edge);
-    }
-  }
-
-  // Find edges where group2 is producer and group1 is consumer
-  for (auto edge : group2->consumer_edges) {
-    if (edge->to == group1) {
-      edges_to_remove.push_back(edge);
-    }
-  }
-
-  // Remove all found edges from both groups
-  for (auto edge : edges_to_remove) {
-    auto producer = edge->from;
-    auto consumer = edge->to;
-
-    // Remove from producer's consumer edges
-    producer->consumer_edges.erase(std::find(
-        producer->consumer_edges.begin(),
-        producer->consumer_edges.end(),
-        edge));
-
-    // Remove from consumer's producer edges
-    consumer->producer_edges.erase(std::find(
-        consumer->producer_edges.begin(),
-        consumer->producer_edges.end(),
-        edge));
-
-    // Remove edge from segmented fusion's edge list
-    auto& fusion_edges = segmented_fusion->edges();
-    fusion_edges.erase(
-        std::find(fusion_edges.begin(), fusion_edges.end(), edge));
-  }
-}
-
-// Utility function to connect two SegmentedGroups through an edge
-void connectGroups(
-    SegmentedGroup* producer,
-    SegmentedGroup* consumer,
-    SegmentedFusion* segmented_fusion) {
-  // Match producer outputs with consumer inputs
-  for (auto producer_output : producer->output_vals_) {
-    // Find matching input in consumer
-    auto consumer_input_it = std::find_if(
-        consumer->input_vals_.begin(),
-        consumer->input_vals_.end(),
-        [producer_output](Val* consumer_input) {
-          return consumer_input == producer_output;
-        });
-
-    // If found a match, create an edge between the groups
-    if (consumer_input_it != consumer->input_vals_.end()) {
-      auto edge =
-          segmented_fusion->newEdge(producer, consumer, producer_output);
-      producer->consumer_edges.push_back(edge);
-      consumer->producer_edges.push_back(edge);
-    }
-  }
-}
-
 } // namespace
 
 flatbuffers::Offset<serde::SegmentedGroup> SegmentedGroup::serialize(
@@ -361,9 +290,6 @@ void SegmentedGroup::finalize() {
 
   std::unordered_set<Val*> input_set(input_vals_.begin(), input_vals_.end());
 
-void SegmentedGroup::finalize() {
-  std::unordered_set<Val*> input_set(input_vals_.begin(), input_vals_.end());
-
   for (auto i : input_vals_) {
     if (auto tv = dynamic_cast<TensorView*>(i)) {
       // We do not need to add scalars which are the extents of already-added
@@ -415,13 +341,8 @@ void SegmentedGroup::finalize() {
 }
 
 std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
-  os << toString(group->schedulerType()) << "\n";
-  // os << "Inputs: \n";
-  // for (auto inp : group->input_vals_) {
-  //   os << "  " << toString(inp) << std::endl;
-  // }
+  os << toString(group->schedulerType()) << "{";
   auto expr_to_print = group->exprs();
-  os << "{";
   std::sort(
       expr_to_print.begin(),
       expr_to_print.end(),
@@ -434,16 +355,7 @@ std::ostream& operator<<(std::ostream& os, const SegmentedGroup* group) {
       os << ", ";
     }
   }
-  os << "}\n";
-
-  os << "  Exprs:\n";
-  for (auto expr : expr_to_print) {
-    os << "    " << toString(expr) << std::endl;
-  }
-  // os << "Outputs: \n";
-  // for (auto out : group->output_vals_) {
-  //   os << "  " << toString(out) << std::endl;
-  // }
+  os << "}";
   if (group->isMerged()) {
     os << " (merged)";
   }
@@ -862,8 +774,28 @@ void SegmentedFusion::draw() {
       &expr_color_map);
 }
 
-namespace {
+void SegmentedFusion::disconnectGroups(
+    SegmentedGroup* from,
+    SegmentedGroup* to) {
+  // Find edges between the two groups
+  std::vector<SegmentedEdge*> edges_to_remove = getEdgesBetween(from, to);
 
+  // Remove the edges
+  for (SegmentedEdge* edge : edges_to_remove) {
+    removeEdge(edge);
+  }
+}
+
+void SegmentedFusion::connectGroups(
+    SegmentedGroup* from,
+    SegmentedGroup* to,
+    Val* val) {
+  SegmentedEdge* new_edge = newEdge(from, to, val);
+  from->consumer_edges.push_back(new_edge);
+  to->producer_edges.push_back(new_edge);
+}
+
+namespace {
 // Concat's producer edges of sg1 and sg2, but removes any edges
 // from/to sg1/sg2. If dedup is true, incoming edges with the same val
 // are considered duplicate, and only one of them is returned
@@ -944,7 +876,6 @@ std::vector<SegmentedEdge*> getMergedConsumerEdges(
 
 // Returns a determinstic, unique set of inputs of the segment group, sg1, or
 // the combined group sg1 + sg2
-// TODO: Re-evaluate use and if needed use logic like in mergeNodes
 std::vector<Val*> getAllInputs(
     const SegmentedGroup* sg1,
     const SegmentedGroup* sg2 = nullptr) {
@@ -2053,9 +1984,9 @@ std::unique_ptr<SegmentedFusion> SegmentCandidateFinder::segment(
     SegmentCandidateFinderOptions options,
     bool multi_device) {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegments)) {
-    // debug() << "Segment the fusion (Original Fusion Un-modified): "
-    //         << std::endl;
-    // fusion->printMath();
+    debug() << "Segment the fusion (Original Fusion Un-modified): "
+            << std::endl;
+    fusion->printMath();
   }
   SegmentCandidateFinder scf(std::move(fusion), inputs, options, multi_device);
   return std::move(scf.segmented_fusion_);
@@ -2186,15 +2117,6 @@ std::vector<SegmentedEdge*> SegmentedFusion::getEdgesBetween(
   return edges_between;
 }
 
-void SegmentedFusion::connectGroups(
-    SegmentedGroup* producer,
-    SegmentedGroup* consumer,
-    Val* val) {
-  SegmentedEdge* new_edge = newEdge(producer, consumer, val);
-  producer->consumer_edges.push_back(new_edge);
-  consumer->producer_edges.push_back(new_edge);
-}
-
 SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::mergeNodes");
   SegmentedGroup* last_merged = nullptr;
@@ -2203,31 +2125,6 @@ SegmentedGroup* SegmentCandidateFinder::mergeNodes() {
   while (it != to_merge_.end()) {
     auto group1 = *it++;
     auto group2 = *it++;
-
-    bool producer_consumer_relationship = false;
-    auto producer_group = group1;
-    auto consumer_group = group2;
-    for (auto edge : group1->producer_edges) {
-      if (edge->from == group2) {
-        producer_consumer_relationship = true;
-        producer_group = group2;
-        consumer_group = group1;
-        break;
-      }
-    }
-
-    for (auto edge : group2->producer_edges) {
-      if (edge->from == group1) {
-        NVF_ERROR(
-            producer_consumer_relationship == false,
-            "Groups cannot be both producer and consumers of eachother, that would violate the DAG property.");
-        producer_consumer_relationship = true;
-        break;
-      }
-    }
-
-    // std::cout << "Merging:\n  " << toString(group1) << "\n  "
-    //           << toString(group2) << std::endl;
 
     clean_up_groups_.emplace(group1);
     clean_up_groups_.emplace(group2);
@@ -2357,10 +2254,8 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
       std::remove_if(
           groups().begin(),
           groups().end(),
-          [&groups_to_merge](SegmentedGroup* group) -> bool {
-            return std::find(
-                       groups_to_merge.begin(), groups_to_merge.end(), group) !=
-                groups_to_merge.end();
+          [&group_set](SegmentedGroup* group) -> bool {
+            return group_set.count(group);
           }),
       groups().end());
 
@@ -2450,14 +2345,7 @@ class FusionSegmentGuard : public NonCopyable {
 
     auto new_inputs = getAllInputs(a, b);
     auto new_outputs = getAllOutputs(a, b);
-    std::cout << "New inputs: " << std::endl;
-    for (auto input : new_inputs) {
-      std::cout << input->toString() << std::endl;
-    }
-    std::cout << "New outputs: " << std::endl;
-    for (auto output : new_outputs) {
-      std::cout << output->toString() << std::endl;
-    }
+
     narrowToNewSegment(new_inputs, new_outputs);
   }
 
@@ -3978,9 +3866,6 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     SegmentedGroup* group1,
     SegmentedGroup* group2) {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::codeGenSupportedMerge");
-  std::cout << "Checking supported merge:\n"
-            << toString(group1) << "\n"
-            << toString(group2) << std::endl;
   NVF_ERROR(
       !segmented_fusion_->getEdgesBetween(group1, group2).empty() ||
           !segmented_fusion_->getEdgesBetween(group2, group1).empty(),
@@ -4068,8 +3953,6 @@ void SegmentCandidateFinder::buildInitialSegments() {
       continue;
     }
     auto new_group = segmented_fusion_->newGroup(expr);
-    new_group->input_vals_ = expr->inputs();
-    new_group->output_vals_ = expr->outputs();
     expr2group.insert(std::make_pair(expr, new_group));
   }
 
@@ -4082,8 +3965,8 @@ void SegmentCandidateFinder::buildInitialSegments() {
     SegmentedGroup* expr_group = expr2group.at(expr);
     for (auto inp : expr->inputs()) {
       if (input2group_.count(inp)) {
-        connectGroups(
-            input2group_.at(inp), expr_group, segmented_fusion_.get());
+        segmented_fusion_->connectGroups(input2group_.at(inp), expr_group, inp);
+        expr_group->input_vals_.pushBack(inp);
         continue;
       }
 
@@ -4095,7 +3978,12 @@ void SegmentCandidateFinder::buildInitialSegments() {
       }
 
       auto def_group = expr2group.at(inp->definition());
-      connectGroups(def_group, expr_group, segmented_fusion_.get());
+      segmented_fusion_->connectGroups(def_group, expr_group, inp);
+    }
+    for (auto out : expr->outputs()) {
+      if (out->isFusionOutput()) {
+        expr_group->output_vals_.pushBack(out);
+      }
     }
   }
 }
@@ -4135,24 +4023,26 @@ void SegmentCandidateFinder::trySetUpMerge(
   candidate_it->group->merged_ = true;
   candidate_it->group->merge_with_ = group;
   candidate_it->group->merge_through_ = candidate_it->edge;
-
-  std::cout << "Yes, Merge:\n  " << toString(group) << "\n  "
-            << toString(candidate_it->group) << std::endl;
 }
 
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
-  SegmentedGroup* group = segmented_fusion_->newFusionInputGroup();
+  SegmentedGroup* group = segmented_fusion_->newGroup();
   group->input_vals_ = IterVisitor::getInputsTo({forwarded_input});
   NVF_ERROR(
       group->input_vals_.size() == 1,
       "This should only be used for forwarded inputs which should only connect to inputs through unary operations.");
   group->exprs_ = StmtSort::getExprsTo({forwarded_input});
-  group->output_vals_.push_back(forwarded_input);
-  input2group_.insert({group->input_vals_[0], group});
+  group->output_vals_.pushBack(forwarded_input);
+  input2group_.insert({group->input_vals_.vector()[0], group});
   return group;
 }
 
 void SegmentCandidateFinder::resolveForwardedInputs() {
+  auto disconnect_groups =
+      [this](SegmentedGroup* producer, SegmentedGroup* consumer) {
+        segmented_fusion_->disconnectGroups(producer, consumer);
+      };
+
   for (auto [forwarded_val, inp] : forward_val_to_input_) {
     // Cleanup forwarded_val group before processing
     auto inp_group = input2group_.at(forwarded_val);
@@ -4174,8 +4064,8 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
     bool can_merge_all_consumers = true;
 
     for (auto consumer : consumers) {
-      disconnectGroups(consumer, inp_group, segmented_fusion_.get());
-      connectGroups(new_inp_group, consumer, segmented_fusion_.get());
+      disconnect_groups(inp_group, consumer);
+      segmented_fusion_->connectGroups(new_inp_group, consumer, forwarded_val);
       can_merge_all_consumers = can_merge_all_consumers &&
           codeGenSupportedMerge(new_inp_group, consumer);
     }
@@ -4191,24 +4081,22 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
         }
 
         auto duplicate_inp_group = createInputGroup(forwarded_val);
-        disconnectGroups(consumer, new_inp_group, segmented_fusion_.get());
-        connectGroups(duplicate_inp_group, consumer, segmented_fusion_.get());
+        segmented_fusion_->disconnectGroups(consumer, new_inp_group);
+        segmented_fusion_->connectGroups(
+            duplicate_inp_group, consumer, forwarded_val);
         to_merge_.push_back(duplicate_inp_group);
         to_merge_.push_back(consumer);
-        // std::cout << "MergeNodes first" << std::endl;
         mergeNodes();
       }
 
       to_merge_.push_back(new_inp_group);
       to_merge_.push_back(consumers.vector()[0]);
-      // std::cout << "MergeNodes second" << std::endl;
       auto merged_group = mergeNodes();
       input2group_[inp] = merged_group;
 
     } else {
       // If !can_merge_all_consumers, then we just need to set a scheduler to
       // the input group
-      // std::cout << "First" << std::endl;
       new_inp_group->setSchedulerType(deriveSchedulerType(new_inp_group));
       input2group_[inp] = new_inp_group;
     }
@@ -4227,16 +4115,6 @@ void SegmentCandidateFinder::findSegments() {
 
   validateIfDebug();
 
-  // std::cout << "\nComplete Fusion after buildInitialSegments:" << std::endl;
-  // segmented_fusion_->completeFusion()->printMath();
-
-  // std::cout << "\nForwarded Inputs Map:" << std::endl;
-  // for (const auto& [forwarded_val, input_val] : forward_val_to_input_) {
-  //   std::cout << "Forwarded: " << forwarded_val->toString()
-  //             << " -> Input: " << input_val->toString() << std::endl;
-  // }
-  // std::cout << std::endl;
-
   auto has_welford_ops =
       ir_utils::hasOpsOfType<WelfordOp>(segmented_fusion_->completeFusion());
 
@@ -4254,7 +4132,6 @@ void SegmentCandidateFinder::findSegments() {
   for (auto group : groups()) {
     if (!group->outputs().empty()) {
       // Set SchedulerType in case single reduction kernels were left out
-      // std::cout << "Second" << std::endl;
       group->setSchedulerType(deriveSchedulerType(group));
     }
   }
@@ -4293,7 +4170,6 @@ void SegmentCandidateFinder::findSegments() {
         merged_nodes = false;
       }
 
-      // std::cout << "MergeNodes third" << std::endl;
       mergeNodes();
 
       validateIfDebug();
@@ -4668,8 +4544,8 @@ void SegmentCandidateFinder::forwardInputs() {
     // TODO: Can forwarded_fusion_inputs_ be removed?
     forwarded_fusion_inputs_.push_back(inp);
     forwarded_fusion_inputs_.push_back(forward_val);
-    auto new_group = segmented_fusion_->newFusionInputGroup();
-    new_group->output_vals_.push_back(forward_val);
+    auto new_group = segmented_fusion_->newGroup();
+    new_group->output_vals_.pushBack(forward_val);
     input2group_.insert({forward_val, new_group});
   }
 
@@ -4677,8 +4553,8 @@ void SegmentCandidateFinder::forwardInputs() {
     if (input_to_forward_val_.count(inp)) {
       continue;
     }
-    auto new_group = segmented_fusion_->newFusionInputGroup();
-    new_group->output_vals_.push_back(inp);
+    auto new_group = segmented_fusion_->newGroup();
+    new_group->output_vals_.pushBack(inp);
     input2group_.insert({inp, new_group});
   }
 }
@@ -4753,7 +4629,6 @@ void SegmentCandidateFinder::finalMerge() {
     } else {
       NVF_ERROR(
           to_merge_.size() == 2, "merging more than 2 nodes in final iter");
-      // std::cout << "MergeNodes fourth" << std::endl;
       mergeNodes();
     }
   }
@@ -4771,22 +4646,19 @@ void SegmentCandidateFinder::resolveForwardedInput(Val* forwarded_input) {
 
   // Disconnect all consumers from original input group
   for (auto consumer : consumers) {
-    disconnectGroups(inp_group, consumer, segmented_fusion_.get());
+    segmented_fusion_->disconnectGroups(inp_group, consumer);
   }
 
   for (auto consumer : consumers) {
     SegmentedGroup* input_group = createInputGroup(forwarded_input);
 
     // Connect new input group to consumer
-    connectGroups(input_group, consumer, segmented_fusion_.get());
+    segmented_fusion_->connectGroups(input_group, consumer, forwarded_input);
 
     // Remove forwarded input from consumer's input vals since it will be
     // connected through the new input group
     auto& consumer_inputs = consumer->input_vals_;
-    consumer_inputs.erase(
-        std::remove(
-            consumer_inputs.begin(), consumer_inputs.end(), forwarded_input),
-        consumer_inputs.end());
+    consumer_inputs.erase(forwarded_input);
 
     if (codeGenSupportedMerge(input_group, consumer)) {
       NVF_ERROR(to_merge_.empty());
@@ -4844,7 +4716,6 @@ void SegmentCandidateFinder::finalize() {
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
-    // std::cout << "Third" << std::endl;
     g->setSchedulerType(deriveSchedulerType(g));
     g->finalize();
   }
