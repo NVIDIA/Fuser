@@ -38,11 +38,21 @@ bool validateMeshes(Fusion* fusion) {
   return tv_with_mesh_found;
 }
 
-// Transform the maybe allocation domain to the loop domain.
-// using exprs between logical and loop and get the permutation required to
-// reorder the loop domain in the same relative order as the allocation domain.
-// Returns the contiguity of the transformed allocation domain.
-std::vector<std::optional<bool>> reorderLoopAsAllocation(TensorView* tv) {
+// Reorders the loop domain in the same relative order as the allocation domain.
+// Specifically:
+// 1. It uses the exprs between logical and loop domain to split the allocation
+// domain
+// 2. It reorders the loop domain to match the split allocation domain.
+// 3. It computes the contiguity of the transformed allocation domain through
+// the split exprs.
+// 4. Sets the allocation domain to be the same as the loop domain with the
+// computed contiguity. This preserves both the sharding and any stride order.
+// Note: Ideally, the loop domain can follow the logical domain and the
+// allocation domain can follow the stride order specified/inferred. However, we
+// currently require loop domain to be the same as allocation domain. This
+// behavior will be modified in the future with allocation and loop domain being
+// propagated independently.
+void setLoopAndAllocationDomain(TensorView* tv) {
   auto alloc_dom = tv->getMaybeAllocationDomain();
   auto contiguity = tv->getContiguity();
 
@@ -99,8 +109,7 @@ std::vector<std::optional<bool>> reorderLoopAsAllocation(TensorView* tv) {
       " as ",
       alloc_dom);
   tv->reorder(permutation.value());
-
-  return contiguity;
+  tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
 }
 
 bool isTvContiguous(TensorView* tv) {
@@ -108,14 +117,6 @@ bool isTvContiguous(TensorView* tv) {
       tv->getContiguity().begin(),
       tv->getContiguity().end(),
       [](const std::optional<bool>& c) { return c.value_or(true); });
-}
-
-template <typename Range>
-void setShardedAllocationDomain(Range tvs) {
-  for (TensorView* tv : tvs) {
-    auto contiguity = reorderLoopAsAllocation(tv);
-    tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
-  }
 }
 
 } // namespace
@@ -139,9 +140,12 @@ void MakeReshardingContiguousPass::runPass(Fusion* fusion) {
           "Resharding expression inputs must be contiguous: ",
           expr);
     }
-
-    setShardedAllocationDomain(inputs);
-    setShardedAllocationDomain(outputs);
+    for (auto tv : inputs) {
+      setLoopAndAllocationDomain(tv);
+    }
+    for (auto tv : outputs) {
+      setLoopAndAllocationDomain(tv);
+    }
   }
 }
 
