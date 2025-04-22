@@ -375,6 +375,8 @@ TEST_F(ScanTest, FlashAttentionNoMma) {
   //   N: d2o, d2i
   //   K: N2o, N2i
   //
+  // The overall output should be of size N1o, N1i, d2o, d2i since it is the
+  // result of that final matmul
   //
   // The general strategy for ordinary flash attention is to have two main
   // serial loops: over the outer "K" dims d1o and N2o. The inner dims are
@@ -382,14 +384,14 @@ TEST_F(ScanTest, FlashAttentionNoMma) {
   //
   // We grid parallelize across CTAs in the N1o and d2o dimensions and each CTA
   // computes a final output of size N1i by d2i.
-  int64_t N1o = 8;
-  int64_t N1i = 4;
-  int64_t N2o = 8;
-  int64_t N2i = 4;
-  int64_t d1o = 8;
-  int64_t d1i = 4;
+  int64_t N1o = 2;
+  int64_t N1i = 3;
+  int64_t N2o = 4;
+  int64_t N2i = 5;
+  int64_t d1o = 6;
+  int64_t d1i = 7;
   int64_t d2o = 8;
-  int64_t d2i = 4;
+  int64_t d2i = 9;
 
   // [N1o, N2o, d1o, d2o, N1i, N2i, d1i, d2i]
   auto Q = makeConcreteTensor({N1o, 1, d1o, 1, N1i, 1, d1i, 1});
@@ -405,14 +407,10 @@ TEST_F(ScanTest, FlashAttentionNoMma) {
   auto S =
       sum(mul(Q, K),
           /*dims=*/{-2},
-          /*keep_dim=*/true); // [N1o, N2o, d1o, d2o, N1i, N2i, (rd1i), d2i]
+          /*keep_dim=*/true); // [N1o, N2o, d1o, 1, N1i, N2i, (1), 1]
 
   auto m_tilde =
-      max(S, {-2}, /*keep_dim=*/true); // [N1o, N2o, d1o, d2o, N1i, (rN2i), d2i]
-
-  auto P_tilde = exp(sub(S, m_tilde));
-
-  auto l_tilde = sum(P_tilde, {-2}, /*keep_dim=*/true);
+      max(S, {-3}, /*keep_dim=*/true); // [N1o, N2o, d1o, 1, N1i, (1), 1, 1]
 
   auto* neg_infty = IrBuilder::create<Val>(
       -std::numeric_limits<double>::infinity(), DataType::Double);
@@ -423,13 +421,23 @@ TEST_F(ScanTest, FlashAttentionNoMma) {
       /*init=*/neg_infty,
       /*discount_factor=*/nullptr,
       /*return_exclusive=*/true);
-  TensorView* m = max_scan_result.inclusive;
+  TensorView* m =
+      max_scan_result.inclusive; // [N1o, N2o, (d1o), 1, N1i, 1, 1, 1]
   TensorView* m_prev = max_scan_result.exclusive;
 
-  auto first_discount = exp(sub(m_prev, m));
+  auto P_tilde = exp(sub(S, m_tilde)); // [N1o, N2o, d1o, 1, N1i, N2i, 1, 1]
 
-  auto l_tilde_factor = exp(sub(m_tilde, m));
-  auto next_l = mul(l_tilde_factor, l_tilde);
+  auto l_tilde =
+      sum(P_tilde,
+          {-3},
+          /*keep_dim=*/true); // [N1o, N2o, d1o, 1, N1i, (1), 1, 1]
+
+  auto first_discount = exp(sub(m_prev, m)); // [N1o, N2o, d1o, 1, N1i, 1, 1, 1]
+
+  auto l_tilde_factor =
+      exp(sub(m_tilde, m)); // [N1o, N2o, d1o, 1, N1i, 1, 1, d2i]
+  auto next_l =
+      mul(l_tilde_factor, l_tilde); // [N1o, N2o, d1o, 1, N1i, 1, 1, d2i]
 
   ScanResult sum_scan_result = scan(
       next_l,
@@ -438,21 +446,32 @@ TEST_F(ScanTest, FlashAttentionNoMma) {
       /*init=*/fusion->zeroVal(DataType::Float),
       /*discount_factor=*/first_discount,
       /*return_exclusive=*/true);
-  TensorView* l = sum_scan_result.inclusive;
+  TensorView* l =
+      sum_scan_result.inclusive; // [N1o, N2o, (d1o), 1, N1i, 1, 1, 1]
   TensorView* l_prev = sum_scan_result.exclusive;
 
-  auto O_discount = mul(div(l_prev, l), first_discount);
+  auto O_discount =
+      mul(div(l_prev, l), first_discount); // [N1o, N2o, d1o, 1, N1i, 1, 1, 1]
 
-  auto PtildeV = sum(mul(P_tilde, V), /*dims=*/{-2}, /*keep_dim=*/true);
+  // P_tilde = [N1o, N2o, d1o, 1, N1i, N2i, 1, d2i]
+  // V       = [1,   N2o, 1, d2o, 1,   N2i, 1, d2i]
+  auto PtildeV =
+      sum(mul(P_tilde, V),
+          /*dims=*/{-3},
+          /*keep_dim=*/true); // [N1o, N2o, d1o, d2o, N1i, (1), 1, d2i]
 
   auto O = prefixSum(
-      mul(l_tilde_factor, PtildeV), {2}, /*discount_factor=*/O_discount);
+      mul(div(l_tilde_factor, l), PtildeV),
+      2,
+      /*discount_factor=*/O_discount); // [N1o, N2o, (d1o), d20, N1i, 1, 1, d2i]
 
   auto O_final = reductionOp(
       BinaryOpType::RHS,
-      {2},
+      {1, 2},
       /*init=*/fusion->zeroVal(DataType::Float),
-      O);
+      set(O), // TODO: is this set really needed to avoid computeWith error on
+              // O?
+      /*keepdim=*/true); // [N1o, (1), (1), d2o, N1i, 1, 1, d2i]
 
   fusion->addOutput(O_final);
 
@@ -491,7 +510,7 @@ TEST_F(ScanTest, FlashAttentionNoMma) {
   }
 
   O_final->axis(0)->parallelize(ParallelType::BIDx);
-  O_final->axis(1)->parallelize(ParallelType::BIDy);
+  O_final->axis(3)->parallelize(ParallelType::BIDy);
   scheduler_utils::parallelizeAllLike(O_final);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
@@ -500,10 +519,24 @@ TEST_F(ScanTest, FlashAttentionNoMma) {
   at::Tensor v = at::randn({1, N2o, 1, d2o, 1, N2i, 1, d2i}, options);
   std::vector<c10::IValue> inputs{q, k, v};
 
+  auto qorig = q.transpose(2, 4).reshape({N1o * N1i, d1o * d1i}); // 6, 42
+  auto korig = k.transpose(2, 5).reshape({N2o * N2i, d1o * d1i}); // 20, 42
+  auto vorig = v.transpose(3, 5).reshape({N2o * N2i, d2o * d2i}); // 20, 72
+  auto qktref = at::matmul(qorig, korig.t()); // 6, 20
+  auto sref = at::softmax(qktref, 1); // 6, 20
+  auto ref =
+      at::matmul(sref, vorig)
+          .reshape({N1o, 1, 1, d2o, N1i, 1, 1, d2i}); // 2, 1, 1, 8, 3, 1, 1, 9
+
   KernelExecutor ke;
   ke.compile(fusion.get(), inputs);
 
-  /*auto cg_outputs = */ ke.run(inputs);
+  auto cg_outputs = ke.run(inputs);
+
+  EXPECT_TRUE(
+      at::allclose(cg_outputs[0].as<at::Tensor>().squeeze(), ref.squeeze()));
+  //<< " returned " << cg_outputs[0].as<at::Tensor>()[0] << " but expected "
+  //<< ref[0];
 }
 
 } // namespace nvfuser
