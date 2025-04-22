@@ -388,14 +388,15 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         });
 
     // Reorder the reference as the allocation domain of the largest fusion
-    // input
-    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
-    std::cerr << "Ref reordered: " << ref_tv->toString() << " with "
-              << toDelimitedString(ref_alloc) << "\n";
-
-    scheduler_utils::reorderTensorLike(
-        ref_tv, {ref_tv->getMaybeAllocationDomain().back()});
-    std::cerr << "Ref fixed: " << ref_tv->toString() << "\n";
+    // input. Currently, vectorization is done using the innermost
+    // loop ID
+    auto permutation = scheduler_utils::reorderDomainLike(
+        {ref_tv->getLoopDomain().begin(),
+         ref_tv->getLoopDomain().begin() + ref_tv->getLoopDomain().size() - 1},
+        ref_alloc);
+    permutation.push_back(ref_tv->getLoopDomain().size() - 1);
+    ref_tv->reorder(permutation);
+    std::cerr << "Ref reordered: " << ref_tv->toString() << "\n";
   }
 
   const int64_t bdimx = 128;
