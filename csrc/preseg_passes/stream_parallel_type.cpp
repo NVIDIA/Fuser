@@ -205,7 +205,17 @@ void StreamParallelType::runPass(Fusion* fusion) {
          ++it_expr) {
       Expr* expr = *it_expr;
 
-      bool expr_needs_special_handling_for_p2p_pipeline;
+      IterDomain* current_stream_axis = for_loop->iterDomain();
+      if (expr->outputs().size() > 0) {
+        NVF_ERROR(expr->outputs().size() == 1, "expected a single output but got ", expr);
+        current_stream_axis = getStreamAxis(expr->outputs()[0]->as<TensorView>()->getLoopDomain());
+        NVF_ERROR(current_stream_axis != nullptr, "expected a stream axis but got ", expr);
+      }
+
+      // this means that the consumer's stream axis is the producer's sharded axis
+      bool expr_needs_special_handling_for_AGp2p_pipeline = false;
+      // this means that, in addition, the producer's stream axis is the consumer's sharded axis
+      bool expr_needs_special_handling_for_RSp2p_pipeline = false;
 
       // Process input tensors
       for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
@@ -214,12 +224,12 @@ void StreamParallelType::runPass(Fusion* fusion) {
         for (auto id : input->getLoopDomain()) {
           if (id_model.idGraph(IdMappingMode::BROADCAST)
                   .disjointValSets()
-                  .strictAreMapped(for_loop->iterDomain(), id)) {
+                  .strictAreMapped(current_stream_axis, id)) {
             // Verify only one stream axis exists
             NVF_CHECK(
                 input_stream_id_logical_index == -1,
                 "Expected at most one axis mapping to the stream axis ",
-                for_loop->iterDomain(),
+                current_stream_axis,
                 " in the tensor ",
                 input,
                 " loop's domain ",
@@ -248,9 +258,24 @@ void StreamParallelType::runPass(Fusion* fusion) {
           continue;
         }
 
-        expr_needs_special_handling_for_p2p_pipeline = input->getLogicalDomain()[input_stream_id_logical_index]->isDeviceDim();
-        if (expr_needs_special_handling_for_p2p_pipeline) {
+        expr_needs_special_handling_for_AGp2p_pipeline = input->getLogicalDomain()[input_stream_id_logical_index]->isDeviceDim();
+        if (expr_needs_special_handling_for_AGp2p_pipeline) {
           NVF_ERROR(expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set, "expected a set operation but got ", expr);
+
+          auto* input_tv = expr->inputs()[0]->as<TensorView>();
+          auto* output_tv = expr->outputs()[0]->as<TensorView>();
+
+          auto* input_tv_stream_axis = getStreamAxis(input_tv->getLoopDomain());
+          int64_t output_tv_sharded_axis_index = getShardedLoopAxis(output_tv, ParallelType::DIDx);
+
+          if (output_tv_sharded_axis_index != -1 && input_tv_stream_axis != nullptr) {
+            auto* output_tv_sharded_axis = output_tv->getLoopDomain()[output_tv_sharded_axis_index];
+            expr_needs_special_handling_for_RSp2p_pipeline = id_model.idGraph(IdMappingMode::BROADCAST)
+                  .disjointValSets()
+                  .strictAreMapped(input_tv_stream_axis, output_tv_sharded_axis);
+          } else {
+            expr_needs_special_handling_for_RSp2p_pipeline = false;
+          }
           continue;
         }
 
@@ -279,20 +304,17 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
       // Process output tensors
       for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // if (expr_needs_special_handling_for_p2p_pipeline) {
-        //   continue;
-        // }
         // Find stream axis index in output tensor
         int64_t output_stream_id_logical_index = -1;
         for (auto id : output->getLoopDomain()) {
           if (id_model.idGraph(IdMappingMode::BROADCAST)
                   .disjointValSets()
-                  .strictAreMapped(for_loop->iterDomain(), id)) {
+                  .strictAreMapped(current_stream_axis, id)) {
             // Verify only one stream axis exists
             NVF_CHECK(
                 output_stream_id_logical_index == -1,
                 "Expected at most one axis mapping to the stream axis ",
-                for_loop->iterDomain(),
+                current_stream_axis,
                 " in the tensor ",
                 output,
                 " loop's domain ",
@@ -321,6 +343,12 @@ void StreamParallelType::runPass(Fusion* fusion) {
         if (output_stream_id_logical_index == -1) {
           continue;
         }
+        new_top_level_exprs.push_back(
+            IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
+
+        // if (expr_needs_special_handling_for_RSp2p_pipeline) {
+        //   continue;
+        // }
 
         // Create sliced tensor for current stream iteration
         TensorView* output_j = select(
@@ -330,8 +358,6 @@ void StreamParallelType::runPass(Fusion* fusion) {
             /*keep_reduction_axis=*/true);
 
         // Allocate memory for the output tensor
-        new_top_level_exprs.push_back(
-            IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
         new_loop_body.push_back(output_j->definition());
 
         // Update all expressions using this output
@@ -354,7 +380,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
           }
         }
       }
-      if (expr_needs_special_handling_for_p2p_pipeline) {
+      if (expr_needs_special_handling_for_AGp2p_pipeline) {
         NVF_ERROR(expr->isA<LoadStoreOp>() && expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::Set, "expected a set operation but got ", expr);
         NVF_ERROR(ir_utils::isTvOp(expr), "expected a Tv operation but got ", expr);
         auto* set_op = expr->as<LoadStoreOp>();
@@ -362,19 +388,31 @@ void StreamParallelType::runPass(Fusion* fusion) {
         auto* output_tv = set_op->out()->as<TensorView>();
         NVF_ERROR(input_tv->axis(0)->isDeviceDim(), "expected a sharded first axis on the input but got ", input_tv);
 
-        auto* peer = for_loop->index();
+        auto* peer = for_loop->index(); // in reduce scatter case, the send peer can be anything
         auto* is_sending_to_self = IrBuilder::create<kir::Predicate>(eq(peer, IrBuilder::create<NamedScalar>("myDeviceId", DataType::Int)));
         auto if_then_else = IrBuilder::create<kir::IfThenElse>(is_sending_to_self);
 
-        auto* selected_in = select(input_tv, /*dim=*/0, /*index=*/hic->zeroVal(), /*keep_reduction_axis=*/true);
+        TensorView* selected_in = nullptr;
+        if (expr_needs_special_handling_for_RSp2p_pipeline) {
+          auto it_input_stream_id_logical = std::find(
+                input_tv->getLogicalDomain().begin(),
+                input_tv->getLogicalDomain().end(),
+                getStreamAxis(input_tv->getLoopDomain()));
+          int64_t stream_dim = std::distance(
+                input_tv->getLogicalDomain().begin(),
+                it_input_stream_id_logical);
+          selected_in = select(input_tv, /*dim=*/stream_dim, /*index=*/ for_loop->index(), /*keep_reduction_axis=*/true);
+        } else {
+          selected_in = select(input_tv, /*dim=*/0, /*index=*/hic->zeroVal(), /*keep_reduction_axis=*/true);
+        }
         auto* local_copy = IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, output_tv, selected_in);
 
-        if_then_else->thenBody().push_back(selected_in->definition());
         if_then_else->thenBody().push_back(local_copy);
 
+        auto src_buffer = expr_needs_special_handling_for_RSp2p_pipeline ? selected_in : input_tv;
         auto start_coalescing = IrBuilder::create<hir::StartCoalescing>();
-        auto recv = IrBuilder::create<P2PCommunication>(P2PCommunicationType::RECV, output_tv, /*peer*/for_loop->index(), CommunicatorBackend::kNccl);
-        auto send = IrBuilder::create<P2PCommunication>(P2PCommunicationType::SEND, input_tv, /*peer*/for_loop->index(), CommunicatorBackend::kNccl);
+        auto recv = IrBuilder::create<P2PCommunication>(P2PCommunicationType::RECV, output_tv, /*peer*/peer, CommunicatorBackend::kNccl);
+        auto send = IrBuilder::create<P2PCommunication>(P2PCommunicationType::SEND, src_buffer, /*peer*/peer, CommunicatorBackend::kNccl);
         auto end_coalescing = IrBuilder::create<hir::EndCoalescing>();
         auto wait = IrBuilder::create<hir::Wait>(end_coalescing);
 
@@ -384,6 +422,7 @@ void StreamParallelType::runPass(Fusion* fusion) {
         if_then_else->elseBody().push_back(end_coalescing);
         if_then_else->elseBody().push_back(wait);
 
+        new_loop_body.push_back(selected_in->definition());
         new_loop_body.push_back(if_then_else);
       } else {
         new_loop_body.push_back(*it_expr);

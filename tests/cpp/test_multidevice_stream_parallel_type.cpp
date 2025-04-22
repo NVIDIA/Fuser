@@ -438,7 +438,7 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
   TensorView* tv1b = broadcast(
       tv1, {false, true, false, false}); //[DIDx(D), 1, K/D, N]
   TensorView* tv2_unreduced = matmul(tv0, tv1b); // [Stream(D), DIDx(D), M/D, N]
-  TensorView* tv2 = sum(tv2_unreduced, {1}); //[r(D), DIDx(D), M/D, N]
+  TensorView* tv2 = sum(tv2_unreduced, {0}); //[r(D), DIDx(D), M/D, N]
 
   // InsertReshardingPass should add a Set after the matmul so that:
   // tv2_unreduced [Stream(D), D, M/D, N]
@@ -465,13 +465,14 @@ TEST_F(MultiDeviceStreamParallelTypeTest, ReduceScatterP2p) {
   MultiDeviceExecutor executor(std::move(fusion), *communicator_);
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
-  EXPECT_EQ(container->topLevelExprs().size(), 5);
+  EXPECT_EQ(container->topLevelExprs().size(), 6);
   EXPECT_TRUE(
       container->topLevelExprs().at(0)->isA<hir::PostOnStream>()); // Broadcast
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(2)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(3)->isA<ForLoop>());
   EXPECT_TRUE(container->topLevelExprs().at(4)->isA<ForLoop>());
+  EXPECT_TRUE(container->topLevelExprs().at(5)->isA<ReductionOp>());
 
   auto tensor_options =
       at::TensorOptions().dtype(at::kFloat).device(communicator_->device());
