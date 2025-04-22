@@ -1043,13 +1043,15 @@ at::Tensor reference_loop_split_mha(at::Tensor inp) {
 }
 } // namespace
 
+// TODO: Allow testing for float16 and bfloat16 for loop split mlp and mha
+// This currently fails because privatizeUpcast clones cast operations,
+// which fails segmentation since the transforms are not replicated.
 TEST_F(DistributedTransformerTest, LoopSplitMLP) {
   if ((4 * E) % D != 0) {
     GTEST_SKIP() << "Requires number of devices=" << D
                  << " evenly divide 4*E=" << 4 * E;
   }
   auto dtype = DataType::Float;
-  // auto dtype = GetParam();
   at::ScalarType at_dtype = data_type_to_aten(dtype);
 
   auto fusion = std::make_unique<Fusion>();
@@ -1106,7 +1108,6 @@ TEST_F(DistributedTransformerTest, LoopSplitMHAFwd) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // auto dtype = GetParam();
   auto dtype = DataType::Half;
   at::ScalarType at_dtype = data_type_to_aten(dtype);
 
