@@ -58,19 +58,6 @@ class Parallelism(Enum):
     SEQUENCE_PARALLEL = auto()
 
 
-@pytest.fixture(scope="module")
-def setup_process_group(mpi_test) -> None:
-    # The default port as used by https://github.com/pytorch/pytorch/blob/45a8b5682eb69d865cbf68c7f2f689b56b4efd53/torch/csrc/distributed/c10d/TCPStore.hpp#L51.
-    dist.init_process_group(
-        backend="nccl",
-        init_method="tcp://localhost:29500",
-        world_size=mpi_test.size,
-        rank=mpi_test.rank,
-    )
-    yield
-    dist.destroy_process_group()
-
-
 # This benchmark is instrumented with cudaProfilerStart/Stop. Therefore, one
 # can collect stats of the first few non-warmup benchmark iterations using
 # ```bash
@@ -94,7 +81,7 @@ def setup_process_group(mpi_test) -> None:
     ids=["nonoverlap", "overlap"],
 )
 def test_transformer_layer(
-    setup_process_group,
+    setup_default_process_group,
     monkeypatch,
     benchmark,
     compute_type: ComputeType,

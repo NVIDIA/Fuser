@@ -177,6 +177,53 @@ std::vector<PolymorphicValue> IndexSelectOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
 
+IndexPutAccumulateOp::IndexPutAccumulateOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* acc,
+    Val* index,
+    Val* value)
+    : Expr(passkey) {
+  addInput(acc);
+  addInput(index);
+  addInput(value);
+  addOutput(out);
+}
+
+std::string IndexPutAccumulateOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = indexPutAccumulate( ";
+  ss << input(0)->toString() << ", " << input(1)->toString() << ", "
+     << input(2)->toString() << " )\n";
+  return ss.str();
+}
+
+std::string IndexPutAccumulateOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingIDOfValue() const {
+  return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingID() const {
+  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
+}
+
+std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  return {at::index_put(
+      /*self=*/inputs.at(0).as<at::Tensor>(),
+      /*indices=*/{inputs.at(1).as<at::Tensor>()},
+      /*values=*/inputs.at(2).as<at::Tensor>(),
+      /*accumulate=*/true)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(IndexPutAccumulateOp)
+
 GatherOp::GatherOp(
     IrBuilderPasskey passkey,
     Val* out,

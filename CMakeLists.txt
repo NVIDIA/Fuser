@@ -239,6 +239,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_tma_ws.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_multi_wave.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
@@ -578,6 +581,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
