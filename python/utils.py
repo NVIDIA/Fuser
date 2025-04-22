@@ -268,8 +268,8 @@ def override_build_config_from_env(config):
         config.install_dir = os.getenv("NVFUSER_BUILD_INSTALL_DIR")
     if "NVFUSER_BUILD_INSTALL_REQUIRES" in os.environ:
         config.install_requires = os.getenv("NVFUSER_BUILD_INSTALL_REQUIRES").split(",")
-    if "NVFUSER_BUILD_EXTRA_REQUIRES" in os.environ:
-        config.extras_require = eval(os.getenv("NVFUSER_BUILD_EXTRA_REQUIRES"))
+    if "NVFUSER_BUILD_EXTRAS_REQUIRE" in os.environ:
+        config.extras_require = eval(os.getenv("NVFUSER_BUILD_EXTRA_REQUIRE"))
     if "NVFUSER_BUILD_CPP_STANDARD" in os.environ:
         config.cpp_standard = int(os.getenv("NVFUSER_BUILD_CPP_STANDARD"))
     if "NVFUSER_BUILD_VERSION_TAG" in os.environ:
