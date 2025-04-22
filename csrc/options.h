@@ -181,6 +181,17 @@ class Options {
  public:
   Options() : options_(getOptionsFromEnv()) {}
 
+  Options(const Options& other) {
+    std::lock_guard<std::mutex> lock(other.mutex_);
+    options_ = other.options_;
+  }
+
+  Options& operator=(const Options& other) {
+    std::lock_guard<std::mutex> lock(other.mutex_);
+    options_ = other.options_;
+    return *this;
+  }
+
   bool has(OptionEnum option) const {
     std::lock_guard<std::mutex> lock(mutex_);
     return options_.count(option);
@@ -220,7 +231,7 @@ class Options {
 
  protected:
   std::unordered_map<OptionEnum, std::vector<std::string>> options_;
-  std::mutex mutex_;
+  mutable std::mutex mutex_;
 };
 
 //! Utility class to temporarily overrride the Enable options,
