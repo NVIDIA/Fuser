@@ -11,6 +11,7 @@
 #include <visibility.h>
 
 #include <algorithm>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
