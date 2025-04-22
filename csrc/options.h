@@ -182,12 +182,13 @@ class Options {
   Options() : options_(getOptionsFromEnv()) {}
 
   Options(const Options& other) {
-    std::lock_guard<std::mutex> lock(other.mutex_);
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
     options_ = other.options_;
   }
 
   Options& operator=(const Options& other) {
-    std::lock_guard<std::mutex> lock(other.mutex_);
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
     options_ = other.options_;
     return *this;
   }
