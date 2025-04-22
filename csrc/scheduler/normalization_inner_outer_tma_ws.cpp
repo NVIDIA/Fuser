@@ -147,7 +147,7 @@ void getHeuristics(
   // Use the maximum vectorization factor
   const int64_t vect_factor = (int64_t)vectorize_factor;
 
-  // TMP for threads per block
+  // Set threads per block, will be revised in heuristics tuning.
   const int64_t max_persistent_batch = 10L;
   const int64_t after_vect = inner_dim_numel / vect_factor;
   int64_t threads_per_block = std::min(128L, after_vect);
@@ -189,9 +189,9 @@ void getHeuristics(
   int64_t heu_iter_unroll = std::min(2L, iter_remaining);
   int64_t max_iter_unroll = max_n_copies / n_stages;
   rparams->unroll_factor_iter_dom = std::min(heu_iter_unroll, max_iter_unroll);
-
-  // tmp_gmem is the intermediate result of outer reduction, its dtype is float,
-  // so the maximum vectorization factor is 4.
+  NVF_ERROR(
+      outer_dim_numel % rparams->unroll_factor_iter_dom == 0,
+      "Predicate for UBLK load assumes divisible split by unroll factor. ");
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
   rparams->cparams.maxrregcount = iop.available_register_per_thread;
@@ -283,8 +283,6 @@ void scheduleOuterReduction(
     }
     // [R/Unroll/BIDy, BIDy, Unroll]
     outer_reduction_tv->split(0, rparams->lparams.gdimy());
-    std::cout << "outer_reduction_tv1: " << outer_reduction_tv->toString()
-              << std::endl;
 
     TensorView* partialResult = outer_reduction_tv->rFactor(rfactor_axes);
     partialResult->cacheBefore();
@@ -319,8 +317,6 @@ void scheduleOuterReduction(
     }
 
     outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
-    std::cout << "outer_reduction_tv2: " << outer_reduction_tv->toString()
-              << std::endl;
     outer_reference_tvs.emplace_back(outer_reduction_tv);
   }
 }
@@ -581,7 +577,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   if (rparams->circular_buffer_options.isEnable()) {
     std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
     for (auto tv : smem_consumers) {
-      std::cout << "smem_consumers tv: " << tv->toString() << "\n";
       //[..Unroll, | TIDx, Persisent, Vect]
       int64_t inline_last_n_dims = rparams->unroll_factor_iter_dom > 1 ? 4 : 3;
       if (tv->nDims() - inline_last_n_dims >= 0) {
