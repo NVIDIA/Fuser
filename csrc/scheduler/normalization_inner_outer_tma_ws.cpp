@@ -186,7 +186,6 @@ void getHeuristics(
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
   rparams->cparams.maxrregcount = iop.available_register_per_thread;
   rparams->unroll_factor_inner_reduction = iop.inner_vect;
-  rparams->unroll_factor_outer_reduction = iop.vectorization_factor_outer;
   rparams->batches_per_block_inner_reduction = iop.inner_batch;
   rparams->block_dim_inner_reduction = ParallelType::TIDx;
   rparams->vectorize_inner_reduction = iop.inner_vect > 1;
