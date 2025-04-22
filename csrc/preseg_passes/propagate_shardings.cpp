@@ -47,15 +47,16 @@ std::vector<TensorView*> sortTvsByDeviceDims(const Range& tvs) {
   std::vector<TensorView*> tvs_with_mesh = filterTvsWithMesh(tvs);
 
   // Then sort the filtered TVs
-  std::sort(tvs_with_mesh.begin(), tvs_with_mesh.end(), [](auto a, auto b) {
-    int64_t a_device_dims = numDeviceDims(a);
-    int64_t b_device_dims = numDeviceDims(b);
-    if (a_device_dims != b_device_dims) {
-      return a_device_dims >= b_device_dims;
-    }
-    // Break ties by the total number of dimensions
-    return a->nDims() >= b->nDims();
-  });
+  std::stable_sort(
+      tvs_with_mesh.begin(), tvs_with_mesh.end(), [](auto a, auto b) {
+        int64_t a_device_dims = numDeviceDims(a);
+        int64_t b_device_dims = numDeviceDims(b);
+        if (a_device_dims != b_device_dims) {
+          return a_device_dims > b_device_dims;
+        }
+        // Break ties by the total number of dimensions
+        return a->nDims() > b->nDims();
+      });
 
   return tvs_with_mesh;
 }
@@ -125,13 +126,13 @@ class PropagateShardingsSelector : public SetSelector {
 // Returns the number of device dimensions that were reordered to the front.
 int64_t selectiveReorderDIDToFront(
     TensorView* tv,
-    std::unordered_set<ParallelType> existing_parallel_types) {
+    std::unordered_set<ParallelType> selected_parallel_types) {
   std::unordered_map<int64_t, int64_t> old2new;
   int64_t current_pos = 0;
 
   for (auto pos : c10::irange(tv->nDims())) {
     if (tv->axis(pos)->isDeviceDim() &&
-        !existing_parallel_types.count(tv->axis(pos)->getParallelType())) {
+        selected_parallel_types.count(tv->axis(pos)->getParallelType())) {
       old2new[pos] = current_pos;
       current_pos++;
     }
@@ -142,17 +143,24 @@ int64_t selectiveReorderDIDToFront(
 }
 
 // Returns the set of parallel types seen on the loop domain of the given tvs.
-std::unordered_set<ParallelType> getTvParallelTypes(
+std::unordered_set<ParallelType> getParallelTypesToPropagate(
     std::vector<TensorView*> tvs) {
-  std::unordered_set<ParallelType> parallel_types;
+  // Get the set of parallel types seen on the loop domain of the given tvs.
+  std::unordered_set<ParallelType> existing_parallel_types;
   for (auto tv : tvs) {
     for (auto id : tv->getLoopDomain()) {
       if (id->isDeviceDim()) {
-        parallel_types.insert(id->getParallelType());
+        existing_parallel_types.insert(id->getParallelType());
       }
     }
   }
-  return parallel_types;
+  std::unordered_set<ParallelType> selected_parallel_types;
+  for (ParallelType pt : kParallelTypeDIDs) {
+    if (!existing_parallel_types.count(pt)) {
+      selected_parallel_types.insert(pt);
+    }
+  }
+  return selected_parallel_types;
 }
 
 void propagateDIDTransform(
@@ -209,12 +217,12 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
 
       // Reorder the DID axis to the front only if it does not have a parallel
       // type already seen on the outputs.
-      std::unordered_set<ParallelType> existing_parallel_types =
-          getTvParallelTypes(outputs_without_mesh);
+      std::unordered_set<ParallelType> selected_parallel_types =
+          getParallelTypesToPropagate(outputs_without_mesh);
 
       // This restricts the transform propagation to only the relevant DID axis.
       int64_t did_pos =
-          selectiveReorderDIDToFront(ref_input, existing_parallel_types);
+          selectiveReorderDIDToFront(ref_input, selected_parallel_types);
 
       // Propagate the DID loop split to the outputs without mesh.
       propagateDIDTransform(
@@ -225,7 +233,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           /*allow_p2c=*/true);
 
       // Apply parallelization on the outputs without mesh.
-      shardAllLike(ref_input, outputs_without_mesh);
+      shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
     }
   }
 
