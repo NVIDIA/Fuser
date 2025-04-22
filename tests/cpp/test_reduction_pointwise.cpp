@@ -192,6 +192,7 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalID) {
   NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 }
 
+// https://github.com/NVIDIA/Fuser/issues/3811
 TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDInnerNormalization) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
@@ -224,6 +225,7 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDInnerNormalization) {
   NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
 }
 
+// https://github.com/NVIDIA/Fuser/issues/3811
 TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalization) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
