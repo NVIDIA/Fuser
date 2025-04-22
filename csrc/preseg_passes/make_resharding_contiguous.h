@@ -24,7 +24,7 @@ namespace nvfuser::preseg_passes {
 // The allocation domain is obtained by transforming the `maybeAllocationDomain`
 // using the transforms to loop domain. This ensures that the allocation domain
 // has DID loop splits. All iterdomains derived from a given logical iterdomain
-// are placed together. See `reorderLoopAsAllocation` for more details.
+// are placed together. See `setLoopAndAllocationDomain` for more details.
 // Eventually, this pass should run after `markAliasesPrepare` and
 // `AllocationDomainPass` after they are fixed.
 class MakeReshardingContiguousPass
