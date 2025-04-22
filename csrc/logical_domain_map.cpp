@@ -337,7 +337,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     //     output [ vocab, hidden ]
     auto ndims_out = consumer_root.size();
     if (producer_tv_->sameAs(iaop->accumulateTv())) {
-      for (auto idx : c10::irange(ndims_out)) {
+      for (auto idx : arange(ndims_out)) {
         updatePairwiseLogicalDomainMap(
             producer_logical.at(idx), consumer_root.at(idx));
       }
