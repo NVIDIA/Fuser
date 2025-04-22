@@ -332,7 +332,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   }
 
   // If all output buffers are known already, pass them to the executor
-  for (auto& output : launch_kernel->outputs()) {
+  for (Val* output : launch_kernel->outputs()) {
     if (expr_evaluator_.isKnown(output)) {
       outputs.push(expr_evaluator_.evaluate(output));
     } else {
