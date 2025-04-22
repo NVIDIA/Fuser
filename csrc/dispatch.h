@@ -84,6 +84,7 @@ class Val;
   f(TensorConstruct);             \
   f(SelectOp);                    \
   f(IndexSelectOp);               \
+  f(IndexPutAccumulateOp);        \
   f(GatherOp);                    \
   f(ScatterOp);                   \
   f(RNGOp);                       \
@@ -124,6 +125,7 @@ class Val;
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
   f(SetMaxNReg);                      \
+  f(Continue);                        \
   f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \

@@ -139,6 +139,7 @@ std::unordered_map<DebugDumpOption, std::vector<std::string>> Options<
       {"python_definition_segments", DebugDumpOption::PythonDefinitionSegments},
       {"python_frontend_debug", DebugDumpOption::PythonFrontendDebug},
       {"sass", DebugDumpOption::Sass},
+      {"sass_to_file", DebugDumpOption::SassToFile},
       {"segmented_fusion", DebugDumpOption::FusionSegments},
       {"segmenter_logging", DebugDumpOption::FusionSegmenterLog},
       {"scheduler_params", DebugDumpOption::SchedulerDebug},
@@ -260,10 +261,11 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
 
 namespace {
 
-// These may need to be thread local, or their modifications may need to
-// be protected by mutual exclusion for thread safety. At this
-// moment, the correctness of modifying option values has to be
-// guaranteed by the modifying code.
+// Note: Make options thread_local.
+// We want the behavior that new threads would inherit options from the *base*
+// threads. We need to figure out how to automatically do that before switching
+// to thread_local. For now we are using mutex to guard option access, which is
+// necessary to avoid data racing.
 
 DebugDumpOptions active_dump_options;
 
