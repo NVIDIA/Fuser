@@ -173,7 +173,7 @@ std::string Deallocate::toString(int indent_size) const {
 }
 
 std::string Deallocate::toInlineString(int indent_size) const {
-  return std::string("Deallocate");
+  return std::string("Deallocate ") + allocation()->buffer()->toInlineString();
 }
 
 Stream::Stream(IrBuilderPasskey passkey, Val* index)
