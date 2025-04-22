@@ -2575,10 +2575,8 @@ std::vector<Expr*> SegmentedGroup::stablyOrderedExprs() const {
     }
   }
 
-#if 0
   NVF_ERROR_EQ(
       ordered_exprs.size(), exprs().size(), "exprs() doesn't form a DAG.");
-#endif
 
   return ordered_exprs;
 }
