@@ -239,10 +239,6 @@ void AliasFinder::handle(const ViewOp* view) {
 }
 
 void AliasFinder::handle(const LoadStoreOp* set) {
-  if (isResharding(set)) {
-    return;
-  }
-
   TensorView* in = dynamic_cast<TensorView*>(set->in());
   if (in == nullptr) {
     return;
