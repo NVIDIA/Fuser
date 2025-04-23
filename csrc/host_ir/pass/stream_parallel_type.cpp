@@ -119,29 +119,67 @@ int64_t findStreamAxisIndex(
   return stream_id_logical_index;
 }
 
-// Helper function to create a sliced version of a tensor for stream
-// parallelization
-hir::HirAliasSelect* createSlicedTensor(
-    TensorView* tensor,
-    int64_t stream_axis_index,
-    Val* index) {
-  auto dom = tensor->getLogicalDomain();
+// Cache for tensor slicing operations in stream parallelization.
+// This cache stores previously created sliced versions of tensors to avoid
+// redundant slicing operations. A sliced tensor is created by removing a
+// specific axis (stream axis) from the tensor's domain and creating a new
+// tensor that represents a slice of the original tensor at a given index.
+// The cache key is a tuple of (original tensor, axis index to remove, slice
+// index).
+struct TensorSlicingCache {
+  // Type aliases
+  using Key = std::tuple<TensorView*, int64_t, Val*>;
 
-  std::vector<IterDomain*> new_root;
-  new_root.reserve(dom.size() - 1);
-
-  for (auto i : arange((int64_t)dom.size())) {
-    if (i != stream_axis_index) {
-      new_root.emplace_back(dom[i]->cloneWithoutRFactor());
+  // Custom hash function for the tuple used as cache key
+  struct Hash {
+    size_t operator()(const Key& t) const {
+      auto [tv, idx, val] = t;
+      return std::hash<TensorView*>{}(tv) ^ std::hash<int64_t>{}(idx) ^
+          std::hash<Val*>{}(val);
     }
+  };
+
+  // Map type for storing cached sliced tensors
+  using Map = std::unordered_map<Key, hir::HirAliasSelect*, Hash>;
+
+  // Get the expr producing the indexed version of a tensor. If the expr already
+  // exists in the cache, returns the cached version. Otherwise, creates a new
+  // expr, producing a tensor "selected" on its dimension `stream_axis_index` at
+  // index `index`. Returns a pair of (expr, is_new) where is_new indicates
+  // whether the expr was newly created.
+  std::pair<hir::HirAliasSelect*, bool> get(
+      TensorView* tensor,
+      int64_t stream_axis_index,
+      Val* index) {
+    auto key = std::make_tuple(tensor, stream_axis_index, index);
+    auto it = cache_.find(key);
+    if (it != cache_.end()) {
+      return {it->second, false};
+    }
+
+    auto dom = tensor->getLogicalDomain();
+    std::vector<IterDomain*> new_root;
+    new_root.reserve(dom.size() - 1);
+
+    for (auto i : arange((int64_t)dom.size())) {
+      if (i != stream_axis_index) {
+        new_root.emplace_back(dom[i]->cloneWithoutRFactor());
+      }
+    }
+
+    auto td = IrBuilder::create<TensorDomain>(
+        new_root, TensorDomain::getContiguityFilledWith(new_root, true));
+    auto out = IrBuilder::create<TensorView>(td, *tensor->getDataType());
+    auto result = IrBuilder::create<hir::HirAliasSelect>(
+        tensor, out, stream_axis_index, index);
+
+    cache_[key] = result;
+    return {result, true};
   }
 
-  auto td = IrBuilder::create<TensorDomain>(
-      new_root, TensorDomain::getContiguityFilledWith(new_root, true));
-  auto out = IrBuilder::create<TensorView>(td, *tensor->getDataType());
-  return IrBuilder::create<hir::HirAliasSelect>(
-      tensor, out, stream_axis_index, index);
-}
+ private:
+  Map cache_; // Storage for cached sliced tensors
+};
 
 // Step 1: Group expressions into stream-parallel regions
 std::vector<Expr*> groupStreamParallelRegions(
@@ -214,6 +252,8 @@ std::vector<Expr*> processForLoopBodies(
     const IdModel& id_model,
     std::vector<Expr*> top_level_exprs) {
   std::vector<Expr*> new_top_level_exprs;
+  // Create a cache for tensor indexing
+  TensorSlicingCache tensor_slicing_cache;
 
   // Process each top-level expression
   for (auto top_level_expr : top_level_exprs) {
@@ -246,9 +286,11 @@ std::vector<Expr*> processForLoopBodies(
 
         // Create a sliced version of the input tensor for this stream
         // iterdomain
-        hir::HirAliasSelect* input_slicing = createSlicedTensor(
+        auto [input_slicing, is_new] = tensor_slicing_cache.get(
             input, input_stream_id_logical_index, for_loop->index());
-        new_loop_body.push_back(input_slicing);
+        if (is_new) {
+          new_loop_body.push_back(input_slicing);
+        }
 
         // Update all expressions that use this input to use the sliced version
         for (auto it_running_expr = current_loop_body.begin();
@@ -277,14 +319,16 @@ std::vector<Expr*> processForLoopBodies(
         }
 
         // Create a sliced version of the output tensor for this stream axis
-        hir::HirAliasSelect* output_slicing = createSlicedTensor(
+        auto [output_slicing, is_new] = tensor_slicing_cache.get(
             output, output_stream_id_logical_index, for_loop->index());
+        if (is_new) {
+          new_loop_body.push_back(output_slicing);
+        }
 
         // Allocate memory for the output tensor, and place the allocation IR
         // before the for-loop, at the top level
         new_top_level_exprs.push_back(
             IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
-        new_loop_body.push_back(output_slicing);
 
         // Update all expressions that use this output to use the sliced version
         for (auto it_running_expr = current_loop_body.begin();
