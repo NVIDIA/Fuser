@@ -3012,10 +3012,12 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   CompileParams index32bit{DataType::Int32, 255, false};
 
+  constexpr int dim0 = 16384, dim1 = 16384;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
-  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
+  // Use concrete tensor so we can validate the split is divisible
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = add(tv0, tv1);
@@ -3050,7 +3052,6 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   tv1a->axis(-1)->parallelize(ParallelType::Bulk);
   inlineMost();
 
-  constexpr int dim0 = 16384, dim1 = 16384;
   auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
   at::Tensor at_tv1 = at::randn({dim0, dim1}, options);
@@ -3061,6 +3062,47 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   auto at_output = at_tv0 + at_tv1;
   testValidate(
       fusion.get(), outputs, {at_tv0, at_tv1}, {at_output}, __LINE__, __FILE__);
+}
+
+TEST_F(TMATest, CpAsyncBulk1DNonDivisible) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  constexpr at::ScalarType dtype = at::ScalarType::Float;
+  CompileParams index32bit{DataType::Int32, 255, false};
+
+  constexpr int dim0 = 2, dim1 = 1023;
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  // Use concrete tensor so we can validate the split is divisible
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  fusion->addInput(tv0);
+  auto tv1 = add(tv0, tv0);
+  fusion->addOutput(tv1);
+
+  auto tv0a = tv0->cacheAfter(LoadStoreOpType::CpAsyncBulk);
+  tv0a->setMemoryType(MemoryType::Shared);
+
+  tv1->merge(0);
+  tv1->split(0, 512);
+  TransformPropagator propagator(tv1);
+  MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
+
+  /// TIDx for computation, Bulk for load
+  tv0a->axis(-1)->parallelize(ParallelType::Bulk);
+  tv1->axis(-1)->parallelize(ParallelType::TIDx);
+  inlineMost();
+
+  auto options = at::TensorOptions().dtype(dtype).device(at::kCUDA, 0);
+  at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
+
+  KernelExecutor ke;
+  try {
+    ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+  } catch (const std::exception& e) {
+    const char* reference =
+        R"(Can't validate the UBLK parallelized ID comes from divisible split)";
+    const char* str_match_pointer = strstr(e.what(), reference);
+    ASSERT_TRUE(str_match_pointer != nullptr);
+  }
 }
 
 using UblkPredicateTestParams = std::tuple<bool, bool>;
