@@ -163,8 +163,7 @@ void getHeuristics(
       (smem_overhead + smem_buffer_size);
   int64_t iter_remaining = ceilDiv(outer_dim_numel, iop.gdimy);
   int64_t n_stages_prefered = std::min(2L, iter_remaining);
-  int64_t n_stages_max_allowed = max_n_copies;
-  int64_t n_stages = std::min(n_stages_prefered, n_stages_max_allowed);
+  int64_t n_stages = std::min(n_stages_prefered, max_n_copies);
   int64_t n_prefetch = n_stages - 1L;
   CircularBufferOptions circular_buffer_options{
       .type = WarpSpecialized(ParallelType::TIDy),
