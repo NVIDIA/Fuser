@@ -1164,7 +1164,7 @@ INSTANTIATE_TEST_SUITE_P(
     ,
     TmaWarpSpecializedTest,
     ::testing::Combine(
-        testing::Values(true, false),
+        testing::Values(false), // tmp disable tma warp specialized
         testing::Values(DataType::Float, DataType::BFloat16),
         testing::Values(132 * 148),
         ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),

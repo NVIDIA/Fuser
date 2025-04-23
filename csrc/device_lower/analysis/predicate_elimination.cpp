@@ -76,7 +76,7 @@ namespace {
 bool isComputeWarp(TensorView* consumer, IterDomain* id_in_consumer) {
   // TODO: This function can not find all the expressions in the compute
   // warp. For example, if we have:
-  //   if (load warp) {
+  //   if (async warp) {
   //     T1 = T0;
   //   } else {
   //     T2 = T1;
