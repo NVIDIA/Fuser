@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include <debug.h>
+#include <disjoint_set.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
@@ -2531,7 +2532,9 @@ std::vector<Expr*> SegmentedGroup::stablyOrderedExprs() const {
   std::unordered_map<Expr*, int64_t> num_producers;
   for (Expr* e : exprs()) {
     int64_t& n = num_producers[e];
-    for (Val* in : e->inputs()) {
+    // Val::uses(), which is used later to decrement num_producers, contains
+    // unique `Expr`s. Therefore, it's necessary to also dedup here.
+    for (auto* in : VectorOfUniqueEntries<Val*>(e->inputs())) {
       Expr* def = in->definition();
       // Exprs in a SegmentedGroup come from the complete fusion, so the
       // producer/consumer of an Expr may be outside the group. Therefore, we
