@@ -250,7 +250,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // `uniform` used in dropout. See MultiDeviceTest.BackpropMeshes for an
   // example. For non-fusion inputs, we also propagate shardings from outputs to
   // inputs. See MultiDevicePresegPassesTest.ResidualAdd for an example.
-  for (auto i_expr = exprs.rbegin(); i_expr != exprs.rend(); i_expr++) {
+  for (Expr* expr : exprs | std::views::reverse) {
     Expr* expr = *i_expr;
 
     const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
