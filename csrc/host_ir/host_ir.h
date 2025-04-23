@@ -372,6 +372,49 @@ class ShareMemHandles : public Expr {
   }
 };
 
+// This op mimicks the semantics of SelectOp but is used in HIR non-SSA context
+// to index into a TensorView, returning an alias "slice" of the original
+// TensorView.
+class HirAliasSelect : public Expr {
+ public:
+  using Expr::Expr;
+  HirAliasSelect(
+      IrBuilderPasskey passkey,
+      TensorView* in,
+      TensorView* out,
+      int64_t axis,
+      Val* index);
+
+  HirAliasSelect(const HirAliasSelect& other) = delete;
+  HirAliasSelect& operator=(const HirAliasSelect& other) = delete;
+  HirAliasSelect(HirAliasSelect&& other) = delete;
+  HirAliasSelect& operator=(HirAliasSelect&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::HirAliasSelect";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return attributeVal(0)->as<TensorView>();
+  }
+
+  int64_t axis() const {
+    return attribute<int64_t>(1);
+  }
+
+  Val* index() const {
+    return inputs().at(1);
+  }
+};
+
 } // namespace hir
 
 } // namespace nvfuser
