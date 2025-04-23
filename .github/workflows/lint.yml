@@ -51,11 +51,11 @@ jobs:
 
           wait
 
-          # Run cmake build
-          NVFUSER_BUILD_CMAKE_ONLY=1 pip install --no-build-isolation -e python -v
-
           # Go to python folder to build cmake files
           cd python
+
+          # Run cmake build
+          python setup.py --cmake-only
 
           # Generate csrc/serde/fusion_cache_generated.h
           # NOTE: this might cause a compile of flatbuffers if it is missing
