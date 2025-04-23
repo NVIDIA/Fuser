@@ -119,7 +119,7 @@ TensorView* scheduleReductionTV(
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
   if (rparams->tma_warp_specialized) {
-    // Redu: [Persistent, TIDx, Vect]
+    // Reduction: [Persistent, TIDx, Vect]
     vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     auto outer_i = inner_reduce_axis;
     reduction_tv->split(
