@@ -10,9 +10,6 @@ nvfuser/lib
 nvfuser/share
 nvfuser/cmake
 
-# pip wheel directory
-dist
-
 python/build
 python/nvfuser/version.py
 python/nvfuser/include
