@@ -4378,9 +4378,11 @@ void SegmentCandidateFinder::forwardInputs() {
 
   // Grab factory ops that should be forwarded. Add created tensors to
   // the fusion input list to make them handled like fusion inputs
+  // TODO: Handle more factory methods such as IotaOp, EyeOp,
+  // TensorConstruct. Probably should not include relatively expensive
+  // ops like RNGOp.
   for (auto expr : completeFusion()->exprs()) {
-    if (!getenv("DISABLE_FORWARD_FULL") &&
-        expr->isOneOf<FullOp, IotaOp, EyeOp>() &&
+    if (!getenv("DISABLE_FORWARD_FULL") && expr->isA<FullOp>() &&
         !expr->output(0)->isFusionOutput()) {
       extended_fusion_inputs.push_back(expr->output(0));
       excluded_inp_unary_exprs_.pushBack(expr);
