@@ -1442,52 +1442,43 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
-  void insertTmaWarpSpecialized(
-      ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads,
-      int64_t insertion_position) {
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
-    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
-
-    // Create warp_dispatch_ite, the predicate is either
-    // Tid == bdim - 1 or Tid >= bdim - padded
+  // Create predicate for warp-specialized IfThenElse:
+  // kir::Predicate is thread_axis >= block_dim_axis - padded_value
+  kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
+    ParallelType warp_specialize_on =
+        std::get<WarpSpecialized>(options.type).on;
     int64_t warp_specialization_pad =
         GpuLower::current()
             ->parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
-    kir::Predicate* predicate_val = nullptr;
     Val* raw =
         GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
     Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
         raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
-    if (warp_specialization_pad == 1) {
-      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
-    } else {
-      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
-          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
-    }
-    kir::IfThenElse* warp_dispatch_ite =
-        IrBuilder::create<kir::IfThenElse>(predicate_val);
+    return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+  }
 
-    // Set default value
-    auto& circular_buffer_options =
+  void insertTmaWarpSpecialized(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& loads,
+      int64_t insertion_position) {
+    const CircularBufferOptions& options =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
-    bool enable_register_sharing =
-        std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) &&
-        std::get<WarpSpecialized>(circular_buffer_options.type)
-            .num_registers.has_value();
 
+    kir::IfThenElse* warp_dispatch_ite =
+        IrBuilder::create<kir::IfThenElse>(getAsyncWarpPredicate(options));
+
+    // Set default value
+    bool enable_register_sharing =
+        std::get<WarpSpecialized>(options.type).num_registers.has_value();
     GpuLower::current()->kernel()->manage(
         "enable_register_sharing", enable_register_sharing);
 
     if (enable_register_sharing) {
       auto&& [decrease_num_registers, increase_num_registers] =
-          std::get<WarpSpecialized>(circular_buffer_options.type)
-              .num_registers.value();
+          std::get<WarpSpecialized>(options.type).num_registers.value();
       GpuLower::current()->decIncRegisterUsage() =
           std::make_pair(decrease_num_registers, increase_num_registers);
       // Decrease registers in async warp group
