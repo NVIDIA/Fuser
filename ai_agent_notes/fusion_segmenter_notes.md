@@ -84,9 +84,7 @@ The `SegmentCandidateFinder` class orchestrates the segmentation process:
 
 #### Scalar Operations
 
--   **Initial Exclusion:** Scalar operations are generally ignored during the main graph building and merging phases.
-    -   `SegmentedGroup`s are not created for scalar-only expressions in `buildInitialSegments`.
-    -   Edges based on scalar `Val`s are explicitly removed (`removeScalarEdges`) to prevent them from influencing merging decisions, as scalar dependencies typically don't require kernel boundaries.
+-   **Initial Exclusion:** Edges based on scalar `Val`s *are* created initially. However, merges involving only scalar groups/dependencies are unlikely to pass the schedulability check (`tryMerge`) required for merging, effectively isolating them from the main GPU segment merging process.
 -   **Late Resolution (Current Strategy):** Scalar computations are localized within the final GPU kernel segments that need them.
     -   **Motivation (Historical):** This approach was necessary because nvFuser historically lacked a host-based executor capable of computing scalar values and passing them into kernels or returning them as distinct `Fusion` outputs. Pushing all scalar logic onto the GPU was the only option, although potentially inefficient due to redundant computation across GPU threads.
     -   **Mechanism:**
@@ -117,7 +115,7 @@ The `SegmentCandidateFinder` class orchestrates the segmentation process:
 -----
 
 ## Current failing tests:
-(previous failing tests section preserved as is)
+(previous failing tests section preserved as is) 
 
 ## TODO: Missing Documentation Sections
 
