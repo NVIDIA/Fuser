@@ -332,16 +332,16 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // If all output buffers are known already, pass them to the executor
   KernelArgumentHolder outputs;
-  bool preallocated_outputs = true;
+  bool preallocated_outputs = false;
   for (Val* output : launch_kernel->outputs()) {
     if (isKnown(output)) {
+      preallocated_outputs = true;
       outputs.push(getKnownConcreteValue(output));
-    } else {
-      outputs = {};
-      preallocated_outputs = false;
-      break;
     }
   }
+
+  NVF_ERROR(
+      outputs.empty() || outputs.size() == launch_kernel->outputs().size());
 
   args.setDeviceIndex();
 
