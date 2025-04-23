@@ -187,67 +187,58 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
     }
     return;
   }
+
   // Warp specialization with register sharing on parallel type pt
   // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
-  auto pt = ws_with_register_sharing_pt_.value();
-  auto dim_it = dim_map_.find(pt);
-  int64_t pad_n_threads = 0;
-  int64_t after_pad = 0;
+  auto ws_pt = ws_with_register_sharing_pt_.value();
+  auto dim_it = dim_map_.find(ws_pt);
 
-  for (auto pt : kParallelTypeTIDs) {
+  std::vector<ParallelType> other_active_pts;
+  other_active_pts.reserve(2);
+  std::copy_if(
+      kParallelTypeTIDs.begin(),
+      kParallelTypeTIDs.end(),
+      std::back_inserter(other_active_pts),
+      [=](ParallelType pt) { return pt != ws_pt; });
+  int64_t other_active_pts_threads = 1;
+  for (ParallelType pt : other_active_pts) {
+    int64_t thread_count_for_pt = getThreadCountInDim(pt);
     NVF_ERROR(
-        getThreadCountInDim(pt) != -1,
+        thread_count_for_pt != -1,
         "Detected dynamic size for parallel type ",
         pt,
         " in warp specialization kernel.");
+    other_active_pts_threads *= thread_count_for_pt;
   }
-
-  // switch is not used to avoid explicitly handle all parallel types
-  if (pt == ParallelType::TIDx) {
-    // If on TIDx, pad by 128
-    pad_n_threads = 128;
-    after_pad = getThreadCountInDim(pt) + pad_n_threads;
-    NVF_ERROR(
-        after_pad % 128 == 0,
-        "Illegal register sharing on TIDx, bdimx = ",
-        after_pad);
-  } else if (pt == ParallelType::TIDy) {
-    // If on TIDy, pad by 128 / bdimx
-    int64_t bdimx = getThreadCountInDim(ParallelType::TIDx);
-    pad_n_threads = scheduler_utils::safeDiv(128, bdimx);
-    after_pad = getThreadCountInDim(pt) + pad_n_threads;
-    NVF_ERROR(
-        (after_pad * bdimx) % 128 == 0,
-        "Illegal register sharing on TIDy, bdimx = ",
-        bdimx,
-        ", bdimy = ",
-        after_pad);
-  } else if (pt == ParallelType::TIDz) {
-    // If on TIDz, pad by 128 / (bdimx * bdimy)
-    int64_t bdimx = getThreadCountInDim(ParallelType::TIDx);
-    int64_t bdimy = getThreadCountInDim(ParallelType::TIDy);
-    pad_n_threads = scheduler_utils::safeDiv(128, bdimx * bdimy);
-    after_pad = getThreadCountInDim(pt) + pad_n_threads;
-    NVF_ERROR(
-        (after_pad * bdimx * bdimy) % 128 == 0,
-        "Illegal register sharing on TIDz, bdimx = ",
-        bdimx,
-        ", bdimy = ",
-        bdimy,
-        ", bdimz = ",
-        after_pad);
-  } else {
-    NVF_THROW("Unsupported parallel type for register sharing: ", pt);
-  }
+  NVF_ERROR(
+      other_active_pts_threads <= 128,
+      "The # active threads in other thread dimensions > 128 threads.");
+  NVF_ERROR(
+      128 % other_active_pts_threads == 0,
+      "The # active threads in other thread dimensions is not evenly ",
+      "divisible with 128 threads.");
+  int64_t ws_num_threads_pad = 128 / other_active_pts_threads;
+  int64_t after_pad = getThreadCountInDim(ws_pt) + ws_num_threads_pad;
+  NVF_ERROR(
+      (after_pad * other_active_pts_threads) % 128 == 0,
+      "Illegal register sharing on ",
+      ws_pt,
+      " with padded size ",
+      after_pad,
+      " and remaining active cta threads ",
+      other_active_pts_threads);
+  NVF_ERROR(
+      ws_pt != ParallelType::TIDx || ws_num_threads_pad >= 32,
+      "BlockDim.x must be at least 32 to use ElectSync");
 
   // Apply the pad
-  ws_with_register_sharing_pad_val_ = pad_n_threads;
-  auto off_set = IrBuilder::create<Val>(pad_n_threads, DataType::Index);
+  ws_with_register_sharing_pad_val_ = ws_num_threads_pad;
+  auto offset = IrBuilder::create<Val>(ws_num_threads_pad, DataType::Index);
   auto current_val = dim_it == dim_map_.end()
       ? IrBuilder::create<Val>(1, DataType::Index)
       : dim_it->second;
-  dim_map_[pt] = IrBuilder::addExpr(current_val, off_set);
-  exact_types_.erase(pt);
+  dim_map_.at(ws_pt) = IrBuilder::addExpr(current_val, offset);
+  exact_types_.erase(ws_pt);
 }
 
 Val* ParallelDimensionMap::getRaw(ParallelType pt) const {
@@ -299,6 +290,38 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
   return num_threads;
+}
+
+// For warp-specialization, the CTA is padded so the AsyncWarp contains 128
+// threads. This function maps the AsyncWarp CTA to a linear index from
+// [0, 128). It is used to divide AsyncWarp into four independent warps.
+Val* ParallelDimensionMap::getLinearThreadIndexAsync() const {
+  Val* index = GpuLower::current()->kernel()->zeroVal();
+  Val* extent = GpuLower::current()->kernel()->oneVal();
+
+  for (auto pt : kParallelTypeTIDs) {
+    // For warp-specialization, an axis is padded so the AsyncWarp contains
+    // 128 threads.
+    Val* extent_for_pdim = getRawAsync(pt);
+    // short-circuit: extent_for_pdim is not used in kernel.
+    if (extent_for_pdim == nullptr) {
+      continue;
+    }
+    // short-circuit: extent_for_pdim is trivial.
+    if (extent_for_pdim->evaluate().as<int64_t>() == 1) {
+      continue;
+    }
+    Val* pt_index = NamedScalar::getParallelIndex(pt);
+    // Map the padded parallel index to [0, padded_value] range, so the linear
+    // index will be in range of [0, 128).
+    if (warp_specialized_types_.count(pt)) {
+      pt_index = SimplifyingIrBuilder::subExpr(pt_index, getRawCompute(pt));
+    }
+    index = SimplifyingIrBuilder::addExpr(
+        index, SimplifyingIrBuilder::mulExpr(pt_index, extent));
+    extent = SimplifyingIrBuilder::mulExpr(extent, extent_for_pdim);
+  }
+  return index;
 }
 
 int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(

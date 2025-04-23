@@ -41,12 +41,10 @@ class ParallelDimensionMap {
     return dim_map_;
   }
 
-  //! Get the "compute" parallel dimension on the given ParallelType. In case
-  //! of no warp specialization, this is the same as getRaw(pt). If we are doing
-  //! warp specialization on pt without register sharing, the result is
-  //! getRaw(pt) - padded, because the last of pt is used for loading circular
-  //! buffer tensors. If register sharing is also used, difference padded
-  //! threads are required for different cta shapes.
+  //! Get the "compute" parallel dimension on the given ParallelType pt. In case
+  //! of no warp specialization, this is the same as getRaw(pt). For warp
+  //! specialization on pt, the result is getRaw(pt) - padded_value. The last
+  //! portion of pt is used for AsyncWarp warp group.
   Val* getRawCompute(ParallelType pt) const;
 
   //! Get the "load" parallel dimension on the given ParallelType. In case
@@ -72,6 +70,9 @@ class ParallelDimensionMap {
   //! introduced by warp specialization and only used for loading circular
   //! buffer tensors.
   Val* getNumComputeThreadsEachBlock() const;
+
+  //! Assign linear index to each thread of CTA. Assume (TDZ, TDY, TDX) order.
+  Val* getLinearThreadIndexAsync() const;
 
   //! Get if the kernel uses warp specialization
   bool hasWarpSpecialization() const {
