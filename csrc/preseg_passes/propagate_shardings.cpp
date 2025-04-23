@@ -130,9 +130,9 @@ int64_t selectiveReorderDIDToFront(
   std::unordered_map<int64_t, int64_t> old2new;
   int64_t current_pos = 0;
 
-  for (auto pos : c10::irange(tv->nDims())) {
-    if (tv->axis(pos)->isDeviceDim() &&
-        selected_parallel_types.count(tv->axis(pos)->getParallelType())) {
+  for (auto&& [pos, id] : enumerate(tv->getLoopDomain())) {
+    if (id->isDeviceDim() &&
+        selected_parallel_types.count(id->getParallelType())) {
       old2new[pos] = current_pos;
       current_pos++;
     }
@@ -251,8 +251,6 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
   // example. For non-fusion inputs, we also propagate shardings from outputs to
   // inputs. See MultiDevicePresegPassesTest.ResidualAdd for an example.
   for (Expr* expr : exprs | std::views::reverse) {
-    Expr* expr = *i_expr;
-
     const auto& outputs = ir_utils::filterByType<TensorView>(expr->outputs());
     // All outputs of an expression (Welford, SDPA) should be uniformly sharded.
     // We pick the most parallel output as the reference.
