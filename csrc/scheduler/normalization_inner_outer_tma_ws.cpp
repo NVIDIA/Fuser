@@ -54,6 +54,7 @@ void getHeuristics(
     void verify() {
       NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
       NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
+      NVF_ERROR(bdimx != -1, "bdimx is not set.");
       NVF_ERROR(gdimy != -1, "gdimy is not set.");
       NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
       NVF_ERROR(
@@ -215,9 +216,7 @@ void getHeuristics(
             << iop.tmp_gmem_write_vect << "\n"
             << "vectorization_factor_outer: " << iop.vectorization_factor_outer
             << "\n"
-            << "multiple_reds_per_blk: " << rparams->multiple_reds_per_blk
-            << "\n"
-            << "warps_per_sm: " << iop.warps_per_sm << "\n"
+            << "bdimx: " << iop.bdimx << "\n"
             << "gdimy: " << iop.gdimy << "\n";
     debug() << rparams->toString() << std::endl;
   }
