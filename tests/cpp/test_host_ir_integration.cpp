@@ -115,7 +115,7 @@ TEST_F(HostIrIntegrationTest, Sum) {
 
 TEST_F(HostIrIntegrationTest, Deallocate) {
   const std::vector<int64_t> sizes = {8, 64};
-  uint8_t device_index = 0;
+  c10::DeviceIndex device_index = 0;
 
   resetPeakMemoryStats(device_index);
 
