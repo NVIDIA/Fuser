@@ -126,7 +126,7 @@ class PropagateShardingsSelector : public SetSelector {
 // This allows us to limit propagation to only the relevant DID axis.
 int64_t selectiveReorderDIDToFront(
     TensorView* tv,
-    std::unordered_set<ParallelType> selected_parallel_types) {
+    const std::unordered_set<ParallelType>& selected_parallel_types) {
   std::unordered_map<int64_t, int64_t> old2new;
   int64_t current_pos = 0;
 
