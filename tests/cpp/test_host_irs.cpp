@@ -1487,6 +1487,44 @@ TEST_F(HirReductionOpTest, NonPreAllocatedOutputs) {
       << "Expected output: " << expected_out;
 }
 
+using HirAliasSelectHostIrTest = NVFuserTest;
+
+TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
+  constexpr int64_t ndims = 2;
+  constexpr int64_t dim = 1;
+  constexpr int64_t index = 3;
+  const std::vector<int64_t> input_sizes = {32, 32};
+
+  ASSERT_LT(dim, ndims);
+  ASSERT_EQ(input_sizes.size(), ndims);
+  ASSERT_LT(index, input_sizes.at(dim));
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(ndims);
+  TensorView* out = makeContigTensor(ndims - 1);
+  auto* index_val = IrBuilder::create<Val>(index, DataType::Index);
+  auto* select_op = IrBuilder::create<HirAliasSelect>(in, out, dim, index_val);
+
+  hic->addInput(in);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(select_op);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto in_aten = at::randn(input_sizes, options);
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {in, in_aten}};
+
+  auto out_aten = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
+
+  // validate
+  auto ref_out = in_aten.select(dim, index);
+  EXPECT_TRUE(ref_out.equal(out_aten));
+}
+
 } // namespace hir
 
 } // namespace nvfuser
