@@ -128,7 +128,7 @@ class NVFBenchmark:
     # fd is returned by setup() for host benchmarking.
     def set_fd(self, fd):
         assert isinstance(self._timer, FusionProfileTimer)
-        self._timer.fd = fd
+        self._timer.set_fd(fd)
 
     def cleanup(self):
         self._timer.cleanup()
