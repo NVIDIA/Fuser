@@ -119,6 +119,30 @@ int64_t findStreamAxisIndex(
   return stream_id_logical_index;
 }
 
+// Helper function to create a sliced version of a tensor for stream
+// parallelization
+hir::HirAliasSelect* createSlicedTensor(
+    TensorView* tensor,
+    int64_t stream_axis_index,
+    Val* index) {
+  auto dom = tensor->getLogicalDomain();
+
+  std::vector<IterDomain*> new_root;
+  new_root.reserve(dom.size() - 1);
+
+  for (auto i : arange((int64_t)dom.size())) {
+    if (i != stream_axis_index) {
+      new_root.emplace_back(dom[i]->cloneWithoutRFactor());
+    }
+  }
+
+  auto td = IrBuilder::create<TensorDomain>(
+      new_root, TensorDomain::getContiguityFilledWith(new_root, true));
+  auto out = IrBuilder::create<TensorView>(td, *tensor->getDataType());
+  return IrBuilder::create<hir::HirAliasSelect>(
+      tensor, out, stream_axis_index, index);
+}
+
 // Step 1: Group expressions into stream-parallel regions
 std::vector<Expr*> groupStreamParallelRegions(
     hir::HostIrContainer* hic,
@@ -222,12 +246,9 @@ std::vector<Expr*> processForLoopBodies(
 
         // Create a sliced version of the input tensor for this stream
         // iterdomain
-        TensorView* input_j = select(
-            input,
-            input_stream_id_logical_index,
-            for_loop->index(),
-            /*keep_reduction_axis=*/true);
-        new_loop_body.push_back(input_j->definition());
+        hir::HirAliasSelect* input_slicing = createSlicedTensor(
+            input, input_stream_id_logical_index, for_loop->index());
+        new_loop_body.push_back(input_slicing);
 
         // Update all expressions that use this input to use the sliced version
         for (auto it_running_expr = current_loop_body.begin();
@@ -238,7 +259,7 @@ std::vector<Expr*> processForLoopBodies(
                ir_utils::filterByType<TensorView>(running_expr->inputs())) {
             if (running_input == input) {
               *it_running_expr = ir_utils::replaceValInExprInputs(
-                  running_expr, input, input_j);
+                  running_expr, input, input_slicing->out());
             }
           }
         }
@@ -256,17 +277,14 @@ std::vector<Expr*> processForLoopBodies(
         }
 
         // Create a sliced version of the output tensor for this stream axis
-        TensorView* output_j = select(
-            output,
-            output_stream_id_logical_index,
-            for_loop->index(),
-            /*keep_reduction_axis=*/true);
+        hir::HirAliasSelect* output_slicing = createSlicedTensor(
+            output, output_stream_id_logical_index, for_loop->index());
 
         // Allocate memory for the output tensor, and place the allocation IR
         // before the for-loop, at the top level
         new_top_level_exprs.push_back(
             IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
-        new_loop_body.push_back(output_j->definition());
+        new_loop_body.push_back(output_slicing);
 
         // Update all expressions that use this output to use the sliced version
         for (auto it_running_expr = current_loop_body.begin();
@@ -276,18 +294,8 @@ std::vector<Expr*> processForLoopBodies(
           for (auto* running_output :
                ir_utils::filterByType<TensorView>(running_expr->outputs())) {
             if (running_output == output) {
-              // Create an alias for the sliced output to maintain the original
-              // tensor's properties Alias is needed here to avoid that
-              // transferDefinitionToNewOutputs throws. Indeed, HIC does not
-              // make the SSA assumption, but the util functions we use (such as
-              // transferDefinitionToNewOutputs) do, therefore we need to create
-              // an alias for the sliced output to not create loops in the dag.
-              TensorView* output_j_alias =
-                  ops::newValLike(output_j, output_j->dtype(), true)
-                      ->as<TensorView>();
-              hic->markAlias(output_j, output_j_alias);
               *it_running_expr = ir_utils::transferDefinitionToNewOutputs(
-                  running_expr, {output_j_alias});
+                  running_expr, {output_slicing->out()});
             }
           }
         }
