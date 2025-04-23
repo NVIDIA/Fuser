@@ -259,41 +259,32 @@ std::unordered_map<ProfilerOption, std::vector<std::string>> Options<
   return options;
 }
 
-namespace {
-
-// Note: Make options thread_local.
-// We want the behavior that new threads would inherit options from the *base*
-// threads. We need to figure out how to automatically do that before switching
-// to thread_local. For now we are using mutex to guard option access, which is
-// necessary to avoid data racing.
-
-DebugDumpOptions active_dump_options;
-
-EnableOptions active_enable_options;
-
-DisableOptions active_disable_options;
-
-ProfilerOptions active_profiler_options;
-
-} // namespace
-
 template <>
 Options<DebugDumpOption>& OptionsGuard<DebugDumpOption>::getCurOptions() {
+  // Note: Make options thread_local.
+  // We want the behavior that new threads would inherit options from the *base*
+  // threads. We need to figure out how to automatically do that before
+  // switching to thread_local. For now we are using mutex to guard option
+  // access, which is necessary to avoid data racing.
+  static DebugDumpOptions active_dump_options;
   return active_dump_options;
 }
 
 template <>
 Options<EnableOption>& OptionsGuard<EnableOption>::getCurOptions() {
+  static EnableOptions active_enable_options;
   return active_enable_options;
 }
 
 template <>
 Options<DisableOption>& OptionsGuard<DisableOption>::getCurOptions() {
+  static DisableOptions active_disable_options;
   return active_disable_options;
 }
 
 template <>
 Options<ProfilerOption>& OptionsGuard<ProfilerOption>::getCurOptions() {
+  static ProfilerOptions active_profiler_options;
   return active_profiler_options;
 }
 

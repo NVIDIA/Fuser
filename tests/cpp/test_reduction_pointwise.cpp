@@ -256,6 +256,8 @@ TEST_F(NVFuserTest, ReductionSchedulerWithAdditionalIDOuterNormalization) {
   // checking segmentation
   auto optimized_fusion = executor_cache.getMostRecentKernelRuntime();
   NVF_CHECK(optimized_fusion->isSegmented(), "segmentation didn't happen!");
+
+  testValidate(&fusion, outputs, inputs, __LINE__, __FILE__);
 }
 
 } // namespace nvfuser
