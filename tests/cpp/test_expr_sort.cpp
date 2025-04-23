@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
