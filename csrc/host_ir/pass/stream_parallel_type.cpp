@@ -183,12 +183,11 @@ struct TensorSlicingCache {
 
 // Step 1: Group expressions into stream-parallel regions
 std::vector<Expr*> groupStreamParallelRegions(
-    hir::HostIrContainer* hic,
+    const std::vector<Expr*>& top_level_exprs,
     const IdModel& id_model) {
   std::vector<Expr*> new_top_level_exprs;
 
-  // Process each top-level expression
-  for (auto expr : hic->topLevelExprs()) {
+  for (auto* expr : top_level_exprs) {
     // Skip expressions with no outputs
     if (expr->outputs().size() == 0) {
       new_top_level_exprs.push_back(expr);
@@ -229,9 +228,9 @@ std::vector<Expr*> groupStreamParallelRegions(
       auto* for_loop = IrBuilder::create<ForLoop>(
           stream_axis,
           /*index=*/NamedScalar::getParallelIndex(ParallelType::Stream),
-          /*start=*/hic->zeroVal(),
+          /*start=*/FusionGuard::getCurFusion()->zeroVal(),
           /*stop=*/stream_axis->extent(),
-          /*step=*/hic->oneVal(),
+          /*step=*/FusionGuard::getCurFusion()->oneVal(),
           /*vectorize=*/false,
           /*vectorize_shift=*/nullptr,
           /*unroll_required=*/false,
@@ -254,11 +253,14 @@ std::vector<Expr*> addTensorAllocations(
 
   for (auto* expr : top_level_exprs) {
     if (expr->isA<ForLoop>()) {
-      // add allocations for tensors produced in the loop that have a stream axes
+      // add allocations for tensors produced in the loop that have a stream
+      // axes
       auto* for_loop = expr->as<ForLoop>();
       for (auto* body_expr : for_loop->body().exprs()) {
-        for (auto* output : ir_utils::filterByType<TensorView>(body_expr->outputs())) {
-          if (findStreamAxisIndex(output, for_loop->iterDomain(), id_model) != -1) {
+        for (auto* output :
+             ir_utils::filterByType<TensorView>(body_expr->outputs())) {
+          if (findStreamAxisIndex(output, for_loop->iterDomain(), id_model) !=
+              -1) {
             new_top_level_exprs.push_back(
                 IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
           }
@@ -268,131 +270,68 @@ std::vector<Expr*> addTensorAllocations(
     new_top_level_exprs.push_back(expr);
   }
 
-  // Add all original expressions
-  new_top_level_exprs.insert(
-      new_top_level_exprs.end(), top_level_exprs.begin(), top_level_exprs.end());
-
   return new_top_level_exprs;
 }
 
 // Step 3: Process for-loop bodies by slicing tensors
 std::vector<Expr*> processForLoopBodies(
-    hir::HostIrContainer* hic,
-    const IdModel& id_model,
-    std::vector<Expr*> top_level_exprs) {
-  std::vector<Expr*> new_top_level_exprs;
-  // Create a cache for tensor indexing
+    std::vector<Expr*> top_level_exprs,
+    const IdModel& id_model) {
   TensorSlicingCache tensor_slicing_cache;
 
-  // Process each top-level expression
-  for (auto top_level_expr : top_level_exprs) {
-    // Skip non-for-loop expressions
-    if (!top_level_expr->isA<ForLoop>()) {
-      new_top_level_exprs.push_back(top_level_expr);
+  for (auto* expr : top_level_exprs) {
+    if (!expr->isA<ForLoop>()) {
       continue;
     }
 
-    auto* for_loop = top_level_expr->as<ForLoop>();
+    auto* for_loop = expr->as<ForLoop>();
     std::vector<Expr*> new_loop_body;
-    std::vector<Expr*> current_loop_body = for_loop->body().exprs();
 
-    // Process each expression in the loop body
-    for (auto it_expr = current_loop_body.begin();
-         it_expr != current_loop_body.end();
-         ++it_expr) {
-      Expr* expr = *it_expr;
-
-      // Process input tensors that might have stream axes
-      for (auto* input : ir_utils::filterByType<TensorView>(expr->inputs())) {
-        // Find if this input has a stream axis
-        int64_t input_stream_id_logical_index =
-            findStreamAxisIndex(input, for_loop->iterDomain(), id_model);
-
-        // Skip if no stream axis found
-        if (input_stream_id_logical_index == -1) {
-          continue;
-        }
-
-        // Create a sliced version of the input tensor for this stream
-        // iterdomain
-        auto [input_slicing, is_new] = tensor_slicing_cache.get(
-            input, input_stream_id_logical_index, for_loop->index());
+    // Lambda to process a tensor in a for-loop body
+    auto processTensor = [&](Expr*& expr, TensorView* tensor) {
+      if (auto stream_idx =
+              findStreamAxisIndex(tensor, for_loop->iterDomain(), id_model);
+          stream_idx != -1) {
+        auto [slicing, is_new] =
+            tensor_slicing_cache.get(tensor, stream_idx, for_loop->index());
         if (is_new) {
-          new_loop_body.push_back(input_slicing);
+          new_loop_body.push_back(slicing);
         }
-
-        // Update all expressions that use this input to use the sliced version
-        for (auto it_running_expr = current_loop_body.begin();
-             it_running_expr != current_loop_body.end();
-             ++it_running_expr) {
-          Expr* running_expr = *it_running_expr;
-          for (auto* running_input :
-               ir_utils::filterByType<TensorView>(running_expr->inputs())) {
-            if (running_input == input) {
-              *it_running_expr = ir_utils::replaceValInExprInputs(
-                  running_expr, input, input_slicing->out());
-            }
-          }
+        expr = ir_utils::replaceValInExprInputs(expr, tensor, slicing->out());
+        if (expr->outputs().size() > 0 && expr->outputs()[0] == tensor) {
+          expr =
+              ir_utils::transferDefinitionToNewOutputs(expr, {slicing->out()});
         }
       }
+    };
 
-      // Process output tensors that might have stream axes
-      for (auto* output : ir_utils::filterByType<TensorView>(expr->outputs())) {
-        // Find if this output has a stream axis
-        int64_t output_stream_id_logical_index =
-            findStreamAxisIndex(output, for_loop->iterDomain(), id_model);
-
-        // Skip if no stream axis found
-        if (output_stream_id_logical_index == -1) {
-          continue;
-        }
-
-        // Create a sliced version of the output tensor for this stream axis
-        auto [output_slicing, is_new] = tensor_slicing_cache.get(
-            output, output_stream_id_logical_index, for_loop->index());
-        if (is_new) {
-          new_loop_body.push_back(output_slicing);
-        }
-
-        // Update all expressions that use this output to use the sliced version
-        for (auto it_running_expr = current_loop_body.begin();
-             it_running_expr != current_loop_body.end();
-             ++it_running_expr) {
-          Expr* running_expr = *it_running_expr;
-          for (auto* running_output :
-               ir_utils::filterByType<TensorView>(running_expr->outputs())) {
-            if (running_output == output) {
-              *it_running_expr = ir_utils::transferDefinitionToNewOutputs(
-                  running_expr, {output_slicing->out()});
-            }
-          }
-        }
+    for (auto* body_expr : for_loop->body().exprs()) {
+      for (auto* input :
+           ir_utils::filterByType<TensorView>(body_expr->inputs())) {
+        processTensor(body_expr, input);
       }
-
-      // Add the original expression to the new loop body
-      new_loop_body.push_back(*it_expr);
+      for (auto* output :
+           ir_utils::filterByType<TensorView>(body_expr->outputs())) {
+        processTensor(body_expr, output);
+      }
+      new_loop_body.push_back(body_expr);
     }
 
-    // Update the for-loop body with all the processed expressions
     for_loop->body().clear();
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
     }
-    new_top_level_exprs.push_back(top_level_expr);
   }
 
-  return new_top_level_exprs;
+  return top_level_exprs;
 }
 
-// Step 3: Add stream management and synchronization
+// Step 4: Add stream management and synchronization
 std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
-  std::vector<Expr*> new_top_level_exprs;
-
   // Process each top-level expression
   for (auto* top_level_expr : top_level_exprs) {
     // Skip non-for-loop expressions
     if (!top_level_expr->isA<ForLoop>()) {
-      new_top_level_exprs.push_back(top_level_expr);
       continue;
     }
 
@@ -434,10 +373,9 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     for (auto* expr : new_loop_body) {
       for_loop->body().push_back(expr);
     }
-    new_top_level_exprs.push_back(top_level_expr);
   }
 
-  return new_top_level_exprs;
+  return top_level_exprs;
 }
 
 } // anonymous namespace
@@ -484,14 +422,13 @@ void StreamParallelType::runPass(Fusion* fusion) {
 
   // Step 1: Group expressions into stream-parallel regions
   std::vector<Expr*> top_level_exprs =
-      groupStreamParallelRegions(hic, id_model);
+      groupStreamParallelRegions(hic->topLevelExprs(), id_model);
 
   // Step 2: Add allocations for tensors that need them
   top_level_exprs = addTensorAllocations(std::move(top_level_exprs), id_model);
 
   // Step 3: Process for-loop bodies by slicing tensors
-  top_level_exprs =
-      processForLoopBodies(hic, id_model, std::move(top_level_exprs));
+  top_level_exprs = processForLoopBodies(std::move(top_level_exprs), id_model);
 
   // Step 4: Add stream management and synchronization
   top_level_exprs = addStreamManagement(std::move(top_level_exprs));
