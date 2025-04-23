@@ -131,20 +131,21 @@ void MakeReshardingContiguousPass::runPass(Fusion* fusion) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 
-    if (isResharding(expr)) {
-      NVF_CHECK(
-          std::all_of(
-              inputs.begin(),
-              inputs.end(),
-              [](TensorView* tv) { return isTvContiguous(tv); }),
-          "Resharding expression inputs must be contiguous: ",
-          expr);
-    }
     for (auto tv : inputs) {
       setLoopAndAllocationDomain(tv);
     }
     for (auto tv : outputs) {
       setLoopAndAllocationDomain(tv);
+    }
+
+    if (isResharding(expr)) {
+      auto check_contiguity = [&](const auto& tvs) {
+        return std::all_of(tvs.begin(), tvs.end(), isTvContiguous);
+      };
+      NVF_CHECK(
+          check_contiguity(inputs) && check_contiguity(outputs),
+          "Resharding expression must have contiguous inputs and outputs: ",
+          expr);
     }
   }
 }

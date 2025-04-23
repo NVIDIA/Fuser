@@ -36,7 +36,7 @@ int64_t numDeviceDims(TensorView* tv) {
       tv->getLoopDomain().begin(),
       tv->getLoopDomain().end(),
       std::mem_fn(&IterDomain::isDeviceDim));
-};
+}
 
 // Sort the given tvs by the number of device dimensions in descending order.
 // Break ties by the total number of dimensions.
@@ -121,9 +121,9 @@ class PropagateShardingsSelector : public SetSelector {
   }
 };
 
-// Reorder the DID axis to the front only if it does not have a parallel type
-// already seen on the output (existing_parallel_types).
+// Reorder the DID axis with the given parallel types to the front.
 // Returns the number of device dimensions that were reordered to the front.
+// This allows us to limit propagation to only the relevant DID axis.
 int64_t selectiveReorderDIDToFront(
     TensorView* tv,
     std::unordered_set<ParallelType> selected_parallel_types) {
@@ -216,7 +216,14 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           " has no device mesh.");
 
       // Reorder the DID axis to the front only if it does not have a parallel
-      // type already seen on the outputs.
+      // type already seen on the outputs. This avoids propagating the same
+      // parallel type on multiple axis of the output when using multiple
+      // reference inputs. Consider out [M, N] = linear (inp [M, K], weight (N,
+      // K)) with inp sharded on M ([DIDx(d), M/d, K]) and weight sharded on N
+      // ([DIDy(d), N/d, K]). We propagate from weights first, so the output
+      // will be [M, DIDx(d), N/d]. When we propagate from inp next, we should
+      // not propagate DIDx parallel type to the output. Otherwise, the output
+      // will have multiple DIDx shardings which is invalid.
       std::unordered_set<ParallelType> selected_parallel_types =
           getParallelTypesToPropagate(outputs_without_mesh);
 
