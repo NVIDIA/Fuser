@@ -670,7 +670,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {
-  TensorView* tv = deallocate->allocation()->buffer()->as<TensorView>();
+  auto* tv = deallocate->allocation()->buffer()->as<TensorView>();
   NVF_ERROR(
       isKnown(tv),
       "Tried to free buffer associated with unknown TensorView",
