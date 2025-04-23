@@ -3773,6 +3773,10 @@ class PreferredMergeCandidatePicker {
 
 std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     mergeSelectLikeOpsWithProducers(SegmentedGroup* group) const {
+  if (group->producer_edges.empty() || group->isMerged()) {
+    return std::nullopt;
+  }
+
   const auto& exprs = group->exprs();
 
   // I *think* it's enough to consider the initial merge of
@@ -3822,8 +3826,21 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     return std::nullopt;
   }
 
-  return SegmentedGroup::NeighborGroup(
-      (*producer_edge_it)->from, *producer_edge_it);
+  auto producer_group = (*producer_edge_it)->from;
+  if (producer_group->isMerged()) {
+    return std::nullopt;
+  }
+
+  // Don't try to merge if not a candidate
+  auto merge_candidates = group->getMergeCandidates();
+  if (std::ranges::find_if(
+          merge_candidates, [&](const SegmentedGroup::NeighborGroup& neighbor) {
+            return neighbor.group != producer_group;
+          }) == merge_candidates.end()) {
+    return std::nullopt;
+  }
+
+  return SegmentedGroup::NeighborGroup(producer_group, *producer_edge_it);
 }
 
 std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
