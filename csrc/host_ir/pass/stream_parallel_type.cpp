@@ -246,7 +246,36 @@ std::vector<Expr*> groupStreamParallelRegions(
   return new_top_level_exprs;
 }
 
-// Step 2: Process for-loop bodies by slicing tensors
+// Helper function to add allocations for tensors that need them
+std::vector<Expr*> addTensorAllocations(
+    std::vector<Expr*> top_level_exprs,
+    const IdModel& id_model) {
+  std::vector<Expr*> new_top_level_exprs;
+
+  for (auto* expr : top_level_exprs) {
+    if (expr->isA<ForLoop>()) {
+      // add allocations for tensors produced in the loop that have a stream axes
+      auto* for_loop = expr->as<ForLoop>();
+      for (auto* body_expr : for_loop->body().exprs()) {
+        for (auto* output : ir_utils::filterByType<TensorView>(body_expr->outputs())) {
+          if (findStreamAxisIndex(output, for_loop->iterDomain(), id_model) != -1) {
+            new_top_level_exprs.push_back(
+                IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
+          }
+        }
+      }
+    }
+    new_top_level_exprs.push_back(expr);
+  }
+
+  // Add all original expressions
+  new_top_level_exprs.insert(
+      new_top_level_exprs.end(), top_level_exprs.begin(), top_level_exprs.end());
+
+  return new_top_level_exprs;
+}
+
+// Step 3: Process for-loop bodies by slicing tensors
 std::vector<Expr*> processForLoopBodies(
     hir::HostIrContainer* hic,
     const IdModel& id_model,
@@ -324,11 +353,6 @@ std::vector<Expr*> processForLoopBodies(
         if (is_new) {
           new_loop_body.push_back(output_slicing);
         }
-
-        // Allocate memory for the output tensor, and place the allocation IR
-        // before the for-loop, at the top level
-        new_top_level_exprs.push_back(
-            IrBuilder::create<kir::Allocate>(output, MemoryType::Global));
 
         // Update all expressions that use this output to use the sliced version
         for (auto it_running_expr = current_loop_body.begin();
@@ -424,7 +448,7 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
 // 1. Identifying stream-parallelized axes in tensor operations
 // 2. Grouping compatible operations into stream-parallel for-loops
 // 3. Setting up proper stream synchronization and management
-//
+// 4. Adding allocations for tensors that need them
 // The pass ensures that:
 // - Input tensors don't have stream axes
 // - Only one stream axis exists per tensor
@@ -462,11 +486,14 @@ void StreamParallelType::runPass(Fusion* fusion) {
   std::vector<Expr*> top_level_exprs =
       groupStreamParallelRegions(hic, id_model);
 
-  // Step 2: Process for-loop bodies by slicing tensors
+  // Step 2: Add allocations for tensors that need them
+  top_level_exprs = addTensorAllocations(std::move(top_level_exprs), id_model);
+
+  // Step 3: Process for-loop bodies by slicing tensors
   top_level_exprs =
       processForLoopBodies(hic, id_model, std::move(top_level_exprs));
 
-  // Step 3: Add stream management and synchronization
+  // Step 4: Add stream management and synchronization
   top_level_exprs = addStreamManagement(std::move(top_level_exprs));
 
   // Update the container's top-level expressions
