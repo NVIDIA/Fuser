@@ -1276,9 +1276,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string genLoadBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
-    Val* tidx = pdim_map.getRawLoad(ParallelType::TIDx);
-    Val* tidy = pdim_map.getRawLoad(ParallelType::TIDy);
-    Val* tidz = pdim_map.getRawLoad(ParallelType::TIDz);
+    Val* tidx = pdim_map.getRawAsync(ParallelType::TIDx);
+    Val* tidy = pdim_map.getRawAsync(ParallelType::TIDy);
+    Val* tidz = pdim_map.getRawAsync(ParallelType::TIDz);
     int64_t num_threads = tidx->value().as<int64_t>() +
         tidy->value().as<int64_t>() + tidz->value().as<int64_t>();
     NVF_ERROR(
