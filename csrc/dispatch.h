@@ -160,8 +160,7 @@ class Val;
   f(Synchronize);                     \
   f(StartCoalescing);                 \
   f(EndCoalescing);                   \
-  f(ShareMemHandles);                 \
-  f(Deallocate);
+  f(ShareMemHandles);
 
 // Forward declarations for all Val and Expr types
 
