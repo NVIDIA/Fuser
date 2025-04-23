@@ -9,10 +9,9 @@
 
 #include <fusion.h>
 #include <host_ir/host_ir.h>
+#include <runtime/executor.h>
 
 namespace nvfuser {
-
-class KernelExecutor;
 
 namespace hir {
 
