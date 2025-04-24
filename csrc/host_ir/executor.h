@@ -119,6 +119,7 @@ class HostIrEvaluator final : public OptOutDispatch {
 
  private:
   using OptOutDispatch::handle;
+  void handle(LoadStoreOp* load_store_op) override;
   void handle(SetCurrentStream* set_current_stream) override;
   void handle(GetCurrentStream* get_current_stream) override;
   void handle(Synchronize* synchronize) override;

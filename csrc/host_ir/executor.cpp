@@ -549,6 +549,29 @@ std::unordered_set<Val*> allConsumerValsOf(Val* val) {
 
 } // namespace
 
+void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
+  NVF_ERROR(
+      load_store_op->opType() == LoadStoreOpType::Set,
+      "LoadStoreOp must be a Set");
+  NVF_ERROR(
+      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+  auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
+
+  // If output has root domain, it means that the set op is a permute, which we
+  // don't support currently
+  NVF_ERROR(
+      !out_tv->hasRoot(), "the set op", load_store_op, "must not be a permute");
+
+  if (!isKnown(load_store_op->out())) {
+    bind(load_store_op->out(), in_tensor);
+  } else {
+    auto out_tensor =
+        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
+    out_tensor.copy_(in_tensor);
+  }
+}
+
 void HostIrEvaluator::handle(ForLoop* for_loop) {
   auto start = expr_evaluator_.evaluate(for_loop->start()).as<int64_t>();
   auto step = expr_evaluator_.evaluate(for_loop->step()).as<int64_t>();

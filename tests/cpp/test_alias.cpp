@@ -150,6 +150,9 @@ TEST_F(AliasTest, View_NoAliasForIncompliantLayout) {
 }
 
 TEST_F(AliasTest, ViewPermute) {
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
