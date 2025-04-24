@@ -160,6 +160,7 @@ __device__ void warpReduceTIDXY(
   } else {
     reduction_op(out, reduce_val);
   }
+}
 
   // sizeof(T) * K = sizeof(uint64_t)
   // require alginment of sizeof(T) * K to safely cast between T and uint64_t
@@ -248,5 +249,4 @@ __device__ void warpReduceTIDXY(
     // reduction is done.
     block_sync::sync<Aligned>(block_dim, barrier_id);
   }
-}
 } // namespace warp

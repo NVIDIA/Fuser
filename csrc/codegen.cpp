@@ -3867,10 +3867,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 std::string generateCudaKernel(
     const kir::Kernel* kernel,
     const std::string& kernel_name,
-    std::optional<int64_t> num_threads_per_cta) {
+    const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("generateCudaKernel");
   return CudaKernelGenerator::generateKernelDefinition(
-      kernel, kernel_name, num_threads_per_cta);
+      kernel, kernel_name, lparams);
 }
 
 } // namespace codegen
