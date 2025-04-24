@@ -3,25 +3,29 @@
 ## Goals and Motivation
 
 -   **Why Segment?** Fusing an entire complex computation into a single GPU kernel is often impractical or suboptimal due to:
-    -   Operations unsupported by the GPU kernel code generator (e.g., certain communications, host-side logic).
+    -   Operations unsupported by the GPU kernel code generator (e.g., certain communications, host-side logic, specific ATen calls handled by `ExprEval`).
+    -   Hard segmentation hints (`LoadStoreOpType::SegmenterSet`) explicitly requesting a break.
     -   Complex control flow or graph structures that are difficult to schedule efficiently as one unit.
     -   Different parts of the graph having conflicting optimal scheduling strategies (e.g., reductions vs. pointwise ops).
     -   Excessive register pressure or shared memory usage in a monolithic kernel.
--   **Segmentation Addresses This By:** Breaking the computation graph into smaller, manageable sub-graphs (`SegmentedGroup`s). Each segment can then be independently scheduled and potentially compiled into a separate, optimized kernel or executed on the host.
+-   **Segmentation Addresses This By:** Breaking the computation graph into smaller, manageable sub-graphs (`SegmentedGroup`s). Each segment can then be independently scheduled and potentially compiled into a separate, optimized GPU kernel (`SchedulerType` like Pointwise, Reduction) or executed on the host via expression evaluation (`SchedulerType::ExprEval`).
 
-## Core Principle: Schedulability-Driven Partitioning
+## Core Principle: Schedulability-Driven Partitioning & Input/Output Boundaries
 
--   Segmentation is not arbitrary graph cutting. The primary constraint is that **each final `SegmentedGroup` must be schedulable** by a known heuristic (e.g., Pointwise, Reduction, Persistent).
--   The merging process (`SegmentCandidateFinder`) iteratively combines smaller groups but crucially **validates each potential merge** by checking if the resulting larger group can still be scheduled (using the `tryMerge` mechanism and `Schedule::proposeHeuristics`).
--   The fundamental output is a partitioning of the original `Fusion` into a DAG of **schedulable** execution units (GPU kernels or potential host sections).
+-   **Schedulability:** Segmentation is not arbitrary graph cutting. The primary constraint is that **each final `SegmentedGroup` must be schedulable** by a known mechanism (e.g., Pointwise heuristic, Reduction heuristic, Persistent heuristic, or the `ExprEval` executor). The merging process (`SegmentCandidateFinder`) validates each potential merge using `tryMerge` which checks schedulability via `Schedule::proposeHeuristics`.
+-   **Input/Output Boundary Principle:** A fundamental aspect of how nvFuser processes `Fusion` objects (including those generated for segments) is the significance of marked inputs and outputs:
+    -   **Inputs:** When a `Val` is marked as an input to a `Fusion` (via `Fusion::addInput`), subsequent analysis (like dependency checking, scheduling, code generation) treats it as externally provided. The traversal of dependencies **stops** at these inputs; their defining expressions *within that `Fusion` object* (if any exist due to copying) are effectively ignored for the purpose of executing that `Fusion`.
+    -   **Outputs:** Similarly, marking `Val`s as outputs (via `Fusion::addOutput`) defines the termination points for required computation within that `Fusion`. Analysis typically proceeds backward from outputs to determine necessary expressions. Expressions not contributing to the marked outputs are generally ignored.
+-   `Schedule::proposeHeuristics` determines the appropriate `SchedulerType` (GPU heuristic or `ExprEval`).
+-   The fundamental output is a partitioning of the original `Fusion` into a DAG of **schedulable** execution units (GPU kernels or host-evaluated segments), where the boundaries are correctly defined by the inputs/outputs of each segment's generated `Fusion`.
 
 ## Key Performance Tradeoffs
 
 Segmentation involves balancing several competing performance factors:
 
--   **Kernel Launch Overhead:** More segments generally mean more distinct kernels to launch, adding CPU overhead.
--   **Memory Bandwidth (Inter-Segment):** Segment boundaries usually imply intermediate tensor results being written to and read from global memory. Fewer boundaries often reduce this I/O, which is frequently a bottleneck.
--   **Scheduling Efficiency:** Smaller, more specialized segments might allow for more optimal scheduling heuristics tailored to that segment's operations (e.g., highly optimized reduction kernels), potentially leading to faster execution *within* the segment compared to a less specialized schedule for a larger, combined segment.
+-   **Kernel Launch Overhead:** More GPU kernel segments generally mean more distinct kernels to launch, adding CPU overhead. Host (`ExprEval`) segments have different overhead characteristics.
+-   **Memory Bandwidth (Inter-Segment):** Segment boundaries (between GPU segments or between GPU and host) usually imply intermediate tensor results being written to and read from global memory. Fewer boundaries often reduce this I/O. Host segments reading/writing tensors invoke ATen operations with their own memory characteristics.
+-   **Scheduling Efficiency:** Smaller, more specialized GPU segments might allow for more optimal scheduling heuristics tailored to that segment's operations. Host segments offload scalar or specific ATen compute from the GPU.
 -   **Recomputation vs. Memory I/O:** Sometimes, recomputing cheap operations (like simple unary ops via Input Forwarding) within multiple subsequent segments is faster than paying the memory cost to materialize and transfer the intermediate result once.
 -   **Potential Tradeoff (Dimensionality - Currently Less Explicitly Optimized):** The size of data transferred at segment boundaries can be affected by dimensionality changes. Ideally, boundaries would occur *after* operations that reduce data size (like reductions) and *before* operations that increase data size (like broadcasts) to minimize memory traffic. While not the primary driver now, this influences the benefit of strategies like `CombineReductions`.
 
@@ -35,18 +39,20 @@ Segmentation involves balancing several competing performance factors:
 The `SegmentCandidateFinder` class orchestrates the segmentation process:
 
 1.  **Input:** Takes an original `Fusion` DAG.
-2.  **Initial Segmentation (`buildInitialSegments`):** Traverses the `Fusion`'s expressions. Creates fine-grained `SegmentedGroup`s, typically one non-scalar operation per group. Scalar operations are initially ignored.
-3.  **Input/Scalar Handling Prep:** Applies strategies like Input Forwarding (for cheap unary ops near inputs) and Up-Cast Privatization to prepare the graph for merging. Removes edges based on scalar values.
-4.  **Optional Pre-Merge Passes:** Executes specialized merging passes based on `SegmentCandidateFinderOptions` if enabled (e.g., `TranslateApplicableWelford`, `MergeUpAndDownCast`, `CombineReductions`). These passes group operations based on specific known patterns (like reductions or casts).
-5.  **Iterative Merging (`run_herrmann_merge`, `run_final_merge`):** The core merging loop. Iteratively identifies candidate pairs or sets of adjacent `SegmentedGroup`s to merge based on heuristics (like DAG levels or operation types). **Crucially, each potential merge is validated using `tryMerge` to ensure the resulting combined group is schedulable by a known scheduler heuristic.** Merging proceeds only if schedulable.
-6.  **Finalization (`finalize`, `resolveForwardedInputs`, `resolveScalarsInGroup`):** Cleans up the graph. Resolves previously forwarded inputs by prepending their defining unary ops to the consuming segments. Resolves scalar dependencies by adding necessary scalar computations into each segment. Finalizes segment inputs and outputs.
+2.  **Initial Segmentation (`buildInitialSegments`):** Traverses the `Fusion`'s expressions. Creates fine-grained `SegmentedGroup`s for **each expression** (including scalar and tensor operations) not handled by input forwarding. Establishes initial `SegmentedEdge`s based on `Val` dependencies (including scalar dependencies).
+3.  **Input/Scalar Handling Prep:** Applies strategies like Input Forwarding (for cheap unary ops near inputs) and Up-Cast Privatization to prepare the graph for merging.
+4.  **Optional Pre-Merge Passes:** Executes specialized merging passes based on `SegmentCandidateFinderOptions` if enabled (e.g., `TranslateApplicableWelford`, `MergeUpAndDownCast`, `CombineReductions`). These passes group operations based on specific known patterns.
+5.  **Iterative Merging (`run_herrmann_merge`, `run_final_merge`):** The core merging loop. Iteratively identifies candidate pairs or sets of adjacent `SegmentedGroup`s to merge. **Crucially, each potential merge is validated using `tryMerge` (which calls `Schedule::proposeHeuristics`) to ensure the resulting combined group is schedulable by a known scheduler (GPU heuristic or `ExprEval`).** Merging proceeds only if schedulable.
+6.  **Finalization (`finalize`, `resolveForwardedInputs`):** Cleans up the graph. Resolves previously forwarded inputs. Finalizes segment boundary metadata (`input_vals_`, `output_vals_`) within each `SegmentedGroup`. **Then, for each segment, `SegmentedFusion::makeFusion` creates a standalone `Fusion` object. It does this by copying the complete fusion's IR and then explicitly marking the correct boundary `Val`s (determined from the `SegmentedGroup`'s metadata) as inputs and outputs of the new `Fusion`. This leverages the Input/Output Boundary Principle: downstream processing ignores expressions outside the marked input-to-output paths, effectively isolating the segment's logic without needing explicit expression pruning.**
+    > **Implementation Note on `makeFusion` Cloning:** The `IrCloner` object used within `makeFusion` maintains a map from original statements to cloned statements. The initial `Fusion::copy` populates this map for all statements. Subsequent calls to `cloner.clone(original_statement)` within the same `makeFusion` call act as lookups in this map, returning the already-created clone rather than performing redundant cloning.
 7.  **Output:** Produces a `SegmentedFusion` object containing the final DAG of schedulable `SegmentedGroup`s, ready for execution scheduling and code generation.
 
 ## High-Level Summaries (TLDRs)
 
--   **TLDR: Edge System:** Manages data dependencies between segments using `SegmentedEdge` objects and centralized helper functions. Ensures correct graph structure and data flow, especially during segment merging. *(Details below)*
--   **TLDR: Handling Specific Ops:** Special logic exists for certain operations. Cheap unary ops near inputs are often recomputed ("forwarded") to save memory I/O. Up-casts are handled to encourage lower-precision boundaries. Scalar ops are initially ignored during merging, and their logic is localized into the final GPU segments (though future work aims to leverage host execution). *(Details below)*
--   **TLDR: Precision at Boundaries:** When enabled (`IoToLowerPrecision`), the segmenter attempts to insert casts such that intermediate tensors involved in mixed-precision paths are transferred between segments in lower precision (Half/BFloat16), reducing memory bandwidth. This process is targeted based on final `Fusion` outputs and subject to operation constraints. *(Details below)*
+-   **TLDR: Edge System:** Manages data dependencies (scalar and tensor) between segments using `SegmentedEdge` objects and centralized helper functions. Ensures correct graph structure and data flow during merging and finalization.
+-   **TLDR: Handling Specific Ops:** Cheap unary ops near inputs are often recomputed ("forwarded"). Up-casts are handled to encourage lower-precision boundaries. Segmentation hints (`SegmenterSet`) force boundaries often leading to `ExprEval` segments. Scalar ops are grouped initially and merged like tensor ops; their final execution target (`GPU` vs. `ExprEval`) is determined by the scheduler assigned to their final segment.
+-   **TLDR: Precision at Boundaries:** When enabled (`IoToLowerPrecision`), the segmenter attempts to insert casts such that intermediate tensors involved in mixed-precision paths are transferred between segments in lower precision (Half/BFloat16), reducing memory bandwidth. This process is targeted based on final `Fusion` outputs and subject to operation constraints.
+-   **TLDR: `ExprEval` Segmentation:** Segments containing only scalar operations or specific ops like `SegmenterSet` are typically assigned `SchedulerType::ExprEval`. This means they execute on the host (potentially calling ATen ops for tensors). From the perspective of *GPU* segments, an `ExprEval` segment acts like any other dependency boundary – values produced by `ExprEval` become inputs to the GPU kernel, preventing computation duplication.
 
 -----
 
@@ -54,9 +60,9 @@ The `SegmentCandidateFinder` class orchestrates the segmentation process:
 
 ### Edge System: Tracking Dependencies
 
--   **Purpose:** The edge system is crucial for representing and maintaining data dependencies between `SegmentedGroup`s throughout the segmentation process. It ensures that as groups are merged, the correct data flow is preserved.
+-   **Purpose:** The edge system is crucial for representing and maintaining data dependencies (both scalar and tensor) between `SegmentedGroup`s throughout the segmentation process. It ensures that as groups are merged, the correct data flow is preserved.
 -   **Representation:**
-    -   Dependencies are modeled using `SegmentedEdge` objects. Each edge connects a producer group (`from`) to a consumer group (`to`) and specifies the exact intermediate `Val` being passed between them.
+    -   Dependencies are modeled using `SegmentedEdge` objects. Each edge connects a producer group (`from`) to a consumer group (`to`) and specifies the exact intermediate `Val` (scalar or tensor) being passed.
     -   Multiple edges can exist between the same two groups if multiple distinct `Val`s are passed.
     -   Each `SegmentedGroup` maintains lists of its incoming (`producer_edges`) and outgoing (`consumer_edges`) connections.
 -   **Role in Merging:**
@@ -69,63 +75,65 @@ The `SegmentCandidateFinder` class orchestrates the segmentation process:
 
 #### Unary Operations
 
--   **Input Forwarding:** Chains of simple, single-use `UnaryOp`s starting from `Fusion` inputs are handled via "input forwarding". This addresses the scenario: `Input -> Unary Ops -> N Consumers`.
-    -   **Tradeoff Analysis:** Compares recomputing the unary ops versus materializing their intermediate result.
-        1.  *Materializing Intermediate (Separate Unary Kernel or Fused with One Consumer):* Requires approximately 1 Read (`Input`) + N Reads (`Intermediate`) + 1 Write (`Intermediate`).
-        2.  *Recomputing Unary (Input Forwarding):* Requires N Reads (`Input`) + 0 Writes (`Intermediate`).
-        3.  *Benefit of Recomputation:* Saves 1 Write and approximately N Reads of the `Intermediate` tensor data from global memory, at the cost of (N-1) extra Reads of the `Input` tensor data. For cheap unary ops, this significantly reduces memory bandwidth usage.
-    -   **Mechanism:** These unary expressions are initially excluded from the segmentation graph. The final output of the chain is treated as a temporary "forwarded input" during merging. The excluded unary expressions are duplicated and prepended to each final `SegmentedGroup` that uses the corresponding forwarded input (`resolveForwardedInputs`).
-    -   **Asymmetry:** This forwarding logic is *not* applied similarly for cheap unary ops producing `Fusion` *outputs*, primarily because the main benefit (avoiding intermediate global memory traffic) is less significant, since the final output usually needs to be written anyway. The `shouldForward` function explicitly prevents forwarding if the unary op produces a `Fusion` output.
--   **Up-Cast Privatization:** To influence merging behavior around data type changes:
-    -   Up-cast operations (`CastOp` from lower to higher precision) with multiple consumers are temporarily replicated (`privatizeUpcast`). Each use gets its "own" cast op initially.
-    -   This encourages merging on the lower-precision side of the cast. This is beneficial because if a segment boundary must exist near the cast, placing it *before* the up-cast means the smaller, lower-precision tensor is transferred via global memory, reducing bandwidth usage compared to transferring the larger, higher-precision tensor.
-    -   If multiple privatized versions of the same original up-cast end up in the same final segment, the duplicates are removed (`revertPrivatizedUpcast`).
--   **Other Unary Ops:** Unary operations not part of input forwarding or up-cast privatization are initially placed in their own single-expression `SegmentedGroup`. This provides maximum granularity for the subsequent heuristic-driven merging passes.
+-   **Input Forwarding:** Chains of simple, single-use `UnaryOp`s starting from `Fusion` inputs are handled via "input forwarding".
+    -   **Tradeoff Analysis:** Saves intermediate tensor materialization and memory bandwidth at the cost of recomputing cheap ops.
+    -   **Mechanism:** These unary expressions are initially excluded. Their final output is treated as a temporary "forwarded input". The excluded unary expressions are duplicated and prepended to each final consuming segment (`resolveForwardedInputs`).
+    -   **Asymmetry:** Not applied for unary ops producing `Fusion` outputs.
+-   **Up-Cast Privatization:** Up-casts (`CastOp` low-to-high precision) with multiple consumers are temporarily replicated (`privatizeUpcast`) to encourage merging on the lower-precision side, reducing memory bandwidth if a boundary occurs there. Duplicates are removed if they end up in the same final segment (`revertPrivatizedUpcast`).
+-   **Other Unary Ops:** Placed in initial single-expression groups, available for merging.
 
 #### Scalar Operations
 
--   **Initial Exclusion:** Edges based on scalar `Val`s *are* created initially. However, merges involving only scalar groups/dependencies are unlikely to pass the schedulability check (`tryMerge`) required for merging, effectively isolating them from the main GPU segment merging process.
--   **Late Resolution (Current Strategy):** Scalar computations are localized within the final GPU kernel segments that need them.
-    -   **Motivation (Historical):** This approach was necessary because nvFuser historically lacked a host-based executor capable of computing scalar values and passing them into kernels or returning them as distinct `Fusion` outputs. Pushing all scalar logic onto the GPU was the only option, although potentially inefficient due to redundant computation across GPU threads.
-    -   **Mechanism:**
-        -   After merging, `resolveScalarsInGroup` analyzes each `SegmentedGroup`.
-        -   It identifies all required scalar values. This includes scalars used directly by expressions, scalar attributes, and scalars needed to define the shapes of intermediate tensors computed within the group.
-        -   **Tensor Shape Handling:** It recognizes that shape information (extents) of segment *input* tensors is implicitly available to the kernel. If such a shape value is used in a subsequent scalar computation within the segment, the trace recognizes it as available and doesn't attempt to add expressions to recompute it.
-        -   It performs a backward dependency traversal starting from required scalars (excluding implicitly available input shapes), using a `visited` set to handle cycles and redundancy.
-        -   The traversal finds the defining expressions for computed intermediate scalars and recursively adds their scalar inputs to the set of required scalars, stopping at constants or `Fusion` inputs.
-        -   The necessary scalar-defining expressions encountered during the trace are collected and added to the `exprs_` list of the `SegmentedGroup`.
-        -   `SegmentedGroup::finalize` also contributes to ensuring scalar dependencies are correctly included.
--   **New Capability & Chosen Future Direction (Approach 4 - Heuristic Modification):**
-    -   nvFuser now possesses host-based scalar execution capabilities (e.g., via `ExpressionEvaluator`, potentially used by executors like `HostIrEvaluator`).
-    -   The plan is to modify segmentation heuristics (`codeGenSupportedMerge`/`deriveSchedulerType`) to leverage this.
-    -   **Goal:** Identify segments dominated by scalar computations that are suitable for host execution. These segments could be assigned a special "Host" execution type, distinct from GPU kernel types (`SchedulerType::...`).
-    -   This aims to reduce redundant scalar computation previously pushed to the GPU and potentially enable direct scalar outputs from `Fusion`s.
-    -   **(Alternative Idea - Approach 2):** An alternative worth considering separately would be pre-segmentation extraction of scalar blocks.
-    <!-- TODO: Discuss scalar resolution process further, potentially in context of host execution -->
+-   **Initial Grouping & Edges:** Scalar-defining expressions are placed into their own `SegmentedGroup`s during `buildInitialSegments`. `SegmentedEdge`s representing scalar dependencies between groups are created and maintained throughout the process.
+-   **Merging:** Scalar groups participate in the merging process just like tensor groups. Merges are validated by `tryMerge`, which calls `Schedule::proposeHeuristics`.
+-   **Scheduling (`ExprEval`):** `Schedule::proposeHeuristics` identifies segments containing *only* scalar expressions and assigns them `SchedulerType::ExprEval`. This targets them for host execution using `ExpressionEvaluator`.
+-   **Finalization (No Duplication):** During `SegmentedFusion::makeFusion`, the correct scalar `Val`s crossing the segment boundary are marked as inputs to the generated segment `Fusion`. Due to the Input/Output Boundary Principle, nvFuser ignores any definitions of these input scalars that might exist within the copied IR, preventing computation duplication.
+
+#### Segmentation Hints (`SegmenterSet`)
+
+-   The `LoadStoreOpType::SegmenterSet` operation acts as an explicit instruction to create a segment boundary.
+-   Segments containing this operation are typically assigned `SchedulerType::ExprEval` by `Schedule::proposeHeuristics`.
+-   This allows for integrating operations that cannot be directly code-generated into a GPU kernel (e.g., calls to external libraries or specific ATen functions) by executing them on the host via the `ExprEval` path. The surrounding computations can still be fused into GPU kernels.
 
 ### Precision at Boundaries
 
 -   The segmenter attempts to place boundaries at lower precision (Half/BFloat16) when mixed-precision operations are involved, driven by the `IoToLowerPrecision` option.
 -   **Mechanism:**
-    -   `annotateFP16IntermediateTensors` identifies candidate FP32 intermediate tensors that are on a path leading to a Half/BFloat16 *output* of the complete `Fusion`.
-    -   `castInputOutputToLowerPrecision` inserts `CastOp` pairs (e.g., FP32->Half, Half->FP32) into the *complete `Fusion` IR* when a candidate tensor forms an edge between segments.
-    -   The edge value (`SegmentedEdge::val`) is updated to the lower-precision tensor, while the consumer segment uses the output of the cast-back op.
--   **Limitations:** This is not a universal rule. It only applies to candidate tensors identified based on final outputs, and certain consuming operations might prevent the cast insertion. FP32 boundaries can still occur.
+    -   `annotateFP16IntermediateTensors` identifies candidate FP32 intermediate tensors on paths to low-precision `Fusion` outputs.
+    -   `castInputOutputToLowerPrecision` inserts `CastOp` pairs into the *complete `Fusion` IR* when such a tensor forms an edge between segments.
+    -   The edge value (`SegmentedEdge::val`) is updated to the lower-precision tensor.
+-   **Limitations:** Only applies to candidates based on final outputs; certain ops might prevent casting. FP32 boundaries can still occur.
 
 -----
 
-## Current failing tests:
-(previous failing tests section preserved as is) 
+## Schedulability Check (`tryMerge` Mechanism)
 
-## TODO: Missing Documentation Sections
+-   **Purpose:** To ensure that any potential merge of `SegmentedGroup`s results in a new, larger group that can still be executed by a known mechanism.
+-   **Process:**
+    1.  The merging logic (`run_herrmann_merge`, `run_final_merge`, specific passes like `CombineReductions`) identifies candidate groups to merge.
+    2.  Before committing to a merge, `codeGenSupportedMerge` (or similar logic) calls the `tryMerge` helper function.
+    3.  `tryMerge` uses a `FusionSegmentGuard`. This guard temporarily modifies a *copy* or view of the `complete_fusion_` IR to represent the *potential* merged segment (setting its inputs and outputs).
+    4.  Inside the guard, `tryMerge` calls `findScheduler`, which in turn calls `Schedule::proposeHeuristics` on the temporary, merged view of the fusion.
+    5.  `Schedule::proposeHeuristics` analyzes the temporary fusion:
+        -   It checks for GPU schedulability using heuristics like Pointwise, Reduction, Transpose, Normalization, Persistent.
+        -   It *also* specifically checks if the fusion consists only of scalar operations or contains segmentation hints (`SegmenterSet`), in which case it returns `SchedulerType::ExprEval`.
+        -   If no GPU heuristic applies and it's not an `ExprEval` case, it returns `SchedulerType::None`.
+    6.  `tryMerge` returns the `SchedulerType` found by `proposeHeuristics`.
+    7.  The calling merge logic proceeds with the merge *only if* the returned `SchedulerType` is *not* `SchedulerType::None`.
+-   **Outcome:** This ensures that every merge maintains the invariant that the resulting group corresponds to a valid execution strategy (GPU kernel or host evaluation).
 
--   **Detailed Merge Strategies & Heuristics:**
+-----
+
+## Future Optimizations / TODOs
+
+-   **More Targeted `makeFusion` Cloning:** The current "minimal" `SegmentedFusion::makeFusion` implementation copies the entire `complete_fusion_` IR and then relies on correctly setting inputs/outputs to guide downstream processing (leveraging the Input/Output Boundary Principle). While correct, this full copy might be inefficient for very large original fusions. A future optimization could involve a more integrated traversal (e.g., forward or backward from outputs/inputs) to clone *only* the subgraph relevant to the segment (its expressions and boundary values) directly into a new `Fusion`, avoiding the large initial copy. This would achieve the same functional result but potentially improve segmenter performance.
+-   **Detailed Merge Strategies & Heuristics Documentation:**
     -   Explain the goals and mechanisms of specific merging passes:
         -   `TranslateApplicableWelford` (Welford to 2-pass mean/var translation)
         -   `MergeUpAndDownCast` (Grouping cast sequences)
         -   `CombineReductions` (Merging compatible reduction/normalization ops)
         -   `run_herrmann_merge` (Main level-based merging, including `PreferredMergeCandidatePicker` logic)
         -   `run_final_merge` (Final cleanup merging pass)
--   **Schedulability Check (`tryMerge` Mechanism):**
-    -   Detail how `FusionSegmentGuard` works to temporarily modify the `Fusion` for schedulability testing.
-    -   Explain the role of `Schedule::proposeHeuristics` in validating potential merges. 
+
+## Current failing tests:
+(previous failing tests section preserved as is) 
