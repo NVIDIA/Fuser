@@ -720,6 +720,9 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   }
 
   for (auto tv : hic->allTvs()) {
+    // set all host tensors to global memory type. This must be the case by
+    // definition of a host tensor, and setting the memory type to global is
+    // also required to avoid Allocate HIR nodes to throw
     tv->setMemoryType(MemoryType::Global);
   }
 
