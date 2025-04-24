@@ -38,6 +38,16 @@ PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 
 Docs: https://github.com/NVIDIA/Fuser/wiki
 
+### Install From Source:
+```bash
+git clone https://github.com/NVIDIA/Fuser.git
+cd Fuser
+pip install -r python/requirements.txt
+
+[DEPRECATED] `[MAX_JOBS] python setup.py develop [args]`
+pip install --no-build-isolation -e python -v
+```
+
 Supported compilers:
 
 **GCC:**
