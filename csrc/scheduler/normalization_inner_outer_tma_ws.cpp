@@ -562,20 +562,30 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // inline
   if (rparams->circular_buffer_options.isEnable()) {
     std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
+    // TMA loaded tv may have a domain of either
     // [I/Unroll/BIDy, BIDy, Unroll | Bulk]
-    // Set inline position before Unroll, so all the unrolled TMA loads
+    // or
+    // [I/BIDy, BIDy, | Bulk]
+    // or
+    // [Bulk]
+    // Set inline position after BIDy, so all the unrolled TMA loads
     // share the same barrier.
-    int64_t tma_inline_pos = rparams->unroll_factor_iter_dom > 1 ? 2 : 1;
+    int64_t tma_inline_pos = 2;
     for (auto tv : tma_load_tvs) {
-      tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      if (tv->nDims() >= tma_inline_pos + 1) {
+        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      }
     }
     // For smem consumers, set inline position to the same as tma load tvs.
     // This allows quick release the shared memory barrier to launch the
-    // next TMA load.
+    // next TMA load. Otherwise, the inline position is after Unroll axis.
+    // Which requires the tma tensor alive until the end of the computation and
+    // delays the next TMA load until the end of the computation.
     for (auto tv : smem_consumers) {
-      tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
+        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      }
     }
-
     std::unordered_set<TensorView*> exclude_tvs;
     for (auto [k, v] : tv_inline_pos_map) {
       exclude_tvs.insert(k);
