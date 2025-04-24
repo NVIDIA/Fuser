@@ -4174,8 +4174,17 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4215,8 +4224,17 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4257,8 +4275,17 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueBiasFusion) {
 
   KernelArgumentHolder inputs = {t0, t1, t2};
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4313,8 +4340,17 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueSiluFusion) {
 
   KernelArgumentHolder inputs = {t0, t1, t2};
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4373,8 +4409,17 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4448,8 +4493,17 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4530,8 +4584,17 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
