@@ -384,8 +384,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   const bool is_unroll_or_vectorization = rparams->isUnrolled();
   const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-  const bool is_outer_grid_persistence = rparams->persistent_kernel &&
-      rparams->cross_grid_inner_reduction && !rparams->fastest_dim;
+  const bool use_grouped_reduction = rparams->unroll_factor_iter_dom > 1;
 
   // Propagate transformations for inner reduction.
   // Two steps are used since tma tvs are scheduled differently.
@@ -469,7 +468,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       inner_reduction_tvs[0],
       inner_reference_tv,
       is_unroll_or_vectorization,
-      is_outer_grid_persistence,
+      use_grouped_reduction,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
@@ -496,7 +495,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
         is_unroll_or_vectorization,
-        is_outer_grid_persistence,
+        /*use_grouped_reduction=*/false,
         outer_reduction_tvs,
         unroll_vectorizable_cached_tvs,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});

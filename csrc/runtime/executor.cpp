@@ -269,7 +269,7 @@ void KernelExecutor::compile(
   // Now that we have launch parameters we can compile the kernel. It's a bit
   // odd we need launch parameters for compilation, need to go back and check
   // why this is the case.
-  compiled_kernel_->compile(launch_params.nThreads());
+  compiled_kernel_->compile(launch_params);
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
