@@ -4138,7 +4138,7 @@ class MLPBenchmarkTest
         : MatmulParams::TilingStrategy::OneTilePerCTA;
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
     mparams.circular_buffer_options.circular_buffer_smem_read = false;
-    mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
     mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
     mparams.splitk_factor = 1;
     mparams.grid_traversal_factor = {8, 1};

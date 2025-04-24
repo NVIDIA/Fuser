@@ -1281,7 +1281,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       compute_warp_insertion_position_ =
           GpuLower::current()
               ->circularBufferInfo()
-              .getCircularBufferInsertionPosition(for_loop->iter_domain());
+              .getCircularBufferInsertionPosition(for_loop->iter_domain()) +
+          for_loop_stack_.size() - 1;
       active_compute_for_loop_ = for_loop;
     }
 
