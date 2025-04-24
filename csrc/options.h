@@ -11,6 +11,7 @@
 #include <visibility.h>
 
 #include <algorithm>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -70,7 +71,8 @@ enum class DebugDumpOption {
   TransformPropagator, //! When running TransformPropagator, print propagation
                        //! path and replay result
   Cubin, //! Dump compiled CUBIN
-  Sass, // Dump disassembled SASS
+  Sass, //! Dump disassembled SASS
+  SassToFile, //!< Dump disassembled SASS to File
   Ptx, //! Dump compiled PTX
   BankConflictInfo, //! Dump bank confliction info
   SyncMap, //! RAW dependency info
@@ -79,7 +81,7 @@ enum class DebugDumpOption {
   ExprSort, //! Print merging decisions on expression sorting
   ExprSortVerbose, //! Print verbose debug info on expression sorting
   LoopRotation, //! Print loop rotation log
-  Occupancy, // Dump occupancy
+  Occupancy, //! Dump occupancy
   IndexType, //! Print the index type of the launched kernel
   PredicateElimination, //! Print the predicate elimination information
   IndexingVerbose, //! Print verbose debug info on indexing
@@ -108,6 +110,7 @@ enum class EnableOption {
   WaitDebugger, // Used for debugging multi-GPU. The rank given in the argument
                 // will wait for `gdb attach` at the start.
   WarnRegisterSpill, //! Enable warnings of register spill
+  WarpSpecializedNormalization, //! Enable warp specialized persistent kernel
   HostIrLowering, //! Enable FusionKernelRuntime lowering to host IR
   EndOfOption //! Placeholder for counting the number of elements
 };
@@ -178,16 +181,31 @@ class Options {
  public:
   Options() : options_(getOptionsFromEnv()) {}
 
+  Options(const Options& other) {
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
+    options_ = other.options_;
+  }
+
+  Options& operator=(const Options& other) {
+    std::lock_guard<std::mutex> lock_other(other.mutex_);
+    std::lock_guard<std::mutex> lock(mutex_);
+    options_ = other.options_;
+    return *this;
+  }
+
   bool has(OptionEnum option) const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.count(option);
   }
 
   bool hasAny() const {
+    std::lock_guard<std::mutex> lock(mutex_);
     return !options_.empty();
   }
 
   const std::vector<std::string>& getArgs(OptionEnum option) const {
     NVF_ERROR(has(option), "Option not set");
+    std::lock_guard<std::mutex> lock(mutex_);
     return options_.at(option);
   }
 
@@ -200,10 +218,12 @@ class Options {
   }
 
   void set(OptionEnum option_type, std::vector<std::string> option = {}) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_[option_type] = option;
   }
 
   void unset(OptionEnum option_type) {
+    std::lock_guard<std::mutex> lock(mutex_);
     options_.erase(option_type);
   }
 
@@ -212,6 +232,7 @@ class Options {
 
  protected:
   std::unordered_map<OptionEnum, std::vector<std::string>> options_;
+  mutable std::mutex mutex_;
 };
 
 //! Utility class to temporarily overrride the Enable options,

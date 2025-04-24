@@ -42,6 +42,7 @@ class GridSync;
 class FenceAsyncProxy;
 class WgMmaFence;
 class SetMaxNReg;
+class Continue;
 class Return;
 class MBarrierInit;
 class MBarrierInvalidate;
@@ -488,7 +489,10 @@ class BlockSync final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit BlockSync(IrBuilderPasskey passkey, bool war_sync = false);
+  explicit BlockSync(
+      IrBuilderPasskey passkey,
+      bool war_sync = false,
+      std::optional<bool> optional_compute_or_load_sync = std::nullopt);
 
   const char* getOpString() const override {
     return "BlockSync";
@@ -502,6 +506,20 @@ class BlockSync final : public Expr {
   // TODO: war_sync_ is only used for testing/validation purposes.
   bool isWarHazardSync() const {
     return attribute<bool>(0);
+  }
+
+  std::optional<bool> warpSpecializedState() const {
+    return attribute<std::optional<bool>>(1);
+  }
+
+  bool isComputeWarpSync() const {
+    return attribute<std::optional<bool>>(1).value_or(false);
+  }
+
+  bool isAsyncWarpSync() const {
+    auto optional_compute_or_load_sync = attribute<std::optional<bool>>(1);
+    return optional_compute_or_load_sync.has_value() &&
+        !optional_compute_or_load_sync.value();
   }
 };
 
@@ -594,6 +612,22 @@ class SetMaxNReg final : public Expr {
   Val* numberOfRegisters() const {
     return input(0);
   }
+};
+
+class Continue final : public Expr {
+ public:
+  using Expr::Expr;
+
+  explicit Continue(IrBuilderPasskey passkey);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "Continue";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
 };
 
 class Return final : public Expr {

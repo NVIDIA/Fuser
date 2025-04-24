@@ -203,6 +203,14 @@ class AllocationDomainSetup : private kir::IrVisitor {
                 tv->getAllocationDomain().begin())) {
           use_set_allocation_domain = true;
         }
+
+        // Honor the set allocation domain if the tensor is used by a
+        // TMA store or MmaOp
+        if (std::ranges::any_of(tv->uses(), [](Expr* expr) {
+              return ir_utils::isCpAsyncBulkStore(expr) || expr->isA<MmaOp>();
+            })) {
+          use_set_allocation_domain = true;
+        }
       }
     }
 
@@ -1200,8 +1208,21 @@ class AllocationInserter : public kir::ExprMutator {
             default_val == nullptr,
             "Reduction should not have a default initialization value for predicate elimination.");
         init = expr->as<GroupedReductionOp>()->initVal(i);
-      } else if (expr->isA<MmaOp>()) {
-        init = expr->as<MmaOp>()->init();
+      } else if (MmaOp* mma = dynamic_cast<MmaOp*>(expr)) {
+        // On Hopper and Blackwell, we generate code like:
+        // for k in ...:
+        //   mma(acc, a, b, use_input_acc=(k!=0))
+        // For this case, there is no need to initialize the accumulator
+        // as it is initialized with zero by the MMA instruction.
+        if (mma->isHopper() || mma->isBlackwell()) {
+          NVF_ERROR(
+              mma->init() == nullptr || mma->init()->isZero(),
+              "Hopper and Blackwell MMA should not have a non-zero initialization value.");
+          init = nullptr;
+        } else {
+          // On Turing and Ampere, we manually initialize the accumulator
+          init = mma->init();
+        }
       } else if (expr->isA<WelfordOp>()) {
         NVF_ERROR(
             default_val == nullptr,
@@ -1322,9 +1343,12 @@ class AllocationInserter : public kir::ExprMutator {
     //    inval mbarrier
     //    block_sync
     //
-    // The circular buffer case is handled in handle(ForLoop* fl) and the
+    // * The circular buffer case is handled in handle(ForLoop* fl) and the
     // circular buffering pass.
-    if (ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) {
+    // * Assume that the tma load is in ComputeWarp if it is not circular
+    // buffered.
+    if ((ir_utils::isCpAsyncBulkLoad(expr) && circular_buffer_depth == 1) ||
+        (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
       // create and allocate a memory barrier
       TensorView* mbarrier = TensorViewBuilder()
                                  .shape(std::vector<int64_t>{})
@@ -1336,12 +1360,15 @@ class AllocationInserter : public kir::ExprMutator {
           mbarrier,
           simplifyExpr(SimplifyingIrBuilder::maybeCastExpr(
               DataType::UInt32,
-              lower_utils::getNumThreadsInTensorView(
-                  expr->output(0)->as<TensorView>()))));
-      auto sync_init = IrBuilder::create<kir::BlockSync>();
+              expr->isA<MmaOp>() ? expr->fusion()->oneVal()
+                                 : lower_utils::getNumThreadsInTensorView(
+                                       expr->output(0)->as<TensorView>()))));
+      auto sync_init = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
       auto mbarrier_inval =
           IrBuilder::create<kir::MBarrierInvalidate>(mbarrier);
-      auto sync_inval = IrBuilder::create<kir::BlockSync>();
+      auto sync_inval = IrBuilder::create<kir::BlockSync>(
+          /*war_sync=*/false, /*optional_compute_or_load_sync=*/true);
 
       kir::Allocate* mbarrier_alloc =
           IrBuilder::create<kir::Allocate>(mbarrier, MemoryType::Shared);
@@ -1351,7 +1378,7 @@ class AllocationInserter : public kir::ExprMutator {
       registerInsertBefore(expr, sync_init, expr_scope);
       registerInsertAfter(expr, mbarrier_inval, expr_scope);
       registerInsertAfter(expr, sync_inval, expr_scope);
-      GpuLower::current()->ldstMBarrierMap()[expr] = mbarrier;
+      GpuLower::current()->mbarrierMap()[expr] = mbarrier;
     }
   }
 
@@ -1459,7 +1486,7 @@ class AllocationInserter : public kir::ExprMutator {
           continue;
         }
         // Map LoadStoreOp expression to ir nodes created in this pass
-        GpuLower::current()->ldstMBarrierMap()[tv->definition()] = mbarrier;
+        GpuLower::current()->mbarrierMap()[tv->definition()] = mbarrier;
       }
     }
   }

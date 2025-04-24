@@ -4,17 +4,17 @@
 
 import pytest
 import torch
+import os
 
-import multidevice_fixtures
 import nvfuser
-from nvfuser import DataType, FusionDefinition
-
-multidevice_test = multidevice_fixtures.multidevice_test
+from nvfuser import DataType, FusionDefinition, CommunicatorBackend
 
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
-    def __init__(self, m, k, n, s, num_devices):
-        super().__init__(use_multidevice_executor=True)
+    def __init__(self, m, k, n, s, num_devices, communication_backend):
+        super().__init__(
+            use_multidevice_executor=True, backend_type=communication_backend
+        )
         self.m = m
         self.k = k
         self.n = n
@@ -60,9 +60,18 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
 
 
 @pytest.mark.mpi
-def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
-    N_WARMUPS, N_ITERATIONS = 5, 15
-    m, k, n, s, d = 1024, 1024, 1024, 8, multidevice_test.size
+@pytest.mark.parametrize(
+    "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
+)
+@pytest.mark.parametrize("s", [1, 8])
+def test_overlap_allgather_matmul_stream_outermost(
+    multidevice_test, benchmark, backend_type, s
+):
+    N_WARMUPS, N_ITERATIONS = 5, 25
+    m, k, n, d = 2**10, 2**10, 2**10, multidevice_test.size
+    assert m % (s * d) == 0
+
+    os.environ["UCC_CL_BASIC_TLS"] = "nccl"
 
     torch.cuda.set_device(multidevice_test.local_rank)
     x_unsharded = torch.testing.make_tensor(
@@ -76,7 +85,7 @@ def test_overlap_allgather_matmul_stream_outermost(multidevice_test, benchmark):
     ins = [x, weight, bias]
     out_ref = torch.nn.functional.linear(x_unsharded, weight.cpu(), bias.cpu())
 
-    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d)
+    fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d, backend_type)
 
     # warmup
     for _ in range(N_WARMUPS):

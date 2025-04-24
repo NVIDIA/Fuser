@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
+set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
@@ -179,6 +180,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/mma_type.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communication.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/communicator.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/cuda_p2p.cpp
+  ${NVFUSER_SRCS_DIR}/multidevice/ipc_handle.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/device_mesh.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
@@ -237,6 +240,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_tma_ws.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_multi_wave.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
@@ -287,13 +293,13 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/distributed_tensor.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/segmentation.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/translation.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/translation_utils.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/distributed_tensor.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_cache.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_definition.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_state.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/segmentation.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/translation.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
   )
 endif()
@@ -329,8 +335,8 @@ if(NOT MSVC)
 endif()
 
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_DIR})
 target_include_directories(codegen_internal SYSTEM PUBLIC
-  ${CMAKE_SOURCE_DIR}/third_party/gloo # TODO: guard this on usage
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
   ${CUDA_TOOLKIT_ROOT_DIR}/extras/CUPTI/include
@@ -456,31 +462,32 @@ if(BUILD_PYTHON)
   # nvfuser python API sources
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/multidevice_bindings.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/schedule_bindings.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/multidevice_bindings.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings_extension.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/schedule_bindings.cpp
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
+  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_DIR})
   target_include_directories(nvf_py_internal SYSTEM INTERFACE
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   )
 
   # setup python API version
   add_custom_command(
-    OUTPUT ${NVFUSER_ROOT}/nvfuser/version.py
+    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
     COMMAND
-    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py') .touch() \"
+    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_ROOT}/version.txt
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
     WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
   )
   add_custom_target(
     gen_nvfuser_version ALL
-    DEPENDS ${NVFUSER_ROOT}/nvfuser/version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
   )
   add_dependencies(nvf_py_internal gen_nvfuser_version)
 
@@ -555,9 +562,11 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_bfs.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_ca_root_domain_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_combined_inner_outer_reduction.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_compute_at_map.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_compute_with.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_circular_buffering.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_abstract_tensor.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_driver_api.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_dynamic_transform.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_embedding_node.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_evaluator.cpp
@@ -575,6 +584,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
@@ -686,6 +696,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
   )
   add_test_without_main(test_multidevice "${MULTIDEVICE_TEST_SRCS}" "")
   list(APPEND TEST_BINARIES test_multidevice)
@@ -735,9 +746,9 @@ if(BUILD_TEST)
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
     list(APPEND PY_FRONTEND_TEST_SRCS
-      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_cache.cpp
-      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_definition.cpp
-      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_record.cpp
+      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_cache.cpp
+      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_definition.cpp
+      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_record.cpp
     )
     add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
     list(APPEND TEST_BINARIES test_python_frontend)

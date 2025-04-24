@@ -44,11 +44,19 @@ class ParallelDimensionMap {
   //! Get the "compute" parallel dimension on the given ParallelType. In case
   //! of no warp specialization, this is the same as getRaw(pt). If we are doing
   //! warp specialization on pt without register sharing, the result is
-  //! getRaw(pt) - 1, because the last of pt is used for loading circular buffer
-  //! tensors. If register sharing is also used, difference padded threads are
-  //! required for different cta shapes.
+  //! getRaw(pt) - padded, because the last of pt is used for loading circular
+  //! buffer tensors. If register sharing is also used, difference padded
+  //! threads are required for different cta shapes.
   Val* getRawCompute(ParallelType pt) const;
 
+  //! Get the "load" parallel dimension on the given ParallelType. In case
+  //! of no warp specialization, this is the same as getRaw(pt). If we are doing
+  //! warp specialization on pt, the result is 1, because the last of pt is used
+  //! for loading circular buffer tensors.
+  Val* getRawLoad(ParallelType pt) const;
+
+  //! The padded val ensures that CTA has 128 threads for the AsyncWarp. This
+  //! function returns the padded val for the warp specialized ParallelType.
   int64_t getWarpSpecializationPaddedVal(ParallelType pt) const;
 
   //! Get the number of threads per each CTA used for computation. When there is
@@ -81,7 +89,7 @@ class ParallelDimensionMap {
 
   //! If we are doing warp specialization on pt, then we need to increase
   //! the parallel dimension size of pt by one, where the extra one is used
-  //! as the load warp. In this case, pt becomes non-exact.
+  //! as the async warp. In this case, pt becomes non-exact.
   void adjustMappingsForWarpSpecialization();
 
  private:

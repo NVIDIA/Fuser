@@ -31,6 +31,13 @@ inline const char* boolLiteral(bool value) {
   return value ? "true" : "false";
 }
 
+inline const char* optionalBoolLiteral(std::optional<bool> optional_value) {
+  if (!optional_value.has_value()) {
+    return "std::nullopt";
+  }
+  return boolLiteral(optional_value.value());
+}
+
 } // namespace
 
 Predicate::Predicate(
@@ -417,13 +424,16 @@ std::string Asm::toInlineString(int indent_size) const {
 
 std::string Asm::utility() const {
   static const std::unordered_map<std::string, std::string> ptx_to_utility{
-      {"tcgen05.wait::ld.sync.aligned", "tmem::waitLoad"},
-      {"tcgen05.wait::st.sync.aligned", "tmem::waitStore"},
+      {"tcgen05.wait::ld.sync.aligned", "tcgen05::waitLoad"},
+      {"tcgen05.wait::st.sync.aligned", "tcgen05::waitStore"},
       {"tcgen05.alloc.cta_group::1.sync.aligned.shared::cta.b32",
-       "tmem::alloc"},
+       "tcgen05::alloc"},
       {"tcgen05.relinquish_alloc_permit.cta_group::1.sync.aligned",
-       "tmem::relinquishAllocPermit"},
-      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tmem::dealloc"},
+       "tcgen05::relinquishAllocPermit"},
+      {"tcgen05.dealloc.cta_group::1.sync.aligned.b32", "tcgen05::dealloc"},
+      {"tcgen05.mma.cta_group::1.kind::f16", "tcgen05::mma_f16"},
+      {"tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
+       "tcgen05::commit"},
       {"wgmma.fence.sync.aligned", "wgmma::fence"},
       {"fence.proxy.async", "fenceAsyncProxy"},
       {"wgmma.commit_group.sync.aligned", "wgmma::commit"},
@@ -449,7 +459,7 @@ std::string Asm::utility() const {
     std::regex ld_pattern(R"(tcgen05\.ld\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, ld_pattern)) {
-      std::string result = "tmem::load";
+      std::string result = "tcgen05::load";
       result.append(match[1]);
       return result;
     }
@@ -458,7 +468,7 @@ std::string Asm::utility() const {
     std::regex st_pattern(R"(tcgen05\.st\.sync\.aligned\.([^.]+)\.x\d+\.b32)");
     std::smatch match;
     if (std::regex_match(code, match, st_pattern)) {
-      std::string result = "tmem::store";
+      std::string result = "tcgen05::store";
       result.append(match[1]);
       return result;
     }
@@ -547,18 +557,26 @@ std::string AllocTMem::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(AllocTMem)
 
-BlockSync::BlockSync(IrBuilderPasskey passkey, bool war_sync) : Expr(passkey) {
+BlockSync::BlockSync(
+    IrBuilderPasskey passkey,
+    bool war_sync,
+    std::optional<bool> optional_compute_or_load_sync)
+    : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);
   NVF_ERROR(
       passkey.ir_container_->isA<kir::Kernel>(),
       "IR type only valid for Kernel container.");
   addDataAttribute(war_sync);
+  addDataAttribute(optional_compute_or_load_sync);
 }
 
 std::string BlockSync::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "BLOCKSYNC(war_hazard="
-                          << boolLiteral(isWarHazardSync()) << ")\n";
+                          << boolLiteral(isWarHazardSync())
+                          << ", optional_compute_or_load_sync="
+                          << optionalBoolLiteral(warpSpecializedState())
+                          << ")\n";
   return ss.str();
 }
 
@@ -653,6 +671,25 @@ std::string SetMaxNReg::toInlineString(int indent_size) const {
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(SetMaxNReg)
+
+Continue::Continue(IrBuilderPasskey passkey) : Expr(passkey) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<kir::Kernel>(),
+      "IR type only valid for Kernel container.");
+}
+
+std::string Continue::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << "continue\n";
+  return ss.str();
+}
+
+std::string Continue::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Continue can not be printed inline");
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(Continue)
 
 Return::Return(IrBuilderPasskey passkey) : Expr(passkey) {
   NVF_ERROR(passkey.ir_container_ != nullptr);

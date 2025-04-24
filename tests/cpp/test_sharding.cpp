@@ -63,7 +63,7 @@ TEST_F(ShardingTest, MultipleDIDx) {
       << x->domain()->toString(0, /*loop_only=*/false);
 }
 
-TEST_F(ShardingTest, ReductionShouldNotBeSharded) {
+TEST_F(ShardingTest, Allreduce) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -71,12 +71,23 @@ TEST_F(ShardingTest, ReductionShouldNotBeSharded) {
   TensorView* y = sum(x, {0});
 
   x->axis(0)->parallelize(ParallelType::DIDx);
-  // y->axis(0) is a reduction dimension and shouldn't be sharded. Doing so
-  // leads to a multi-DIDx exception.
+  y->axis(0)->parallelize(ParallelType::DIDx);
+
+  EXPECT_FALSE(isSharded(y));
+}
+
+TEST_F(ShardingTest, ReductionScatter) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* x = makeSymbolicTensor(2);
+  TensorView* y = sum(x, {0});
+
+  x->axis(0)->parallelize(ParallelType::DIDx);
   y->axis(0)->parallelize(ParallelType::DIDx);
   y->axis(1)->parallelize(ParallelType::DIDx);
 
-  EXPECT_ANY_THROW(isSharded(y)) << "Multiple DIDx";
+  EXPECT_TRUE(isSharded(y));
 }
 
 TEST_F(ShardingTest, PropagateSharding) {
@@ -221,6 +232,41 @@ TEST_F(ShardingTest, MultiDimDeviceMesh) {
   EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDz), slice_didz);
   EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDy), slice_didy);
   EXPECT_EQ(mesh3d.getSlice(18, ParallelType::DIDx), slice_didx);
+}
+
+TEST_F(ShardingTest, ResidualAdd) {
+  // This is similar to the residual add after MHA dropout in the transformer.
+  // The output of linear following MHA is all-gathered and sharded on the
+  // sequence dim. This sharding can be propagated to the linear output through
+  // backpropagating the shardings from residual add. This information is not
+  // present during forward propagation.
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  DeviceMesh mesh({0, 1});
+
+  TensorView* tv0 = makeContigTensor(2);
+  TensorView* tv1 = uniform(
+      shape(tv0),
+      fusion->zeroVal(DataType::Float),
+      fusion->oneVal(DataType::Float),
+      DataType::Float);
+  TensorView* tv2 = add(tv0, tv1);
+
+  tv0->setDeviceMesh(mesh);
+  tv0->outer_split(0, mesh.size());
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+  fusion->addOutput(tv2);
+
+  preseg_passes::OptimizationPass<
+      preseg_passes::PropagateShardingsPass>::runPass(fusion.get());
+  NVF_CHECK(tv1->hasDeviceMesh());
+  NVF_CHECK(
+      getShardedLogicalAxis(tv1, ParallelType::DIDx) ==
+          getShardedLogicalAxis(tv0, ParallelType::DIDx),
+      "Expected tv1 to be sharded like tv0 due to backpropagation of shardings.");
 }
 
 INSTANTIATE_TEST_SUITE_P(

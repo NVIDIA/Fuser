@@ -16,6 +16,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <utils.h>
@@ -1163,6 +1164,19 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "no reduction tv");
     return false;
   }
+
+  // Reject when output IDs are not covered by reference tv. Assuming reduction
+  // scheduler simply uses reduction_tvs[0] as the reference, if that changes,
+  // this needs to be changed. see issue
+  // https://github.com/NVIDIA/Fuser/issues/3811
+  scheduler_tools::DomainMap domain_map(fusion);
+  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "Output contains ID that's not scheduled by reference tv.");
+    return false;
+  }
+
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
   const SchedulerType persistent_heuristic =
@@ -1319,11 +1333,15 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      // When loading from global memory (gmem), use CpAsync with a short data
-      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
-      // data path from gmem to shared memory (smem) follows this sequence: gmem
-      // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
+      // Use 1D TMA, CpAsyncBulk
+      if (rparams->tma_warp_specialized && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulk);
+      } else if (supportCpAsync(tv) && is_cached_input) {
+        // When loading from global memory (gmem), use CpAsync with a short data
+        // path of gmem -> smem to reduce temporary register usage. Otherwise,
+        // the data path from gmem to shared memory (smem) follows this
+        // sequence: gmem -> L1 cache -> register -> smem.
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);

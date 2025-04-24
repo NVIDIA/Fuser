@@ -5976,4 +5976,65 @@ TEST_F(IndexingTest, StaticIndexing) {
   validator.handle(kernel->topLevelExprs());
 }
 
+// Repro of the issue with trival mapping of size-one IDs (PR #4214)
+TEST_F(PredicateIndexingTest, NonTrivialSizeOneDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigConcreteTensor({8});
+  fusion.addInput(tv0);
+
+  auto tv1 = sum(tv0, {0});
+
+  fusion.addOutput(tv1);
+
+  // [r0(8)]
+  tv1->split(0, 10);
+  // [r1(1), r2(10)]
+  tv1->split(0, 4);
+  // [r3(1), r4(4), r2(10)]
+
+  // The predicate of tv1 is given by the index of its sole logical
+  // ID, r0. Suppose the three loop IDs get loop indies of i0, i1 and
+  // i2, respectively, the correct predicate index is (i1 * 10 + i2).
+  //
+  // Here, if r1 and r3 were mapped, which is not unreasonable given
+  // they have the same extent, the r1 index would be the same as that of
+  // r3, which would be just 0. The index of r0 thus would be just the same
+  // as r2, i.e., i2, which is not correct.
+  //
+  // This test ensures the index of r4 is indeed used in the predicate
+  // correctly.
+
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getInlinePredicate(TensorView* tv) const override {
+      // [i0, i1, i2]
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      // i1 * 10 + i2
+      Val* idx = addExpr(
+          mulExpr(loop_indices.at(1), createInt(10)), loop_indices.at(2));
+      Val* zero = tv->fusion()->zeroVal();
+      return andExpr(
+          geExpr(idx, zero),
+          ltExpr(idx, tv->getLogicalDomain().at(0)->extent()));
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({8}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

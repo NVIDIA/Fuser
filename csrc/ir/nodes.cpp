@@ -177,6 +177,53 @@ std::vector<PolymorphicValue> IndexSelectOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
 
+IndexPutAccumulateOp::IndexPutAccumulateOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* acc,
+    Val* index,
+    Val* value)
+    : Expr(passkey) {
+  addInput(acc);
+  addInput(index);
+  addInput(value);
+  addOutput(out);
+}
+
+std::string IndexPutAccumulateOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = indexPutAccumulate( ";
+  ss << input(0)->toString() << ", " << input(1)->toString() << ", "
+     << input(2)->toString() << " )\n";
+  return ss.str();
+}
+
+std::string IndexPutAccumulateOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingIDOfValue() const {
+  return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingID() const {
+  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
+}
+
+std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  return {at::index_put(
+      /*self=*/inputs.at(0).as<at::Tensor>(),
+      /*indices=*/{inputs.at(1).as<at::Tensor>()},
+      /*values=*/inputs.at(2).as<at::Tensor>(),
+      /*accumulate=*/true)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(IndexPutAccumulateOp)
+
 GatherOp::GatherOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -2024,24 +2071,12 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(GroupedWelfordOp)
 
 //==============================================================================================================================
 
-MmaOp::AxisMapping MmaOp::AxisMapping::trivialMapping(size_t dimension) {
-  AxesData a_axes, b_axes;
-  a_axes.reserve(dimension);
-  b_axes.reserve(dimension);
-  for (size_t i : arange(dimension)) {
-    a_axes.push_back((int64_t)i);
-    b_axes.push_back((int64_t)i);
-  }
-  return {a_axes, b_axes};
-}
-
 MmaOp::MmaOp(
     IrBuilderPasskey passkey,
     Val* out,
     Val* in_a,
     Val* in_b,
-    Val* init,
-    const AxisMapping& axis_mapping)
+    Val* init)
     : Expr(passkey) {
   NVF_ERROR(
       out->getValType().value() == ValType::TensorView ||
@@ -2058,15 +2093,6 @@ MmaOp::MmaOp(
           in_b->getValType().value() == ValType::TensorIndex,
       in_b->getValType().value());
 
-  NVF_ERROR(
-      axis_mapping.a_axes.size() == axis_mapping.b_axes.size(),
-      "Must have the same number of axis positions in axis mapping for each operand");
-
-  auto* out_tv = ir_utils::getTv(out);
-  NVF_ERROR(
-      axis_mapping.a_axes.size() == out_tv->getMaybeRootDomain().size(),
-      "Must have the same number of axis positions in axis mapping as output root dimensions");
-
   addOutput(out);
   addInput(in_a);
   addInput(in_b);
@@ -2074,8 +2100,6 @@ MmaOp::MmaOp(
   addAttribute(init);
   // ATTR_POS_MACRO
   addDataAttribute(MmaMacro::NoMMA);
-  // ATTR_POS_AXIS_MAPPING
-  addDataAttribute(axis_mapping);
 }
 
 MmaOp::MmaOp(
@@ -2084,9 +2108,8 @@ MmaOp::MmaOp(
     Val* in_a,
     Val* in_b,
     Val* init,
-    const AxisMapping& axis_mapping,
     const MmaMacro& macro)
-    : MmaOp(passkey, out, in_a, in_b, init, axis_mapping) {
+    : MmaOp(passkey, out, in_a, in_b, init) {
   attribute<MmaMacro>(ATTR_POS_MACRO) = macro;
 }
 

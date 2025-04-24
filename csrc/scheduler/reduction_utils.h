@@ -101,7 +101,9 @@ NVF_API void propagateParallelization(
 // Rfactored axes are reductions bound to grid or blocks. If no axes are bound
 // to a grid or block dimension it will rfactor the r-unswitch dimension.
 // Reduction inliner expects an rfactored domain.
-NVF_API TensorView* sortAndRFactor(TensorView* reference_tv);
+NVF_API TensorView* sortAndRFactor(
+    TensorView* reference_tv,
+    const bool is_non_persistent_outer_reduction = false);
 
 // If project_to_inputs is true, take all projectable persistent buffers,
 // and move them to the inputs. Otherwise, try to project to their immediate

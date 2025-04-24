@@ -33,10 +33,20 @@
 namespace nvfuser {
 
 using namespace at::indexing;
+using testing::UnorderedElementsAre;
 
 // tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
-using CombinedSchedulerTest = NVFuserFixtureParamTest<CombinedSchedulerParams>;
+
+class CombinedSchedulerTest
+    : public NVFuserFixtureParamTest<CombinedSchedulerParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<CombinedSchedulerParams>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
 TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1036,4 +1046,135 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
   testValidate(&fusion_copy, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
+// enable WarpSpecializedNormalization, dtype, dim0, dim1
+using TmaWarpSpecializedParams = std::tuple<bool, DataType, int64_t, int64_t>;
+class TmaWarpSpecializedTest
+    : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
+ public:
+  void SetUp() override {
+    opt_guard_ = std::make_unique<EnableOptionsGuard>();
+    if (std::get<0>(GetParam())) {
+      EnableOptionsGuard::getCurOptions().set(
+          EnableOption::WarpSpecializedNormalization);
+    } else {
+      EnableOptionsGuard::getCurOptions().unset(
+          EnableOption::WarpSpecializedNormalization);
+    }
+    NVFuserTest::SetUp();
+  }
+
+ protected:
+  // This keeps the guard alive until all TmaWarpSpecializedTests are done.
+  std::unique_ptr<EnableOptionsGuard> opt_guard_;
+};
+
+TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto [_, dtype, dim0, dim1] = GetParam();
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto tv0 = makeContigTensor(2, dtype);
+  auto tv1 = makeContigTensor(2, dtype);
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  tv0 = maybeCastOp(DataType::Float, tv0);
+  tv1 = maybeCastOp(DataType::Float, tv1);
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = sum(tv2, {1});
+  auto tv4 = broadcast(tv3, {false, true});
+  auto tv5 = add(tv2, tv4);
+  auto tv6 = sum(tv1, {0});
+  tv5 = maybeCastOp(dtype, tv5);
+  fusion->addOutput(tv5);
+  fusion->addOutput(tv6);
+  auto fusion_copy = *fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim0, dim1}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+  testValidate(&fusion_copy, cg_outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto [_, dtype, dim0, dim1] = GetParam();
+  std::vector<int64_t> norm_shape{dim1};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto grad_out = makeContigTensor(2, dtype);
+  auto input = makeContigTensor(2, dtype);
+  auto rstd = makeContigConcreteTensor({dim0, 1});
+  auto weight = makeContigTensor(1, dtype);
+  fusion->addInput(grad_out);
+  fusion->addInput(input);
+  fusion->addInput(rstd);
+  fusion->addInput(weight);
+
+  grad_out = maybeCastOp(DataType::Float, grad_out);
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  auto grads = rms_norm_backward(
+      grad_out, input, norm_shape, rstd, weight, {true, true});
+  grads.grad_input = maybeCastOp(dtype, grads.grad_input);
+  grads.grad_weight = maybeCastOp(dtype, grads.grad_weight);
+  fusion->addOutput(grads.grad_input);
+  fusion->addOutput(grads.grad_weight);
+
+  auto fusion_copy = *fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  std::vector<int64_t> shape{dim0, dim1};
+  at::Tensor aten_grad_out = at::randn(shape, options);
+  at::Tensor aten_input = at::randn(shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  const float kEps = 1e-6;
+  auto pow2 = at::pow(aten_input.to(at::kFloat), 2);
+  auto sum = at::sum(pow2, -1, true);
+  auto var = at::mul(sum, 1.0 / dim1);
+  auto aten_rstd = at::pow(at::add(var, kEps), -0.5);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  KernelArgumentHolder args = {
+      aten_grad_out, aten_input, aten_rstd, aten_weight};
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+  testValidate(
+      &fusion_copy,
+      cg_outputs,
+      {aten_grad_out, aten_input, aten_rstd, aten_weight},
+      __LINE__,
+      __FILE__);
+}
+// batch size is revised to 132*148 which is divisible by sm count on H100 &
+// B200 will change back to 32 & 2048 after predicate for 1D TMA is added.
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    TmaWarpSpecializedTest,
+    ::testing::Combine(
+        testing::Values(false), // tmp disable tma warp specialized
+        testing::Values(DataType::Float, DataType::BFloat16),
+        testing::Values(132 * 148),
+        ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),
+    [](const testing::TestParamInfo<TmaWarpSpecializedParams>& info)
+        -> std::string {
+      std::stringstream ss;
+      ss << "ws_" << std::get<0>(info.param);
+      ss << "_dtype_" << std::get<1>(info.param);
+      ss << "_batch_" << std::get<2>(info.param);
+      ss << "_hidden_" << std::get<3>(info.param);
+      return sanitizeTestName(ss.str());
+    });
 } // namespace nvfuser

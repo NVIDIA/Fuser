@@ -22,6 +22,7 @@
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <mma_type.h>
+#include <multidevice/communicator.h>
 #include <ops/all_ops.h>
 #include <python_frontend/fusion_cache.h>
 #include <python_frontend/fusion_definition.h>
@@ -785,7 +786,7 @@ void defineHeuristicParamBindings(py::module& nvfuser) {
       .PARAM(MatmulParams, circular_buffer_options)
       .PARAM(MatmulParams, supported_vec_size)
       .PARAM(MatmulParams, async_gmem_load_operands)
-      .PARAM(MatmulParams, grid_swizzle_factor)
+      .PARAM(MatmulParams, grid_traversal_factor)
       .PARAM(MatmulParams, use_smem_epilogue)
       .PARAM(MatmulParams, promote_prologue_smem_reuse)
       .PARAM(MatmulParams, splitk_factor)
@@ -873,6 +874,10 @@ void initNvFuserPythonBindings(PyObject* module) {
       .value("transpose", SchedulerType::Transpose)
       .value("expr_eval", SchedulerType::ExprEval)
       .value("resize", SchedulerType::Resize);
+
+  py::enum_<CommunicatorBackend>(nvfuser, "CommunicatorBackend")
+      .value("nccl", CommunicatorBackend::kNccl)
+      .value("ucc", CommunicatorBackend::kUcc);
 
   nvfuser.def("compute_contiguity", computeContiguity);
   nvfuser.def("compute_tensor_descriptor", computeTensorDescriptor);
@@ -1084,10 +1089,11 @@ void initNvFuserPythonBindings(PyObject* module) {
   py::class_<FusionDefinition> fusion_def(nvfuser, "_FusionDefinition");
   fusion_def
       .def(
-          py::init<std::optional<size_t>, size_t, bool>(),
+          py::init<std::optional<size_t>, size_t, bool, CommunicatorBackend>(),
           py::arg("id") = py::none(),
           py::arg("max_length") = int(1024),
-          py::arg("use_multidevice_executor") = false)
+          py::arg("use_multidevice_executor") = false,
+          py::arg("backend_type") = CommunicatorBackend::kNccl)
       .def_readwrite("ops", &FusionDefinition::ops)
       .def_readwrite("sched", &FusionDefinition::sched)
       .def(
@@ -3085,6 +3091,48 @@ void initNvFuserPythonBindings(PyObject* module) {
       py::arg("index"),
       py::arg("dim"),
       py::return_value_policy::reference);
+  nvf_ops.def(
+      "index_put_accumulate",
+      [](FusionDefinition::Operators& self,
+         Tensor acc,
+         Tensor index,
+         Tensor value) -> Tensor {
+        FUSER_PERF_SCOPE("Operators.index_put_accumulate");
+        NVF_CHECK(
+            self.validUse(), "Attempting to add to a completed definition!");
+        FusionDefinition* fd = self.fusion_definition;
+        Tensor output = fd->defineTensor(acc.dims);
+        fd->defineRecord(new IndexPutAccumulateOpRecord(
+            {
+                fd->recordingState(acc()),
+                fd->recordingState(index()),
+                fd->recordingState(value()),
+            },
+            {fd->recordingState(output())}));
+        return output;
+      },
+      py::arg("acc"),
+      py::arg("index"),
+      py::arg("value"),
+      py::return_value_policy::reference,
+      R"doc(
+        Accumulates values into a tensor at specified indices.
+
+        This function performs a restricted version of `torch.index_put`.
+        It adds the values from `value_tv` to the elements of `acc_tv` at the indices
+        specified by `index_tv`.
+
+        acc_tv: The tensor to accumulate into (in-place modification).
+        index_tv: The tensor containing the indices.
+        value_tv: The tensor containing the values to accumulate.
+
+        Returns:
+            An alias to the modified `acc_tv` tensor.
+
+        Note:
+            This is a restricted version and may not support all features of the
+            full `torch.index_put(..., accumulate=true)` function.
+    )doc");
   nvf_ops.def(
       "select",
       [](FusionDefinition::Operators& self,
