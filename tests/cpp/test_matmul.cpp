@@ -4349,7 +4349,7 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueSiluFusion) {
 
   std::string output = getCapturedStdout();
   // TODO Fix this
-  if(output.find("warpgroup") != std::string::npos) {
+  if (output.find("warpgroup") != std::string::npos) {
     std::cout << "Detected ptxas warpgroup warning" << std::endl;
   }
 
@@ -4504,7 +4504,7 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
 
   std::string output = getCapturedStdout();
   // TODO Fix this
-  if(output.find("warpgroup") != std::string::npos) {
+  if (output.find("warpgroup") != std::string::npos) {
     std::cout << "Detected ptxas warpgroup warning" << std::endl;
   }
 
@@ -4597,7 +4597,7 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
 
   std::string output = getCapturedStdout();
   // TODO Fix this
-  if(output.find("warpgroup") != std::string::npos) {
+  if (output.find("warpgroup") != std::string::npos) {
     std::cout << "Detected ptxas warpgroup warning" << std::endl;
   }
 
