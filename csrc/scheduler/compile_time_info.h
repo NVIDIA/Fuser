@@ -38,7 +38,7 @@ enum class CompileTimeEntryType {
   VECTORIZABLE_INPUTS_AND_OUTPUTS,
   INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS,
   TV_TO_CONTIG_INNER_SIZE_MAPS,
-  RESIZE_VECTORIZATION_FACTORS,
+  RESIZE_VECTORIZATION_TVS,
   UNROLLABLE_INPUTS_AND_OUTPUTS,
   REDUCTION_TVS,
   PERSISTENT_BUFFER_INFO,
@@ -107,13 +107,13 @@ class TvToContigInnerSizeMaps {
       CompileTimeEntryType::TV_TO_CONTIG_INNER_SIZE_MAPS;
 };
 
-//! Stores the scalar vals that a vectorization factor must be able to
-//! divide evenly
-class ResizeVectorizationFactors {
+//! Stores the input and output tensors of resize-based ops
+//! that are in the path to vectorized outputs
+class ResizeVectorizationTvs {
  public:
-  using DataType = std::unordered_set<Val*>;
+  using DataType = std::unordered_set<TensorView*>;
   static const CompileTimeEntryType EntryType =
-      CompileTimeEntryType::RESIZE_VECTORIZATION_FACTORS;
+      CompileTimeEntryType::RESIZE_VECTORIZATION_TVS;
 };
 
 //! Entry type definition class for `INPUTS_AND_OUTPUTS_INNER_DIM_GROUPS`,

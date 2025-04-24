@@ -846,90 +846,29 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 // spanning tree based analysis is not guaranteed to take all resize
 // ops into considerations (issue
 // https://github.com/NVIDIA/Fuser/issues/3640). To workaround the
-// limitation, grab all factors that must be divisible by a
-// vectorization factors.
-std::unordered_set<Val*> getResizeVectorizationFactors(
-    TensorView* reference_tv,
-    int64_t break_point) {
-  Fusion* fusion = reference_tv->fusion();
-  std::unordered_set<Val*> factors;
-  const auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
+// limitation, grab all input and output tensors of all resize-based
+// TV ops.
+std::unordered_set<TensorView*> getResizeVectorizationTvs(
+    const std::vector<TensorView*>& vectorizable_inputs_outputs) {
+  NVF_ERROR(!vectorizable_inputs_outputs.empty());
+  std::vector<Val*> outputs;
+  std::ranges::copy_if(
+      vectorizable_inputs_outputs,
+      std::back_inserter(outputs),
+      [](Val* inp_out) { return inp_out->isFusionOutput(); });
 
-  if (resize_based_ops.empty()) {
-    return factors;
-  }
+  std::unordered_set<TensorView*> resize_inputs_outputs;
 
-  IdModel id_model(reference_tv->fusion());
-  const auto& graph = id_model.buildExactGraph();
-
-  const auto ref_groups = graph.toGroups(reference_tv->getLogicalDomain());
-
-  // For each of resize-based tensor ops, find all resize ops
-  // that exist between the vectorized reference IDs and the output
-  // tensor.
-  for (auto resize_based_op : resize_based_ops) {
-    auto resize_out = resize_based_op->output(0)->as<TensorView>();
-    NVF_ERROR(
-        resize_out->hasRoot(), "Unexpected op: ", resize_based_op->toString());
-    // getAllExprGroupsBetween finds exprs between IDs. To make sure
-    // the the resize op of this resize_based_op tensor op is found,
-    // use both the root and logical domains as the traversal targets.
-    ValGroups resize_inp_out;
-    resize_inp_out.pushBack(graph.toGroups(resize_out->getRootDomain()));
-    resize_inp_out.pushBack(graph.toGroups(resize_out->getLogicalDomain()));
-
-    auto expr_path = getAllExprGroupsBetween(
-                         graph,
-                         ref_groups,
-                         resize_inp_out,
-                         /*require_all_to_visited=*/false)
-                         .first;
-
-    ValGroups vectorized_groups;
-    for (auto it = reference_tv->getLogicalDomain().begin() + break_point;
-         it != reference_tv->getLogicalDomain().end();
-         ++it) {
-      vectorized_groups.pushBack(graph.toGroup(*it));
+  for (auto expr : StmtSort::getExprsTo(outputs)) {
+    if (!scheduler_tools::isResizeBasedOp(expr)) {
+      continue;
     }
 
-    // Find all resize exprs that appear in expr_path and depend on
-    // vectorized_groups. Since expr_path is not guaranteed to be
-    // topologically sorted, need to loop through the path until
-    // converged.
-
-    bool something_has_changed = true;
-    while (something_has_changed) {
-      something_has_changed = false;
-      for (const auto& [expr_g, dir] : expr_path) {
-        const auto inputs = getInputsOfExprGroup(graph, expr_g, dir);
-        if (std::none_of(
-                inputs.begin(), inputs.end(), [&](const ValGroup& inp) {
-                  return vectorized_groups.has(inp);
-                })) {
-          continue;
-        }
-
-        if (vectorized_groups.pushBack(
-                getOutputsOfExprGroup(graph, expr_g, dir))) {
-          something_has_changed = true;
-        }
-
-        auto resize = dynamic_cast<Resize*>(expr_g->front());
-        if (resize == nullptr) {
-          continue;
-        }
-
-        // These three vals need to be divisible
-        factors.emplace(resize->leftExpand());
-        factors.emplace(resize->rightExpand());
-        factors.emplace(
-            dir == Direction::Forward ? resize->out()->extent()
-                                      : resize->in()->extent());
-      }
-    }
+    resize_inputs_outputs.insert(expr->input(0)->as<TensorView>());
+    resize_inputs_outputs.insert(expr->output(0)->as<TensorView>());
   }
 
-  return factors;
+  return resize_inputs_outputs;
 }
 
 } // namespace
@@ -970,14 +909,14 @@ int64_t getVectorizationFactor(
     return 1;
   }
 
-  auto resize_factors_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationFactors>(
-          data_cache, [&reference_tv, &break_point]() {
-            return std::make_unique<std::unordered_set<Val*>>(
-                getResizeVectorizationFactors(reference_tv, break_point));
+  auto resize_tvs_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationTvs>(
+          data_cache, [&vectorizable_inputs_outputs]() {
+            return std::make_unique<std::unordered_set<TensorView*>>(
+                getResizeVectorizationTvs(vectorizable_inputs_outputs));
           });
 
-  const auto& resize_factors = resize_factors_entry.get();
+  const auto& resize_tvs = resize_tvs_entry.get();
 
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
@@ -1018,17 +957,15 @@ int64_t getVectorizationFactor(
         max_vec_size);
   }
 
-  // This is a WAR for vectorization through resize as the spanning
-  // tree based traversal is not guaranteed to reflect all resize ops
-  // that may affect vectorization. This is a safe but conservative
-  // analysis since it should only be necessary for innermost IDs.
-  for (const auto resize_factor : resize_factors) {
-    auto inferred_val =
-        runtime_info.expressionEvaluator().evaluate(resize_factor);
-    if (!inferred_val.hasValue()) {
-      return 1;
-    }
-    max_vec_size = std::gcd(max_vec_size, inferred_val.as<int64_t>());
+  for (const auto resize_inp_out_tv : resize_tvs) {
+    auto inner_size_it = tv_to_inner_size_map.find(resize_inp_out_tv);
+    NVF_ERROR(
+        inner_size_it != tv_to_inner_size_map.end(),
+        "No inner size map entry found for ",
+        resize_inp_out_tv->toString());
+    auto inner_size_opt =
+        runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
+    max_vec_size = std::gcd(max_vec_size, inner_size_opt.as<int64_t>());
   }
 
   return max_vec_size;
