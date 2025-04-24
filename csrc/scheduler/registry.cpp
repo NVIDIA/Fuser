@@ -229,7 +229,7 @@ template class HeuristicDataCacheEntry<
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::TvToContigInnerSizeMaps>;
 template class HeuristicDataCacheEntry<
-    HeuristicCompileTime::ResizeVectorizationTvs>;
+    HeuristicCompileTime::ResizeVectorizationFactors>;
 template class HeuristicDataCacheEntry<
     HeuristicCompileTime::InputsOutputsInnerDimGroups>;
 template class HeuristicDataCacheEntry<

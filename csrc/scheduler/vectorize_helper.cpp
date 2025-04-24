@@ -848,27 +848,97 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 // https://github.com/NVIDIA/Fuser/issues/3640). To workaround the
 // limitation, grab all input and output tensors of all resize-based
 // TV ops.
-std::unordered_set<TensorView*> getResizeVectorizationTvs(
+std::unordered_set<Val*> getResizeVectorizationFactors(
+    TensorView* ref_tv,
     const std::vector<TensorView*>& vectorizable_inputs_outputs) {
-  NVF_ERROR(!vectorizable_inputs_outputs.empty());
-  std::vector<Val*> outputs;
+  if (vectorizable_inputs_outputs.empty()) {
+    return {};
+  }
+
+  Fusion* fusion = vectorizable_inputs_outputs.front()->fusion();
+
+  auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
+
+  if (resize_based_ops.empty()) {
+    return {};
+  }
+
+  std::vector<TensorView*> vectorized_inputs;
   std::ranges::copy_if(
       vectorizable_inputs_outputs,
-      std::back_inserter(outputs),
-      [](Val* inp_out) { return inp_out->isFusionOutput(); });
+      std::back_inserter(vectorized_inputs),
+      [](Val* inp_out) { return inp_out->isFusionInput(); });
 
-  std::unordered_set<TensorView*> resize_inputs_outputs;
+  if (vectorized_inputs.empty()) {
+    return {};
+  }
 
-  for (auto expr : StmtSort::getExprsTo(outputs)) {
-    if (!scheduler_tools::isResizeBasedOp(expr)) {
+  std::unordered_set<TensorView*> resize_output_tvs;
+  std::ranges::transform(
+      resize_based_ops,
+      std::inserter(resize_output_tvs, resize_output_tvs.begin()),
+      [](Expr* expr) { return expr->output(0)->as<TensorView>(); });
+
+  auto getResizeOutTvs = [&](const std::deque<Val*>& dep_chain) {
+    VectorOfUniqueEntries<TensorView*> dep_resize_out_tvs;
+    for (const auto& val : dep_chain) {
+      if (val->isA<TensorView>() &&
+          resize_output_tvs.contains(val->as<TensorView>())) {
+        dep_resize_out_tvs.pushBack(val->as<TensorView>());
+      }
+    }
+    return dep_resize_out_tvs;
+  };
+
+  std::unordered_set<Val*> resize_factors;
+
+  auto add_resize_factors = [&](TensorView* resize_out) {
+    for (const auto& logical_id : resize_out->getLogicalDomain()) {
+      auto resize = dynamic_cast<Resize*>(logical_id->definition());
+      if (resize != nullptr) {
+        if (!resize->leftExpand()->isZeroInt()) {
+          resize_factors.insert(resize->leftExpand());
+        }
+        if (!resize->rightExpand()->isZeroInt()) {
+          resize_factors.insert(resize->rightExpand());
+        }
+      }
+    }
+  };
+
+  for (auto vec_inp : vectorized_inputs) {
+    std::cerr << "Checking vec inp: " << vec_inp->toString() << "\n";
+    auto all_dep_chains =
+        DependencyCheck::getAllDependencyChains(vec_inp, ref_tv);
+
+    if (all_dep_chains.size() < 2) {
       continue;
     }
 
-    resize_inputs_outputs.insert(expr->input(0)->as<TensorView>());
-    resize_inputs_outputs.insert(expr->output(0)->as<TensorView>());
+    // Check if all of the chains have the same effects by the Resize
+    // ID ops. Not very precise, but a crude approximation is that
+    const auto& first_chain = all_dep_chains.at(0);
+    const auto& first_chain_resize_out_tvs = getResizeOutTvs(first_chain);
+    for (const auto& dep_chain : all_dep_chains | std::views::drop(1)) {
+      const auto& dep_resize_out_tvs = getResizeOutTvs(dep_chain);
+      if (first_chain_resize_out_tvs != dep_resize_out_tvs) {
+        // Potential mismatch. This does not always mean there's a
+        // mismatch.
+        for (const auto& first_chain_tv : first_chain_resize_out_tvs) {
+          if (!dep_resize_out_tvs.has(first_chain_tv)) {
+            add_resize_factors(first_chain_tv);
+          }
+        }
+        for (const auto& dep_chain_tv : dep_resize_out_tvs) {
+          if (!first_chain_resize_out_tvs.has(dep_chain_tv)) {
+            add_resize_factors(dep_chain_tv);
+          }
+        }
+      }
+    }
   }
 
-  return resize_inputs_outputs;
+  return resize_factors;
 }
 
 } // namespace
@@ -909,14 +979,15 @@ int64_t getVectorizationFactor(
     return 1;
   }
 
-  auto resize_tvs_entry =
-      HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationTvs>(
-          data_cache, [&vectorizable_inputs_outputs]() {
-            return std::make_unique<std::unordered_set<TensorView*>>(
-                getResizeVectorizationTvs(vectorizable_inputs_outputs));
+  auto resize_factors_entry =
+      HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationFactors>(
+          data_cache, [&reference_tv, vectorizable_inputs_outputs]() {
+            return std::make_unique<std::unordered_set<Val*>>(
+                getResizeVectorizationFactors(
+                    reference_tv, vectorizable_inputs_outputs));
           });
 
-  const auto& resize_tvs = resize_tvs_entry.get();
+  const auto& resize_factors = resize_factors_entry.get();
 
   int64_t max_vec_size = SchedulerRuntimeInfo::max_alignment_size_in_byte;
   const auto& tv_to_inner_size_map = vectorize_maps_entry.get().at(break_point);
@@ -957,16 +1028,27 @@ int64_t getVectorizationFactor(
         max_vec_size);
   }
 
-  for (const auto resize_inp_out_tv : resize_tvs) {
-    auto inner_size_it = tv_to_inner_size_map.find(resize_inp_out_tv);
-    NVF_ERROR(
-        inner_size_it != tv_to_inner_size_map.end(),
-        "No inner size map entry found for ",
-        resize_inp_out_tv->toString());
-    auto inner_size_opt =
-        runtime_info.expressionEvaluator().evaluate(inner_size_it->second);
-    max_vec_size = std::gcd(max_vec_size, inner_size_opt.as<int64_t>());
+  std::cerr << "Vec factor pre: " << max_vec_size << "\n";
+
+  // This is a WAR for vectorization through resize as the spanning
+  // tree based traversal is not guaranteed to reflect all resize ops
+  // that may affect vectorization. This is a safe but conservative
+  // analysis since it should only be necessary for innermost IDs.
+  for (const auto resize_factor : resize_factors) {
+    auto inferred_val =
+        runtime_info.expressionEvaluator().evaluate(resize_factor);
+    if (!inferred_val.hasValue()) {
+      return 1;
+    }
+    auto inferred_val_int = inferred_val.as<int64_t>();
+    if (inferred_val_int == 0) {
+      continue;
+    }
+    max_vec_size = std::gcd(max_vec_size, inferred_val_int);
   }
+
+  std::cerr << "Ref: " << reference_tv->toString() << "\n";
+  std::cerr << "Break point: " << break_point << "\n";
 
   return max_vec_size;
 }
