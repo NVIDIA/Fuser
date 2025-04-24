@@ -948,4 +948,36 @@ TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
       Contains(HeuristicIs(SchedulerType::Transpose)));
 }
 
+TEST_F(MultiDeviceTest, MultipleTransformReshape) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t b = 2, s = 3, h = 8, e = 4;
+
+  TensorView* tv0 = makeContigConcreteTensor({d * b, s, h * e});
+  TensorView* tv1 = reshape(tv0, {d * b, s, h * e}, {d * b * s * h, e});
+  fusion->addInput(tv0);
+  fusion->addOutput(tv1);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  tv0->setDeviceMesh(mesh);
+  tv0->split(0, d, /*inner_split=*/false);
+  tv0->axis(0)->parallelize(ParallelType::DIDx);
+
+  at::Tensor inp = at::randn({d * b, s, h * e}, tensor_options);
+  at::Tensor sharded_inp = shardTensor(inp, 0, mesh);
+  debug() << "sharded_inp: " << sharded_inp.sizes() << std::endl;
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({sharded_inp})[0].as<at::Tensor>();
+  testValidate(
+      executor_cache.fusion(),
+      {nvf_out},
+      {sharded_inp},
+      {sharded_inp.view({b * s * h, e})},
+      __LINE__,
+      __FILE__);
+}
+
 } // namespace nvfuser

@@ -352,6 +352,8 @@ std::pair<Val*, bool> computeLoopIndex(
   return id_to_index.at(id);
 }
 
+} // namespace
+
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
     const std::vector<IterDomain*>& target_domain) {
@@ -367,8 +369,6 @@ std::vector<IterDomain*> getInputsInTargetDomain(
       [](Val* val) { return val->as<IterDomain>(); });
   return inputs_as_iter_domains;
 }
-
-} // namespace
 
 bool haveDifferentShardings(
     const TensorView* producer,
