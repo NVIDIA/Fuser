@@ -633,20 +633,18 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
+      load_store_op->opType() == LoadStoreOpType::Set,
+      "LoadStoreOp must be a Set");
+  NVF_ERROR(
       load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();
   auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
 
-  // If output has root domain, compute and apply permutation
-  if (out_tv->hasRoot()) {
-    auto permutation = ir_utils::computePermutation(
-        out_tv->getRootDomain(), out_tv->getLogicalDomain());
-    NVF_ERROR(
-        permutation.has_value(),
-        "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
-        out_tv->toString());
-    in_tensor = in_tensor.permute(*permutation).contiguous();
-  }
+  // If output has root domain, it means that the set op is a permute, which we
+  // don't support currently
+  NVF_ERROR(
+      !out_tv->hasRoot(), "the set op", load_store_op, "must not be a permute");
+
   if (!isKnown(load_store_op->out())) {
     bind(load_store_op->out(), in_tensor);
   } else {
