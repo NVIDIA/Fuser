@@ -2490,14 +2490,11 @@ SchedulerType findScheduler(
   scheduler_debug_utils::canScheduleMessage(
       "\n**Segmenter** Considering fusion:\n",
       segmented_fusion->completeFusion());
-  std::cout << "\n\nFUSION:" << std::endl;
-  segmented_fusion->completeFusion()->printMath();
   if (tryingToMergeSegmenterSet(segmented_fusion->completeFusion())) {
     if (Schedule::canSchedule(
             SchedulerType::ExprEval,
             segmented_fusion->completeFusion(),
             runtime_info)) {
-      std::cout << "Scheduler found: ExprEval" << std::endl;
       scheduler_debug_utils::canScheduleMessage(
           "***Accepted*** as: ", SchedulerType::ExprEval);
       return SchedulerType::ExprEval;
@@ -2508,7 +2505,6 @@ SchedulerType findScheduler(
   }
   auto heuristic = Schedule::proposeHeuristics(
       segmented_fusion->completeFusion(), runtime_info);
-  std::cout << "Scheduler found: " << heuristic << std::endl;
   return heuristic;
 }
 
@@ -2517,11 +2513,6 @@ SchedulerType tryMerge(
     SchedulerRuntimeInfo& runtime_info,
     SegmentedGroup* a,
     SegmentedGroup* b = nullptr) {
-  std::cout << "\n\nTRYING TO MERGE:" << std::endl;
-  std::cout << toString(a) << std::endl;
-  if (b) {
-    std::cout << toString(b) << std::endl;
-  }
   FusionSegmentGuard fsg(segmented_fusion, a, b);
   return findScheduler(segmented_fusion, runtime_info);
 }
@@ -3966,7 +3957,9 @@ void SegmentCandidateFinder::buildInitialSegments() {
     for (auto inp : expr->inputs()) {
       if (input2group_.count(inp)) {
         segmented_fusion_->connectGroups(input2group_.at(inp), expr_group, inp);
-        expr_group->input_vals_.pushBack(inp);
+        if (inp->isFusionInput()) {
+          expr_group->input_vals_.pushBack(inp);
+        }
         continue;
       }
 
@@ -4032,7 +4025,6 @@ SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
       group->input_vals_.size() == 1,
       "This should only be used for forwarded inputs which should only connect to inputs through unary operations.");
   group->exprs_ = StmtSort::getExprsTo({forwarded_input});
-  group->output_vals_.pushBack(forwarded_input);
   input2group_.insert({group->input_vals_.vector()[0], group});
   return group;
 }
@@ -4110,9 +4102,24 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
 
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::findSegments");
+  segmented_fusion_->completeFusion()->printMath();
 
   buildInitialSegments();
-
+  std::cout << "After buildInitialSegments" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals_) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
+    }
+    for (auto out : group->output_vals_) {
+      std::cout << "  Output: " << out->toString() << std::endl;
+    }
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
+    }
+  }
+  // NVF_THROW("Stop");
   validateIfDebug();
 
   auto has_welford_ops =
@@ -4186,38 +4193,37 @@ void SegmentCandidateFinder::findSegments() {
 
   validateIfDebug();
 
-  // std::cout << "Before resolveForwardedInputs" << std::endl;
-  // for (auto group : groups()) {
-  //   std::cout << "======================" << std::endl;
-  //   std::cout << "Group: " << toString(group) << std::endl;
-  //   for (auto inp : group->input_vals_) {
-  //     std::cout << "  Input: " << inp->toString() << std::endl;
-  //   }
-  //   for (auto out : group->output_vals_) {
-  //     std::cout << "  Output: " << out->toString() << std::endl;
-  //   }
-  //   for (auto expr : group->exprs()) {
-  //     std::cout << "  Expr: " << expr->toString() << std::endl;
-  //   }
-  // }
+  std::cout << "After Merging" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals_) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
+    }
+    for (auto out : group->output_vals_) {
+      std::cout << "  Output: " << out->toString() << std::endl;
+    }
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
+    }
+  }
 
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-  // std::cout << "After resolveForwardedInputs" << std::endl;
-  // for (auto group : groups()) {
-  //   std::cout << "======================" << std::endl;
-  //   std::cout << "Group: " << toString(group) << std::endl;
-  //   for (auto inp : group->input_vals_) {
-  //     std::cout << "  Input: " << inp->toString() << std::endl;
-  //   }
-  //   for (auto out : group->output_vals_) {
-  //     std::cout << "  Output: " << out->toString() << std::endl;
-  //   }
-  //   for (auto expr : group->exprs()) {
-  //     std::cout << "  Expr: " << expr->toString() << std::endl;
-  //   }
-  // }
-  NVF_THROW("TMP");
+  std::cout << "After resolveForwardedInputs" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals_) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
+    }
+    for (auto out : group->output_vals_) {
+      std::cout << "  Output: " << out->toString() << std::endl;
+    }
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
+    }
+  }
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
   // from fusion inputs may be shared in multiple groups.
@@ -4255,7 +4261,14 @@ void SegmentCandidateFinder::findSegments() {
   if (isDebugDumpEnabled(DebugDumpOption::FusionSegmentsDrawing)) {
     segmented_fusion_->draw();
   }
-}
+
+  // **** ADD DEBUG PRINT HERE ****
+  std::cout << "========= FINAL SEGMENTED FUSION STATE =========" << std::endl;
+  segmented_fusion_->print(); // Use existing print method which uses operator<<
+  std::cout << "================================================" << std::endl;
+  // **** END DEBUG PRINT ****
+
+} // End of SegmentCandidateFinder::findSegments
 
 void SegmentCandidateFinder::privatizeUpcast() {
   // Insert castOp to complete_fusion_
@@ -4545,7 +4558,6 @@ void SegmentCandidateFinder::forwardInputs() {
     forwarded_fusion_inputs_.push_back(inp);
     forwarded_fusion_inputs_.push_back(forward_val);
     auto new_group = segmented_fusion_->newGroup();
-    new_group->output_vals_.pushBack(forward_val);
     input2group_.insert({forward_val, new_group});
   }
 
@@ -4554,19 +4566,20 @@ void SegmentCandidateFinder::forwardInputs() {
       continue;
     }
     auto new_group = segmented_fusion_->newGroup();
-    new_group->output_vals_.pushBack(inp);
+    new_group->input_vals_.pushBack(inp);
     input2group_.insert({inp, new_group});
   }
 }
 
 void SegmentCandidateFinder::cleanupForwardedInputs() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::cleanupForwardedInputs");
-  std::unordered_set<SegmentedGroup*> input_groups;
-  for (auto input : forwarded_fusion_inputs_) {
-    input_groups.insert(input2group_.at(input));
-  }
-  eraseGroups(input_groups);
+  // Ensure previous debug prints are removed.
+  // The loop and eraseGroups call were already removed.
 
+  // Clear the tracking data structures
+  // REMOVED: std::cout << "[DEBUG] Clearing forwarding data structures." <<
+  // std::endl;
+  excluded_inp_unary_exprs_ = {};
   excluded_inp_unary_exprs_ = {};
   forwarded_fusion_inputs_.clear();
   input2group_.clear();
@@ -4702,6 +4715,22 @@ void SegmentCandidateFinder::finalize() {
   for (auto it = groups().begin(); it != groups().end(); it++, i++) {
     deDuplicateScalarExprs((*it)->exprs_);
     (*it)->setID(i);
+  }
+
+  VectorOfUniqueEntries<Val*> forwarded_inputs;
+  for (auto entry : input_to_forward_val_) {
+    forwarded_inputs.pushBack(entry.second);
+  }
+
+  // Remove forwarded inputs from input_vals_ of any segmented group that has
+  // them.
+  for (auto group : groups()) {
+    auto input_vals = group->input_vals_;
+    for (auto inp : input_vals) {
+      if (forwarded_inputs.has(inp)) {
+        group->input_vals_.erase(inp);
+      }
+    }
   }
 
   // TODO: too many things are currently abstracted under the term
