@@ -92,6 +92,12 @@ class ParallelDimensionMap {
   //! as the async warp. In this case, pt becomes non-exact.
   void adjustMappingsForWarpSpecialization();
 
+  //! Get the number of thread for parallel dimension.
+  //! Return 1 if ParallelType is not used.
+  //! Return the integer if ParallelType is const scalar.
+  //! Return -1 if ParallelType has dynamic value.
+  int64_t getThreadsCountInDim(ParallelType pt);
+
  private:
   //! Maps from parallel types to dimensions, which are constant if
   //! a unique value is found.

@@ -149,6 +149,19 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
+int64_t ParallelDimensionMap::getThreadsCountInDim(ParallelType pt) {
+  if (!dim_map_.contains(pt)) {
+    return 1L;
+  }
+
+  if (dim_map_.at(pt)->isConstScalar()) {
+    return dim_map_.at(pt)->value().as<int64_t>();
+  }
+
+  // Return -1 for dynamic dimensions
+  return -1L;
+}
+
 void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   // shortcut for case without register sharing
   if (!ws_with_register_sharing_pt_.has_value()) {
@@ -173,22 +186,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
     }
     return;
   }
-  // For register sharing, require contiguous 128 threads calling the same
-  // setreg instruction.
-  // Not used: 1, Const: n, Dynamic: -1
-  auto get_threads_count_in_dim = [&](ParallelType pt) {
-    if (!dim_map_.contains(pt)) {
-      return 1L;
-    }
-    if (dim_map_.at(pt)->isConstScalar()) {
-      return dim_map_.at(pt)->value().as<int64_t>();
-    }
-    // Return -1 for dynamic dimensions, this disables register sharing on
-    // dynamic dimensions since we can't guarantee the number of threads is
-    // divisible by 128. We may allow this in the future and delegate this
-    // check to a point where the launch parameters are known.
-    return -1L;
-  };
+
   // Warp specialization with register sharing on parallel type pt
   // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
   auto pt = ws_with_register_sharing_pt_.value();
@@ -200,16 +198,16 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   if (pt == ParallelType::TIDx) {
     // If on TIDx, pad by 128
     pad_n_threads = 128;
-    after_pad = get_threads_count_in_dim(pt) + pad_n_threads;
+    after_pad = getThreadsCountInDim(pt) + pad_n_threads;
     NVF_ERROR(
         after_pad % 128 == 0,
         "Illegal register sharing on TIDx, bdimx = ",
         after_pad);
   } else if (pt == ParallelType::TIDy) {
     // If on TIDy, pad by 128 / bdimx
-    int64_t bdimx = get_threads_count_in_dim(ParallelType::TIDx);
+    int64_t bdimx = getThreadsCountInDim(ParallelType::TIDx);
     pad_n_threads = scheduler_utils::safeDiv(128, bdimx);
-    after_pad = get_threads_count_in_dim(pt) + pad_n_threads;
+    after_pad = getThreadsCountInDim(pt) + pad_n_threads;
     NVF_ERROR(
         (after_pad * bdimx) % 128 == 0,
         "Illegal register sharing on TIDy, bdimx = ",
@@ -218,10 +216,10 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
         after_pad);
   } else if (pt == ParallelType::TIDz) {
     // If on TIDz, pad by 128 / (bdimx * bdimy)
-    int64_t bdimx = get_threads_count_in_dim(ParallelType::TIDx);
-    int64_t bdimy = get_threads_count_in_dim(ParallelType::TIDy);
+    int64_t bdimx = getThreadsCountInDim(ParallelType::TIDx);
+    int64_t bdimy = getThreadsCountInDim(ParallelType::TIDy);
     pad_n_threads = scheduler_utils::safeDiv(128, bdimx * bdimy);
-    after_pad = get_threads_count_in_dim(pt) + pad_n_threads;
+    after_pad = getThreadsCountInDim(pt) + pad_n_threads;
     NVF_ERROR(
         (after_pad * bdimx * bdimy) % 128 == 0,
         "Illegal register sharing on TIDz, bdimx = ",
