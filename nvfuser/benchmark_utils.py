@@ -92,7 +92,7 @@ class FusionProfileTimer(Timer):
         # Specifies if the timer in host measurement is called at the start/finish of execution.
         # Timings are measured at the end of execution.
         self.execution_start = True
-    
+
     def set_fd(self, fd):
         self.fd = fd
 
