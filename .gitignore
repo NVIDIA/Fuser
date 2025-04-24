@@ -4,20 +4,24 @@ bin
 # cmake build directory
 build
 .lintbin
-
-# pip wheel directory
-dist
-
 nvfuser/version.py
 nvfuser/include
 nvfuser/lib
 nvfuser/share
 nvfuser/cmake
 
+python/build
+python/nvfuser/version.py
+python/nvfuser/include
+python/nvfuser/lib
+python/nvfuser/share
+python/nvfuser/cmake
+
 .hypothesis
 *.egg-info/
 **/__pycache__
 */*.so
+python/nvfuser/*.so
 
 # Editor temporaries
 *.swa
