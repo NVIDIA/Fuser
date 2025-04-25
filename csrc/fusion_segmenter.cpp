@@ -3858,10 +3858,6 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       continue;
     }
 
-    if (pad->out()->isFusionOutput()) {
-      continue;
-    }
-
     // If the input of pad is already in the same segment, don't
     // bother
     auto pad_inp = pad->in();
