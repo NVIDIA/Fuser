@@ -413,18 +413,6 @@ bool fillDefaultHopperHeuristic(
   // TODO: Use only 1D grid traversal factor for now
   mparams->grid_traversal_factor = {grid_traversal_factor, 1};
 
-  // colmajor = true
-  // fac = 3
-  // Mtiles = 3
-  // Ntiles = 35
-  // launch grid = 105, 1 = 3*Ntiles, Mtiles
-
-  // colmajor = true
-  // fac = 1
-  // Mtiles = 3
-  // Ntiles = 35
-  // launch grid = 35, 3 = Ntiles, Mtiles
-
   // Set the CGA size to either {1, 1, 1} or {2, 1, 1}
   // We always prefer {2, 1, 1}, but this is not always possible. It is only
   // possible if the BIDx dimension will have even size. This is the case for
@@ -434,13 +422,8 @@ bool fillDefaultHopperHeuristic(
       ? Mtiles
       : Ntiles;
   if (grid_traversal_factor != 1) {
-    BIDx_tiles = ceilDiv(BIDx_tiles, grid_traversal_factor);
+    BIDx_tiles = BIDx_tiles * grid_traversal_factor;
   }
-  std::cout << "colmajor="
-            << (mparams->cta_order ==
-                MatmulParams::TileRasterizationOrder::ColumnMajor)
-            << " Mtiles=" << Mtiles << " Ntiles=" << Ntiles
-            << " BIDx_tiles=" << BIDx_tiles << std::endl;
   if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
       BIDx_tiles % 2 == 0) {
     mparams->cluster_dims = {2, 1, 1};
