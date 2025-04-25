@@ -41,6 +41,9 @@ def test_matmul_baseline_benchmark(
 ):
     m, n, k, layout = config
 
+    if (m * k + n * k + m * n) * 2 > 20 * (2**30):
+        pytest.skip("Case takes more than 20GiB. Skipping to avoid OOM")
+
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
 
@@ -74,6 +77,9 @@ def test_matmul_nvf_benchmark(
     disable_benchmarking: bool,
 ):
     m, n, k, layout = config
+
+    if (m * k + n * k + m * n) * 2 > 20 * (2**30):
+        pytest.skip("Case takes more than 20GiB. Skipping to avoid OOM")
 
     torch.backends.cuda.matmul.allow_fp16_reduced_precision_reduction = half_reduction
     torch.backends.cuda.matmul.allow_bf16_reduced_precision_reduction = half_reduction
