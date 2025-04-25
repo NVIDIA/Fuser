@@ -9,6 +9,7 @@
 #include <sstream>
 
 #include <debug.h>
+#include <disjoint_set.h>
 #include <fusion.h>
 #include <fusion_segmenter.h>
 #include <instrumentation.h>
@@ -2158,6 +2159,7 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
       !groups_to_merge.empty(),
       "fusion segment :(mergeAllGivenGroups) tried to merge no groups");
 
+  // The fusion input auxiliary groups should never be merged.
   const auto& aux_input_groups = getAuxiliaryInputGroups();
   std::vector<SegmentedGroup*> aux_groups_to_merge;
   std::ranges::copy_if(
@@ -2547,7 +2549,9 @@ std::vector<Expr*> SegmentedGroup::stablyOrderedExprs() const {
   std::unordered_map<Expr*, int64_t> num_producers;
   for (Expr* e : exprs()) {
     int64_t& n = num_producers[e];
-    for (Val* in : e->inputs()) {
+    // Val::uses(), which is used later to decrement num_producers, contains
+    // unique `Expr`s. Therefore, it's necessary to also dedup here.
+    for (auto* in : VectorOfUniqueEntries<Val*>(e->inputs())) {
       Expr* def = in->definition();
       // Exprs in a SegmentedGroup come from the complete fusion, so the
       // producer/consumer of an Expr may be outside the group. Therefore, we
@@ -4628,15 +4632,19 @@ void SegmentCandidateFinder::forwardInputs() {
   excluded_inp_unary_exprs_ = {};
   input2group_.clear();
 
-  std::vector<Val*> original_fusion_inputs = completeFusion()->inputs();
+  std::vector<Val*> extended_fusion_inputs = completeFusion()->inputs();
 
-  std::vector<Val*> factory_created_vals;
+  // Grab factory ops that should be forwarded. Add created tensors to
+  // the fusion input list to make them handled like fusion inputs
+  // TODO: Handle more factory methods such as IotaOp, EyeOp,
+  // TensorConstruct. Probably should not include relatively expensive
+  // ops like RNGOp.
   for (auto expr : completeFusion()->exprs()) {
-    if (!getenv("DISABLE_FORWARD_FULL") && expr->isA<FullOp>() &&
-        !expr->as<FullOp>()->output(0)->isFusionOutput()) {
-      original_fusion_inputs.push_back(expr->output(0));
+    if (expr->isA<FullOp>() &&
+        // Don't bother if it's a fusion output
+        !expr->output(0)->isFusionOutput()) {
+      extended_fusion_inputs.push_back(expr->output(0));
       excluded_inp_unary_exprs_.pushBack(expr);
-      factory_created_vals.push_back(expr->output(0));
     }
   }
 
@@ -4645,7 +4653,7 @@ void SegmentCandidateFinder::forwardInputs() {
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
     std::deque<Expr*> to_visit;
-    for (Val* inp : original_fusion_inputs) {
+    for (Val* inp : extended_fusion_inputs) {
       if (auto forwarded_use = shouldForward(inp)) {
         to_visit.push_back(forwarded_use);
       }
@@ -4671,11 +4679,10 @@ void SegmentCandidateFinder::forwardInputs() {
   // Stop traversing back at factory vals (and fusion inputs)
   auto excluded_fusion_inputs = InputsOf::getInputsTo(
       {forwarded_inputs.begin(), forwarded_inputs.end()},
-      original_fusion_inputs);
+      extended_fusion_inputs);
 
   // List of vals to treat as complete fusion inputs for segmentation
-  // forwarded_fusion_inputs_ = completeFusion()->inputs();
-  forwarded_fusion_inputs_ = original_fusion_inputs;
+  forwarded_fusion_inputs_ = extended_fusion_inputs;
 
   forwarded_fusion_inputs_.erase(
       std::remove_if(
@@ -4937,6 +4944,8 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
   SegmentedGroup* group = segmented_fusion_->newGroup();
   for (auto inp : IterVisitor::getInputsTo({forwarded_input})) {
+    // inp may be a factory-created tensor, which is not an input to
+    // the group.
     if (std::ranges::find(completeFusion()->inputs(), inp) !=
         completeFusion()->inputs().end()) {
       group->input_vals_.pushBack(inp);

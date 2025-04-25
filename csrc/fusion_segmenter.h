@@ -694,6 +694,7 @@ class SegmentCandidateFinder {
                val) != forwarded_fusion_inputs_.end();
   };
 
+  // Get all auxiliary groups created for fusion inputs
   std::vector<SegmentedGroup*> getAuxiliaryInputGroups() const;
 
  protected:
