@@ -189,7 +189,7 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
     int factor =
         std::max(1, params_->grid_traversal_factor.first); // must be >=1
     switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
         // split   [I1, I2/factor, factor]
         // reorder [I1, factor, I2/factor]
         // merge   [I1*factor, I2/factor]
@@ -212,7 +212,7 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
         }
         break;
 
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+      case MatmulParams::TileRasterizationOrder::RowMajor:
         // split   [I1/factor, factor, I2]
         // reorder [I1/factor, I2, factor]
         // merge   [I1/factor, I2*factor]
