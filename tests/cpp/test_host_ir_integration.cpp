@@ -113,32 +113,6 @@ TEST_F(HostIrIntegrationTest, Sum) {
       "");
 }
 
-TEST_F(HostIrIntegrationTest, Deallocate) {
-  const std::vector<int64_t> sizes = {8, 64};
-  c10::DeviceIndex device_index = 0;
-
-  resetPeakMemoryStats(device_index);
-
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
-
-  for (int i = 0; i < 10; i++) {
-    TensorView* tv = makeConcreteTensor(sizes);
-    tv->setMemoryType(MemoryType::Global);
-    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-    auto* deallocate = IrBuilder::create<Deallocate>(allocate);
-
-    hic->pushBackTopLevelExprs(allocate);
-    hic->pushBackTopLevelExprs(deallocate);
-  }
-
-  HostIrEvaluator hie(std::move(hic));
-
-  hie.runWithInput({});
-
-  EXPECT_EQ(memoryAllocated(device_index), 0);
-}
-
 } // namespace hir
 
 } // namespace nvfuser

@@ -329,35 +329,20 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   for (auto& input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
-
-  // If all output buffers are known already, pass them to the executor
-  KernelArgumentHolder outputs;
-  bool preallocated_outputs = false;
-  for (Val* output : launch_kernel->outputs()) {
-    if (isKnown(output)) {
-      preallocated_outputs = true;
-      outputs.push(getKnownConcreteValue(output));
-    }
-  }
-
-  NVF_ERROR(
-      outputs.empty() || outputs.size() == launch_kernel->outputs().size());
-
   args.setDeviceIndex();
 
   // run the compiled kernel
-  outputs = container_->getKernelExecutor(launch_kernel->getIndex())
-                ->run(
-                    args,
-                    outputs,
-                    launch_kernel->launch_params(),
-                    launch_kernel->compile_params());
+  KernelArgumentHolder outputs =
+      container_->getKernelExecutor(launch_kernel->getIndex())
+          ->run(
+              args,
+              {},
+              launch_kernel->launch_params(),
+              launch_kernel->compile_params());
 
-  if (!preallocated_outputs) {
-    // Store the outputs in the context
-    for (auto output_idx : arange(outputs.size())) {
-      bind(launch_kernel->outputs().at(output_idx), outputs[output_idx]);
-    }
+  // Store the outputs in the context
+  for (auto output_idx : arange(outputs.size())) {
+    bind(launch_kernel->outputs().at(output_idx), outputs[output_idx]);
   }
 }
 
@@ -652,7 +637,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
   TensorView* tv = allocate->buffer()->as<TensorView>();
-  if (isKnown(tv)) {
+  if (expr_evaluator_.isKnown(tv)) {
     return;
   }
   GlobalBufferInfo info =
@@ -667,15 +652,6 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       device,
       c10::nullopt);
   bind(tv, tensor);
-}
-
-void HostIrEvaluator::handle(Deallocate* deallocate) {
-  auto* tv = deallocate->allocation()->buffer()->as<TensorView>();
-  NVF_ERROR(
-      isKnown(tv),
-      "Tried to free buffer associated with unknown TensorView",
-      tv);
-  invalidate(tv);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {

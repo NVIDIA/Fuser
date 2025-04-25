@@ -3095,6 +3095,30 @@ struct EmbeddingFwdOpRecord : RecordFunctor {
   }
 };
 
+struct IndexPutAccumulateOpRecord : RecordFunctor {
+  IndexPutAccumulateOpRecord(
+      std::vector<State> args,
+      std::vector<State> outputs)
+      : RecordFunctor(
+            std::move(args),
+            std::move(outputs),
+            "ops.index_put_accumulate",
+            serde::RecordType::IndexPutAccumulateOp) {}
+  ~IndexPutAccumulateOpRecord() override = default;
+  RecordFunctor* clone() final {
+    return new IndexPutAccumulateOpRecord(*this);
+  }
+
+  void operator()(FusionState& fd) final {
+    auto acc = fd.getFusionState(args_.at(0).index)->as<TensorView>();
+    auto index = fd.getFusionState(args_.at(1).index)->as<TensorView>();
+    auto value = fd.getFusionState(args_.at(2).index)->as<TensorView>();
+
+    auto output = indexPutAccumulate(acc, index, value);
+    fd.setFusionState(outputs_.at(0).index, output);
+  }
+};
+
 } // namespace nvfuser::python_frontend
 
 //! Creating the template specialized hash and equal_to functions for a
