@@ -446,6 +446,7 @@ class MatmulParams : public HeuristicParams {
         other->grid_traversal_factor == grid_traversal_factor &&
         other->use_smem_epilogue == use_smem_epilogue &&
         other->promote_prologue_smem_reuse == promote_prologue_smem_reuse &&
+        other->cluster_dims == cluster_dims &&
         other->splitk_factor == splitk_factor;
   }
 
