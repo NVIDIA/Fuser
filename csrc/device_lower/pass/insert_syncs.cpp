@@ -1357,6 +1357,15 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
           }
         }
 
+        bool is_main_loop = for_loop->circularBufferLoopStage() ==
+            CircularBufferLoopStage::Main;
+        bool is_epilogue_loop = for_loop->circularBufferLoopStage() ==
+            CircularBufferLoopStage::Epilog;
+        NVF_ERROR(
+            type != AsyncOpType::WgMma || (is_main_loop || is_epilogue_loop),
+            "Attempting to insert WgMma sync exprs in a for-loop that is not ",
+            "a main or epilogue circular buffer loop.");
+
         Expr* expr = for_loop->body().exprs().at(pos);
         while (!sync_exprs.empty()) {
           registerInsertAfter(expr, sync_exprs.back(), &for_loop->body());
