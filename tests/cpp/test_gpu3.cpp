@@ -9064,4 +9064,47 @@ TEST_F(NVFuserTest, RegisteredExactMappingWithExtentReplacment) {
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
 
+TEST_F(NVFuserTest, playground) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeContigTensor(1);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  auto tv2 = cos(tv1);
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // [I]
+  tv2->split(0, 4);
+  // [I/2, 4]
+  tv2->split(0, 2);
+  // [I/4/2, 2, 4]
+
+  tv2->axis(1)->parallelize(ParallelType::Unroll);
+
+  TransformPropagatorWithCheck propagator(tv2);
+  MaxLogicalDomainInfoSpanningTree(tv2).traverse(&propagator);
+  scheduler_utils::parallelizeAllLike(tv2);
+
+  inlineAllAt(tv2, 1, true);
+  fusion.printTransforms();
+
+  auto all_tvs = fusion.allTvs();
+  std::unordered_set<TensorView*> tvs(all_tvs.begin(), all_tvs.end());
+  inlineMost(tvs);
+
+  fusion.printTransforms();
+
+  GpuLower gpulw(&fusion);
+  gpulw.run();
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({24}, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+}
+
 } // namespace nvfuser
