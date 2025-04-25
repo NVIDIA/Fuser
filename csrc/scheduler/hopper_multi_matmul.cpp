@@ -377,15 +377,15 @@ void HopperMultipleMatmulScheduler::parallelizeBlocks(
           // the outermost two M or N axes?
           case MatmulParams::TileRasterizationOrder::RowMajor:
             tv->axis(num_device_and_batch_dims_)
-                ->parallelize(ParallelType::BIDx);
-            tv->axis(num_device_and_batch_dims_ + 1)
                 ->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDx);
             break;
           case MatmulParams::TileRasterizationOrder::ColumnMajor:
             tv->axis(num_device_and_batch_dims_)
-                ->parallelize(ParallelType::BIDy);
-            tv->axis(num_device_and_batch_dims_ + 1)
                 ->parallelize(ParallelType::BIDx);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDy);
             break;
           default:
             NVF_THROW(
