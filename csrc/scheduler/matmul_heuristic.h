@@ -443,6 +443,10 @@ class MatmulParams : public HeuristicParams {
         other->circular_buffer_options == circular_buffer_options &&
         other->supported_vec_size == supported_vec_size &&
         other->cta_order == cta_order &&
+        other->tiling_strategy == tiling_strategy &&
+        other->buffering_loop_level == buffering_loop_level &&
+        other->circular_buffering_strategy == circular_buffering_strategy &&
+        other->use_ldst_matrix == use_ldst_matrix &&
         other->grid_traversal_factor == grid_traversal_factor &&
         other->use_smem_epilogue == use_smem_epilogue &&
         other->promote_prologue_smem_reuse == promote_prologue_smem_reuse &&
