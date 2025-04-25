@@ -925,7 +925,6 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
       bool multiple_path_found =
           FindMultiplePathsToResize::run(graph, ref_vec_groups, resize);
       if (multiple_path_found) {
-        // std::cerr << "Multiple path found with " << resize->toString();
         add_resize_factors(resize);
       }
     }
@@ -1019,8 +1018,6 @@ int64_t getVectorizationFactor(
         scheduler_utils::maxVectorizationWidth(inner_size_opt.as<int64_t>()),
         max_vec_size);
   }
-
-  // std::cerr << "Vec factor pre: " << max_vec_size << "\n";
 
   // This is a WAR for vectorization through resize as the spanning
   // tree based traversal is not guaranteed to reflect all resize ops
