@@ -29,25 +29,17 @@ bool isUnaryPointwiseOp(const Expr* expr) {
 }
 
 bool hasGatherOp(const Fusion* fusion) {
-  // Iterate through all expressions in the fusion
-  for (auto expr : fusion->exprs()) {
-    // Check if the expression is a GatherOp
-    if (expr->isA<GatherOp>()) {
-      return true; // Found a GatherOp
-    }
-  }
-  return false; // No GatherOp found
+  auto exprs = fusion->exprs();
+  return ir_utils::filterByType<GatherOp*>(exprs).size() > 0;
 }
 
-std::optional<Expr*> getProducerOfLookup(const GatherOp* gather_op) {
-  // Get the producer of the GatherOp
+std::optional<Expr*> getLookupTvDef(const GatherOp* gather_op) {
   if (gather_op->lookupTv()->isFusionInput()) {
     return std::nullopt;
   }
 
   auto producer = gather_op->lookupTv()->definition();
-  NVF_ERROR(
-      producer != nullptr, "GatherOp must have a producer, but found none.");
+  NVF_ERROR(producer != nullptr, "Def for Lookup tensor view is nullptr.");
 
   if (isUnaryPointwiseOp(producer)) {
     return producer;
@@ -117,16 +109,13 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
 void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
   static int count = 0;
   do {
-    auto producer = getProducerOfLookup(gather_op);
+    auto producer = getLookupTvDef(gather_op);
     if (!producer.has_value() || producer.value() == nullptr) {
       return;
     }
 
     auto def = producer.value();
-    // Move the GatherOp to the producer
-    std::cout << "trying to move across " << def->toString() << std::endl;
     gather_op = moveGatherOp(fusion, gather_op, def);
-    std::cout << "After moving GatherOp: Roumd: " << count++ << std::endl;
     fusion->printMath();
   } while (true);
 }
@@ -143,5 +132,6 @@ void MoveGatherPass::runPass(Fusion* fusion) {
   auto gather_ops = ir_utils::filterByType<GatherOp>(exprs);
   NVF_ERROR(gather_ops.size() == 1, "Only one GatherOp is supported.");
   moveGatherOp(fusion, gather_ops.vector()[0]);
+  fusion->printMath();
 }
 } // namespace nvfuser::preseg_passes

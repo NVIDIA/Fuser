@@ -1415,7 +1415,6 @@ TEST_F(PresegTest, MoveGatherOverSqueeze) {
       squeeze_ops.end(),
       std::back_inserter(new_squeeze_ops),
       [gather_op](SqueezeOp* op) {
-        std::cout << op->toString() << std::endl;
         return op->input(0) == gather_op->output(0);
       });
   EXPECT_EQ(new_squeeze_ops.size(), 1);
