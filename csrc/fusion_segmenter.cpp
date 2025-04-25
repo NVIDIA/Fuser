@@ -3728,13 +3728,18 @@ class PreferredMergeCandidatePicker {
   PreferredMergeCandidatePicker(const std::vector<SegmentedGroup*>& groups)
       : groups_(groups) {
     for (auto& group : groups_) {
-      // Currently there's only one preference for select-like
-      // ops. Additional preferences can be added similarly.
-      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
-      if (!neighbor_to_merge.has_value()) {
+      if (auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
         continue;
       }
-      candidates_.emplace_back(group, *neighbor_to_merge);
+      if (!getenv("DISABLE_PREFER_PAD")) {
+        if (auto neighbor_to_merge = mergePadWithConsumers(group);
+            neighbor_to_merge.has_value()) {
+          candidates_.emplace_back(group, *neighbor_to_merge);
+          continue;
+        }
+      }
     }
   }
 
@@ -3757,6 +3762,12 @@ class PreferredMergeCandidatePicker {
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
       SegmentedGroup* group) const;
 
+  //! Prefer merging pad exprs with consumer groups. Since pad is
+  //! likely expand an iter domain, having a segmentation boundary, if
+  //! necessary, is preferred to be before than after pad.
+  std::optional<SegmentedGroup::NeighborGroup> mergePadWithConsumers(
+      SegmentedGroup* group) const;
+
  private:
   const std::vector<SegmentedGroup*>& groups_;
   std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
@@ -3765,6 +3776,10 @@ class PreferredMergeCandidatePicker {
 
 std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     mergeSelectLikeOpsWithProducers(SegmentedGroup* group) const {
+  if (group->producer_edges.empty() || group->isMerged()) {
+    return std::nullopt;
+  }
+
   const auto& exprs = group->exprs();
 
   // I *think* it's enough to consider the initial merge of
@@ -3814,8 +3829,75 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     return std::nullopt;
   }
 
-  return SegmentedGroup::NeighborGroup(
-      (*producer_edge_it)->from, *producer_edge_it);
+  auto producer_group = (*producer_edge_it)->from;
+  if (producer_group->isMerged()) {
+    return std::nullopt;
+  }
+
+  // Don't try to merge if not a candidate
+  auto merge_candidates = group->getMergeCandidates();
+  if (std::ranges::find_if(
+          merge_candidates, [&](const SegmentedGroup::NeighborGroup& neighbor) {
+            return neighbor.group != producer_group;
+          }) == merge_candidates.end()) {
+    return std::nullopt;
+  }
+
+  return SegmentedGroup::NeighborGroup(producer_group, *producer_edge_it);
+}
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergePadWithConsumers(SegmentedGroup* group) const {
+  if (group->consumer_edges.empty() || group->isMerged()) {
+    return std::nullopt;
+  }
+
+  for (auto expr : group->exprs()) {
+    auto pad = dynamic_cast<PadOp*>(expr);
+    if (pad == nullptr) {
+      continue;
+    }
+
+    if (pad->out()->isFusionOutput()) {
+      continue;
+    }
+
+    // If the input of pad is already in the same segment, don't
+    // bother
+    auto pad_inp = pad->in();
+    if (std::ranges::find_if(group->producer_edges, [&](SegmentedEdge* edge) {
+          return edge->val == pad_inp;
+        }) == group->producer_edges.end()) {
+      continue;
+    }
+
+    auto consumer_edge_it = std::ranges::find_if(
+        group->consumer_edges,
+        [&](SegmentedEdge* edge) { return edge->val == pad->out(); });
+
+    if (consumer_edge_it == group->consumer_edges.end()) {
+      continue;
+    }
+
+    auto consumer_group = (*consumer_edge_it)->to;
+    if (consumer_group->isMerged()) {
+      return std::nullopt;
+    }
+
+    // Don't try to merge if not a candidate
+    auto merge_candidates = group->getMergeCandidates();
+    if (std::ranges::find_if(
+            merge_candidates,
+            [&](const SegmentedGroup::NeighborGroup& neighbor) {
+              return neighbor.group != consumer_group;
+            }) == merge_candidates.end()) {
+      return std::nullopt;
+    }
+
+    return SegmentedGroup::NeighborGroup(consumer_group, *consumer_edge_it);
+  }
+
+  return std::nullopt;
 }
 
 } // namespace
@@ -3971,7 +4053,7 @@ void SegmentCandidateFinder::trySetUpMerge(
   }
 
   auto candidate_it = candidates.begin();
-  while (candidate_it != candidates.end() &&
+  while (candidate_it != candidates.end() && !candidate_it->group->isMerged() &&
          !codeGenSupportedMerge(group, candidate_it->group)) {
     candidate_it++;
   }
@@ -4080,7 +4162,9 @@ void SegmentCandidateFinder::findSegments() {
       // Try preferred merge first
       for (auto& [group, neighbor] :
            PreferredMergeCandidatePicker::get(groups())) {
-        trySetUpMerge(group, {neighbor});
+        if (!neighbor.group->isMerged()) {
+          trySetUpMerge(group, {neighbor});
+        }
       }
 
       // If there are preferred groups to merge, merge them first
