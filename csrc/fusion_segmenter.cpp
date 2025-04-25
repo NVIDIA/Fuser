@@ -3850,6 +3850,8 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     return std::nullopt;
   }
 
+  const auto merge_candidates = group->getMergeCandidates();
+
   for (auto expr : group->exprs()) {
     auto pad = dynamic_cast<PadOp*>(expr);
     if (pad == nullptr) {
@@ -3869,30 +3871,29 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       continue;
     }
 
-    auto consumer_edge_it = std::ranges::find_if(
-        group->consumer_edges,
-        [&](SegmentedEdge* edge) { return edge->val == pad->out(); });
+    // Look for a consumer edge that has the pad output as its val,
+    // which means the pad output is passed to the consumer group.
+    for (const auto& consumer_edge : group->consumer_edges) {
+      if (consumer_edge->val != pad->out()) {
+        continue;
+      }
 
-    if (consumer_edge_it == group->consumer_edges.end()) {
-      continue;
+      auto consumer_group = consumer_edge->to;
+      if (consumer_group->isMerged()) {
+        continue;
+      }
+
+      // Don't try to merge if not a candidate
+      if (std::ranges::find_if(
+              merge_candidates,
+              [&](const SegmentedGroup::NeighborGroup& neighbor) {
+                return neighbor.group != consumer_group;
+              }) == merge_candidates.end()) {
+        continue;
+      }
+
+      return SegmentedGroup::NeighborGroup(consumer_group, consumer_edge);
     }
-
-    auto consumer_group = (*consumer_edge_it)->to;
-    if (consumer_group->isMerged()) {
-      return std::nullopt;
-    }
-
-    // Don't try to merge if not a candidate
-    auto merge_candidates = group->getMergeCandidates();
-    if (std::ranges::find_if(
-            merge_candidates,
-            [&](const SegmentedGroup::NeighborGroup& neighbor) {
-              return neighbor.group != consumer_group;
-            }) == merge_candidates.end()) {
-      return std::nullopt;
-    }
-
-    return SegmentedGroup::NeighborGroup(consumer_group, *consumer_edge_it);
   }
 
   return std::nullopt;
