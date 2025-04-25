@@ -4045,21 +4045,29 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
     // Get consumers by finding groups that have forwarded_val as an input
     GroupSet consumers;
     for (auto group : groups()) {
-      if (std::find(
-              group->input_vals_.begin(),
-              group->input_vals_.end(),
-              forwarded_val) != group->input_vals_.end()) {
+      if (std::any_of(
+              group->producer_edges.begin(),
+              group->producer_edges.end(),
+              [forwarded_val](SegmentedEdge* edge) {
+                return edge->val == forwarded_val;
+              })) {
         consumers.pushBack(group);
       }
     }
 
-    bool can_merge_all_consumers = true;
-
     for (auto consumer : consumers) {
       disconnect_groups(inp_group, consumer);
       segmented_fusion_->connectGroups(new_inp_group, consumer, forwarded_val);
-      can_merge_all_consumers = can_merge_all_consumers &&
-          codeGenSupportedMerge(new_inp_group, consumer);
+    }
+
+    // Check if all consumers can be merged with the new input group
+    bool can_merge_all_consumers =
+        !consumers.empty(); // Assume true if there are consumers
+    for (auto consumer : consumers) {
+      if (!codeGenSupportedMerge(new_inp_group, consumer)) {
+        can_merge_all_consumers = false;
+        break;
+      }
     }
 
     if (can_merge_all_consumers) {
