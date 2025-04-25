@@ -76,7 +76,6 @@ class FusionInspector : private IterVisitor {
              [](IterDomain* id) {
                return id->getParallelType() == ParallelType::Group;
              }))) {
-      std::cout << "reduction_dep_: " << rop->toString() << std::endl;
       reduction_dep_[out].insert(rop);
     }
   }

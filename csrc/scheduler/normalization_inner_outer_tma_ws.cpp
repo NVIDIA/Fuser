@@ -558,21 +558,61 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
+
   // inline
   if (rparams->circular_buffer_options.isEnable()) {
     std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
+    // TMA loaded tv may have a domain of either
     // [I/Unroll/BIDy, BIDy, Unroll | Bulk]
-    // Set inline position before Unroll, so all the unrolled TMA loads
+    // or
+    // [I/BIDy, BIDy, | Bulk]
+    // or
+    // [Bulk]
+    // Set inline position after BIDy, so all the unrolled TMA loads
     // share the same barrier.
-    int64_t tma_inline_pos = rparams->unroll_factor_iter_dom > 1 ? 2 : 1;
+    int64_t tma_inline_pos = 2;
     for (auto tv : tma_load_tvs) {
-      tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      if (tv->nDims() >= tma_inline_pos + 1) {
+        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      }
     }
     // For smem consumers, set inline position to the same as tma load tvs.
     // This allows quick release the shared memory barrier to launch the
-    // next TMA load.
+    // next TMA load. Otherwise, the inline position is after Unroll axis.
+    // Which requires the tma tensor alive until the end of the computation and
+    // delays the next TMA load until the end of the computation.
     for (auto tv : smem_consumers) {
-      tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
+        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      }
+    }
+
+    // Cached input with inner bcast [I, B], is not marked as vectorizable in
+    // getCachedTvsToUnrollOrVectorize().
+    // However, if iteration domain is unrolled, the tv is scheduled as:
+    // [I/Unroll/BIDy, BIDy, Unroll, ...],
+    // the unrolled domain, axis-2, can be vectorized.
+    if (use_grouped_reduction) {
+      auto is_redu_mapped_to_bcast = [](TensorView* redu_tv,
+                                        TensorView* bcast_tv) {
+        if (bcast_tv->nDims() != redu_tv->nDims()) {
+          return false;
+        }
+        for (int i = 0; i < bcast_tv->nDims(); i++) {
+          if ((redu_tv->axis(i)->isReduction() ||
+               redu_tv->axis(i)->isRFactorProduct()) &&
+              !bcast_tv->axis(i)->isBroadcast()) {
+            return false;
+          }
+        }
+        return true;
+      };
+      for (auto cached_tv : cached_inputs) {
+        if (cached_tv->hasBroadcast() &&
+            is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
+          cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
+        }
+      }
     }
 
     std::unordered_set<TensorView*> exclude_tvs;

@@ -425,46 +425,44 @@ BackwardRMSNormResult rms_norm_backward(
     TensorView* dy,
     TensorView* x,
     const std::vector<int64_t>& norm_shape,
-    TensorView* invstd,
+    TensorView* inv_rms,
     TensorView* weight,
     const std::vector<bool>& output_mask) {
   NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
   NVF_ERROR(x != nullptr, "Input is invalid.");
-  NVF_ERROR(invstd != nullptr, "Inv std is invalid.");
+  NVF_ERROR(inv_rms != nullptr, "rms_eps std is invalid.");
 
   auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
 
-  auto x_hat = mul(x, invstd);
-
-  TensorView* grad_x_hat = nullptr;
+  TensorView* grad_weight = nullptr;
   if (weight != nullptr) {
     auto* bcast_weight = broadcast(weight, r.outer_broadcast_mask);
-    grad_x_hat = mul(dy, bcast_weight);
+    grad_weight = mul(dy, bcast_weight);
   } else {
-    grad_x_hat = dy;
+    grad_weight = dy;
   }
-
-  auto a = mul(r.num_features, grad_x_hat);
-
-  auto b = sum(grad_x_hat, r.inner_reduction_axes);
-  auto bcast_b = broadcast(b, r.inner_broadcast_mask);
-
-  auto c1 = mul(grad_x_hat, x_hat);
-  auto c2 = sum(c1, r.inner_reduction_axes);
-  auto bcast_c2 = broadcast(c2, r.inner_broadcast_mask);
-  auto c3 = mul(x_hat, bcast_c2);
-
-  auto inner = sub(sub(a, bcast_b), c3);
+  // auto neg_grad_weight = neg(grad_weight);
+  auto neg_grad_weight_x = mul(grad_weight, x);
+  auto inv_rms_pow2 = mul(inv_rms, inv_rms);
+  auto neg_grad_weight_x_inv_rms_pow2 = mul(neg_grad_weight_x, inv_rms_pow2);
+  auto inner_sum = sum(neg_grad_weight_x_inv_rms_pow2, r.inner_reduction_axes);
+  auto inner_bcast = broadcast(inner_sum, r.inner_broadcast_mask);
+  auto inv_rms_mul2 =
+      mul(inv_rms, IrBuilder::createInContainer<Val>(x->container(), 2.0));
   auto reciprocal_size = reciprocal(r.num_features);
+  auto inv_rms_mul2_reciprocal_size = mul(inv_rms_mul2, reciprocal_size);
+  auto x_inv_rms_mul2_reciprocal_size = mul(x, inv_rms_mul2_reciprocal_size);
+  auto inner_bcast_mul = mul(inner_bcast, x_inv_rms_mul2_reciprocal_size);
+  auto grad_weight_inv_rms = mul(grad_weight, inv_rms);
 
   TensorView* dx = nullptr;
   if (output_mask[0]) {
-    dx = mul(mul(reciprocal_size, invstd), inner);
+    dx = add(inner_bcast_mul, grad_weight_inv_rms);
   }
 
   TensorView* dw = nullptr;
   if (output_mask[1] && weight != nullptr) {
-    dw = sum(mul(dy, x_hat), r.outer_reduction_axes);
+    dw = sum(mul(dy, mul(x, inv_rms)), r.outer_reduction_axes);
   }
 
   return {dx, dw};
