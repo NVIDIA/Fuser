@@ -4050,25 +4050,26 @@ void SegmentCandidateFinder::trySetUpMerge(
     return;
   }
 
-  auto candidate_it = candidates.begin();
-  while (candidate_it != candidates.end() && !candidate_it->group->isMerged() &&
-         !codeGenSupportedMerge(group, candidate_it->group)) {
-    candidate_it++;
-  }
-  if (candidate_it == candidates.end()) {
+  // Try to find a non-merged candidate that can be merged with this
+  // group
+  for (const auto& candidate : candidates) {
+    if (candidate.group->isMerged() ||
+        !codeGenSupportedMerge(group, candidate.group)) {
+      continue;
+    }
+
+    to_merge_.emplace_back(group);
+    to_merge_.emplace_back(candidate.group);
+
+    group->merged_ = true;
+    group->merge_with_ = candidate.group;
+    group->merge_through_ = candidate.edge;
+
+    candidate.group->merged_ = true;
+    candidate.group->merge_with_ = group;
+    candidate.group->merge_through_ = candidate.edge;
     return;
   }
-
-  to_merge_.emplace_back(group);
-  to_merge_.emplace_back(candidate_it->group);
-
-  group->merged_ = true;
-  group->merge_with_ = candidate_it->group;
-  group->merge_through_ = candidate_it->edge;
-
-  candidate_it->group->merged_ = true;
-  candidate_it->group->merge_with_ = group;
-  candidate_it->group->merge_through_ = candidate_it->edge;
 }
 
 void SegmentCandidateFinder::resolveForwardedInputs() {
