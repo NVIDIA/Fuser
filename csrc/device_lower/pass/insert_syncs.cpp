@@ -1295,6 +1295,18 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       return handleComputeWarp(for_loop);
     }
 
+    // After this point, only the main and epilogue of pipeline circular
+    // buffering require wgmma sync exprs. The wgmma.commit must always be
+    // inserted at the end of the main and epilogue for-loops. The epilogue loop
+    // does not need wgmma.wait because it does not have async inputs for guard.
+    // The RAWSyncInserter adds the wgmma.wait to the persistent loop before the
+    // output of wgmma expr is used.
+    //
+    // Summary: Always commit after issuing a group of async exprs. Insert wait
+    // only if inputs of async expr occur in the for-loop. Do not insert wgmma
+    // sync exprs if the for-loop is not a main or epilogue circular buffer
+    // loop.
+
     bool is_main_loop =
         for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Main;
     bool is_epilogue_loop =
