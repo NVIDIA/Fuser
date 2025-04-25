@@ -1295,23 +1295,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       return handleComputeWarp(for_loop);
     }
 
-    // After this point, only the main and epilogue of pipeline circular
-    // buffering require wgmma sync exprs. The wgmma.commit must always be
-    // inserted at the end of the main and epilogue for-loops. The epilogue loop
-    // does not need wgmma.wait because it does not have async inputs for guard.
-    // The RAWSyncInserter adds the wgmma.wait to the persistent loop before the
-    // output of wgmma expr is used.
-    //
-    // Summary: Always commit after issuing a group of async exprs. Insert wait
-    // only if inputs of async expr occur in the for-loop. Do not insert wgmma
-    // sync exprs if the for-loop is not a main or epilogue circular buffer
-    // loop.
-
-    bool is_main_loop =
-        for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Main;
-    bool is_epilogue_loop =
-        for_loop->circularBufferLoopStage() == CircularBufferLoopStage::Epilog;
-
     // Insert async wait at the end of this for loop
     if (within_iter_loop_) {
       std::unordered_map<AsyncOpType, int64_t> types_and_pending_ops_to_protect;
@@ -1322,8 +1305,13 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
         auto expr = *it;
         AsyncOpType type = ir_utils::getAsyncOpType(expr);
 
-        bool is_wgmma =
-            (type == AsyncOpType::WgMma) && (is_main_loop || is_epilogue_loop);
+        // The wgmma.commit must always be inserted at the end of epilogue for
+        // loop. The epilogue loop does not need wgmma.wait because it does not
+        // have async inputs to guard. The RAWSyncInserter adds the wgmma.wait
+        // before the output of wgmma expr is used by any other exprs.
+        bool is_wgmma_epilogue = (type == AsyncOpType::WgMma) &&
+            for_loop->circularBufferLoopStage() ==
+                CircularBufferLoopStage::Epilog;
 
         bool is_async_inputs_not_present = std::none_of(
             expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
@@ -1332,7 +1320,7 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
-        if (!is_wgmma && is_async_inputs_not_present) {
+        if (!is_wgmma_epilogue && is_async_inputs_not_present) {
           it++;
           continue;
         }
@@ -1382,11 +1370,6 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
                 for_loop->body().exprs().back(), sync_expr, &for_loop->body());
           }
         }
-
-        NVF_ERROR(
-            type != AsyncOpType::WgMma || (is_main_loop || is_epilogue_loop),
-            "Attempting to insert WgMma sync exprs in a for-loop that is not ",
-            "a main or epilogue circular buffer loop.");
 
         Expr* expr = for_loop->body().exprs().at(pos);
         while (!sync_exprs.empty()) {
