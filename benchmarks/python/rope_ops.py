@@ -836,7 +836,7 @@ def Litgpt(seq_length):
             cfg.seq_len,
             (cfg.n_head + 2 * cfg.n_query_groups) * cfg.head_size,
             device="cuda",
-            dtype=dtype,
+            dtype=torch.bfloat16,
             requires_grad=True,
         )
         cos = torch.randn(
@@ -844,7 +844,7 @@ def Litgpt(seq_length):
             cfg.seq_len,
             cfg.rope_n_elem,
             device="cuda",
-            dtype=dtype,
+            dtype=torch.bfloat16,
             requires_grad=False,
         )
         sin = torch.randn(
@@ -852,7 +852,7 @@ def Litgpt(seq_length):
             cfg.seq_len,
             cfg.rope_n_elem,
             device="cuda",
-            dtype=dtype,
+            dtype=torch.bfloat16,
             requires_grad=False,
         )
         return qkv, cos, sin
@@ -864,7 +864,7 @@ def Litgpt(seq_length):
             cfg.seq_len,
             cfg.head_size,
             device="cuda",
-            dtype=dtype,
+            dtype=torch.bfloat16,
             requires_grad=False,
         )
         return grad

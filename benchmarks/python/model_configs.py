@@ -108,6 +108,8 @@ def litgpt_cfg():
     cfg.seq_len = 4096
     cfg.name_or_path = model_name
 
+    return cfg
+
 
 configs = {
     "llama_2_7b_hf": partial(llama_hf_cfg, config_str="llama_2_7b_hf"),
