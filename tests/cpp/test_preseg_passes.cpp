@@ -1336,13 +1336,89 @@ TEST_F(PresegTest, MoveGatherOverCast) {
       unary_ops.end(),
       std::back_inserter(new_cast_ops),
       [gather_op](UnaryOp* op) {
-        std::cout << op->toString() << std::endl;
         return op->getUnaryOpType() == UnaryOpType::Cast &&
             op->input(0) == gather_op->output(0) &&
             op->output(0)->getDataType() == DataType::Float &&
             op->output(0)->as<TensorView>()->hasBroadcast();
       });
   EXPECT_EQ(new_cast_ops.size(), 1);
+}
+
+TEST_F(PresegTest, MoveGatherOverSqueeze) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
+
+  auto tv0 = makeSymbolicTensor(2, DataType::Float);
+  fusion.addInput(tv0);
+  auto tv1 = makeSymbolicTensor(1, DataType::Int);
+  fusion.addInput(tv1);
+
+  tv0 = broadcast(tv0, {true, false, false});
+  tv1 = broadcast(tv1, {true, false});
+
+  auto tv2 = squeeze(tv0, {0});
+  auto tv3 = squeeze(tv1, {0});
+  auto s3 = IrBuilder::create<Val>(-100.0, DataType::Int);
+  auto s4 = IrBuilder::create<Val>(0, DataType::Int);
+
+  auto tv4 = ne(tv3, s3);
+  auto tv5 = where(tv4, tv3, s4);
+  auto tv6 = broadcast(tv5, {false, true});
+  auto tv7 = takeAlongAxis(tv2, tv6, -1);
+  auto tv8 = castOp(DataType::Float, tv7);
+  auto tv9 = squeeze(tv8, {1});
+
+  auto tv10 = max(tv2, {-1});
+  auto tv11 = sub(tv9, tv10);
+
+  fusion.addOutput(tv11);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options_2 = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
+  auto t0 = at::randn({8, 16}, options);
+  auto t1 = at::randint(0, 5, {8}, options_2);
+
+  KernelArgumentHolder outputs_no_pass, outputs_with_pass;
+  {
+    auto new_fusion = std::make_unique<Fusion>(fusion);
+    OptimizationPassGuard<MoveGatherPass> guard(false);
+    FusionExecutorCache executor_cache(std::move(new_fusion));
+    outputs_no_pass = executor_cache.runFusionWithInputs({t0, t1});
+  }
+
+  // Now run with the pass and check outputs match.
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  outputs_with_pass = executor_cache.runFusionWithInputs({t0, t1});
+  EXPECT_TRUE(outputs_with_pass[0].as<at::Tensor>().equal(
+      outputs_no_pass[0].as<at::Tensor>()));
+
+  auto exprs = executor_cache.getMostRecentKernelRuntime()
+                   ->fusionSegments()
+                   ->completeFusion()
+                   ->exprs();
+  // Has take Along axis
+  // lookupTv is now a fusion input and of type bfloat16
+  auto gather_ops = ir_utils::filterByType<GatherOp>(exprs);
+  EXPECT_EQ(gather_ops.size(), 1);
+  auto gather_op = gather_ops.vector().at(0);
+  auto lookupTv = gather_op->lookupTv();
+  EXPECT_TRUE(lookupTv->isFusionInput());
+
+  auto squeeze_ops = ir_utils::filterByType<SqueezeOp>(exprs).vector();
+  std::vector<SqueezeOp*> new_squeeze_ops;
+
+  // The cast op after gather op should be a new cast op
+  // with a broadcast domain and dtype of float
+  std::copy_if(
+      squeeze_ops.begin(),
+      squeeze_ops.end(),
+      std::back_inserter(new_squeeze_ops),
+      [gather_op](SqueezeOp* op) {
+        std::cout << op->toString() << std::endl;
+        return op->input(0) == gather_op->output(0);
+      });
+  EXPECT_EQ(new_squeeze_ops.size(), 1);
 }
 
 struct MatmulInputShape {
