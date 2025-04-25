@@ -842,6 +842,43 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
+class FindMultiplePathsToResize : public ValGraphPermissiveBFS {
+ public:
+  static bool run(
+      const ValGraph& graph,
+      const ValGroups& ref_groups,
+      Resize* resize) {
+    ValGroups resize_in_out_groups;
+    resize_in_out_groups.pushBack(graph.toGroup(resize->in()));
+    resize_in_out_groups.pushBack(graph.toGroup(resize->out()));
+    FindMultiplePathsToResize bfs(
+        graph, ref_groups, resize_in_out_groups, resize);
+    bfs.traverse();
+    return bfs.allToNodesVisited();
+  }
+
+  FindMultiplePathsToResize(
+      const ValGraph& graph,
+      const ValGroups& ref_groups,
+      const ValGroups& resize_in_out_groups,
+      Resize* resize)
+      : ValGraphPermissiveBFS(
+            graph,
+            {ref_groups.begin(), ref_groups.end()},
+            {resize_in_out_groups.begin(), resize_in_out_groups.end()},
+            /*require_all_to_visited=*/false,
+            /*allowed_direction=*/Direction::Undefined),
+        resize_(resize) {}
+
+  bool excludeFromTraversal(const NodeType& node) const override {
+    const ExprGroup* e = std::get_if<ExprGroup>(&node);
+    return e != nullptr && (*e)->has(resize_);
+  }
+
+ private:
+  Resize* resize_ = nullptr;
+};
+
 // This is a WAR for vectorizing through resized iter domains. The
 // spanning tree based analysis is not guaranteed to take all resize
 // ops into considerations (issue
@@ -850,12 +887,8 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
 // TV ops.
 std::unordered_set<Val*> getResizeVectorizationFactors(
     TensorView* ref_tv,
-    const std::vector<TensorView*>& vectorizable_inputs_outputs) {
-  if (vectorizable_inputs_outputs.empty()) {
-    return {};
-  }
-
-  Fusion* fusion = vectorizable_inputs_outputs.front()->fusion();
+    int64_t break_point) {
+  Fusion* fusion = ref_tv->fusion();
 
   auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
 
@@ -863,77 +896,37 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     return {};
   }
 
-  std::vector<TensorView*> vectorized_inputs;
-  std::ranges::copy_if(
-      vectorizable_inputs_outputs,
-      std::back_inserter(vectorized_inputs),
-      [](Val* inp_out) { return inp_out->isFusionInput(); });
-
-  if (vectorized_inputs.empty()) {
-    return {};
-  }
-
-  std::unordered_set<TensorView*> resize_output_tvs;
-  std::ranges::transform(
-      resize_based_ops,
-      std::inserter(resize_output_tvs, resize_output_tvs.begin()),
-      [](Expr* expr) { return expr->output(0)->as<TensorView>(); });
-
-  auto getResizeOutTvs = [&](const std::deque<Val*>& dep_chain) {
-    VectorOfUniqueEntries<TensorView*> dep_resize_out_tvs;
-    for (const auto& val : dep_chain) {
-      if (val->isA<TensorView>() &&
-          resize_output_tvs.contains(val->as<TensorView>())) {
-        dep_resize_out_tvs.pushBack(val->as<TensorView>());
-      }
-    }
-    return dep_resize_out_tvs;
-  };
-
   std::unordered_set<Val*> resize_factors;
 
-  auto add_resize_factors = [&](TensorView* resize_out) {
-    for (const auto& logical_id : resize_out->getLogicalDomain()) {
-      auto resize = dynamic_cast<Resize*>(logical_id->definition());
-      if (resize != nullptr) {
-        if (!resize->leftExpand()->isZeroInt()) {
-          resize_factors.insert(resize->leftExpand());
-        }
-        if (!resize->rightExpand()->isZeroInt()) {
-          resize_factors.insert(resize->rightExpand());
-        }
-      }
+  auto add_resize_factors = [&](Resize* resize) {
+    if (!resize->leftExpand()->isZeroInt()) {
+      resize_factors.insert(resize->leftExpand());
+    }
+    if (!resize->rightExpand()->isZeroInt()) {
+      resize_factors.insert(resize->rightExpand());
     }
   };
 
-  for (auto vec_inp : vectorized_inputs) {
-    std::cerr << "Checking vec inp: " << vec_inp->toString() << "\n";
-    auto all_dep_chains =
-        DependencyCheck::getAllDependencyChains(vec_inp, ref_tv);
+  IdModel id_model(fusion);
+  const auto& graph = id_model.buildExactGraph();
 
-    if (all_dep_chains.size() < 2) {
-      continue;
-    }
+  const ValGroups ref_vec_groups = graph.toGroups(std::vector<Val*>{
+      ref_tv->getLogicalDomain().begin() + break_point,
+      ref_tv->getLogicalDomain().end()});
 
-    // Check if all of the chains have the same effects by the Resize
-    // ID ops. Not very precise, but a crude approximation is that
-    const auto& first_chain = all_dep_chains.at(0);
-    const auto& first_chain_resize_out_tvs = getResizeOutTvs(first_chain);
-    for (const auto& dep_chain : all_dep_chains | std::views::drop(1)) {
-      const auto& dep_resize_out_tvs = getResizeOutTvs(dep_chain);
-      if (first_chain_resize_out_tvs != dep_resize_out_tvs) {
-        // Potential mismatch. This does not always mean there's a
-        // mismatch.
-        for (const auto& first_chain_tv : first_chain_resize_out_tvs) {
-          if (!dep_resize_out_tvs.has(first_chain_tv)) {
-            add_resize_factors(first_chain_tv);
-          }
-        }
-        for (const auto& dep_chain_tv : dep_resize_out_tvs) {
-          if (!first_chain_resize_out_tvs.has(dep_chain_tv)) {
-            add_resize_factors(dep_chain_tv);
-          }
-        }
+  for (auto resize : resize_based_ops) {
+    auto resize_out_tv = resize->output(0)->as<TensorView>();
+    for (const auto logical_id : resize_out_tv->getLogicalDomain()) {
+      auto resize = dynamic_cast<Resize*>(logical_id->definition());
+      if (resize == nullptr) {
+        continue;
+      }
+
+      bool multiple_path_found =
+          FindMultiplePathsToResize::run(graph, ref_vec_groups, resize);
+      if (multiple_path_found) {
+        // std::cerr << "Multiple path found with " << resize->toString();
+        add_resize_factors(resize);
       }
     }
   }
@@ -981,10 +974,9 @@ int64_t getVectorizationFactor(
 
   auto resize_factors_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationFactors>(
-          data_cache, [&reference_tv, vectorizable_inputs_outputs]() {
+          data_cache, [&reference_tv, &break_point]() {
             return std::make_unique<std::unordered_set<Val*>>(
-                getResizeVectorizationFactors(
-                    reference_tv, vectorizable_inputs_outputs));
+                getResizeVectorizationFactors(reference_tv, break_point));
           });
 
   const auto& resize_factors = resize_factors_entry.get();
@@ -1028,7 +1020,7 @@ int64_t getVectorizationFactor(
         max_vec_size);
   }
 
-  std::cerr << "Vec factor pre: " << max_vec_size << "\n";
+  // std::cerr << "Vec factor pre: " << max_vec_size << "\n";
 
   // This is a WAR for vectorization through resize as the spanning
   // tree based traversal is not guaranteed to reflect all resize ops
@@ -1046,9 +1038,6 @@ int64_t getVectorizationFactor(
     }
     max_vec_size = std::gcd(max_vec_size, inferred_val_int);
   }
-
-  std::cerr << "Ref: " << reference_tv->toString() << "\n";
-  std::cerr << "Break point: " << break_point << "\n";
 
   return max_vec_size;
 }
