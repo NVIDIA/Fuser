@@ -3733,12 +3733,10 @@ class PreferredMergeCandidatePicker {
         candidates_.emplace_back(group, *neighbor_to_merge);
         continue;
       }
-      if (!getenv("DISABLE_PREFER_PAD")) {
-        if (auto neighbor_to_merge = mergePadWithConsumers(group);
-            neighbor_to_merge.has_value()) {
-          candidates_.emplace_back(group, *neighbor_to_merge);
-          continue;
-        }
+      if (auto neighbor_to_merge = mergePadWithConsumers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
+        continue;
       }
     }
   }
