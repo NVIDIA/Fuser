@@ -842,7 +842,24 @@ std::vector<std::unordered_map<TensorView*, Val*>> getTvToContigInnerSizeMapsOf(
   return mappers;
 }
 
-class FindMultiplePathsToResize : public ValGraphPermissiveBFS {
+// Check if a traversal from vectorized reference IDs may reach the
+// IDs of a resize expr without visiting the Resize expr itself. That's
+// problematic for the vectorization analysis as the spanning-tree
+// based analysis may miss the constraint by the Resize expr.
+//
+// For this analysis, we start a traversal from the vectorized
+// reference IDs to both the input and output of the Resize expr but
+// disallow visiting the Resize expr itself. If the traversal is still
+// successful, it means there's a path from the reference IDs to the
+// resize input and output IDs without visiting the Resize expr.
+//
+// Permissive BFS is used in this traversal as the vectorized
+// reference IDs may not have all the dependencies for the
+// traversal. For example, suppose there's a split resshape, and only
+// the innermost ID is vectorized. The standard BFS is not able to
+// move forward if only the vectorized ID is give as the backward
+// split requires both outputs to be presented.
+class CanSkipResize : public ValGraphPermissiveBFS {
  public:
   static bool run(
       const ValGraph& graph,
@@ -851,13 +868,12 @@ class FindMultiplePathsToResize : public ValGraphPermissiveBFS {
     ValGroups resize_in_out_groups;
     resize_in_out_groups.pushBack(graph.toGroup(resize->in()));
     resize_in_out_groups.pushBack(graph.toGroup(resize->out()));
-    FindMultiplePathsToResize bfs(
-        graph, ref_groups, resize_in_out_groups, resize);
+    CanSkipResize bfs(graph, ref_groups, resize_in_out_groups, resize);
     bfs.traverse();
     return bfs.allToNodesVisited();
   }
 
-  FindMultiplePathsToResize(
+  CanSkipResize(
       const ValGraph& graph,
       const ValGroups& ref_groups,
       const ValGroups& resize_in_out_groups,
@@ -883,18 +899,20 @@ class FindMultiplePathsToResize : public ValGraphPermissiveBFS {
 // spanning tree based analysis is not guaranteed to take all resize
 // ops into considerations (issue
 // https://github.com/NVIDIA/Fuser/issues/3640). To workaround the
-// limitation, grab all input and output tensors of all resize-based
-// TV ops.
+// limitation, grab all factors that must be divisible by a
+// vectorization factors.
 std::unordered_set<Val*> getResizeVectorizationFactors(
-    TensorView* ref_tv,
+    TensorView* reference_tv,
     int64_t break_point) {
-  Fusion* fusion = ref_tv->fusion();
-
-  auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
+  Fusion* fusion = reference_tv->fusion();
+  const auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
 
   if (resize_based_ops.empty()) {
     return {};
   }
+
+  IdModel id_model(fusion);
+  const auto& graph = id_model.buildExactGraph();
 
   std::unordered_set<Val*> resize_factors;
 
@@ -907,13 +925,13 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
     }
   };
 
-  IdModel id_model(fusion);
-  const auto& graph = id_model.buildExactGraph();
-
   const ValGroups ref_vec_groups = graph.toGroups(std::vector<Val*>{
-      ref_tv->getLogicalDomain().begin() + break_point,
-      ref_tv->getLogicalDomain().end()});
+      reference_tv->getLogicalDomain().begin() + break_point,
+      reference_tv->getLogicalDomain().end()});
 
+  // For each of Resize exprs, if it's reachable from the reference
+  // vectorized IDs without visiting the Resize expr itself, its
+  // constraint may not be reflectd in the inner sizes.
   for (auto resize : resize_based_ops) {
     auto resize_out_tv = resize->output(0)->as<TensorView>();
     for (const auto logical_id : resize_out_tv->getLogicalDomain()) {
@@ -922,9 +940,7 @@ std::unordered_set<Val*> getResizeVectorizationFactors(
         continue;
       }
 
-      bool multiple_path_found =
-          FindMultiplePathsToResize::run(graph, ref_vec_groups, resize);
-      if (multiple_path_found) {
+      if (CanSkipResize::run(graph, ref_vec_groups, resize)) {
         add_resize_factors(resize);
       }
     }
