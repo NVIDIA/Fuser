@@ -107,10 +107,20 @@ KernelArgumentHolder ExprEvalExecutor::run(
         " and expects that the outputs are not populated, which they were.");
     if (outputs.empty()) {
       for (const auto& out_val : fusion_->outputs()) {
-        auto out_tensor =
-            expr_eval.evaluate(out_val->as<TensorView>()).as<at::Tensor>();
-        expr_eval.bind(out_val, out_tensor);
-        outputs.push(out_tensor);
+        // Evaluate based on the actual type of the output Val
+        PolymorphicValue result = expr_eval.evaluate(out_val);
+        NVF_ERROR(
+            result.hasValue(),
+            "Failed to evaluate output: ",
+            out_val->toString());
+
+        // Bind the evaluated result (needed if outputs are used by later exprs)
+        // TODO: Check if binding is strictly necessary if only returning final
+        // outputs
+        expr_eval.bind(out_val, result);
+
+        // Push the result to the output holder
+        outputs.push(result);
       }
     }
   }
@@ -987,6 +997,7 @@ KernelArgumentHolder KernelExecutor::run(
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
   FUSER_PERF_SCOPE("KernelExecutor::runFusion");
+  std::cout << "[EXEC DEBUG] Entering KernelExecutor::run" << std::endl;
 
   if (isProfilerEnabled()) {
     NVF_CHECK(

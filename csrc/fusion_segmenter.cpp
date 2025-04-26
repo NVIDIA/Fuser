@@ -4113,21 +4113,7 @@ void SegmentCandidateFinder::findSegments() {
   segmented_fusion_->completeFusion()->printMath();
 
   buildInitialSegments();
-  std::cout << "After buildInitialSegments" << std::endl;
-  for (auto group : groups()) {
-    std::cout << "======================" << std::endl;
-    std::cout << "Group: " << toString(group) << std::endl;
-    for (auto inp : group->input_vals_) {
-      std::cout << "  Input: " << inp->toString() << std::endl;
-    }
-    for (auto out : group->output_vals_) {
-      std::cout << "  Output: " << out->toString() << std::endl;
-    }
-    for (auto expr : group->exprs()) {
-      std::cout << "  Expr: " << expr->toString() << std::endl;
-    }
-  }
-  // NVF_THROW("Stop");
+
   validateIfDebug();
 
   auto has_welford_ops =
@@ -4201,37 +4187,22 @@ void SegmentCandidateFinder::findSegments() {
 
   validateIfDebug();
 
-  std::cout << "After Merging" << std::endl;
-  for (auto group : groups()) {
-    std::cout << "======================" << std::endl;
-    std::cout << "Group: " << toString(group) << std::endl;
-    for (auto inp : group->input_vals_) {
-      std::cout << "  Input: " << inp->toString() << std::endl;
-    }
-    for (auto out : group->output_vals_) {
-      std::cout << "  Output: " << out->toString() << std::endl;
-    }
-    for (auto expr : group->exprs()) {
-      std::cout << "  Expr: " << expr->toString() << std::endl;
-    }
-  }
-
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-  std::cout << "After resolveForwardedInputs" << std::endl;
-  for (auto group : groups()) {
-    std::cout << "======================" << std::endl;
-    std::cout << "Group: " << toString(group) << std::endl;
-    for (auto inp : group->input_vals_) {
-      std::cout << "  Input: " << inp->toString() << std::endl;
-    }
-    for (auto out : group->output_vals_) {
-      std::cout << "  Output: " << out->toString() << std::endl;
-    }
-    for (auto expr : group->exprs()) {
-      std::cout << "  Expr: " << expr->toString() << std::endl;
-    }
-  }
+  // std::cout << "After resolveForwardedInputs" << std::endl;
+  // for (auto group : groups()) {
+  //   std::cout << "======================" << std::endl;
+  //   std::cout << "Group: " << toString(group) << std::endl;
+  //   for (auto inp : group->input_vals_) {
+  //     std::cout << "  Input: " << inp->toString() << std::endl;
+  //   }
+  //   for (auto out : group->output_vals_) {
+  //     std::cout << "  Output: " << out->toString() << std::endl;
+  //   }
+  //   for (auto expr : group->exprs()) {
+  //     std::cout << "  Expr: " << expr->toString() << std::endl;
+  //   }
+  // }
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
   // from fusion inputs may be shared in multiple groups.
@@ -4243,22 +4214,6 @@ void SegmentCandidateFinder::findSegments() {
   finalize();
 
   for (auto group : groups()) {
-    // I don't understand why but we're getting some duplicate inputs for the
-    // following segment: Group: pointwise{0} Inputs:
-    //   T0_g_float[iS0{2}, iS1{3}]
-    // Outputs:
-    //   T1_g_float[iS2{2}, iS3{3}]
-
-    // %kernel_math {
-    // T1_g_float[iS2{2}, iS3{3}]
-    //    = T0_g_float[iS0{2}, iS1{3}]
-    //    + T0_g_float[iS0{2}, iS1{3}];
-    // } // %kernel_math
-    // It's listing T0 as an input twice. For now WAR with deduplicating the
-    // inputs.
-    //
-    // TODO: Figure out what's happening in segmentation to make sure this
-    // doesn't happen.
     group->input_vals_ =
         VectorOfUniqueEntries<Val*>(group->input_vals_).vector();
   }
@@ -4270,11 +4225,7 @@ void SegmentCandidateFinder::findSegments() {
     segmented_fusion_->draw();
   }
 
-  // **** ADD DEBUG PRINT HERE ****
-  std::cout << "========= FINAL SEGMENTED FUSION STATE =========" << std::endl;
-  segmented_fusion_->print(); // Use existing print method which uses operator<<
-  std::cout << "================================================" << std::endl;
-  // **** END DEBUG PRINT ****
+  segmented_fusion_->print();
 
 } // End of SegmentCandidateFinder::findSegments
 
@@ -4581,12 +4532,6 @@ void SegmentCandidateFinder::forwardInputs() {
 
 void SegmentCandidateFinder::cleanupForwardedInputs() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::cleanupForwardedInputs");
-  // Ensure previous debug prints are removed.
-  // The loop and eraseGroups call were already removed.
-
-  // Clear the tracking data structures
-  // REMOVED: std::cout << "[DEBUG] Clearing forwarding data structures." <<
-  // std::endl;
   excluded_inp_unary_exprs_ = {};
   excluded_inp_unary_exprs_ = {};
   forwarded_fusion_inputs_.clear();
@@ -4685,22 +4630,6 @@ void SegmentCandidateFinder::resolveForwardedInput(Val* forwarded_input) {
       NVF_ERROR(to_merge_.empty());
       to_merge_.push_back(input_group);
       to_merge_.push_back(consumer);
-      // std::cout << "MergeNodes fifth" << std::endl;
-      // auto merged_group = mergeNodes();
-      //   std::cout << "--------------------------------" << std::endl;
-      //   std::cout << toString(merged_group) << std::endl;
-      //   std::cout << "Inputs: " << std::endl;
-      //   for (auto inp : merged_group->input_vals_) {
-      //     std::cout << toString(inp) << std::endl;
-      //   }
-      //   std::cout << "Exprs: " << std::endl;
-      //   for (auto expr : merged_group->exprs()) {
-      //     std::cout << toString(expr) << std::endl;
-      //   }
-      //   std::cout << "Outputs: " << std::endl;
-      //   for (auto out : merged_group->output_vals_) {
-      //     std::cout << toString(out) << std::endl;
-      //   }
     }
   }
 }

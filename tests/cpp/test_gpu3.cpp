@@ -9113,7 +9113,12 @@ TEST_F(NVFuserTest, FusionScalarUnarySegmentation_CUDA) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, d0, d1, d2});
-  testValidate(fusion.get(), cg_outputs, {t0, d0, d1, d2}, __LINE__, __FILE__);
+  testValidate(
+      executor_cache.fusion(),
+      cg_outputs,
+      {t0, d0, d1, d2},
+      __LINE__,
+      __FILE__);
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.
