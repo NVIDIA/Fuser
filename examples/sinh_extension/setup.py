@@ -24,7 +24,7 @@ flatbuffers_dir = os.path.join(
 )
 
 nvfuser_lib_dir = str(
-    pathlib.Path(importlib.util.find_spec("nvfuser").origin).parent / "lib"
+    pathlib.Path(importlib.util.find_spec("nvfuser_common").origin).parent / "lib"
 )
 
 setup(
