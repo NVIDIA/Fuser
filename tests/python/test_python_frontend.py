@@ -923,7 +923,7 @@ class TestNvFuserFrontend(NVFuserTest):
         self.assertEqual(eager_out, nvf_out[0])
 
     def test_python_version_API(self):
-        from nvfuser.nvfuser_version import Version
+        from nvfuser_common.nvfuser_version import Version
 
         self.assertTrue(version() > "0.0.0")
         self.assertTrue(version() > Version("0.0.0"))
