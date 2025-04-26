@@ -11,6 +11,7 @@ nvfuser_comon/lib
 nvfuser_common/share
 nvfuser_common/cmake
 
+python/build
 python/nvfuser_common/build
 python/nvfuser_common/version.py
 python/nvfuser_common/include
@@ -23,6 +24,7 @@ python/nvfuser_common/cmake
 **/__pycache__
 */*.so
 python/nvfuser/*.so
+python/nvfuser_next/*.so
 
 # Editor temporaries
 *.swa
