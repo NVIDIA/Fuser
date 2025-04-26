@@ -10,38 +10,50 @@
     *   This allows merges resulting in purely scalar groups (targeted for host execution) to pass the schedulability check.
 
 2.  **`buildInitialSegments`:**
-    *   This function correctly creates initial `SegmentedGroup`s for individual scalar expressions, treating them like tensor expressions. Scalar dependencies are tracked via `SegmentedEdge`s from the start. Only true `Fusion` inputs are initially added to `input_vals_`.
+    *   This function correctly creates initial `SegmentedGroup`s for individual scalar expressions, treating them like tensor expressions. Scalar dependencies are tracked via `SegmentedEdge`s from the start.
 
 3.  **Removal of Explicit Scalar Duplication Logic:**
-    *   The previous mechanism for duplicating scalar computations into GPU segments (`SegmentCandidateFinder::resolveScalarsInGroup`) has been removed.
-    *   Other special handling (like `removeScalarEdges`) has also been removed.
+    *   The previous mechanism for duplicating scalar computations into GPU segments was removed.
 
 4.  **Finalization (`SegmentedGroup::finalize`, `SegmentedFusion::makeFusion`):**
     *   The finalization process now treats inter-segment dependencies uniformly for scalars and tensors.
-    *   When `SegmentedFusion::makeFusion` creates the standalone `Fusion` for a segment, it correctly marks `Val`s (scalar or tensor) defined in *other* segments as inputs to the new `Fusion`.
-    *   This leverages nvFuser's Input/Output Boundary Principle, preventing the inclusion or traversal of defining expressions from outside the segment and thus avoiding computation duplication.
-5.  **Input Value Cleanup:** A cleanup pass was added to `SegmentCandidateFinder::finalize` to explicitly remove any `Val` from a group's `input_vals_` list if that `Val`'s defining expression exists within the same group's `exprs_` list. This corrects inconsistencies potentially introduced during merging.
+    *   `SegmentedFusion::makeFusion` correctly marks `Val`s (scalar or tensor) defined in *other* segments as inputs to the generated segment `Fusion`, preventing computation duplication.
+
+5.  **Input Value Cleanup:** The cleanup pass in `SegmentCandidateFinder::finalize` ensures `input_vals_` accurately reflects only true external dependencies for each group.
+
+6.  **`inferOutputSizes` Modification:**
+    *   Modified `csrc/runtime/allocations.cpp::inferOutputSizes`.
+    *   Instead of asserting all outputs must be `TensorView`, it now checks `output->isScalar()`.
+    *   For scalar outputs, it attempts `expr_eval.evaluate(output)` using the bound input arguments.
+    *   If evaluation succeeds, the computed `PolymorphicValue` (containing the actual scalar result) is added to the returned `KernelArgumentHolder`.
+    *   If evaluation fails (e.g., symbolic inputs not bound), it now throws an `NVF_ERROR`.
+
+7.  **`ExprEvalExecutor` Modification:**
+    *   Modified `csrc/runtime/executor.cpp::ExprEvalExecutor::run`.
+    *   Removed the assumption that all outputs are `TensorView`s.
+    *   It now correctly calls `expr_eval.evaluate(out_val)` on the output `Val` regardless of whether it's a Tensor or Scalar.
+    *   The resulting `PolymorphicValue` is pushed to the outputs `KernelArgumentHolder`.
 
 **Current Status:**
 
-*   The segmenter correctly creates initial scalar groups and tracks scalar edges.
-*   The schedulability check identifies and allows purely scalar segments to be formed and marked `SchedulerType::ExprEval`.
-*   The finalization step correctly respects segment boundaries for scalars (preventing duplication) and the **input metadata inconsistency previously observed appears resolved** thanks to the cleanup pass in `finalize`. The final printed segmentation graph shows correct inputs/outputs for the key segments.
-*   **New Issue:** The test now fails with a **Segmentation Fault (Signal 11)** after the segmentation process completes (as indicated by the final state print occurring before the crash). This suggests a problem *after* the graph structure is determined, likely involving:
-    *   Dangling pointers or use-after-free issues related to `SegmentedGroup` objects or `Val`/`Expr` objects during/after merging and erasure steps (`mergeNodes`, `eraseGroups`).
-    *   Incorrect state being passed to or used by downstream components (scheduler, code generator, runtime) due to subtle graph inconsistencies not caught by previous checks.
-*   The orphaned placeholder input groups for original global inputs still remain after segmentation, representing minor technical debt.
+*   **Success!** The segmenter correctly identifies and separates the scalar computation block into an `ExprEval` segment.
+*   Input forwarding correctly merges unary operations into the consuming GPU segment.
+*   The modified `inferOutputSizes` correctly computes the value of the scalar output during runtime setup.
+*   The modified `ExprEvalExecutor` correctly handles scalar outputs during execution.
+*   The `FusionScalarUnarySegmentation_CUDA` test now **passes**, successfully executing the segmented fusion and validating both the final tensor outputs and the added scalar output against reference values.
+*   The previous segmentation fault is resolved.
+*   The orphaned placeholder input groups for original global inputs still remain after segmentation, representing minor technical debt but not affecting correctness.
 
 **Outstanding Items:**
 
-*   **Debug Segmentation Fault:** Investigate the cause of the segfault. This likely requires using a debugger (GDB) to get a stack trace at the crash location or adding more fine-grained checks/prints around group merging, erasure, and the subsequent usage of the `SegmentedFusion` object by the runtime/scheduler. Focus on pointer validity and object lifetimes after graph manipulation, especially within `resolveForwardedInputs` and `mergeNodes`.
-*   **Runtime Host-to-GPU Scalar Value Passing (External):** While the segmentation logic now correctly defines the graph structure and input requirements, the runtime executor system must handle the actual process of passing scalar values between host and GPU segments. *(This component is assumed to be handled outside the segmentation logic itself).*
-*   **Cleanup Orphaned Placeholder Groups:** Implement logic (likely in `SegmentCandidateFinder::finalize`) to remove the empty placeholder groups associated with original fusion inputs that don't participate in forwarding.
-*   **Testing and Debugging:** Once the segfault is resolved, continue with broader testing.
+*   **Runtime Host-to-GPU Scalar Value Passing (External):** While the segmentation and execution logic correctly handle scalar values within the `PolymorphicValue` system, the *actual mechanism* for transferring a scalar value computed on the host (by `ExprEvalExecutor`) to be used as a parameter in a subsequent GPU kernel launch needs to be ensured by the overarching runtime system (likely already handled by `ArgumentManager` and `computeArgs`).
+*   **Cleanup Orphaned Placeholder Groups:** Implement logic (likely in `SegmentCandidateFinder::finalize` or `cleanupForwardedInputs`) to remove the empty placeholder groups associated with original fusion inputs that don't participate in forwarding.
+*   **Error Handling in `inferOutputSizes`:** The current approach throws an error if a scalar output cannot be evaluated during `inferOutputSizes`. While correct for this test (where inputs are concrete), consider if a fallback to a default value with a warning might be more robust in scenarios with unevaluated symbolic inputs, or if the error is acceptable.
+*   **Broader Testing:** Validate with more complex fusions involving different scalar types and interactions.
 
 ## Validation Case: `FusionScalarUnarySegmentation_CUDA`
 
-This test case is crucial for validating the scalar segmentation changes.
+This test case was crucial for validating the scalar segmentation changes.
 
 **Graph Structure:**
 
@@ -84,14 +96,17 @@ This test case is crucial for validating the scalar segmentation changes.
 
 **Importance of this Test Case:**
 
-*   Validates Scalar Segment Creation.
-*   Validates Boundary Handling (Scalar duplication is prevented, Input metadata is now correct).
-*   Tests Scalar/Tensor Interaction.
-*   Tests Duplication/Recomputation via input forwarding.
+*   Successfully validated scalar segment creation and execution via `ExprEvalExecutor`.
+*   Validated correct boundary handling and value propagation (scalar `d20`) between host and GPU segments.
+*   Validated correct handling of mixed tensor/scalar outputs from the fusion.
+*   Validated input forwarding remains functional alongside scalar segmentation.
 
-**Current Issues Logged:**
+**Resolved Issues:**
 
-1.  **Segmentation Fault:** The test crashes with Signal 11 after segmentation completes and the final state is printed. This points to issues in later stages (scheduling, codegen, runtime setup) likely caused by dangling pointers or memory issues resulting from the group manipulation during segmentation.
-2.  **Orphaned Placeholder Input Groups:** The initial placeholder groups created for the original scalar inputs (`d3, d4, d5` -> IDs 0, 1, 2) are not removed.
+1.  **Segmentation Fault:** Resolved by fixing `inferOutputSizes` and `ExprEvalExecutor` logic.
 
-**Next Step:** Debug the Segmentation Fault, likely using GDB to identify the exact point of failure after segmentation. Examine object lifetimes and pointer validity around the merge/erase operations. 
+**Remaining Minor Issues:**
+
+1.  **Orphaned Placeholder Input Groups:** The initial placeholder groups created for the original scalar inputs (`d3, d4, d5` -> IDs 0, 1, 2 in logs) are not removed, but do not affect the result.
+
+**Next Step:** Clean up orphaned placeholder groups and consider broader testing scenarios. 
