@@ -815,11 +815,6 @@ inline int64_t nLogicalDims(const TensorView* tv) {
 // reference IDs. Non-matching loop IDs are placed outermost positions.
 void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
 
-// Get a permutation vector to reorder a given domain
-std::vector<int64_t> reorderDomainLike(
-    const std::vector<IterDomain*>& domain,
-    const std::vector<IterDomain*>& ref);
-
 // If buffer_tv's definition is an upcast and the input to the cast is not a
 // fusion input, return input to the cast. Otherwise, return nullptr. Used to
 // recompute buffer_tv from its producer to save register/smem usage. Fusion
