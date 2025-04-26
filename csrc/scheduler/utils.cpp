@@ -2848,7 +2848,7 @@ std::vector<int64_t> reorderDomainLike(
   }
 
   NVF_ERROR(std::ranges::all_of(permutation, [&](int64_t pos) {
-    return pos >= 0 && pos < permutation.size();
+    return pos >= 0 && pos < (int64_t)permutation.size();
   }));
 
   return permutation;
