@@ -2958,8 +2958,7 @@ void IndexLowering::handle(const SliceOp* slice) {
   const auto in = lowerSrcIndex(slice->in(), slice->out());
   const auto out = lowerDstIndex(slice->out());
 
-  pushBack(IrBuilder::create<LoadStoreOp>(
-      LoadStoreOpType::Set, out, in, CacheOp::AllLevels));
+  pushBack(IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in));
   GpuLower::current()->propagateExprInfo(slice, back());
 }
 
