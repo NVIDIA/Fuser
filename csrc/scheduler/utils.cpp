@@ -2823,8 +2823,7 @@ std::vector<int64_t> reorderDomainLike(
     }
   }
 
-  // std::unordered_map<int64_t, int64_t> old2new;
-  std::vector<int64_t> permutation(domain_to_reorder.size(), 0);
+  std::vector<int64_t> permutation(domain_to_reorder.size(), -1);
 
   // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
@@ -2833,8 +2832,7 @@ std::vector<int64_t> reorderDomainLike(
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it == ordered_domain.end()) {
-      // old2new.emplace((int64_t)i, new_id_pos);
-      permutation.at(new_id_pos) = i;
+      permutation.at(i) = new_id_pos;
       ++new_id_pos;
     }
   }
@@ -2845,10 +2843,13 @@ std::vector<int64_t> reorderDomainLike(
     if (it != ordered_domain.end()) {
       int64_t new_pos =
           (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
-      // old2new.emplace((int64_t)i, new_pos);
-      permutation.at(new_pos) = i;
+      permutation.at(i) = new_pos;
     }
   }
+
+  NVF_ERROR(std::ranges::all_of(permutation, [&](int64_t pos) {
+    return pos >= 0 && pos < permutation.size();
+  }));
 
   return permutation;
 }
