@@ -14,6 +14,7 @@ namespace nvfuser {
 
 class IterDomain;
 class TensorView;
+class ViewOp;
 
 namespace scheduler_tools {
 
@@ -69,11 +70,26 @@ struct StaticRepeatInfo {
   std::unordered_set<TensorView*> repeat_tvs;
 };
 
+struct StaticRepeatingReshapeInfo {
+  // Root ID that is repeated
+  IterDomain* input_id = nullptr;
+  // Root ID that is originally an expanded broadcast
+  IterDomain* factor_id = nullptr;
+  // Logical repeated ID
+  IterDomain* output_id = nullptr;
+};
+
 // Check if the given tensor matches with the final reshape output
 // tensor of the repetition pattern and return the relevant
 // information about the detected pattern. Only a static repeat case
 // is considered.
 std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
+    TensorView* maybe_repeat_out_tv);
+
+std::optional<StaticRepeatingReshapeInfo> getMaybeStaticRepeatingReshapeInfo(
+    ViewOp* maybe_repeating_reshape);
+
+std::optional<StaticRepeatingReshapeInfo> getMaybeStaticRepeatingReshapeInfo(
     TensorView* maybe_repeat_out_tv);
 
 } // namespace scheduler_tools

@@ -312,6 +312,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Detect an ending repeat
   auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatInfo(ref_tv);
+  auto repeat_info =
+      scheduler_tools::getMaybeStaticRepeatingReshapeInfo(ref_tv);
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
@@ -351,36 +353,72 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // detected. The repeat ID then just remains there with no
   // scheduling.
   bool repeat_id_moved_to_outermost = false;
-  if (static_repeat_info.has_value()) {
-    NVF_ERROR(ref_tv == static_repeat_info->repeat_output_tv);
-    auto ref_repeat_id_it = std::find_if(
-        ref_tv->getLoopDomain().begin(),
-        ref_tv->getLoopDomain().end(),
-        [&](IterDomain* loop_id) {
-          return id_model->idGraph(IdMappingMode::EXACT)
-              .disjointValSets()
-              .strictAreMapped(loop_id, static_repeat_info->reshape_repeat_id);
-        });
-    // Gives up if the repeat ID is not found. Unclear if this could
-    // actually happen, though.
-    if (ref_repeat_id_it != ref_tv->getLoopDomain().end()) {
-      auto repeat_id_pos =
-          std::distance(ref_tv->getLoopDomain().begin(), ref_repeat_id_it);
-      NVF_ERROR(
-          repeat_id_pos >= outermost_pos,
-          "Unexpected to have DID-parallelized repeat axis: ",
-          static_repeat_info->reshape_repeat_id->toString());
+  if (!getenv("OLD")) {
+    if (repeat_info.has_value()) {
+      auto ref_factor_id_it = std::find_if(
+          ref_tv->getLoopDomain().begin(),
+          ref_tv->getLoopDomain().end(),
+          [&](IterDomain* loop_id) {
+            return id_model->idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(loop_id, repeat_info->factor_id);
+          });
+      // The factor ID should be found in the loop domain as the
+      // reshape should be cancelled at this point. Gives up if not.
+      if (ref_factor_id_it != ref_tv->getLoopDomain().end()) {
+        auto factor_id_pos =
+            std::distance(ref_tv->getLoopDomain().begin(), ref_factor_id_it);
+        NVF_ERROR(
+            factor_id_pos >= outermost_pos,
+            "Unexpected to have DID-parallelized repeat factor axis: ",
+            repeat_info->factor_id->toString());
 
-      // [DID, ..., repeat_id, ...]
-      //        ^
-      //        +--- outermost_pos
-      ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{repeat_id_pos, 0}});
-      ++outermost_pos;
-      // [repeat_id, DID, ...]
-      //                   ^
-      //                   +--- outermost_pos
+        // [DID, ..., repeat_factor_id, ...]
+        //        ^
+        //        +--- outermost_pos
+        ref_tv->reorder(
+            std::unordered_map<int64_t, int64_t>{{factor_id_pos, 0}});
+        ++outermost_pos;
+        // [repeat_factor_id, DID, ...]
+        //                         ^
+        //                         +--- outermost_pos
+        repeat_id_moved_to_outermost = true;
+      }
+    }
+  } else {
+    if (static_repeat_info.has_value()) {
+      NVF_ERROR(ref_tv == static_repeat_info->repeat_output_tv);
+      auto ref_repeat_id_it = std::find_if(
+          ref_tv->getLoopDomain().begin(),
+          ref_tv->getLoopDomain().end(),
+          [&](IterDomain* loop_id) {
+            return id_model->idGraph(IdMappingMode::EXACT)
+                .disjointValSets()
+                .strictAreMapped(
+                    loop_id, static_repeat_info->reshape_repeat_id);
+          });
+      // Gives up if the repeat ID is not found. Unclear if this could
+      // actually happen, though.
+      if (ref_repeat_id_it != ref_tv->getLoopDomain().end()) {
+        auto repeat_id_pos =
+            std::distance(ref_tv->getLoopDomain().begin(), ref_repeat_id_it);
+        NVF_ERROR(
+            repeat_id_pos >= outermost_pos,
+            "Unexpected to have DID-parallelized repeat axis: ",
+            static_repeat_info->reshape_repeat_id->toString());
 
-      repeat_id_moved_to_outermost = true;
+        // [DID, ..., repeat_id, ...]
+        //        ^
+        //        +--- outermost_pos
+        ref_tv->reorder(
+            std::unordered_map<int64_t, int64_t>{{repeat_id_pos, 0}});
+        ++outermost_pos;
+        // [repeat_id, DID, ...]
+        //                   ^
+        //                   +--- outermost_pos
+
+        repeat_id_moved_to_outermost = true;
+      }
     }
   }
 
