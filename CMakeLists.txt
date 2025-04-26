@@ -562,6 +562,7 @@ if(BUILD_PYTHON)
   list(APPEND NVFUSER_PYTHON_NEXT_SRCS
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/extension.cpp
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/bindings.cpp
+    ${NVFUSER_PYTHON_NEXT_BINDINGS}/ir.cpp
   )
   add_library(nvf_py_next_internal OBJECT ${NVFUSER_PYTHON_NEXT_SRCS})
 
