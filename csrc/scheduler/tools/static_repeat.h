@@ -55,22 +55,6 @@ namespace scheduler_tools {
 // schedulers.
 
 struct StaticRepeatInfo {
-  // The final output tensor of the detected repeat pattern, e.g.,
-  // t3 in the above example case.
-  TensorView* repeat_output_tv = nullptr;
-  // The reshape output tensor, e.g., t3 in the above example case. It
-  // is not the same as repeat_output_tv when there's a cache.
-  TensorView* reshape_output_tv = nullptr;
-  // The ID of reshape output TV that corresponds to the
-  // expanded broadcast ID. In the above example case, this
-  // would be the root ID of t3 that corresponds to b2
-  IterDomain* reshape_repeat_id = nullptr;
-  // Output tensors of the detected broadcast, expand and reshape
-  // ops. In the above example case, this would consist of t1, t2 and t3.
-  std::unordered_set<TensorView*> repeat_tvs;
-};
-
-struct StaticRepeatingReshapeInfo {
   // Root ID that is repeated
   IterDomain* input_id = nullptr;
   // Root ID that is originally an expanded broadcast
@@ -83,13 +67,8 @@ struct StaticRepeatingReshapeInfo {
 // tensor of the repetition pattern and return the relevant
 // information about the detected pattern. Only a static repeat case
 // is considered.
+
 std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
-    TensorView* maybe_repeat_out_tv);
-
-std::optional<StaticRepeatingReshapeInfo> getMaybeStaticRepeatingReshapeInfo(
-    ViewOp* maybe_repeating_reshape);
-
-std::optional<StaticRepeatingReshapeInfo> getMaybeStaticRepeatingReshapeInfo(
     TensorView* maybe_repeat_out_tv);
 
 } // namespace scheduler_tools
