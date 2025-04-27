@@ -15,6 +15,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindFusionIr(nvfuser);
   bindRuntime(nvfuser);
   bindFusionDefinition(nvfuser);
+  nvfuser.def("translate_fusion", &translateFusion);
 }
 
 } // namespace nvfuser::python
