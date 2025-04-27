@@ -1322,7 +1322,6 @@ TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
-
   TensorView* in = makeContigTensor(ndims);
   TensorView* out = makeContigTensor(ndims - 1);
   auto* index_val = IrBuilder::create<Val>(index, DataType::Index);
@@ -1345,7 +1344,6 @@ TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
   auto ref_out = in_aten.select(dim, index);
   EXPECT_TRUE(ref_out.equal(out_aten));
 }
-
 
 using HirSetTest = NVFuserTest;
 
