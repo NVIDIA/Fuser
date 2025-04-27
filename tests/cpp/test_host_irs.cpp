@@ -1322,6 +1322,7 @@ TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
 
+
   TensorView* in = makeContigTensor(ndims);
   TensorView* out = makeContigTensor(ndims - 1);
   auto* index_val = IrBuilder::create<Val>(index, DataType::Index);
@@ -1343,6 +1344,187 @@ TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
   // validate
   auto ref_out = in_aten.select(dim, index);
   EXPECT_TRUE(ref_out.equal(out_aten));
+}
+
+
+using HirSetTest = NVFuserTest;
+
+TEST_F(HirSetTest, HostIr) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeConcreteTensor(sizes);
+  auto* out = makeConcreteTensor(sizes);
+  auto* set = IrBuilder::create<LoadStoreOp>(LoadStoreOpType::Set, out, in);
+  hic->addInput(in);
+  hic->addInput(out);
+  hic->pushBackTopLevelExprs(set);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto in_aten = at::randn(sizes, options);
+  auto out_aten = at::empty(sizes, options);
+
+  hie.runWithInput({{in, in_aten}, {out, out_aten}});
+
+  EXPECT_TRUE(out_aten.equal(in_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << in_aten;
+}
+
+class HirBinaryOpTest : public NVFuserFixtureParamTest<BinaryOpType> {
+ protected:
+  at::Tensor executeBinaryOp(at::Tensor lhs, at::Tensor rhs) {
+    switch (GetParam()) {
+      case BinaryOpType::Add:
+        return lhs + rhs;
+      case BinaryOpType::Sub:
+        return lhs - rhs;
+      case BinaryOpType::Mul:
+        return lhs * rhs;
+      case BinaryOpType::Div:
+        return lhs / rhs;
+      default:
+        NVF_ERROR("Unsupported binary op type ", GetParam());
+        return at::Tensor();
+    }
+  }
+};
+
+TEST_P(HirBinaryOpTest, PreAllocatedOutputs) {
+  const std::vector<int64_t> sizes = {8, 64};
+  const auto& binary_op_type = GetParam();
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* lhs = makeConcreteTensor(sizes);
+  auto* rhs = makeConcreteTensor(sizes);
+  auto* out = makeConcreteTensor(sizes);
+  auto* binary_op = IrBuilder::create<BinaryOp>(binary_op_type, out, lhs, rhs);
+  hic->addInput(lhs);
+  hic->addInput(rhs);
+  hic->addInput(out);
+  hic->pushBackTopLevelExprs(binary_op);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto lhs_aten = at::randn(sizes, options);
+  auto rhs_aten = at::randn(sizes, options);
+  auto out_aten = at::empty(sizes, options);
+
+  hie.runWithInput({{lhs, lhs_aten}, {rhs, rhs_aten}, {out, out_aten}});
+
+  at::Tensor expected_out = executeBinaryOp(lhs_aten, rhs_aten);
+  EXPECT_TRUE(expected_out.equal(out_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
+}
+
+TEST_P(HirBinaryOpTest, NonPreAllocatedOutputs) {
+  const std::vector<int64_t> sizes = {8, 64};
+  const auto& binary_op_type = GetParam();
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* lhs = makeConcreteTensor(sizes);
+  auto* rhs = makeConcreteTensor(sizes);
+  auto* out = binaryOp(binary_op_type, lhs, rhs);
+  hic->addInput(lhs);
+  hic->addInput(rhs);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto lhs_aten = at::randn(sizes, options);
+  auto rhs_aten = at::randn(sizes, options);
+
+  auto out_aten =
+      hie.runWithInput({{lhs, lhs_aten}, {rhs, rhs_aten}})[0].as<at::Tensor>();
+
+  at::Tensor expected_out = executeBinaryOp(lhs_aten, rhs_aten);
+  EXPECT_TRUE(expected_out.equal(out_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
+}
+
+INSTANTIATE_TEST_SUITE_P(
+    ,
+    HirBinaryOpTest,
+    testing::Values(
+        BinaryOpType::Add,
+        BinaryOpType::Sub,
+        BinaryOpType::Mul,
+        BinaryOpType::Div),
+    [](const testing::TestParamInfo<BinaryOpType>& info) -> std::string {
+      std::stringstream ss;
+      ss << "BinaryOpType_" << info.param;
+      return ss.str();
+    });
+
+using HirReductionOpTest = NVFuserTest;
+
+TEST_F(HirReductionOpTest, PreAllocatedOutputs) {
+  constexpr int64_t size0 = 8, size1 = 64;
+  constexpr int64_t reduction_axis = 1;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeConcreteTensor({size0, size1});
+  auto* out = newForReduction(in, {reduction_axis}, in->dtype());
+  auto* reduction_op = IrBuilder::create<ReductionOp>(
+      BinaryOpType::Add, hic->zeroVal(), out, in);
+  hic->addInput(in);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(reduction_op);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto in_aten = at::randn({size0, size1}, options);
+  auto out_aten = at::empty({size0}, options);
+
+  hie.runWithInput({{in, in_aten}, {out, out_aten}});
+
+  at::Tensor expected_out = in_aten.sum(reduction_axis);
+  EXPECT_TRUE(expected_out.equal(out_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
+}
+
+TEST_F(HirReductionOpTest, NonPreAllocatedOutputs) {
+  constexpr int64_t size0 = 8, size1 = 64;
+  constexpr int64_t reduction_axis = 1;
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  auto* in = makeConcreteTensor({size0, size1});
+  auto* out = sum(in, {reduction_axis});
+  hic->addInput(in);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(out->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  auto in_aten = at::randn({size0, size1}, options);
+  auto out_aten = at::empty({size0}, options);
+
+  hie.runWithInput({{in, in_aten}, {out, out_aten}});
+
+  at::Tensor expected_out = in_aten.sum(reduction_axis);
+  EXPECT_TRUE(expected_out.equal(out_aten))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
 }
 
 } // namespace hir

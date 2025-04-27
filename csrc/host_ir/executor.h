@@ -134,6 +134,9 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp* matmul) override;
   void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
+  void handle(LoadStoreOp* load_store_op) override;
+  void handle(BinaryOp* binary_op) override;
+  void handle(ReductionOp* reduction_op) override;
   void handle(ShareMemHandles* share_mem_handles) override;
   void handle(HirAliasSelect* hir_alias_select) override;
   void unhandled(Statement* stmt) override;
