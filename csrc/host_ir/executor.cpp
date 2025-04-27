@@ -705,8 +705,6 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
   bind(tv, tensor);
 }
 
-<<<<<<< HEAD
-=======
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   auto index =
       expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
@@ -716,7 +714,6 @@ void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
   bind(hir_alias_select->out(), input.select(axis, index));
 }
 
->>>>>>> bfc7ba836400aa349fab473fa04bab204e9c5601
 void HostIrEvaluator::handle(BinaryOp* binary_op) {
   if (!isKnown(binary_op->outputs().at(0))) {
     return unhandled(binary_op);
@@ -789,18 +786,6 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   }
 }
 
-<<<<<<< HEAD
-void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
-  auto index =
-      expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
-  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
-                   .as<at::Tensor>();
-  int64_t axis = hir_alias_select->axis();
-  bind(hir_alias_select->out(), input.select(axis, index));
-}
-
-=======
->>>>>>> bfc7ba836400aa349fab473fa04bab204e9c5601
 void HostIrEvaluator::unhandled(Statement* stmt) {
   NVF_ERROR(stmt->isA<Expr>(), stmt, " must be an Expr");
   auto* expr = stmt->as<Expr>();
