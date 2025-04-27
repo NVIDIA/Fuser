@@ -119,10 +119,10 @@ void verifyShape(const std::vector<int64_t>& shape) {
   }
 }
 
-nvfuser::KernelArgumentHolder from_pyiterable(
+KernelArgumentHolder from_pyiterable(
     const py::iterable& iter,
     std::optional<int64_t> device) {
-  nvfuser::KernelArgumentHolder args;
+  KernelArgumentHolder args;
   for (py::handle obj : iter) {
     // Allows for a Vector of Sizes to be inputed as a list/tuple
     if (py::isinstance<py::list>(obj) || py::isinstance<py::tuple>(obj)) {
@@ -144,8 +144,7 @@ nvfuser::KernelArgumentHolder from_pyiterable(
   return args;
 }
 
-std::vector<at::Tensor> to_tensor_vector(
-    const nvfuser::KernelArgumentHolder& outputs) {
+std::vector<at::Tensor> to_tensor_vector(const KernelArgumentHolder& outputs) {
   // Convert outputs KernelArgumentHolder to std::vector<at::Tensor>
   std::vector<at::Tensor> out_tensors;
   out_tensors.reserve(outputs.size());
@@ -153,13 +152,11 @@ std::vector<at::Tensor> to_tensor_vector(
       outputs.begin(),
       outputs.end(),
       std::back_inserter(out_tensors),
-      [](const nvfuser::PolymorphicValue& out) {
-        return out.as<at::Tensor>();
-      });
+      [](const PolymorphicValue& out) { return out.as<at::Tensor>(); });
   return out_tensors;
 }
 
-const char* dtypeToPyString(nvfuser::PrimDataType t) {
+const char* dtypeToPyString(PrimDataType t) {
   using namespace nvfuser;
   switch (t) {
     case DataType::Bool:

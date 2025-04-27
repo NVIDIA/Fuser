@@ -22,6 +22,9 @@ void bindFusionIr(py::module& nvfuser);
 // Add direct bindings for Fusion and FusionExecutorCache
 void bindRuntime(py::module& nvfuser);
 
+// Add bindings for Enums
+void bindEnums(py::module& nvfuser);
+
 // Add bindings for FusionDefinition
 void bindFusionDefinition(py::module& nvfuser);
 
