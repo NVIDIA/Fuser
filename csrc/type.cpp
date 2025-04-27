@@ -1629,8 +1629,8 @@ std::ostream& operator<<(
     case CircularBufferLoopStage::Epilog:
       os << "{CircularBufferEpilog}";
       break;
-    case CircularBufferLoopStage::LoadWarp:
-      os << "{LoadWarp}";
+    case CircularBufferLoopStage::AsyncWarp:
+      os << "{AsyncWarp}";
       break;
     case CircularBufferLoopStage::ComputeWarp:
       os << "{ComputeWarp}";

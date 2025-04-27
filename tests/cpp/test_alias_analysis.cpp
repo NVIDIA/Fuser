@@ -270,7 +270,9 @@ TEST_F(AliasAnalysisTest, BroadcastExpandDimensions) {
   EXPECT_EQ(analysis.getRoot(expanded_tv), in);
 }
 
-TEST_F(AliasAnalysisTest, NoAliasForReshardingExprs) {
+// See PR: https://github.com/NVIDIA/Fuser/pull/4274
+// for alias analysis for resharding exprs
+TEST_F(AliasAnalysisTest, AliasForReshardingExprs) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
@@ -288,7 +290,7 @@ TEST_F(AliasAnalysisTest, NoAliasForReshardingExprs) {
   fusion.addOutput(out);
 
   AliasAnalysisResult analysis = findAliases(&fusion);
-  EXPECT_TRUE(analysis.getRoot(out) == nullptr);
+  EXPECT_TRUE(analysis.getRoot(out) == in);
 }
 
 } // namespace nvfuser

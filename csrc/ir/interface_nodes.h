@@ -192,7 +192,7 @@ class TVDomainGuard;
 //   if (threadIdx.y == blockDim.y - 1) {
 //     // If we use warp specialization on TIDy, then the blockDim.y of the
 //     // kernel will be (whatever_value_inferred_from_schedule + 1), and the
-//     // last threadIdx.y will be used as load warp
+//     // last threadIdx.y will be used as async warp
 //     for i in range(data.size):
 //       wait buffer[i % stage] to be empty
 //       load data[i] to buffer[i % stage]
@@ -256,7 +256,7 @@ struct WarpSpecialized {
     validate_num_registers(num_registers.value().second);
     NVF_ERROR(
         num_registers.value().first <= num_registers.value().second,
-        "The number of registers for load warp group must be <= to the number",
+        "The number of registers for async warp group must be <= to the number",
         " of registers for the compute warp groups.");
   }
 
