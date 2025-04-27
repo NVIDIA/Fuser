@@ -689,4 +689,4 @@ void bindRuntime(py::module& nvfuser) {
   bindKernelExecutor(nvfuser);
 }
 
-} // namespace nvfuser::python 
+} // namespace nvfuser::python
