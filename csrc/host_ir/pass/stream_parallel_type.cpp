@@ -18,7 +18,7 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 
-namespace nvfuser::preseg_passes {
+namespace nvfuser::hir {
 
 namespace {
 
@@ -437,4 +437,4 @@ void StreamParallelType::runPass(Fusion* fusion) {
   hic->resetTopLevelExprs(top_level_exprs);
 }
 
-} // namespace nvfuser::preseg_passes
+} // namespace nvfuser::hir

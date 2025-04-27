@@ -10,7 +10,7 @@
 #include <fusion.h>
 #include <preseg_passes/optimization_pass.h>
 
-namespace nvfuser::preseg_passes {
+namespace nvfuser::hir {
 
 // A pass used in HostIrLower that takes a HostIrContainer as input, reads the
 // TensorView's ParallelType::Stream, and modify the the HostIrContainer's top
@@ -22,8 +22,8 @@ namespace nvfuser::preseg_passes {
 // An illustration of the pass can be found in the tests
 // `test_host_ir_stream_lowering.cpp`
 // with the option `NVFUSER_DUMP=host_ir`.
-class StreamParallelType : public OptimizationPass<StreamParallelType> {
-  friend class OptimizationPass<StreamParallelType>;
+class StreamParallelType : public preseg_passes::OptimizationPass<StreamParallelType> {
+  friend class preseg_passes::OptimizationPass<StreamParallelType>;
 
  protected:
   static void runPass(Fusion* fusion);
@@ -32,4 +32,4 @@ class StreamParallelType : public OptimizationPass<StreamParallelType> {
   }
 };
 
-} // namespace nvfuser::preseg_passes
+} // namespace nvfuser::hir
