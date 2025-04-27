@@ -615,7 +615,33 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 }
 
 bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
-  return isResharding(expr);
+  if (expr->isOneOf<
+          MatmulOp,
+          SliceOp,
+          SelectOp,
+          LinearOp,
+          BinaryOp,
+          ReductionOp,
+          Communication,
+          P2PCommunication>()) {
+    return true;
+  }
+
+  // Lower as standalone op "set" ops, i.e., LoadStoreOp of "Set" type with no
+  // permute
+  if (expr->isA<LoadStoreOp>()) {
+    auto* load_store = expr->as<LoadStoreOp>();
+    if (load_store->opType() == LoadStoreOpType::Set &&
+        load_store->out()->isA<TensorView>()) {
+      auto* tv = load_store->out()->as<TensorView>();
+      // If the output tensor has no root, it means it has no permute
+      if (!tv->hasRoot()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 bool HostIrLower::shouldMergeSegmentedGroups(
