@@ -769,8 +769,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   }
   hic->resetTopLevelExprs(new_top_level_exprs);
 
-  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(
-      hic.get());
+  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(hic.get());
 
   return hic;
 }

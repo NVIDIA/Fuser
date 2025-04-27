@@ -771,7 +771,7 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
     }
   }
   switch (reduction_op->getReductionOpType()) {
-  case BinaryOpType::Add:
+    case BinaryOpType::Add:
       at::sum_out(output, input, reduction_axes);
       return;
     case BinaryOpType::Max:

@@ -455,8 +455,8 @@ std::pair<KernelArgumentHolder, std::vector<Sharding>> FusionDefinition::
         params.lower.communicator_backend = backend_type_;
         // Disable StreamParallelType pass temporarily as proper stream lowering
         // gets implemented
-        preseg_passes::OptimizationPassGuard<hir::StreamParallelType>
-            guard(false);
+        preseg_passes::OptimizationPassGuard<hir::StreamParallelType> guard(
+            false);
         scheds->multi_device_executor = std::make_unique<MultiDeviceExecutor>(
             std::make_unique<Fusion>(*scheds->preschedFusion()),
             Communicator::getInstance(),
