@@ -195,7 +195,6 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
   // M and N roles must be present and consecutive.
   if (params_->grid_traversal_factor.first > 1 &&
       params_->grid_traversal_factor.second > 1) {
-    // original: [I1, I2]
     NVF_ERROR(
         Mo_pos >= 0 || No_pos >= 0, "Either M or N role must be present.");
     NVF_ERROR(
@@ -207,9 +206,19 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
     bool is_N_right_of_M = No_pos > Mo_pos;
     const int64_t min_axis_pos = std::min(Mo_pos, No_pos);
 
+    // original: [M, N]
+    // split:   [M, N/second_factor, second_factor]
+    // split: [M/first_factor, first_factor, N/second_factor, second_factor]
+    // reorder: [M/first_factor, N/second_factor, first_factor,
+    // second_factor]
+    // merge:
+    // [M/first_factor * N/second_factor, first_factor, second_factor]
+    // merge:
+    // [M/first_factor * N/second_factor, first_factor * second_factor]
+
     // If N axis exists, then split by second grid traversal factor.
     if (is_N_present) {
-      // split:   [I1, I2/second_factor, second_factor]
+      // split:   [M, N/second_factor, second_factor]
       tv->split(No_pos, params_->grid_traversal_factor.second);
     }
     // If N is to the left of M, then shift M by 1 because of second factor.
@@ -219,8 +228,7 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
 
     // If M axis exists, then split by first grid traveral factor.
     if (is_M_present) {
-      // split:   [I1/first_factor, first_factor, I2/second_factor,
-      // second_factor]
+      // split: [M/first_factor, first_factor, N/second_factor, second_factor]
       tv->split(Mo_pos, params_->grid_traversal_factor.first);
     }
     // If N is to the right of M, then shift M by 1 because of the first factor.
@@ -230,16 +238,16 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
 
     if (is_N_present && is_M_present) {
       NVF_ERROR(min_axis_pos >= 0, "Both M and N roles must exist.");
-      // reorder: [I1/first_factor, I2/second_factor, first_factor,
+      // reorder: [M/first_factor, N/second_factor, first_factor,
       // second_factor]
       tv->reorder(
           {{min_axis_pos + 1, min_axis_pos + 2},
            {min_axis_pos + 2, min_axis_pos + 1}});
       // merge:
-      // [I1/first_factor * I2/second_factor, first_factor, second_factor]
+      // [M/first_factor * N/second_factor, first_factor, second_factor]
       tv->merge(min_axis_pos, min_axis_pos + 1);
       // merge:
-      // [I1/first_factor * I2/second_factor, first_factor * second_factor]
+      // [M/first_factor * N/second_factor, first_factor * second_factor]
       tv->merge(min_axis_pos + 1, min_axis_pos + 2);
     } else if (is_N_present) {
       // M is missing, so we skip the merge above. In this case we
