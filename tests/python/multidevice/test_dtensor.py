@@ -177,32 +177,25 @@ def test_column_parallel_linear(setup_default_process_group, multidevice_test):
     weight_dtensor = dist.tensor.distribute_tensor(weight_tensor, mesh, [Shard(0)])
     bias_dtensor = dist.tensor.distribute_tensor(bias_tensor, mesh, [Shard(0)])
 
-    # expected forward
-    out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor, bias_tensor)
-
-    # multidevice forward
-    out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor, bias_dtensor)
-
-    # # expected backward
-    # (expected_grad_x, expected_grad_w, expected_grad_b) = torch.autograd.grad(
-    #     out_tensor,
-    #     (inp_tensor, weight_tensor, bias_tensor),
-    #     torch.ones_like(out_tensor),
-    # )
-
-    # # multidevice backward
-    # (grad_x, grad_w, grad_b) = torch.autograd.grad(
-    #     out_dtensor,
-    #     (inp_dtensor, weight_dtensor, bias_dtensor),
-    #     torch.ones_like(out_dtensor),
-    # )
-
     def assert_close(expected_tensor, dtensor):
         torch.testing.assert_close(
             expected_tensor, dtensor.to_local().cpu(), rtol=1.3e-6, atol=1e-3
         )
 
+    out_tensor = torch.nn.functional.linear(inp_tensor, weight_tensor, bias_tensor)
+    out_dtensor = LinearFunction.apply(inp_dtensor, weight_dtensor, bias_dtensor)
     assert_close(out_tensor.split(e, dim=-1)[rank], out_dtensor)
-    # assert_close(expected_grad_x, grad_x)
-    # assert_close(multidevice_test.shard_tensor(expected_grad_w, -1, mesh), grad_w)
-    # assert_close(multidevice_test.shard_tensor(expected_grad_b, -1, mesh), grad_b)
+
+    (expected_grad_x, expected_grad_w, expected_grad_b) = torch.autograd.grad(
+        out_tensor,
+        (inp_tensor, weight_tensor, bias_tensor),
+        torch.ones_like(out_tensor),
+    )
+    (grad_x, grad_w, grad_b) = torch.autograd.grad(
+        out_dtensor,
+        (inp_dtensor, weight_dtensor, bias_dtensor),
+        torch.ones_like(out_dtensor),
+    )
+    assert_close(expected_grad_x, grad_x)
+    assert_close(expected_grad_w.split(e, dim=0)[rank], grad_w)
+    assert_close(expected_grad_b.split(e, dim=0)[rank], grad_b)
