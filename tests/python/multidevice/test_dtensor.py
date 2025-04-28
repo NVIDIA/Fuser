@@ -47,11 +47,14 @@ class FusionDefinitionWrapper:
 
                     self.sched._set_device_mesh(in_tensor, mesh)
 
-                    # Parallelize.
+                    # Split and parallelize.
                     assert len(in_dtensor.placements) == 1, "Expect a 1D mesh"
+                    # When the mesh is multi-dimensional, iterate through the
+                    # placements in descending order of Placement.dim.
                     placement: Placement = in_dtensor.placements[0]
                     if placement.is_shard():
                         dim = cast(Shard, placement).dim
+                        self.sched.split(in_tensor, dim, mesh.size, False)
                         self.sched.parallelize(
                             in_tensor, dim, nvfuser.ParallelType.mesh_x
                         )
