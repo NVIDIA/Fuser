@@ -158,6 +158,7 @@ void getHeuristics(
   rparams->fastest_dim = true;
   rparams->combined_inner_outer = true;
 
+  // TODO: This is a heuristic, need to be tuned.
   // Set circular buffer, n_stages and n_prefetch are tunable parameters.
   // n_stages is also limited by smem
   int64_t max_n_copies = (int64_t)dev_prop->sharedMemPerMultiprocessor /
@@ -172,6 +173,7 @@ void getHeuristics(
       .prefetch = n_prefetch};
   rparams->circular_buffer_options = circular_buffer_options;
 
+  // TODO: This is a heuristic, need to be tuned.
   // Iteration unroll factor, limited by:
   // (1) heuristic selection
   // (2) max possible due to smem limitation
@@ -578,9 +580,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     }
     // For smem consumers, set inline position to the same as tma load tvs.
     // This allows quick release the shared memory barrier to launch the
-    // next TMA load. Otherwise, the inline position is after Unroll axis.
-    // Which requires the tma tensor alive until the end of the computation and
-    // delays the next TMA load until the end of the computation.
+    // next TMA load. Otherwise, the inline position is to the right of the
+    // Unroll axis. Which requires the tma tensor alive until the end of the
+    // computation and delays the next TMA load until the end of the
+    // computation.
     for (auto tv : smem_consumers) {
       if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
         tv_inline_pos_map.emplace(tv, tma_inline_pos);
@@ -599,6 +602,14 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     CircularBufferType circular_buffer_type =
         rparams->circular_buffer_options.type;
     for (auto tv : tma_load_tvs) {
+      // Circular buffer requires a valid axis to circulate on, and only applies
+      // to TVs with a computeAt position. For example,  the weight tensor in
+      // RMS Norm Bwd is scheduled as:
+      // T36_s___bfloat[iB91{i2}]
+      //  logical domain : (iB91{i2})
+      //  contiguity: t
+      //  loop domain : (iB91{i2})
+      // There is no way to apply circular buffer to this tensor.
       if (tv->getComputeAtPosition() > 0) {
         tv->circularBuffer(
             number_of_stages, prefetch_distance, circular_buffer_type);

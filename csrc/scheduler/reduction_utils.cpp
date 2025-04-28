@@ -165,8 +165,6 @@ TensorView* scheduleReductionTV(
       vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
     if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
-      // inner_parallel(inner_reduce_axis,
-      // rparams->block_dim_inner_reduction);
       NVF_ERROR(
           rparams->static_bdimx,
           "blockDim.x must be static for combined_inner_outer");
