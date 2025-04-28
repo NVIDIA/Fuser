@@ -1511,12 +1511,10 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         insertion_position);
     warp_dispatch_ite->thenBody().push_back(load_loop);
 
-    if (enable_register_sharing) {
-      // Terminate the warp group handling Load loop immediately after
-      // finishing its work.
-      kir::Return* ret = IrBuilder::create<kir::Return>();
-      warp_dispatch_ite->thenBody().push_back(ret);
-    }
+    // Terminate the warp group handling Load loop immediately after
+    // finishing its work.
+    kir::Return* ret = IrBuilder::create<kir::Return>();
+    warp_dispatch_ite->thenBody().push_back(ret);
 
     // Prefetch:
     auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
