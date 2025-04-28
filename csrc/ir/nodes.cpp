@@ -2381,8 +2381,9 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
               out_tv->getRootDomain(), out_tv->getLogicalDomain());
       NVF_ERROR(
           permutation.has_value(),
-          "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
-          out_tv->toString());
+          "The logical domain of a Set.Permute is supposed to be a permutation"
+          " of the root domain: ",
+          out_tv);
       NVF_ERROR(inputs.size() == 1);
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
       at::Tensor out_tensor = in_tensor.permute(*permutation);
