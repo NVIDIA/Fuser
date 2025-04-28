@@ -2652,9 +2652,15 @@ std::optional<std::unique_ptr<HeuristicParams>> SegmentedGroup::
           /*skip_compile_time_checks=*/true)) {
     return std::nullopt;
   }
-  return SchedulerEntry::makeSchedulerInstance(schedulerType())
-      ->computeHeuristics(
-          runtime_info.fusion(), runtime_info, heuristic_data_cache);
+  auto scheduler_instance =
+      SchedulerEntry::makeSchedulerInstance(schedulerType());
+  // debug() << "[RUNTIME HEURISTICS] Scheduler instance: " << schedulerType()
+  // << std::endl;
+  auto heuristic_params = scheduler_instance->computeHeuristics(
+      runtime_info.fusion(), runtime_info, heuristic_data_cache);
+  // debug() << "[RUNTIME HEURISTICS] Heuristic params: " <<
+  // heuristic_params->toString() << std::endl;
+  return heuristic_params;
 }
 
 void SegmentedGroup::resetExprList() {
@@ -3886,8 +3892,18 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   // [DEBUG] Identify the specific groups
   bool is_sum_group = false; // Check if group1 or group2 is the Sum group
   bool is_add_group = false; // Check if group1 or group2 is the Add group
-  for(auto expr : group1->exprs()) { if (expr->name() == 15 || expr->name() == 16) is_sum_group = true; if (expr->name() == 17) is_add_group = true; }
-  for(auto expr : group2->exprs()) { if (expr->name() == 15 || expr->name() == 16) is_sum_group = true; if (expr->name() == 17) is_add_group = true; }
+  for (auto expr : group1->exprs()) {
+    if (expr->name() == 15 || expr->name() == 16)
+      is_sum_group = true;
+    if (expr->name() == 17)
+      is_add_group = true;
+  }
+  for (auto expr : group2->exprs()) {
+    if (expr->name() == 15 || expr->name() == 16)
+      is_sum_group = true;
+    if (expr->name() == 17)
+      is_add_group = true;
+  }
   // [END DEBUG]
 
   // The segmemter should ideally be redesigned to be more flexible and
@@ -3898,16 +3914,21 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
     return (options_.custom_should_merge_groups)(group1, group2);
   }
 
-  SchedulerType merge_result = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
+  SchedulerType merge_result =
+      tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
 
   // [DEBUG] Print result for the specific groups
   if (is_sum_group && is_add_group) {
-      debug() << "[DEBUG SEG] codeGenSupportedMerge (tryMerge) for Group(Sum+Bcast) [ID "
-              << (group1 == (is_sum_group ? group1 : group2) ? group1->groupId() : group2->groupId()) // Print Sum group ID
-              << "] and Group(Add) [ID "
-              << (group1 == (is_add_group ? group1 : group2) ? group1->groupId() : group2->groupId()) // Print Add group ID
-              << "] returned SchedulerType: " << merge_result
-              << ". Merge possible: " << (merge_result != SchedulerType::None) << std::endl;
+    // debug() << "[DEBUG SEG] codeGenSupportedMerge (tryMerge) for
+    // Group(Sum+Bcast) [ID "
+    //         << (group1 == (is_sum_group ? group1 : group2) ?
+    //         group1->groupId() : group2->groupId()) // Print Sum group ID
+    //         << "] and Group(Add) [ID "
+    //         << (group1 == (is_add_group ? group1 : group2) ?
+    //         group1->groupId() : group2->groupId()) // Print Add group ID
+    //         << "] returned SchedulerType: " << merge_result
+    //         << ". Merge possible: " << (merge_result != SchedulerType::None)
+    //         << std::endl;
   }
   // [END DEBUG]
 
@@ -4152,7 +4173,7 @@ void SegmentCandidateFinder::resolveForwardedInputs() {
 
 void SegmentCandidateFinder::findSegments() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::findSegments");
-  segmented_fusion_->completeFusion()->printMath();
+  // segmented_fusion_->completeFusion()->printMath();
 
   buildInitialSegments();
 
@@ -4228,36 +4249,36 @@ void SegmentCandidateFinder::findSegments() {
   }
 
   validateIfDebug();
-  std::cout << "Before resolveForwardedInputs" << std::endl;
-  for (auto group : groups()) {
-    std::cout << "======================" << std::endl;
-    std::cout << "Group: " << toString(group) << std::endl;
-    for (auto inp : group->input_vals_) {
-      std::cout << "  Input: " << inp->toString() << std::endl;
-    }
-    for (auto out : group->output_vals_) {
-      std::cout << "  Output: " << out->toString() << std::endl;
-    }
-    for (auto expr : group->exprs()) {
-      std::cout << "  Expr: " << expr->toString() << std::endl;
-    }
-  }
+  // std::cout << "Before resolveForwardedInputs" << std::endl;
+  // for (auto group : groups()) {
+  //   std::cout << "======================" << std::endl;
+  //   std::cout << "Group: " << toString(group) << std::endl;
+  //   for (auto inp : group->input_vals_) {
+  //     std::cout << "  Input: " << inp->toString() << std::endl;
+  //   }
+  //   for (auto out : group->output_vals_) {
+  //     std::cout << "  Output: " << out->toString() << std::endl;
+  //   }
+  //   for (auto expr : group->exprs()) {
+  //     std::cout << "  Expr: " << expr->toString() << std::endl;
+  //   }
+  // }
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-  std::cout << "After resolveForwardedInputs" << std::endl;
-  for (auto group : groups()) {
-    std::cout << "======================" << std::endl;
-    std::cout << "Group: " << toString(group) << std::endl;
-    for (auto inp : group->input_vals_) {
-      std::cout << "  Input: " << inp->toString() << std::endl;
-    }
-    for (auto out : group->output_vals_) {
-      std::cout << "  Output: " << out->toString() << std::endl;
-    }
-    for (auto expr : group->exprs()) {
-      std::cout << "  Expr: " << expr->toString() << std::endl;
-    }
-  }
+  // std::cout << "After resolveForwardedInputs" << std::endl;
+  // for (auto group : groups()) {
+  //   std::cout << "======================" << std::endl;
+  //   std::cout << "Group: " << toString(group) << std::endl;
+  //   for (auto inp : group->input_vals_) {
+  //     std::cout << "  Input: " << inp->toString() << std::endl;
+  //   }
+  //   for (auto out : group->output_vals_) {
+  //     std::cout << "  Output: " << out->toString() << std::endl;
+  //   }
+  //   for (auto expr : group->exprs()) {
+  //     std::cout << "  Expr: " << expr->toString() << std::endl;
+  //   }
+  // }
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
   // from fusion inputs may be shared in multiple groups.
@@ -4280,7 +4301,7 @@ void SegmentCandidateFinder::findSegments() {
     segmented_fusion_->draw();
   }
 
-  segmented_fusion_->print();
+  // segmented_fusion_->print();
 
 } // End of SegmentCandidateFinder::findSegments
 
@@ -4652,25 +4673,27 @@ void SegmentCandidateFinder::finalMerge() {
       for (auto consumer : all_consumers_of_producer_group) {
         // [DEBUG] Check if this is the specific pair we're interested in
         bool is_sum_group = false;
-        for(auto expr : producer_group->exprs()) {
-            // Check for Sum/Bcast expr IDs from log (Expr 15 is Sum, Expr 16 is Bcast)
-            if (expr->name() == 15 || expr->name() == 16) {
-                is_sum_group = true;
-                break;
-            }
+        for (auto expr : producer_group->exprs()) {
+          // Check for Sum/Bcast expr IDs from log (Expr 15 is Sum, Expr 16 is
+          // Bcast)
+          if (expr->name() == 15 || expr->name() == 16) {
+            is_sum_group = true;
+            break;
+          }
         }
         bool is_add_group = false;
-        for(auto expr : consumer->exprs()) {
-            if (expr->name() == 17) { // Check for Add expr ID from log
-                is_add_group = true;
-                break;
-            }
+        for (auto expr : consumer->exprs()) {
+          if (expr->name() == 17) { // Check for Add expr ID from log
+            is_add_group = true;
+            break;
+          }
         }
 
         if (is_sum_group && is_add_group) {
-            debug() << "[DEBUG SEG] Considering finalMerge of Group(Sum+Bcast) [ID "
-                    << producer_group->groupId() << "] and Group(Add) [ID "
-                    << consumer->groupId() << "]" << std::endl;
+          // debug() << "[DEBUG SEG] Considering finalMerge of Group(Sum+Bcast)
+          // [ID "
+          //         << producer_group->groupId() << "] and Group(Add) [ID "
+          //         << consumer->groupId() << "]" << std::endl;
         }
         // [END DEBUG]
 
@@ -4745,7 +4768,6 @@ void SegmentCandidateFinder::finalize() {
   int i = 0;
   for (auto it = groups().begin(); it != groups().end(); it++, i++) {
     deDuplicateScalarExprs((*it)->exprs_);
-    (*it)->setID(i);
   }
 
   VectorOfUniqueEntries<Val*> forwarded_inputs;
@@ -4774,29 +4796,85 @@ void SegmentCandidateFinder::finalize() {
     revertPrivatizedUpcast(group);
   }
 
-  // Remove unconnected groups
-  groups().erase(
-      std::remove_if(
-          groups().begin(),
-          groups().end(),
-          [](SegmentedGroup* sg) {
-            return sg->producer_edges.empty() && sg->consumer_edges.empty() &&
-                sg->output_vals_.empty();
-          }),
-      groups().end());
+  // debug() << "[DEBUG SEG] Graph state BEFORE cleanup in finalize:" <<
+  // std::endl; for (const auto* group : groups()) {
+  //   debug() << "  Group ID: " << group->groupId()
+  //           << ", Type: " << toString(group->schedulerType())
+  //           << ", Exprs: " << group->exprs().size() << std::endl;
+  //   debug() << "    Producer Edges (" << group->producer_edges.size() << "):"
+  //   << std::endl; for (const auto* edge : group->producer_edges) {
+  //     debug() << "      <- Group " << edge->from->groupId() << " (Val: " <<
+  //     edge->val->toString() << ")" << std::endl;
+  //   }
+  //   debug() << "    Consumer Edges (" << group->consumer_edges.size() << "):"
+  //   << std::endl; for (const auto* edge : group->consumer_edges) {
+  //      debug() << "      -> Group " << edge->to->groupId() << " (Val: " <<
+  //      edge->val->toString() << ")" << std::endl;
+  //   }
+  //    debug() << "    Input Vals (" << group->input_vals_.size() << "): ";
+  //   for(const auto* v : group->input_vals_) { debug() << v->toString() << ",
+  //   "; } debug() << std::endl; debug() << "    Output Vals (" <<
+  //   group->output_vals_.size() << "): "; for(const auto* v :
+  //   group->output_vals_) { debug() << v->toString() << ", "; } debug() <<
+  //   std::endl;
+  // }
+  // debug() << "[DEBUG SEG] End of graph state dump." << std::endl;
 
-  // Remove empty groups
-  groups().erase(
-      std::remove_if(
-          groups().begin(),
-          groups().end(),
-          [](SegmentedGroup* sg) { return sg->exprs_.empty(); }),
-      groups().end());
+  // Collect groups to erase based on conditions
+  std::unordered_set<SegmentedGroup*> groups_to_erase;
+  for (SegmentedGroup* sg : groups()) {
+    // Condition 1: Unconnected groups
+    if (sg->producer_edges.empty() && sg->consumer_edges.empty() &&
+        sg->output_vals_.empty()) {
+      groups_to_erase.insert(sg);
+    }
+    // Condition 2: Empty groups (like the scalar placeholders)
+    else if (sg->exprs_.empty()) {
+      groups_to_erase.insert(sg);
+    }
+  }
+
+  // Use eraseGroups helper which properly disconnects edges
+  if (!groups_to_erase.empty()) {
+    eraseGroups(groups_to_erase);
+  }
+
+  // <<< ADDED DEBUG PRINTING START >>>
+  // debug() << "[DEBUG SEG] Graph state AFTER cleanup in finalize:" <<
+  // std::endl; for (const auto* group : groups()) {
+  //   debug() << "  Group ID: " << group->groupId()
+  //           << ", Type: " << toString(group->schedulerType())
+  //           << ", Exprs: " << group->exprs().size() << std::endl;
+  //   debug() << "    Producer Edges (" << group->producer_edges.size() << "):"
+  //   << std::endl; for (const auto* edge : group->producer_edges) {
+  //     debug() << "      <- Group " << edge->from->groupId() << " (Val: " <<
+  //     edge->val->toString() << ")" << std::endl;
+  //   }
+  //   debug() << "    Consumer Edges (" << group->consumer_edges.size() << "):"
+  //   << std::endl; for (const auto* edge : group->consumer_edges) {
+  //      debug() << "      -> Group " << edge->to->groupId() << " (Val: " <<
+  //      edge->val->toString() << ")" << std::endl;
+  //   }
+  //    debug() << "    Input Vals (" << group->input_vals_.size() << "): ";
+  //   for(const auto* v : group->input_vals_) { debug() << v->toString() << ",
+  //   "; } debug() << std::endl; debug() << "    Output Vals (" <<
+  //   group->output_vals_.size() << "): "; for(const auto* v :
+  //   group->output_vals_) { debug() << v->toString() << ", "; } debug() <<
+  //   std::endl;
+  // }
+  // debug() << "[DEBUG SEG] End of graph state dump." << std::endl;
+  // <<< ADDED DEBUG PRINTING END >>>
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
     g->setSchedulerType(deriveSchedulerType(g));
     g->finalize();
+  }
+
+  // Re-assign group IDs based on the final order after cleanup
+  // debug() << "[DEBUG SEG] Re-assigning final group IDs." << std::endl;
+  for (const auto i : c10::irange(groups().size())) {
+    groups()[i]->setID(i);
   }
 }
 
@@ -4811,14 +4889,24 @@ GroupDependencyAnalysis* SegmentCandidateFinder::getGroupDependency() {
 std::unique_ptr<HeuristicParams> SegmentedFusion::makeInitialHeuristicParams(
     SegmentedGroup* sg,
     SchedulerRuntimeInfo& runtime_info) {
-  // This will be the first time each group is scheduled. So we'd want to
+  // debug() << "[RUNTIME HEURISTICS INIT] Entering makeInitialHeuristicParams
+  // for group " << sg->groupId() << std::endl; This will be the first time each
+  // group is scheduled. So we'd want to
   //  construct the cache data here.
   auto heuristic_data_cache_ptr = std::make_unique<HeuristicDataCache>();
   auto heuristic_data_cache = heuristic_data_cache_ptr.get();
   setCachedHeuristicDataFor(sg, std::move(heuristic_data_cache_ptr));
-  return SchedulerEntry::makeSchedulerInstance(sg->schedulerType())
-      ->computeHeuristics(
-          runtime_info.fusion(), runtime_info, heuristic_data_cache);
+  // debug() << "[RUNTIME HEURISTICS INIT] Computing heuristics for group " <<
+  // sg->groupId() << std::endl;
+  auto scheduler_instance =
+      SchedulerEntry::makeSchedulerInstance(sg->schedulerType());
+  // debug() << "[RUNTIME HEURISTICS INIT] Scheduler instance: " <<
+  // sg->schedulerType() << std::endl;
+  auto heuristic_params = scheduler_instance->computeHeuristics(
+      runtime_info.fusion(), runtime_info, heuristic_data_cache);
+  // debug() << "[RUNTIME HEURISTICS INIT] Heuristic params: " <<
+  // heuristic_params->toString() << std::endl;
+  return heuristic_params;
 }
 
 HeuristicDataCache* SegmentedFusion::getCachedHeuristicDataFor(

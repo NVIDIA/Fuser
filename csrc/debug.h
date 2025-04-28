@@ -9,11 +9,37 @@
 
 #include <visibility.h>
 
+#include <c10/util/ThreadLocal.h>
+#include <exceptions.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
 namespace nvfuser {
+
+// Thread-local variable to indicate parallel context
+thread_local bool g_is_parallel_compile_thread = false;
+
+// RAII Guard to manage the flag
+class ParallelCompileContextGuard {
+ public:
+  ParallelCompileContextGuard() {
+    // Remember the previous state in case of nested parallel calls (unlikely
+    // for compile but good practice)
+    prev_state_ = g_is_parallel_compile_thread;
+    g_is_parallel_compile_thread = true;
+  }
+  ~ParallelCompileContextGuard() {
+    g_is_parallel_compile_thread = prev_state_;
+  }
+  // Disable copy/move
+  ParallelCompileContextGuard(const ParallelCompileContextGuard&) = delete;
+  ParallelCompileContextGuard& operator=(const ParallelCompileContextGuard&) =
+      delete;
+
+ private:
+  bool prev_state_ = false; // Store previous state for nesting
+};
 
 //! This guard controls the output for debug info, such as any output resulting
 //! from use of the $NVFUSER_DUMP environment variable options. Debug output can

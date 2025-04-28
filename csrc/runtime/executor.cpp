@@ -997,7 +997,7 @@ KernelArgumentHolder KernelExecutor::run(
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
   FUSER_PERF_SCOPE("KernelExecutor::runFusion");
-  std::cout << "[EXEC DEBUG] Entering KernelExecutor::run" << std::endl;
+  // std::cout << "[EXEC DEBUG] Entering KernelExecutor::run" << std::endl;
 
   if (isProfilerEnabled()) {
     NVF_CHECK(

@@ -152,6 +152,7 @@ void ArgumentManager::setLastUsedSegmentID(
 void prepareRuntimeOrder(
     SegmentedFusion* segmented_fusion,
     RuntimeWorkSpace& runtime_workspace) {
+  // debug() << "[RUNTIME ORDER] Entering prepareRuntimeOrder." << std::endl;
   // Setup group run order:
   std::unordered_set<Val*> available_input;
 
@@ -207,6 +208,8 @@ void prepareRuntimeOrder(
         one_ran,
         "Couldn't run all groups, something must have gone wrong in segmentation.");
   }
+  // debug() << "[RUNTIME ORDER] Finished main group processing loop." <<
+  // std::endl;
 }
 
 flatbuffers::Offset<serde::InputsIdLookup> InputsIdLookup::serialize(
