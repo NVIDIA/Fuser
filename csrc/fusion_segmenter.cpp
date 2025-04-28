@@ -2157,6 +2157,21 @@ SegmentedGroup* SegmentCandidateFinder::mergeAllGivenGroups(
       !groups_to_merge.empty(),
       "fusion segment :(mergeAllGivenGroups) tried to merge no groups");
 
+  // The fusion input auxiliary groups should never be merged.
+  const auto& aux_input_groups = getAuxiliaryInputGroups();
+  std::vector<SegmentedGroup*> aux_groups_to_merge;
+  std::ranges::copy_if(
+      groups_to_merge,
+      std::back_inserter(aux_groups_to_merge),
+      [&](SegmentedGroup* group) {
+        return std::ranges::find(aux_input_groups, group) !=
+            aux_input_groups.end();
+      });
+  NVF_ERROR(
+      aux_groups_to_merge.empty(),
+      "Trying to merge auxiliary input groups: ",
+      toDelimitedString(aux_groups_to_merge));
+
   // Make a set to detect internal edges
   std::unordered_set<SegmentedGroup*> group_set(
       groups_to_merge.begin(), groups_to_merge.end());
@@ -3301,7 +3316,6 @@ class CombineReductions {
                       return groups_to_merge_set.has(group);
                     }),
                 groups_with_reductions_.end());
-
             return joined_group;
           }
         }
@@ -3606,6 +3620,10 @@ class MergeUpAndDownCast {
       SegmentedGroup* group = to_visit.front();
       to_visit.pop_front();
 
+      if (group->exprs().empty()) {
+        continue;
+      }
+
       if (groups_to_merge_set.count(group)) {
         continue;
       }
@@ -3710,13 +3728,16 @@ class PreferredMergeCandidatePicker {
   PreferredMergeCandidatePicker(const std::vector<SegmentedGroup*>& groups)
       : groups_(groups) {
     for (auto& group : groups_) {
-      // Currently there's only one preference for select-like
-      // ops. Additional preferences can be added similarly.
-      auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
-      if (!neighbor_to_merge.has_value()) {
+      if (auto neighbor_to_merge = mergeSelectLikeOpsWithProducers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
         continue;
       }
-      candidates_.emplace_back(group, *neighbor_to_merge);
+      if (auto neighbor_to_merge = mergePadWithConsumers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
+        continue;
+      }
     }
   }
 
@@ -3739,6 +3760,12 @@ class PreferredMergeCandidatePicker {
   std::optional<SegmentedGroup::NeighborGroup> mergeSelectLikeOpsWithProducers(
       SegmentedGroup* group) const;
 
+  //! Prefer merging pad exprs with consumer groups. Since pad is
+  //! likely expand an iter domain, having a segmentation boundary, if
+  //! necessary, is preferred to be before than after pad.
+  std::optional<SegmentedGroup::NeighborGroup> mergePadWithConsumers(
+      SegmentedGroup* group) const;
+
  private:
   const std::vector<SegmentedGroup*>& groups_;
   std::vector<std::pair<SegmentedGroup*, SegmentedGroup::NeighborGroup>>
@@ -3747,6 +3774,10 @@ class PreferredMergeCandidatePicker {
 
 std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     mergeSelectLikeOpsWithProducers(SegmentedGroup* group) const {
+  if (group->producer_edges.empty() || group->isMerged()) {
+    return std::nullopt;
+  }
+
   const auto& exprs = group->exprs();
 
   // I *think* it's enough to consider the initial merge of
@@ -3796,8 +3827,72 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     return std::nullopt;
   }
 
-  return SegmentedGroup::NeighborGroup(
-      (*producer_edge_it)->from, *producer_edge_it);
+  auto producer_group = (*producer_edge_it)->from;
+  if (producer_group->isMerged()) {
+    return std::nullopt;
+  }
+
+  // Don't try to merge if not a candidate
+  auto merge_candidates = group->getMergeCandidates();
+  if (std::ranges::find_if(
+          merge_candidates, [&](const SegmentedGroup::NeighborGroup& neighbor) {
+            return neighbor.group != producer_group;
+          }) == merge_candidates.end()) {
+    return std::nullopt;
+  }
+
+  return SegmentedGroup::NeighborGroup(producer_group, *producer_edge_it);
+}
+
+std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
+    mergePadWithConsumers(SegmentedGroup* group) const {
+  if (group->consumer_edges.empty() || group->isMerged()) {
+    return std::nullopt;
+  }
+
+  const auto merge_candidates = group->getMergeCandidates();
+
+  for (auto expr : group->exprs()) {
+    auto pad = dynamic_cast<PadOp*>(expr);
+    if (pad == nullptr) {
+      continue;
+    }
+
+    // If the input of pad is already in the same segment, don't
+    // bother
+    auto pad_inp = pad->in();
+    if (std::ranges::find_if(group->producer_edges, [&](SegmentedEdge* edge) {
+          return edge->val == pad_inp;
+        }) == group->producer_edges.end()) {
+      continue;
+    }
+
+    // Look for a consumer edge that has the pad output as its val,
+    // which means the pad output is passed to the consumer group.
+    for (const auto& consumer_edge : group->consumer_edges) {
+      if (consumer_edge->val != pad->out()) {
+        continue;
+      }
+
+      auto consumer_group = consumer_edge->to;
+      if (consumer_group->isMerged()) {
+        continue;
+      }
+
+      // Don't try to merge if not a candidate
+      if (std::ranges::find_if(
+              merge_candidates,
+              [&](const SegmentedGroup::NeighborGroup& neighbor) {
+                return neighbor.group != consumer_group;
+              }) == merge_candidates.end()) {
+        continue;
+      }
+
+      return SegmentedGroup::NeighborGroup(consumer_group, consumer_edge);
+    }
+  }
+
+  return std::nullopt;
 }
 
 } // namespace
@@ -3952,25 +4047,26 @@ void SegmentCandidateFinder::trySetUpMerge(
     return;
   }
 
-  auto candidate_it = candidates.begin();
-  while (candidate_it != candidates.end() &&
-         !codeGenSupportedMerge(group, candidate_it->group)) {
-    candidate_it++;
-  }
-  if (candidate_it == candidates.end()) {
+  // Try to find a non-merged candidate that can be merged with this
+  // group
+  for (const auto& candidate : candidates) {
+    if (candidate.group->isMerged() ||
+        !codeGenSupportedMerge(group, candidate.group)) {
+      continue;
+    }
+
+    to_merge_.emplace_back(group);
+    to_merge_.emplace_back(candidate.group);
+
+    group->merged_ = true;
+    group->merge_with_ = candidate.group;
+    group->merge_through_ = candidate.edge;
+
+    candidate.group->merged_ = true;
+    candidate.group->merge_with_ = group;
+    candidate.group->merge_through_ = candidate.edge;
     return;
   }
-
-  to_merge_.emplace_back(group);
-  to_merge_.emplace_back(candidate_it->group);
-
-  group->merged_ = true;
-  group->merge_with_ = candidate_it->group;
-  group->merge_through_ = candidate_it->edge;
-
-  candidate_it->group->merged_ = true;
-  candidate_it->group->merge_with_ = group;
-  candidate_it->group->merge_through_ = candidate_it->edge;
 }
 
 void SegmentCandidateFinder::resolveForwardedInputs() {
@@ -4062,7 +4158,9 @@ void SegmentCandidateFinder::findSegments() {
       // Try preferred merge first
       for (auto& [group, neighbor] :
            PreferredMergeCandidatePicker::get(groups())) {
-        trySetUpMerge(group, {neighbor});
+        if (!neighbor.group->isMerged()) {
+          trySetUpMerge(group, {neighbor});
+        }
       }
 
       // If there are preferred groups to merge, merge them first
@@ -4359,12 +4457,28 @@ void SegmentCandidateFinder::forwardInputs() {
   excluded_inp_unary_exprs_ = {};
   input2group_.clear();
 
+  std::vector<Val*> extended_fusion_inputs = completeFusion()->inputs();
+
+  // Grab factory ops that should be forwarded. Add created tensors to
+  // the fusion input list to make them handled like fusion inputs
+  // TODO: Handle more factory methods such as IotaOp, EyeOp,
+  // TensorConstruct. Probably should not include relatively expensive
+  // ops like RNGOp.
+  for (auto expr : completeFusion()->exprs()) {
+    if (expr->isA<FullOp>() &&
+        // Don't bother if it's a fusion output
+        !expr->output(0)->isFusionOutput()) {
+      extended_fusion_inputs.push_back(expr->output(0));
+      excluded_inp_unary_exprs_.pushBack(expr);
+    }
+  }
+
   // "Terminating" outputs from the excluded input unary exprs, these will be
   // treated as complete fusion inputs.
   VectorOfUniqueEntries<Val*> forwarded_inputs;
   {
     std::deque<UnaryOp*> to_visit;
-    for (Val* inp : completeFusion()->inputs()) {
+    for (Val* inp : extended_fusion_inputs) {
       if (UnaryOp* unary_use = shouldForward(inp)) {
         to_visit.push_back(unary_use);
       }
@@ -4387,11 +4501,13 @@ void SegmentCandidateFinder::forwardInputs() {
     }
   }
 
-  auto excluded_fusion_inputs = IterVisitor::getInputsTo(
-      {forwarded_inputs.begin(), forwarded_inputs.end()});
+  // Stop traversing back at factory vals (and fusion inputs)
+  auto excluded_fusion_inputs = InputsOf::getInputsTo(
+      {forwarded_inputs.begin(), forwarded_inputs.end()},
+      extended_fusion_inputs);
 
   // List of vals to treat as complete fusion inputs for segmentation
-  forwarded_fusion_inputs_ = completeFusion()->inputs();
+  forwarded_fusion_inputs_ = extended_fusion_inputs;
 
   forwarded_fusion_inputs_.erase(
       std::remove_if(
@@ -4428,6 +4544,16 @@ void SegmentCandidateFinder::cleanupForwardedInputs() {
   excluded_inp_unary_exprs_ = {};
   forwarded_fusion_inputs_.clear();
   input2group_.clear();
+}
+
+std::vector<SegmentedGroup*> SegmentCandidateFinder::getAuxiliaryInputGroups()
+    const {
+  std::vector<SegmentedGroup*> aux_groups;
+  aux_groups.reserve(input2group_.size());
+  std::ranges::transform(input2group_, aux_groups.begin(), [](const auto& kv) {
+    return kv.second;
+  });
+  return aux_groups;
 }
 
 void SegmentCandidateFinder::finalMerge() {
@@ -4642,7 +4768,14 @@ void SegmentCandidateFinder::resolveScalarsInGroup(SegmentedGroup* group) {
 
 SegmentedGroup* SegmentCandidateFinder::createInputGroup(Val* forwarded_input) {
   SegmentedGroup* group = segmented_fusion_->newGroup();
-  group->input_vals_ = IterVisitor::getInputsTo({forwarded_input});
+  for (auto inp : IterVisitor::getInputsTo({forwarded_input})) {
+    // inp may be a factory-created tensor, which is not an input to
+    // the group.
+    if (std::ranges::find(completeFusion()->inputs(), inp) !=
+        completeFusion()->inputs().end()) {
+      group->input_vals_.pushBack(inp);
+    }
+  }
   group->exprs_ = StmtSort::getExprsTo({forwarded_input});
   return group;
 }

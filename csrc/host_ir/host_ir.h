@@ -155,27 +155,6 @@ class LaunchKernel : public Expr {
   }
 };
 
-class Deallocate : public Expr {
- public:
-  using Expr::Expr;
-  Deallocate(IrBuilderPasskey passkey, kir::Allocate* allocate);
-
-  Deallocate(const Deallocate& other) = delete;
-  Deallocate& operator=(const Deallocate& other) = delete;
-  Deallocate(Deallocate&& other) = delete;
-  Deallocate& operator=(Deallocate&& other) = delete;
-
-  NVFUSER_DECLARE_CLONE_AND_CREATE
-
-  std::string toString(int indent_size = 0) const override;
-  std::string toInlineString(int indent_size = 0) const override;
-  const char* getOpString() const override {
-    return "hir::Deallocate";
-  }
-
-  const kir::Allocate* allocation() const;
-};
-
 class Stream : public Val {
  public:
   // if index is provided, the IR represents the streams whose index is the
@@ -369,6 +348,49 @@ class ShareMemHandles : public Expr {
 
   const std::vector<P2PCommunication*>& communications() const {
     return attribute<std::vector<P2PCommunication*>>(0);
+  }
+};
+
+// This op mimicks the semantics of SelectOp but is used in HIR non-SSA context
+// to index into a TensorView, returning an alias "slice" of the original
+// TensorView.
+class HirAliasSelect : public Expr {
+ public:
+  using Expr::Expr;
+  HirAliasSelect(
+      IrBuilderPasskey passkey,
+      TensorView* in,
+      TensorView* out,
+      int64_t axis,
+      Val* index);
+
+  HirAliasSelect(const HirAliasSelect& other) = delete;
+  HirAliasSelect& operator=(const HirAliasSelect& other) = delete;
+  HirAliasSelect(HirAliasSelect&& other) = delete;
+  HirAliasSelect& operator=(HirAliasSelect&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::HirAliasSelect";
+  }
+
+  TensorView* in() const {
+    return inputs().at(0)->as<TensorView>();
+  }
+
+  TensorView* out() const {
+    return attributeVal(0)->as<TensorView>();
+  }
+
+  int64_t axis() const {
+    return attribute<int64_t>(1);
+  }
+
+  Val* index() const {
+    return inputs().at(1);
   }
 };
 

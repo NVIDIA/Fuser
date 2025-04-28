@@ -17,9 +17,11 @@ namespace nvfuser {
 
 namespace hir {
 
-using HostIrIntegrationTest = NVFuserTest;
+using HostIrEvaluatorTest = NVFuserTest;
 
-TEST_F(HostIrIntegrationTest, LaunchKernel) {
+// This test manually creates a HostIrContainer with LaunchKernels and runs it
+// using HostIrEvaluator.
+TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   TensorView* in = makeSymbolicTensor(2);
@@ -61,7 +63,14 @@ TEST_F(HostIrIntegrationTest, LaunchKernel) {
   EXPECT_TRUE(outputs[0].as<at::Tensor>().equal(t0));
 }
 
-TEST_F(HostIrIntegrationTest, Set) {
+class HostIrIntegrationTest : public NVFuserTest {
+ protected:
+  HostIrIntegrationTest() {
+    EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+  }
+};
+
+TEST_F(HostIrIntegrationTest, Set_Kernel) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
@@ -70,9 +79,6 @@ TEST_F(HostIrIntegrationTest, Set) {
   TensorView* out = set(in);
   fusion->addOutput(out);
 
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
@@ -87,7 +93,7 @@ TEST_F(HostIrIntegrationTest, Set) {
       "");
 }
 
-TEST_F(HostIrIntegrationTest, Sum) {
+TEST_F(HostIrIntegrationTest, Sum_Kernel) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   TensorView* in = makeSymbolicTensor(2);
@@ -96,9 +102,6 @@ TEST_F(HostIrIntegrationTest, Sum) {
   TensorView* out = sum(in, {0});
   fusion->addOutput(out);
 
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
@@ -113,30 +116,34 @@ TEST_F(HostIrIntegrationTest, Sum) {
       "");
 }
 
-TEST_F(HostIrIntegrationTest, Deallocate) {
-  const std::vector<int64_t> sizes = {8, 64};
-  c10::DeviceIndex device_index = 0;
+// Same as AliasTest.ViewPermute but via host IR. This test verifies that Exprs
+// in SchedulerType::ExprEval segments are cloned to the top level and produce
+// aliases.
+TEST_F(HostIrIntegrationTest, ViewPermute_ExprEval) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
 
-  resetPeakMemoryStats(device_index);
+  const std::vector<int64_t> in_shape({2, 3, 4});
+  const std::vector<int64_t> out_shape({2, 12});
 
-  auto hic = std::make_unique<HostIrContainer>();
-  FusionGuard fg(hic.get());
+  TensorView* in = makeContigConcreteTensor(in_shape);
+  fusion->addInput(in);
+  TensorView* out = reshape(in, in_shape, out_shape);
+  out = permute(out, {1, 0});
+  fusion->addOutput(out);
 
-  for (int i = 0; i < 10; i++) {
-    TensorView* tv = makeConcreteTensor(sizes);
-    tv->setMemoryType(MemoryType::Global);
-    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-    auto* deallocate = IrBuilder::create<Deallocate>(allocate);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3, 4}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  ASSERT_EQ(out_tensors.size(), 1);
+  at::Tensor out_tensor = out_tensors[0].as<at::Tensor>();
 
-    hic->pushBackTopLevelExprs(allocate);
-    hic->pushBackTopLevelExprs(deallocate);
-  }
+  // Verify aliasing.
+  EXPECT_EQ(in_tensor.data_ptr(), out_tensor.data_ptr());
 
-  HostIrEvaluator hie(std::move(hic));
-
-  hie.runWithInput({});
-
-  EXPECT_EQ(memoryAllocated(device_index), 0);
+  testValidate(
+      executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
 }
 
 } // namespace hir

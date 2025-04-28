@@ -695,7 +695,7 @@ TEST_F(SegmentationTest, ForwardInputsToSegmenterSetIssue2658) {
 }
 
 // Test to verify an upcast is replicated between different segments
-TEST_F(NVFuserTest, PrivatizeUpcast) {
+TEST_F(SegmentationTest, PrivatizeUpcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -741,7 +741,7 @@ TEST_F(NVFuserTest, PrivatizeUpcast) {
 
 // Unlike PrivatizeUpcast, verify replicated upcast ops are
 // consolidated back as they are grouped into the same segment
-TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
+TEST_F(SegmentationTest, RevertPrivatizedUpcast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -804,6 +804,61 @@ TEST_F(NVFuserTest, RevertPrivatizedUpcast) {
       ++num_upcast_ops;
     }
     EXPECT_EQ(num_upcast_ops, 1);
+  }
+}
+
+TEST_F(SegmentationTest, ForwardFull) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeSymbolicTensor(1);
+  fusion.addInput(tv0);
+
+  // FullOp that is used in two segments
+  auto tv1 = full({tv0->axis(0)->extent()}, fusion.oneVal(), DataType::Float);
+
+  auto tv2 = add(tv0, tv1);
+  auto tv3 = segment_set(tv2);
+
+  auto tv4 = add(tv3, tv1);
+  fusion.addOutput(tv4);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn({1024}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(runtime->fusionSegments()->groups(), SizeIs(2));
+
+  // Make sure the full output should not be a segment input
+  for (const auto& executor : runtime->executors()) {
+    auto ke = dynamic_cast<KernelExecutor*>(executor.get());
+    ASSERT_NE(ke, nullptr);
+    kir::Kernel* kernel = ke->compiledKernel()->kernel();
+    bool full_op_found = false;
+    for (auto expr : KernelExprVisitor::getAllExprs(kernel)) {
+      auto out_tv = ir_utils::getTvOutput(expr);
+      if (out_tv == nullptr) {
+        continue;
+      }
+      auto full_op = dynamic_cast<FullOp*>(out_tv->definition());
+      if (full_op == nullptr) {
+        continue;
+      }
+      full_op_found = true;
+      auto output_it =
+          std::ranges::find_if(kernel->outputs(), [&](Val* output) {
+            return output->isA<TensorView>() &&
+                output->name() == out_tv->name();
+          });
+      EXPECT_EQ(output_it, kernel->outputs().end())
+          << "FullOp ouput should not be a segment output";
+    }
+    EXPECT_TRUE(full_op_found) << "Each segment has its own FullOp";
   }
 }
 
