@@ -95,7 +95,6 @@ std::string IpcHandleCache::getTcpStoreKey(
 
 void IpcHandleCache::exchangeHandles(
     const std::vector<P2PCommunication*>& communications) {
-#ifdef NVFUSER_DISTRIBUTED
   Communicator* communicator = &Communicator::getInstance();
   const int64_t my_rank = communicator->deviceId();
 
@@ -152,9 +151,12 @@ void IpcHandleCache::exchangeHandles(
 
     insert(communication, std::move(ipc_handles));
   }
-#else // NVFUSER_DISTRIBUTED
-  NVF_ERROR(false, "NVFUSER_DISTRIBUTED is not defined");
-#endif // NVFUSER_DISTRIBUTED
+
+  // a second barrier is needed here to ensure all ranks have received the
+  // memhandles and the keys are deleted from the store before the next call to
+  // exchangeHandles
+  // TODO: precisely select what ranks need to wait on that barrier.
+  communicator->barrier();
 }
 
 } // namespace nvfuser
