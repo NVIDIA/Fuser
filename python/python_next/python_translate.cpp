@@ -143,7 +143,7 @@ class PythonPrinter {
     }
     std::stringstream ss;
     std::apply(
-        [this, &ss](Ts const&... tuple_args) {
+        [&](Ts const&... tuple_args) {
           size_t i = 0;
           (((ss << (i > 0 ? ", " : "") << toString(tuple_args)), ++i), ...);
         },
