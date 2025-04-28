@@ -103,8 +103,10 @@ def multidevice_benchmark():
 
 @pytest.mark.mpi
 @pytest.mark.parametrize(
+    # "backend_type", [CommunicatorBackend.ucc]
     "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
 )
+# @pytest.mark.parametrize("s", [8])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
     benchmark,
@@ -124,7 +126,8 @@ def test_overlap_allgather_matmul_stream_outermost(
     # because the FusionDefinition has not run so it doesn't contain any state.
     nvfuser.FusionCache.reset()
 
-    m, k, n, d = 2**10, 2**10, 2**10, multidevice_benchmark.size
+    # m, k, n, d = 2**10, 2**10, 2**10, multidevice_benchmark.size
+    m, k, n, d = 2**15, 2**17, 2**10, multidevice_benchmark.size
     assert m % (s * d) == 0
 
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
@@ -148,7 +151,7 @@ def test_overlap_allgather_matmul_stream_outermost(
     fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d, backend_type)
 
     # Validate if needed
-    if not disable_validation:
+    if not True:
         outputs, _ = fd.execute(inputs)
         out = outputs[0].cpu()
         assert out.dtype == torch.bfloat16
@@ -162,5 +165,5 @@ def test_overlap_allgather_matmul_stream_outermost(
             outputs, _ = fd.execute(*args)
             return outputs[0]
 
-        outputs = run_benchmark(benchmark, benchmark_fn, inputs, device="cuda")
-        return outputs
+        outputs = run_benchmark(benchmark, benchmark_fn, inputs, device="cuda", use_cuda_events=True)
+
