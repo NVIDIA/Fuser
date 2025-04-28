@@ -871,10 +871,10 @@ def Litgpt(seq_length):
 
     # Manual IOBytes computes the total bandwidth for thunder backward trace.
     def iobytes():
-        n_elements = 1
+        n_elements = 0
         # adding size of qkv.grad
         n_elements += (
-            cfg.batch_size * cfg.seq_len * (cfg.n_head + 2 * cfg.n_query_groups) * cfg.head_size,
+            cfg.batch_size * cfg.seq_len * (cfg.n_head + 2 * cfg.n_query_groups) * cfg.head_size
         )
         # adding size of sin, cos (saved from forward)
         n_elements += (
@@ -882,7 +882,7 @@ def Litgpt(seq_length):
         )
         # adding size of q, k, v (saved from forward)
         n_elements += (
-            3 * cfg.batch_size * cfg.num_attention_heads * cfg.seq_len * cfg.head_dim
+            3 * cfg.batch_size * cfg.seq_len * cfg.n_head * cfg.head_size
         )
         # totoal io sizes
         return n_elements * torch.bfloat16.itemsize
