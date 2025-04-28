@@ -19,7 +19,7 @@ namespace hir {
 
 using HostIrEvaluatorTest = NVFuserTest;
 
-// This test manually creates a HostIrContainer with LaunchKernls and runs it
+// This test manually creates a HostIrContainer with LaunchKernels and runs it
 // using HostIrEvaluator.
 TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   Fusion fusion;
