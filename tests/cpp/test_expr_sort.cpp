@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <gmock/gmock-matchers.h>
+#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <ops/all_ops.h>
@@ -25,6 +26,8 @@ namespace nvfuser {
 using ExprSortTest = NVFuserTest;
 
 using testing::ElementsAre;
+using testing::IsTrue;
+using testing::Property;
 using testing::SizeIs;
 
 // Indirect normalization pattern with zero-dimensional tensors. Originally
@@ -174,7 +177,7 @@ MATCHER_P(UnaryOpTypeIs, unary_op_type, "") {
 
 } // namespace
 
-TEST_F(ExprSortTest, SegmentedGroup) {
+TEST_F(ExprSortTest, SegmentedGroup_Unary) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -199,14 +202,46 @@ TEST_F(ExprSortTest, SegmentedGroup) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   SegmentedFusion* segmented_fusion = runtime->fusionSegments();
   ASSERT_THAT(segmented_fusion->groups(), SizeIs(1));
-
   SegmentedGroup* group = segmented_fusion->groups().front();
+
   EXPECT_THAT(
       group->stablyOrderedExprs(),
       ElementsAre(
           UnaryOpTypeIs(UnaryOpType::Neg),
           UnaryOpTypeIs(UnaryOpType::Sin),
           UnaryOpTypeIs(UnaryOpType::Cos)));
+}
+
+TEST_F(ExprSortTest, SegmentedGroup_Binary_SameOperand) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  TensorView* in = makeSymbolicTensor(1);
+  TensorView* out = neg(in);
+  out = add(out, out);
+
+  fusion->addInput(in);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA);
+  at::Tensor in_tensor = at::randn({5}, options);
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  testValidate(
+      executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  SegmentedFusion* segmented_fusion = runtime->fusionSegments();
+  ASSERT_THAT(segmented_fusion->groups(), SizeIs(1));
+  SegmentedGroup* group = segmented_fusion->groups().front();
+
+  EXPECT_THAT(
+      group->stablyOrderedExprs(),
+      ElementsAre(
+          Property(&Expr::isA<UnaryOp>, IsTrue()),
+          Property(&Expr::isA<BinaryOp>, IsTrue())));
 }
 
 } // namespace nvfuser

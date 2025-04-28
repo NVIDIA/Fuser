@@ -396,7 +396,7 @@ bool fillDefaultHopperHeuristic(
   // the _other_ dimension to create a new inner dimension. We find the swizzle
   // factor that is largest and has the least quantization when we divide that
   // other dimension by the swizzle factor.
-  int64_t swizzled_tiles = Mtiles <= Ntiles ? Ntiles : Mtiles;
+  int64_t swizzled_tiles = Mtiles >= Ntiles ? Ntiles : Mtiles;
   mparams->cta_order = Mtiles <= Ntiles
       ? MatmulParams::TileRasterizationOrder::ColumnMajor
       : MatmulParams::TileRasterizationOrder::RowMajor;
