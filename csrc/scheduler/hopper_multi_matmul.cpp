@@ -172,68 +172,151 @@ void HopperMultipleMatmulScheduler::run() {
 void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
-  NVF_ERROR(
-      params_->grid_traversal_factor.second == 1,
-      "Hopper matmul scheduler does not support 2d grid traversal");
-  if (params_->grid_traversal_factor.first != 1) {
-    // Find position of outer M and N dims in schedule_.tiled
-    int64_t Mo_pos = -1, No_pos = -1;
-    for (size_t i : arange(outer_dim_roles.size())) {
-      if (outer_dim_roles[i] == MatmulDimRole::M) {
-        Mo_pos = (int64_t)i;
-      } else if (outer_dim_roles[i] == MatmulDimRole::N) {
-        No_pos = (int64_t)i;
-      }
+  NVF_ERROR(params_->grid_traversal_factor.first >= 1);
+  NVF_ERROR(params_->grid_traversal_factor.second >= 1);
+
+  // short-circuit: If grid traversal factor is 1x1, we don't need to reorder.
+  if (params_->grid_traversal_factor.first == 1 &&
+      params_->grid_traversal_factor.second == 1) {
+    return;
+  }
+
+  // Find position of outer M and N dims in schedule_.tiled
+  int64_t Mo_pos = -1, No_pos = -1;
+  for (size_t i : arange(outer_dim_roles.size())) {
+    if (outer_dim_roles[i] == MatmulDimRole::M) {
+      Mo_pos = (int64_t)i;
+    } else if (outer_dim_roles[i] == MatmulDimRole::N) {
+      No_pos = (int64_t)i;
+    }
+  }
+
+  // Multi-factor grid traversal.
+  // M and N roles must be present and consecutive.
+  if (params_->grid_traversal_factor.first > 1 &&
+      params_->grid_traversal_factor.second > 1) {
+    NVF_ERROR(
+        Mo_pos >= 0 || No_pos >= 0, "Either M or N role must be present.");
+    NVF_ERROR(
+        Mo_pos != No_pos, "The position of M and N roles must be different.");
+    NVF_ERROR(abs(Mo_pos - No_pos) == 1, "M and N roles must be consecutive.");
+
+    bool is_M_present = Mo_pos >= 0;
+    bool is_N_present = No_pos >= 0;
+    bool is_N_right_of_M = No_pos > Mo_pos;
+    const int64_t min_axis_pos = std::min(Mo_pos, No_pos);
+
+    // original: [M, N]
+    // split:   [M, N/second_factor, second_factor]
+    // split: [M/first_factor, first_factor, N/second_factor, second_factor]
+    // reorder: [M/first_factor, N/second_factor, first_factor,
+    // second_factor]
+    // merge:
+    // [M/first_factor * N/second_factor, first_factor, second_factor]
+    // merge:
+    // [M/first_factor * N/second_factor, first_factor * second_factor]
+
+    // If N axis exists, then split by second grid traversal factor.
+    if (is_N_present) {
+      // split:   [M, N/second_factor, second_factor]
+      tv->split(No_pos, params_->grid_traversal_factor.second);
+    }
+    // If N is to the left of M, then shift M by 1 because of second factor.
+    if (!is_N_right_of_M) {
+      Mo_pos++;
     }
 
-    int factor =
-        std::max(1, params_->grid_traversal_factor.first); // must be >=1
-    switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        // split   [I1, I2/factor, factor]
-        // reorder [I1, factor, I2/factor]
-        // merge   [I1*factor, I2/factor]
-        // where I1 and I2 are the outer M and N dimensions, respectively
-        if (No_pos >= 0) {
-          tv->split(No_pos, factor);
-          // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-          if (No_pos < Mo_pos) {
-            Mo_pos++;
-          }
-          tv->reorder({{No_pos, No_pos + 1}});
-          if (Mo_pos >= 0) {
-            tv->merge(Mo_pos, No_pos);
-          } else {
-            // M is missing, so we skip the merge above. In this case we
-            // should update the dim roles to reflect the new split axis.
-            outer_dim_roles.insert(
-                outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
-          }
-        }
-        break;
+    // If M axis exists, then split by first grid traveral factor.
+    if (is_M_present) {
+      // split: [M/first_factor, first_factor, N/second_factor, second_factor]
+      tv->split(Mo_pos, params_->grid_traversal_factor.first);
+    }
+    // If N is to the right of M, then shift M by 1 because of the first factor.
+    if (is_N_right_of_M) {
+      No_pos++;
+    }
 
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        // split   [I1/factor, factor, I2]
-        // reorder [I1/factor, I2, factor]
-        // merge   [I1/factor, I2*factor]
-        // where I1 and I2 are the outer M and N dimensions, respectively
+    if (is_N_present && is_M_present) {
+      NVF_ERROR(min_axis_pos >= 0, "Both M and N roles must exist.");
+      // reorder: [M/first_factor, N/second_factor, first_factor,
+      // second_factor]
+      tv->reorder(
+          {{min_axis_pos + 1, min_axis_pos + 2},
+           {min_axis_pos + 2, min_axis_pos + 1}});
+      // merge:
+      // [M/first_factor * N/second_factor, first_factor, second_factor]
+      tv->merge(min_axis_pos, min_axis_pos + 1);
+      // merge:
+      // [M/first_factor * N/second_factor, first_factor * second_factor]
+      tv->merge(min_axis_pos + 1, min_axis_pos + 2);
+    } else if (is_N_present) {
+      // M is missing, so we skip the merge above. In this case we
+      // should update the dim roles to reflect the new split axis.
+      outer_dim_roles.insert(
+          outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
+    } else if (is_M_present) {
+      // N is missing, so we skip the merge above. In this case we
+      // should update the dim roles to reflect the new split axis.
+      outer_dim_roles.insert(
+          outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+    }
+    return;
+  }
+
+  // Single factor grid traversal.
+  NVF_ERROR(params_->grid_traversal_factor.first > 1);
+  NVF_ERROR(params_->grid_traversal_factor.second == 1);
+  int factor = params_->grid_traversal_factor.first;
+  switch (params_->cta_order) {
+    case MatmulParams::TileRasterizationOrder::ColumnMajor: {
+      // split   [I1, I2/factor, factor]
+      // reorder [I1, factor, I2/factor]
+      // merge   [I1*factor, I2/factor]
+      // where I1 and I2 are the outer M and N dimensions, respectively
+      if (No_pos >= 0) {
+        tv->split(No_pos, factor);
+        // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
+        if (No_pos < Mo_pos) {
+          Mo_pos++;
+        }
+        tv->reorder({{No_pos, No_pos + 1}});
         if (Mo_pos >= 0) {
-          tv->split(Mo_pos, factor);
-          // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-          if (No_pos > Mo_pos) {
-            No_pos++;
-          }
-          if (No_pos >= 0) {
-            tv->reorder({{Mo_pos + 1, No_pos}});
-            tv->merge(Mo_pos + 1, No_pos);
-          } else {
-            // N is missing, so we skip the merge above. In this case we
-            // should update the dim roles to reflect the new split axis.
-            outer_dim_roles.insert(
-                outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
-          }
+          tv->merge(Mo_pos, No_pos);
+        } else {
+          // M is missing, so we skip the merge above. In this case we
+          // should update the dim roles to reflect the new split axis.
+          outer_dim_roles.insert(
+              outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
         }
+      }
+      break;
     }
+
+    case MatmulParams::TileRasterizationOrder::RowMajor: {
+      // split   [I1/factor, factor, I2]
+      // reorder [I1/factor, I2, factor]
+      // merge   [I1/factor, I2*factor]
+      // where I1 and I2 are the outer M and N dimensions, respectively
+      if (Mo_pos >= 0) {
+        tv->split(Mo_pos, factor);
+        // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
+        if (No_pos > Mo_pos) {
+          No_pos++;
+        }
+        if (No_pos >= 0) {
+          tv->reorder({{Mo_pos + 1, No_pos}});
+          tv->merge(Mo_pos + 1, No_pos);
+        } else {
+          // N is missing, so we skip the merge above. In this case we
+          // should update the dim roles to reflect the new split axis.
+          outer_dim_roles.insert(
+              outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+        }
+      }
+      break;
+    }
+    default:
+      NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
 }
 
@@ -375,17 +458,17 @@ void HopperMultipleMatmulScheduler::parallelizeBlocks(
         switch (params_->cta_order) {
           // TODO: Should we instead check the roles of these dimensions to take
           // the outermost two M or N axes?
-          case MatmulParams::TileRasterizationOrder::RowMajor:
-            tv->axis(num_device_and_batch_dims_)
-                ->parallelize(ParallelType::BIDy);
-            tv->axis(num_device_and_batch_dims_ + 1)
-                ->parallelize(ParallelType::BIDx);
-            break;
           case MatmulParams::TileRasterizationOrder::ColumnMajor:
             tv->axis(num_device_and_batch_dims_)
                 ->parallelize(ParallelType::BIDx);
             tv->axis(num_device_and_batch_dims_ + 1)
                 ->parallelize(ParallelType::BIDy);
+            break;
+          case MatmulParams::TileRasterizationOrder::RowMajor:
+            tv->axis(num_device_and_batch_dims_)
+                ->parallelize(ParallelType::BIDy);
+            tv->axis(num_device_and_batch_dims_ + 1)
+                ->parallelize(ParallelType::BIDx);
             break;
           default:
             NVF_THROW(
