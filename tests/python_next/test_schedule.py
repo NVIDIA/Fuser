@@ -5,12 +5,11 @@
 
 import torch
 import pytest
-from nvfuser import (
-    direct,
+from nvfuser_next import (
     MemoryType,
     ParallelType,
     SchedulerType,
-    DirectFusionDefinition,
+    FusionDefinition,
     DataType,
     LoadStoreOpType,
 )
@@ -23,7 +22,7 @@ def test_pointwise_manual():
         torch.randn(4, 8, device="cuda"),
     ]
 
-    with DirectFusionDefinition() as fd:
+    with FusionDefinition() as fd:
         tv0 = fd.from_pytorch(inputs[0])
         tv1 = fd.from_pytorch(inputs[1])
         tv2 = fd.ops.add(tv0, tv1)
@@ -85,7 +84,7 @@ T2_g_float[iblockIdx.x13{( ceilDiv(( i0 * i1 ), 128) )}, ithreadIdx.x14{128}] ca
 
 
 def test_pointwise_auto():
-    with DirectFusionDefinition() as fd:
+    with FusionDefinition() as fd:
         tv0 = fd.define_tensor(
             shape=[-1, -1], contiguity=[True, True], dtype=DataType.Float, is_cpu=False
         )
@@ -146,7 +145,7 @@ def test_register_sharing_circular_buffering_pointwise():
     )
     inputs = [t0, t1]
 
-    with DirectFusionDefinition() as fd:
+    with FusionDefinition() as fd:
         tv0 = fd.from_pytorch(t0)
         tv1 = fd.from_pytorch(t1)
         tv2 = fd.ops.add(tv0, tv1)

@@ -5,17 +5,18 @@
 import os
 import sys
 import torch
+import traceback
 
 # This is needed when libnvfuser_next.so is patched and doesn't have the pytorch library location available.
 pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
 if pytorch_lib_dir not in sys.path:
     sys.path.append(pytorch_lib_dir)
 
-from . import _C_NEXT as bindings
+from . import _C_NEXT
 from ._C_NEXT import *  # noqa: F401,F403
 
 
-class FusionDefinition(bindings._FusionDefinition):
+class FusionDefinition(_C_NEXT._FusionDefinition):
     """
     A class for defining and executing fused operations in nvFuser.
 
@@ -37,8 +38,8 @@ class FusionDefinition(bindings._FusionDefinition):
         """
         super(FusionDefinition, self).__init__()
         self.profiled = False
-        self.fusion = direct.Fusion()
-        self.fusion_guard = direct.FusionGuard(self.fusion)
+        self.fusion = _C_NEXT.Fusion()
+        self.fusion_guard = _C_NEXT.FusionGuard(self.fusion)
 
     def __repr__(self):
         """
@@ -49,7 +50,7 @@ class FusionDefinition(bindings._FusionDefinition):
         str
             A string representation of the FusionDefinition
         """
-        return direct.translate_fusion(self.fusion)
+        return _C_NEXT.translate_fusion(self.fusion)
 
     def __enter__(self):
         """
@@ -108,11 +109,11 @@ class FusionDefinition(bindings._FusionDefinition):
         """
         if auto_schedule:
             if not hasattr(self, "fec"):
-                self.fec = direct.FusionExecutorCache(self.fusion)
+                self.fec = _C_NEXT.FusionExecutorCache(self.fusion)
             return self.fec.execute(inputs)
         else:
             if not hasattr(self, "ke"):
-                self.ke = direct.KernelExecutor()
+                self.ke = _C_NEXT.KernelExecutor()
                 self.ke.compile(self.fusion, inputs)
             return self.ke.run(inputs)
 
@@ -123,16 +124,16 @@ class FusionDefinition(bindings._FusionDefinition):
         Parameters
         ----------
         *args
-            Positional arguments passed to direct.define_tensor
+            Positional arguments passed to _C_NEXT.define_tensor
         **kwargs
-            Keyword arguments passed to direct.define_tensor
+            Keyword arguments passed to _C_NEXT.define_tensor
 
         Returns
         -------
         Tensor
             The defined tensor
         """
-        tv = direct.define_tensor(*args, **kwargs)
+        tv = _C_NEXT.define_tensor(*args, **kwargs)
         self.add_input(tv)
         return tv
 
@@ -143,16 +144,16 @@ class FusionDefinition(bindings._FusionDefinition):
         Parameters
         ----------
         *args
-            Positional arguments passed to direct.define_scalar
+            Positional arguments passed to _C_NEXT.define_scalar
         **kwargs
-            Keyword arguments passed to direct.define_scalar
+            Keyword arguments passed to _C_NEXT.define_scalar
 
         Returns
         -------
         Scalar
             The defined scalar
         """
-        scalar = direct.define_scalar(*args, **kwargs)
+        scalar = _C_NEXT.define_scalar(*args, **kwargs)
         if scalar.is_symbolic():
             self.add_input(scalar)
         return scalar
@@ -215,7 +216,7 @@ class FusionDefinition(bindings._FusionDefinition):
         if not tensor.is_cuda and len(tensor.size()) != 0:
             raise ValueError("CPU non-scalar tensor is not supported!")
 
-        tv = direct.define_tensor(
+        tv = _C_NEXT.define_tensor(
             sizes=tensor.size(),
             strides=tensor.stride(),
             dtype=torch_dtype_to_nvfuser_dtype(tensor.dtype),

@@ -6,8 +6,8 @@
 import pytest
 import torch
 
-from nvfuser import (
-    DirectFusionDefinition,
+from nvfuser_next import (
+    FusionDefinition,
     DataType,
 )
 
@@ -25,7 +25,7 @@ class TestNvFuserFrontend(NVFuserTest):
             torch.ones(2, 4, 8, device="cuda"),
         ]
 
-        def fusion_func(fd: DirectFusionDefinition):
+        def fusion_func(fd: FusionDefinition):
             t0 = fd.from_pytorch(inputs[0])
             t1 = fd.from_pytorch(inputs[1])
             c0 = fd.define_scalar(3.0)

@@ -201,7 +201,7 @@ class PythonPrinter {
 
   // Generate a python definition for a FusionDefinition.
   void generateFusionDefinition() {
-    os_ << "def nvfuser_fusion(fd : DirectFusionDefinition) -> None :\n";
+    os_ << "def nvfuser_fusion(fd : FusionDefinition) -> None :\n";
   }
 
  private:

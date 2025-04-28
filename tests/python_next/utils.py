@@ -7,7 +7,7 @@ from copy import deepcopy
 import torch
 from torch.testing._internal.common_utils import TestCase
 
-from nvfuser import DirectFusionDefinition, DataType  # noqa: F401
+from nvfuser_next import FusionDefinition, DataType  # noqa: F401
 
 
 def is_pre_volta():
@@ -37,7 +37,7 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
         exec(fd_str)
 
         # Execute the python definition that was captured
-        with DirectFusionDefinition() as fd_cap:
+        with FusionDefinition() as fd_cap:
             eval(func_name)(fd_cap)
 
         torch.manual_seed(0)
@@ -55,7 +55,7 @@ def check_captured_python_definition(reference_outputs, fd, inputs, device=None)
             ]
         )
     except Exception as err:
-        print("\nException For Printed DirectFusionDefinition:")
+        print("\nException For Printed FusionDefinition:")
         print(
             "(A failure here suggests a mismatch in functionality between the original definition and the printed definition.)"
         )
@@ -79,7 +79,7 @@ class NVFuserTest(TestCase):
         inputs_captured = deepcopy(inputs)
 
         # Execute a fusion function and capture the string python definition
-        with DirectFusionDefinition() as fd:
+        with FusionDefinition() as fd:
             fusion_func(fd)
         torch.manual_seed(0)
         out = fd.execute(
