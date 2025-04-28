@@ -268,7 +268,7 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
   NVF_ERROR(params_->grid_traversal_factor.second == 1);
   int factor = params_->grid_traversal_factor.first;
   switch (params_->cta_order) {
-    case MatmulParams::TileRasterizationOrder::RowMajor: {
+    case MatmulParams::TileRasterizationOrder::ColumnMajor: {
       // split   [I1, I2/factor, factor]
       // reorder [I1, factor, I2/factor]
       // merge   [I1*factor, I2/factor]
@@ -292,7 +292,7 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
       break;
     }
 
-    case MatmulParams::TileRasterizationOrder::ColumnMajor: {
+    case MatmulParams::TileRasterizationOrder::RowMajor: {
       // split   [I1/factor, factor, I2]
       // reorder [I1/factor, I2, factor]
       // merge   [I1/factor, I2*factor]
@@ -458,13 +458,13 @@ void HopperMultipleMatmulScheduler::parallelizeBlocks(
         switch (params_->cta_order) {
           // TODO: Should we instead check the roles of these dimensions to take
           // the outermost two M or N axes?
-          case MatmulParams::TileRasterizationOrder::RowMajor:
+          case MatmulParams::TileRasterizationOrder::ColumnMajor:
             tv->axis(num_device_and_batch_dims_)
                 ->parallelize(ParallelType::BIDx);
             tv->axis(num_device_and_batch_dims_ + 1)
                 ->parallelize(ParallelType::BIDy);
             break;
-          case MatmulParams::TileRasterizationOrder::ColumnMajor:
+          case MatmulParams::TileRasterizationOrder::RowMajor:
             tv->axis(num_device_and_batch_dims_)
                 ->parallelize(ParallelType::BIDy);
             tv->axis(num_device_and_batch_dims_ + 1)

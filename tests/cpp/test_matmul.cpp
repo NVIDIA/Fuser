@@ -4737,7 +4737,7 @@ TEST_F(HopperMatmulTest, IndexTypeValidation) {
   mparams.supported_vec_size = {8, 8, 8};
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
-  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = false;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
