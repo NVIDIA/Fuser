@@ -5069,7 +5069,10 @@ TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  // Legacy launch is faster than Cluster launch when using full 132 SM grid.
+  // Cluster launch is better when using 128 SM grid that matches 2d grid
+  // traveral.
+  mparams.cluster_dims = {1, 1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
