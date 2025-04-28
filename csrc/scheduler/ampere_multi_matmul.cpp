@@ -909,17 +909,17 @@ void AmpereMultipleMatmulScheduler::scheduleMmaResults() {
       mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
     }
     switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        mma_result->axis(num_device_and_batch_dims_)
-            ->parallelize(ParallelType::BIDy);
-        mma_result->axis(num_device_and_batch_dims_ + 1)
-            ->parallelize(ParallelType::BIDx);
-        break;
       case MatmulParams::TileRasterizationOrder::ColumnMajor:
         mma_result->axis(num_device_and_batch_dims_)
             ->parallelize(ParallelType::BIDx);
         mma_result->axis(num_device_and_batch_dims_ + 1)
             ->parallelize(ParallelType::BIDy);
+        break;
+      case MatmulParams::TileRasterizationOrder::RowMajor:
+        mma_result->axis(num_device_and_batch_dims_)
+            ->parallelize(ParallelType::BIDy);
+        mma_result->axis(num_device_and_batch_dims_ + 1)
+            ->parallelize(ParallelType::BIDx);
         break;
       default:
         NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
