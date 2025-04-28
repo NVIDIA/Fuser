@@ -9067,7 +9067,7 @@ TEST_F(NVFuserTest, FusionScalarUnarySegmentation_CUDA) {
   FusionGuard fg(fusion.get());
 
   // Create input tensor
-  auto tv0 = makeContigTensor(2);
+  auto tv0 = makeContigTensor(3);
   fusion->addInput(tv0);
 
   // Create 3 scalar symbolic inputs
@@ -9095,12 +9095,12 @@ TEST_F(NVFuserTest, FusionScalarUnarySegmentation_CUDA) {
   auto tv4 = mul(tv3, scalar_final);
 
   // Basic normalization
-  auto tv5 = sum(tv4, {0}, true);
+  auto tv5 = sum(tv4, {2}, true);
   auto output0 = add(tv5, tv4);
   fusion->addOutput(output0);
 
   // Full normalization to induce segmentation
-  auto tv6 = sum(tv4, {0, 1}, true);
+  auto tv6 = sum(tv4, {1, 2}, true);
   auto output1 = add(tv6, tv4);
   fusion->addOutput(output1);
 
@@ -9109,7 +9109,7 @@ TEST_F(NVFuserTest, FusionScalarUnarySegmentation_CUDA) {
   double d2 = 1.0;
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
-  at::Tensor t0 = at::randn({128, 64}, options);
+  at::Tensor t0 = at::randn({64, 128, 256}, options);
 
   FusionExecutorCache executor_cache(std::move(fusion));
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, d0, d1, d2});

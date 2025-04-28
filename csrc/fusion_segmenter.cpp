@@ -3861,6 +3861,14 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
       !segmented_fusion_->getEdgesBetween(group1, group2).empty() ||
           !segmented_fusion_->getEdgesBetween(group2, group1).empty(),
       "only support testing immediate producer-consumer groups");
+
+  // [DEBUG] Identify the specific groups
+  bool is_sum_group = false; // Check if group1 or group2 is the Sum group
+  bool is_add_group = false; // Check if group1 or group2 is the Add group
+  for(auto expr : group1->exprs()) { if (expr->name() == 15 || expr->name() == 16) is_sum_group = true; if (expr->name() == 17) is_add_group = true; }
+  for(auto expr : group2->exprs()) { if (expr->name() == 15 || expr->name() == 16) is_sum_group = true; if (expr->name() == 17) is_add_group = true; }
+  // [END DEBUG]
+
   // The segmemter should ideally be redesigned to be more flexible and
   // decoupled from the schedulers, but for now, we just return
   // `SchedulerType::None` as it is not relevant when the segmenter is
@@ -3868,8 +3876,21 @@ bool SegmentCandidateFinder::codeGenSupportedMerge(
   if (options_.custom_should_merge_groups != nullptr) {
     return (options_.custom_should_merge_groups)(group1, group2);
   }
-  return tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2) !=
-      SchedulerType::None;
+
+  SchedulerType merge_result = tryMerge(segmented_fusion_.get(), runtimeInfo(), group1, group2);
+
+  // [DEBUG] Print result for the specific groups
+  if (is_sum_group && is_add_group) {
+      debug() << "[DEBUG SEG] codeGenSupportedMerge (tryMerge) for Group(Sum+Bcast) [ID "
+              << (group1 == (is_sum_group ? group1 : group2) ? group1->groupId() : group2->groupId()) // Print Sum group ID
+              << "] and Group(Add) [ID "
+              << (group1 == (is_add_group ? group1 : group2) ? group1->groupId() : group2->groupId()) // Print Add group ID
+              << "] returned SchedulerType: " << merge_result
+              << ". Merge possible: " << (merge_result != SchedulerType::None) << std::endl;
+  }
+  // [END DEBUG]
+
+  return merge_result != SchedulerType::None;
 }
 
 // TODO: consider caching the heuristics value so tryMerge doesn't have to be
@@ -4186,23 +4207,36 @@ void SegmentCandidateFinder::findSegments() {
   }
 
   validateIfDebug();
-
+  std::cout << "Before resolveForwardedInputs" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals_) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
+    }
+    for (auto out : group->output_vals_) {
+      std::cout << "  Output: " << out->toString() << std::endl;
+    }
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
+    }
+  }
   // Resolve all the input expressions needed in each group
   resolveForwardedInputs();
-  // std::cout << "After resolveForwardedInputs" << std::endl;
-  // for (auto group : groups()) {
-  //   std::cout << "======================" << std::endl;
-  //   std::cout << "Group: " << toString(group) << std::endl;
-  //   for (auto inp : group->input_vals_) {
-  //     std::cout << "  Input: " << inp->toString() << std::endl;
-  //   }
-  //   for (auto out : group->output_vals_) {
-  //     std::cout << "  Output: " << out->toString() << std::endl;
-  //   }
-  //   for (auto expr : group->exprs()) {
-  //     std::cout << "  Expr: " << expr->toString() << std::endl;
-  //   }
-  // }
+  std::cout << "After resolveForwardedInputs" << std::endl;
+  for (auto group : groups()) {
+    std::cout << "======================" << std::endl;
+    std::cout << "Group: " << toString(group) << std::endl;
+    for (auto inp : group->input_vals_) {
+      std::cout << "  Input: " << inp->toString() << std::endl;
+    }
+    for (auto out : group->output_vals_) {
+      std::cout << "  Output: " << out->toString() << std::endl;
+    }
+    for (auto expr : group->exprs()) {
+      std::cout << "  Expr: " << expr->toString() << std::endl;
+    }
+  }
   // Do not require segments to be disjoint because, due to
   // resolveForwardedInputs, the graph may not be disjoint as some unary exprs
   // from fusion inputs may be shared in multiple groups.
@@ -4569,6 +4603,30 @@ void SegmentCandidateFinder::finalMerge() {
           [](auto& it) { return it.first; });
 
       for (auto consumer : all_consumers_of_producer_group) {
+        // [DEBUG] Check if this is the specific pair we're interested in
+        bool is_sum_group = false;
+        for(auto expr : producer_group->exprs()) {
+            // Check for Sum/Bcast expr IDs from log (Expr 15 is Sum, Expr 16 is Bcast)
+            if (expr->name() == 15 || expr->name() == 16) {
+                is_sum_group = true;
+                break;
+            }
+        }
+        bool is_add_group = false;
+        for(auto expr : consumer->exprs()) {
+            if (expr->name() == 17) { // Check for Add expr ID from log
+                is_add_group = true;
+                break;
+            }
+        }
+
+        if (is_sum_group && is_add_group) {
+            debug() << "[DEBUG SEG] Considering finalMerge of Group(Sum+Bcast) [ID "
+                    << producer_group->groupId() << "] and Group(Add) [ID "
+                    << consumer->groupId() << "]" << std::endl;
+        }
+        // [END DEBUG]
+
         if (!producer_check->isConsumerOfAny(
                 consumer, all_consumers_of_producer_group) &&
             codeGenSupportedMerge(producer_group, consumer)) {
@@ -4636,17 +4694,6 @@ void SegmentCandidateFinder::resolveForwardedInput(Val* forwarded_input) {
 
 void SegmentCandidateFinder::finalize() {
   FUSER_PERF_SCOPE("SegmentCandidateFinder::finalize");
-  // Remove unconnected groups
-  groups().erase(
-      std::remove_if(
-          groups().begin(),
-          groups().end(),
-          [](SegmentedGroup* sg) {
-            return sg->producer_edges.empty() && sg->consumer_edges.empty() &&
-                sg->output_vals_.empty();
-          }),
-      groups().end());
-
   // Add group labeling
   int i = 0;
   for (auto it = groups().begin(); it != groups().end(); it++, i++) {
@@ -4679,6 +4726,25 @@ void SegmentCandidateFinder::finalize() {
   for (auto group : segmented_fusion_->groups()) {
     revertPrivatizedUpcast(group);
   }
+
+  // Remove unconnected groups
+  groups().erase(
+      std::remove_if(
+          groups().begin(),
+          groups().end(),
+          [](SegmentedGroup* sg) {
+            return sg->producer_edges.empty() && sg->consumer_edges.empty() &&
+                sg->output_vals_.empty();
+          }),
+      groups().end());
+
+  // Remove empty groups
+  groups().erase(
+      std::remove_if(
+          groups().begin(),
+          groups().end(),
+          [](SegmentedGroup* sg) { return sg->exprs_.empty(); }),
+      groups().end());
 
   // Finalize each group, fill in the missing inputs, i.e. tensor dims.
   for (auto g : groups()) {
