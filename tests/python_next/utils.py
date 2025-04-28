@@ -29,8 +29,6 @@ def is_pre_hopper():
 # Run captured python definition
 # Check that the result of captured python definition matches original results
 def check_captured_python_definition(reference_outputs, fd, inputs, device=None):
-    import re
-
     try:
         fd_str = fd.__repr__()
         func_name = "nvfuser_fusion"

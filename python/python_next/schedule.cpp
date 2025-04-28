@@ -717,7 +717,7 @@ void bindCircularBuffering(
         Parameters
         ----------
         tensor : TensorView
-            The TensorView to apply warp specialization circular buffering to. 
+            The TensorView to apply warp specialization circular buffering to.
         number_of_stages : int
             The number of stages in the circular buffer.
         prefetch_distance : int
@@ -750,7 +750,7 @@ void bindCircularBuffering(
         Parameters
         ----------
         tensor : TensorView
-            The TensorView to apply circular buffering pipelining to. 
+            The TensorView to apply circular buffering pipelining to.
         number_of_stages : int
             The number of stages in the circular buffer.
         prefetch_distance : int

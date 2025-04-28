@@ -4,7 +4,6 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-import pytest
 import nvfuser_next
 from nvfuser_next import FusionDefinition, DataType
 

@@ -4,7 +4,6 @@
 # Owner(s): ["module: nvfuser"]
 
 import torch
-import pytest
 from nvfuser_next import (
     MemoryType,
     ParallelType,
