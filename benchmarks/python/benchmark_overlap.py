@@ -8,8 +8,36 @@ import os
 
 import nvfuser
 from nvfuser import DataType, FusionDefinition, CommunicatorBackend
-from .core import run_benchmark
 
+def benchmark_cuda_events(fn, inputs, num_warmup=1, num_iterations=1):
+# def benchmark_cuda_events(fn, inputs, num_warmup=10, num_iterations=100):
+    """
+    Lightweight benchmark using CUDA events for timing.
+    Returns average time per iteration in milliseconds.
+    """
+    # Warmup
+    for _ in range(num_warmup):
+        fn(*inputs)
+    
+    # Create CUDA events
+    start_event = torch.cuda.Event(enable_timing=True)
+    end_event = torch.cuda.Event(enable_timing=True)
+    
+    # Benchmark
+    torch.cuda.synchronize()  # Ensure all previous operations are completed
+    start_event.record()
+    
+    for _ in range(num_iterations):
+        fn(*inputs)
+    
+    end_event.record()
+    torch.cuda.synchronize()  # Ensure all operations are completed
+    
+    # Calculate average time per iteration
+    elapsed_ms = start_event.elapsed_time(end_event)
+    avg_ms = elapsed_ms / num_iterations
+    
+    return avg_ms
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
     def __init__(self, m, k, n, s, num_devices, communication_backend):
@@ -103,13 +131,12 @@ def multidevice_benchmark():
 
 @pytest.mark.mpi
 @pytest.mark.parametrize(
-    # "backend_type", [CommunicatorBackend.ucc]
     "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
+    # "backend_type", [CommunicatorBackend.nccl]
 )
-# @pytest.mark.parametrize("s", [8])
+# @pytest.mark.parametrize("s", [1])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
-    benchmark,
     multidevice_benchmark,
     backend_type,
     s,
@@ -160,10 +187,16 @@ def test_overlap_allgather_matmul_stream_outermost(
 
     # Run benchmark if needed
     if not disable_benchmarking:
-
         def benchmark_fn(*args):
             outputs, _ = fd.execute(*args)
             return outputs[0]
 
-        outputs = run_benchmark(benchmark, benchmark_fn, inputs, device="cuda", use_cuda_events=True)
+        # Run benchmark with CUDA events
+        avg_ms = benchmark_cuda_events(benchmark_fn, [inputs])
+        
+        # Print results
+        if multidevice_benchmark.rank == 0:
+            print(f"\nBenchmark results for s={s}, backend={backend_type}:")
+            print(f"Average time per iteration: {avg_ms:.3f} ms")
+            print(f"Throughput: {m * k * n * 2 / (avg_ms * 1e-3) / 1e12:.3f} TFLOPs")
 
