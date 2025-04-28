@@ -2,15 +2,15 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import os
 import pytest
 import torch
-import os
 
 import nvfuser
 from nvfuser import DataType, FusionDefinition, CommunicatorBackend
 
-def benchmark_cuda_events(fn, inputs, num_warmup=1, num_iterations=1):
-# def benchmark_cuda_events(fn, inputs, num_warmup=10, num_iterations=100):
+
+def benchmark_cuda_events(fn, inputs, num_warmup=1, num_iterations=10):
     """
     Lightweight benchmark using CUDA events for timing.
     Returns average time per iteration in milliseconds.
@@ -18,26 +18,25 @@ def benchmark_cuda_events(fn, inputs, num_warmup=1, num_iterations=1):
     # Warmup
     for _ in range(num_warmup):
         fn(*inputs)
-    
+
     # Create CUDA events
     start_event = torch.cuda.Event(enable_timing=True)
     end_event = torch.cuda.Event(enable_timing=True)
-    
+
     # Benchmark
     torch.cuda.synchronize()  # Ensure all previous operations are completed
     start_event.record()
-    
+
     for _ in range(num_iterations):
         fn(*inputs)
-    
+
     end_event.record()
     torch.cuda.synchronize()  # Ensure all operations are completed
-    
+
     # Calculate average time per iteration
     elapsed_ms = start_event.elapsed_time(end_event)
-    avg_ms = elapsed_ms / num_iterations
-    
-    return avg_ms
+    return elapsed_ms / num_iterations
+
 
 class OverlapAGMatmulStreamOutermost(FusionDefinition):
     def __init__(self, m, k, n, s, num_devices, communication_backend):
@@ -51,13 +50,7 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
         self._num_devices = num_devices
 
     def definition(self) -> None:
-        m, k, n, s, d = (
-            self.m,
-            self.k,
-            self.n,
-            self.s,
-            self._num_devices,
-        )
+        m, k, n, s, d = self.m, self.k, self.n, self.s, self._num_devices
         self.x = self.define_tensor(
             shape=[s, d, m // (s * d), k], contiguity=True, dtype=DataType.BFloat16
         )
@@ -67,23 +60,13 @@ class OverlapAGMatmulStreamOutermost(FusionDefinition):
         self.bias = self.define_tensor(
             shape=[n], contiguity=True, dtype=DataType.BFloat16
         )
-
-        self.out = self.ops.linear(
-            self.x, self.weight, self.bias
-        )  # [s, d, m//(s*d), n]
-
+        self.out = self.ops.linear(self.x, self.weight, self.bias)
         self.add_output(self.out)
 
     def multidevice_schedule(self):
         mesh = nvfuser.DeviceMesh(range(self._num_devices))
-        for tv in [
-            self.x,
-            self.weight,
-            self.bias,
-            self.out,
-        ]:
+        for tv in [self.x, self.weight, self.bias, self.out]:
             self.sched._set_device_mesh(tv, mesh)
-
         self.sched.parallelize(self.x, 1, nvfuser.ParallelType.mesh_x)
         self.sched.parallelize(self.out, 0, nvfuser.ParallelType.stream)
 
@@ -132,9 +115,7 @@ def multidevice_benchmark():
 @pytest.mark.mpi
 @pytest.mark.parametrize(
     "backend_type", [CommunicatorBackend.nccl, CommunicatorBackend.ucc]
-    # "backend_type", [CommunicatorBackend.nccl]
 )
-# @pytest.mark.parametrize("s", [1])
 @pytest.mark.parametrize("s", [1, 8])
 def test_overlap_allgather_matmul_stream_outermost(
     multidevice_benchmark,
@@ -153,10 +134,8 @@ def test_overlap_allgather_matmul_stream_outermost(
     # because the FusionDefinition has not run so it doesn't contain any state.
     nvfuser.FusionCache.reset()
 
-    # m, k, n, d = 2**10, 2**10, 2**10, multidevice_benchmark.size
     m, k, n, d = 2**15, 2**17, 2**10, multidevice_benchmark.size
     assert m % (s * d) == 0
-
     os.environ["UCC_CL_BASIC_TLS"] = "nccl"
     torch.cuda.set_device(multidevice_benchmark.local_rank)
 
@@ -178,7 +157,7 @@ def test_overlap_allgather_matmul_stream_outermost(
     fd = OverlapAGMatmulStreamOutermost(m, k, n, s, d, backend_type)
 
     # Validate if needed
-    if not True:
+    if not disable_validation:
         outputs, _ = fd.execute(inputs)
         out = outputs[0].cpu()
         assert out.dtype == torch.bfloat16
@@ -187,16 +166,14 @@ def test_overlap_allgather_matmul_stream_outermost(
 
     # Run benchmark if needed
     if not disable_benchmarking:
+
         def benchmark_fn(*args):
             outputs, _ = fd.execute(*args)
             return outputs[0]
 
-        # Run benchmark with CUDA events
-        avg_ms = benchmark_cuda_events(benchmark_fn, [inputs])
-        
-        # Print results
+        avg_ms = benchmark_cuda_events(benchmark_fn, inputs)
+
         if multidevice_benchmark.rank == 0:
             print(f"\nBenchmark results for s={s}, backend={backend_type}:")
             print(f"Average time per iteration: {avg_ms:.3f} ms")
             print(f"Throughput: {m * k * n * 2 / (avg_ms * 1e-3) / 1e12:.3f} TFLOPs")
-
