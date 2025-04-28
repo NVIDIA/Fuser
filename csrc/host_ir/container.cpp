@@ -35,11 +35,13 @@ Stream* HostIrContainer::getDefaultStream() {
 std::ostream& HostIrContainer::print(std::ostream& os) const {
   IrMathPrinter op_exprs(os);
   op_exprs.handle(this);
-  os << "Aliases:{";
-  for (const auto& alias : alias_) {
-    os << "\n  " << alias.first << " -> " << alias.second;
+  if (alias_.size() > 0) {
+    os << "Aliases:{";
+    for (const auto& alias : alias_) {
+      os << "\n  " << alias.first << " -> " << alias.second;
+    }
+    os << "\n}\n";
   }
-  os << "\n}\n";
   return os;
 }
 

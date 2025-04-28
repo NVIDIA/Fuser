@@ -2533,6 +2533,10 @@ class ForLoop final : public Expr {
     return input(0);
   }
 
+  IterDomain* iterDomain() const {
+    return input(1)->as<IterDomain>();
+  }
+
   Val* indexOrStartIfTrivial() const {
     return isTrivial() ? start() : index();
   }

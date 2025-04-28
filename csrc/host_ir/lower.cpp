@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
@@ -615,7 +616,33 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 }
 
 bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
-  return isResharding(expr);
+  if (expr->isOneOf<
+          MatmulOp,
+          SliceOp,
+          SelectOp,
+          LinearOp,
+          BinaryOp,
+          ReductionOp,
+          Communication,
+          P2PCommunication>()) {
+    return true;
+  }
+
+  // Lower as standalone op "set" ops, i.e., LoadStoreOp of "Set" type with no
+  // permute
+  if (expr->isA<LoadStoreOp>()) {
+    auto* load_store = expr->as<LoadStoreOp>();
+    if (load_store->opType() == LoadStoreOpType::Set &&
+        load_store->out()->isA<TensorView>()) {
+      auto* tv = load_store->out()->as<TensorView>();
+      // If the output tensor has no root, it means it has no permute
+      if (!tv->hasRoot()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 bool HostIrLower::shouldMergeSegmentedGroups(
@@ -709,6 +736,13 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     hic->addOutput(ir_cloner.clone(output));
   }
 
+  for (auto tv : hic->allTvs()) {
+    // set all host tensors to global memory type. This must be the case by
+    // definition of a host tensor, and setting the memory type to global is
+    // also required to avoid Allocate HIR nodes to throw
+    tv->setMemoryType(MemoryType::Global);
+  }
+
   std::vector<Expr*> new_top_level_exprs;
   for (auto top_level_expr : hic->topLevelExprs()) {
     if (!isResharding(top_level_expr)) {
@@ -734,6 +768,8 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     }
   }
   hic->resetTopLevelExprs(new_top_level_exprs);
+
+  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(hic.get());
 
   return hic;
 }

@@ -355,6 +355,51 @@ std::string ShareMemHandles::toInlineString(int indent_size) const {
   NVF_THROW("Cannot be printed inline");
 }
 
+HirAliasSelect::HirAliasSelect(
+    IrBuilderPasskey passkey,
+    TensorView* in,
+    TensorView* out,
+    int64_t axis,
+    Val* index)
+    : Expr(passkey, {in, index}, {}, {}) {
+  NVF_ERROR(passkey.ir_container_ != nullptr);
+  NVF_ERROR(
+      passkey.ir_container_->isA<HostIrContainer>(),
+      this,
+      "must be registered in a HostIrContainer");
+  NVF_ERROR(
+      static_cast<int64_t>(in->getLogicalDomain().size()) > axis,
+      "Select axis ",
+      axis,
+      " is out of bounds for tensor ",
+      in->toString(),
+      " with ",
+      in->getLogicalDomain().size(),
+      " dimensions");
+  // "out" is not added as an output because the current op doesn't "define" it,
+  // but rather sets its allocation. Since "out" will be used in another
+  // producing expression, this avoids unnecessary cyclic dependencies. This
+  // ressembles how kir::Allocate treats its allocated TensorView.
+  addAttribute(out);
+  addDataAttribute(axis);
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(HirAliasSelect)
+
+std::string HirAliasSelect::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << out()->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = HirAliasSelect( " << in()->toString()
+                          << ", axis = " << in()->getLogicalDomain().at(axis())
+                          << ", index = " << index()->toString() << " )\n";
+  return ss.str();
+}
+
+std::string HirAliasSelect::toInlineString(int indent_size) const {
+  NVF_THROW("Cannot be printed inline");
+}
+
 } // namespace hir
 
 } // namespace nvfuser
