@@ -570,7 +570,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // [Bulk]
     // Set inline position after BIDy, so all the unrolled TMA loads
     // share the same barrier.
-    int64_t tma_inline_pos = 2;
+    constexpr int64_t tma_inline_pos = 2;
     for (auto tv : tma_load_tvs) {
       if (tv->nDims() >= tma_inline_pos + 1) {
         tv_inline_pos_map.emplace(tv, tma_inline_pos);
