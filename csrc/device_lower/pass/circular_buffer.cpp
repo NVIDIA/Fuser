@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <device_lower/lower2device.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
@@ -418,6 +419,81 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
   }
 
+  // If there is a persistent outer-loop, this IfThenElse short-circuits
+  // computation for quantized waves.
+  kir::IfThenElse* createPersistentShortCircuit(
+      ForLoop* outer_loop,
+      ForLoop* inner_loop) {
+    NVF_ERROR(outer_loop != nullptr);
+    NVF_ERROR(inner_loop != nullptr);
+    NVF_ERROR(outer_loop->index() != nullptr);
+    NVF_ERROR(outer_loop->stop() != nullptr);
+    NVF_ERROR(inner_loop->index() != nullptr);
+    NVF_ERROR(inner_loop->stop() != nullptr);
+    NVF_ERROR(outer_loop->iter_domain() != nullptr);
+    NVF_ERROR(inner_loop->iter_domain() != nullptr);
+
+    IterDomain* outer_loop_id = outer_loop->iter_domain();
+    IterDomain* inner_loop_id = inner_loop->iter_domain();
+
+    // Check that the outer and inner loop iterDomains have the same definition.
+    bool has_same_definition = outer_loop_id->definition() &&
+        inner_loop_id->definition() &&
+        outer_loop_id->definition() == inner_loop_id->definition();
+    if (!has_same_definition) {
+      return nullptr;
+    }
+
+    // Check that outer_fl, inner_fl = split(x,  inner_fl->stop()) where
+    // inner_fl->stop() == number of SMs.
+    Expr* id_def = outer_loop_id->definition();
+    if (!id_def->isA<Split>()) {
+      return nullptr;
+    }
+    Split* id_def_split = id_def->as<Split>();
+    if (id_def_split->factor() != inner_loop->stop()) {
+      return nullptr;
+    }
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    if (!id_def_split->factor()->isConstScalar() ||
+        id_def_split->factor()->evaluate().as<int64_t>() != num_sms) {
+      return nullptr;
+    }
+
+    // Check that the outer loop is a serial for-loop.
+    if (outer_loop_id->isParallelized()) {
+      return nullptr;
+    }
+
+    // Check that the inner loop is grid parallelized.
+    if (!inner_loop_id->isBlockDim()) {
+      return nullptr;
+    }
+
+    // lhs := (outer_fl->index() * inner_fl->stop() + inner_fl->index())
+    Val* lhs =
+        SimplifyingIrBuilder::mulExpr(outer_loop->index(), inner_loop->stop());
+    lhs = SimplifyingIrBuilder::addExpr(lhs, inner_loop->index());
+
+    // Check that outer_loop matches known invariants for persistent kernel.
+    Expr* def = outer_loop->stop()->definition();
+    NVF_ERROR(def != nullptr);
+    BinaryOp* bop = def->as<BinaryOp>();
+    NVF_ERROR(
+        bop != nullptr && bop->getBinaryOpType() == BinaryOpType::CeilDiv);
+    NVF_ERROR(bop->lhs() != nullptr);
+
+    // predicate := (lhs >= outer_fl->stop()->definition()->lhs())
+    Val* predicate_val = SimplifyingIrBuilder::geExpr(lhs, bop->lhs());
+    kir::Predicate* predicate =
+        IrBuilder::create<kir::Predicate>(predicate_val);
+    kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
+    kir::Continue* cont = IrBuilder::create<kir::Continue>();
+    ite->thenBody().push_back(cont);
+    return ite;
+  }
+
   // This function inserts arrive and wait expressions for RAW and WAR
   // hazards. The argument `cloned_loop` can be:
   // 1. A loop containing TMA expressions loading circular buffer tensors.
@@ -448,6 +524,16 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // Skip if there is not an active for-loop structure
     if (for_loop_stack_.empty()) {
       return;
+    }
+
+    // Create outer for-loop short-circuit to minimize wave quantization.
+    // Apply to cloned top-level for-loop and persistent kernels.
+    if (for_loop_stack_.size() == 1 && insertion_position_ != 1) {
+      kir::IfThenElse* ite =
+          createPersistentShortCircuit(for_loop_stack_.front(), cloned_loop);
+      if (ite != nullptr) {
+        for_loop_stack_.back()->body().push_back(ite);
+      }
     }
 
     insertMBarrierWaitBeforeFirstRead();
@@ -1442,52 +1528,43 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
     insertion_info_.erase(loop);
   }
 
-  void insertTmaWarpSpecialized(
-      ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads,
-      int64_t insertion_position) {
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
-    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
-
-    // Create warp_dispatch_ite, the predicate is either
-    // Tid == bdim - 1 or Tid >= bdim - padded
+  // Create predicate for warp-specialized IfThenElse:
+  // kir::Predicate is thread_axis >= block_dim_axis - padded_value
+  kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
+    ParallelType warp_specialize_on =
+        std::get<WarpSpecialized>(options.type).on;
     int64_t warp_specialization_pad =
         GpuLower::current()
             ->parallelDimensionMap()
             .getWarpSpecializationPaddedVal(warp_specialize_on);
-    kir::Predicate* predicate_val = nullptr;
     Val* raw =
         GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
     Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
         raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
-    if (warp_specialization_pad == 1) {
-      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
-    } else {
-      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
-          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
-    }
-    kir::IfThenElse* warp_dispatch_ite =
-        IrBuilder::create<kir::IfThenElse>(predicate_val);
+    return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+  }
 
-    // Set default value
-    auto& circular_buffer_options =
+  void insertTmaWarpSpecialized(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& loads,
+      int64_t insertion_position) {
+    const CircularBufferOptions& options =
         GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
             circular_buffer_loop->iter_domain());
-    bool enable_register_sharing =
-        std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) &&
-        std::get<WarpSpecialized>(circular_buffer_options.type)
-            .num_registers.has_value();
 
+    kir::IfThenElse* warp_dispatch_ite =
+        IrBuilder::create<kir::IfThenElse>(getAsyncWarpPredicate(options));
+
+    // Set default value
+    bool enable_register_sharing =
+        std::get<WarpSpecialized>(options.type).num_registers.has_value();
     GpuLower::current()->kernel()->manage(
         "enable_register_sharing", enable_register_sharing);
 
     if (enable_register_sharing) {
       auto&& [decrease_num_registers, increase_num_registers] =
-          std::get<WarpSpecialized>(circular_buffer_options.type)
-              .num_registers.value();
+          std::get<WarpSpecialized>(options.type).num_registers.value();
       GpuLower::current()->decIncRegisterUsage() =
           std::make_pair(decrease_num_registers, increase_num_registers);
       // Decrease registers in async warp group
