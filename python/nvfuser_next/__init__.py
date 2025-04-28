@@ -11,7 +11,7 @@ pytorch_lib_dir = os.path.join(os.path.dirname(torch.__file__), "lib")
 if pytorch_lib_dir not in sys.path:
     sys.path.append(pytorch_lib_dir)
 
-from . import _C_NEXT
+from . import _C_NEXT as bindings
 from ._C_NEXT import *  # noqa: F401,F403
 
 

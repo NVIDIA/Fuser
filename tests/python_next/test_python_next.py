@@ -12,10 +12,18 @@ from nvfuser_next import FusionDefinition, DataType
 def test_fusion_definition():
     fd = FusionDefinition()
     tv0 = (
-        nvfuser_next.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
+        nvfuser_next.TensorViewBuilder()
+        .num_dims(3)
+        .shape([2, 4, 8])
+        .contiguity(True)
+        .build()
     )
     tv1 = (
-        nvfuser_next.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
+        nvfuser_next.TensorViewBuilder()
+        .num_dims(3)
+        .shape([2, 4, 8])
+        .contiguity(True)
+        .build()
     )
 
     fd.add_input(tv0)
@@ -47,10 +55,18 @@ def test_fusion_definition():
 def test_fusion_execution():
     fd = FusionDefinition()
     tv0 = (
-        nvfuser_next.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
+        nvfuser_next.TensorViewBuilder()
+        .num_dims(3)
+        .shape([2, 4, 8])
+        .contiguity(True)
+        .build()
     )
     tv1 = (
-        nvfuser_next.TensorViewBuilder().num_dims(3).shape([2, 4, 8]).contiguity(True).build()
+        nvfuser_next.TensorViewBuilder()
+        .num_dims(3)
+        .shape([2, 4, 8])
+        .contiguity(True)
+        .build()
     )
 
     fd.add_input(tv0)
