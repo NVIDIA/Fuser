@@ -3733,12 +3733,10 @@ class PreferredMergeCandidatePicker {
         candidates_.emplace_back(group, *neighbor_to_merge);
         continue;
       }
-      if (!getenv("DISABLE_PREFER_PAD")) {
-        if (auto neighbor_to_merge = mergePadWithConsumers(group);
-            neighbor_to_merge.has_value()) {
-          candidates_.emplace_back(group, *neighbor_to_merge);
-          continue;
-        }
+      if (auto neighbor_to_merge = mergePadWithConsumers(group);
+          neighbor_to_merge.has_value()) {
+        candidates_.emplace_back(group, *neighbor_to_merge);
+        continue;
       }
     }
   }
@@ -3852,13 +3850,11 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
     return std::nullopt;
   }
 
+  const auto merge_candidates = group->getMergeCandidates();
+
   for (auto expr : group->exprs()) {
     auto pad = dynamic_cast<PadOp*>(expr);
     if (pad == nullptr) {
-      continue;
-    }
-
-    if (pad->out()->isFusionOutput()) {
       continue;
     }
 
@@ -3871,30 +3867,29 @@ std::optional<SegmentedGroup::NeighborGroup> PreferredMergeCandidatePicker::
       continue;
     }
 
-    auto consumer_edge_it = std::ranges::find_if(
-        group->consumer_edges,
-        [&](SegmentedEdge* edge) { return edge->val == pad->out(); });
+    // Look for a consumer edge that has the pad output as its val,
+    // which means the pad output is passed to the consumer group.
+    for (const auto& consumer_edge : group->consumer_edges) {
+      if (consumer_edge->val != pad->out()) {
+        continue;
+      }
 
-    if (consumer_edge_it == group->consumer_edges.end()) {
-      continue;
+      auto consumer_group = consumer_edge->to;
+      if (consumer_group->isMerged()) {
+        continue;
+      }
+
+      // Don't try to merge if not a candidate
+      if (std::ranges::find_if(
+              merge_candidates,
+              [&](const SegmentedGroup::NeighborGroup& neighbor) {
+                return neighbor.group != consumer_group;
+              }) == merge_candidates.end()) {
+        continue;
+      }
+
+      return SegmentedGroup::NeighborGroup(consumer_group, consumer_edge);
     }
-
-    auto consumer_group = (*consumer_edge_it)->to;
-    if (consumer_group->isMerged()) {
-      return std::nullopt;
-    }
-
-    // Don't try to merge if not a candidate
-    auto merge_candidates = group->getMergeCandidates();
-    if (std::ranges::find_if(
-            merge_candidates,
-            [&](const SegmentedGroup::NeighborGroup& neighbor) {
-              return neighbor.group != consumer_group;
-            }) == merge_candidates.end()) {
-      return std::nullopt;
-    }
-
-    return SegmentedGroup::NeighborGroup(consumer_group, *consumer_edge_it);
   }
 
   return std::nullopt;
@@ -4052,25 +4047,26 @@ void SegmentCandidateFinder::trySetUpMerge(
     return;
   }
 
-  auto candidate_it = candidates.begin();
-  while (candidate_it != candidates.end() && !candidate_it->group->isMerged() &&
-         !codeGenSupportedMerge(group, candidate_it->group)) {
-    candidate_it++;
-  }
-  if (candidate_it == candidates.end()) {
+  // Try to find a non-merged candidate that can be merged with this
+  // group
+  for (const auto& candidate : candidates) {
+    if (candidate.group->isMerged() ||
+        !codeGenSupportedMerge(group, candidate.group)) {
+      continue;
+    }
+
+    to_merge_.emplace_back(group);
+    to_merge_.emplace_back(candidate.group);
+
+    group->merged_ = true;
+    group->merge_with_ = candidate.group;
+    group->merge_through_ = candidate.edge;
+
+    candidate.group->merged_ = true;
+    candidate.group->merge_with_ = group;
+    candidate.group->merge_through_ = candidate.edge;
     return;
   }
-
-  to_merge_.emplace_back(group);
-  to_merge_.emplace_back(candidate_it->group);
-
-  group->merged_ = true;
-  group->merge_with_ = candidate_it->group;
-  group->merge_through_ = candidate_it->edge;
-
-  candidate_it->group->merged_ = true;
-  candidate_it->group->merge_with_ = group;
-  candidate_it->group->merge_through_ = candidate_it->edge;
 }
 
 void SegmentCandidateFinder::resolveForwardedInputs() {

@@ -552,7 +552,7 @@ void AmpereMultipleMatmulScheduler::reorderBlockTileTraversal(
     int factor =
         std::max(1, params_->grid_traversal_factor.first); // must be >=1
     switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
         // split   [I1, I2/factor, factor]
         // reorder [I1, factor, I2/factor]
         // merge   [I1*factor, I2/factor]
@@ -575,7 +575,7 @@ void AmpereMultipleMatmulScheduler::reorderBlockTileTraversal(
         }
         break;
 
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+      case MatmulParams::TileRasterizationOrder::RowMajor:
         // split   [I1/factor, factor, I2]
         // reorder [I1/factor, I2, factor]
         // merge   [I1/factor, I2*factor]
@@ -909,13 +909,13 @@ void AmpereMultipleMatmulScheduler::scheduleMmaResults() {
       mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
     }
     switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
         mma_result->axis(num_device_and_batch_dims_)
             ->parallelize(ParallelType::BIDx);
         mma_result->axis(num_device_and_batch_dims_ + 1)
             ->parallelize(ParallelType::BIDy);
         break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+      case MatmulParams::TileRasterizationOrder::RowMajor:
         mma_result->axis(num_device_and_batch_dims_)
             ->parallelize(ParallelType::BIDy);
         mma_result->axis(num_device_and_batch_dims_ + 1)

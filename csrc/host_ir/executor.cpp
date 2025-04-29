@@ -13,6 +13,7 @@
 #include <host_ir/executor.h>
 #include <host_ir/lower.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
@@ -631,6 +632,56 @@ void HostIrEvaluator::handle(LinearOp* linear) {
   }
 }
 
+void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
+  NVF_ERROR(
+      load_store_op->opType() == LoadStoreOpType::Set,
+      "LoadStoreOp must be a Set");
+  NVF_ERROR(
+      load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
+  auto* out_tv = load_store_op->out()->as<TensorView>();
+  auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
+
+  at::Tensor t;
+  if (out_tv->hasRoot()) {
+    std::optional<std::vector<int64_t>> permutation =
+        ir_utils::computePermutation(
+            out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(
+        permutation.has_value(),
+        "The logical domain of a Set.Permute is supposed to be a permutation"
+        " of the root domain: ",
+        out_tv);
+    t = in_tensor.permute(*permutation);
+  } else {
+    t = in_tensor;
+  }
+
+  if (isKnown(out_tv)) {
+    auto out_tensor =
+        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
+    out_tensor.copy_(t);
+  } else {
+    // For completeness, we may check if out_tv's allocation matches `t` and
+    // copy data if yes. For example,
+    //
+    // clang-format off
+    // ```
+    // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
+    // if (strides == t.strides()) {
+    //   bind(out_tv, t);
+    // } else {
+    //   auto out_tensor = at::empty_strided(sizes, strides, in_tensor.dtype());
+    //   out_tensor.copy_(t);
+    //   bind_(out_tv, out_tensor);
+    // }
+    // ```
+    // clang-format on
+    //
+    // For now, I choose to keep code simple for the limited use cases.
+    bind(out_tv, t);
+  }
+}
+
 void HostIrEvaluator::handle(kir::Allocate* allocate) {
   NVF_ERROR(
       allocate->buffer()->isA<TensorView>(),
@@ -652,6 +703,87 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       device,
       c10::nullopt);
   bind(tv, tensor);
+}
+
+void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
+  auto index =
+      expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
+                   .as<at::Tensor>();
+  int64_t axis = hir_alias_select->axis();
+  bind(hir_alias_select->out(), input.select(axis, index));
+}
+
+void HostIrEvaluator::handle(BinaryOp* binary_op) {
+  if (!isKnown(binary_op->outputs().at(0))) {
+    return unhandled(binary_op);
+  }
+
+  auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
+  auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
+  auto output =
+      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
+
+  switch (binary_op->getBinaryOpType()) {
+    case BinaryOpType::Add:
+      at::add_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Sub:
+      at::sub_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Mul:
+      at::mul_out(output, lhs, rhs);
+      break;
+    case BinaryOpType::Div:
+      at::div_out(output, lhs, rhs);
+      break;
+    default:
+      NVF_THROW(
+          "Unexpected operator type: ",
+          binary_op->getBinaryOpType(),
+          " in ",
+          binary_op);
+  }
+}
+
+void HostIrEvaluator::handle(ReductionOp* reduction_op) {
+  auto input_tv = reduction_op->in()->as<TensorView>();
+  auto output_tv = reduction_op->out()->as<TensorView>();
+  if (!isKnown(output_tv)) {
+    return unhandled(reduction_op);
+  }
+
+  NVF_ERROR(
+      !output_tv->hasRoot(),
+      "Evaluation for rFactored reductions is not supported.");
+  auto input = getKnownConcreteValue(input_tv).as<at::Tensor>();
+  auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
+
+  std::vector<int64_t> reduction_axes;
+  for (const auto i :
+       c10::irange(int64_t(output_tv->getLogicalDomain().size()))) {
+    auto ax = output_tv->getLogicalDomain().at(i);
+    if (ax->isReduction()) {
+      reduction_axes.push_back(i);
+    }
+  }
+  switch (reduction_op->getReductionOpType()) {
+    case BinaryOpType::Add:
+      at::sum_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Max:
+      at::amax_out(output, input, reduction_axes);
+      return;
+    case BinaryOpType::Min:
+      at::amin_out(output, input, reduction_axes);
+      return;
+    default:
+      NVF_THROW(
+          "Unexpected operator type: ",
+          reduction_op->getReductionOpType(),
+          " in ",
+          reduction_op);
+  }
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
