@@ -25,6 +25,7 @@ from .rope_ops import rope_setup, SEQ_LENGTHS
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
+@pytest.mark.resize
 def test_rope_fwd_benchmark(
     benchmark,
     variation: str,
@@ -66,6 +67,7 @@ def test_rope_fwd_benchmark(
     "executor", ["eager", "torchcompile", "thunder", "thunder-torchcompile"]
 )
 @pytest.mark.parametrize("seq_length", SEQ_LENGTHS)
+@pytest.mark.resize
 def test_rope_bwd_benchmark(
     benchmark,
     variation: str,
