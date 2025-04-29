@@ -416,7 +416,10 @@ bool fillDefaultHopperHeuristic(
   // Set the CGA size to either {1, 1, 1} or {2, 1, 1}
   // We always prefer {2, 1, 1}, but this is not always possible. It is only
   // possible if the BIDx dimension will have even size. This is the case for
-  // any persistent kernel, or for OneTilePerCTA if
+  // any persistent kernel since the number of SMs is even.
+  // For non-persistent kernels, M=BIDx if cta_order is ColumnMajor, and N=BIDx
+  // for RowMajor. These dims are then multiplied by the grid_traversal_factor
+  // when swizzling.
   int64_t BIDx_tiles =
       mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
       ? Mtiles
