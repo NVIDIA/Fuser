@@ -906,7 +906,6 @@ rope_setup = {
     ),
     "litgpt-phi3.5-mini": partial(
         Litgpt,
-        model_name="meta-llama/Meta-Llama-3-8B-Instruct"
-        "microsoft/Phi-3.5-mini-instruct",
+        model_name="microsoft/Phi-3.5-mini-instruct",
     ),
 }
