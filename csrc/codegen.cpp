@@ -164,7 +164,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.lparams_ = lparams;
     codegen.has_warp_specialized_ =
         kernel->summary().circular_buffer_info.hasWarpSpecialized();
-    gen.genDeclaration(kernel_name);
+    codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
     codegen.genBody();
@@ -3645,10 +3645,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .arg(bidz)
         .arg(/*PERSISTENT=*/true)
         .arg(/*PERSISTENT=*/
-   
-             warp_specialized_
-    lse
-    Aligned());
+            has_warp_specialized_
+                ? false
+                : isAligned());
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -3886,4 +3885,3 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
-    
