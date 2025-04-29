@@ -8,6 +8,7 @@ import nvfuser
 from nvfuser import DataType, FusionDefinition
 from nvfuser.testing.utils import create_sdpa_rng_tensors, define_sdpa_rng_state
 
+
 def get_benchmark_fn(func, /, profile: bool):
     def wrapper(*args, **kwargs):
         if profile:
