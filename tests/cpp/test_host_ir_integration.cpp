@@ -6,13 +6,13 @@
 */
 // clang-format on
 #include <fusion.h>
+#include <global_allocator.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
 #include <ir/all_nodes.h>
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include <global_allocator.h>
 
 namespace nvfuser {
 
@@ -154,7 +154,8 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
   resetPeakMemoryStats(device_index);
   at::cuda::clearCublasWorkspaces();
   nvfuser::releaseZeroedMemory();
-  ASSERT_EQ(memoryAllocated(device_index), 0) << "Previous tests leaked memory.";
+  ASSERT_EQ(memoryAllocated(device_index), 0)
+      << "Previous tests leaked memory.";
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
