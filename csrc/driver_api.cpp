@@ -66,7 +66,7 @@
   template <typename ReturnType, typename... Args>                        \
   struct funcName##Loader {                                               \
     static ReturnType lazilyLoadAndInvoke(Args... args) {                 \
-      static PFN_##funcName f;                                            \
+      static decltype(::funcName)* f;                                     \
       static std::once_flag once;                                         \
       std::call_once(once, [&]() {                                        \
         NVFUSER_CUDA_RT_SAFE_CALL(cudaGetDriverEntryPoint(                \
@@ -85,7 +85,7 @@
       ->funcName##Loader<ReturnType, Args...>;                            \
   } /* namespace */                                                       \
                                                                           \
-  PFN_##funcName funcName =                                               \
+  decltype(::funcName)* funcName =                                        \
       decltype(funcName##Loader(::funcName))::lazilyLoadAndInvoke
 
 namespace nvfuser {
