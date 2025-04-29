@@ -1266,9 +1266,11 @@ KernelArgumentHolder KernelExecutor::run(
           stream,
           executor_entry->arg_ptrs.data()));
     }
+    NVFUSER_CUDA_SAFE_CALL(cuCtxSynchronize());
   }
 
   releaseZeroedMemory();
+  NVFUSER_CUDA_SAFE_CALL(cuCtxSynchronize());
 
   if (isOptionEnabled(EnableOption::KernelProfile)) {
     debug() << compiled_kernel_->kernel()->profile().toString(profile_buffer);
