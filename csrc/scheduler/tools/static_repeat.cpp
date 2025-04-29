@@ -56,6 +56,7 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
 
   StaticRepeatInfo info;
 
+  info.reshape_output_tv = reshape_out;
   info.output_id = reshape_merge->out();
 
   const auto c2p =
