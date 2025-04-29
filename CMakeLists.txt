@@ -478,7 +478,7 @@ if(BUILD_PYTHON)
 
   # setup python API version
   add_custom_command(
-    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser_common/version.py
+    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
     COMMAND
     "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
@@ -489,7 +489,7 @@ if(BUILD_PYTHON)
   )
   add_custom_target(
     gen_nvfuser_version ALL
-    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser_common/version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
   )
   add_dependencies(nvf_py_internal gen_nvfuser_version)
 
