@@ -3645,9 +3645,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .arg(bidz)
         .arg(/*PERSISTENT=*/true)
         .arg(/*PERSISTENT=*/
-            has_warp_specialized_
-                ? false
-                : isAligned());
+             has_warp_specialized_ ? false : isAligned());
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",

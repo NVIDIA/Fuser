@@ -747,7 +747,7 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
   }
   auto outputs =
       ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
-  NVFUSER_CUDA_SAFE_CALL(cuCtxSynchronize());
+
   return outputs;
 }
 
