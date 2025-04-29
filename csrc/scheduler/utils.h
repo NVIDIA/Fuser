@@ -836,6 +836,6 @@ TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 //! transform propagation passes will propagate the transforms.
 //! For example, in sharding propagation or
 //! BoundedDirectionalTransformPropagator.
-enum class PropagateDirection { Backward = 0, Forward };
+enum class PropagateDirection { kBackward = 0, kForward };
 } // namespace scheduler_utils
 } // namespace nvfuser

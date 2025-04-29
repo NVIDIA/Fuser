@@ -1858,7 +1858,7 @@ bool isFakeBoundaryTensorview(
     TensorView* tv,
     const std::unordered_set<TensorView*>& selected_tv_set,
     PropagateDirection direction) {
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation,
     //  a boundary tv is a fake boundary if
     //  it has any consumer tv that's in the selected
@@ -1902,7 +1902,7 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
   std::unordered_set<TensorView*> boundary_tv_set(
       boundary_tvs.begin(), boundary_tvs.end());
 
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation, collect all tvs
     //  that are consumers of `from_tv` and producers of
     //  boundary tvs.
@@ -2010,7 +2010,7 @@ void BoundedDirectionalTransformPropagator::backward(
   // Collect all tvs to included on the backward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Backward);
+      from, to, *options, PropagateDirection::kBackward);
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
 }
@@ -2030,7 +2030,7 @@ void BoundedDirectionalTransformPropagator::forward(
   // Collect all tvs to included on the forward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Forward);
+      from, to, *options, PropagateDirection::kForward);
 
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
@@ -2052,9 +2052,9 @@ void BoundedDirectionalTransformPropagator::bothWays(
   // Collect all tvs to included on the backward and forward path as specified
   //  by boundary and options.
   auto backward_included_tvs = getDirectionalPropagatePathSet(
-      from, backward_to, *options, PropagateDirection::Backward);
+      from, backward_to, *options, PropagateDirection::kBackward);
   auto forward_included_tvs = getDirectionalPropagatePathSet(
-      from, forward_to, *options, PropagateDirection::Forward);
+      from, forward_to, *options, PropagateDirection::kForward);
 
   // Combined the included tvs on both paths.
   auto included_tvs = backward_included_tvs;

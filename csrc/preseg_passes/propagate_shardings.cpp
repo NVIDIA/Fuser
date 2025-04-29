@@ -147,7 +147,7 @@ void propagateDIDTransform(
     PropagationDirection direction) {
   TensorDomain* replayed_domain = nullptr;
   for (TensorView* tv : tvs) {
-    if (direction == PropagationDirection::Forward) {
+    if (direction == PropagationDirection::kForward) {
       replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
     } else {
       replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
@@ -217,7 +217,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           /*ref=*/ref_input,
           /*tvs=*/outputs_without_mesh,
           /*did_pos=*/did_pos,
-          /*direction=*/PropagationDirection::Forward);
+          PropagationDirection::kForward);
 
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
@@ -279,7 +279,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*ref=*/ref_output,
         /*tvs=*/sharding_candidates,
         /*did_pos=*/did_pos,
-        /*direction=*/PropagationDirection::Backward);
+        PropagationDirection::kBackward);
     shardAllLike(ref_output, sharding_candidates);
   }
 }
