@@ -15,7 +15,6 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
-#include <global_allocator.h>
 
 namespace nvfuser {
 
