@@ -112,7 +112,7 @@ class KernelIrScanner : private IrVisitor {
         break;
       case MemoryType::Local:
         if (!allocate->size()->isConstInt()) {
-          summary_.dynamic_lmem_allocations.emplace_back(allocate);
+          summary_.dynamic_lmem_allocations.push_back(allocate);
         }
         break;
       case MemoryType::Tensor:
