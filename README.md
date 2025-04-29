@@ -20,21 +20,29 @@ torch nightly (pypi.nvidia.com) | nvfuser-cu118 | nvfuser-cu126 | nvfuser-cu128 
 
 Note that nvfuser built against stable torch version isn't compatible with nightly pytorch wheel, so ensure you pick the right version suiting your environment.
 
-For old nvfuser builds against old version pytorch, e.g. `nvfuser-cuXXY-torchZW`, there are packages available at https://pypi.org/search/?q=nvfuser.
+
+### Nightly nvfuser pip wheel
+
+You can install a nightly nvfuser pip package built against torch nightly code base with
+`pip install --pre nvfuser-cu128 --extra-index-url https://pypi.nvidia.com`
+
+As we build against nightly torch wheel and there's no compatibility promised on nightly wheels,
+we have explicitly marked the nightly torch wheel as an optinoal dependency.
+You can choose to install the torch wheel along with nvfuser package,
+e.g.  `pip install --pre "nvfuser-cu128[torch]" --extra-index-url https://pypi.nvidia.com`.
+Note that this may uninstall your local pytorch installation and install the compatible nightly pytorch.
+
+### Nvfuser pip wheel against pytorch stable release
+
+Nvfuser pip wheel built against stable torch releases is published on both https://pypi.org and https://pypi.nvidia.com.
+Pick the right cuda toolkit version to match your torch installation. e.g. `pip install nvfuser-cu128-torch27`.
+
+For old nvfuser builds against old version pytorch, e.g. `nvfuser-cuXXY-torchZW`,
+there are packages available at [PyPI](https://pypi.org/search/?q=nvfuser).
 We build and publish builds against the latest stable pytorch on https://pypi.org on 1st and 15th of every month regularly and
 when major changes are added.
 
-### nightly nvfuser pip wheel
-
-You can instll a nightly nvfuser pip package built against torch nightly code base with `pip install --pre nvfuser-cu121 --extra-index-url https://pypi.nvidia.com`
-
-As we build against nightly torch wheel and there's no compatibility promised on nightly wheels, we have explicitly marked the nightly torch wheel as an optinoal dependency. You can choose to install the torch wheel along with nvfuser package. e.g.
-`pip install --pre "nvfuser-cu121[torch]" --extra-index-url https://pypi.nvidia.com`.
-Note that this may uninstall your local pytorch installation and install the compatible nightly pytorch.
-
-### nvfuser pip wheel against pytorch stable release
-
-nvfuser pip wheel built against stable torch releases is published on both pypi.org and pypi.nvidia.com. Pick the right cuda toolkit version to match your torch installation. e.g. `pip install nvfuser-cu121-torch26`
+We always recommend use of the latest nvfuser build with latest cuda and pytorch versions.
 
 PyPI: [https://pypi.org/project/nvfuser/](https://pypi.org/search/?q=nvfuser)
 
