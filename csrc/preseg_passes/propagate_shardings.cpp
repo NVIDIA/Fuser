@@ -169,10 +169,15 @@ void propagateDIDTransform(
     int64_t did_pos,
     bool allow_c2p,
     bool allow_p2c) {
-  TransformPropagator propagator(ref, did_pos);
-  PropagateShardingsSelector selector(
-      {tvs.begin(), tvs.end()}, allow_c2p, allow_p2c);
-  MaxLogicalDomainInfoSpanningTree(ref, &selector).traverse(&propagator);
+  TensorDomain* replayed_domain = nullptr;
+  for (auto tv : tvs) {
+    if (allow_c2p) {
+      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
+    } else {
+      replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
+    }
+    tv->setLoopDomain(replayed_domain->loop());
+  }
 }
 
 } // namespace
