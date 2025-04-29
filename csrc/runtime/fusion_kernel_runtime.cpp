@@ -745,9 +745,10 @@ KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
   if (auto ke = dynamic_cast<KernelExecutor*>(ea)) {
     ke->setGroupId(group_id);
   }
+  NVFUSER_CUDA_SAFE_CALL(cuCtxSynchronize());
   auto outputs =
       ExecutorDispatch::run(ea, args, {}, launch_params, compile_params);
-
+  NVFUSER_CUDA_SAFE_CALL(cuCtxSynchronize());
   return outputs;
 }
 
