@@ -913,7 +913,6 @@ void DynamicTransformConcretizer::concretizeReshape() {
     auto inp_tv = view_op->in()->as<TensorView>();
 
     TensorView* concrete_reshape_out_tv = nullptr;
-
     if (std::holds_alternative<AnalyzeViewResult>(view_info)) {
       concrete_reshape_out_tv = concretizeNonEmptyReshape(
           inp_tv, incomplete_out_tv, std::get<AnalyzeViewResult>(view_info));
@@ -921,6 +920,7 @@ void DynamicTransformConcretizer::concretizeReshape() {
       concrete_reshape_out_tv = concretizeEmptyReshape(
           inp_tv, incomplete_out_tv, std::get<std::vector<int64_t>>(view_info));
     }
+    concrete_reshape_out_tv->setDeviceMesh(DeviceMesh());
 
     // NOTE: The replacement might not yet actually be valid. For example, if
     // inp_tv contains Symbolic domains that need to be squeezed, this check

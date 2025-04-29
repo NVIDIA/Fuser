@@ -27,6 +27,38 @@ def test_sizes_and_ranks(multidevice_test):
 
 
 @pytest.mark.mpi
+def test_dynamic_reshape(multidevice_test):
+    d = multidevice_test.size
+    e = 768
+
+    mesh = nvfuser.DeviceMesh(range(d))
+
+    class Model(FusionDefinition):
+        def definition(self):
+            self.inp = self.define_tensor([-1, -1, d * e], contiguity=True)
+            out = self.ops.reshape(self.inp, [-1, d * e])
+            self.add_output(out)
+
+        def multidevice_schedule(self):
+            self.sched._set_device_mesh(self.inp, mesh)
+            self.sched.split(self.inp, -1, d, False)
+            self.sched.parallelize(self.inp, -2, nvfuser.ParallelType.mesh_x)
+            self.sched.set_allocation_as_loop(self.inp)
+
+    unsharded_inp = torch.randn(2, 3, d * e)
+    sharded_inp = multidevice_test.shard_tensor(unsharded_inp, -1, mesh)
+
+    fd = Model()
+    (sharded_out,), _ = fd.execute([sharded_inp])
+
+    unsharded_out = unsharded_inp.view(-1, d * e)
+    torch.testing.assert_close(
+        sharded_out,
+        multidevice_test.shard_tensor(unsharded_out.view(-1, d * e), -1, mesh),
+    )
+
+
+@pytest.mark.mpi
 def test_pointwise(multidevice_test):
     num_devices = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(num_devices))

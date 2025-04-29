@@ -31,3 +31,17 @@ def test_validate_precomputed_values():
     )
     # Cmoparing any number to NaN results in False.
     torch.testing.assert_close(outs[0].cpu(), torch.full((2, 5), False))
+
+
+def test_dynamic_reshape():
+    e = 768
+
+    with FusionDefinition() as fd:
+        inp = fd.define_tensor([-1, -1, e], contiguity=True)
+        out = fd.ops.reshape(inp, [-1, e])
+        fd.add_output(out)
+
+    inp = torch.randn(2, 3, e, device="cuda")
+    (out,) = fd.execute([inp])
+
+    torch.testing.assert_close(out, inp.view(-1, e))
