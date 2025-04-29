@@ -17,8 +17,9 @@
 
 namespace nvfuser {
 
+// Make inline to prevent multiple definition errors when header is included in multiple TUs
 // Thread-local variable to indicate parallel context
-thread_local bool g_is_parallel_compile_thread = false;
+inline thread_local bool g_is_parallel_compile_thread = false;
 
 // RAII Guard to manage the flag
 class ParallelCompileContextGuard {

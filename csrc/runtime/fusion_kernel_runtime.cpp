@@ -473,6 +473,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
     // Wait until all segments finish compiling
     getThreadPool()->waitWorkComplete();
+    debug() << "[RUNTIME PARALLEL COMPILE] All compilation threads joined. ====================" << std::endl;
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
         "Detected exception while compiling fusion segments in parallel. ",
@@ -856,8 +857,7 @@ void FusionKernelRuntime::compileKernel(
     hir::HostIrContainer* hic) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
   auto group_id = sg->groupId();
-  debug() << "[RUNTIME COMPILE KERNEL] Entering compileKernel for group "
-          << group_id << std::endl;
+  debug() << "[RUNTIME COMPILE KERNEL] Entering compileKernel for group " << group_id << std::endl;
   auto heuristic_params = schedulers().at(group_id).get();
 
   // Check that the heuristics are matched, in the case of segmented fusion
@@ -869,19 +869,25 @@ void FusionKernelRuntime::compileKernel(
     // When lowering to host IR, ExprEval and Communication segments are lowered
     // to top-level expressions in the host IR container, not executors. Only
     // kernels need to be compiled.
+    debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << " is ExprEval/Comm, skipping kernel compile." << std::endl;
     return;
   }
 
   // Running a segment group as a single kernel,
   // make a fusion to run from segmented fusion
+  debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << ": Making fusion segment." << std::endl;
   auto fusion_to_run = segmented_fusion_->makeFusion(sg).second;
+  debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << ": Fusion segment created." << std::endl;
+
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPresched)) {
     fusion_to_run->printMath();
   }
   FusionGuard fg(fusion_to_run.get());
   if (auto_schedule_) {
+    debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << ": Scheduling fusion segment." << std::endl;
     SchedulerEntry::makeSchedulerInstance(heuristic_params->scheduler_type)
         ->schedule(fusion_to_run.get(), heuristic_params);
+    debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << ": Scheduling done." << std::endl;
   }
   NVF_ERROR(
       heuristic_params->cparams.index_type.has_value(),
@@ -898,9 +904,11 @@ void FusionKernelRuntime::compileKernel(
     hic->setKernelExecutor(group_id, std::move(ke));
   } else {
     // Initialize associated executors
+    debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << ": Making executor." << std::endl;
     executors_[group_id] = ExecutorDispatch::makeExecutor(
         fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
 
+    debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << ": Calling ExecutorDispatch::compile." << std::endl;
     ExecutorDispatch::compile(
         executors_.at(group_id).get(),
         fusion_to_run.get(),
@@ -908,6 +916,7 @@ void FusionKernelRuntime::compileKernel(
         heuristic_params->lparams,
         heuristic_params->cparams,
         heuristic_params->scheduler_type);
+    debug() << "[RUNTIME COMPILE KERNEL] Group " << group_id << ": Returned from ExecutorDispatch::compile." << std::endl;
   }
 
   debug() << "[RUNTIME] Finished compiling group " << group_id << std::endl;
