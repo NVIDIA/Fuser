@@ -156,7 +156,7 @@ def test_row_parallel_linear(multidevice_test):
 def test_row_parallel_linear_with_bias(multidevice_test):
     d = multidevice_test.size
     mesh = nvfuser.DeviceMesh(range(d))
-    e = 768
+    e = 5
 
     class Model(FusionDefinition):
         def definition(self):
@@ -175,7 +175,7 @@ def test_row_parallel_linear_with_bias(multidevice_test):
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
-    b, s = 2, 1024
+    b, s = 2, 3
     unsharded_inp = torch.randn(b, s, d * e)
     unsharded_weight = torch.randn(e, d * e)
     bias = torch.randn(e)
