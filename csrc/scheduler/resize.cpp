@@ -497,12 +497,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     std::vector<IterDomain*> non_repeated_loop{
         ref_tv->getLoopDomain().begin() + 1, ref_tv->getLoopDomain().end()};
 
-    std::cerr << "tvs_without_repeat_id: "
-              << toDelimitedString(tvs_without_repeat_id)
-              << ", with: " << toDelimitedString(tvs_with_repeat_id) << "\n";
-    std::cerr << "non_repeated_loop: " << toDelimitedString(non_repeated_loop)
-              << "\n";
-
     scheduler_tools::scheduleLoopDomainsLike(
         tvs_without_repeat_id,
         non_repeated_loop,
