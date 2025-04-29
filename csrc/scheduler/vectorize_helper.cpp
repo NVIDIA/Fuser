@@ -17,7 +17,6 @@
 #include <ir/iostream.h>
 #include <ir/printer.h>
 #include <iter_visitor.h>
-#include <scheduler/debug_utils.h>
 #include <scheduler/registry.h>
 #include <scheduler/runtime_info.h>
 #include <scheduler/tools/resize_utils.h>
@@ -904,8 +903,7 @@ class CanSkipResize : public ValGraphPermissiveBFS {
 // vectorization factors.
 std::unordered_set<Val*> getResizeVectorizationFactors(
     TensorView* reference_tv,
-    int64_t break_point,
-    const std::unordered_map<int64_t, int64_t>& logical_reorder_map) {
+    int64_t break_point) {
   Fusion* fusion = reference_tv->fusion();
   const auto resize_based_ops = scheduler_tools::getResizeBasedOps(fusion);
 
@@ -981,23 +979,19 @@ int64_t getVectorizationFactor(
           });
 
   if (vectorizable_inputs_outputs.empty()) {
-    scheduler_debug_utils::log(
-        "No vectorizable input or output tensors detected");
     return 1;
   }
 
   // break point is beyond the range of vectorize_maps_entry, no vectorization.
   if (break_point >= static_cast<int64_t>(vectorize_maps_entry.get().size())) {
-    scheduler_debug_utils::log("Invalid break point: ", break_point);
     return 1;
   }
 
   auto resize_factors_entry =
       HeuristicDataCacheEntry<HeuristicCompileTime::ResizeVectorizationFactors>(
-          data_cache, [&reference_tv, &break_point, &logical_reorder_map]() {
+          data_cache, [&reference_tv, &break_point]() {
             return std::make_unique<std::unordered_set<Val*>>(
-                getResizeVectorizationFactors(
-                    reference_tv, break_point, logical_reorder_map));
+                getResizeVectorizationFactors(reference_tv, break_point));
           });
 
   const auto& resize_factors = resize_factors_entry.get();
@@ -1041,12 +1035,6 @@ int64_t getVectorizationFactor(
         max_vec_size);
   }
 
-  scheduler_debug_utils::log(
-      "Vectorization factor without considering resize: ", max_vec_size);
-
-  if (getenv("SKIP")) {
-    return max_vec_size;
-  }
   // This is a WAR for vectorization through resize as the spanning
   // tree based traversal is not guaranteed to reflect all resize ops
   // that may affect vectorization. This is a safe but conservative
@@ -1063,8 +1051,6 @@ int64_t getVectorizationFactor(
     }
     max_vec_size = std::gcd(max_vec_size, inferred_val_int);
   }
-
-  scheduler_debug_utils::log("Vectorization factor: ", max_vec_size);
 
   return max_vec_size;
 }

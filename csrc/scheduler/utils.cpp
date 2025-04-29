@@ -1278,7 +1278,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
 
     auto cached_tv = tv->cacheAfter(
         /*op_type=*/LoadStoreOpType::Set,
-        /*cache_op=*/CacheOp::AllLevels,
+        /*cache_op=*/CacheOp::Unspecified,
         /*propagate_allocation_domain=*/true,
         /*cached_uses=*/cached_uses);
     cached_inputs.emplace_back(cached_tv);
