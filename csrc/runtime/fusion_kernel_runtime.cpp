@@ -455,6 +455,12 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
             heuristic_params->cparams,
             std::vector<Val*>{in_clone},
             std::vector<Val*>{out_clone});
+        for (auto *val : out_clone) {
+          NVF_ERROR(val->isA<TensorView>(), "Output must be a TensorView but got ", val);
+          auto* tv = val->as<TensorView>();
+          auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          hic->pushBackTopLevelExprs(allocate);
+        }
         hic->pushBackTopLevelExprs(launch_kernel);
       } else {
         NVF_CHECK(
@@ -503,6 +509,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const Val* out : segmented_fusion_->outputs()) {
       hic->addOutput(ir_cloner.clone(out));
     }
+
+    hic->insertDeallocations();
 
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());

@@ -46,6 +46,8 @@ class HostIrContainer final : public Fusion {
 
   void pushBackTopLevelExprs(Expr* expr);
 
+  void insertDeallocations();
+
   void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke);
 
   bool hasKernelExecutor(int64_t index) const {

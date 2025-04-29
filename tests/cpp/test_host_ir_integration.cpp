@@ -5,6 +5,8 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include <gmock/gmock-more-matchers.h>
+
 #include <fusion.h>
 #include <global_allocator.h>
 #include <host_ir/container.h>
@@ -13,6 +15,7 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <global_allocator.h>
 
 namespace nvfuser {
 
@@ -164,7 +167,7 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
     TensorView* tv = makeConcreteTensor(sizes);
     tv->setMemoryType(MemoryType::Global);
     auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-    auto* deallocate = IrBuilder::create<Deallocate>(allocate);
+    auto* deallocate = IrBuilder::create<Deallocate>(tv);
 
     hic->pushBackTopLevelExprs(allocate);
     hic->pushBackTopLevelExprs(deallocate);
@@ -175,6 +178,50 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
   hie.runWithInput({});
 
   EXPECT_EQ(memoryAllocated(device_index), 0);
+}
+
+TEST_F(HostIrIntegrationTest, InsertDeallocations) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  TensorView* in = makeSymbolicTensor(2);
+  fusion->addInput(in);
+
+  TensorView* t0 = add(in, in);
+  auto t1 = segment_set(t0);
+  TensorView* t2 = add(t1, t1);
+  auto t3 = segment_set(t2);
+  TensorView* t4 = add(t3, t0);
+  TensorView* out = add(t4, t4);
+  fusion->addOutput(out);
+
+  EnableOptionsGuard opt_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor in_tensor =
+      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+  
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
+  auto hicExprs =
+      runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
+  using testing::Contains;
+  using testing::IsTrue;
+  using testing::Property;
+  EXPECT_THAT(
+      hicExprs,
+      Contains(Property(&Expr::isA<Deallocate>, IsTrue()))
+          .Times(testing::Eq(4)))
+      << "host ir container should have 4 deallocate ops";
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
 }
 
 } // namespace hir

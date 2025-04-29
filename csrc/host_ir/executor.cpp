@@ -331,35 +331,25 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     args.push(getKnownConcreteValue(input));
   }
 
-  // If all output buffers are known already, pass them to the executor
+  // All output buffers are known already, pass them to the executor
   KernelArgumentHolder outputs;
-  bool preallocated_outputs = false;
   for (Val* output : launch_kernel->outputs()) {
     if (isKnown(output)) {
-      preallocated_outputs = true;
       outputs.push(getKnownConcreteValue(output));
     }
   }
 
-  NVF_ERROR(
-      outputs.empty() || outputs.size() == launch_kernel->outputs().size());
+  NVF_ERROR(outputs.size() == launch_kernel->outputs().size());
 
   args.setDeviceIndex();
 
   // run the compiled kernel
-  outputs = container_->getKernelExecutor(launch_kernel->getIndex())
-                ->run(
-                    args,
-                    outputs,
-                    launch_kernel->launch_params(),
-                    launch_kernel->compile_params());
-
-  if (!preallocated_outputs) {
-    // Store the outputs in the context
-    for (auto output_idx : arange(outputs.size())) {
-      bind(launch_kernel->outputs().at(output_idx), outputs[output_idx]);
-    }
-  }
+  container_->getKernelExecutor(launch_kernel->getIndex())
+            ->run(
+                args,
+                outputs,
+                launch_kernel->launch_params(),
+                launch_kernel->compile_params());
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
@@ -802,7 +792,7 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {
-  auto* tv = deallocate->allocation()->buffer()->as<TensorView>();
+  auto* tv = deallocate->allocation();
   NVF_ERROR(
       isKnown(tv),
       "Tried to free buffer associated with unknown TensorView",

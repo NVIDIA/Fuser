@@ -745,11 +745,13 @@ void KernelExecutor::initializeExecutorEntry(
       auto out_val = compiled_kernel_->kernel()->outputs()[output_idx];
       NVF_ERROR(out_val->isA<TensorView>(), "Output is not a TensorView");
       info.tv = out_val->as<TensorView>();
-      NVF_ERROR(
-          !info.tv->hasAllocation(),
-          "Accepting allocated outputs is not currently supported with allocation domain. ",
-          "Allocation domain found for tv: ",
-          info.tv->toString());
+      if (info.tv->hasAllocation()) {
+        // Validate that the pre-allocated output tensor matches the allocation domain requirements
+        auto [alloc_sizes, alloc_strides] = inferAndValidateAllocationSizesAndStrides(
+            output_tensor, info.tv, expr_eval);
+        info.shape_info.allocation_sizes = alloc_sizes;
+        info.shape_info.allocation_strides = alloc_strides;
+      }
       info.shape_info.logical_sizes = output_tensor.sizes().vec();
       info.shape_info.logical_strides = output_tensor.strides().vec();
       output_info.emplace_back(info);

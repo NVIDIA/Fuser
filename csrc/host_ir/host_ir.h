@@ -158,7 +158,7 @@ class LaunchKernel : public Expr {
 class Deallocate : public Expr {
  public:
   using Expr::Expr;
-  Deallocate(IrBuilderPasskey passkey, kir::Allocate* allocate);
+  Deallocate(IrBuilderPasskey passkey, TensorView* tv);
 
   Deallocate(const Deallocate& other) = delete;
   Deallocate& operator=(const Deallocate& other) = delete;
@@ -173,7 +173,7 @@ class Deallocate : public Expr {
     return "hir::Deallocate";
   }
 
-  const kir::Allocate* allocation() const;
+  TensorView* allocation() const;
 };
 
 class Stream : public Val {
