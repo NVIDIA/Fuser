@@ -163,18 +163,19 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   return selected_parallel_types;
 }
 
+enum class PropagateDirection { Forward = 0, Backward };
+
 void propagateDIDTransform(
     TensorView* ref,
     std::vector<TensorView*> tvs,
     int64_t did_pos,
-    bool allow_c2p,
-    bool allow_p2c) {
+    PropagateDirection direction) {
   TensorDomain* replayed_domain = nullptr;
   for (auto tv : tvs) {
-    if (allow_c2p) {
-      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
-    } else {
+    if (direction == PropagateDirection::Forward) {
       replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
+    } else {
+      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
     }
     tv->setLoopDomain(replayed_domain->loop());
   }
@@ -241,8 +242,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           /*ref=*/ref_input,
           /*tvs=*/outputs_without_mesh,
           /*did_pos=*/did_pos,
-          /*allow_c2p=*/false,
-          /*allow_p2c=*/true);
+          /*direction=*/PropagateDirection::Forward);
 
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
@@ -304,8 +304,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*ref=*/ref_output,
         /*tvs=*/sharding_candidates,
         /*did_pos=*/did_pos,
-        /*allow_c2p=*/true,
-        /*allow_p2c=*/false);
+        /*direction=*/PropagateDirection::Backward);
     shardAllLike(ref_output, sharding_candidates);
   }
 }

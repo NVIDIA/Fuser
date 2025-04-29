@@ -1850,11 +1850,6 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
 
 namespace {
 
-//! Utility enum to signify which direction
-//! BoundedDirectionalTransformPropagator
-//!  passes will propagate the transforms.
-enum class PropagateDirection { Backward = 0, Forward };
-
 //! Returns true if the given tensorview is a fake boundary
 //!  TensorView, see Note [Fake Boundary Tensorview].
 //! This function assumes and would not check that tv is a boundary
