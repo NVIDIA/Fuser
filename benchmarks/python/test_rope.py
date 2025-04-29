@@ -15,7 +15,10 @@ from .rope_ops import rope_setup, SEQ_LENGTHS
         "hf_qwen2",
         "hf_phi3",
         "hf_mistral_nemo",
-        "litgpt",
+        "litgpt-gemma-2-9b",
+        "litgpt-mistral-7b",
+        "litgpt-meta-llama-3-8B",
+        "litgpt-phi3.5-mini",
     ],
 )
 @pytest.mark.parametrize(
@@ -53,7 +56,10 @@ def test_rope_fwd_benchmark(
         "hf_qwen2",
         "hf_phi3",
         "hf_mistral_nemo",
-        "litgpt",
+        "litgpt-gemma-2-9b",
+        "litgpt-mistral-7b",
+        "litgpt-meta-llama-3-8B",
+        "litgpt-phi3.5-mini",
     ],
 )
 @pytest.mark.parametrize(
