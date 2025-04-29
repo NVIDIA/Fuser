@@ -53,11 +53,9 @@ class RepeatToExpandTranslator {
   // inputs that resize the same iter domain of the same input tensor,
   // that must correspond to a repetition.
   void inspect() {
-    debug() << "[TranslateRepeatToExpand] Entering inspect..." << std::endl;
     const auto exprs = fusion_->exprs();
 
     for (auto pad : ir_utils::filterByType<PadOp>(exprs)) {
-      debug() << "[TranslateRepeatToExpand] Inspecting PadOp: " << pad << std::endl;
       auto pad_inp = pad->input(0)->as<TensorView>();
       auto pad_out = pad->output(0)->as<TensorView>();
 
@@ -127,9 +125,6 @@ class RepeatToExpandTranslator {
       }
       ++it;
     }
-
-    debug() << "[TranslateRepeatToExpand] Found " << repeat_info_map_.size() << " potential repetition patterns." << std::endl;
-    debug() << "[TranslateRepeatToExpand] Exiting inspect." << std::endl;
   }
 
   // For each detected repetition, replace the output with a repeat
@@ -150,7 +145,6 @@ class RepeatToExpandTranslator {
         continue;
       }
 
-      debug() << "[TranslateRepeatToExpand] Processing CatOp: " << expr << std::endl;
       const auto& info = repeat_info_map_it->second;
 
       const auto num_repetitions = (int64_t)info.cat_inp_tvs.size();
@@ -165,14 +159,10 @@ class RepeatToExpandTranslator {
       auto repeated_dim = std::distance(inp_domain.begin(), repeated_id_it);
       repeated_times.at(repeated_dim) = num_repetitions;
 
-      debug() << "[TranslateRepeatToExpand]   Calling repeat for input: " << info.input_tv << std::endl;
       TensorView* replacement_tv = repeat(info.input_tv, repeated_times);
-      debug() << "[TranslateRepeatToExpand]   Created replacement TV: " << replacement_tv << std::endl;
 
-      debug() << "[TranslateRepeatToExpand]   Replacing uses of " << expr->output(0) << " with " << replacement_tv << std::endl;
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           expr->output(0), replacement_tv);
-      debug() << "[TranslateRepeatToExpand]   Replacement done for CatOp: " << expr << std::endl;
     }
     debug() << "[TranslateRepeatToExpand] Exiting translate." << std::endl;
   }

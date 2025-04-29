@@ -3,7 +3,7 @@
 # --- Configuration ---
 TEST_EXECUTABLE="/opt/pytorch/Fuser/bin/test_nvfuser"
 GTEST_FILTER="*Scheduler*"
-NUM_GPUS=4 # Run on GPUs 0 to NUM_GPUS-1
+NUM_GPUS=2 # Run on GPUs 0 to NUM_GPUS-1
 LOG_DIR="./gtest_parallel_logs" # Directory to store logs
 
 # --- Argument Parsing ---
