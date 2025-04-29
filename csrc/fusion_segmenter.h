@@ -179,6 +179,10 @@ class SegmentedGroup {
     return merged_;
   }
 
+  //! Look at all neighbors of this and return who this could merge with based
+  //! on level values of this, neighbors, and merged neighbors of neighbors
+  std::vector<NeighborGroup> getMergeCandidates();
+
  private:
   friend class SegmentCandidateFinder;
   friend class SegmentedFusion;
