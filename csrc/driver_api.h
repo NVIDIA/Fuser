@@ -17,7 +17,8 @@
 
 namespace nvfuser {
 
-#define DECLARE_DRIVER_API_WRAPPER(funcName) extern PFN_##funcName funcName;
+#define DECLARE_DRIVER_API_WRAPPER(funcName) \
+  extern decltype(::funcName)* funcName
 
 // List of driver APIs that you want the magic to happen.
 #define ALL_DRIVER_API_WRAPPER_CUDA11(fn) \
