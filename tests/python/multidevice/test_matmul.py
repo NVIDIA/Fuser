@@ -5,11 +5,8 @@
 import pytest
 import torch
 
-import fixtures
 import nvfuser
 from nvfuser import DataType, FusionDefinition
-
-multidevice_test = fixtures.multidevice_test
 
 
 # Avoid doing this when possible. This test started to exist before nvFuser
@@ -84,7 +81,7 @@ def test_column_parallel_linear(multidevice_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.bias, self.out]:
+            for t in [self.inp, self.weight, self.bias]:
                 self.sched._set_device_mesh(t, mesh)
 
             # Shard N for weight (N, K) and bias (N)
@@ -92,12 +89,6 @@ def test_column_parallel_linear(multidevice_test):
                 self.sched.split(t, 0, d, False)
                 self.sched.parallelize(t, 0, nvfuser.ParallelType.mesh_x)
                 self.sched.set_allocation_as_loop(t)
-
-            # Output of linear: {.., i{M}, i{N}, r{K}}
-            # Shard N -> axis(-2)
-            self.sched.split(self.out, -2, d, False)
-            self.sched.parallelize(self.out, -3, nvfuser.ParallelType.mesh_x)
-            self.sched.set_allocation_as_loop(self.out)
 
     torch.cuda.set_device(multidevice_test.local_rank)
 
@@ -138,7 +129,7 @@ def test_row_parallel_linear(multidevice_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self):
-            for t in [self.inp, self.weight, self.out]:
+            for t in [self.inp, self.weight]:
                 self.sched._set_device_mesh(t, mesh)
                 self.sched.split(t, -1, d, False)
                 self.sched.parallelize(t, -2, nvfuser.ParallelType.mesh_x)

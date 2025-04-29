@@ -16,6 +16,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <utils.h>
@@ -1163,6 +1164,19 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "no reduction tv");
     return false;
   }
+
+  // Reject when output IDs are not covered by reference tv. Assuming reduction
+  // scheduler simply uses reduction_tvs[0] as the reference, if that changes,
+  // this needs to be changed. see issue
+  // https://github.com/NVIDIA/Fuser/issues/3811
+  scheduler_tools::DomainMap domain_map(fusion);
+  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "Output contains ID that's not scheduled by reference tv.");
+    return false;
+  }
+
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
   const SchedulerType persistent_heuristic =

@@ -2774,15 +2774,18 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
-void reorderTensorLike(
-    TensorView* target_tv,
+std::vector<int64_t> reorderDomainLike(
+    const std::vector<IterDomain*>& domain_to_reorder,
     const std::vector<IterDomain*>& ref) {
-  const auto& tv_loop_domain = target_tv->getLoopDomain();
+  if (domain_to_reorder.empty()) {
+    return {};
+  }
 
-  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
+  Fusion* fusion = domain_to_reorder.at(0)->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& graph = id_model.buildBroadcastGraph();
 
-  ValGroups target_groups = graph.toGroups(tv_loop_domain);
+  ValGroups target_groups = graph.toGroups(domain_to_reorder);
 
   ValGroups ref_groups = graph.toGroups(ref);
 
@@ -2820,31 +2823,35 @@ void reorderTensorLike(
     }
   }
 
-  std::unordered_map<int64_t, int64_t> old2new;
+  std::vector<int64_t> permutation(domain_to_reorder.size(), -1);
 
   // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
-  for (const auto i : arange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it == ordered_domain.end()) {
-      old2new.emplace((int64_t)i, new_id_pos);
+      permutation.at(i) = new_id_pos;
       ++new_id_pos;
     }
   }
-  for (const auto i : arange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it != ordered_domain.end()) {
       int64_t new_pos =
           (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
-      old2new.emplace((int64_t)i, new_pos);
+      permutation.at(i) = new_pos;
     }
   }
 
-  target_tv->reorder(old2new);
+  NVF_ERROR(std::ranges::all_of(permutation, [&](int64_t pos) {
+    return pos >= 0 && pos < (int64_t)permutation.size();
+  }));
+
+  return permutation;
 }
 
 namespace {

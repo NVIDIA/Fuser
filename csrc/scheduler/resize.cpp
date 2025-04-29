@@ -335,7 +335,8 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     // Reorder the reference as the allocation domain of the largest fusion
     // input
-    scheduler_utils::reorderTensorLike(ref_tv, ref_alloc);
+    ref_tv->reorder(
+        scheduler_utils::reorderDomainLike(ref_tv->getLoopDomain(), ref_alloc));
   }
 
   const int64_t bdimx = 128;
@@ -392,6 +393,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   //        +--- next_innermost_pos
 
   if (vec_factor > 1) {
+    NVF_ERROR(
+        ref_tv->axis(-1) == ref_tv->getLogicalDomain().back(),
+        "Vectorization is assumed to be done with the innermost logical ID at this moment, which is expected to remain at the innermost position in the loop domain. Logical domain: ",
+        toDelimitedString(ref_tv->getLogicalDomain()),
+        ". Current loop domain: ",
+        toDelimitedString(ref_tv->getLoopDomain()));
     ref_tv->split(-1, vec_factor);
     --next_innermost_pos;
     // [..., vec_factor]
