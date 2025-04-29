@@ -175,6 +175,10 @@ class SegmentedGroup {
     return merged_;
   }
 
+  //! Look at all neighbors of this and return who this could merge with based
+  //! on level values of this, neighbors, and merged neighbors of neighbors
+  std::vector<NeighborGroup> getMergeCandidates();
+
  private:
   friend class SegmentCandidateFinder;
   friend class SegmentedFusion;
@@ -218,10 +222,6 @@ class SegmentedGroup {
   //! neighbors as well as if the connection is an output of the fusion (has to
   //! be saved to gmem anyways)
   std::vector<NeighborGroup> getNeighborGroups();
-
-  //! Look at all neighbors of this and return who this could merge with based
-  //! on level values of this, neighbors, and merged neighbors of neighbors
-  std::vector<NeighborGroup> getMergeCandidates();
 
   //! Assign scheduler type to this group
   void setSchedulerType(SchedulerType scheduler_type) {

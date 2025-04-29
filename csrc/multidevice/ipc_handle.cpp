@@ -151,6 +151,12 @@ void IpcHandleCache::exchangeHandles(
 
     insert(communication, std::move(ipc_handles));
   }
+
+  // a second barrier is needed here to ensure all ranks have received the
+  // memhandles and the keys are deleted from the store before the next call to
+  // exchangeHandles
+  // TODO: precisely select what ranks need to wait on that barrier.
+  communicator->barrier();
 }
 
 } // namespace nvfuser

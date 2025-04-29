@@ -35,10 +35,10 @@
 #   NVFUSER_BUILD_WITHOUT_DISTRIBUTED
 #     Build nvfuser without multidevice support
 #
-#   NVFUSER_BUILD_TYPE=Debug
+#   NVFUSER_BUILD_BUILD_TYPE=Debug
 #     Building nvfuser in debug mode
 #
-#   NVFUSER_BUILD_TYPE=RelwithDebInfo
+#   NVFUSER_BUILD_BUILD_TYPE=RelwithDebInfo
 #     Building nvfuser in release mode with debug info, a.k.a. RelwithDebInfo
 #
 #   NVFUSER_BUILD_DIR=<ABSOLUTE PATH>
