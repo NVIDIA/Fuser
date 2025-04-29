@@ -1266,6 +1266,7 @@ KernelArgumentHolder KernelExecutor::run(
           stream,
           executor_entry->arg_ptrs.data()));
     }
+    NVFUSER_CUDA_SAFE_CALL(cuCtxSynchronize());
   }
 
   releaseZeroedMemory();
