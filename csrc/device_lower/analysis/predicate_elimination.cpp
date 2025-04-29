@@ -56,7 +56,7 @@ void assertOnWarpOps(const Expr* expr) {
         });
 
     NVF_ERROR(
-        !is_tma_ldmatrix || !any_mma_uses,
+        !is_tma_load || !any_mma_uses,
         "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
         expr->toString());
   }
