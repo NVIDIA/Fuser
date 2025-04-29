@@ -540,9 +540,10 @@ std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
 }
 
 CudaExecutable::~CudaExecutable() {
-  if (module != nullptr) {
+  static const CUmodule invalid_module = (CUmodule)0x2a2a2a2a2a2a2a2a;
+  if (module != nullptr && module != invalid_module) {
     NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
-    module = (CUmodule)0x2a2a2a2a2a2a2a2a;
+    module = invalid_module;
   }
 }
 
