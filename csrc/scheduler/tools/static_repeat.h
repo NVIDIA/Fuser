@@ -14,7 +14,6 @@ namespace nvfuser {
 
 class IterDomain;
 class TensorView;
-class ViewOp;
 
 namespace scheduler_tools {
 
@@ -35,7 +34,7 @@ namespace scheduler_tools {
 // repeated at the end of its computation.
 //
 // This can be problematic since the whole segment is scheduled based
-// on the repeated tensor whose size is largere than the rest of the
+// on the repeated tensor whose size is larger than the rest of the
 // tensors by the repetition factor. For example, if the it is
 // repeated twice, we would launch threads and blocks that are
 // required for the twice-larger tensor but most of the actual
@@ -54,12 +53,17 @@ namespace scheduler_tools {
 // TODO: Consider generalizing this heuristics to the other
 // schedulers.
 
+// Some of the relevant iter domains of the output tensor of the
+// reshape that realizes a repetition.
 struct StaticRepeatInfo {
-  // Root ID that is repeated
+  // Root ID that is repeated. In the above example, this corresponds
+  // to i1.
   IterDomain* input_id = nullptr;
-  // Root ID that is originally an expanded broadcast
+  // Root ID that is originally an expanded broadcast. In the above example,
+  // this corresponds to b(2).
   IterDomain* factor_id = nullptr;
-  // Logical repeated ID
+  // Logical repeated ID. In the above example, this corresponds
+  // to 2*i1.
   IterDomain* output_id = nullptr;
 };
 
@@ -67,7 +71,6 @@ struct StaticRepeatInfo {
 // tensor of the repetition pattern and return the relevant
 // information about the detected pattern. Only a static repeat case
 // is considered.
-
 std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     TensorView* maybe_repeat_out_tv);
 

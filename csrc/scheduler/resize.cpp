@@ -247,6 +247,13 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 
 namespace {
 
+// Partition a given set of tensors to two disjoint sets based on a
+// given iter domain and rechability from the iter domain. Returns two
+// vectors of tensors, first of which contains all tensors that has an
+// iter domain that is reachable from the given iter domain, whereas
+// the rest of tensors are all grouped into the second
+// list. Reachability is determined by using the permissive BFS
+// traversal on a given graph.
 std::pair<std::vector<TensorView*>, std::vector<TensorView*>> partitionTvsById(
     const std::vector<TensorView*> tvs,
     IterDomain* id,
@@ -476,11 +483,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // post-repeat group, where only the latter group has the repeat
   // IDs. When propagating the loop domain of the reference tensor,
   // which has the repeat ID, the full loop domain is propagated only
-  // to the post-repeat group. For the pre-repeat group, the repeat ID
+  // to the tensors that have IDs that are mapped with the repeat
+  // ID. For the rest of the tensros, the repeat ID
   // is dropped and only the remaining loop domain is propagated.
   if (repeat_id_moved_to_outermost) {
     auto all_tvs = fusion->allTvs();
-    const auto& [post_repeat_tvs, pre_repeat_tvs] = partitionTvsById(
+    const auto& [tvs_with_repeat_id, tvs_without_repeat_id] = partitionTvsById(
         all_tvs,
         repeat_info->factor_id,
         id_model->maybeBuildGraph(IdMappingMode::BROADCAST));
@@ -489,12 +497,18 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
     std::vector<IterDomain*> non_repeated_loop{
         ref_tv->getLoopDomain().begin() + 1, ref_tv->getLoopDomain().end()};
 
+    std::cerr << "tvs_without_repeat_id: "
+              << toDelimitedString(tvs_without_repeat_id)
+              << ", with: " << toDelimitedString(tvs_with_repeat_id) << "\n";
+    std::cerr << "non_repeated_loop: " << toDelimitedString(non_repeated_loop)
+              << "\n";
+
     scheduler_tools::scheduleLoopDomainsLike(
-        pre_repeat_tvs,
+        tvs_without_repeat_id,
         non_repeated_loop,
         /*update_loop_domain_only=*/true);
     scheduler_tools::scheduleLoopDomainsLike(
-        post_repeat_tvs,
+        tvs_with_repeat_id,
         ref_tv->getLoopDomain(),
         /*update_loop_domain_only=*/true);
   } else {
