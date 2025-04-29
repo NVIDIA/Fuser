@@ -12,6 +12,7 @@
 #include <ops/all_ops.h>
 #include <tests/cpp/utils.h>
 #include <tests/cpp/validator.h>
+#include <global_allocator.h>
 
 namespace nvfuser {
 
@@ -151,6 +152,9 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
   c10::DeviceIndex device_index = 0;
 
   resetPeakMemoryStats(device_index);
+  at::cuda::clearCublasWorkspaces();
+  nvfuser::releaseZeroedMemory();
+  ASSERT_EQ(memoryAllocated(device_index), 0) << "Previous tests leaked memory.";
 
   auto hic = std::make_unique<HostIrContainer>();
   FusionGuard fg(hic.get());
