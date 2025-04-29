@@ -26,15 +26,15 @@ flatbuffers_dir = os.path.join(
     "include",
 )
 
-# Ensure nvfuser_common is installed before trying to find its path
+# Ensure nvfuser is installed before trying to find its path
 try:
-    nvfuser_common_spec = importlib.util.find_spec("nvfuser_common")
-    if nvfuser_common_spec is None or nvfuser_common_spec.origin is None:
-        raise ImportError("Could not find nvfuser_common. Is it installed?")
-    nvfuser_lib_dir = str(pathlib.Path(nvfuser_common_spec.origin).parent / "lib")
+    nvfuser_spec = importlib.util.find_spec("nvfuser")
+    if nvfuser_spec is None or nvfuser_spec.origin is None:
+        raise ImportError("Could not find nvfuser. Is it installed?")
+    nvfuser_lib_dir = str(pathlib.Path(nvfuser_spec.origin).parent / "lib")
 except ImportError as e:
-    print(f"Error finding nvfuser_common path: {e}")
-    print("Ensure 'nvfuser_common' is installed in the build environment.")
+    print(f"Error finding nvfuser path: {e}")
+    print("Ensure 'nvfuser' is installed in the build environment.")
     raise e
 
 
