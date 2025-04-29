@@ -35,7 +35,7 @@ namespace nvfuser {
   fn(cuStreamWriteValue32);               \
   fn(cuStreamWaitValue32);                \
   fn(cuMemGetAddressRange);               \
-  fn(cuCtxSynchronize);               \
+  fn(cuCtxSynchronize);                   \
   fn(cuOccupancyMaxActiveBlocksPerMultiprocessor)
 
 #if (CUDA_VERSION >= 12000)

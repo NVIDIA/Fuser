@@ -539,7 +539,8 @@ std::vector<int> getOutputAliasToInputMap(const Fusion* fusion) {
   return output_to_input_map;
 }
 
-static const CUmodule invalid_value = reinterpret_cast<CUmodule>(0x2a2a2a2a2a2a2a2a);
+static const CUmodule invalid_value =
+    reinterpret_cast<CUmodule>(0x2a2a2a2a2a2a2a2a);
 CudaExecutable::~CudaExecutable() {
   NVFUSER_CUDA_SAFE_CALL(cuCtxSynchronize());
   if (module != nullptr) {
@@ -547,8 +548,9 @@ CudaExecutable::~CudaExecutable() {
     if (module != invalid_value) {
       NVFUSER_CUDA_SAFE_CALL(cuModuleUnload(module));
       module = invalid_value;
-    }else{
-      std::cout << "CudaExecutable::module is already invalid_value." << std::endl;
+    } else {
+      std::cout << "CudaExecutable::module is already invalid_value."
+                << std::endl;
     }
   }
 }

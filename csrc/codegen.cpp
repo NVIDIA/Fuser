@@ -162,7 +162,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       const LaunchParams& lparams) {
     CudaKernelGenerator codegen(kernel);
     codegen.lparams_ = lparams;
-    codegen.genDeclaration(kernel_name);
+    codegen.has_warp_specialized_ =
+        kernel->summary().circular_buffer_info.hasWarpSpecialized();
+    gen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
     codegen.genBody();
@@ -3638,8 +3640,15 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
 
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true).arg(
-        isAligned());
+    sync_call_template_parms.arg(bidx)
+        .arg(bidy)
+        .arg(bidz)
+        .arg(/*PERSISTENT=*/true)
+        .arg(/*PERSISTENT=*/
+   
+             warp_specialized_
+    lse
+    Aligned());
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -3860,6 +3869,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::unordered_set<std::string> generated_utilities_;
   //! iterGroupedStaticWarpAllReduce requires static threads per CTA
   LaunchParams lparams_;
+  //! Whether the kernel has warp specialization
+  bool has_warp_specialized_ = false;
 };
 
 } // namespace
@@ -3875,3 +3886,4 @@ std::string generateCudaKernel(
 
 } // namespace codegen
 } // namespace nvfuser
+    
