@@ -225,6 +225,8 @@ std::unordered_map<Val*, Val*> getPredicateIndexReplacementMap(
   // main loop of circular buffering, increment the index by
   // (number_of_stages - 1) since the main loop has a read that is
   // (number_of_stages - 1) elements ahead.
+  // Only required for pipelined circular buffering, for warp specialized
+  // circular buffering, there is no prologue or epilog loop.
   auto replace_for_circular_buffering = [&](ForLoop* fl,
                                             Val* original_index) -> Val* {
     auto circular_buffer_axis =

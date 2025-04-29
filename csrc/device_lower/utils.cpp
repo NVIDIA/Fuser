@@ -233,39 +233,41 @@ inline CpAsyncBulkMode getCpAsyncBulkMode(const Expr* expr) {
 // nD TMA ops handles out of bound accesses automatically in hardware, no need
 // to predicate it.
 bool isCpAsyncBulkTensorTile(const Expr* expr) {
-  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    auto op_type = ldst->opType();
-    if (op_type == LoadStoreOpType::CpAsyncBulkTensorTile) {
-      auto in_mem = getTv(ldst->in())->getMemoryType();
-      auto out_mem = getTv(ldst->out())->getMemoryType();
-      if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
-          (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
-        return true;
-      } else {
-        NVF_THROW("Invalid memory types for CpAsyncBulkTensorTile");
-      }
-    }
+  auto ldst = dynamic_cast<const LoadStoreOp*>(expr);
+  if (!ldst) {
     return false;
   }
-  return false;
+  auto op_type = ldst->opType();
+  if (op_type != LoadStoreOpType::CpAsyncBulkTensorTile) {
+    return false;
+  }
+  auto in_mem = getTv(ldst->in())->getMemoryType();
+  auto out_mem = getTv(ldst->out())->getMemoryType();
+  if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
+      (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
+    return true;
+  } else {
+    NVF_THROW("Invalid memory types for CpAsyncBulkTensorTile");
+  }
 }
 
 bool isCpAsyncUblk(const Expr* expr) {
-  if (auto ldst = dynamic_cast<const LoadStoreOp*>(expr)) {
-    auto op_type = ldst->opType();
-    if (op_type == LoadStoreOpType::CpAsyncBulk) {
-      auto in_mem = getTv(ldst->in())->getMemoryType();
-      auto out_mem = getTv(ldst->out())->getMemoryType();
-      if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
-          (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
-        return true;
-      } else {
-        NVF_THROW("Invalid memory types for CpAsyncBulk");
-      }
-    }
+  auto ldst = dynamic_cast<const LoadStoreOp*>(expr);
+  if (!ldst) {
     return false;
   }
-  return false;
+  auto op_type = ldst->opType();
+  if (op_type != LoadStoreOpType::CpAsyncBulk) {
+    return false;
+  }
+  auto in_mem = getTv(ldst->in())->getMemoryType();
+  auto out_mem = getTv(ldst->out())->getMemoryType();
+  if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
+      (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
+    return true;
+  } else {
+    NVF_THROW("Invalid memory types for CpAsyncBulk");
+  }
 }
 
 bool isCpAsyncBulk(const Expr* expr) {
