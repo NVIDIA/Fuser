@@ -772,7 +772,7 @@ def hf_mistral_nemo(seq_length):
     return MistralNemoRope(cfg).cuda().bfloat16(), inputs, grads, iobytes
 
 
-def Litgpt(seq_length):
+def Litgpt(seq_length, model_name):
     class LitgptRope(torch.nn.Module):
         def __init__(self, config) -> None:
             from litgpt.model import apply_rope
@@ -826,7 +826,7 @@ def Litgpt(seq_length):
             k = torch.cat((k_roped, k[..., self.config.rope_n_elem :]), dim=-1)
             return q, k, v
 
-    cfg = configs["litgpt"]()
+    cfg = configs["litgpt"](model_name)
     # overwrite seq_length
     cfg.seq_len = seq_length
 
@@ -874,16 +874,15 @@ def Litgpt(seq_length):
         n_elements = 0
         # adding size of qkv.grad
         n_elements += (
-            cfg.batch_size * cfg.seq_len * (cfg.n_head + 2 * cfg.n_query_groups) * cfg.head_size
+            cfg.batch_size
+            * cfg.seq_len
+            * (cfg.n_head + 2 * cfg.n_query_groups)
+            * cfg.head_size
         )
         # adding size of sin, cos (saved from forward)
-        n_elements += (
-            2 * cfg.seq_len * cfg.rope_n_elem
-        )
+        n_elements += 2 * cfg.seq_len * cfg.rope_n_elem
         # adding size of q, k, v (saved from forward)
-        n_elements += (
-            3 * cfg.batch_size * cfg.seq_len * cfg.n_head * cfg.head_size
-        )
+        n_elements += 3 * cfg.batch_size * cfg.seq_len * cfg.n_head * cfg.head_size
         # totoal io sizes
         return n_elements * torch.bfloat16.itemsize
 
@@ -898,5 +897,16 @@ rope_setup = {
     "hf_qwen2": hf_qwen2,
     "hf_phi3": hf_phi3,
     "hf_mistral_nemo": hf_mistral_nemo,
-    "litgpt": Litgpt,
+    "litgpt-gemma-2-9b": partial(Litgpt, model_name="google/gemma-2-9b-it"),
+    "litgpt-mistral-7b": partial(
+        Litgpt, model_name="mistralai/Mistral-7B-Instruct-v0.3"
+    ),
+    "litgpt-meta-llama-3-8B": partial(
+        Litgpt, model_name="meta-llama/Meta-Llama-3-8B-Instruct"
+    ),
+    "litgpt-phi3.5-mini": partial(
+        Litgpt,
+        model_name="meta-llama/Meta-Llama-3-8B-Instruct"
+        "microsoft/Phi-3.5-mini-instruct",
+    ),
 }

@@ -98,10 +98,8 @@ def hf_mistral_nemo_cfg():
     return cfg
 
 
-def litgpt_cfg():
+def litgpt_cfg(model_name):
     import litgpt
-
-    model_name = "meta-llama/Meta-Llama-3-8B-Instruct"
 
     cfg = litgpt.Config.from_name(model_name)
     cfg.batch_size = 1
