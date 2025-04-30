@@ -1631,7 +1631,8 @@ TEST_F(RopeTest, EndingRepeat) {
 
   auto tv1 = pad(tv0, {fusion.oneVal(), fusion.oneVal()});
   auto tv2 = repeat(tv1, {2, 1});
-  fusion.addOutput(tv2);
+  auto tv3 = segment_set(tv2);
+  fusion.addOutput(tv3);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   auto t0 = at::randn(shape1, options);

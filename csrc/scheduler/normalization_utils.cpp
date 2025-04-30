@@ -1354,21 +1354,28 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
       auto cached_tv = tv->cacheAfter();
-      // At this point, if cached_tv has multiple uses,  it becomes the
-      // persistent buffer instead of tv due to the way the persistent buffer
-      // selector works. To make tv remain as the persistent buffer, all of the
-      // uses must be privatized.
-      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      // At this point, if cached_tv has multiple uses,  it becomes the
+      // persistent buffer instead of smem tv, due to the way the persistent
+      // buffer selector works. To make smem tv remain as the persistent buffer,
+      // all of the uses must be privatized. However, for tma warp specialized
+      // case, we don't need to privatize the cached_tv, so the smem tv is only
+      // consumed by its register cache. It can be used to issue the next TMA
+      // load right after the copy from shared memory to register cache.
+      // Otherwise, it needs to wait all the computations to finish before
+      // issuing the next TMA.
+      if (!rparams->tma_warp_specialized) {
+        const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_tv, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
     }
   }

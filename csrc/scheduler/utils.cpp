@@ -297,7 +297,7 @@ void parallelizeAllLike(
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     bool propagate_padding,
-    bool parallelize_inputs) {
+    bool parallelize_inputs_on_did) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -323,24 +323,30 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput() && !parallelize_inputs) {
+    if (tv->isFusionInput() && !parallelize_inputs_on_did) {
       continue;
     }
+    bool is_fusion_input = tv->isFusionInput();
     for (const auto i : arange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
-      if (concrete_to_reference_map.count(ca_id) > 0) {
-        auto reference_id = concrete_to_reference_map.at(ca_id);
-        auto reference_parallel_type = reference_id->getParallelType();
-        if (selected_parallel_types.empty() ||
-            selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis(i)->parallelize(reference_parallel_type);
-        }
-        if (propagate_padding) {
-          if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis(i)->padToMultipleOfWarp(
-                reference_id->getMaybeSizeAfterPadding());
-          }
+      if (concrete_to_reference_map.count(ca_id) == 0) {
+        continue;
+      }
+      auto reference_id = concrete_to_reference_map.at(ca_id);
+      auto reference_parallel_type = reference_id->getParallelType();
+      if (is_fusion_input &&
+          !isParallelTypeDeviceDim(reference_parallel_type)) {
+        continue;
+      }
+      if (selected_parallel_types.empty() ||
+          selected_parallel_types.count(reference_parallel_type)) {
+        tv->axis(i)->parallelize(reference_parallel_type);
+      }
+      if (propagate_padding) {
+        if (reference_id->hasPaddingToMultipleOfWarp()) {
+          tv->axis(i)->padToMultipleOfWarp(
+              reference_id->getMaybeSizeAfterPadding());
         }
       }
     }
@@ -1850,11 +1856,6 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
 
 namespace {
 
-//! Utility enum to signify which direction
-//! BoundedDirectionalTransformPropagator
-//!  passes will propagate the transforms.
-enum class PropagateDirection { Backward = 0, Forward };
-
 //! Returns true if the given tensorview is a fake boundary
 //!  TensorView, see Note [Fake Boundary Tensorview].
 //! This function assumes and would not check that tv is a boundary
@@ -1863,7 +1864,7 @@ bool isFakeBoundaryTensorview(
     TensorView* tv,
     const std::unordered_set<TensorView*>& selected_tv_set,
     PropagateDirection direction) {
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation,
     //  a boundary tv is a fake boundary if
     //  it has any consumer tv that's in the selected
@@ -1907,7 +1908,7 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
   std::unordered_set<TensorView*> boundary_tv_set(
       boundary_tvs.begin(), boundary_tvs.end());
 
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation, collect all tvs
     //  that are consumers of `from_tv` and producers of
     //  boundary tvs.
@@ -2015,7 +2016,7 @@ void BoundedDirectionalTransformPropagator::backward(
   // Collect all tvs to included on the backward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Backward);
+      from, to, *options, PropagateDirection::kBackward);
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
 }
@@ -2035,7 +2036,7 @@ void BoundedDirectionalTransformPropagator::forward(
   // Collect all tvs to included on the forward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Forward);
+      from, to, *options, PropagateDirection::kForward);
 
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
@@ -2057,9 +2058,9 @@ void BoundedDirectionalTransformPropagator::bothWays(
   // Collect all tvs to included on the backward and forward path as specified
   //  by boundary and options.
   auto backward_included_tvs = getDirectionalPropagatePathSet(
-      from, backward_to, *options, PropagateDirection::Backward);
+      from, backward_to, *options, PropagateDirection::kBackward);
   auto forward_included_tvs = getDirectionalPropagatePathSet(
-      from, forward_to, *options, PropagateDirection::Forward);
+      from, forward_to, *options, PropagateDirection::kForward);
 
   // Combined the included tvs on both paths.
   auto included_tvs = backward_included_tvs;
@@ -2363,7 +2364,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
         /*selected_tvs=*/{},
         /*selected_parallel_types=*/{ParallelType::DIDx},
         /*propagate_padding=*/false,
-        /*parallelize_inputs=*/true);
+        /*parallelize_inputs_on_did=*/true);
   }
 }
 
