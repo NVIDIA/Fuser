@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites tests="1" failures="0" disabled="0" errors="0" time="0.105" timestamp="2025-04-30T07:37:47.417" name="AllTests">
-  <testsuite name="ExternalSrcExample" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.105" timestamp="2025-04-30T07:37:47.417">
-    <testcase name="Reduction_CUDA" file="/opt/pytorch/nvfuser/tests/cpp/test_external_src.cpp" line="28" status="run" result="completed" time="0.105" timestamp="2025-04-30T07:37:47.417" classname="ExternalSrcExample" />
-  </testsuite>
-</testsuites>
