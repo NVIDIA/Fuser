@@ -153,32 +153,34 @@ int64_t mergeNonReduction(TensorView* tv);
 // DAG. Empty `selected_tvs` means selecting all tensors in the fusion of
 // `reference_tv`. `selected_parallel_types` are the selected parallel types.
 // Empty `selected_parallel_types` means selecting all parallel types.
-// `parallelize_inputs` is a boolean flag that determines whether to parallelize
-// the inputs of the fusion. This is generally not required except in some cases
-// for DID parallelization. For eg: propagateReshapeTransforms using
-// TransformPropagator will replay the transforms onto the inputs of the fusion
-// but not the DID parallelization.
+// Fusion inputs are generally ignored since parallel types (BID/TID) do not
+// mean anything on them. However, we have cases during scheduling where
+// propagating transforms can inadvertently remove DID parallelization from the
+// inputs of the fusion and needs to reapplied. `parallelize_inputs_on_did` is a
+// boolean flag that determines whether to additionally parallelize the inputs
+// of the fusion on DID parallel types. For eg: see propagateReshapeTransforms
+// and scheduleTranspose.
 void parallelizeAllLike(
     TensorView* reference_tv,
     int64_t pos = -1,
     std::vector<TensorView*> selected_tvs = {},
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
     bool propagate_padding = true,
-    bool parallelize_inputs = false);
+    bool parallelize_inputs_on_did = false);
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
     bool propagate_padding = true,
-    bool parallelize_inputs = false) {
+    bool parallelize_inputs_on_did = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::move(selected_tvs),
       selected_parallel_types,
       propagate_padding,
-      parallelize_inputs);
+      parallelize_inputs_on_did);
 }
 
 inline void parallelizeAllLike(
@@ -186,27 +188,27 @@ inline void parallelizeAllLike(
     std::initializer_list<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types = {},
     bool propagate_padding = true,
-    bool parallelize_inputs = false) {
+    bool parallelize_inputs_on_did = false) {
   parallelizeAllLike(
       reference_tv,
       std::vector<TensorView*>(selected_tvs),
       selected_parallel_types,
       propagate_padding,
-      parallelize_inputs);
+      parallelize_inputs_on_did);
 }
 
 inline void parallelizeAllLike(
     TensorView* reference_tv,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     bool propagate_padding = true,
-    bool parallelize_inputs = false) {
+    bool parallelize_inputs_on_did = false) {
   parallelizeAllLike(
       reference_tv,
       -1,
       std::vector<TensorView*>{},
       selected_parallel_types,
       propagate_padding,
-      parallelize_inputs);
+      parallelize_inputs_on_did);
 }
 
 // Common hyperparameters used in heuristic scheduler. These hyperparameters

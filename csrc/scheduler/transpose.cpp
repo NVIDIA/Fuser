@@ -986,7 +986,28 @@ void scheduleTranspose(Fusion* fusion, const TransposeParams* tparams) {
   TransformPropagator propagator(reference1);
   MaxLogicalDomainInfoSpanningTree entire_dag(reference1);
   entire_dag.traverse(&propagator);
-  scheduler_utils::parallelizeAllLike(reference1);
+
+  // We may be propagating a reshape during the above transformation.
+  //   T0[i0 * i1]     -> View ->   T1[i0  i1] (Root=[i0*i1])
+  //      / \                       / \.
+  // iDID{d} i0*i1/d           iDID{d} i0/d
+  // When propagating from consumer to producer for the first time here, we will
+  // replay reshape split on the view input ([i0*i1] -> [i0, i1]), followed by
+  // DID loop split on the view input ([i0, i1] -> [d, i0/d, i1]) and any other
+  // transforms on i0/d or i1 scheduled above. This will lose the
+  // parallelization on d. Hence, we also parallelize_inputs_on_did here in case
+  // T0 is a fusion input. This is not needed elsewhere. Once the reshape has
+  // been replayed on the producer, the DID loop split does not need to be
+  // replayed. It will be consistently present in all tvs of the fusion.
+  // TODO: An alternative would be to explictly propagateReshapeTransform as in
+  // other schedulers.
+
+  scheduler_utils::parallelizeAllLike(
+      reference1,
+      /*selected_tvs=*/{},
+      /*selected_parallel_types=*/{},
+      /*propagate_padding=*/true,
+      /*parallelize_inputs_on_did=*/true);
 
   // For a transpose scheduling, all we need is to bind threadIdx.x differently
   // for inputs and outputs. This swap of binding could happen at any tensor on
