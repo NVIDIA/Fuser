@@ -316,7 +316,7 @@ void prepareForBackwardTransformPropagation(TensorView* ref_tv) {
 }
 
 // Partition a given set of tensors to two disjoint sets based on a
-// given iter domain and rechability from the iter domain. Returns two
+// given iter domain and reachability from the iter domain. Returns two
 // vectors of tensors, first of which contains all tensors that has an
 // iter domain that is reachable from the given iter domain, whereas
 // the rest of tensors are all grouped into the second
@@ -554,14 +554,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // IDs. When propagating the loop domain of the reference tensor,
   // which has the repeat ID, the full loop domain is propagated only
   // to the tensors that have IDs that are mapped with the repeat
-  // ID. For the rest of the tensros, the repeat ID
-  // is dropped and only the remaining loop domain is propagated.
+  // ID. For the rest of the tensros, the repeat ID is dropped and
+  // only the remaining loop domain is propagated.
   if (repeat_id_moved_to_outermost) {
-    auto all_tvs = fusion->allTvs();
     const auto& [tvs_with_repeat_id, tvs_without_repeat_id] = partitionTvsById(
-        all_tvs,
-        repeat_info->factor_id,
-        id_model->maybeBuildGraph(IdMappingMode::BROADCAST));
+        fusion->allTvs(); repeat_info->factor_id,
+                          id_model->maybeBuildGraph(IdMappingMode::BROADCAST));
 
     // The repeat ID should be located at the outermost position
     std::vector<IterDomain*> non_repeated_loop{
