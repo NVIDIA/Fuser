@@ -2281,18 +2281,18 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
   auto tv2 = mul(tv1, tv1);
   fusion->addOutput(tv2);
 
-  // [I1, I2] -> [gdimx, I1/gdimx, I2/bdimx/bdimy, bdimy, bdimx]
-  tv2->split(0, gdimx, false);
+  // [I1, I2] -> [I1/gdimx, gdimx, I2/bdimx/bdimy, bdimy, bdimx]
+  tv2->split(0, gdimx);
   tv2->split(2, bdimx);
   tv2->split(2, bdimy);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv2->axis(-2)->parallelize(ParallelType::TIDy);
   tv2->axis(-3)->parallelize(ParallelType::TIDz);
-  tv2->axis(0)->parallelize(ParallelType::BIDx);
+  tv2->axis(1)->parallelize(ParallelType::BIDx);
 
-  // [I1, I2] -> [gdimx, I1/gdimx, I2]
-  tv1->split(0, gdimx, false);
-  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  // [I1, I2] -> [I1/gdimx, gdimx, I2]
+  tv1->split(0, gdimx);
+  tv1->axis(1)->parallelize(ParallelType::BIDx);
   tv1->axis(2)->parallelize(ParallelType::Bulk);
 
   // Set inlineAt before applying circular buffer
@@ -2347,6 +2347,7 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
       ASSERT_TRUE(str_match_pointer != nullptr);
       return;
     }
+    FAIL() << "Unexpected error: " << e.what();
   }
   auto cg_outputs = ke.run({t0});
   auto lparams = ke.lastLaunchParams();

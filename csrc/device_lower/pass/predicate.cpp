@@ -145,6 +145,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       // to zero, then it can be merged with the ElectSync predicate.
       // Only need to handle the case where there are 4 for-loops, corresponding
       // to [I/Unroll/BIDy, BIDy, Unroll, Bulk]
+      NVF_ERROR(
+          for_loops_.size() <= 4,
+          "Expecting at most 4 for-loops to handle UBLK TMA load.");
       if (for_loops_.size() == 4) {
         NVF_ERROR(
             for_loops_.at(1)->iter_domain()->isBlockDim(),
@@ -160,11 +163,16 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
             unroll_fl->index(), GpuLower::current()->kernel()->zeroVal())};
         ublk_predicate_val_ =
             ir_utils::replaceValRecursively(conditional, replace_map);
+      } else if (for_loops_.size() == 3) {
+        NVF_ERROR(
+            for_loops_.at(1)->iter_domain()->isBlockDim(),
+            "Expecting the iter domain parallelized by block dim.");
+        NVF_ERROR(
+            for_loops_.at(2)->iter_domain()->isBulk(),
+            "Expecting the iter domain parallelized by Bulk.");
       } else {
         ublk_predicate_val_ = conditional;
       }
-      std::cout << "ublk_predicate_val_: "
-                << ublk_predicate_val_->toInlineString() << std::endl;
       // Combine the Inline predicate with the ElectSync predicate
       auto combined_conditional = SimplifyingIrBuilder::logicalAndExpr(
           current_elect_sync_->predicate()->value(), ublk_predicate_val_);
