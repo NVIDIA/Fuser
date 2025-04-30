@@ -551,7 +551,7 @@ NVF_API const char* getNvFuserEnv(
 
 // Returns the mapped value or the default.
 template <typename K, typename V>
-const V& getOrDefault(
+V getOrDefault(
     const std::unordered_map<K, V>& map,
     const K& key,
     const V& default_value = V()) {
