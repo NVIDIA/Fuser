@@ -109,6 +109,7 @@ void setLoopAndAllocationDomain(TensorView* tv) {
       " as ",
       alloc_dom);
   tv->reorder(permutation.value());
+  reorderDIDToFront(tv);
   tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
 }
 
