@@ -165,9 +165,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.has_warp_specialized_ =
         kernel->summary().circular_buffer_info.hasWarpSpecialized();
     codegen.genDeclaration(kernel_name);
-    codegen.has_warp_specialized_ =
-        kernel->summary().circular_buffer_info.hasWarpSpecialized();
-    codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
     codegen.genBody();
@@ -3003,7 +3000,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       kir::Predicate* read_pred,
       std::pair<IterDomain*, IterDomain*> reduction_dims,
       bool is_all_reduce) {
-    std::cout << "genGroupedWarpReduction\n";
     NVF_ERROR(
         is_all_reduce,
         "iterGroupedStaticWarpAllReduce should be used for allreduce.");
