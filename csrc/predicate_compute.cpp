@@ -511,7 +511,7 @@ Val* createElectSyncPredicate(
     return select_warp;
   }
 
-  // Create
+  // Create ElectSync Predicate to pick any thread in the warp
   Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
   Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
   IrBuilder::create<UnaryOp>(
@@ -547,15 +547,18 @@ Val* createElectSyncPredicate(kir::Predicate* pred) {
   }
 
   // short-circuit: Expect ParallelType::TIDx to have at least one warp.
+  bool is_tma_store = ir_utils::isCpAsyncBulkStore(pred->expr());
   if (tidx_paralleltype_dim->isConstScalar() &&
       tidx_paralleltype_dim->evaluate().as<int64_t>() < 32) {
-    Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
-    return IrBuilder::eqExpr(
-        NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
+    if (is_tma_store) {
+      return pred->fusion()->trueVal();
+    } else {
+      Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+      return IrBuilder::eqExpr(
+          NamedScalar::getParallelIndex(ParallelType::TIDx), zero);
+    }
   }
-
-  return createElectSyncPredicate(
-      /*use_first_warp=*/true, ir_utils::isCpAsyncBulkStore(pred->expr()));
+  return createElectSyncPredicate(/*use_first_warp=*/true, is_tma_store);
 }
 
 Val* createSingleExpressionElectSync(
