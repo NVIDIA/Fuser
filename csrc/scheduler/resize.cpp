@@ -315,6 +315,47 @@ void prepareForBackwardTransformPropagation(TensorView* ref_tv) {
       tvs_with_extra_transforms, ref_tv->getLogicalDomain());
 }
 
+// Partition a given set of tensors to two disjoint sets based on a
+// given iter domain and reachability from the iter domain. Returns two
+// vectors of tensors, first of which contains all tensors that has an
+// iter domain that is reachable from the given iter domain, whereas
+// the rest of tensors are all grouped into the second
+// list. Reachability is determined by using the permissive BFS
+// traversal on a given graph.
+std::pair<std::vector<TensorView*>, std::vector<TensorView*>> partitionTvsById(
+    const std::vector<TensorView*> tvs,
+    IterDomain* id,
+    const ValGraph& graph) {
+  ValGroups target_groups;
+  for (auto tv : tvs) {
+    target_groups.pushBack(graph.toGroups(tv->getLogicalDomain()));
+  }
+
+  const auto reachable_groups = getReachableValsFrom<ValGraphPermissiveBFS>(
+      {graph.toGroup(id)},
+      target_groups.vector(),
+      /*allowed_direction=*/Direction::Undefined,
+      graph);
+  const std::unordered_set<ValGroup> reachable_group_set{
+      reachable_groups.begin(), reachable_groups.end()};
+
+  std::vector<TensorView*> reachable_tvs;
+  std::vector<TensorView*> unreachable_tvs;
+
+  for (auto tv : tvs) {
+    if (std::ranges::any_of(
+            tv->getLogicalDomain(), [&](IterDomain* logical_id) {
+              return reachable_group_set.contains(graph.toGroup(logical_id));
+            })) {
+      reachable_tvs.push_back(tv);
+    } else {
+      unreachable_tvs.push_back(tv);
+    }
+  }
+
+  return std::make_pair(reachable_tvs, unreachable_tvs);
+}
+
 } // namespace
 
 void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
@@ -384,7 +425,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   id_model->buildExactGraph();
 
   // Detect an ending repeat
-  auto static_repeat_info = scheduler_tools::getMaybeStaticRepeatInfo(ref_tv);
+  auto repeat_info = scheduler_tools::getMaybeStaticRepeatInfo(ref_tv);
 
   // Just simple scheduling for now.
   // TODO: Do something smarter. Can just use the pointwise scheduler?
@@ -425,35 +466,33 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // detected. The repeat ID then just remains there with no
   // scheduling.
   bool repeat_id_moved_to_outermost = false;
-  if (static_repeat_info.has_value()) {
-    NVF_ERROR(ref_tv == static_repeat_info->repeat_output_tv);
-    auto ref_repeat_id_it = std::find_if(
+  if (repeat_info.has_value()) {
+    auto ref_factor_id_it = std::find_if(
         ref_tv->getLoopDomain().begin(),
         ref_tv->getLoopDomain().end(),
         [&](IterDomain* loop_id) {
           return id_model->idGraph(IdMappingMode::EXACT)
               .disjointValSets()
-              .strictAreMapped(loop_id, static_repeat_info->reshape_repeat_id);
+              .strictAreMapped(loop_id, repeat_info->factor_id);
         });
-    // Gives up if the repeat ID is not found. Unclear if this could
-    // actually happen, though.
-    if (ref_repeat_id_it != ref_tv->getLoopDomain().end()) {
-      auto repeat_id_pos =
-          std::distance(ref_tv->getLoopDomain().begin(), ref_repeat_id_it);
+    // The factor ID should be found in the loop domain as the
+    // reshape should be cancelled at this point. Gives up if not.
+    if (ref_factor_id_it != ref_tv->getLoopDomain().end()) {
+      auto factor_id_pos =
+          std::distance(ref_tv->getLoopDomain().begin(), ref_factor_id_it);
       NVF_ERROR(
-          repeat_id_pos >= outermost_pos,
-          "Unexpected to have DID-parallelized repeat axis: ",
-          static_repeat_info->reshape_repeat_id->toString());
+          factor_id_pos >= outermost_pos,
+          "Unexpected to have DID-parallelized repeat factor axis: ",
+          repeat_info->factor_id->toString());
 
-      // [DID, ..., repeat_id, ...]
+      // [DID, ..., repeat_factor_id, ...]
       //        ^
       //        +--- outermost_pos
-      ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{repeat_id_pos, 0}});
+      ref_tv->reorder(std::unordered_map<int64_t, int64_t>{{factor_id_pos, 0}});
       ++outermost_pos;
-      // [repeat_id, DID, ...]
-      //                   ^
-      //                   +--- outermost_pos
-
+      // [repeat_factor_id, DID, ...]
+      //                         ^
+      //                         +--- outermost_pos
       repeat_id_moved_to_outermost = true;
     }
   }
@@ -514,34 +553,25 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // post-repeat group, where only the latter group has the repeat
   // IDs. When propagating the loop domain of the reference tensor,
   // which has the repeat ID, the full loop domain is propagated only
-  // to the post-repeat group. For the pre-repeat group, the repeat ID
-  // is dropped and only the remaining loop domain is propagated.
+  // to the tensors that have IDs that are mapped with the repeat
+  // ID. For the rest of the tensros, the repeat ID is dropped and
+  // only the remaining loop domain is propagated.
   if (repeat_id_moved_to_outermost) {
-    // Divide all tvs to the pre and posgt repeat groups
-    auto all_tvs = fusion->allTvs();
-    std::vector<TensorView*> post_repeat_tvs;
-    post_repeat_tvs.reserve(static_repeat_info->repeat_tvs.size());
-    std::vector<TensorView*> pre_repeat_tvs;
-    pre_repeat_tvs.reserve(
-        all_tvs.size() - static_repeat_info->repeat_tvs.size());
-    for (auto tv : all_tvs) {
-      if (static_repeat_info->repeat_tvs.count(tv)) {
-        post_repeat_tvs.push_back(tv);
-      } else {
-        pre_repeat_tvs.push_back(tv);
-      }
-    }
+    const auto& [tvs_with_repeat_id, tvs_without_repeat_id] = partitionTvsById(
+        fusion->allTvs(),
+        repeat_info->factor_id,
+        id_model->maybeBuildGraph(IdMappingMode::BROADCAST));
 
     // The repeat ID should be located at the outermost position
     std::vector<IterDomain*> non_repeated_loop{
         ref_tv->getLoopDomain().begin() + 1, ref_tv->getLoopDomain().end()};
 
     scheduler_tools::scheduleLoopDomainsLike(
-        pre_repeat_tvs,
+        tvs_without_repeat_id,
         non_repeated_loop,
         /*update_loop_domain_only=*/true);
     scheduler_tools::scheduleLoopDomainsLike(
-        post_repeat_tvs,
+        tvs_with_repeat_id,
         ref_tv->getLoopDomain(),
         /*update_loop_domain_only=*/true);
   } else {
