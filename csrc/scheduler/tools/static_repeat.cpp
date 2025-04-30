@@ -16,9 +16,14 @@ namespace scheduler_tools {
 
 std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     TensorView* maybe_repeat_out_tv) {
-  // Skip a set if any (e.g., inserted by caching)
-  if (auto ldst = dynamic_cast<LoadStoreOp*>(maybe_repeat_out_tv->definition());
-      ldst != nullptr && ldst->opType() == LoadStoreOpType::Set) {
+  // Skip set ops if any (e.g., inserted by caching). Only Set
+  // or SegmenterSet are considered.
+  while (auto ldst =
+             dynamic_cast<LoadStoreOp*>(maybe_repeat_out_tv->definition())) {
+    if (ldst->opType() != LoadStoreOpType::Set &&
+        ldst->opType() != LoadStoreOpType::SegmenterSet) {
+      break;
+    }
     maybe_repeat_out_tv = ldst->in()->as<TensorView>();
   }
 
