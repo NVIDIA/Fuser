@@ -22,6 +22,7 @@ namespace nvfuser {
 
 // List of driver APIs that you want the magic to happen.
 #define ALL_DRIVER_API_WRAPPER_CUDA11(fn) \
+  fn(cuCtxSynchronize);                   \
   fn(cuDeviceGetAttribute);               \
   fn(cuDeviceGetName);                    \
   fn(cuFuncGetAttribute);                 \
