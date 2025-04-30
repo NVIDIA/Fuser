@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="4" failures="0" disabled="0" errors="0" time="1.054" timestamp="2025-04-30T07:37:44.851" name="AllTests">
+  <testsuite name="RNGTest" tests="4" failures="0" disabled="0" skipped="0" errors="0" time="1.054" timestamp="2025-04-30T07:37:44.851">
+    <testcase name="ValidateWithCURand" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="75" status="run" result="completed" time="0.612" timestamp="2025-04-30T07:37:44.851" classname="RNGTest" />
+    <testcase name="BroadcastingRNG" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="177" status="run" result="completed" time="0.19" timestamp="2025-04-30T07:37:45.464" classname="RNGTest" />
+    <testcase name="BroadcastingRNGSmemNonSquareTile" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="277" status="run" result="completed" time="0.143" timestamp="2025-04-30T07:37:45.654" classname="RNGTest" />
+    <testcase name="RandLikeReduction" file="/opt/pytorch/nvfuser/tests/cpp/test_rng.cpp" line="391" status="run" result="completed" time="0.107" timestamp="2025-04-30T07:37:45.797" classname="RNGTest" />
+  </testsuite>
+</testsuites>

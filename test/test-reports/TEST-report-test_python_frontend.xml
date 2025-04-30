@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="1" failures="0" disabled="0" errors="0" time="0.108" timestamp="2025-04-30T07:37:48.026" name="AllTests">
+  <testsuite name="NVFuserTest" tests="1" failures="0" disabled="0" skipped="0" errors="0" time="0.108" timestamp="2025-04-30T07:37:48.026">
+    <testcase name="PyFusionCache_CUDA" file="/opt/pytorch/nvfuser/python/tests/python_frontend/test_nvfuser_fusion_cache.cpp" line="21" status="run" result="completed" time="0.108" timestamp="2025-04-30T07:37:48.026" classname="NVFuserTest" />
+  </testsuite>
+</testsuites>
