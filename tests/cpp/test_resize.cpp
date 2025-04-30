@@ -5970,7 +5970,7 @@ TEST_F(ResizeTest, AvoidCachingSliceInput) {
   }
 }
 
-TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
+TEST_F(ResizeTest, VectorizeInnerSliceMultiplePaths) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
@@ -6003,6 +6003,50 @@ TEST_F(ResizeTest, VectorizeSliceMultiplePaths) {
   EXPECT_EQ(
       tv6->getLoopDomain().back()->getParallelType(), ParallelType::Vectorize);
   EXPECT_EQ(tv6->getLoopDomain().back()->extent()->evaluate(), 2);
+}
+
+// The current analysis is not precise enough to pass this test
+TEST_F(ResizeTest, DISABLED_VectorizeOuterSliceMultiplePaths) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape{4, 1024 * 1024};
+
+  auto tv0 = makeContigConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 =
+      pad(tv0,
+          {fusion.zeroVal(),
+           fusion.zeroVal(),
+           IrBuilder::create<Val>(2),
+           IrBuilder::create<Val>(2)});
+  auto tv2 =
+      pad(tv0,
+          {fusion.zeroVal(),
+           fusion.zeroVal(),
+           fusion.zeroVal(),
+           IrBuilder::create<Val>(4)});
+  auto tv3 = add(tv1, tv2);
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::PointWise, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+
+  // While there's a pad with factor of 2, it shouldn't matter as the
+  // inner ID is large enough.
+  auto out_tv = tv3;
+  auto vec_id_it =
+      std::ranges::find_if(out_tv->getLoopDomain(), [](IterDomain* loop_id) {
+        return loop_id->getParallelType() == ParallelType::Vectorize;
+      });
+  ASSERT_NE(vec_id_it, out_tv->getLoopDomain().end())
+      << "Vectorized ID not found: " << out_tv->toString();
+  EXPECT_EQ((*vec_id_it)->extent()->evaluate(), 4);
 }
 
 // Repro of issue #4202
@@ -6038,6 +6082,51 @@ TEST_F(ResizeTest, PropagateResizeThroughMultiplePaths) {
 
   auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0, t1});
   testValidate(&fusion, outputs.outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Check if vectorization is properly applied even when a resized ID
+// is reachable from vectorized IDs. Pattern extracted from Litgpt
+// LLama RoPE backward.
+TEST_F(ResizeTest, VectorizeOuterPad) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  const std::vector<int64_t> shape1{1, 8, 4, 8192, 128};
+  const std::vector<int64_t> shape2{1, 8, 1, 8192, 128};
+  auto tv0 = makeContigConcreteTensor(shape1, DataType::BFloat16);
+  fusion.addInput(tv0);
+  auto tv1 = makeContigConcreteTensor(shape2, DataType::BFloat16);
+  fusion.addInput(tv1);
+  auto tv2 = makeContigConcreteTensor(shape2, DataType::BFloat16);
+  fusion.addInput(tv2);
+
+  // [1, 8, 6, 8192, 128]
+  auto tv3 = cat({tv0, tv1, tv2}, 2);
+  // [1, 8192, 8, 6, 128]
+  auto tv4 = permute(tv3, {0, 3, 1, 2, 4});
+  auto tv5 = reshape(tv4, {1, 8192, 8, 6, 128}, {1, 8192, 6144});
+  fusion.addOutput(tv5);
+
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+  auto t1 = at::randn(shape2, options);
+  auto t2 = at::randn(shape2, options);
+
+  auto outputs =
+      scheduleAndRun(&fusion, SchedulerType::PointWise, {t0, t1, t2});
+  testValidate(&fusion, outputs.outputs, {t0, t1, t2}, __LINE__, __FILE__);
+
+  auto out_tv = tv5;
+  // While there's a pad with factor of 2, it shouldn't matter as the
+  // inner ID is large enough.
+  auto vec_id_it =
+      std::ranges::find_if(out_tv->getLoopDomain(), [](IterDomain* loop_id) {
+        return loop_id->getParallelType() == ParallelType::Vectorize;
+      });
+  ASSERT_NE(vec_id_it, out_tv->getLoopDomain().end())
+      << "Vectorized ID not found: " << out_tv->toString();
+  EXPECT_EQ((*vec_id_it)->extent()->evaluate(), 8);
 }
 
 // Repro of issue #4250

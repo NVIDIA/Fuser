@@ -38,6 +38,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include "matmul_heuristic.h"
 
 #include <ATen/cuda/CUDAContext.h>
 
@@ -396,7 +397,7 @@ bool fillDefaultHopperHeuristic(
   // the _other_ dimension to create a new inner dimension. We find the swizzle
   // factor that is largest and has the least quantization when we divide that
   // other dimension by the swizzle factor.
-  int64_t swizzled_tiles = Mtiles <= Ntiles ? Ntiles : Mtiles;
+  int64_t swizzled_tiles = Mtiles >= Ntiles ? Ntiles : Mtiles;
   mparams->cta_order = Mtiles <= Ntiles
       ? MatmulParams::TileRasterizationOrder::ColumnMajor
       : MatmulParams::TileRasterizationOrder::RowMajor;
@@ -412,7 +413,24 @@ bool fillDefaultHopperHeuristic(
   // TODO: Use only 1D grid traversal factor for now
   mparams->grid_traversal_factor = {grid_traversal_factor, 1};
 
-  // TODO: Finally, we set the CGA size
+  // Set the CGA size to either {1, 1, 1} or {2, 1, 1}
+  // We always prefer {2, 1, 1}, but this is not always possible. It is only
+  // possible if the BIDx dimension will have even size. This is the case for
+  // any persistent kernel since the number of SMs is even.
+  // For non-persistent kernels, M=BIDx if cta_order is ColumnMajor, and N=BIDx
+  // for RowMajor. These dims are then multiplied by the grid_traversal_factor
+  // when swizzling.
+  int64_t BIDx_tiles =
+      mparams->cta_order == MatmulParams::TileRasterizationOrder::ColumnMajor
+      ? Mtiles
+      : Ntiles;
+  if (grid_traversal_factor != 1) {
+    BIDx_tiles = BIDx_tiles * grid_traversal_factor;
+  }
+  if (mparams->tiling_strategy != MatmulParams::TilingStrategy::OneTilePerCTA ||
+      BIDx_tiles % 2 == 0) {
+    mparams->cluster_dims = {2, 1, 1};
+  }
 
   return true;
 }

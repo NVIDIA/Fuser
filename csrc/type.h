@@ -819,7 +819,7 @@ enum class CircularBufferLoopStage {
   Prolog = 0,
   Main,
   Epilog,
-  LoadWarp,
+  AsyncWarp,
   ComputeWarp,
   EndOfStages, // A special placeholder used to iterate over all stages
   NotApplicable
@@ -831,7 +831,7 @@ enum class CircularBufferLoopStage {
 inline bool hasCircularBufferLoad(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Prolog ||
       stage == CircularBufferLoopStage::Main ||
-      stage == CircularBufferLoopStage::LoadWarp;
+      stage == CircularBufferLoopStage::AsyncWarp;
 }
 
 // The consuming expressions of circular buffer are cloned for these circular
@@ -851,7 +851,7 @@ inline bool hasCircularBufferConsume(CircularBufferLoopStage stage) {
 //   somewhere (*may or may not be in this loop*)
 inline bool mayHaveWarHazard(CircularBufferLoopStage stage) {
   return stage == CircularBufferLoopStage::Main ||
-      stage == CircularBufferLoopStage::LoadWarp ||
+      stage == CircularBufferLoopStage::AsyncWarp ||
       stage == CircularBufferLoopStage::ComputeWarp;
 }
 

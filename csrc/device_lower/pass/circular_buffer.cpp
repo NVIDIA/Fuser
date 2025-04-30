@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <ATen/cuda/CUDAContext.h>
 #include <device_lower/lower2device.h>
 #include <id_model/utils.h>
 #include <ir/utils.h>
@@ -106,7 +107,7 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             SimplifyingIrBuilder::create<Val>(opt.prefetch, DataType::Index));
         break;
       }
-      case CircularBufferLoopStage::LoadWarp:
+      case CircularBufferLoopStage::AsyncWarp:
       case CircularBufferLoopStage::ComputeWarp: {
         break;
       }
@@ -418,6 +419,81 @@ class CloneTmaCircularBufferLoopAndInsertSync
     }
   }
 
+  // If there is a persistent outer-loop, this IfThenElse short-circuits
+  // computation for quantized waves.
+  kir::IfThenElse* createPersistentShortCircuit(
+      ForLoop* outer_loop,
+      ForLoop* inner_loop) {
+    NVF_ERROR(outer_loop != nullptr);
+    NVF_ERROR(inner_loop != nullptr);
+    NVF_ERROR(outer_loop->index() != nullptr);
+    NVF_ERROR(outer_loop->stop() != nullptr);
+    NVF_ERROR(inner_loop->index() != nullptr);
+    NVF_ERROR(inner_loop->stop() != nullptr);
+    NVF_ERROR(outer_loop->iter_domain() != nullptr);
+    NVF_ERROR(inner_loop->iter_domain() != nullptr);
+
+    IterDomain* outer_loop_id = outer_loop->iter_domain();
+    IterDomain* inner_loop_id = inner_loop->iter_domain();
+
+    // Check that the outer and inner loop iterDomains have the same definition.
+    bool has_same_definition = outer_loop_id->definition() &&
+        inner_loop_id->definition() &&
+        outer_loop_id->definition() == inner_loop_id->definition();
+    if (!has_same_definition) {
+      return nullptr;
+    }
+
+    // Check that outer_fl, inner_fl = split(x,  inner_fl->stop()) where
+    // inner_fl->stop() == number of SMs.
+    Expr* id_def = outer_loop_id->definition();
+    if (!id_def->isA<Split>()) {
+      return nullptr;
+    }
+    Split* id_def_split = id_def->as<Split>();
+    if (id_def_split->factor() != inner_loop->stop()) {
+      return nullptr;
+    }
+    const int64_t num_sms =
+        at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+    if (!id_def_split->factor()->isConstScalar() ||
+        id_def_split->factor()->evaluate().as<int64_t>() != num_sms) {
+      return nullptr;
+    }
+
+    // Check that the outer loop is a serial for-loop.
+    if (outer_loop_id->isParallelized()) {
+      return nullptr;
+    }
+
+    // Check that the inner loop is grid parallelized.
+    if (!inner_loop_id->isBlockDim()) {
+      return nullptr;
+    }
+
+    // lhs := (outer_fl->index() * inner_fl->stop() + inner_fl->index())
+    Val* lhs =
+        SimplifyingIrBuilder::mulExpr(outer_loop->index(), inner_loop->stop());
+    lhs = SimplifyingIrBuilder::addExpr(lhs, inner_loop->index());
+
+    // Check that outer_loop matches known invariants for persistent kernel.
+    Expr* def = outer_loop->stop()->definition();
+    NVF_ERROR(def != nullptr);
+    BinaryOp* bop = def->as<BinaryOp>();
+    NVF_ERROR(
+        bop != nullptr && bop->getBinaryOpType() == BinaryOpType::CeilDiv);
+    NVF_ERROR(bop->lhs() != nullptr);
+
+    // predicate := (lhs >= outer_fl->stop()->definition()->lhs())
+    Val* predicate_val = SimplifyingIrBuilder::geExpr(lhs, bop->lhs());
+    kir::Predicate* predicate =
+        IrBuilder::create<kir::Predicate>(predicate_val);
+    kir::IfThenElse* ite = IrBuilder::create<kir::IfThenElse>(predicate);
+    kir::Continue* cont = IrBuilder::create<kir::Continue>();
+    ite->thenBody().push_back(cont);
+    return ite;
+  }
+
   // This function inserts arrive and wait expressions for RAW and WAR
   // hazards. The argument `cloned_loop` can be:
   // 1. A loop containing TMA expressions loading circular buffer tensors.
@@ -448,6 +524,16 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // Skip if there is not an active for-loop structure
     if (for_loop_stack_.empty()) {
       return;
+    }
+
+    // Create outer for-loop short-circuit to minimize wave quantization.
+    // Apply to cloned top-level for-loop and persistent kernels.
+    if (for_loop_stack_.size() == 1 && insertion_position_ != 1) {
+      kir::IfThenElse* ite =
+          createPersistentShortCircuit(for_loop_stack_.front(), cloned_loop);
+      if (ite != nullptr) {
+        for_loop_stack_.back()->body().push_back(ite);
+      }
     }
 
     insertMBarrierWaitBeforeFirstRead();
@@ -618,7 +704,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
 
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->inputs())) {
       // short-circuit: The TensorView input for current expression is not
@@ -657,7 +743,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         !hasCircularBufferLoad()) {
       return;
     }
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
 
     for (auto tv : ir_utils::filterByType<TensorView>(expr->outputs())) {
       // short-circuit: The current expression is not a circular buffer load, so
@@ -694,7 +780,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
       return;
     }
 
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
     // remove expr from war_mbarriers_to_uses_
     auto input_tvs = ir_utils::filterByType<TensorView>(expr->inputs());
     for (auto tv : input_tvs) {
@@ -799,7 +885,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // expressions
   std::unordered_map<TensorView*, kir::MBarrierWaitParity*>
   getAllMbarriersToWait() {
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
     std::unordered_map<TensorView*, kir::MBarrierWaitParity*> wait_exprs;
     for (auto tv : circular_buffer_load_tvs_) {
       LoadStoreOp* ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
@@ -820,7 +906,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // buffer tensor tracked by this mbarrier.
   std::unordered_map<TensorView*, std::unordered_set<Expr*>>
   getAllWarMbarriersToUses() {
-    const auto& ldst_mbarrier_map = GpuLower::current()->ldstMBarrierMap();
+    const auto& ldst_mbarrier_map = GpuLower::current()->mbarrierMap();
     std::unordered_map<TensorView*, std::unordered_set<Expr*>> mbarrier_to_uses;
     auto exprs =
         ir_utils::flattenScopedExprs(circular_buffer_loop_->body().exprs());
@@ -949,7 +1035,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(ldst != nullptr);
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentLoadStage());
 
@@ -985,7 +1071,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     NVF_ERROR(ldst != nullptr);
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers, currentComputeStage());
 
@@ -1007,7 +1093,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
             .stage;
 
     // Get mbarrier for this circular buffer stage.
-    TensorView* all_mbarriers = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers,
         SimplifyingIrBuilder::addExpr(currentLoadStage(), stage_depth));
@@ -1144,13 +1230,112 @@ class IsCircularBufferLoadLoop : public kir::IrVisitor {
   bool result_ = false;
 };
 
+namespace {
+
+bool isWarpSpecialized(ForLoop* loop) {
+  return std::holds_alternative<WarpSpecialized>(
+      GpuLower::current()
+          ->circularBufferInfo()
+          .getCircularBufferOptionsFor(loop->iter_domain())
+          .type);
+}
+
+} // namespace
+
 // Traverse lowered loop-nests and find all circular buffer loops and
 // associated load expressions.
 class CircularBufferLoopNestInspector : private kir::IrVisitor {
  public:
-  static InsertionInfo run(const std::vector<Expr*>& exprs) {
+  static std::pair<InsertionInfo, InsertionInfo> run(
+      const std::vector<Expr*>& exprs) {
     CircularBufferLoopNestInspector inspector(exprs);
-    return inspector.insertion_info_;
+
+    // InsertionInfo holds all circular buffer for-loops. Split it into warp
+    // specialized and pipeline circular buffers. Enforce that we can only nest
+    // pipeline circular buffering inside of warp-specialization.
+
+    // Get WarpSpecialized InsertionInfo
+    InsertionInfo ws_info;
+    int64_t inner_most_ws_position = -1;
+    for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
+      if (!isWarpSpecialized(cb_loop)) {
+        continue;
+      }
+      ws_info[cb_loop] = cb_exprs;
+      inner_most_ws_position = std::max(
+          inner_most_ws_position, inspector.loop_position_.at(cb_loop));
+    }
+
+    // WarpSpecialized circular buffering pads the thread block size by 128
+    // threads. This is to support register sharing, which shares registers from
+    // four warps to another four warps. Thus, we can have four warps running
+    // concurrently in AsyncWarp. Each warp can launch an asynchronous operation
+    // with mbarrier completion mechanism such as TMA Load and Blackwell UTCMMA.
+    //
+    // if (Select AsyncWarp) {
+    //   if (Select Warp 0 AND elect-sync()) {
+    //     do-something
+    //   } else if (Select Warp 1 AND elect-sync()) {
+    //     do-something
+    //   } else if (Select Warp 2 AND elect-sync()) {
+    //      do-something
+    //   } else if (Select Warp 3 AND elect-sync()) {
+    //      do-something
+    //   }
+    // }
+    NVF_ERROR(
+        ws_info.size() <= 4,
+        "At most four for-loops can run concurrently inside the AsyncWarp.\n",
+        "Detected ",
+        ws_info.size(),
+        " WarpSpecialized for-loops.");
+
+    // Get Pipeline InsertionInfo
+    InsertionInfo pipeline_info;
+    for (auto&& [cb_loop, cb_exprs] : inspector.insertion_info_) {
+      if (isWarpSpecialized(cb_loop)) {
+        continue;
+      }
+
+      // An example of WarpSpecialized circular buffer nested in Pipeline
+      // circular buffer.
+      //  * Register sharing would fail because of the return in the AsyncLoop.
+      //  * This scenario is not actively tested, so prohibit it until a valid
+      //    use-case occurs.
+      //
+      // warp-specialized mbarrier init
+      // for (prologue) {
+      //   load something for Prologue
+      // }
+      //
+      // for (main) {
+      //   load something for Main
+      //   if (AsyncWarp) {
+      //     launch async
+      //     maybe return for register sharing
+      //   } else {
+      //     compute something for ComputeWarp
+      //   }
+      //   compute something for Main
+      // }
+      //
+      // for (epilogue) {
+      //   if (AsyncWarp) {
+      //     launch async
+      //     maybe return for register sharing
+      //   } else {
+      //     compute something
+      //   }
+      //   compute something for Epilogue
+      //  }
+      // warp-specialized mbarrier inval
+      NVF_ERROR(
+          inspector.loop_position_.at(cb_loop) > inner_most_ws_position,
+          "Warp Specialization cannot be nested in Pipeline circular buffering!");
+      pipeline_info[cb_loop] = cb_exprs;
+    }
+
+    return {ws_info, pipeline_info};
   }
 
  private:
@@ -1186,6 +1371,10 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
 
     validateCircularBufferLoop(circular_buffer_loop);
 
+    auto cb_loop_it =
+        std::find(for_loops_.begin(), for_loops_.end(), circular_buffer_loop);
+    loop_position_[circular_buffer_loop] =
+        std::distance(for_loops_.begin(), cb_loop_it);
     insertion_info_[circular_buffer_loop].push_back(expr);
   }
 
@@ -1211,6 +1400,8 @@ class CircularBufferLoopNestInspector : private kir::IrVisitor {
         loop->toString());
   }
 
+  // Map circular buffer loop to its position in the for_loop_ stack.
+  std::unordered_map<ForLoop*, int64_t> loop_position_;
   InsertionInfo insertion_info_;
 };
 
@@ -1229,10 +1420,51 @@ void getAllocInTrivialLoop(ForLoop* fl, std::unordered_set<Expr*>& output) {
   }
 }
 
+// Create something like below:
+//   for (int i = 0; i < prefetch + 1; ++i) {
+//     mbarrier::arrive(mbarrier0[stage + i]]);
+//     mbarrier::arrive(mbarrier1[stage + i]);
+//     ...
+//   }
+// where mbarrierX[stage + i] is the X-th WAR mbarrier for stage i.
+//
+// This is needed because we prefetch data in circular buffering, and we
+// need to make sure the initial prefetches are not blocked by the
+// non-existing WAR hazards.
+ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
+  const auto& opt =
+      GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+          circular_buffer_loop->iter_domain());
+  auto circular_buffer_tvs =
+      GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
+          circular_buffer_loop->iter_domain());
+  VectorOfUniqueEntries<TensorView*> mbarriers;
+  for (auto tv : circular_buffer_tvs) {
+    auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
+    NVF_ERROR(ldst != nullptr);
+    auto it = GpuLower::current()->mbarrierMap().find(ldst);
+    if (it == GpuLower::current()->mbarrierMap().end()) {
+      continue;
+    }
+    mbarriers.pushBack(it->second);
+  }
+  auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
+  for (auto mbarrier : mbarriers) {
+    auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
+        mbarrier,
+        SimplifyingIrBuilder::addExpr(
+            prefetch_loop->indexOrStartIfTrivial(), opt.stage));
+    auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
+        /*state=*/nullptr, mbarrier_to_arrive);
+    prefetch_loop->body().push_back(prefetch);
+  }
+  return prefetch_loop;
+}
+
 } // namespace
 
-// Apply circular buffering transformations
-class CircularBufferInserter : private kir::ExprMutator {
+// Apply warp specialized circular buffering transformations
+class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
  public:
   // When there exist multiple circular buffer loops, apply
   // transformations to inner-most loops first. A single ExprMutator
@@ -1242,14 +1474,15 @@ class CircularBufferInserter : private kir::ExprMutator {
       InsertionInfo insertion_info) {
     std::vector<Expr*> inserted_exprs = exprs;
     while (!insertion_info.empty()) {
-      CircularBufferInserter inserter(inserted_exprs, insertion_info);
+      WarpSpecializedCircularBufferInserter inserter(
+          inserted_exprs, insertion_info);
       inserted_exprs = inserter.exprs_;
     }
     return inserted_exprs;
   }
 
  private:
-  CircularBufferInserter(
+  WarpSpecializedCircularBufferInserter(
       const std::vector<Expr*>& exprs,
       InsertionInfo& insertion_info)
       : insertion_info_(insertion_info) {
@@ -1275,29 +1508,172 @@ class CircularBufferInserter : private kir::ExprMutator {
       return;
     }
 
-    auto has_cp_async_bulk = std::any_of(
-        it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk);
+    bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferOptionsFor(loop->iter_domain())
+            .type);
+    NVF_ERROR(use_warp_specialization);
+    NVF_ERROR(
+        std::all_of(
+            it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
+        "In order to use warp specialization, all buffers must be loaded by TMA");
+    int64_t insertion_position =
+        GpuLower::current()
+            ->circularBufferInfo()
+            .getCircularBufferInsertionPosition(loop->iter_domain());
+    insertTmaWarpSpecialized(loop, it->second, insertion_position);
+
+    processed_loop_ = loop;
+    insertion_info_.erase(loop);
+  }
+
+  // Create predicate for warp-specialized IfThenElse:
+  // kir::Predicate is thread_axis >= block_dim_axis - padded_value
+  kir::Predicate* getAsyncWarpPredicate(const CircularBufferOptions& options) {
+    ParallelType warp_specialize_on =
+        std::get<WarpSpecialized>(options.type).on;
+    int64_t warp_specialization_pad =
+        GpuLower::current()
+            ->parallelDimensionMap()
+            .getWarpSpecializationPaddedVal(warp_specialize_on);
+    Val* raw =
+        GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
+    Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
+        raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
+    return IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
+        NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
+  }
+
+  void insertTmaWarpSpecialized(
+      ForLoop* circular_buffer_loop,
+      const std::vector<Expr*>& loads,
+      int64_t insertion_position) {
+    const CircularBufferOptions& options =
+        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
+            circular_buffer_loop->iter_domain());
+
+    kir::IfThenElse* warp_dispatch_ite =
+        IrBuilder::create<kir::IfThenElse>(getAsyncWarpPredicate(options));
+
+    // Set default value
+    bool enable_register_sharing =
+        std::get<WarpSpecialized>(options.type).num_registers.has_value();
+    GpuLower::current()->kernel()->manage(
+        "enable_register_sharing", enable_register_sharing);
+
+    if (enable_register_sharing) {
+      auto&& [decrease_num_registers, increase_num_registers] =
+          std::get<WarpSpecialized>(options.type).num_registers.value();
+      GpuLower::current()->decIncRegisterUsage() =
+          std::make_pair(decrease_num_registers, increase_num_registers);
+      // Decrease registers in async warp group
+      kir::SetMaxNReg* dec_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
+          IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
+          /*increase_registers=*/false);
+      warp_dispatch_ite->thenBody().push_back(dec_reg_async_warp);
+
+      // Increase registers in compute warp group
+      kir::SetMaxNReg* inc_reg_async_warp = IrBuilder::create<kir::SetMaxNReg>(
+          IrBuilder::create<Val>(increase_num_registers, DataType::Index),
+          /*increase_registers*/ true);
+      warp_dispatch_ite->elseBody().push_back(inc_reg_async_warp);
+    }
+
+    // Load loop:
+    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::AsyncWarp,
+        insertion_position);
+    warp_dispatch_ite->thenBody().push_back(load_loop);
+
+    if (enable_register_sharing) {
+      // Terminate the warp group handling Load loop immediately after
+      // finishing its work.
+      kir::Return* ret = IrBuilder::create<kir::Return>();
+      warp_dispatch_ite->thenBody().push_back(ret);
+    }
+
+    // Prefetch:
+    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
+    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
+
+    // Compute loop:
+    ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
+        circular_buffer_loop,
+        loads,
+        CircularBufferLoopStage::ComputeWarp,
+        insertion_position);
+    warp_dispatch_ite->elseBody().push_back(compute_loop);
+
+    registerReplace(circular_buffer_loop, warp_dispatch_ite);
+  }
+
+ private:
+  InsertionInfo& insertion_info_;
+  ForLoop* processed_loop_ = nullptr;
+};
+
+// Apply pipeline circular buffering transformations
+class PipelineCircularBufferInserter : private kir::ExprMutator {
+ public:
+  // When there exist multiple circular buffer loops, apply
+  // transformations to inner-most loops first. A single ExprMutator
+  // pass can only process one loop.
+  static std::vector<Expr*> run(
+      const std::vector<Expr*>& exprs,
+      InsertionInfo insertion_info) {
+    std::vector<Expr*> inserted_exprs = exprs;
+    while (!insertion_info.empty()) {
+      PipelineCircularBufferInserter inserter(inserted_exprs, insertion_info);
+      inserted_exprs = inserter.exprs_;
+    }
+    return inserted_exprs;
+  }
+
+ private:
+  PipelineCircularBufferInserter(
+      const std::vector<Expr*>& exprs,
+      InsertionInfo& insertion_info)
+      : insertion_info_(insertion_info) {
+    size_t num_circular_buffer_loops = insertion_info.size();
+    traverseAndInsert(exprs);
+    NVF_ERROR(processed_loop_ != nullptr);
+    NVF_ERROR(insertion_info.size() == num_circular_buffer_loops - 1);
+  }
+
+  using kir::ExprMutator::handle;
+
+  void handle(ForLoop* loop) final {
+    kir::ExprMutator::handle(loop);
+
+    // If another loop is already taken care of, no more loop should
+    // be done in the same pass
+    if (processed_loop_ != nullptr) {
+      return;
+    }
+
+    auto it = insertion_info_.find(loop);
+    if (it == insertion_info_.end()) {
+      return;
+    }
 
     bool use_warp_specialization = std::holds_alternative<WarpSpecialized>(
         GpuLower::current()
             ->circularBufferInfo()
             .getCircularBufferOptionsFor(loop->iter_domain())
             .type);
-    if (use_warp_specialization) {
-      NVF_ERROR(
-          std::all_of(
-              it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk),
-          "In order to use warp specialization, all buffers must be loaded by TMA");
-      int64_t insertion_position =
-          GpuLower::current()
-              ->circularBufferInfo()
-              .getCircularBufferInsertionPosition(loop->iter_domain());
-      insertTmaWarpSpecialized(loop, it->second, insertion_position);
-    } else if (has_cp_async_bulk) {
+    NVF_ERROR(!use_warp_specialization);
+
+    auto has_cp_async_bulk = std::any_of(
+        it->second.begin(), it->second.end(), ir_utils::isCpAsyncBulk);
+    if (has_cp_async_bulk) {
       insertTmaPipelined(loop, it->second);
     } else {
       insert(loop, it->second);
     }
+
     processed_loop_ = loop;
     insertion_info_.erase(loop);
   }
@@ -1309,47 +1685,6 @@ class CircularBufferInserter : private kir::ExprMutator {
             .getCircularBufferOptionsFor(circular_buffer_loop->iter_domain())
             .prefetch;
     return prefetch_distance > 0;
-  }
-
-  // Create something like below:
-  //   for (int i = 0; i < prefetch + 1; ++i) {
-  //     mbarrier::arrive(mbarrier0[stage + i]]);
-  //     mbarrier::arrive(mbarrier1[stage + i]);
-  //     ...
-  //   }
-  // where mbarrierX[stage + i] is the X-th WAR mbarrier for stage i.
-  //
-  // This is needed because we prefetch data in circular buffering, and we
-  // need to make sure the initial prefetches are not blocked by the
-  // non-existing WAR hazards.
-  ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
-    auto circular_buffer_tvs =
-        GpuLower::current()->circularBufferInfo().getCircularBufferTvs(
-            circular_buffer_loop->iter_domain());
-    VectorOfUniqueEntries<TensorView*> mbarriers;
-    for (auto tv : circular_buffer_tvs) {
-      auto ldst = dynamic_cast<LoadStoreOp*>(tv->definition());
-      NVF_ERROR(ldst != nullptr);
-      auto it = GpuLower::current()->ldstMBarrierMap().find(ldst);
-      if (it == GpuLower::current()->ldstMBarrierMap().end()) {
-        continue;
-      }
-      mbarriers.pushBack(it->second);
-    }
-    auto prefetch_loop = ir_utils::createRangeLoop(opt.prefetch + 1);
-    for (auto mbarrier : mbarriers) {
-      auto mbarrier_to_arrive = IrBuilder::create<kir::TensorIndex>(
-          mbarrier,
-          SimplifyingIrBuilder::addExpr(
-              prefetch_loop->indexOrStartIfTrivial(), opt.stage));
-      auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
-          /*state=*/nullptr, mbarrier_to_arrive);
-      prefetch_loop->body().push_back(prefetch);
-    }
-    return prefetch_loop;
   }
 
   static bool usesMBarrierForWAR(ForLoop* circular_buffer_loop) {
@@ -1412,97 +1747,6 @@ class CircularBufferInserter : private kir::ExprMutator {
         /*insertion_position=*/1,
         expressions_allocated_in_main_loop);
     registerInsertAfter(circular_buffer_loop, epilogue_loop);
-  }
-
-  void insertTmaWarpSpecialized(
-      ForLoop* circular_buffer_loop,
-      const std::vector<Expr*>& loads,
-      int64_t insertion_position) {
-    const auto& opt =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
-    ParallelType warp_specialize_on = std::get<WarpSpecialized>(opt.type).on;
-
-    // Create warp_dispatch_ite, the predicate is either
-    // Tid == bdim - 1 or Tid >= bdim - padded
-    int64_t warp_specialization_pad =
-        GpuLower::current()
-            ->parallelDimensionMap()
-            .getWarpSpecializationPaddedVal(warp_specialize_on);
-    kir::Predicate* predicate_val = nullptr;
-    Val* raw =
-        GpuLower::current()->parallelDimensionMap().get(warp_specialize_on);
-    Val* raw_minus_pad = SimplifyingIrBuilder::subExpr(
-        raw, IrBuilder::create<Val>(warp_specialization_pad, DataType::Index));
-    if (warp_specialization_pad == 1) {
-      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::eqExpr(
-          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
-    } else {
-      predicate_val = IrBuilder::create<kir::Predicate>(IrBuilder::geExpr(
-          NamedScalar::getParallelIndex(warp_specialize_on), raw_minus_pad));
-    }
-    kir::IfThenElse* warp_dispatch_ite =
-        IrBuilder::create<kir::IfThenElse>(predicate_val);
-
-    // Set default value
-    auto& circular_buffer_options =
-        GpuLower::current()->circularBufferInfo().getCircularBufferOptionsFor(
-            circular_buffer_loop->iter_domain());
-    bool enable_register_sharing =
-        std::holds_alternative<WarpSpecialized>(circular_buffer_options.type) &&
-        std::get<WarpSpecialized>(circular_buffer_options.type)
-            .num_registers.has_value();
-
-    GpuLower::current()->kernel()->manage(
-        "enable_register_sharing", enable_register_sharing);
-
-    if (enable_register_sharing) {
-      auto&& [decrease_num_registers, increase_num_registers] =
-          std::get<WarpSpecialized>(circular_buffer_options.type)
-              .num_registers.value();
-      GpuLower::current()->decIncRegisterUsage() =
-          std::make_pair(decrease_num_registers, increase_num_registers);
-      // Decrease registers in load warp group
-      kir::SetMaxNReg* dec_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
-          IrBuilder::create<Val>(decrease_num_registers, DataType::Index),
-          /*increase_registers=*/false);
-      warp_dispatch_ite->thenBody().push_back(dec_reg_load_warp);
-
-      // Increase registers in compute warp group
-      kir::SetMaxNReg* inc_reg_load_warp = IrBuilder::create<kir::SetMaxNReg>(
-          IrBuilder::create<Val>(increase_num_registers, DataType::Index),
-          /*increase_registers*/ true);
-      warp_dispatch_ite->elseBody().push_back(inc_reg_load_warp);
-    }
-
-    // Load loop:
-    ForLoop* load_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop,
-        loads,
-        CircularBufferLoopStage::LoadWarp,
-        insertion_position);
-    warp_dispatch_ite->thenBody().push_back(load_loop);
-
-    if (enable_register_sharing) {
-      // Terminate the warp group handling Load loop immediately after
-      // finishing its work.
-      kir::Return* ret = IrBuilder::create<kir::Return>();
-      warp_dispatch_ite->thenBody().push_back(ret);
-    }
-
-    // Prefetch:
-    auto prefetch_loop = createArrivesForWar(circular_buffer_loop);
-    warp_dispatch_ite->elseBody().push_back(prefetch_loop);
-
-    // Compute loop:
-    ForLoop* compute_loop = CloneTmaCircularBufferLoopAndInsertSync::clone(
-        circular_buffer_loop,
-        loads,
-        CircularBufferLoopStage::ComputeWarp,
-        insertion_position);
-    warp_dispatch_ite->elseBody().push_back(compute_loop);
-
-    registerReplace(circular_buffer_loop, warp_dispatch_ite);
   }
 
   void insert(ForLoop* circular_buffer_loop, const std::vector<Expr*>& loads) {
@@ -1728,8 +1972,15 @@ kir::TensorIndex* TmaCircularBufferInfo::getTensorIndex(const Expr* expr) {
 }
 
 std::vector<Expr*> CircularBufferPass::run(const std::vector<Expr*>& exprs) {
-  InsertionInfo insertion_info = CircularBufferLoopNestInspector::run(exprs);
-  return CircularBufferInserter::run(exprs, insertion_info);
+  auto&& [ws_insertion_info, pipeline_insertion_info] =
+      CircularBufferLoopNestInspector::run(exprs);
+  // Process circular buffer for-loops from inner to outer-most.
+  // Pipeline must come before WarpSpecialized. We cannot nest WarpSpecialized
+  // inside of Pipeline circular buffering.
+  std::vector<Expr*> result_exprs =
+      PipelineCircularBufferInserter::run(exprs, pipeline_insertion_info);
+  return WarpSpecializedCircularBufferInserter::run(
+      result_exprs, ws_insertion_info);
 }
 
 } // namespace nvfuser

@@ -43,6 +43,8 @@ struct CudaExecutable : public NonCopyable {
   std::string cubin_filename;
   std::string kernel_name;
   std::string compile_args;
+  std::vector<char> sass;
+  std::string sass_filename;
   long block_size = -1;
   int register_spills = -1;
 };

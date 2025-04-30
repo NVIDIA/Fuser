@@ -55,7 +55,7 @@ class ParallelDimensionMap {
   //! for loading circular buffer tensors.
   Val* getRawLoad(ParallelType pt) const;
 
-  //! The padded val ensures that CTA has 128 threads for the LoadWarp. This
+  //! The padded val ensures that CTA has 128 threads for the AsyncWarp. This
   //! function returns the padded val for the warp specialized ParallelType.
   int64_t getWarpSpecializationPaddedVal(ParallelType pt) const;
 
@@ -89,7 +89,7 @@ class ParallelDimensionMap {
 
   //! If we are doing warp specialization on pt, then we need to increase
   //! the parallel dimension size of pt by one, where the extra one is used
-  //! as the load warp. In this case, pt becomes non-exact.
+  //! as the async warp. In this case, pt becomes non-exact.
   void adjustMappingsForWarpSpecialization();
 
  private:
