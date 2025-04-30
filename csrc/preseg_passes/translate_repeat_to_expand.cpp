@@ -7,8 +7,8 @@
 // clang-format on
 #include <preseg_passes/translate_repeat_to_expand.h>
 
-#include <ir/utils.h>
 #include <debug.h>
+#include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
 

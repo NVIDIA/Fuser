@@ -27,12 +27,32 @@
 #include <preseg_passes/segment_inplace_update.h>
 #include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
+namespace nvfuser {
+namespace {
+void debugPass(int pass_num, Fusion* fusion) {
+  debug() << "[runPass] " << pass_num << " Start" << std::endl;
+  auto exprs = fusion->exprs();
+  for (auto expr : exprs) {
+    if (expr->name() == 999999) {
+      debug() << "Found expr" << std::endl;
+    }
+  }
+  debug() << "[runPass] " << pass_num << " Found: " << exprs.size() << " exprs"
+          << std::endl;
+  auto all_vals = fusion->usedMathVals();
+  for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
+    if (tv->name() == 999999) {
+      debug() << "Found tv" << std::endl;
+    }
+  }
+  debug() << "[runPass] " << pass_num << " clear" << std::endl;
+}
+} // namespace
 
-namespace nvfuser::preseg_passes {
+namespace preseg_passes {
 
 /*static*/ void PreSegmenter::runPass(Fusion* fusion) {
   FUSER_PERF_SCOPE("PreSegmenter::runPass");
-  debug() << "[PreSegmenter] Starting PreSegmenter..." << std::endl;
 
   if (isDebugDumpEnabled(DebugDumpOption::PreSegmenterLogging)) {
     debug() << "Fusion before " << name() << ":" << std::endl;
@@ -40,19 +60,22 @@ namespace nvfuser::preseg_passes {
     debug() << "========================================" << std::endl;
   }
 
+  debugPass(1, fusion);
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
+  debugPass(2, fusion);
   // This pass should be placed before ConsecutiveCastPass as more
   // consecutive cast ops may be exposed by this pass
-  
+
   OptimizationPass<TranslateRepeatToExpand>::runPass(fusion);
+  debugPass(3, fusion);
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
-  debug() << "[PreSegmenter] After ConsecutiveCastPass" << std::endl;
+  debugPass(4, fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
-  debug() << "[PreSegmenter] After AddAxiomsPass" << std::endl;
+
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
-  debug() << "[PreSegmenter] After MoveSplitCatPass" << std::endl;
+
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and
   //    avoid moving pad operatoins around, which could disturb the analysis
@@ -81,7 +104,7 @@ namespace nvfuser::preseg_passes {
   // All the multidevice passes are moved after allocation related passes:
   // MarkAliasesPreparePass, and AllocationDomainPass Multidevice passes will
   // try to set the allocation domain for tvs with device mesh which will
-// conflict with these passes.
+  // conflict with these passes.
   OptimizationPass<PropagateShardingsPass>::runPass(fusion);
   OptimizationPass<InsertReshardingsPass>::runPass(fusion);
   OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
@@ -93,4 +116,5 @@ namespace nvfuser::preseg_passes {
   debug() << "[PreSegmenter] Finished PreSegmenter." << std::endl;
 }
 
-} // namespace nvfuser::preseg_passes
+} // namespace preseg_passes
+} // namespace nvfuser
