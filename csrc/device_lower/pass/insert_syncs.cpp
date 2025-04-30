@@ -1281,7 +1281,8 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       compute_warp_insertion_position_ =
           GpuLower::current()
               ->circularBufferInfo()
-              .getCircularBufferInsertionPosition(for_loop->iter_domain());
+              .getCircularBufferInsertionPosition(for_loop->iter_domain()) +
+          for_loop_stack_.size() - 1;
       active_compute_for_loop_ = for_loop;
     }
 
@@ -1302,17 +1303,29 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
       for (auto it = async_exprs_to_protect_.begin();
            it != async_exprs_to_protect_.end();) {
         auto expr = *it;
+        AsyncOpType type = ir_utils::getAsyncOpType(expr);
+
+        // The wgmma.commit must always be inserted at the end of epilogue for
+        // loop. The epilogue loop does not need wgmma.wait because it does not
+        // have async inputs to guard. The RAWSyncInserter adds the wgmma.wait
+        // before the output of wgmma expr is used by any other exprs.
+        bool is_wgmma_epilogue = (type == AsyncOpType::WgMma) &&
+            for_loop->circularBufferLoopStage() ==
+                CircularBufferLoopStage::Epilog;
+
+        bool is_async_inputs_not_present = std::none_of(
+            expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
+              return async_inputs_in_current_scope_.count(val);
+            });
+
         // If the input of the async op is not in the current scope, then this
         // async op is not related, so nothing to protect.
-        if (std::none_of(
-                expr->inputs().begin(), expr->inputs().end(), [&](Val* val) {
-                  return async_inputs_in_current_scope_.count(val);
-                })) {
+        if (!is_wgmma_epilogue && is_async_inputs_not_present) {
           it++;
           continue;
         }
+
         int64_t pending_ops = getPendingOpsFor(expr, for_loop);
-        auto type = ir_utils::getAsyncOpType(expr);
         // If there are multiple async ops of the same type to protect, we will
         // only insert a single wait expressions with the smallest
         // "pending_ops".
@@ -1328,9 +1341,11 @@ class WarAsyncWaitInserter : private kir::ExprMutator {
 
       // Actually insert these wait expressions.
       for (auto [type, pending_ops] : types_and_pending_ops_to_protect) {
-        std::vector<Expr*> sync_exprs{
-            getAsyncCommit(type),
-            getAsyncWait(type, /*keep_stages=*/pending_ops)};
+        std::vector<Expr*> sync_exprs{getAsyncCommit(type)};
+        if (for_loop->circularBufferLoopStage() !=
+            CircularBufferLoopStage::Epilog) {
+          sync_exprs.push_back(getAsyncWait(type, /*keep_stages=*/pending_ops));
+        }
         NVF_ERROR(!for_loop->body().exprs().empty());
 
         // Default position is last expression in for loop

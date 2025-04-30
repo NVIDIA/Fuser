@@ -811,9 +811,12 @@ inline int64_t nLogicalDims(const TensorView* tv) {
   return tv_n_dims;
 }
 
-// Reorer the loop domain of a given tensor to align with a given list of
-// reference IDs. Non-matching loop IDs are placed outermost positions.
-void reorderTensorLike(TensorView* tv, const std::vector<IterDomain*>& ref);
+// Get a permutation vector to reorder a given domain to align with a
+// given list of reference IDs. Non-matching loop IDs are placed outermost
+// positions.
+std::vector<int64_t> reorderDomainLike(
+    const std::vector<IterDomain*>& domain,
+    const std::vector<IterDomain*>& ref);
 
 // If buffer_tv's definition is an upcast and the input to the cast is not a
 // fusion input, return input to the cast. Otherwise, return nullptr. Used to
@@ -829,5 +832,10 @@ TensorView* getUpCastInputOf(const TensorView* buffer_tv);
 //! See device_lower/analysis/tensor_producer_aliases.h
 TensorView* scheduleInputToSkipIntermediates(TensorView* tv);
 
+//! Utility enum to signify which direction
+//! transform propagation passes will propagate the transforms.
+//! For example, in sharding propagation or
+//! BoundedDirectionalTransformPropagator.
+enum class PropagateDirection { kBackward = 0, kForward };
 } // namespace scheduler_utils
 } // namespace nvfuser

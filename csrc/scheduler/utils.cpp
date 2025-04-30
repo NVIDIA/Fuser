@@ -1850,11 +1850,6 @@ void transformPropagateToAllFrom(TensorView* from_tv, int64_t pos) {
 
 namespace {
 
-//! Utility enum to signify which direction
-//! BoundedDirectionalTransformPropagator
-//!  passes will propagate the transforms.
-enum class PropagateDirection { Backward = 0, Forward };
-
 //! Returns true if the given tensorview is a fake boundary
 //!  TensorView, see Note [Fake Boundary Tensorview].
 //! This function assumes and would not check that tv is a boundary
@@ -1863,7 +1858,7 @@ bool isFakeBoundaryTensorview(
     TensorView* tv,
     const std::unordered_set<TensorView*>& selected_tv_set,
     PropagateDirection direction) {
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation,
     //  a boundary tv is a fake boundary if
     //  it has any consumer tv that's in the selected
@@ -1907,7 +1902,7 @@ std::unordered_set<TensorView*> getDirectionalPropagatePathSet(
   std::unordered_set<TensorView*> boundary_tv_set(
       boundary_tvs.begin(), boundary_tvs.end());
 
-  if (direction == PropagateDirection::Forward) {
+  if (direction == PropagateDirection::kForward) {
     // In the case of forward propagation, collect all tvs
     //  that are consumers of `from_tv` and producers of
     //  boundary tvs.
@@ -2015,7 +2010,7 @@ void BoundedDirectionalTransformPropagator::backward(
   // Collect all tvs to included on the backward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Backward);
+      from, to, *options, PropagateDirection::kBackward);
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
 }
@@ -2035,7 +2030,7 @@ void BoundedDirectionalTransformPropagator::forward(
   // Collect all tvs to included on the forward path as specified
   //  by boundary and options.
   auto included_tvs = getDirectionalPropagatePathSet(
-      from, to, *options, PropagateDirection::Forward);
+      from, to, *options, PropagateDirection::kForward);
 
   // Actually run the propagation.
   propagate(from, pos, included_tvs, *options);
@@ -2057,9 +2052,9 @@ void BoundedDirectionalTransformPropagator::bothWays(
   // Collect all tvs to included on the backward and forward path as specified
   //  by boundary and options.
   auto backward_included_tvs = getDirectionalPropagatePathSet(
-      from, backward_to, *options, PropagateDirection::Backward);
+      from, backward_to, *options, PropagateDirection::kBackward);
   auto forward_included_tvs = getDirectionalPropagatePathSet(
-      from, forward_to, *options, PropagateDirection::Forward);
+      from, forward_to, *options, PropagateDirection::kForward);
 
   // Combined the included tvs on both paths.
   auto included_tvs = backward_included_tvs;
@@ -2774,15 +2769,18 @@ int64_t reorderDevicesToOuter(TensorView* tv) {
   return (int64_t)old2new.size();
 }
 
-void reorderTensorLike(
-    TensorView* target_tv,
+std::vector<int64_t> reorderDomainLike(
+    const std::vector<IterDomain*>& domain_to_reorder,
     const std::vector<IterDomain*>& ref) {
-  const auto& tv_loop_domain = target_tv->getLoopDomain();
+  if (domain_to_reorder.empty()) {
+    return {};
+  }
 
-  IdModel id_model(target_tv->fusion(), /*build_graphs=*/false);
+  Fusion* fusion = domain_to_reorder.at(0)->fusion();
+  IdModel id_model(fusion, /*build_graphs=*/false);
   const auto& graph = id_model.buildBroadcastGraph();
 
-  ValGroups target_groups = graph.toGroups(tv_loop_domain);
+  ValGroups target_groups = graph.toGroups(domain_to_reorder);
 
   ValGroups ref_groups = graph.toGroups(ref);
 
@@ -2820,31 +2818,35 @@ void reorderTensorLike(
     }
   }
 
-  std::unordered_map<int64_t, int64_t> old2new;
+  std::vector<int64_t> permutation(domain_to_reorder.size(), -1);
 
   // Place IDs that do not appear in ref at the outer position
   int64_t new_id_pos = 0;
-  for (const auto i : arange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it == ordered_domain.end()) {
-      old2new.emplace((int64_t)i, new_id_pos);
+      permutation.at(i) = new_id_pos;
       ++new_id_pos;
     }
   }
-  for (const auto i : arange(tv_loop_domain.size())) {
-    const auto& loop_id_group = graph.toGroup(tv_loop_domain.at(i));
+  for (const auto i : arange(domain_to_reorder.size())) {
+    const auto& loop_id_group = graph.toGroup(domain_to_reorder.at(i));
     auto it =
         std::find(ordered_domain.begin(), ordered_domain.end(), loop_id_group);
     if (it != ordered_domain.end()) {
       int64_t new_pos =
           (int64_t)std::distance(ordered_domain.begin(), it) + new_id_pos;
-      old2new.emplace((int64_t)i, new_pos);
+      permutation.at(i) = new_pos;
     }
   }
 
-  target_tv->reorder(old2new);
+  NVF_ERROR(std::ranges::all_of(permutation, [&](int64_t pos) {
+    return pos >= 0 && pos < (int64_t)permutation.size();
+  }));
+
+  return permutation;
 }
 
 namespace {

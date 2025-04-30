@@ -84,11 +84,7 @@ struct KernelSummary {
   //! Largest shared memory buffer base type
   DataType largest_smem_data_type = DataType::Null;
 
-  //! Do we have allocations of dynamic local memory?
-  bool has_dynamic_local_memory_allocations = false;
-
   //! List of dynamic local memory buffers.
-  //! Only used for debugging.
   std::vector<const kir::Allocate*> dynamic_lmem_allocations;
 
   //! Validations needed and information about them. For example, a pair of
