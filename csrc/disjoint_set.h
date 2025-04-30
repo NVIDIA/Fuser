@@ -153,25 +153,25 @@ class VectorOfUniqueEntries {
 
   // Returns first element in vector
   T front() const {
-#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     NVF_ERROR(!empty());
-#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return vector_.front();
   }
 
   // Returns last element in vector
   T back() const {
-#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     NVF_ERROR(!empty());
-#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     return vector_.back();
   }
 
   // Remove and returns the last element in vector
   T popBack() {
-#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
+#if defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     NVF_ERROR(!empty());
-#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_CHECK)
+#endif // defined(NDEBUG) && !defined(NVFUSER_EXPLICIT_ERROR_CHECK)
     T v = vector_.back();
     set_.erase(v);
     vector_.pop_back();
