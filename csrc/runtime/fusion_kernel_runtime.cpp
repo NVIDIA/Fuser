@@ -11,6 +11,7 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/deallocate.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -510,7 +511,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       hic->addOutput(ir_cloner.clone(out));
     }
 
-    hic->insertDeallocations();
+    insertDeallocations(hic.get());
 
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
