@@ -50,6 +50,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
+  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
       LaunchParams(),
@@ -57,6 +58,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
       std::vector<Val*>{hic_in},
       std::vector<Val*>{hic_out});
 
+  hic->pushBackTopLevelExprs(allocate);
   hic->pushBackTopLevelExprs(launch_kernel);
 
   HostIrEvaluator hie(std::move(hic));

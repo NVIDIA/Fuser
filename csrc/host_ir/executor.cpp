@@ -339,7 +339,9 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
     }
   }
 
-  NVF_ERROR(outputs.size() == launch_kernel->outputs().size());
+  NVF_ERROR(
+      outputs.size() == launch_kernel->outputs().size(),
+      "Not all outputs to the kernel were preallocated");
 
   args.setDeviceIndex();
 
