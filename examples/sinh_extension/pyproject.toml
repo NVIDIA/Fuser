@@ -1,0 +1,24 @@
+[build-system]
+requires = [
+    "torch",             # Required for CUDAExtension/BuildExtension
+    "setuptools>=61.0", # Use a reasonably modern setuptools
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nvfuser_extension"
+# Version is REQUIRED in pyproject.toml.
+version = "0.1.0"
+description = "A C++/CUDA extension using nvfuser" # Add a short description
+readme = "README.md" # Specify your README file
+# List packages required for your code to RUN (not build)
+dependencies = [
+    "torch",            # Assumed runtime dependency for a CUDA extension
+    "nvfuser"           # Used in setup.py to find paths, likely needed at runtime too
+]
+requires-python = ">=3.12"
+
+[tool.setuptools]
+# Tell setuptools to find packages automatically in the current directory
+# This ensures the Python part of your package is included alongside the extension.
+packages = ["nvfuser_extension"]
