@@ -419,9 +419,12 @@ def cmake(config, relative_path):
     # generate cmake directory
     #
     # cmake options are sticky: when -DFOO=... isn't specified, cmake's option
-    # FOO prefers the cached value over the default value. This confused me
-    # several times (e.g. https://github.com/NVIDIA/Fuser/pull/4319) when I ran
-    # `pip install -e`, so I chose to always specify these options.
+    # FOO prefers the cached value over the default value. This behavior
+    # confused me several times (e.g.
+    # https://github.com/NVIDIA/Fuser/pull/4319) when I ran `pip install -e`,
+    # so I chose to always pass these options even for default values. Doing so
+    # explicitly overrides cached values and ensures consistent behavior across
+    # clean and dirty builds.
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
