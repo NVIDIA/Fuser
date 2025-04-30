@@ -497,10 +497,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled to workaround the resize propagation
-  // issue. This may not work if there's a tensor that is reshaped
-  // from the reference tensor, but that should not be the case as the
-  // reference is picked by the same routine used for the pointwise
-  // scheduler.
+  // issue.
   //
   // When an ending static repeat is detected and the repeat ID is
   // moved to the outermost position, propagation is done separately
