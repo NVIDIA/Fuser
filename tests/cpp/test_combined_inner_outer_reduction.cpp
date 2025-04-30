@@ -1158,16 +1158,25 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
       __LINE__,
       __FILE__);
 }
-// batch size is revised to 132*148 which is divisible by sm count on H100 &
-// B200 will change back to 32 & 2048 after predicate for 1D TMA is added.
+auto TmaWarpSpecializedTestParams() {
+  std::vector<TmaWarpSpecializedParams> values;
+  // Use 8 * SMs as the outer dimension to ensure divisible split by unroll
+  // factor (1 or 2) and SM count.
+  int64_t dim0 =
+      8 * at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
+    for (auto dtype : {DataType::Float, DataType::BFloat16}) {
+      for (bool warp_specialized : {true, false}) {
+        values.emplace_back(warp_specialized, dtype, dim0, dim1);
+      }
+    }
+  }
+  return testing::ValuesIn(values);
+}
 INSTANTIATE_TEST_SUITE_P(
     ,
     TmaWarpSpecializedTest,
-    ::testing::Combine(
-        testing::Values(false), // tmp disable tma warp specialized
-        testing::Values(DataType::Float, DataType::BFloat16),
-        testing::Values(132 * 148),
-        ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),
+    TmaWarpSpecializedTestParams(),
     [](const testing::TestParamInfo<TmaWarpSpecializedParams>& info)
         -> std::string {
       std::stringstream ss;
