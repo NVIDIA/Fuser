@@ -558,8 +558,9 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // only the remaining loop domain is propagated.
   if (repeat_id_moved_to_outermost) {
     const auto& [tvs_with_repeat_id, tvs_without_repeat_id] = partitionTvsById(
-        fusion->allTvs(); repeat_info->factor_id,
-                          id_model->maybeBuildGraph(IdMappingMode::BROADCAST));
+        fusion->allTvs(),
+        repeat_info->factor_id,
+        id_model->maybeBuildGraph(IdMappingMode::BROADCAST));
 
     // The repeat ID should be located at the outermost position
     std::vector<IterDomain*> non_repeated_loop{
