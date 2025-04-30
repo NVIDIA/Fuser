@@ -365,7 +365,8 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
 }
 
 std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
-    const IndexingInfo& index_info) const {
+    const IndexingInfo& index_info,
+    const Expr* expr) const {
   std::vector<Split*> splits_to_predicate;
 
   for (const auto& [eg, direction] : index_info.traversal_path) {
@@ -432,6 +433,8 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
 
   const auto& exact_graph = id_model_.idGraph(IdMappingMode::EXACT);
 
+  ValGroups exact_groups_to_predicate;
+
   for (const auto& val_g : all_visited_groups) {
     ValGroups exact_groups;
     for (const auto& val : *val_g) {
@@ -464,6 +467,7 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
           continue;
         }
 
+        // This corresponds to r2 in the above example
         IterDomain* unmapped_output = inner_mapped
             ? split->outer()->as<IterDomain>()
             : split->inner()->as<IterDomain>();
@@ -471,20 +475,51 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
         // The unmapped output should be size one.
         NVF_ERROR(unmapped_output->extent()->isOneInt());
 
-        // If the unmapped output is split by a non-divisible factor,
-        // it needs to be predicated
-        for (const auto& use_of_unmapped_output :
-             exact_graph.getUses(exact_graph.toGroup(unmapped_output))) {
-          if (!isNonDivisibleSplit(use_of_unmapped_output)) {
-            continue;
-          }
-
-          // Non divisible split found
-          NVF_ERROR(use_of_unmapped_output->front()->isA<Split>());
-          splits_to_predicate.push_back(
-              use_of_unmapped_output->front()->as<Split>());
-        }
+        exact_groups_to_predicate.pushBack(
+            exact_graph.toGroup(unmapped_output));
       }
+    }
+  }
+
+  if (!exact_groups_to_predicate.empty()) {
+    // IndexingTraversal::getExprsBetween requires iter domains
+    // appearing in the indexed tensor. That is due to the WAR for
+    // resize indexing, although it's unlikely that WAR is needed
+    // here.
+    std::vector<IterDomain*> index_ids;
+    index_ids.reserve(exact_groups_to_predicate.size());
+    const auto all_ids = ir_utils::getTvOutput(expr)->domain()->allIDs();
+    std::unordered_set<IterDomain*> all_id_set{all_ids.begin(), all_ids.end()};
+    for (const auto& exact_group : exact_groups_to_predicate) {
+      auto it = std::ranges::find_if(*exact_group, [&](Val* val) {
+        return all_id_set.contains(val->as<IterDomain>());
+      });
+      // Since this is predicate indexing, I believe the ID should always
+      // exist in the consumer tensor
+      NVF_ERROR(it != exact_group->end());
+      index_ids.push_back((*it)->as<IterDomain>());
+    }
+
+    auto path = IndexingTraversal::getExprsBetween(
+        expr, exact_graph, index_info.loop_ids, index_ids);
+
+    for (const auto& [expr_g, dir] : path) {
+      auto split = dynamic_cast<Split*>(expr_g->front());
+      if (split == nullptr) {
+        continue;
+      }
+
+      auto extent = split->in()->extent();
+      auto factor = split->factor();
+      if (extent->isConstScalar() && factor->isConstScalar() &&
+          (extent->evaluate().as<int64_t>() %
+               factor->evaluate().as<int64_t>() ==
+           0)) {
+        continue;
+      }
+
+      std::cerr << "Non-divisible split\n";
+      splits_to_predicate.push_back(split);
     }
   }
 
@@ -691,7 +726,7 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
     const auto non_divisible_splits =
-        getNonDivisibleSplitsToPredicate(index_info);
+        getNonDivisibleSplitsToPredicate(index_info, expr);
 
     updateIndexInfoForNonDivisibleSplits(
         expr, for_loops, non_divisible_splits, index_info);
