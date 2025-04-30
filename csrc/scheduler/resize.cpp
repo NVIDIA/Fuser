@@ -370,11 +370,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         largest_input, /*skip_innermost_id=*/true);
   }
 
+  // Propagate Resize ops to producer tensors. This is safe as this
+  // scheduler only accepts pointwise ops with no reduction.
   for (auto expr : fusion->exprs()) {
-    if (!expr->isOneOf<SliceOp, PadOp>()) {
+    if (!scheduler_tools::isResizeBasedOp(expr)) {
       continue;
     }
-
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
