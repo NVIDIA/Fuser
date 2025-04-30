@@ -97,6 +97,10 @@ class HostIrEvaluator final : public OptOutDispatch {
     return container_->outputs();
   }
 
+  auto* container() const {
+    return container_.get();
+  }
+
   std::ostream& print(std::ostream& os) const {
     return container_->print(os);
   };
@@ -134,12 +138,48 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp* matmul) override;
   void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
+  void handle(LoadStoreOp* load_store_op) override;
+  void handle(BinaryOp* binary_op) override;
+  void handle(ReductionOp* reduction_op) override;
   void handle(ShareMemHandles* share_mem_handles) override;
+  void handle(HirAliasSelect* hir_alias_select) override;
+  void handle(Deallocate* deallocate) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
 
-  KernelArgumentHolder dispatchAndCollectOutputs();
+  Val* getAlias(Val* val) const {
+    const auto& aliases = container_->alias();
+    auto it = aliases.find(val);
+    return it != aliases.end() ? getAlias(it->second) : val;
+  }
+
+  bool isKnown(Val* value) const {
+    return expr_evaluator_.isKnown(getAlias(value));
+  }
+
+  PolymorphicValue getKnownConcreteValue(Val* val) const {
+    NVF_ERROR(
+        isKnown(val),
+        "value ",
+        val->toString(),
+        "must be precomputed before being retrieved");
+    return expr_evaluator_.evaluate(getAlias(val));
+  }
+
+  at::Tensor getKnownTensorOrUndefined(Val* val) const {
+    return isKnown(val)
+        ? expr_evaluator_.evaluate(getAlias(val)).as<at::Tensor>()
+        : at::Tensor();
+  }
+
+  void bind(Val* value, PolymorphicValue concrete_value) {
+    expr_evaluator_.bind(getAlias(value), concrete_value);
+  }
+
+  void invalidate(Val* value) {
+    expr_evaluator_.invalidate(getAlias(value));
+  }
 
   std::unique_ptr<HostIrContainer> container_;
   Communicator* communicator_;

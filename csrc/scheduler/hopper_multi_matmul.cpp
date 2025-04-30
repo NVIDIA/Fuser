@@ -169,103 +169,155 @@ void HopperMultipleMatmulScheduler::run() {
   setUpCircularBuffering();
 }
 
-void HopperMultipleMatmulScheduler::swizzleBlockTiles(
+void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
-  if (params_->grid_swizzle_factor != 1) {
-    // Find position of outer M and N dims in schedule_.tiled
-    int64_t Mo_pos = -1, No_pos = -1;
-    for (size_t i : arange(outer_dim_roles.size())) {
-      if (outer_dim_roles[i] == MatmulDimRole::M) {
-        Mo_pos = (int64_t)i;
-      } else if (outer_dim_roles[i] == MatmulDimRole::N) {
-        No_pos = (int64_t)i;
-      }
+  NVF_ERROR(params_->grid_traversal_factor.first >= 1);
+  NVF_ERROR(params_->grid_traversal_factor.second >= 1);
+
+  // short-circuit: If grid traversal factor is 1x1, we don't need to reorder.
+  if (params_->grid_traversal_factor.first == 1 &&
+      params_->grid_traversal_factor.second == 1) {
+    return;
+  }
+
+  // Find position of outer M and N dims in schedule_.tiled
+  int64_t Mo_pos = -1, No_pos = -1;
+  for (size_t i : arange(outer_dim_roles.size())) {
+    if (outer_dim_roles[i] == MatmulDimRole::M) {
+      Mo_pos = (int64_t)i;
+    } else if (outer_dim_roles[i] == MatmulDimRole::N) {
+      No_pos = (int64_t)i;
+    }
+  }
+
+  // Multi-factor grid traversal.
+  // M and N roles must be present and consecutive.
+  if (params_->grid_traversal_factor.first > 1 &&
+      params_->grid_traversal_factor.second > 1) {
+    NVF_ERROR(
+        Mo_pos >= 0 || No_pos >= 0, "Either M or N role must be present.");
+    NVF_ERROR(
+        Mo_pos != No_pos, "The position of M and N roles must be different.");
+    NVF_ERROR(abs(Mo_pos - No_pos) == 1, "M and N roles must be consecutive.");
+
+    bool is_M_present = Mo_pos >= 0;
+    bool is_N_present = No_pos >= 0;
+    bool is_N_right_of_M = No_pos > Mo_pos;
+    const int64_t min_axis_pos = std::min(Mo_pos, No_pos);
+
+    // original: [M, N]
+    // split:   [M, N/second_factor, second_factor]
+    // split: [M/first_factor, first_factor, N/second_factor, second_factor]
+    // reorder: [M/first_factor, N/second_factor, first_factor,
+    // second_factor]
+    // merge:
+    // [M/first_factor * N/second_factor, first_factor, second_factor]
+    // merge:
+    // [M/first_factor * N/second_factor, first_factor * second_factor]
+
+    // If N axis exists, then split by second grid traversal factor.
+    if (is_N_present) {
+      // split:   [M, N/second_factor, second_factor]
+      tv->split(No_pos, params_->grid_traversal_factor.second);
+    }
+    // If N is to the left of M, then shift M by 1 because of second factor.
+    if (!is_N_right_of_M) {
+      Mo_pos++;
     }
 
-    int factor = std::max(1, params_->grid_swizzle_factor); // must be >=1
-    switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
-        // split   [I1, I2/factor, factor]
-        // reorder [I1, factor, I2/factor]
-        // merge   [I1*factor, I2/factor]
-        // where I1 and I2 are the outer M and N dimensions, respectively
-        if (No_pos >= 0) {
-          tv->split(No_pos, factor);
-          // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-          if (No_pos < Mo_pos) {
-            Mo_pos++;
-          }
-          tv->reorder({{No_pos, No_pos + 1}});
-          if (Mo_pos >= 0) {
-            tv->merge(Mo_pos, No_pos);
-          } else {
-            // M is missing, so we skip the merge above. In this case we
-            // should update the dim roles to reflect the new split axis.
-            outer_dim_roles.insert(
-                outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
-          }
-        }
-        break;
+    // If M axis exists, then split by first grid traveral factor.
+    if (is_M_present) {
+      // split: [M/first_factor, first_factor, N/second_factor, second_factor]
+      tv->split(Mo_pos, params_->grid_traversal_factor.first);
+    }
+    // If N is to the right of M, then shift M by 1 because of the first factor.
+    if (is_N_right_of_M) {
+      No_pos++;
+    }
 
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
-        // split   [I1/factor, factor, I2]
-        // reorder [I1/factor, I2, factor]
-        // merge   [I1/factor, I2*factor]
-        // where I1 and I2 are the outer M and N dimensions, respectively
+    if (is_N_present && is_M_present) {
+      NVF_ERROR(min_axis_pos >= 0, "Both M and N roles must exist.");
+      // reorder: [M/first_factor, N/second_factor, first_factor,
+      // second_factor]
+      tv->reorder(
+          {{min_axis_pos + 1, min_axis_pos + 2},
+           {min_axis_pos + 2, min_axis_pos + 1}});
+      // merge:
+      // [M/first_factor * N/second_factor, first_factor, second_factor]
+      tv->merge(min_axis_pos, min_axis_pos + 1);
+      // merge:
+      // [M/first_factor * N/second_factor, first_factor * second_factor]
+      tv->merge(min_axis_pos + 1, min_axis_pos + 2);
+    } else if (is_N_present) {
+      // M is missing, so we skip the merge above. In this case we
+      // should update the dim roles to reflect the new split axis.
+      outer_dim_roles.insert(
+          outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
+    } else if (is_M_present) {
+      // N is missing, so we skip the merge above. In this case we
+      // should update the dim roles to reflect the new split axis.
+      outer_dim_roles.insert(
+          outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+    }
+    return;
+  }
+
+  // Single factor grid traversal.
+  NVF_ERROR(params_->grid_traversal_factor.first > 1);
+  NVF_ERROR(params_->grid_traversal_factor.second == 1);
+  int factor = params_->grid_traversal_factor.first;
+  switch (params_->cta_order) {
+    case MatmulParams::TileRasterizationOrder::ColumnMajor: {
+      // split   [I1, I2/factor, factor]
+      // reorder [I1, factor, I2/factor]
+      // merge   [I1*factor, I2/factor]
+      // where I1 and I2 are the outer M and N dimensions, respectively
+      if (No_pos >= 0) {
+        tv->split(No_pos, factor);
+        // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
+        if (No_pos < Mo_pos) {
+          Mo_pos++;
+        }
+        tv->reorder({{No_pos, No_pos + 1}});
         if (Mo_pos >= 0) {
-          tv->split(Mo_pos, factor);
-          // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
-          if (No_pos > Mo_pos) {
-            No_pos++;
-          }
-          if (No_pos >= 0) {
-            tv->reorder({{Mo_pos + 1, No_pos}});
-            tv->merge(Mo_pos + 1, No_pos);
-          } else {
-            // N is missing, so we skip the merge above. In this case we
-            // should update the dim roles to reflect the new split axis.
-            outer_dim_roles.insert(
-                outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
-          }
+          tv->merge(Mo_pos, No_pos);
+        } else {
+          // M is missing, so we skip the merge above. In this case we
+          // should update the dim roles to reflect the new split axis.
+          outer_dim_roles.insert(
+              outer_dim_roles.begin() + No_pos, MatmulDimRole::N);
         }
+      }
+      break;
     }
-  }
-}
 
-TensorView* HopperMultipleMatmulScheduler::cacheAfter(
-    TensorView* orig,
-    LoadStoreOpType op_type,
-    CacheOp cache_op,
-    bool propagate_allocation_domain) {
-  const std::vector<IterDomain*> orig_alloc = orig->getMaybeAllocationDomain();
-
-  TensorView* c =
-      orig->cacheAfter(op_type, cache_op, propagate_allocation_domain);
-
-  if (propagate_allocation_domain) {
-    const std::vector<IterDomain*> cache_alloc = c->getMaybeAllocationDomain();
-    NVF_ERROR(orig_alloc.size() == cache_alloc.size());
-    for (size_t i : arange(orig_alloc.size())) {
-      ValGroup vg = graph_->toGroup(orig_alloc[i]);
-      graph_->initializeVal(cache_alloc[i], vg);
+    case MatmulParams::TileRasterizationOrder::RowMajor: {
+      // split   [I1/factor, factor, I2]
+      // reorder [I1/factor, I2, factor]
+      // merge   [I1/factor, I2*factor]
+      // where I1 and I2 are the outer M and N dimensions, respectively
+      if (Mo_pos >= 0) {
+        tv->split(Mo_pos, factor);
+        // If No_pos < Mo_pos, then the split above shifts Mo_pos by one
+        if (No_pos > Mo_pos) {
+          No_pos++;
+        }
+        if (No_pos >= 0) {
+          tv->reorder({{Mo_pos + 1, No_pos}});
+          tv->merge(Mo_pos + 1, No_pos);
+        } else {
+          // N is missing, so we skip the merge above. In this case we
+          // should update the dim roles to reflect the new split axis.
+          outer_dim_roles.insert(
+              outer_dim_roles.begin() + Mo_pos, MatmulDimRole::M);
+        }
+      }
+      break;
     }
+    default:
+      NVF_THROW("Invalid TileRasterizationOrder passed to Matmul scheduler");
   }
-
-  const std::vector<IterDomain*> orig_logical =
-      TensorDomain::noReductions(orig->getLogicalDomain());
-  const std::vector<IterDomain*> cache_logical = c->getLogicalDomain();
-  // in split-K we do rFactor which gives us a full = sum(partial)
-  // where partial has root domain that matches the logical domain of the
-  // original tensor. The logical domain contains Iteration transforms of the
-  // Reduction axis in the original mma output.
-  NVF_ERROR(orig_logical.size() == cache_logical.size());
-  for (size_t i : arange(orig_logical.size())) {
-    ValGroup vg = graph_->toGroup(orig_logical[i]);
-    graph_->initializeVal(cache_logical[i], vg);
-  }
-
-  return c;
 }
 
 std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
@@ -327,7 +379,7 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     // scheduling is the next step in this modernization.
     mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    swizzleBlockTiles(tv, merged_roles);
+    reorderBlockTileTraversal(tv, merged_roles);
 
     all_merged_roles.push_back(merged_roles);
 
@@ -406,13 +458,13 @@ void HopperMultipleMatmulScheduler::parallelizeBlocks(
         switch (params_->cta_order) {
           // TODO: Should we instead check the roles of these dimensions to take
           // the outermost two M or N axes?
-          case MatmulParams::TileRasterizationOrder::RowMajor:
+          case MatmulParams::TileRasterizationOrder::ColumnMajor:
             tv->axis(num_device_and_batch_dims_)
                 ->parallelize(ParallelType::BIDx);
             tv->axis(num_device_and_batch_dims_ + 1)
                 ->parallelize(ParallelType::BIDy);
             break;
-          case MatmulParams::TileRasterizationOrder::ColumnMajor:
+          case MatmulParams::TileRasterizationOrder::RowMajor:
             tv->axis(num_device_and_batch_dims_)
                 ->parallelize(ParallelType::BIDy);
             tv->axis(num_device_and_batch_dims_ + 1)
@@ -619,19 +671,19 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
       NVF_ERROR(d->definition() && d->definition()->isA<LoadStoreOp>());
       TensorView* dc = d->definition()->input(0)->as<TensorView>();
 
-      // NOTE: cacheBefore does not work with blockTileTensors
-      // cacheInputsAndOutputs creates a cache_before for each output.
-      // Apply cacheAfter to the existing cache tensor for output.
       // The chain of operations storing data to global memory:
       //   registers -> (stmatrix) -> smem -> (tma_store) -> gmem
-      TensorView* d_smem = cacheAfter(dc, LoadStoreOpType::Set);
+      TensorView* d_smem = cacheBefore(d, LoadStoreOpType::Set);
 
       std::vector<TensorView*> tvs_to_schedule{d, d_smem};
-      bool dc_in_mma_results =
+      bool dc_is_mma_result =
           std::find(mma_results_.begin(), mma_results_.end(), dc) !=
           mma_results_.end();
+      bool dc_is_splitk_sum = params_->splitk_factor > 1 &&
+          std::find(splitk_sums_.begin(), splitk_sums_.end(), dc) !=
+              splitk_sums_.end();
 
-      if (!dc_in_mma_results) {
+      if (!dc_is_mma_result && !dc_is_splitk_sum) {
         // Skip scheduling dc if it is an mma_result. This can happen if we are
         // not casting back to half-precision in the output
         tvs_to_schedule.push_back(dc);
@@ -662,7 +714,7 @@ void HopperMultipleMatmulScheduler::scheduleEpilogue() {
 
       // Should not propagate if the dc is a mma output as the mma output has
       // already been scheduled.
-      if (!dc_in_mma_results) {
+      if (!dc_is_mma_result && !dc_is_splitk_sum) {
         auto s = mma_utils::MmaSwizzler::scheduleMmaOutputAllocation(
             dc->getLoopDomain());
         dc->setLoopDomain(s.as<IterDomain*>());
@@ -765,39 +817,33 @@ void HopperMultipleMatmulScheduler::setUpCircularBuffering() {
         break;
       }
       case MatmulParams::CircularBufferingStrategy::WarpSpecialized: {
-        if (params_->tiling_strategy ==
-            MatmulParams::TilingStrategy::OneTilePerCTA) {
-          int64_t num_math_warp_groups = 1L;
-          NVF_ERROR(!mma_results_.empty());
-          for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
-            if (id->getParallelType() == ParallelType::TIDy) {
-              num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
-            }
+        int64_t num_math_warp_groups = 1L;
+        NVF_ERROR(!mma_results_.empty());
+        for (IterDomain* id : mma_results_.front()->getLoopDomain()) {
+          if (id->getParallelType() == ParallelType::TIDy) {
+            num_math_warp_groups *= id->extent()->evaluate().as<int64_t>();
           }
-          if (num_math_warp_groups != 2) {
-            // Disable register sharing when there is only one math warp group.
-            // In such case we will have 128 math threads and 128 dma threads,
-            // for a total of 256 threads per CTA. The register file size on
-            // Hopper is 64K registers, which is filled when a 256-thread CTA
-            // has 256 registers per thread. Since 256 is already the maximum
-            // number of registers per thread even with register sharing, there
-            // is no point in doing register sharing to try and increase it.
-            //
-            // When there is more than one math warp group, we also disable
-            // register sharing, since we don't currently compute the number of
-            // register properly in that case.
-            cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
-          } else {
-            constexpr int64_t num_registers_load_warp = 40;
-            constexpr int64_t num_registers_compute_warp = 232;
-            cb_type = (CircularBufferType)WarpSpecialized(
-                ParallelType::TIDy,
-                std::make_pair(
-                    num_registers_load_warp, num_registers_compute_warp));
-          }
-        } else {
-          // Persistent kernels cannot yet use register sharing
+        }
+        if (num_math_warp_groups != 2) {
+          // Disable register sharing when there is only one math warp group.
+          // In such case we will have 128 math threads and 128 dma threads,
+          // for a total of 256 threads per CTA. The register file size on
+          // Hopper is 64K registers, which is filled when a 256-thread CTA
+          // has 256 registers per thread. Since 256 is already the maximum
+          // number of registers per thread even with register sharing, there
+          // is no point in doing register sharing to try and increase it.
+          //
+          // When there is more than one math warp group, we also disable
+          // register sharing, since we don't currently compute the number of
+          // register properly in that case.
           cb_type = (CircularBufferType)WarpSpecialized(ParallelType::TIDy);
+        } else {
+          constexpr int64_t num_registers_async_warp = 40;
+          constexpr int64_t num_registers_compute_warp = 232;
+          cb_type = (CircularBufferType)WarpSpecialized(
+              ParallelType::TIDy,
+              std::make_pair(
+                  num_registers_async_warp, num_registers_compute_warp));
         }
         break;
       }
