@@ -6,6 +6,7 @@
 */
 // clang-format on
 #include <fusion.h>
+#include <global_allocator.h>
 #include <host_ir/container.h>
 #include <host_ir/executor.h>
 #include <ir/all_nodes.h>
@@ -144,6 +145,36 @@ TEST_F(HostIrIntegrationTest, ViewPermute_ExprEval) {
 
   testValidate(
       executor_cache.fusion(), {out_tensor}, {in_tensor}, __LINE__, __FILE__);
+}
+
+TEST_F(HostIrIntegrationTest, Deallocate) {
+  const std::vector<int64_t> sizes = {8, 64};
+  c10::DeviceIndex device_index = 0;
+
+  resetPeakMemoryStats(device_index);
+  at::cuda::clearCublasWorkspaces();
+  nvfuser::releaseZeroedMemory();
+  ASSERT_EQ(memoryAllocated(device_index), 0)
+      << "Previous tests leaked memory.";
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  for (int i = 0; i < 10; i++) {
+    TensorView* tv = makeConcreteTensor(sizes);
+    tv->setMemoryType(MemoryType::Global);
+    auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+    auto* deallocate = IrBuilder::create<Deallocate>(allocate);
+
+    hic->pushBackTopLevelExprs(allocate);
+    hic->pushBackTopLevelExprs(deallocate);
+  }
+
+  HostIrEvaluator hie(std::move(hic));
+
+  hie.runWithInput({});
+
+  EXPECT_EQ(memoryAllocated(device_index), 0);
 }
 
 } // namespace hir
