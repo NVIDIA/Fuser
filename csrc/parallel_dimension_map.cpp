@@ -275,7 +275,7 @@ Val* ParallelDimensionMap::getRawCompute(ParallelType pt) const {
   return raw;
 }
 
-Val* ParallelDimensionMap::getRawLoad(ParallelType pt) const {
+Val* ParallelDimensionMap::getRawAsync(ParallelType pt) const {
   if (warp_specialized_types_.count(pt)) {
     return IrBuilder::create<Val>(
         getWarpSpecializationPaddedVal(pt), DataType::Index);

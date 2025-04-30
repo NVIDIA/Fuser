@@ -247,6 +247,74 @@ std::unique_ptr<HeuristicParams> ResizeScheduler::computeHeuristics(
 
 namespace {
 
+// Before propagating loop transformations of the ref tensor, all
+// tensors need their loop domains to be reachable from the ref by
+// just a backward traversal in the exact graph. This is to make
+// tranformations to be consistently propagated through resize-induced
+// cycles in the exact graph.
+//
+// There may be tensors that have further transformations that do not
+// exist in the reference tensor, e.g., a reshape of the
+// reference. Here, we transform those tensors so that they become
+// ready to get the reference transformations propagated to.
+void prepareForBackwardTransformPropagation(TensorView* ref_tv) {
+  Fusion* fusion = ref_tv->fusion();
+
+  // Tensors that appear before the ref should not need anything here
+  // as they should already be ready to get propagated from the ref
+  const auto all_dep_stmts = StmtSort::getStmtsTo({ref_tv});
+  const std::unordered_set<Statement*> all_dep_stmt_set{
+      all_dep_stmts.begin(), all_dep_stmts.end()};
+
+  if (std::ranges::all_of(fusion->allTvs(), [&](TensorView* tv) {
+        return all_dep_stmt_set.contains(tv);
+      })) {
+    return;
+  }
+
+  IdModel id_model(fusion);
+  const auto& graph = id_model.buildBroadcastGraph();
+
+  const auto ref_logical = graph.toGroups(ref_tv->getLogicalDomain());
+
+  std::vector<TensorView*> tvs_with_extra_transforms;
+
+  // Look for tensor whose logical domain is not rechable from ref by
+  // just a backward traversal
+  for (auto tv : fusion->allTvs()) {
+    if (all_dep_stmt_set.contains(tv)) {
+      continue;
+    }
+
+    const auto tv_logical =
+        graph.toGroups(TensorDomain::noBroadcasts(tv->getLogicalDomain()));
+
+    auto all_visited = ValGraphBFS::getExprGroupsBetween(
+                           graph,
+                           ref_logical,
+                           tv_logical,
+                           /*require_all_to_visited=*/false,
+                           Direction::Backward)
+                           .second;
+
+    if (all_visited) {
+      continue;
+    }
+
+    // This tensor is unreachable by just traversing backward
+    tvs_with_extra_transforms.push_back(tv);
+  }
+
+  if (tvs_with_extra_transforms.empty()) {
+    return;
+  }
+
+  // Make their loop domains look like the ref so that loop
+  // transformations of the ref can be propagated
+  scheduler_tools::scheduleLoopDomainsLike(
+      tvs_with_extra_transforms, ref_tv->getLogicalDomain());
+}
+
 // Partition a given set of tensors to two disjoint sets based on a
 // given iter domain and rechability from the iter domain. Returns two
 // vectors of tensors, first of which contains all tensors that has an
@@ -299,11 +367,11 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
   scheduler_utils::clearMemorySpace(fusion);
 
-  auto ref_tv = getReferenceTensor(fusion);
-  NVF_ERROR(ref_tv != nullptr);
-
   scheduler_utils::cacheInputs(fusion, true);
   scheduler_utils::cacheAndForkOutputs(fusion, true);
+
+  auto ref_tv = getReferenceTensor(fusion);
+  NVF_ERROR(ref_tv != nullptr);
 
   auto resize_tensor_ops = ir_utils::getOpsOfType<SliceOp, PadOp>(fusion);
 
@@ -343,11 +411,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
         largest_input, /*skip_innermost_id=*/true);
   }
 
+  // Propagate Resize ops to producer tensors. This is safe as this
+  // scheduler only accepts pointwise ops with no reduction.
   for (auto expr : fusion->exprs()) {
-    if (!expr->isOneOf<SliceOp, PadOp>()) {
+    if (!scheduler_tools::isResizeBasedOp(expr)) {
       continue;
     }
-
     scheduler_tools::propagateResizeToInputs(expr);
   }
 
@@ -469,12 +538,13 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // [..., I0/bdimx/max_gdimx, max_gdimx(BIDx), bdimx(TIDx), vec_factor] or
   // [..., I0/bdimx(BIDx), bdimx(TIDx), vec_factor]
 
+  // Before propagating the reference transformations, make sure all
+  // tensors are ready to get transformations from the ref
+  prepareForBackwardTransformPropagation(ref_tv);
+
   // Propagate the reference to the other tensors. Note that the
   // update flag is enabled to workaround the resize propagation
-  // issue. This may not work if there's a tensor that is reshaped
-  // from the reference tensor, but that should not be the case as the
-  // reference is picked by the same routine used for the pointwise
-  // scheduler.
+  // issue.
   //
   // When an ending static repeat is detected and the repeat ID is
   // moved to the outermost position, propagation is done separately
