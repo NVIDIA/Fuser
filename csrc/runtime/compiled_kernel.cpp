@@ -1302,7 +1302,7 @@ void CompiledKernel::compile(const LaunchParams& lparams) {
         "The static shared memory allocation is larger than available memory.");
   }
 
-  if (kernel_summary.has_dynamic_local_memory_allocations) {
+  if (!kernel_summary.dynamic_lmem_allocations.empty()) {
     std::stringstream ss;
     ss << "Allocations must be based on constant integers for local memory. However, found: ";
     for (auto alloc : kernel_summary.dynamic_lmem_allocations) {

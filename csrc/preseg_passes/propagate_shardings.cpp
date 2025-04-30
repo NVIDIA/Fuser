@@ -5,7 +5,6 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-#include <preseg_passes/propagate_shardings.h>
 
 #include <vector>
 
@@ -13,6 +12,7 @@
 #include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/utils.h>
+#include <preseg_passes/propagate_shardings.h>
 #include <scheduler/utils.h>
 #include <transform_replay.h>
 
@@ -97,30 +97,6 @@ std::vector<TensorView*> getOutputsWithoutMesh(Expr* expr) {
   return outputs_without_mesh;
 }
 
-// Custom selector to specify direction of transform propagation.
-class PropagateShardingsSelector : public SetSelector {
- private:
-  bool allow_c2p_;
-  bool allow_p2c_;
-
- public:
-  explicit PropagateShardingsSelector(
-      const std::unordered_set<TensorView*>& selected_tvs,
-      bool allow_c2p = true,
-      bool allow_p2c = true)
-      : SetSelector(selected_tvs),
-        allow_c2p_(allow_c2p),
-        allow_p2c_(allow_p2c) {}
-
-  bool allowC2P(TensorView* from, TensorView* to) override {
-    return allow_c2p_ && SetSelector::allowC2P(from, to);
-  }
-
-  bool allowP2C(TensorView* from, TensorView* to) override {
-    return allow_p2c_ && SetSelector::allowP2C(from, to);
-  }
-};
-
 // Reorder the DID axis with the given parallel types to the front.
 // Returns the number of device dimensions that were reordered to the front.
 // This allows us to limit propagation to only the relevant DID axis.
@@ -163,16 +139,21 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   return selected_parallel_types;
 }
 
+using PropagationDirection = scheduler_utils::PropagateDirection;
 void propagateDIDTransform(
-    TensorView* ref,
-    std::vector<TensorView*> tvs,
+    const TensorView* ref,
+    const std::vector<TensorView*>& tvs,
     int64_t did_pos,
-    bool allow_c2p,
-    bool allow_p2c) {
-  TransformPropagator propagator(ref, did_pos);
-  PropagateShardingsSelector selector(
-      {tvs.begin(), tvs.end()}, allow_c2p, allow_p2c);
-  MaxLogicalDomainInfoSpanningTree(ref, &selector).traverse(&propagator);
+    PropagationDirection direction) {
+  TensorDomain* replayed_domain = nullptr;
+  for (TensorView* tv : tvs) {
+    if (direction == PropagationDirection::kForward) {
+      replayed_domain = TransformReplay::replayCasP(tv, ref, did_pos).first;
+    } else {
+      replayed_domain = TransformReplay::replayPasC(tv, ref, did_pos).first;
+    }
+    tv->setLoopDomain(replayed_domain->loop());
+  }
 }
 
 } // namespace
@@ -236,8 +217,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
           /*ref=*/ref_input,
           /*tvs=*/outputs_without_mesh,
           /*did_pos=*/did_pos,
-          /*allow_c2p=*/false,
-          /*allow_p2c=*/true);
+          PropagationDirection::kForward);
 
       // Apply parallelization on the outputs without mesh.
       shardAllLike(ref_input, outputs_without_mesh, selected_parallel_types);
@@ -299,8 +279,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*ref=*/ref_output,
         /*tvs=*/sharding_candidates,
         /*did_pos=*/did_pos,
-        /*allow_c2p=*/true,
-        /*allow_p2c=*/false);
+        PropagationDirection::kBackward);
     shardAllLike(ref_output, sharding_candidates);
   }
 }

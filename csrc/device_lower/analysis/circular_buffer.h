@@ -65,14 +65,13 @@ class CircularBufferInfo {
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
-
-  //! Get the circular buffer options for the given axis.
-  const CircularBufferOptions& getCircularBufferOptionsFor(
-      IterDomain* circular_buffered_id) const;
-
+  //! Returns true if the fusion has warp specialized circular buffer
   const bool& hasWarpSpecialized() const {
     return has_warp_sepcialized_;
   };
+  //! Get the circular buffer options for the given axis.
+  const CircularBufferOptions& getCircularBufferOptionsFor(
+      IterDomain* circular_buffered_id) const;
 
   //! Get the circular buffer insertion position for the given axis.
   int64_t getCircularBufferInsertionPosition(IterDomain* axis) const;
@@ -137,8 +136,8 @@ class CircularBufferInfo {
   //! iterdomains.
   std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
-
-  bool has_warp_sepcialized_;
+  //! True if the fusion has warp specialized circular buffer
+  bool has_warp_sepcialized_ = false;
 };
 
 } // namespace nvfuser

@@ -165,6 +165,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     codegen.has_warp_specialized_ =
         kernel->summary().circular_buffer_info.hasWarpSpecialized();
     codegen.genDeclaration(kernel_name);
+    codegen.has_warp_specialized_ =
+        kernel->summary().circular_buffer_info.hasWarpSpecialized();
+    codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
     codegen.genBody();
@@ -1278,9 +1281,9 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string genLoadBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
-    Val* tidx = pdim_map.getRawLoad(ParallelType::TIDx);
-    Val* tidy = pdim_map.getRawLoad(ParallelType::TIDy);
-    Val* tidz = pdim_map.getRawLoad(ParallelType::TIDz);
+    Val* tidx = pdim_map.getRawAsync(ParallelType::TIDx);
+    Val* tidy = pdim_map.getRawAsync(ParallelType::TIDy);
+    Val* tidz = pdim_map.getRawAsync(ParallelType::TIDz);
     int64_t num_threads = tidx->value().as<int64_t>() +
         tidy->value().as<int64_t>() + tidz->value().as<int64_t>();
     NVF_ERROR(
@@ -3644,7 +3647,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
         .arg(bidy)
         .arg(bidz)
         .arg(/*PERSISTENT=*/true)
-        .arg(/*PERSISTENT=*/
+        .arg(/*Aligned=*/
              has_warp_specialized_ ? false : isAligned());
 
     auto sync_idx = genCall(
