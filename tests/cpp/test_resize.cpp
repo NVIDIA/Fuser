@@ -6129,4 +6129,50 @@ TEST_F(ResizeTest, VectorizeOuterPad) {
   EXPECT_EQ((*vec_id_it)->extent()->evaluate(), 8);
 }
 
+// Repro of issue #4250
+TEST_F(ResizeTest, ReshapeAfterRef) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({2, 16, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = sin(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), tv1->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[2] / 2)}});
+  auto tv3 = sin(tv0);
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), tv3->getLogicalDomain().at(1)->extent()},
+       {IrBuilder::create<Val>(shape[2] / 2),
+        IrBuilder::create<Val>(shape[2])}});
+  auto tv5 = cat({tv4, tv2}, 2);
+  auto tv6 = add(tv0, tv5);
+  fusion.addOutput(tv6);
+
+  auto tv7 = transpose(tv6, 0, 1);
+  auto tv8 = reshape(tv7, {IrBuilder::create<Val>(-1)});
+  fusion.addOutput(tv8);
+
+  // tv6 will be picked as the reference. The resize scheduler will
+  // try to update tv7 and t8 by propagating transformations from
+  // tv6. Before doing so, the loop domain of tv8 needs to be updated
+  // to match with tv6.
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
