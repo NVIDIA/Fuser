@@ -297,7 +297,7 @@ void parallelizeAllLike(
     std::vector<TensorView*> selected_tvs,
     const std::unordered_set<ParallelType>& selected_parallel_types,
     bool propagate_padding,
-    bool parallelize_inputs) {
+    bool parallelize_inputs_on_did) {
   FusionGuard fg(reference_tv->fusion());
 
   if (pos < 0) {
@@ -323,24 +323,30 @@ void parallelizeAllLike(
     selected_tvs = reference_tv->fusion()->allTvs();
   }
   for (auto tv : selected_tvs) {
-    if (tv->isFusionInput() && !parallelize_inputs) {
+    if (tv->isFusionInput() && !parallelize_inputs_on_did) {
       continue;
     }
+    bool is_fusion_input = tv->isFusionInput();
     for (const auto i : arange((int64_t)tv->getLoopDomain().size())) {
       auto ca_id = ca_map.getConcreteMappedID(
           tv->axis(i), IdMappingMode::PERMISSIVE_RESIZE);
-      if (concrete_to_reference_map.count(ca_id) > 0) {
-        auto reference_id = concrete_to_reference_map.at(ca_id);
-        auto reference_parallel_type = reference_id->getParallelType();
-        if (selected_parallel_types.empty() ||
-            selected_parallel_types.count(reference_parallel_type)) {
-          tv->axis(i)->parallelize(reference_parallel_type);
-        }
-        if (propagate_padding) {
-          if (reference_id->hasPaddingToMultipleOfWarp()) {
-            tv->axis(i)->padToMultipleOfWarp(
-                reference_id->getMaybeSizeAfterPadding());
-          }
+      if (concrete_to_reference_map.count(ca_id) == 0) {
+        continue;
+      }
+      auto reference_id = concrete_to_reference_map.at(ca_id);
+      auto reference_parallel_type = reference_id->getParallelType();
+      if (is_fusion_input &&
+          !isParallelTypeDeviceDim(reference_parallel_type)) {
+        continue;
+      }
+      if (selected_parallel_types.empty() ||
+          selected_parallel_types.count(reference_parallel_type)) {
+        tv->axis(i)->parallelize(reference_parallel_type);
+      }
+      if (propagate_padding) {
+        if (reference_id->hasPaddingToMultipleOfWarp()) {
+          tv->axis(i)->padToMultipleOfWarp(
+              reference_id->getMaybeSizeAfterPadding());
         }
       }
     }
@@ -2363,7 +2369,7 @@ void propagateReshapeTransforms(Fusion* fusion, const ComputeAtMap& ca_map) {
         /*selected_tvs=*/{},
         /*selected_parallel_types=*/{ParallelType::DIDx},
         /*propagate_padding=*/false,
-        /*parallelize_inputs=*/true);
+        /*parallelize_inputs_on_did=*/true);
   }
 }
 
