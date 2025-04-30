@@ -149,6 +149,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
           for_loops_.size() <= 4,
           "Expecting at most 4 for-loops to handle UBLK TMA load.");
       if (for_loops_.size() == 4) {
+        // [I/Unroll/BIDy, BIDy, Unroll, Bulk]
         NVF_ERROR(
             for_loops_.at(1)->iter_domain()->isBlockDim(),
             "Expecting the iter domain parallelized by block dim.");
@@ -164,13 +165,16 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         ublk_predicate_val_ =
             ir_utils::replaceValRecursively(conditional, replace_map);
       } else if (for_loops_.size() == 3) {
+        // [I/BIDy, BIDy, Bulk]
         NVF_ERROR(
             for_loops_.at(1)->iter_domain()->isBlockDim(),
             "Expecting the iter domain parallelized by block dim.");
         NVF_ERROR(
             for_loops_.at(2)->iter_domain()->isBulk(),
             "Expecting the iter domain parallelized by Bulk.");
+        ublk_predicate_val_ = conditional;
       } else {
+        // [I, Bulk], or [Bulk]
         ublk_predicate_val_ = conditional;
       }
       // Combine the Inline predicate with the ElectSync predicate
