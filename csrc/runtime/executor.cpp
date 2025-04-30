@@ -746,9 +746,11 @@ void KernelExecutor::initializeExecutorEntry(
       NVF_ERROR(out_val->isA<TensorView>(), "Output is not a TensorView");
       info.tv = out_val->as<TensorView>();
       if (info.tv->hasAllocation()) {
-        // Validate that the pre-allocated output tensor matches the allocation domain requirements
-        auto [alloc_sizes, alloc_strides] = inferAndValidateAllocationSizesAndStrides(
-            output_tensor, info.tv, expr_eval);
+        // Validate that the pre-allocated output tensor matches the allocation
+        // domain requirements
+        auto [alloc_sizes, alloc_strides] =
+            inferAndValidateAllocationSizesAndStrides(
+                output_tensor, info.tv, expr_eval);
         info.shape_info.allocation_sizes = alloc_sizes;
         info.shape_info.allocation_strides = alloc_strides;
       }

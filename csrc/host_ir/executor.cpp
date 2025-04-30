@@ -345,11 +345,11 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 
   // run the compiled kernel
   container_->getKernelExecutor(launch_kernel->getIndex())
-            ->run(
-                args,
-                outputs,
-                launch_kernel->launch_params(),
-                launch_kernel->compile_params());
+      ->run(
+          args,
+          outputs,
+          launch_kernel->launch_params(),
+          launch_kernel->compile_params());
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {

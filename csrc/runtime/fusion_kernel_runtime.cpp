@@ -456,10 +456,14 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
             heuristic_params->cparams,
             std::vector<Val*>{in_clone},
             std::vector<Val*>{out_clone});
-        for (auto *val : out_clone) {
-          NVF_ERROR(val->isA<TensorView>(), "Output must be a TensorView but got ", val);
+        for (auto* val : out_clone) {
+          NVF_ERROR(
+              val->isA<TensorView>(),
+              "Output must be a TensorView but got ",
+              val);
           auto* tv = val->as<TensorView>();
-          auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
           hic->pushBackTopLevelExprs(allocate);
         }
         hic->pushBackTopLevelExprs(launch_kernel);

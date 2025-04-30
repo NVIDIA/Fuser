@@ -11,6 +11,6 @@
 
 namespace nvfuser::hir {
 
-void insertDeallocations(HostIrContainer *hic);
+void insertDeallocations(HostIrContainer* hic);
 
 } // namespace nvfuser::hir

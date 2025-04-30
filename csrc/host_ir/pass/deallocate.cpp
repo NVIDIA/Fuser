@@ -10,18 +10,21 @@
 
 namespace nvfuser::hir {
 
-void insertDeallocations(HostIrContainer *hic) {
+void insertDeallocations(HostIrContainer* hic) {
   const std::vector<Expr*>& topLevelExprs = hic->topLevelExprs();
-  std::unordered_map<TensorView*, std::vector<nvfuser::Expr*>::size_type> lastUse;
-  for (std::vector<nvfuser::Expr*>::size_type i = 0; i < topLevelExprs.size(); i++) {
-    Expr *expr = topLevelExprs[i];
+  std::unordered_map<TensorView*, std::vector<nvfuser::Expr*>::size_type>
+      lastUse;
+  for (std::vector<nvfuser::Expr*>::size_type i = 0; i < topLevelExprs.size();
+       i++) {
+    Expr* expr = topLevelExprs[i];
     if (expr->isA<Deallocate>()) {
-      auto *deallocate = expr->as<Deallocate>();
-      auto *tv = deallocate->allocation();
-      NVF_ERROR(lastUse.count(tv) > 0, "Tried to deallocate unknown TensorView");
+      auto* deallocate = expr->as<Deallocate>();
+      auto* tv = deallocate->allocation();
+      NVF_ERROR(
+          lastUse.count(tv) > 0, "Tried to deallocate unknown TensorView");
       lastUse.erase(tv);
     } else {
-      for (auto *val : expr->inputs()) {
+      for (auto* val : expr->inputs()) {
         if (!val->isA<TensorView>()) {
           continue;
         }
@@ -31,7 +34,8 @@ void insertDeallocations(HostIrContainer *hic) {
     }
   }
 
-  std::map<std::vector<nvfuser::Expr*>::size_type, std::vector<TensorView*>> rmap;
+  std::map<std::vector<nvfuser::Expr*>::size_type, std::vector<TensorView*>>
+      rmap;
   for (auto p : lastUse) {
     rmap[p.second].push_back(p.first);
   }

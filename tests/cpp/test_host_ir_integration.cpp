@@ -200,7 +200,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
-  
+
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
   auto hicExprs =

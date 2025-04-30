@@ -166,9 +166,9 @@ TensorView* Deallocate::allocation() const {
 
 std::string Deallocate::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "Deallocate {"     << std::endl;
+  indent(ss, indent_size) << "Deallocate {" << std::endl;
   ss << allocation()->toString(indent_size + 1) << std::endl;
-  indent(ss, indent_size) << "}"                << std::endl;
+  indent(ss, indent_size) << "}" << std::endl;
   return ss.str();
 }
 
