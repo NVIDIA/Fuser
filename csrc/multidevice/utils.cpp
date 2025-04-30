@@ -131,6 +131,13 @@ std::unordered_map<ParallelType, IterDomain*> mapDeviceParallelTypeToId(
       continue;
     }
 
+    // rDIDx{i0}, usually a product of an Allreduce or a ReduceScatter, is
+    // treated as replicated. This way `iDIDx{i0} => rDIDx{i0}` is considered
+    // resharding.
+    if (id->isReduction()) {
+      continue;
+    }
+
     NVF_ERROR(
         parallel_type_to_id.try_emplace(parallel_type, id).second,
         "Found multiple loop IterDomains with the same parallel type (",
@@ -564,16 +571,6 @@ bool haveDifferentShardings(
         return false;
       }
 
-      // iDIDx{i0} => rDIDx{i0} triggers an allreduce even though the two `i0`s
-      // are equivalent.
-      if (c_id->isReduction()) {
-        NVF_ERROR(
-            !p_id->isReduction(),
-            "Reduction IterDomains in the producer's logical shouldn't be mapped: ",
-            p_id);
-        return false;
-      }
-
       return simplifyExpr(
                  SimplifyingIrBuilder::eqExpr(p_index, c_index),
                  /*variables=*/{},
@@ -633,14 +630,17 @@ bool isInnerResharding(Expr* expr) {
   return false;
 }
 
-void shardAllLike(TensorView* ref, std::vector<TensorView*> tvs) {
+void shardAllLike(
+    TensorView* ref,
+    const std::vector<TensorView*>& tvs,
+    const std::unordered_set<ParallelType>& parallel_types) {
+  if (tvs.empty()) {
+    return;
+  }
   for (auto tv : tvs) {
     tv->setDeviceMesh(ref->getDeviceMesh());
   }
-  if (!tvs.empty()) {
-    scheduler_utils::parallelizeAllLike(
-        ref, tvs, {ParallelType::DIDx, ParallelType::Serial});
-  }
+  scheduler_utils::parallelizeAllLike(ref, tvs, parallel_types);
 }
 
 void shardBetween(

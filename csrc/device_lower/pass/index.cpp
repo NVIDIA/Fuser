@@ -1522,7 +1522,7 @@ void IndexLowering::handleCpAsyncBulkLoad(const LoadStoreOp* ldst) {
 
     GpuLower::current()->propagateExprInfo(ldst, back());
   } else {
-    TensorView* mbarrier = GpuLower::current()->ldstMBarrierMap().at(ldst);
+    TensorView* mbarrier = GpuLower::current()->mbarrierMap().at(ldst);
     Val* mbarrier_index = lower_utils::u32IndexScalarSmemTv(mbarrier);
 
     // gmem indexing and expect_bytes for mbarrier
@@ -2578,6 +2578,40 @@ Val* getOuterStrideBytes(TensorView* tv, const MmaOp* mma) {
   return SimplifyingIrBuilder::mulExpr(stride, dataTypeSize(tv->dtype()));
 }
 
+namespace {
+
+Val* indexBlackwellMmaOutput(
+    const MmaOp* mma,
+    const std::vector<ForLoop*>& for_loops) {
+  TensorView* tmem_tv = mma->out()->as<TensorView>();
+  NVF_ERROR(tmem_tv->getMemoryType() == MemoryType::Tensor, "Invalid tmem_tv");
+  const auto& tmem_info = GpuLower::current()->tmemInfo();
+  const auto& tensor_indexer = GpuLower::current()->tensorIndexer();
+
+  const std::vector<IterDomain*>& column_allocation_domain =
+      tmem_info.allocation.getTVInfo(tmem_tv).column_allocation;
+
+  std::vector<Val*> indices = tensor_indexer.getIndexFor(
+      mma, true, column_allocation_domain, for_loops);
+  Val* stride = tmem_tv->fusion()->oneVal();
+  Val* column_index = tmem_tv->fusion()->zeroVal();
+  for (const auto& [id, idx] :
+       std::ranges::views::reverse(zip(column_allocation_domain, indices))) {
+    column_index = SimplifyingIrBuilder::addExpr(
+        column_index, SimplifyingIrBuilder::mulExpr(idx, stride));
+    stride = SimplifyingIrBuilder::mulExpr(stride, id->extent());
+  }
+
+  column_index =
+      SimplifyingIrBuilder::maybeCastExpr(DataType::UInt16, column_index);
+
+  Val* index = SimplifyingIrBuilder::arrayExpr(std::vector<Val*>{
+      mma->fusion()->zeroVal(DataType::UInt16), column_index});
+  return GpuLower::current()->commonScalarMap().hoistScalar(index, for_loops);
+}
+
+} // namespace
+
 // Reference for smem strides:
 // https://docs.nvidia.com/cuda/parallel-thread-execution/index.html#strides
 void IndexLowering::handle(const MmaOp* mma) {
@@ -2653,10 +2687,7 @@ void IndexLowering::handle(const MmaOp* mma) {
   }
   Val* out = nullptr;
   if (mma->out()->as<TensorView>()->getMemoryType() == MemoryType::Tensor) {
-    // TODO: hardcoded zero index for now
-    Val* index = IrBuilder::create<Val>(
-        std::vector<int64_t>{0, 0},
-        ArrayType(std::make_shared<DataType>(DataType::UInt16), 2));
+    auto index = indexBlackwellMmaOutput(mma, for_loops_);
     out = IrBuilder::create<kir::TensorIndex>(
         mma->out()->as<TensorView>(), index, DataType::TMemAddress);
   } else {
@@ -2666,6 +2697,14 @@ void IndexLowering::handle(const MmaOp* mma) {
   auto mma_indexed =
       IrBuilder::create<MmaOp>(out, a, b, mma->init(), mma->macro());
   pushBack(mma_indexed);
+  if (mma->isBlackwell()) {
+    pushBack(IrBuilder::create<kir::Asm>(
+        "tcgen05.commit.cta_group::1.mbarrier::arrive::one.shared::cluster.b64",
+        std::vector<Val*>{},
+        std::vector<Val*>{lower_utils::u32IndexScalarSmemTv(
+            GpuLower::current()->mbarrierMap().at(mma))},
+        kir::Asm::Options{/*volatile=*/true}));
+  }
   GpuLower::current()->propagateExprInfo(mma, back());
 }
 
@@ -2772,6 +2811,11 @@ void IndexLowering::handle(const kir::WgMmaFence* fence) {
 void IndexLowering::handle(const kir::SetMaxNReg* maxnreg) {
   // TODO(kir): remove the need for const_cast
   pushBack(const_cast<kir::SetMaxNReg*>(maxnreg)); // NOLINT
+}
+
+void IndexLowering::handle(const kir::Continue* cont) {
+  // TODO(kir): remove the need for const_cast
+  pushBack(const_cast<kir::Continue*>(cont)); // NOLINT
 }
 
 void IndexLowering::handle(const kir::Return* ret) {
