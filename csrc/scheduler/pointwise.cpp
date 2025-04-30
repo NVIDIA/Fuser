@@ -1040,8 +1040,10 @@ void schedulePointwise(Fusion* fusion, const PointwiseParams* pparams) {
     auto output = entry.second;
     inner_most_tensors.erase(output);
   }
-  // IndexSelectOp supports vectorized load on lookupTv. It should be treated
-  // the same as a cached input and excluded from inner_most_tensors.
+  // IndexSelectOp reads lookup tv without cache. Because pointwise scheduler
+  // doesn't use ParallelType::Unroll, we need to exclude consumer of fusion
+  // inputs to be inlineMost. This allows us to aggregate the allocation of
+  // manual unroll ID and its inner ID.
   for (auto idx_sel : ir_utils::getOpsOfType<IndexSelectOp>(fusion)) {
     inner_most_tensors.erase(idx_sel->output(0)->as<TensorView>());
   }
