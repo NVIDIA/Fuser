@@ -2334,6 +2334,7 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
   at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
   at::Tensor t1 = t0 * t0;
   KernelExecutor ke;
+  ke.compile(fusion.get(), {t0});
   try {
     ke.compile(fusion.get(), {t0});
   } catch (const std::exception& e) {
