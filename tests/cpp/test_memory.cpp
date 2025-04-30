@@ -2515,7 +2515,11 @@ TEST_F(TMADocTest, Figure14d) {
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
+  TMAPredicateChecker::checkPredicate(
+      ke.compiledKernel()->kernel(),
+      1,
+      ke.lastLaunchParams().nThreads(),
+      /*is_tma_store=*/true);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2598,7 +2602,10 @@ TEST_F(TMADocTest, Figure14e) {
 
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
   TMAPredicateChecker::checkPredicate(
-      ke.compiledKernel()->kernel(), 1, ke.lastLaunchParams().nThreads());
+      ke.compiledKernel()->kernel(),
+      1,
+      ke.lastLaunchParams().nThreads(),
+      /*is_tma_store=*/true);
 }
 
 TEST_F(TMADocTest, Figure15a) {
