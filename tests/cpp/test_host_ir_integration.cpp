@@ -197,9 +197,9 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 
   std::vector<int64_t> input_shape{32, 32};
   auto in = TensorViewBuilder()
-                 .ndims(input_shape.size())
-                 .dtype(DataType::Double)
-                 .build();
+                .ndims(input_shape.size())
+                .dtype(DataType::Double)
+                .build();
 
   fusion->addInput(in);
   TensorView* t0 = add(in, in);
@@ -212,8 +212,8 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
 
   FusionExecutorCache executor_cache(std::move(fusion));
 
-  at::Tensor in_tensor =
-      at::randn(input_shape, at::dtype(at::kDouble).device(at::kCUDA, device_index));
+  at::Tensor in_tensor = at::randn(
+      input_shape, at::dtype(at::kDouble).device(at::kCUDA, device_index));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
 
   const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
