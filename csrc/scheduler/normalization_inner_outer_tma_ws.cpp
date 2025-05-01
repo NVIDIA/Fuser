@@ -219,6 +219,10 @@ void getHeuristics(
             << "\n"
             << "bdimx: " << iop.bdimx << "\n"
             << "gdimy: " << iop.gdimy << "\n";
+    debug() << "smem_persistent_buffers: " << "\n";
+    for (auto buffer : rparams->smem_persistent_buffers) {
+      debug() << buffer->toString() << "\n";
+    }
     debug() << rparams->toString() << std::endl;
   }
 }
@@ -613,6 +617,17 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         if (cached_tv->hasBroadcast() &&
             is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
           cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
+          // Unroll the consumers to prevent inlineMost from inlining them
+          // to the right of the vectorized axis, which can cause expression
+          // sort errors.
+          // TODO: Ideally, we only need to unroll the consumers that are
+          // used in the for-loop before and after the iteration grouped
+          // reduction, we will leave this for heuristic tuning since unroll all
+          // consumers may lead to better performance if register usage is not a
+          // concern.
+          for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
+            consumer->axis(2)->parallelize(ParallelType::Unroll);
+          }
         }
       }
     }
