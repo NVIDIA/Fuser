@@ -475,6 +475,11 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
         // The unmapped output should be size one.
         NVF_ERROR(unmapped_output->extent()->isOneInt());
 
+        // If there's no use, there's nothing to predicate
+        if (exact_graph.getUses(exact_graph.toGroup(unmapped_output)).empty()) {
+          continue;
+        }
+
         exact_groups_to_predicate.pushBack(
             exact_graph.toGroup(unmapped_output));
       }
