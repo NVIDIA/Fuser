@@ -440,7 +440,7 @@ def cmake(config, relative_path):
         f"-DPython_EXECUTABLE={sys.executable}",
         f"-DBUILD_BENCHMARK={on_or_off(not config.no_benchmark)}",
         f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
-        f"-DUSE_SYSTEM_NVTX={on_or_off{config.build_with_system_nvtx})",
+        f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
         "-B",
         cmake_build_dir,
     ]
