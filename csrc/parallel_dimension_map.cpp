@@ -149,7 +149,7 @@ void ParallelDimensionMap::adjustMappingsForWarpPadding() {
   exact_types_.erase(ParallelType::TIDx);
 }
 
-int64_t ParallelDimensionMap::getThreadsCountInDim(ParallelType pt) {
+int64_t ParallelDimensionMap::getThreadCountInDim(ParallelType pt) {
   if (!dim_map_.contains(pt)) {
     return 1;
   }
@@ -194,20 +194,28 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   int64_t pad_n_threads = 0;
   int64_t after_pad = 0;
 
+  for (auto pt : kParallelTypeTIDs) {
+    NVF_ERROR(
+        getThreadCountInDim(pt) != -1,
+        "Detected dynamic size for parallel type ",
+        pt,
+        " in warp specialization kernel.");
+  }
+
   // switch is not used to avoid explicitly handle all parallel types
   if (pt == ParallelType::TIDx) {
     // If on TIDx, pad by 128
     pad_n_threads = 128;
-    after_pad = getThreadsCountInDim(pt) + pad_n_threads;
+    after_pad = getThreadCountInDim(pt) + pad_n_threads;
     NVF_ERROR(
         after_pad % 128 == 0,
         "Illegal register sharing on TIDx, bdimx = ",
         after_pad);
   } else if (pt == ParallelType::TIDy) {
     // If on TIDy, pad by 128 / bdimx
-    int64_t bdimx = getThreadsCountInDim(ParallelType::TIDx);
+    int64_t bdimx = getThreadCountInDim(ParallelType::TIDx);
     pad_n_threads = scheduler_utils::safeDiv(128, bdimx);
-    after_pad = getThreadsCountInDim(pt) + pad_n_threads;
+    after_pad = getThreadCountInDim(pt) + pad_n_threads;
     NVF_ERROR(
         (after_pad * bdimx) % 128 == 0,
         "Illegal register sharing on TIDy, bdimx = ",
@@ -216,10 +224,10 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
         after_pad);
   } else if (pt == ParallelType::TIDz) {
     // If on TIDz, pad by 128 / (bdimx * bdimy)
-    int64_t bdimx = getThreadsCountInDim(ParallelType::TIDx);
-    int64_t bdimy = getThreadsCountInDim(ParallelType::TIDy);
+    int64_t bdimx = getThreadCountInDim(ParallelType::TIDx);
+    int64_t bdimy = getThreadCountInDim(ParallelType::TIDy);
     pad_n_threads = scheduler_utils::safeDiv(128, bdimx * bdimy);
-    after_pad = getThreadsCountInDim(pt) + pad_n_threads;
+    after_pad = getThreadCountInDim(pt) + pad_n_threads;
     NVF_ERROR(
         (after_pad * bdimx * bdimy) % 128 == 0,
         "Illegal register sharing on TIDz, bdimx = ",
