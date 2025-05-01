@@ -244,23 +244,21 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
                     "from a caching allocator.";
   }
 
-  /*
-    At any given time a max of four 32x32 tensors are allocated:
-
-    Here is the flow in the container:
-    1) Input T0_g_double -> 1 tensor allocated
-    2) Allocate T2_g_double -> 2 tensors
-    3) LaunchKernel with input T0_g_double and output T2_g_double -> 2 tensors
-    4) Deallocate Input T0_g_double (which gets invalidated in the HostIrEvaluator, but not actually deallocated because of the test fixture's reference to it) -> 2 tensors
-    3) Allocate T4_g_double -> 3 tensors
-    4) LaunchKernel with inputs T2_g_double and output T4_g_double -> 3 tensors
-    5) Allocate T6_g_double -> 4 tensors
-    6) LaunchKernel with inputs T2_g_double and output T4_g_double -> 4 tensors
-    7) Deallocate T2_g_double -> 3 tensors
-    8) Deallocate T4_g_double -> 2 tensors allocated, one input and one output
-  */
+  // At any given time a max of four 32x32 tensors are allocated. Here is the
+  // flow in the container:
+  //  1) Input "in" -> 1 tensor allocated
+  //  2) Allocate t1 -> 2 tensors
+  //  3) LaunchKernel with input in and output t1 -> 2 tensors
+  //  4) Deallocate "in" (which gets invalidated in the HostIrEvaluator, but not
+  //  actually deallocated because of the test fixture's reference to it) -> 2
+  //  tensors 3) Allocate t3 -> 3 tensors 4) LaunchKernel with inputs t1 and
+  //  output t3 -> 3 tensors 5) Allocate "out" -> 4 tensors 6) LaunchKernel with
+  //  inputs t1, t3 and output "out" -> 4 tensors 7) Deallocate t1 -> 3 tensors
+  //  8) Deallocate t3 -> 2 tensors allocated, "in" and "out"
   const int64_t expected_memory_allocated = sizeof(double) * (32 * 32) * 4;
-  EXPECT_EQ(max_memory_allocated, expected_memory_allocated) << "Max memory allocated (" << max_memory_allocated << ") was higher than expected << (" << expected_memory_allocated << ")";
+  EXPECT_EQ(max_memory_allocated, expected_memory_allocated)
+      << "Max memory allocated (" << max_memory_allocated
+      << ") was higher than expected << (" << expected_memory_allocated << ")";
 }
 
 } // namespace hir
