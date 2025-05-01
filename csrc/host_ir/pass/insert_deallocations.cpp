@@ -28,17 +28,15 @@ void insertDeallocations(HostIrContainer* hic) {
     }
   }
 
-  std::map<int64_t, std::vector<TensorView*>> rmap;
-  for (auto p : last_use) {
-    rmap[p.second].push_back(p.first);
+  std::vector<std::pair<int64_t, TensorView*>> last_use_by_index;
+  last_use_by_index.reserve(last_use.size());
+  for (auto&& [tv, i] : last_use) {
+    last_use_by_index.emplace_back(i, tv);
   }
-
-  for (auto iter = rmap.rbegin(); iter != rmap.rend(); ++iter) {
-    // free all in iter->second at iter->first
-    for (TensorView* tv : iter->second) {
-      auto* deallocate = IrBuilder::create<Deallocate>(tv);
-      hic->insertExprAfter(iter->first, deallocate);
-    }
+  std::sort(last_use_by_index.begin(), last_use_by_index.end());
+  for (auto&& [i, tv] : last_use_by_index | std::views::reverse) {
+    auto* deallocate = IrBuilder::create<Deallocate>(tv);
+    hic->insertExprAfter(i, deallocate);
   }
 }
 
