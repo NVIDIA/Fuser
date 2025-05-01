@@ -237,7 +237,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
       __FILE__,
       "");
 
-  if (c10::utils::check_env("PYTORCH_NO_CUDA_MEMORY_CACHING") == true) {
+  if (c10::utils::check_env("PYTORCH_NO_CUDA_MEMORY_CACHING")) {
     GTEST_SKIP() << "Skipped because PYTORCH_NO_CUDA_MEMORY_CACHING is on. "
                     "This usually happens when running with compute-sanitizer. "
                     "maxMemoryAllocated can only collect peak memory "
