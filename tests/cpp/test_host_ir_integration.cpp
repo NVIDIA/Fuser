@@ -20,6 +20,9 @@ namespace nvfuser {
 
 namespace hir {
 
+using testing::Contains;
+using testing::IsTrue;
+using testing::Property;
 using HostIrEvaluatorTest = NVFuserTest;
 
 // This test manually creates a HostIrContainer with LaunchKernels and runs it
@@ -195,9 +198,6 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   TensorView* out = add(t4, t4);
   fusion->addOutput(out);
 
-  EnableOptionsGuard opt_guard;
-  EnableOptionsGuard::getCurOptions().set(EnableOption::HostIrLowering);
-
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor in_tensor =
       at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
@@ -207,9 +207,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
   auto hicExprs =
       runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
-  using testing::Contains;
-  using testing::IsTrue;
-  using testing::Property;
+
   EXPECT_THAT(
       hicExprs,
       Contains(Property(&Expr::isA<Deallocate>, IsTrue()))

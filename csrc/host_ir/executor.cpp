@@ -794,7 +794,7 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
 }
 
 void HostIrEvaluator::handle(Deallocate* deallocate) {
-  auto* tv = deallocate->allocation();
+  auto* tv = deallocate->buffer();
   NVF_ERROR(
       isKnown(tv),
       "Tried to free buffer associated with unknown TensorView",

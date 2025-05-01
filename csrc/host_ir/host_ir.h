@@ -173,7 +173,7 @@ class Deallocate : public Expr {
     return "hir::Deallocate";
   }
 
-  TensorView* allocation() const;
+  TensorView* buffer() const;
 };
 
 class Stream : public Val {
