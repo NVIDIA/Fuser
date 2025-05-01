@@ -397,15 +397,24 @@ bool fillDefaultHopperHeuristic(
   // the _other_ dimension to create a new inner dimension. We find the swizzle
   // factor that is largest and has the least quantization when we divide that
   // other dimension by the swizzle factor.
-  int64_t swizzled_tiles = Mtiles >= Ntiles ? Ntiles : Mtiles;
   mparams->cta_order = Mtiles <= Ntiles
       ? MatmulParams::TileRasterizationOrder::ColumnMajor
       : MatmulParams::TileRasterizationOrder::RowMajor;
 
-  // We also swizzle the tiles as much as possible up to 16 tiles. Like choosing
-  // the rasterization order, this is used to increase L2 locality
-  int grid_traversal_factor = std::min(swizzled_tiles, 16L);
-  while (swizzled_tiles % grid_traversal_factor != 0) {
+  // This is the size of the non-fast dimension before swizzling
+  int64_t swizzled_tiles =
+      mparams->cta_order == MatmulParams::TileRasterizationOrder::RowMajor
+      ? Mtiles
+      : Ntiles;
+
+  // We swizzle the tiles as much as possible up to 16 tiles. Like choosing
+  // the rasterization order, this is used to increase L2 locality. We start at
+  // swizzled_tiles-1 because if we set the swizzle factor equal to the size of
+  // the non-swizzled dimension that is equivalent to simply switching
+  // cta_order.
+  int grid_traversal_factor = std::max(1L, std::min(swizzled_tiles - 1L, 16L));
+  while (grid_traversal_factor > 1 &&
+         swizzled_tiles % grid_traversal_factor != 0) {
     // Decrease the swizzle factor if it would result in nondivisible splits,
     // since this would unnecessarily increase the grid size.
     grid_traversal_factor--;
@@ -1061,6 +1070,18 @@ std::unique_ptr<MatmulParams> getMatmulHeuristics(
           mparams->circular_buffer_options.smem_circular_buffer_stage,
           tensor_roles,
           /*ignore_occupancy_drop=*/true);
+
+  // We currently hit a misaligned read for TMA store when warp tile is not a
+  // multiple of 64 and there are multiple warp tiles
+  // TODO: enable smem epilogue for warp tile sizes that are not multiples of 64
+  // See https://github.com/NVIDIA/Fuser/issues/3602
+  if (isHopper(mparams->mma_macro) &&
+      mparams->tile_sizes.warp_tile.n != mparams->tile_sizes.cta_tile.n &&
+      mparams->tile_sizes.warp_tile.n % 64 != 0) {
+    mparams->use_smem_epilogue = false;
+    mparams->promote_prologue_smem_reuse = false;
+  }
+
   if (isHopper(mparams->mma_macro) && mparams->use_smem_epilogue) {
     // Disable stmatrix unless the problem size is divisible by 16x16, which is
     // the hardcoded stmatrix size we use currently. See
