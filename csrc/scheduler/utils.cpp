@@ -2848,13 +2848,19 @@ std::vector<int64_t> reorderDomainLike(
     }
   }
 
-  if (permutation.size() < ordered_domain.size()) {
-    std::vector<int64_t> packed_permutation(permutation.size());
-    std::iota(packed_permutation.begin(), packed_permutation.end(), 0);
-    std::ranges::sort(packed_permutation, [&](int64_t x, int64_t y) {
-      return permutation.at(x) < permutation.at(y);
-    });
-    permutation = packed_permutation;
+  // domain_to_reorder can be partial with respect to ref, that is,
+  // ordered_domain may contain IDs that do not appear in
+  // domain_to_reorder. In that case, at this point, the permutation
+  // vector may be sparse, e.g., {2, 0, 3}, which needs to be packed
+  // to {1, 0, 2}.
+  if (std::ranges::max(permutation) >= (int64_t)permutation.size()) {
+    auto permutation_copy = permutation;
+    std::ranges::sort(permutation_copy);
+    for (auto& pos : permutation) {
+      auto it = std::ranges::find(permutation_copy, pos);
+      NVF_ERROR(it != permutation_copy.end());
+      pos = static_cast<int64_t>(std::distance(permutation_copy.begin(), it));
+    }
   }
 
   NVF_ERROR(

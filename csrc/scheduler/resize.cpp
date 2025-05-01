@@ -435,7 +435,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // performance could be lowered. This should generally be more
   // important to optimize the read performance, but more robust
   // decision would be needed.
-  if (largest_input != nullptr && ref_tv->getLogicalDomain().size() > 1) {
+  if (largest_input != nullptr && ref_tv->getLoopDomain().size() > 1) {
     std::vector<IterDomain*> ref_alloc;
     ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
     std::copy_if(
@@ -447,12 +447,18 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
               !alloc_id->isDeviceDim();
         });
 
+    std::vector<int64_t> permutation;
     // Reorder the reference as the allocation domain of the largest fusion
-    // input
-    auto permutation = scheduler_utils::reorderDomainLike(
+    // input. In order to avoid reordering the innermost ID, only
+    // consider the rest of IDs. This matters when the innermost ID of
+    // the input is not mapped with the reference innermost ID. see
+    // ResizeTest.ReorderLikeInputShouldNotMoveInnermostID for a
+    // concrete example.
+    permutation = scheduler_utils::reorderDomainLike(
         {ref_tv->getLoopDomain().begin(),
          ref_tv->getLoopDomain().begin() + ref_tv->getLoopDomain().size() - 1},
         ref_alloc);
+    // Keep the innermost ID as is
     permutation.push_back(ref_tv->getLoopDomain().size() - 1);
     ref_tv->reorder(permutation);
   }
