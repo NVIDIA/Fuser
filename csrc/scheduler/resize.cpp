@@ -435,7 +435,7 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // performance could be lowered. This should generally be more
   // important to optimize the read performance, but more robust
   // decision would be needed.
-  if (largest_input != nullptr) {
+  if (largest_input != nullptr && ref_tv->getLogicalDomain().size() > 1) {
     std::vector<IterDomain*> ref_alloc;
     ref_alloc.reserve(largest_input->getMaybeAllocationDomain().size());
     std::copy_if(

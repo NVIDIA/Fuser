@@ -2848,9 +2848,23 @@ std::vector<int64_t> reorderDomainLike(
     }
   }
 
-  NVF_ERROR(std::ranges::all_of(permutation, [&](int64_t pos) {
-    return pos >= 0 && pos < (int64_t)permutation.size();
-  }));
+  if (permutation.size() < ordered_domain.size()) {
+    std::vector<int64_t> packed_permutation(permutation.size());
+    std::iota(packed_permutation.begin(), packed_permutation.end(), 0);
+    std::ranges::sort(packed_permutation, [&](int64_t x, int64_t y) {
+      return permutation.at(x) < permutation.at(y);
+    });
+    permutation = packed_permutation;
+  }
+
+  NVF_ERROR(
+      std::ranges::all_of(
+          permutation,
+          [&](int64_t pos) {
+            return pos >= 0 && pos < (int64_t)permutation.size();
+          }),
+      "Invalid permutation: ",
+      toDelimitedString(permutation));
 
   return permutation;
 }
