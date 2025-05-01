@@ -1158,6 +1158,61 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
       __LINE__,
       __FILE__);
 }
+
+TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  auto [_, dtype, dim0, dim1] = GetParam();
+  std::vector<int64_t> norm_shape{dim1};
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto grad_out = makeContigTensor(2, dtype);
+  auto input = makeContigTensor(2, dtype);
+  auto rms = makeContigConcreteTensor({dim0, 1});
+  auto weight = makeContigTensor(1, dtype);
+  fusion->addInput(grad_out);
+  fusion->addInput(input);
+  fusion->addInput(rms);
+  fusion->addInput(weight);
+
+  grad_out = maybeCastOp(DataType::Float, grad_out);
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  auto grads = thunder_rms_norm_backward(
+      grad_out, input, norm_shape, rms, weight, {true, true});
+  grads.grad_input = maybeCastOp(dtype, grads.grad_input);
+  grads.grad_weight = maybeCastOp(dtype, grads.grad_weight);
+  fusion->addOutput(grads.grad_input);
+  fusion->addOutput(grads.grad_weight);
+
+  auto fusion_copy = *fusion;
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+  std::vector<int64_t> shape{dim0, dim1};
+  at::Tensor aten_grad_out = at::randn(shape, options);
+  at::Tensor aten_input = at::randn(shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  const float kEps = 1e-6;
+  auto pow2 = at::pow(aten_input.to(at::kFloat), 2);
+  auto sum = at::sum(pow2, -1, true);
+  auto var = at::mul(sum, 1.0 / dim1);
+  auto aten_rms = at::pow(at::add(var, kEps), 0.5);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  KernelArgumentHolder args = {
+      aten_grad_out, aten_input, aten_rms, aten_weight};
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  auto runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::InnerOuterPersistent)));
+  testValidate(
+      &fusion_copy,
+      cg_outputs,
+      {aten_grad_out, aten_input, aten_rms, aten_weight},
+      __LINE__,
+      __FILE__);
+}
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
   // Use 8 * SMs as the outer dimension to ensure divisible split by unroll

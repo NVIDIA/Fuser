@@ -470,6 +470,56 @@ BackwardRMSNormResult rms_norm_backward(
   return {dx, dw};
 }
 
+BackwardRMSNormResult thunder_rms_norm_backward(
+    TensorView* dy,
+    TensorView* x,
+    const std::vector<int64_t>& norm_shape,
+    TensorView* rms,
+    TensorView* weight,
+    const std::vector<bool>& output_mask) {
+  NVF_ERROR(dy != nullptr, "Grad Output is invalid.");
+  NVF_ERROR(x != nullptr, "Input is invalid.");
+  NVF_ERROR(rms != nullptr, "rms_eps std is invalid.");
+
+  auto r = norm_properties_from_num_dims(x, (int64_t)norm_shape.size());
+
+  TensorView* grad_weight = nullptr;
+  if (weight != nullptr) {
+    auto* bcast_weight = broadcast(weight, r.outer_broadcast_mask);
+    grad_weight = mul(dy, bcast_weight);
+  } else {
+    grad_weight = dy;
+  }
+  auto neg_grad_weight = neg(grad_weight);
+  auto neg_grad_weight_x = mul(neg_grad_weight, x);
+  auto rms_pow2 = mul(rms, rms);
+  auto inv_rms_pow2 = reciprocal(rms_pow2);
+  auto neg_grad_weight_x_inv_rms_pow2 = mul(neg_grad_weight_x, inv_rms_pow2);
+  auto inner_sum = sum(neg_grad_weight_x_inv_rms_pow2, r.inner_reduction_axes);
+  auto inner_bcast = broadcast(inner_sum, r.inner_broadcast_mask);
+  auto rms_mul2 =
+      mul(rms, IrBuilder::createInContainer<Val>(x->container(), 2.0));
+  auto inv_rms_mul2 = reciprocal(rms_mul2);
+  auto reciprocal_size = reciprocal(r.num_features);
+  auto inv_rms_mul2_reciprocal_size = mul(inv_rms_mul2, reciprocal_size);
+  auto x_inv_rms_mul2_reciprocal_size = mul(x, inv_rms_mul2_reciprocal_size);
+  auto inner_bcast_mul = mul(inner_bcast, x_inv_rms_mul2_reciprocal_size);
+  auto inv_rms = reciprocal(rms);
+  auto grad_weight_inv_rms = mul(grad_weight, inv_rms);
+
+  TensorView* dx = nullptr;
+  if (output_mask[0]) {
+    dx = add(inner_bcast_mul, grad_weight_inv_rms);
+  }
+
+  TensorView* dw = nullptr;
+  if (output_mask[1] && weight != nullptr) {
+    dw = sum(mul(dy, mul(x, inv_rms)), r.outer_reduction_axes);
+  }
+
+  return {dx, dw};
+}
+
 ForwardNormResult batch_norm(
     TensorView* x,
     TensorView* weight,
