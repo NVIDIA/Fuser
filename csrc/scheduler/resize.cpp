@@ -596,8 +596,6 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   }
 
   inlineMost();
-
-  markAliases(fusion);
 }
 
 } // namespace nvfuser

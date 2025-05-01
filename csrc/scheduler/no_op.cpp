@@ -108,8 +108,6 @@ void NoOpScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
   // fusion segmentation. Otherwise, the generated kernel may unnecessarily
   // access intermediate buffers. See NoOpTest.ExpandedReduction.
   scheduler_utils::clearMemorySpace(fusion);
-
-  markAliases(fusion);
 }
 
 } // namespace nvfuser
