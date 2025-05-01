@@ -206,7 +206,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   auto t1 = segment_set(t0);
   TensorView* t2 = add(t1, t1);
   auto t3 = segment_set(t2);
-  TensorView* t4 = add(t3, t1);
+  TensorView* t4 = sin(t3);
   TensorView* out = add(t4, t4);
   fusion->addOutput(out);
 
@@ -244,7 +244,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
                     "from a caching allocator.";
   }
 
-  // At any given time a max of four 32x32 tensors are allocated. Here is the
+  // At any given time a max of three 32x32 tensors are allocated. Here is the
   // flow in the container:
   //  1) Input "in" -> 1 tensor allocated
   //  2) Allocate t1 -> 2 tensors
@@ -253,15 +253,15 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   //  actually deallocated because of the test fixture's reference to it) -> 2
   //  tensors
   //  5) Allocate t3 -> 3 tensors
-  //  6) LaunchKernel with inputs t1 and output t3 -> 3 tensors
-  //  7) Allocate "out" -> 4 tensors
-  //  8) LaunchKernel with inputs t1, t3 and output "out" -> 4 tensors
-  //  9) Deallocate t1 -> 3 tensors
+  //  6) LaunchKernel with input t1 and output t3 -> 3 tensors
+  //  7) Deallocate t1 -> 2 tensors
+  //  8) Allocate "out" -> 3 tensors
+  //  9) LaunchKernel with inputs t3 and output "out" -> 3 tensors
   // 10) Deallocate t3 -> 2 tensors allocated, "in" and "out"
-  const int64_t expected_memory_allocated = sizeof(double) * (32 * 32) * 4;
-  EXPECT_EQ(max_memory_allocated, expected_memory_allocated)
+  constexpr int64_t kExpectedPeakMemory = sizeof(double) * (32 * 32) * 3;
+  EXPECT_EQ(max_memory_allocated, kExpectedPeakMemory)
       << "Max memory allocated (" << max_memory_allocated
-      << ") was higher than expected << (" << expected_memory_allocated << ")";
+      << ") was higher than expected << (" << kExpectedPeakMemory << ")";
 }
 
 } // namespace hir

@@ -461,7 +461,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
               val->isA<TensorView>(),
               "Output must be a TensorView but got ",
               val);
-          struct AliasInfo alias_info =
+          const AliasInfo& alias_info =
               segmented_fusion_->completeFusion()->getOutputAlias(val);
           NVF_ERROR(
               alias_info.type == AllocationType::New,
