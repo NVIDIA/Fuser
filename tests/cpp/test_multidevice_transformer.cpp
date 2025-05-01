@@ -954,10 +954,13 @@ at::Tensor reference_loop_split_mlp(
   return linear1;
 }
 
-at::Tensor reference_loop_split_mha(at::Tensor inp, at::Tensor weight, at::Tensor bias) {
+at::Tensor reference_loop_split_mha(
+    at::Tensor inp,
+    at::Tensor weight,
+    at::Tensor bias) {
   at::Tensor linear0_out = at::linear(inp, weight, bias);
   auto qkv =
-      linear0_out.view({B, S, H, 3 * E/H}).transpose(1, 2).split(E / H, -1);
+      linear0_out.view({B, S, H, 3 * E / H}).transpose(1, 2).split(E / H, -1);
   double scale = 1.0 / std::sqrt(E / H);
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
       qkv[0],
@@ -1077,24 +1080,25 @@ TEST_F(DistributedTransformerTest, LoopSplitMHAFwd) {
   fusion->addOutput(attn_reshape);
 
   inp->setDeviceMesh(mesh);
-  for (auto tv: {mha_w0, mha_b0}) {
+  for (auto tv : {mha_w0, mha_b0}) {
     tv->setDeviceMesh(mesh);
     tv->outer_split(0, d);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
-
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options.dtype(at_dtype));
-  at::Tensor mha_w0_tensor = at::randn({3 * E, E}, tensor_options.dtype(at_dtype));
+  at::Tensor mha_w0_tensor =
+      at::randn({3 * E, E}, tensor_options.dtype(at_dtype));
   at::Tensor sharded_mha_w0 = shardTensor(mha_w0_tensor, 0, mesh);
   at::Tensor mha_b0_tensor = at::randn({3 * E}, tensor_options.dtype(at_dtype));
   at::Tensor sharded_mha_b0 = shardTensor(mha_b0_tensor, 0, mesh);
 
-
   KernelArgumentHolder args = {inp_tensor, sharded_mha_w0, sharded_mha_b0};
   auto outputs = executor_cache.runFusionWithInputs(args);
-  at::Tensor nvf_out = outputs[0].as<at::Tensor>();
-  at::Tensor ref_out = reference_loop_split_mha(inp_tensor, mha_w0_tensor, mha_b0_tensor);
+
+  at::Tensor nvf_out = outputs.back().as<at::Tensor>();
+  at::Tensor ref_out =
+      reference_loop_split_mha(inp_tensor, mha_w0_tensor, mha_b0_tensor);
   at::Tensor ref_out_sharded = shardTensor(ref_out, 2, mesh);
   validate({ref_out_sharded}, {nvf_out}, {0.02});
 }

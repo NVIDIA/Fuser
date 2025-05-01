@@ -47,15 +47,30 @@ getReshapedIds(
   return std::make_pair(p_reshaped_ids, c_reshaped_ids);
 }
 
-void splitLike(
-    TensorView* tv,
-    int64_t axis,
-    Split* ref_split,
-    bool allow_inner_split = false) {
-  auto split_factor = ref_split->factor();
-  auto inner_split = ref_split->innerSplit();
-  NVF_ERROR(!inner_split || allow_inner_split, "Inner split is not supported.");
-  tv->split(axis, split_factor, /*inner_split=*/inner_split);
+bool isSplitDivisible(IterDomain* id, Split* split) {
+  if (!split->factor()->isConstInt()) {
+    return false;
+  }
+  auto split_factor = split->factor()->evaluate().as<int64_t>();
+  if (split_factor == 1) {
+    return true;
+  }
+
+  if (!id->extent()->isConstInt()) {
+    return false;
+  }
+  auto id_extent = id->extent()->evaluate().as<int64_t>();
+  return id_extent % split_factor == 0;
+}
+
+void splitLike(TensorView* tv, int64_t axis, Split* ref_split) {
+  NVF_ERROR(
+      isSplitDivisible(tv->axis(axis), ref_split),
+      "Require the sharded ID to be divisible by the split factor. Got: ",
+      tv->axis(axis),
+      " and split factor: ",
+      ref_split->factor());
+  tv->outer_split(axis, ref_split->factor());
 }
 
 // Returns the number of DID axis on reshaped ids that were propagated to the
@@ -70,10 +85,10 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
   // 3. Multiple splits or merge reshapes: [x, y, z] -> [xyz]. Sharding on x and
   // xyz. Similarly for the corresponding split reshape.
   // 4. Independent splits or merge reshapes: [w, x, y, z] -> [wx, yz]. Sharding
-  // is on w and y. In the consumer, it is applied to wx and yz. An improvement
-  // is to support mult-levels of sharding (not a real case yet) if they
-  // are all outer splits. For example: For the reshape [h] -> [a, h/a] where
-  // the h is sharded twice: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
+  // is on w and y. In the consumer, it is applied to wx and yz.
+  // An improvement is to support mult-levels of sharding (not a real case yet)
+  // if they are all outer splits. For example: For the reshape [h] -> [a, h/a]
+  // where the h is sharded twice: [h] -> [cp, h/cp] -> [cp, tp, h/(cp*tp)]
 
   // A more general approach maybe to "undo" the reshape (reverse transforms
   // from root to logical domain), followed by simplification of the consumer
@@ -90,8 +105,6 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
       getReshapedIds(view_op, c2p);
 
   auto p_loop_domain = producer->getLoopDomain();
-  auto c_loop_domain = consumer->getLoopDomain();
-  auto c_logical_domain = consumer->getLogicalDomain();
 
   // Track number of DID axis on reshaped ids that were propagated to the
   // consumer. These will not be included in TransformPropagator.
@@ -106,32 +119,37 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
         {p_loop_domain.at(idx)});
 
     if (p_transforms.empty()) {
-      // This device axis is not on reshaped ids. We will use the
-      // TransformPropagator.
+      // This device axis is not on reshaped ids.
       continue;
     }
 
     if (p_transforms.size() > 1) {
       // This reshape has been transformed.
       // This can happen, for example, when there is a consumer-to-producer
-      // propagation before this pass.
-      // We will attempt to use TransformPropagator for this DID axis.
+      // propagation before this pass. We will attempt using TransformReplay
+      // to propagate the sharding.
+      // TODO: Support multi-level shardings for cp + tp.
       continue;
     }
 
     NVF_ERROR(
         p_transforms.front()->isA<Split>(),
         "Expected a split transform producing the did axis.");
-    NVF_ERROR(
-        TensorDomain::sameAs(c_logical_domain, c_loop_domain),
-        "Sharding a previously transformed reshape is not supported.");
 
     num_reshape_shardings++;
 
     // Find the producer logical id that is sharded.
-    // We expect the outermost reshaped id to be sharded and follow the
-    // outermost path traversing the transforms
+    // We expect the outermost reshaped id to be outer-split and follow the
+    // outermost path traversing the transforms. We do not support inner or
+    // non-divisible splits.
     auto* p_did_split = p_did->definition()->as<Split>();
+    NVF_ERROR(
+        isSplitDivisible(p_did_split->in(), p_did_split),
+        "Expected the split to be divisble. Got: ",
+        p_did_split->in(),
+        " and split factor: ",
+        p_did_split->factor());
+    NVF_ERROR(!p_did_split->innerSplit(), "Inner split is not supported.");
     IterDomain* p_logical_did = p_did_split->in();
 
     // Find the mapping of the corresponding producer logical id in consumer
@@ -139,36 +157,39 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
     IterDomain* c_root_did = p2c.at(p_logical_did);
 
     // Get the reshape transforms corresponding to this root id.
-    // We use the c_root_did to only find the reshape IDs related to this did.
+    // We use the c_root_did to only traverse the reshape transforms related to
+    // this did.
     auto reshape_transforms = DependencyCheck::getAllExprsBetween(
         {c_root_did},
-        {consumer->getLogicalDomain().begin(),
-         consumer->getLogicalDomain().end()});
+        {consumer->getLoopDomain().begin(), consumer->getLoopDomain().end()});
 
-    // Obtain the logical axis sharded in the consumer.
-    IterDomain* c_logical_did = c_root_did;
+    // Obtain the loop axis to be sharded in the consumer following the
+    // outermost path.
+    IterDomain* c_sharded_id = c_root_did;
     for (auto transform : reshape_transforms) {
       if (transform->isA<Split>()) {
-        c_logical_did = transform->as<Split>()->outer();
+        c_sharded_id = transform->as<Split>()->outer();
       }
       if (transform->isA<Merge>()) {
         NVF_ERROR(
-            c_logical_did == transform->as<Merge>()->outer(),
+            c_sharded_id == transform->as<Merge>()->outer(),
             "Expected the sharding to be on the outer reshaped id.");
-        c_logical_did = transform->as<Merge>()->out();
+        c_sharded_id = transform->as<Merge>()->out();
       }
     }
 
     int64_t sharded_axis = std::distance(
-        c_loop_domain.begin(),
-        std::find(c_loop_domain.begin(), c_loop_domain.end(), c_logical_did));
+        consumer->getLoopDomain().begin(),
+        std::find(
+            consumer->getLoopDomain().begin(),
+            consumer->getLoopDomain().end(),
+            c_sharded_id));
 
-    // TODO: Check for divisibility of the consumer axis by the split factor.
     splitLike(consumer, sharded_axis, p_did_split);
     consumer->axis(sharded_axis)->parallelize(p_did->getParallelType());
 
     // Move this did_pos behind the non-propagated DID axis to avoid using
-    // TransformPropagator on it.
+    // TransformReplay on it.
     producer->reorder({{idx, did_pos - 1}});
   }
 
@@ -359,7 +380,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       // This restricts the transform propagation to only the relevant DID axis.
       int64_t did_pos =
           selectiveReorderDIDToFront(ref_input, selected_parallel_types);
-      
+
       if (ViewOp* view_op = dynamic_cast<ViewOp*>(expr)) {
         // Propagation of reshape will return how many DID axis were propagated.
         // They are reordered behind non-propagated DID axis
