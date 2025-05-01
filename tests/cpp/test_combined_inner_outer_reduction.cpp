@@ -1214,6 +1214,7 @@ TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
       __FILE__);
 }
 TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto [_, dtype, dim0, dim1] = GetParam();
