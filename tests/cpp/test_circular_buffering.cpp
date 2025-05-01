@@ -2282,7 +2282,7 @@ int64_t getTmaBranchThreads(ParallelType ws_pt, dim3 bdim) {
 
 } // namespace
 
-TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapeExpectFail) {
+TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   int64_t gdimx = 2;
   dim3 bdim = dim3(32, 4, 2);
@@ -2349,10 +2349,9 @@ TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapeExpectFail) {
   FAIL() << "Expected exception during compilation";
 }
 
-using RegisterSharingTestParams = std::tuple<dim3, ParallelType>;
-using TmaRegisterSharingTest =
-    NVFuserFixtureParamTest<RegisterSharingTestParams>;
-TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
+using RegisterSharingParams = std::tuple<dim3, ParallelType>;
+using TmaRegisterSharing = NVFuserFixtureParamTest<RegisterSharingParams>;
+TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   int64_t gdimx = 2;
   auto [bdim, ws_pt] = GetParam();
@@ -2369,10 +2368,12 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
   auto tv2 = mul(tv1, tv1);
   fusion->addOutput(tv2);
 
-  // [I1, I2] -> [gdimx, I1/gdimx, I2/bdimx/bdimy, bdimy, bdimx]
+  // [I1, I2] -> [gdimx, I1/gdimx, I2/bdimx/bdimy, I2/bdimx/bdimy/bdimz, bdimz,
+  // bdimy, bdimx]
   tv2->split(0, gdimx, false);
   tv2->split(2, bdim.x);
   tv2->split(2, bdim.y);
+  tv2->split(2, bdim.z);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv2->axis(-2)->parallelize(ParallelType::TIDy);
   tv2->axis(-3)->parallelize(ParallelType::TIDz);
@@ -2423,14 +2424,14 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
 }
 INSTANTIATE_TEST_SUITE_P(
     Hopper,
-    TmaRegisterSharingTest,
+    TmaRegisterSharing,
     ::testing::Combine(
         ::testing::Values(dim3(32, 4, 2), dim3(128, 2, 1), dim3(256, 1, 1)),
         ::testing::Values(
             ParallelType::TIDx,
             ParallelType::TIDy,
             ParallelType::TIDz)),
-    [](const testing::TestParamInfo<RegisterSharingTestParams>& info) {
+    [](const testing::TestParamInfo<RegisterSharingParams>& info) {
       std::stringstream ss;
       ss << "cta_" << std::get<0>(info.param).x;
       ss << "_" << std::get<0>(info.param).y;
