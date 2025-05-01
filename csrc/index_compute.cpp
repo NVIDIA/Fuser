@@ -989,7 +989,7 @@ void IndexSwizzle::handle(Swizzle2D* swizzle_2d) {
 
 namespace {
 
-//! Check if the index of a parallel loop should be subsituted with
+//! Check if the index of a parallel loop should be substituted with
 //! zero.
 //!
 //! Zero substitution only happens with the BID parallel types with
