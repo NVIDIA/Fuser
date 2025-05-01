@@ -28,8 +28,7 @@ void insertDeallocations(HostIrContainer* hic) {
     }
   }
 
-  std::map<int64_t, std::vector<TensorView*>>
-      rmap;
+  std::map<int64_t, std::vector<TensorView*>> rmap;
   for (auto p : last_use) {
     rmap[p.second].push_back(p.first);
   }
