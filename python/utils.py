@@ -417,6 +417,9 @@ def cmake(config, relative_path):
 
     pytorch_use_distributed = get_pytorch_use_distributed()
 
+    def on_or_off(flag: bool) -> str:
+        return "ON" if flag else "OFF"
+
     # generate cmake directory
     cmd_str = [
         get_cmake_bin(),
@@ -425,6 +428,7 @@ def cmake(config, relative_path):
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
+        f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
         "-B",
         cmake_build_dir,
     ]
@@ -442,8 +446,6 @@ def cmake(config, relative_path):
         cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
     if not config.no_benchmark:
         cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
-    if config.build_with_asan:
-        cmd_str.append("-DNVFUSER_BUILD_WITH_ASAN=ON")
     if config.build_without_distributed:
         cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
     if config.build_with_system_nvtx:

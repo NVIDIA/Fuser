@@ -269,6 +269,9 @@ void CircularBufferInfo::setCircularBufferOptions(
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
+    has_warp_sepcialized_ =
+        (has_warp_sepcialized_ ||
+         std::holds_alternative<WarpSpecialized>(opt.type));
   } else {
     NVF_ERROR(
         opt == maybe_existing_depth_it->second,
