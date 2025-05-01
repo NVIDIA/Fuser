@@ -2280,6 +2280,21 @@ int64_t getTmaBranchThreads(ParallelType ws_pt, dim3 bdim) {
   }
 }
 
+std::pair<int64_t, int64_t> getNumRegisters(
+    int64_t n_computation_threads,
+    int64_t n_tma_branch_threads,
+    int64_t n_total_threads) {
+  // adjust register usage, assuming computation threads increase register
+  // usage by 8, then each tma branch threads should reduce by:
+  // 8 * n_computation / n_tma_branch_threads
+  int64_t initial_reg_count = getRegPerThreadGivenThreadsPerSM(n_total_threads);
+  EXPECT_TRUE(initial_reg_count % 8 == 0 || initial_reg_count == 255);
+  int64_t compute_reg_count = initial_reg_count + 8;
+  int64_t tma_reg_count =
+      initial_reg_count - (n_computation_threads / n_tma_branch_threads) * 8;
+  return std::make_pair(tma_reg_count, compute_reg_count);
+}
+
 } // namespace
 
 TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
@@ -2287,7 +2302,6 @@ TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
   int64_t gdimx = 2;
   dim3 bdim = dim3(32, 4, 2);
   ParallelType ws_pt = ParallelType::TIDx;
-  int64_t n_computation_threads = bdim.x * bdim.y * bdim.z;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2317,19 +2331,14 @@ TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
   // Set inlineAt before applying circular buffer
   inlineAllAt(tv1, /*pos=*/2);
 
-  // adjust register usage, assuming computation threads increase register
-  // usage by 8, then each tma branch threads should reduce by:
-  // 8 * n_computation / n_tma_branch_threads
+  int64_t n_computation_threads = bdim.x * bdim.y * bdim.z;
   int64_t n_tma_branch_threads = getTmaBranchThreads(ws_pt, bdim);
   int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
-  int64_t initial_reg_count = getRegPerThreadGivenThreadsPerSM(n_total_threads);
-  EXPECT_TRUE(initial_reg_count % 8 == 0 || initial_reg_count == 255);
-  int64_t compute_reg_count = initial_reg_count + 8;
-  int64_t tma_reg_count =
-      initial_reg_count - (n_computation_threads / n_tma_branch_threads) * 8;
 
-  CircularBufferType circular_buffer_type =
-      WarpSpecialized(ws_pt, std::make_pair(tma_reg_count, compute_reg_count));
+  CircularBufferType circular_buffer_type = WarpSpecialized(
+      ws_pt,
+      getNumRegisters(
+          n_computation_threads, n_tma_branch_threads, n_total_threads));
   int64_t n_stages = 2;
   tv1->circularBuffer(n_stages, /*prefetch_distance=*/1, circular_buffer_type);
 
@@ -2355,7 +2364,6 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   int64_t gdimx = 2;
   auto [bdim, ws_pt] = GetParam();
-  int64_t n_computation_threads = bdim.x * bdim.y * bdim.z;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2387,19 +2395,14 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
   // Set inlineAt before applying circular buffer
   inlineAllAt(tv1, /*pos=*/2);
 
-  // adjust register usage, assuming computation threads increase register
-  // usage by 8, then each tma branch threads should reduce by:
-  // 8 * n_computation / n_tma_branch_threads
+  int64_t n_computation_threads = bdim.x * bdim.y * bdim.z;
   int64_t n_tma_branch_threads = getTmaBranchThreads(ws_pt, bdim);
   int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
-  int64_t initial_reg_count = getRegPerThreadGivenThreadsPerSM(n_total_threads);
-  EXPECT_TRUE(initial_reg_count % 8 == 0 || initial_reg_count == 255);
-  int64_t compute_reg_count = initial_reg_count + 8;
-  int64_t tma_reg_count =
-      initial_reg_count - (n_computation_threads / n_tma_branch_threads) * 8;
 
-  CircularBufferType circular_buffer_type =
-      WarpSpecialized(ws_pt, std::make_pair(tma_reg_count, compute_reg_count));
+  CircularBufferType circular_buffer_type = WarpSpecialized(
+      ws_pt,
+      getNumRegisters(
+          n_computation_threads, n_tma_branch_threads, n_total_threads));
   int64_t n_stages = 2;
   tv1->circularBuffer(n_stages, /*prefetch_distance=*/1, circular_buffer_type);
 
