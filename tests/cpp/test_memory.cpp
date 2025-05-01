@@ -235,8 +235,14 @@ class XorFinder : private kir::IrVisitor {
 class TMAPredicateChecker : private kir::IrVisitor {
   int64_t num_threads_;
   int64_t cta_threads_;
-  TMAPredicateChecker(int64_t num_threads, int64_t cta_threads)
-      : num_threads_(num_threads), cta_threads_(cta_threads) {}
+  bool is_tma_store_;
+  TMAPredicateChecker(
+      int64_t num_threads,
+      int64_t cta_threads,
+      bool is_tma_store)
+      : num_threads_(num_threads),
+        cta_threads_(cta_threads),
+        is_tma_store_(is_tma_store) {}
 
   kir::Predicate* pred_ = nullptr;
 
@@ -269,7 +275,30 @@ class TMAPredicateChecker : private kir::IrVisitor {
     ASSERT_NE(pred_, nullptr);
     auto cond = pred_->value();
     ASSERT_NE(cond, nullptr);
+
+    // Handle TMA Store first
+    if (is_tma_store_) {
+      if (cta_threads_ <= 32) {
+        EXPECT_TRUE(cond->isTrue());
+      } else {
+        auto def = dynamic_cast<BinaryOp*>(cond->definition());
+        ASSERT_TRUE(def != nullptr);
+        EXPECT_TRUE(def->getBinaryOpType() == BinaryOpType::LT);
+        auto lhs = dynamic_cast<NamedScalar*>(def->lhs());
+        auto rhs = def->rhs();
+        ASSERT_TRUE(lhs != nullptr);
+        ASSERT_TRUE(rhs != nullptr);
+        EXPECT_TRUE(lhs->isThreadIdx());
+        EXPECT_TRUE(rhs->isConstInt());
+        EXPECT_EQ(rhs->value(), 32);
+      }
+      return;
+    }
+
+    // Then, handle TMA Load
     if (num_threads_ == 0) {
+      EXPECT_TRUE(cond->isTrue());
+    } else if (is_tma_store_ && cta_threads_ <= 32) {
       EXPECT_TRUE(cond->isTrue());
     } else if (num_threads_ == 1 && cta_threads_ > 32) {
       auto def = dynamic_cast<BinaryOp*>(cond->definition());
@@ -324,8 +353,9 @@ class TMAPredicateChecker : private kir::IrVisitor {
   static void checkPredicate(
       kir::Kernel* kernel,
       int64_t num_threads,
-      int64_t cta_threads = -1) {
-    TMAPredicateChecker checker(num_threads, cta_threads);
+      int64_t cta_threads = -1,
+      bool is_tma_store = false) {
+    TMAPredicateChecker checker(num_threads, cta_threads, is_tma_store);
     checker.handle(kernel->topLevelExprs());
   }
 };
@@ -611,7 +641,10 @@ TEST_P(TMASimpleLdstTest, Store) {
 
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), dim);
   TMAPredicateChecker::checkPredicate(
-      ke.compiledKernel()->kernel(), 1, ke.lastLaunchParams().nThreads());
+      ke.compiledKernel()->kernel(),
+      1,
+      ke.lastLaunchParams().nThreads(),
+      /*is_tma_store=*/true);
   ASSERT_EQ(
       XorFinder::findXor(ke.compiledKernel()->kernel()),
       (swizzle != MmaInputSmemSwizzle::None));
@@ -2482,7 +2515,11 @@ TEST_F(TMADocTest, Figure14d) {
   ke.compile(&fusion, {t0}, {}, matmul_cparams);
 
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
-  TMAPredicateChecker::checkPredicate(ke.compiledKernel()->kernel(), 1);
+  TMAPredicateChecker::checkPredicate(
+      ke.compiledKernel()->kernel(),
+      1,
+      ke.lastLaunchParams().nThreads(),
+      /*is_tma_store=*/true);
 
   auto cg_outputs = ke.run({t0});
   testValidate(&fusion, cg_outputs, {t0}, {t0}, __LINE__, __FILE__);
@@ -2565,7 +2602,10 @@ TEST_F(TMADocTest, Figure14e) {
 
   EXPECT_EQ(TMADimChecker::getDim(ke.compiledKernel()->kernel()), 2);
   TMAPredicateChecker::checkPredicate(
-      ke.compiledKernel()->kernel(), 1, ke.lastLaunchParams().nThreads());
+      ke.compiledKernel()->kernel(),
+      1,
+      ke.lastLaunchParams().nThreads(),
+      /*is_tma_store=*/true);
 }
 
 TEST_F(TMADocTest, Figure15a) {
