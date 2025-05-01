@@ -1213,6 +1213,72 @@ TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
       __LINE__,
       __FILE__);
 }
+TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+  auto [_, dtype, dim0, dim1] = GetParam();
+
+  std::vector<int64_t> norm_shape{dim1};
+  std::vector<int64_t> input_shape{dim0, dim1};
+  std::vector<int64_t> outer_shape{dim0, 1};
+  bool fp16_or_bf16 = dtype == DataType::Half || dtype == DataType::BFloat16;
+  auto grad_out = makeContigTensor(input_shape.size(), dtype);
+  auto input = makeContigTensor(input_shape.size(), dtype);
+  auto mean = makeContigConcreteTensor(
+      outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
+  auto rstd = makeContigConcreteTensor(
+      outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
+  auto weight = makeContigTensor(norm_shape.size(), dtype);
+  auto bias = makeContigTensor(norm_shape.size(), dtype);
+  fusion->addInput(grad_out);
+  fusion->addInput(input);
+  fusion->addInput(mean);
+  fusion->addInput(rstd);
+  fusion->addInput(weight);
+  fusion->addInput(bias);
+  grad_out = maybeCastOp(DataType::Float, grad_out);
+  input = maybeCastOp(DataType::Float, input);
+  weight = maybeCastOp(DataType::Float, weight);
+  bias = maybeCastOp(DataType::Float, bias);
+
+  auto res = layer_norm_backward(
+      grad_out,
+      input,
+      norm_shape,
+      mean,
+      rstd,
+      weight,
+      bias,
+      {true, true, true});
+  res.grad_input = maybeCastOp(dtype, res.grad_input);
+  res.grad_weight = maybeCastOp(dtype, res.grad_weight);
+  res.grad_bias = maybeCastOp(dtype, res.grad_bias);
+  fusion->addOutput(res.grad_input);
+  fusion->addOutput(res.grad_weight);
+  fusion->addOutput(res.grad_bias);
+  auto fusion_copy = *fusion;
+
+  auto options =
+      at::TensorOptions().dtype(data_type_to_aten(dtype)).device(at::kCUDA, 0);
+
+  at::Tensor aten_grad_out = at::randn(input_shape, options);
+  at::Tensor aten_input = at::randn(input_shape, options);
+  at::Tensor aten_weight = at::randn(norm_shape, options);
+  at::Tensor aten_bias = at::randn(norm_shape, options);
+
+  constexpr float kEps = 1e-5;
+  auto aten_results = at::native_layer_norm(
+      aten_input, norm_shape, aten_weight, aten_bias, kEps);
+  auto aten_output = std::get<0>(aten_results);
+  auto aten_mean = std::get<1>(aten_results);
+  auto aten_rstd = std::get<2>(aten_results);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  KernelArgumentHolder args = {
+      aten_grad_out, aten_input, aten_mean, aten_rstd, aten_weight, aten_bias};
+  auto cg_outputs = executor_cache.runFusionWithInputs(args);
+  testValidate(&fusion_copy, cg_outputs, args, __LINE__, __FILE__);
+}
 auto TmaWarpSpecializedTestParams() {
   std::vector<TmaWarpSpecializedParams> values;
   // Use 8 * SMs as the outer dimension to ensure divisible split by unroll
