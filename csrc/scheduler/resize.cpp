@@ -449,8 +449,12 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
 
     // Reorder the reference as the allocation domain of the largest fusion
     // input
-    ref_tv->reorder(
-        scheduler_utils::reorderDomainLike(ref_tv->getLoopDomain(), ref_alloc));
+    auto permutation = scheduler_utils::reorderDomainLike(
+        {ref_tv->getLoopDomain().begin(),
+         ref_tv->getLoopDomain().begin() + ref_tv->getLoopDomain().size() - 1},
+        ref_alloc);
+    permutation.push_back(ref_tv->getLoopDomain().size() - 1);
+    ref_tv->reorder(permutation);
   }
 
   const int64_t bdimx = 128;

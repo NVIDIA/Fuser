@@ -6175,4 +6175,32 @@ TEST_F(ResizeTest, ReshapeAfterRef) {
   testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
 }
 
+TEST_F(ResizeTest, ReorderLikeInputShouldNotMoveInnermostID) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{8, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(64)}});
+  auto tv3 = repeat(tv2, {1, 2});
+  fusion.addOutput(tv3);
+
+  // Should be moved past sin but not slice as it resizes the repeated ID
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion_ptr));
+  auto outputs = executor_cache.runFusionWithInputs({t0});
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
