@@ -185,11 +185,23 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
 }
 
 TEST_F(HostIrIntegrationTest, InsertDeallocations) {
+  c10::DeviceIndex device_index = 0;
+  resetPeakMemoryStats(device_index);
+  at::cuda::clearCublasWorkspaces();
+  nvfuser::releaseZeroedMemory();
+  ASSERT_EQ(memoryAllocated(device_index), 0)
+      << "Previous tests leaked memory.";
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  TensorView* in = makeSymbolicTensor(2);
-  fusion->addInput(in);
 
+  std::vector<int64_t> input_shape{32, 32};
+  auto in = TensorViewBuilder()
+                 .ndims(input_shape.size())
+                 .dtype(DataType::Double)
+                 .build();
+
+  fusion->addInput(in);
   TensorView* t0 = add(in, in);
   auto t1 = segment_set(t0);
   TensorView* t2 = add(t1, t1);
@@ -199,9 +211,12 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   fusion->addOutput(out);
 
   FusionExecutorCache executor_cache(std::move(fusion));
+
   at::Tensor in_tensor =
-      at::randn({2, 3}, at::dtype(at::kFloat).device(at::kCUDA, 0));
+      at::randn(input_shape, at::dtype(at::kDouble).device(at::kCUDA, device_index));
   auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
 
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
@@ -221,6 +236,16 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
       __LINE__,
       __FILE__,
       "");
+
+  if (c10::utils::check_env("PYTORCH_NO_CUDA_MEMORY_CACHING") == true) {
+    GTEST_SKIP() << "Skipped because PYTORCH_NO_CUDA_MEMORY_CACHING is on. "
+                    "This usually happens when running with compute-sanitizer. "
+                    "maxMemoryAllocated can only collect peak memory "
+                    "from a caching allocator.";
+  }
+
+  // At any given time a max of four 32x32 tensors are allocated
+  EXPECT_EQ(max_memory_allocated, sizeof(double) * (32 * 32) * 4);
 }
 
 } // namespace hir
