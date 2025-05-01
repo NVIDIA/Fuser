@@ -251,10 +251,13 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   //  3) LaunchKernel with input in and output t1 -> 2 tensors
   //  4) Deallocate "in" (which gets invalidated in the HostIrEvaluator, but not
   //  actually deallocated because of the test fixture's reference to it) -> 2
-  //  tensors 3) Allocate t3 -> 3 tensors 4) LaunchKernel with inputs t1 and
-  //  output t3 -> 3 tensors 5) Allocate "out" -> 4 tensors 6) LaunchKernel with
-  //  inputs t1, t3 and output "out" -> 4 tensors 7) Deallocate t1 -> 3 tensors
-  //  8) Deallocate t3 -> 2 tensors allocated, "in" and "out"
+  //  tensors
+  //  5) Allocate t3 -> 3 tensors
+  //  6) LaunchKernel with inputs t1 and output t3 -> 3 tensors
+  //  7) Allocate "out" -> 4 tensors
+  //  8) LaunchKernel with inputs t1, t3 and output "out" -> 4 tensors
+  //  9) Deallocate t1 -> 3 tensors
+  // 10) Deallocate t3 -> 2 tensors allocated, "in" and "out"
   const int64_t expected_memory_allocated = sizeof(double) * (32 * 32) * 4;
   EXPECT_EQ(max_memory_allocated, expected_memory_allocated)
       << "Max memory allocated (" << max_memory_allocated
