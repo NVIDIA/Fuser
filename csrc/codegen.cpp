@@ -296,8 +296,8 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       int64_t num_threads_per_cta = lparams_.nThreads();
       NVF_ERROR(
           num_threads_per_cta % 128 == 0,
-          "For register sharing warp specialization, the number of threads per CTA must be a multiple of 128, but got ",
-          num_threads_per_cta);
+          "The number of threads per CTA is not correctly set, check launch para",
+          lparams_.toString());
 
       int64_t initial_reg_count =
           getRegPerThreadGivenThreadsPerSM(num_threads_per_cta);
@@ -3045,8 +3045,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
             grouped_rop->isAllreduce(),
             "iterGroupedStaticWarpAllReduce should be used for allreduce.");
         NVF_ERROR(
-            reduction_dims.first->getParallelType() == ParallelType::TIDx &&
-                reduction_dims.second == nullptr,
+            reduction_ids.value().first &&
+                reduction_ids.value().first->getParallelType() ==
+                    ParallelType::TIDx &&
+                reduction_ids.value().second == nullptr,
             "Grouped warp reduction is only supported for TIDx reduction with no second dimension.");
         return genGroupedWarpReduction(
             (int)num_grouped_iterations,

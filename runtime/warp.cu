@@ -163,8 +163,7 @@ __device__ void warpReduceTIDXY(
 }
 
 // sizeof(T) * K = sizeof(uint64_t)
-// require alginment of sizeof(T) * K to safely cast between T and uint64_t
-// shfl uses uint64_t to reduce number of shuffles
+// Array structure ensures data is aligned for safe casting to uint64_t
 template <int K, typename T, typename Func>
 __device__ __forceinline__ void packedWarpReduce(
     Array<T, K, K>& val,
