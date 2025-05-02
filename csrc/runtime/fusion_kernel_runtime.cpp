@@ -400,6 +400,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       compileKernel(group_runtime_inputs, group_to_run, hic.get());
     } else {
       hir::HostIrContainer* hic_ptr = hic.get();
+      std::cerr << "Master group to run: " << group_to_run->groupId() << "\n";
       // launch compileKernel thread here
       getThreadPool()->run([this,
                             args,
@@ -410,6 +411,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             &thread_pool_error_message_mutex,
                             hic_ptr]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+        std::cerr << "Thread group to run: " << group_to_run->groupId() << "\n";
         ParallelCompileContextGuard parallel_context_guard;
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
@@ -429,13 +431,18 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs =
-        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+    try {
+      auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+      auto group_runtime_outputs =
+          inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
-    // map output args to tensor map
-    args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+      // map output args to tensor map
+      args_manager.updateWithSegmentOutputs(
+          group_to_run->outputs(), group_runtime_outputs, run_order_id);
+    } catch (const std::exception& e) {
+      getThreadPool()->waitWorkComplete();
+      throw;
+    }
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
@@ -772,6 +779,7 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg,
     hir::HostIrContainer* hic) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
+  std::cerr << "Scheduler type: " << sg->schedulerType() << "\n";
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
 
@@ -813,6 +821,7 @@ void FusionKernelRuntime::compileKernel(
     hic->setKernelExecutor(group_id, std::move(ke));
   } else {
     // Initialize associated executors
+    std::cerr << "group_id: " << group_id << "\n";
     executors_[group_id] = ExecutorDispatch::makeExecutor(
         fusion_to_run.get(), fusion_id_, concrete_id_, runtime_id_, group_id);
 

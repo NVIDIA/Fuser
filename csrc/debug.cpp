@@ -12,7 +12,8 @@
 
 namespace nvfuser {
 
-static thread_local std::ostream* ACTIVE_STREAM = &std::cout;
+// static thread_local std::ostream* ACTIVE_STREAM = &std::cout;
+static thread_local std::ostream* ACTIVE_STREAM = &std::cerr;
 
 DebugStreamGuard::DebugStreamGuard(std::ostream& stream)
     : prev_stream_{ACTIVE_STREAM} {
