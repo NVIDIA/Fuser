@@ -195,7 +195,9 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  std::vector<int64_t> input_shape{32, 32};
+  // Use 8x8 double tensors so each tensor is 512 bytes exactly, the minimum
+  // cache allocation size (avoid incorrect peak memory stat due to rounding)
+  std::vector<int64_t> input_shape{8, 8};
   auto in = TensorViewBuilder()
                 .ndims(input_shape.size())
                 .dtype(DataType::Double)
@@ -244,7 +246,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
                     "from a caching allocator.";
   }
 
-  // At any given time a max of three 32x32 tensors are allocated. Here is the
+  // At any given time a max of three 8x8 tensors are allocated. Here is the
   // flow in the container:
   //  1) Input "in" -> 1 tensor allocated
   //  2) Allocate t1 -> 2 tensors
@@ -258,7 +260,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   //  8) Allocate "out" -> 3 tensors
   //  9) LaunchKernel with inputs t3 and output "out" -> 3 tensors
   // 10) Deallocate t3 -> 2 tensors allocated, "in" and "out"
-  constexpr int64_t kExpectedPeakMemory = sizeof(double) * (32 * 32) * 3;
+  constexpr int64_t kExpectedPeakMemory = sizeof(double) * (8 * 8) * 3;
   EXPECT_EQ(max_memory_allocated, kExpectedPeakMemory)
       << "Max memory allocated (" << max_memory_allocated
       << ") was higher than expected << (" << kExpectedPeakMemory << ")";
