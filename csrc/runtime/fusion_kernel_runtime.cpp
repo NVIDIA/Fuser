@@ -429,13 +429,18 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs =
-        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+    try {
+      auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+      auto group_runtime_outputs =
+          inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
-    // map output args to tensor map
-    args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+      // map output args to tensor map
+      args_manager.updateWithSegmentOutputs(
+          group_to_run->outputs(), group_runtime_outputs, run_order_id);
+    } catch (const std::exception& e) {
+      getThreadPool()->waitWorkComplete();
+      throw;
+    }
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
