@@ -62,8 +62,6 @@ bool ExprEvalExecutor::supported(Fusion* fusion) {
 }
 
 void ExprEvalExecutor::compile(Fusion* fusion) {
-  std::cout << "Using ExprEvalExecutor" << std::endl;
-  fusion->printMath();
   FUSER_PERF_SCOPE("ExprEvalExecutor::compile");
   if (isProfilerEnabled()) {
     FusionProfiler::segment(group_id_).startCompile();
@@ -997,7 +995,6 @@ KernelArgumentHolder KernelExecutor::run(
     const LaunchParams& launch_constraints,
     CompileParams compile_params) {
   FUSER_PERF_SCOPE("KernelExecutor::runFusion");
-  // std::cout << "[EXEC DEBUG] Entering KernelExecutor::run" << std::endl;
 
   if (isProfilerEnabled()) {
     NVF_CHECK(

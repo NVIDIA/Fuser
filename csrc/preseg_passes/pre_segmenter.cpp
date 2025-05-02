@@ -27,29 +27,8 @@
 #include <preseg_passes/segment_inplace_update.h>
 #include <preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.h>
 #include <preseg_passes/translate_repeat_to_expand.h>
-namespace nvfuser {
-namespace {
-void debugPass(int pass_num, Fusion* fusion) {
-  debug() << "[runPass] " << pass_num << " Start" << std::endl;
-  auto exprs = fusion->exprs();
-  for (auto expr : exprs) {
-    if (expr->name() == 999999) {
-      debug() << "Found expr" << std::endl;
-    }
-  }
-  debug() << "[runPass] " << pass_num << " Found: " << exprs.size() << " exprs"
-          << std::endl;
-  auto all_vals = fusion->usedMathVals();
-  for (auto tv : ir_utils::filterByType<TensorView>(all_vals)) {
-    if (tv->name() == 999999) {
-      debug() << "Found tv" << std::endl;
-    }
-  }
-  debug() << "[runPass] " << pass_num << " clear" << std::endl;
-}
-} // namespace
 
-namespace preseg_passes {
+namespace nvfuser::preseg_passes {
 
 /*static*/ void PreSegmenter::runPass(Fusion* fusion) {
   FUSER_PERF_SCOPE("PreSegmenter::runPass");
@@ -60,22 +39,15 @@ namespace preseg_passes {
     debug() << "========================================" << std::endl;
   }
 
-  debugPass(1, fusion);
   // Replace TensorViews with zero extent. Outputs and inputs may still be empty
   OptimizationPass<RemoveEmptyPass>::runPass(fusion);
-  debugPass(2, fusion);
   // This pass should be placed before ConsecutiveCastPass as more
   // consecutive cast ops may be exposed by this pass
-
   OptimizationPass<TranslateRepeatToExpand>::runPass(fusion);
-  debugPass(3, fusion);
   // removes consecutive cast operations
   OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
-  debugPass(4, fusion);
   OptimizationPass<AddAxiomsPass>::runPass(fusion);
-
   OptimizationPass<MoveSplitCatPass>::runPass(fusion);
-
   // MovePadPass needs to happen:
   // 1. before MarkAliasPrepare; and
   //    avoid moving pad operatoins around, which could disturb the analysis
@@ -91,16 +63,19 @@ namespace preseg_passes {
   // currently only limited to pointwise patterns and does not
   // support, for example, reductions, etc, so this preseg pass still
   // may be preferable in some cases.
-  // debug() << "[PreSegmenter] Before MovePadPass" << std::endl;
-  // if (isOptionDisabled(DisableOption::ResizeScheduler)) {
-  //   debug() << "[PreSegmenter] After isOptionDisabled" << std::endl;
-  //   OptimizationPass<MovePadPass>::runPass(fusion);
-  // }
-  // debug() << "[PreSegmenter] After isOptionDisabled" << std::endl;
-
+  if (isOptionDisabled(DisableOption::ResizeScheduler)) {
+    OptimizationPass<MovePadPass>::runPass(fusion);
+  }
+  // NOTE vvv this doesn't really work, since our type promotion to higher
+  // precision for Add cannot be canceled out with previous cast to lower
+  // precision. Since it's not an no-op and it has a quantization effect. I'll
+  // open an issue for this and see if we want to have a more aggressive
+  // approach inside MovePadPass instead. removes extra cast added from pushing
+  // pad out OptimizationPass<ConsecutiveCastPass>::runPass(fusion);
   OptimizationPass<MarkAliasesPreparePass>::runPass(fusion);
   OptimizationPass<ExactMappedExtentSubstitutionPass>::runPass(fusion);
   OptimizationPass<AllocationDomainPass>::runPass(fusion);
+
   // All the multidevice passes are moved after allocation related passes:
   // MarkAliasesPreparePass, and AllocationDomainPass Multidevice passes will
   // try to set the allocation domain for tvs with device mesh which will
@@ -109,12 +84,10 @@ namespace preseg_passes {
   OptimizationPass<InsertReshardingsPass>::runPass(fusion);
   OptimizationPass<ReorderShardedAxisPass>::runPass(fusion);
   OptimizationPass<MakeReshardingContiguousPass>::runPass(fusion);
+
   OptimizationPass<RemoveBcastSqueeze>::runPass(fusion);
   OptimizationPass<SegmentInplaceUpdatePass>::runPass(fusion);
   OptimizationPass<TranslateNoReductionMatmulToMulSqueeze>::runPass(fusion);
-
-  debug() << "[PreSegmenter] Finished PreSegmenter." << std::endl;
 }
 
-} // namespace preseg_passes
-} // namespace nvfuser
+} // namespace nvfuser::preseg_passes

@@ -7,7 +7,6 @@
 // clang-format on
 #include <preseg_passes/translate_repeat_to_expand.h>
 
-#include <debug.h>
 #include <ir/utils.h>
 #include <logical_domain_map.h>
 #include <ops/all_ops.h>
@@ -41,10 +40,8 @@ class RepeatToExpandTranslator {
   RepeatToExpandTranslator(Fusion* fusion) : fusion_(fusion) {}
 
   void run() {
-    debug() << "[TranslateRepeatToExpand] Entering run..." << std::endl;
     inspect();
     translate();
-    debug() << "[TranslateRepeatToExpand] Exiting run." << std::endl;
   }
 
  private:
@@ -130,7 +127,6 @@ class RepeatToExpandTranslator {
   // For each detected repetition, replace the output with a repeat
   // output.
   void translate() {
-    debug() << "[TranslateRepeatToExpand] Entering translate..." << std::endl;
     FusionGuard fg(fusion_);
 
     const auto exprs = fusion_->exprs();
@@ -164,7 +160,6 @@ class RepeatToExpandTranslator {
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(
           expr->output(0), replacement_tv);
     }
-    debug() << "[TranslateRepeatToExpand] Exiting translate." << std::endl;
   }
 
  private:

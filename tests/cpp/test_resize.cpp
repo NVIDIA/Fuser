@@ -1481,13 +1481,10 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
   for (auto slice_input : slice_inputs) {
     inputs.push(slice_input);
   }
-  debug() << "[RUNTIME] Entering FusionExecutorCache" << std::endl;
+
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
-  debug() << "[RUNTIME] After FusionExecutorCache" << std::endl;
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-  debug() << "[RUNTIME] After runFusionWithInputs" << std::endl;
   testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
-  debug() << "[RUNTIME] After testValidate" << std::endl;
 }
 
 // Multiple slice+reduction. Same slices. Should be segmented at the moment.

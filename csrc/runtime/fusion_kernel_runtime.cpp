@@ -75,16 +75,12 @@ FusionKernelRuntime::FusionKernelRuntime(
       auto_schedule_{auto_schedule} {
   FUSER_PERF_SCOPE("FusionKernelRuntime::FusionKernelRuntime");
 
-  debug() << "[CONSTRUCTOR] Entering FusionKernelRuntime constructor."
-          << std::endl;
   NVF_ERROR(
       !fusion->hasDynamicTransform(),
       "Fusion must be concretized before constructing FusionKernelRuntime");
 
-  debug() << "[CONSTRUCTOR] Before PreSegmenter pass." << std::endl;
   preseg_passes::OptimizationPass<preseg_passes::PreSegmenter>::runPass(
       fusion.get());
-  debug() << "[CONSTRUCTOR] After PreSegmenter pass." << std::endl;
 
   if (isDebugDumpEnabled(DebugDumpOption::FusionIrPreseg)) {
     const auto& communicator = Communicator::getInstance();
@@ -340,7 +336,6 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
 
-  debug() << "[COMPILE PARALLEL] Entering compileFusionParallel." << std::endl;
   std::lock_guard<std::mutex> guard(mutex_);
 
   NVF_ERROR(
@@ -371,8 +366,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   std::atomic<bool> detect_exception_in_thread_pool{false};
   std::string thread_pool_error_message;
   std::mutex thread_pool_error_message_mutex;
-  debug() << "[COMPILE PARALLEL] Before parallel compilation loop."
-          << std::endl;
   for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
     auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
 
@@ -445,9 +438,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
     // Wait until all segments finish compiling
-    debug() << "[COMPILE PARALLEL] Before waitWorkComplete." << std::endl;
     getThreadPool()->waitWorkComplete();
-    debug() << "[COMPILE PARALLEL] After waitWorkComplete." << std::endl;
     NVF_ERROR(
         !detect_exception_in_thread_pool.load(),
         "Detected exception while compiling fusion segments in parallel. ",
@@ -455,9 +446,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         thread_pool_error_message,
         "\nUse NVFUSER_DISABLE=parallel_compile to simplify error message.");
   }
-
-  debug() << "[COMPILE PARALLEL] Starting Host IR container setup."
-          << std::endl;
 
   // add all expressions and compiled kernels to the host ir container
   if (hic != nullptr) {
@@ -528,7 +516,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         std::move(hic), &Communicator::getInstance());
   }
 
-  debug() << "[COMPILE PARALLEL] Exiting compileFusionParallel." << std::endl;
   if (isProfilerEnabled()) {
     FusionProfiler::stopCompile();
   }

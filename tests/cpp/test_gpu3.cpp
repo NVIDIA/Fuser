@@ -9111,18 +9111,16 @@ TEST_F(NVFuserTest, FusionScalarUnarySegmentation_CUDA) {
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({64, 128, 256}, options);
 
-  // std::cout<<"Before FusionExecutorCache"<<std::endl;
   FusionExecutorCache executor_cache(std::move(fusion));
-  // std::cout<<"After FusionExecutorCache"<<std::endl;
+
   auto cg_outputs = executor_cache.runFusionWithInputs({t0, d0, d1, d2});
-  // std::cout<<"After runFusionWithInputs"<<std::endl;
+
   testValidate(
       executor_cache.fusion(),
       cg_outputs,
       {t0, d0, d1, d2},
       __LINE__,
       __FILE__);
-  // std::cout<<"After testValidate"<<std::endl;
 }
 
 // Test file size should be up to 10K LoC. Create a new file for more tests.

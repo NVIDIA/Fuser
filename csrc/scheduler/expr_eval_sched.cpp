@@ -129,12 +129,8 @@ std::unique_ptr<HeuristicParams> ExprEvalScheduler::computeHeuristics(
     Fusion* fusion,
     SchedulerRuntimeInfo& runtime_info,
     HeuristicDataCache* data_cache) {
-  // debug() << "[RUNTIME HEURISTICS] Entering computeHeuristics for
-  // ExprEvalScheduler" << std::endl;
   auto params = std::make_unique<HeuristicParams>(SchedulerType::ExprEval);
   params->cparams.index_type = runtime_info.getIndexType();
-  // debug() << "[RUNTIME HEURISTICS] Returning ExprEvalScheduler heuristic
-  // params: " << params->toString() << std::endl;
   return params;
 }
 
