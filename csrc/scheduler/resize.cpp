@@ -447,14 +447,13 @@ void ResizeScheduler::schedule(Fusion* fusion, const HeuristicParams* params) {
               !alloc_id->isDeviceDim();
         });
 
-    std::vector<int64_t> permutation;
     // Reorder the reference as the allocation domain of the largest fusion
     // input. In order to avoid reordering the innermost ID, only
     // consider the rest of IDs. This matters when the innermost ID of
     // the input is not mapped with the reference innermost ID. see
     // ResizeTest.ReorderLikeInputShouldNotMoveInnermostID for a
     // concrete example.
-    permutation = scheduler_utils::reorderDomainLike(
+    auto permutation = scheduler_utils::reorderDomainLike(
         {ref_tv->getLoopDomain().begin(),
          ref_tv->getLoopDomain().begin() + ref_tv->getLoopDomain().size() - 1},
         ref_alloc);
