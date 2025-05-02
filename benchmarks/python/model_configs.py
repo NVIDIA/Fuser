@@ -3,8 +3,6 @@
 # SPDX-License-Identifier: BSD-3-Clause
 from functools import partial
 
-from transformers import AutoConfig
-
 
 def llama_hf_cfg(config_str):
     class Config:
@@ -40,6 +38,8 @@ def llama_hf_cfg(config_str):
 
 
 def hf_qwen2_cfg():
+    from transformers import AutoConfig
+
     config = AutoConfig.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
     config.batch_size = 1
     config.seq_len = 4096
@@ -48,6 +48,8 @@ def hf_qwen2_cfg():
 
 
 def hf_phi3_cfg():
+    from transformers import AutoConfig
+
     config = AutoConfig.from_pretrained("microsoft/Phi-3.5-mini-instruct")
     config.batch_size = 1
     config.seq_len = 8192
@@ -96,10 +98,22 @@ def hf_mistral_nemo_cfg():
     return cfg
 
 
+def litgpt_cfg(model_name):
+    import litgpt
+
+    cfg = litgpt.Config.from_name(model_name)
+    cfg.batch_size = 1
+    cfg.seq_len = 4096
+    cfg.name_or_path = model_name
+
+    return cfg
+
+
 configs = {
     "llama_2_7b_hf": partial(llama_hf_cfg, config_str="llama_2_7b_hf"),
     "llama_3_8B": partial(llama_hf_cfg, config_str="llama_3_8B"),
     "hf_qwen2": hf_qwen2_cfg,
     "hf_phi3": hf_phi3_cfg,
     "hf_mistral_nemo": hf_mistral_nemo_cfg,
+    "litgpt": litgpt_cfg,
 }

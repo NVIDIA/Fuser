@@ -132,7 +132,7 @@ class HfMistralNemo(CrossEntropyLossBase):
         super().__init__("hf_mistral_nemo", dtype)
 
     def model(self):
-        from transformers.models.phi3 import MistralPreTrainedModel
+        from transformers.models.mistral import MistralPreTrainedModel
 
         class MyModel(MistralPreTrainedModel):
             def __init__(self, config):
