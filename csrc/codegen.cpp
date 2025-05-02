@@ -2997,41 +2997,24 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       kir::TensorIndex* input,
       const Val* init,
       BinaryOpType reduction_op_type,
-      kir::Predicate* read_pred,
-      std::pair<IterDomain*, IterDomain*> reduction_dims,
-      bool is_all_reduce) {
-    NVF_ERROR(
-        is_all_reduce,
-        "iterGroupedStaticWarpAllReduce should be used for allreduce.");
+      kir::Predicate* read_pred) {
     ArgumentBuilder func_args;
     func_args.arg(genVariableNameConvertAlignedArray(output));
     func_args.arg(genVariableNameConvertAlignedArray(input));
     func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
-
     func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
 
     ArgumentBuilder template_args;
-    if (reduction_dims.first->getParallelType() == ParallelType::TIDx &&
-        reduction_dims.second == nullptr) {
-      NVF_ERROR(
-          lparams_.bdimx() % 128 == 0,
-          "iterGroupedStaticWarpAllReduce() requires bdimx % 128 == 0.");
-      func_args.arg(
-          genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
-      template_args.arg(
-          kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
-      template_args.arg(isAligned());
-      template_args.arg(num_grouped_iterations);
-      template_args.arg(lparams_.bdimx());
-      indent() << genCall(
-                      "warp::iterGroupedStaticWarpAllReduce",
-                      template_args,
-                      func_args)
-               << ";\n";
-    } else {
-      NVF_THROW(
-          "Grouped warp reduction is only supported for TIDx reduction with no second dimension");
-    }
+    func_args.arg(genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
+    template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+    template_args.arg(isAligned());
+    template_args.arg(num_grouped_iterations);
+    template_args.arg(lparams_.bdimx());
+    indent() << genCall(
+                    "warp::iterGroupedStaticWarpAllReduce",
+                    template_args,
+                    func_args)
+             << ";\n";
   }
   void handle(const GroupedReductionOp* grouped_rop) final {
     const auto num_grouped_iterations =
@@ -3055,15 +3038,23 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
           "To use IterGroupedBlockReduction, must have block reduce!");
       if (auto reduction_ids =
               ir_utils::getMaybeWarpReductionDim(output, input)) {
+        NVF_ERROR(
+            lparams_.bdimx() % 128 == 0,
+            "iterGroupedStaticWarpAllReduce() requires bdimx % 128 == 0.");
+        NVF_ERROR(
+            grouped_rop->isAllreduce(),
+            "iterGroupedStaticWarpAllReduce should be used for allreduce.");
+        NVF_ERROR(
+            reduction_dims.first->getParallelType() == ParallelType::TIDx &&
+                reduction_dims.second == nullptr,
+            "Grouped warp reduction is only supported for TIDx reduction with no second dimension.");
         return genGroupedWarpReduction(
             (int)num_grouped_iterations,
             output,
             input,
             grouped_rop->initVal(0),
             op_type,
-            grouped_rop->predicate(),
-            reduction_ids.value(),
-            grouped_rop->isAllreduce());
+            grouped_rop->predicate());
       } else {
         return genIterGroupedBlockReduction(
             (int)num_grouped_iterations,
