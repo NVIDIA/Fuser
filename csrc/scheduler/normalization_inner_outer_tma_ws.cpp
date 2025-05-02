@@ -204,7 +204,7 @@ void getHeuristics(
       LaunchParams::UNINITIALIZED_VAL);
 
   rparams->tag = "TMA Warp Specialized Persistent Heuristic.\n";
-
+  rparams->compute_warp_groups = 2;
   if (isDebugDumpEnabled(DebugDumpOption::SchedulerDebug)) {
     debug() << "\n===== Combined InnerOuter Reduction Stats ========\n"
             << "outer_dim_numel: " << outer_dim_numel << "\n"
@@ -397,27 +397,50 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // Step-1, propagate iteration domain in inner reduction.
   // Step-2, propagate reduction domain in inner reduction.
   if (rparams->tma_warp_specialized) {
-    // Find the axis that splits the reduction domain and iteration domain.
-    int first_redu_axis = -1;
-    int n_dims = (int)inner_reference_tv->nDims();
-    for (auto i = 0; i < n_dims; i++) {
-      if (inner_reference_tv->axis(i)->isReduction() ||
-          inner_reference_tv->axis(i)->isRFactorProduct()) {
-        first_redu_axis = i;
-        break;
+    if(rparams->compute_warp_groups == 1){
+      // Find the axis that splits the reduction domain and iteration domain.
+      int first_redu_axis = -1;
+      int n_dims = (int)inner_reference_tv->nDims();
+      for (auto i = 0; i < n_dims; i++) {
+        if (inner_reference_tv->axis(i)->isReduction() ||
+            inner_reference_tv->axis(i)->isRFactorProduct()) {
+          first_redu_axis = i;
+          break;
+        }
       }
-    }
 
-    // Step-1, propagate iteration domain in inner reduction.
-    // outer_reference_tvs are excluded since they are already scheduled
-    // with a different pattern for the final step of outer reduciton.
-    if (first_redu_axis > 0) {
-      TransformPropagator propagator(inner_reference_tv, first_redu_axis - 1);
-      std::vector<TensorView*> all_tvs_except = ir_utils::allTvsExcept(
-          fusion, {outer_reference_tvs.begin(), outer_reference_tvs.end()});
-      SetSelector selector({all_tvs_except.begin(), all_tvs_except.end()});
-      MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
-          .traverse(&propagator);
+      // Step-1, propagate iteration domain in inner reduction.
+      // outer_reference_tvs are excluded since they are already scheduled
+      // with a different pattern for the final step of outer reduciton.
+      if (first_redu_axis > 0) {
+        TransformPropagator propagator(inner_reference_tv, first_redu_axis - 1);
+        std::vector<TensorView*> all_tvs_except = ir_utils::allTvsExcept(
+            fusion, {outer_reference_tvs.begin(), outer_reference_tvs.end()});
+        SetSelector selector({all_tvs_except.begin(), all_tvs_except.end()});
+        MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
+            .traverse(&propagator);
+      }
+    }else{
+      for(auto tv : tma_load_tvs) {
+        if(tv->nDims() == 1){
+          continue;
+        }
+        if(rparams->unroll_factor_iter_dom > 1){
+          tv->split(0, rparams->unroll_factor_iter_dom);
+        }
+        tv->split(0, rparams->lparams.gdimy());
+        tv->split(0, rparams->compute_warp_groups);
+        tv->axis(2)->parallelize(ParallelType::BIDy);
+        // [I, TIDy, BIDy, Unroll]
+        std::cout << "TMA tv: " << tv->toString() << std::endl;
+        std::unordered_map<int64_t, int64_t> reorder_map;
+        reorder_map[0] = 2;
+        reorder_map[1] = 1;
+        reorder_map[2] = 0;
+        tv->reorder(reorder_map);
+        // [BIDy, TIDy, I, Unroll]
+        std::cout << "TMA tv: " << tv->toString() << std::endl;
+      }
     }
 
     // Step-2, propagate reduction domain in inner reduction.
@@ -465,7 +488,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
 
   // parallelization propagation
-  const auto& selected_tvs_inner =
+  auto selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
@@ -478,6 +501,14 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+    if(rparams->compute_warp_groups > 1){
+      for(auto tv : tma_load_tvs) {
+        if(tv->nDims() == 1){
+          continue;
+        }
+        tv->axis(1)->parallelize(ParallelType::Serial);
+      }
+    }
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
@@ -564,6 +595,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   for (auto output : dummy_outputs) {
     fusion->removeOutput(output);
   }
+
+  fusion->printMath();
+
   // inline
   if (rparams->circular_buffer_options.isEnable()) {
     std::unordered_map<TensorView*, int64_t> tv_inline_pos_map;
@@ -575,7 +609,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // [Bulk]
     // Set inline position after BIDy, so all the unrolled TMA loads
     // share the same barrier.
-    constexpr int64_t tma_inline_pos = 2;
+    int64_t tma_inline_pos = rparams->compute_warp_groups == 1 ? 2 : 3;
     for (auto tv : tma_load_tvs) {
       if (tv->nDims() >= tma_inline_pos + 1) {
         tv_inline_pos_map.emplace(tv, tma_inline_pos);
@@ -640,6 +674,9 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     std::vector<TensorView*> inline_most_tvs =
         ir_utils::allTvsExcept(fusion, exclude_tvs);
     inlineMost(inline_most_tvs);
+
+    fusion->printMath();
+
     int64_t number_of_stages = rparams->circular_buffer_options.stage;
     int64_t prefetch_distance = rparams->circular_buffer_options.prefetch;
     CircularBufferType circular_buffer_type =

@@ -133,6 +133,12 @@ TensorView* scheduleReductionTV(
     }
     inner_parallel_static(
         iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+
+    if(rparams->compute_warp_groups > 1){
+      reduction_tv->split(0, rparams->compute_warp_groups);
+      reduction_tv->axis(1)->parallelize(ParallelType::TIDy);
+    }
+
   } else if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
     NVF_ERROR(rparams->static_bdimy, "blockDim.y must be static");
