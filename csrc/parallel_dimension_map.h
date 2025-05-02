@@ -83,6 +83,11 @@ class ParallelDimensionMap {
     return dim_map_.count(pt) > 0;
   }
 
+  // Create a predicate to pick a thread. Use ptx::elect_sync by default.
+  // If warp specialized on TIDx and padded value is less than 32 threads, pick
+  // first padded thread
+  Val* selectThread() const;
+
  private:
   //! Get number of threads for ParallelType axis
   //! Not used: 1, Const: n, Dynamic: -1

@@ -48,9 +48,11 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       const auto& warp_specialized =
           std::get<WarpSpecialized>(tv->circularBufferOptions().type);
       warp_specialized_types_.insert(warp_specialized.on);
-      if (warp_specialized.num_registers.has_value()) {
-        ws_with_register_sharing_pt_ = warp_specialized.on;
-      }
+      NVF_ERROR(
+          !ws_with_register_sharing_pt_.has_value() ||
+              ws_with_register_sharing_pt_.value() == warp_specialized.on,
+          "Multiple warp specialized axis detected.");
+      ws_with_register_sharing_pt_ = warp_specialized.on;
     }
     for (auto id : tv->domain()->allIDs()) {
       auto ptype = id->getParallelType();
@@ -227,9 +229,6 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
       after_pad,
       " and remaining active cta threads ",
       other_active_pts_threads);
-  NVF_ERROR(
-      ws_pt != ParallelType::TIDx || ws_num_threads_pad >= 32,
-      "BlockDim.x must be at least 32 to use ElectSync");
 
   // Apply the pad
   ws_with_register_sharing_pad_val_ = ws_num_threads_pad;
@@ -336,6 +335,36 @@ int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
       "Can't find padded val for: ",
       pt);
   return ws_with_register_sharing_pad_val_.value();
+}
+
+namespace {
+
+Val* createElectSyncExpr() {
+  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+  return elect_sync_val;
+}
+
+} // namespace
+
+Val* ParallelDimensionMap::selectThread() const {
+  if (!ws_with_register_sharing_pt_.has_value()) {
+    return createElectSyncExpr();
+  }
+
+  if (ws_with_register_sharing_pt_.value() != ParallelType::TIDx) {
+    return createElectSyncExpr();
+  }
+
+  if (ws_with_register_sharing_pad_val_.value() >= 32) {
+    return createElectSyncExpr();
+  }
+
+  return SimplifyingIrBuilder::eqExpr(
+      NamedScalar::getParallelIndex(ParallelType::TIDx),
+      getRawCompute(ParallelType::TIDx));
 }
 
 std::string ParallelDimensionMap::toString() const {

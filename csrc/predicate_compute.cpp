@@ -502,12 +502,10 @@ Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
     return select_first_warp;
   }
 
-  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-  IrBuilder::create<UnaryOp>(
-      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+  const ParallelDimensionMap& pdim_map =
+      GpuLower::current()->parallelDimensionMap();
   return SimplifyingIrBuilder::logicalAndExpr(
-      elect_sync_val, select_first_warp);
+      pdim_map.selectThread(), select_first_warp);
 }
 
 // Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
@@ -525,11 +523,8 @@ Val* createElectSyncPredicateAsync() {
   // TODO Only select first warp now
   Val* select_warp = SimplifyingIrBuilder::eqExpr(warp_id, zero);
 
-  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-  IrBuilder::create<UnaryOp>(
-      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-  return SimplifyingIrBuilder::logicalAndExpr(elect_sync_val, select_warp);
+  return SimplifyingIrBuilder::logicalAndExpr(
+      pdim_map.selectThread(), select_warp);
 }
 
 Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
