@@ -176,16 +176,18 @@ class CanMoveOver : public OptOutConstDispatch {
       // The only case we can move the repeat over this op is when the
       // correponding producer ID is also a repeated ID or a
       // broadcast. Otherwise, we can't say it's safe to move.
-      bool producer_id_is_repeated = false;
+      if (producer_id->isBroadcast()) {
+        continue;
+      }
+
       if (auto repeat_id_map_it = repeat_id_map_.find(inp_tv);
           repeat_id_map_it != repeat_id_map_.end() &&
           producer_id == repeat_id_map_it->second) {
-        producer_id_is_repeated = true;
+        continue;
       }
 
-      if (!producer_id->isBroadcast() && !producer_id_is_repeated) {
-        return;
-      }
+      // Not proven to be safe to move over this op
+      return;
     }
 
     // Moving is confirmed to be valid
@@ -319,7 +321,8 @@ class MoveRepeatForward {
           post_dominator->toString());
 
       if (auto it = repeat_id_map.find(post_dominator->as<TensorView>());
-          it != repeat_id_map.end() && it->second != nullptr) {
+          it != repeat_id_map.end()) {
+        NVF_ERROR(it->second != nullptr);
         target_tv = post_dominator->as<TensorView>();
         break;
       }
