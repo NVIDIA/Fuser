@@ -938,6 +938,14 @@ void resetPeakMemoryStats(const c10::DeviceIndex device) {
   allocator->resetPeakStats(device);
 }
 
+void emptyCache() {
+  c10::cuda::CUDACachingAllocator::CUDAAllocator* allocator =
+      c10::cuda::CUDACachingAllocator::get();
+  NVF_CHECK(allocator != nullptr);
+
+  allocator->emptyCache();
+}
+
 namespace {
 // Stats like allocated_bytes comes as a size-3 array (cf.
 // https://github.com/pytorch/pytorch/blob/feb503c1df78afd46962ed04e446d6e88ac0522d/c10/core/Allocator.h#L365-L370).
