@@ -948,8 +948,13 @@ TEST_F(AliasTest, SourceIsBothInputAndOutput) {
   testValidate(
       executor_cache.fusion(), out_tensors, {in_tensor}, __LINE__, __FILE__);
 
-  EXPECT_EQ(in_tensor.data_ptr(), out_tensors[0].as<at::Tensor>().data_ptr());
-  EXPECT_EQ(in_tensor.data_ptr(), out_tensors[1].as<at::Tensor>().data_ptr());
+  EXPECT_TRUE(out_tensors[0].as<at::Tensor>().is_alias_of(in_tensor));
+  EXPECT_TRUE(out_tensors[1].as<at::Tensor>().is_alias_of(in_tensor));
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      ElementsAre(HeuristicIs(SchedulerType::ExprEval)));
 }
 
 TEST_F(AliasTest, ReuseBuffer) {
