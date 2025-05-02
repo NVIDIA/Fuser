@@ -298,7 +298,7 @@ class MoveRepeatForward {
   // necessary for the later move step.
   std::optional<
       std::pair<TensorView*, std::unordered_map<TensorView*, IterDomain*>>>
-  findMoveTarget(const scheduler_tools::StaticRepeatInfo& info) {
+  findMoveTarget(const StaticRepeatInfo& info) {
     auto reshape_output_tv = info.reshape_output_tv;
     auto all_exprs = DependencyCheck::getAllExprsBetween(
         {reshape_output_tv}, fusion_->outputs());
