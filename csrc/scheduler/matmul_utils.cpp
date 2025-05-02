@@ -405,8 +405,9 @@ bool fillDefaultHopperHeuristic(
   // the rasterization order, this is used to increase L2 locality. We start at
   // swizzled_tiles-1 because if we set the swizzle factor equal to the size of
   // the non-swizzled dimension that is equivalent to simply switching
-  // cta_order.
-  int grid_traversal_factor = std::max(1L, std::min(swizzled_tiles - 1L, 16L));
+  // cta_order. The largest possible divisor of an integer i is i/2, so we
+  // start our search there (or 16, whichever is smaller).
+  int grid_traversal_factor = std::max(1L, std::min(swizzled_tiles / 2L, 16L));
   while (grid_traversal_factor > 1 &&
          swizzled_tiles % grid_traversal_factor != 0) {
     // Decrease the swizzle factor if it would result in nondivisible splits,
