@@ -361,71 +361,89 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
         num_groups); // Some indices will be empty
   }
 
-  std::atomic<bool> detect_exception_in_thread_pool{false};
-  std::string thread_pool_error_message;
-  std::mutex thread_pool_error_message_mutex;
-  for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
-    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-
-    if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
+  if (isDebugDumpEnabled(DebugDumpOption::PythonDefinitionSegments)) {
+    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
+      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
       debug() << "Python definition for segmented group "
               << group_to_run->groupId() << ":" << std::endl;
       python_frontend::FusionDefinition fd(/*id=*/std::nullopt);
       python_frontend::translate(group_to_run->getFusion(), &fd);
       fd.print(debug());
     }
+  }
 
-    // TODO: index mode should be updated per segmented kernel
-    // Prepare input vector
-    auto group_runtime_inputs =
-        args_manager.translateValsToArgs(group_to_run->inputs());
-    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
-    if (group_cache_id.has_value()) {
-      group_runtime_inputs.setCacheId(group_cache_id.value());
-    }
+  std::atomic<bool> detect_exception_in_thread_pool{false};
+  std::string thread_pool_error_message;
+  std::mutex thread_pool_error_message_mutex;
 
-    if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
-      FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-      c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-      c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-      compileKernel(group_runtime_inputs, group_to_run, hic.get());
-    } else {
-      hir::HostIrContainer* hic_ptr = hic.get();
-      // launch compileKernel thread here
-      getThreadPool()->run([this,
-                            args,
-                            group_runtime_inputs,
-                            group_to_run,
-                            &detect_exception_in_thread_pool,
-                            &thread_pool_error_message,
-                            &thread_pool_error_message_mutex,
-                            hic_ptr]() {
+  // As we pass pointers taken from unique_ptrs to worker threads,
+  // exception handling needs to wait for the worker threads before
+  // cleaning up unique_ptr resources. This try-catch structure is
+  // ugly. Perhaps, we should reconsider passing unique_ptr-backed
+  // data between threads.
+  try {
+    for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
+      auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+
+      // TODO: index mode should be updated per segmented kernel
+      // Prepare input vector
+      auto group_runtime_inputs =
+          args_manager.translateValsToArgs(group_to_run->inputs());
+      group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
+      if (group_cache_id.has_value()) {
+        group_runtime_inputs.setCacheId(group_cache_id.value());
+      }
+
+      if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-        try {
-          c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-          c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
-          compileKernel(group_runtime_inputs, group_to_run, hic_ptr);
-        } catch (const std::exception& e) {
-          // Set flag inside lambda so we can throw an exception after thread
-          // pool completes its work.
-          detect_exception_in_thread_pool.store(true);
-          const std::lock_guard<std::mutex> lock(
-              thread_pool_error_message_mutex);
-          std::stringstream ss;
-          ss << thread_pool_error_message << "\nError from segmentation group "
-             << group_to_run->groupId() << ": " << e.what() << "\n";
-          thread_pool_error_message = ss.str();
-        }
-      });
+        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+        compileKernel(group_runtime_inputs, group_to_run, hic.get());
+      } else {
+        hir::HostIrContainer* hic_ptr = hic.get();
+        // launch compileKernel thread here
+        getThreadPool()->run([this,
+                              args,
+                              group_runtime_inputs,
+                              group_to_run,
+                              &detect_exception_in_thread_pool,
+                              &thread_pool_error_message,
+                              &thread_pool_error_message_mutex,
+                              hic_ptr]() {
+          FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+          try {
+            c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+            c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+            compileKernel(group_runtime_inputs, group_to_run, hic_ptr);
+          } catch (const std::exception& e) {
+            // Set flag inside lambda so we can throw an exception after thread
+            // pool completes its work.
+            detect_exception_in_thread_pool.store(true);
+            const std::lock_guard<std::mutex> lock(
+                thread_pool_error_message_mutex);
+            std::stringstream ss;
+            ss << thread_pool_error_message
+               << "\nError from segmentation group " << group_to_run->groupId()
+               << ": " << e.what() << "\n";
+            thread_pool_error_message = ss.str();
+          }
+        });
+      }
+
+      auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+      auto group_runtime_outputs =
+          inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+
+      // map output args to tensor map
+      args_manager.updateWithSegmentOutputs(
+          group_to_run->outputs(), group_runtime_outputs, run_order_id);
     }
-
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs =
-        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
-
-    // map output args to tensor map
-    args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+  } catch (const std::exception& e) {
+    // Before clearning up unique_ptr-backed resources such as
+    // SegmentedGroup, make sure all threads are done as they may
+    // be still using the resources.
+    getThreadPool()->waitWorkComplete();
+    throw;
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {
