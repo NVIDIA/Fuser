@@ -364,6 +364,51 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   return replacement_map;
 }
 
+namespace {
+
+class ValGraphBFSNoBroadcastDependency : public ValGraphBFS {
+ public:
+  ValGraphBFSNoBroadcastDependency(
+      const ValGraph& graph,
+      std::vector<NodeType> from_groups,
+      std::vector<NodeType> to_groups,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined)
+      : ValGraphBFS(
+            graph,
+            std::move(from_groups),
+            std::move(to_groups),
+            require_all_to_visited,
+            allowed_direction) {}
+
+  bool isDependencySatisfied(const NodeType& dependency) const override {
+    if (const ValGroup* v = std::get_if<ValGroup>(&dependency)) {
+      auto id = (*v)->front()->as<IterDomain>();
+      if (id->extent()->isOneInt()) {
+        return true;
+      }
+    }
+
+    return ValGraphBFS::isDependencySatisfied(dependency);
+  }
+
+  static std::pair<ValGraphBFS::ExprPath, bool> getExprGroupsBetween(
+      const ValGraph& graph,
+      const ValGroups& from,
+      const ValGroups& to,
+      bool require_all_to_visited = true,
+      Direction allowed_direction = Direction::Undefined) {
+    return getExprsBetween<ValGraphBFSNoBroadcastDependency>(
+        from.vector(),
+        to.vector(),
+        require_all_to_visited,
+        allowed_direction,
+        graph);
+  }
+};
+
+} // namespace
+
 std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
     const IndexingInfo& index_info,
     const Expr* expr) const {
@@ -491,16 +536,10 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
   }
 
   if (!exact_groups_to_predicate.empty()) {
-    ValGroups traversal_graph_groups_to_predicate;
-    for (const auto& exact_g : exact_groups_to_predicate) {
-      traversal_graph_groups_to_predicate.pushBack(
-          traversalGraph().toGroup(exact_g->front()));
-    }
-
-    const auto path = getAllExprGroupsBetween(
-                          traversalGraph(),
-                          traversalGraph().toGroups(index_info.loop_ids),
-                          traversal_graph_groups_to_predicate)
+    const auto path = ValGraphBFSNoBroadcastDependency::getExprGroupsBetween(
+                          exact_graph,
+                          exact_graph.toGroups(index_info.loop_ids),
+                          exact_groups_to_predicate)
                           .first;
 
     for (const auto& [expr_g, dir] : path) {
