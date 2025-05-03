@@ -463,6 +463,10 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
         bool inner_mapped = val_g->has(split->inner());
         bool outer_mapped = val_g->has(split->outer());
 
+        NVF_ERROR(
+            !inner_mapped || !outer_mapped,
+            "Both outputs of a split are mapped with the input");
+
         if (!inner_mapped && !outer_mapped) {
           continue;
         }
@@ -487,26 +491,17 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
   }
 
   if (!exact_groups_to_predicate.empty()) {
-    // IndexingTraversal::getExprsBetween requires iter domains
-    // appearing in the indexed tensor. That is due to the WAR for
-    // resize indexing, although it's unlikely that WAR is needed
-    // here.
-    std::vector<IterDomain*> index_ids;
-    index_ids.reserve(exact_groups_to_predicate.size());
-    const auto all_ids = ir_utils::getTvOutput(expr)->domain()->allIDs();
-    std::unordered_set<IterDomain*> all_id_set{all_ids.begin(), all_ids.end()};
-    for (const auto& exact_group : exact_groups_to_predicate) {
-      auto it = std::ranges::find_if(*exact_group, [&](Val* val) {
-        return all_id_set.contains(val->as<IterDomain>());
-      });
-      // Since this is predicate indexing, I believe the ID should always
-      // exist in the consumer tensor
-      NVF_ERROR(it != exact_group->end());
-      index_ids.push_back((*it)->as<IterDomain>());
+    ValGroups traversal_graph_groups_to_predicate;
+    for (const auto& exact_g : exact_groups_to_predicate) {
+      traversal_graph_groups_to_predicate.pushBack(
+          traversalGraph().toGroup(exact_g->front()));
     }
 
-    auto path = IndexingTraversal::getExprsBetween(
-        expr, exact_graph, index_info.loop_ids, index_ids);
+    const auto path = getAllExprGroupsBetween(
+                          traversalGraph(),
+                          traversalGraph().toGroups(index_info.loop_ids),
+                          traversal_graph_groups_to_predicate)
+                          .first;
 
     for (const auto& [expr_g, dir] : path) {
       auto split = dynamic_cast<Split*>(expr_g->front());
@@ -523,7 +518,7 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
         continue;
       }
 
-      std::cerr << "Non-divisible split\n";
+      std::cerr << "Non-divisible split: " << split->toString();
       splits_to_predicate.push_back(split);
     }
   }
