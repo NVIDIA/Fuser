@@ -293,4 +293,28 @@ TEST_F(AliasAnalysisTest, AliasForReshardingExprs) {
   EXPECT_TRUE(analysis.getRoot(out) == in);
 }
 
+TEST_F(AliasAnalysisTest, DidLoopSplit) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int kNumDevices = 4;
+  auto mesh = DeviceMesh::createForNumDevices(kNumDevices);
+
+  TensorView* in = makeContigConcreteTensor({-1, -1, 768});
+  TensorView* out = reshape(in, {mul(size(in, 0), size(in, 1)), size(in, 2)});
+
+  for (auto* tv : {in, out}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(-1, kNumDevices);
+    tv->axis(-2)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  fusion.addInput(in);
+  fusion.addOutput(out);
+
+  AliasAnalysisResult analysis = findAliases(&fusion);
+  EXPECT_TRUE(analysis.getRoot(out) == in);
+}
+
 } // namespace nvfuser
