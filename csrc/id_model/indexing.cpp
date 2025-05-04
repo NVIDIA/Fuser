@@ -535,30 +535,36 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
     }
   }
 
+  // std::cerr << "Additional split pred: " << expr->toString();
+  // std::cerr << "Loop: " << toDelimitedString(index_info.loop_ids) << "\n";
+
   if (!exact_groups_to_predicate.empty()) {
-    const auto path = ValGraphBFSNoBroadcastDependency::getExprGroupsBetween(
-                          exact_graph,
-                          exact_graph.toGroups(index_info.loop_ids),
-                          exact_groups_to_predicate)
-                          .first;
+    for (const auto& g : exact_groups_to_predicate) {
+      const auto path = ValGraphPermissiveBFS::getExprGroupsBetween(
+                            exact_graph,
+                            {g},
+                            exact_graph.toGroups(index_info.loop_ids),
+                            /*require_all_to_visited=*/false)
+                            .first;
 
-    for (const auto& [expr_g, dir] : path) {
-      auto split = dynamic_cast<Split*>(expr_g->front());
-      if (split == nullptr) {
-        continue;
+      for (const auto& [expr_g, dir] : path) {
+        auto split = dynamic_cast<Split*>(expr_g->front());
+        if (split == nullptr) {
+          continue;
+        }
+
+        auto extent = split->in()->extent();
+        auto factor = split->factor();
+        if (extent->isConstScalar() && factor->isConstScalar() &&
+            (extent->evaluate().as<int64_t>() %
+                 factor->evaluate().as<int64_t>() ==
+             0)) {
+          continue;
+        }
+
+        // std::cerr << "Non-divisible split: " << split->toString();
+        splits_to_predicate.push_back(split);
       }
-
-      auto extent = split->in()->extent();
-      auto factor = split->factor();
-      if (extent->isConstScalar() && factor->isConstScalar() &&
-          (extent->evaluate().as<int64_t>() %
-               factor->evaluate().as<int64_t>() ==
-           0)) {
-        continue;
-      }
-
-      std::cerr << "Non-divisible split: " << split->toString();
-      splits_to_predicate.push_back(split);
     }
   }
 
