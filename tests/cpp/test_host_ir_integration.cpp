@@ -186,17 +186,17 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
 
 TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   c10::DeviceIndex device_index = 0;
-  resetPeakMemoryStats(device_index);
   at::cuda::clearCublasWorkspaces();
   nvfuser::releaseZeroedMemory();
+  resetPeakMemoryStats(device_index);
   ASSERT_EQ(memoryAllocated(device_index), 0)
       << "Previous tests leaked memory.";
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  // Use 8x8 double tensors so each tensor is 512 bytes exactly, the minimum
-  // cache allocation size (avoid incorrect peak memory stat due to rounding)
+  // Use 8x8 double tensors so each tensor is >=512 bytes, the minimum cache
+  // allocation size (avoid incorrect peak memory stat due to rounding)
   std::vector<int64_t> input_shape{8, 8};
   auto in = TensorViewBuilder()
                 .ndims(input_shape.size())
