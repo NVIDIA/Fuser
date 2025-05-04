@@ -187,9 +187,6 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
 TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   c10::DeviceIndex device_index = 0;
   resetPeakMemoryStats(device_index);
-  // Clear cache to ensure we don't hit any block reuse logic that affects peak
-  // memory stats
-  emptyCache();
   at::cuda::clearCublasWorkspaces();
   nvfuser::releaseZeroedMemory();
   ASSERT_EQ(memoryAllocated(device_index), 0)
