@@ -178,7 +178,7 @@ void getHeuristics(
   // (1) heuristic selection
   // (2) max possible due to smem limitation
   iter_remaining = scheduler_utils::safeDiv(iter_remaining, n_stages);
-  int64_t heu_iter_unroll = std::min(2L, iter_remaining);
+  int64_t heu_iter_unroll = std::min(4L, iter_remaining);
   int64_t max_iter_unroll = max_n_copies / n_stages;
   rparams->unroll_factor_iter_dom = std::min(heu_iter_unroll, max_iter_unroll);
   NVF_ERROR(
@@ -397,7 +397,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // Step-1, propagate iteration domain in inner reduction.
   // Step-2, propagate reduction domain in inner reduction.
   if (rparams->tma_warp_specialized) {
-    if(rparams->compute_warp_groups == 1){
+    if (rparams->compute_warp_groups == 1) {
       // Find the axis that splits the reduction domain and iteration domain.
       int first_redu_axis = -1;
       int n_dims = (int)inner_reference_tv->nDims();
@@ -420,39 +420,55 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         MaxLogicalDomainInfoSpanningTree(inner_reference_tv, &selector)
             .traverse(&propagator);
       }
-    }else{
-      for(auto tv : tma_load_tvs) {
-        if(tv->nDims() == 1){
+    } else {
+      for (auto tv : tma_load_tvs) {
+        if (tv->nDims() == 1) {
           continue;
         }
-        if(rparams->unroll_factor_iter_dom > 1){
+        if (rparams->unroll_factor_iter_dom > 1) {
           tv->split(0, rparams->unroll_factor_iter_dom);
         }
         tv->split(0, rparams->lparams.gdimy());
-        tv->split(0, rparams->compute_warp_groups);
-        tv->axis(2)->parallelize(ParallelType::BIDy);
-        // [I, TIDy, BIDy, Unroll]
-        std::cout << "TMA tv: " << tv->toString() << std::endl;
-        std::unordered_map<int64_t, int64_t> reorder_map;
-        reorder_map[0] = 2;
-        reorder_map[1] = 1;
-        reorder_map[2] = 0;
-        tv->reorder(reorder_map);
-        // [BIDy, TIDy, I, Unroll]
-        std::cout << "TMA tv: " << tv->toString() << std::endl;
-        // tv->axis(1)->parallelize(ParallelType::BIDy);
-        // // [I, BIDy, Unroll]
-        // std::cout << "TMA tv: " << tv->toString() << std::endl;
-        // std::unordered_map<int64_t, int64_t> reorder_map;
-        // reorder_map[0] = 1;
-        // tv->reorder(reorder_map);
-        // // [BIDy, I, Unroll]
-        // std::cout << "TMA tv: " << tv->toString() << std::endl;        
+        if (true) {
+          tv->split(0, rparams->compute_warp_groups);
+          tv->axis(2)->parallelize(ParallelType::BIDy);
+          // [I, WarpGroup, BIDy, Unroll]
+          std::cout << "TMA tv: " << tv->toString() << std::endl;
+          std::unordered_map<int64_t, int64_t> reorder_map;
+          reorder_map[0] = 1;
+          reorder_map[1] = 2;
+          reorder_map[2] = 0;
+          tv->reorder(reorder_map);
+          // [BIDy, I, WarpGroup, Unroll]
+          std::cout << "TMA tv: " << tv->toString() << std::endl;
+
+        } else {
+          // [I, BIDy, Unroll]
+          tv->axis(1)->parallelize(ParallelType::BIDy);
+          std::cout << "TMA tv: " << tv->toString() << std::endl;
+          std::unordered_map<int64_t, int64_t> reorder_map;
+          reorder_map[0] = 1;
+          tv->reorder(reorder_map);
+          // [BIDy, I, Unroll]
+          std::cout << "TMA tv: " << tv->toString() << std::endl;
+          std::unordered_map<int64_t, int64_t> reorder_map2;
+          reorder_map2[1] = 3;
+          //[BIDy, TIDy, I, Unroll] --> [BIDy, I, TIDy, Unroll]
+          inner_reference_tv->reorder(reorder_map2);
+          std::cout << "inner_reference_tv: " << inner_reference_tv->toString()
+                    << std::endl;
+        }
       }
-      // std::unordered_map<int64_t, int64_t> reorder_map;
-      // reorder_map[1] = 3;
-      // //[BIDy, TIDy, I, Unroll] --> [BIDy, I, TIDy, Unroll]
-      // inner_reference_tv->reorder(reorder_map);
+
+      // reduction reference
+      std::cout << "inner_reference_tv: " << inner_reference_tv->toString()
+                << std::endl;
+      std::unordered_map<int64_t, int64_t> reorder_map2;
+      reorder_map2[1] = 2;
+      //[BIDy, WarpGroup, I, Unroll] --> [BIDy, I, WarpGroup, Unroll]
+      inner_reference_tv->reorder(reorder_map2);
+      std::cout << "inner_reference_tv: " << inner_reference_tv->toString()
+                << std::endl;
     }
 
     // Step-2, propagate reduction domain in inner reduction.
@@ -502,6 +518,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // parallelization propagation
   auto selected_tvs_inner =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
+  for (auto tv : tma_load_tvs) {
+    selected_tvs_inner.erase(tv);
+  }
+
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           inner_reference_tv, is_vectorize, cached_inputs, cached_outputs);
@@ -513,14 +533,14 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
-    if(rparams->compute_warp_groups > 1){
-      for(auto tv : tma_load_tvs) {
-        if(tv->nDims() == 1){
-          continue;
-        }
-        tv->axis(1)->parallelize(ParallelType::Serial);
+  if (rparams->compute_warp_groups > 1) {
+    for (auto tv : tma_load_tvs) {
+      if (tv->nDims() == 1) {
+        continue;
       }
+      tv->axis(1)->parallelize(ParallelType::Serial);
     }
+  }
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
@@ -621,7 +641,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // [Bulk]
     // Set inline position after BIDy, so all the unrolled TMA loads
     // share the same barrier.
-    int64_t tma_inline_pos = 2;//rparams->compute_warp_groups == 1 ? 2 : 3;
+    int64_t tma_inline_pos = 2; // rparams->compute_warp_groups == 1 ? 2 : 3;
     for (auto tv : tma_load_tvs) {
       if (tv->nDims() >= tma_inline_pos + 1) {
         tv_inline_pos_map.emplace(tv, tma_inline_pos);

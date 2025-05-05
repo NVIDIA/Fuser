@@ -496,14 +496,14 @@ void GpuLower::analysis(Fusion* fusion) {
 
   // New IterDomains may be created, so it is expected that generated
   // code may use diffrent variable names
-  // if (idModelOptions().buildIdModel()) {
-  //   id_model_ = std::make_unique<IdModel>(
-  //       fusion_,
-  //       /*build_graphs=*/true,
-  //       /*allow_self_mapping=*/false,
-  //       /*validate=*/false);
-  //   id_model_->validateAndPropagatePType();
-  // }
+  if (idModelOptions().buildIdModel()) {
+    id_model_ = std::make_unique<IdModel>(
+        fusion_,
+        /*build_graphs=*/true,
+        /*allow_self_mapping=*/false,
+        /*validate=*/false);
+    // id_model_->validateAndPropagatePType();
+  }
 
   // Build what's refered to as the compute at map. This map contains the
   // mappings of all iteration domains across the fusion. There are three types
