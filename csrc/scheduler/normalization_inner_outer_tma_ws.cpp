@@ -440,7 +440,19 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         tv->reorder(reorder_map);
         // [BIDy, TIDy, I, Unroll]
         std::cout << "TMA tv: " << tv->toString() << std::endl;
+        // tv->axis(1)->parallelize(ParallelType::BIDy);
+        // // [I, BIDy, Unroll]
+        // std::cout << "TMA tv: " << tv->toString() << std::endl;
+        // std::unordered_map<int64_t, int64_t> reorder_map;
+        // reorder_map[0] = 1;
+        // tv->reorder(reorder_map);
+        // // [BIDy, I, Unroll]
+        // std::cout << "TMA tv: " << tv->toString() << std::endl;        
       }
+      // std::unordered_map<int64_t, int64_t> reorder_map;
+      // reorder_map[1] = 3;
+      // //[BIDy, TIDy, I, Unroll] --> [BIDy, I, TIDy, Unroll]
+      // inner_reference_tv->reorder(reorder_map);
     }
 
     // Step-2, propagate reduction domain in inner reduction.
@@ -609,7 +621,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // [Bulk]
     // Set inline position after BIDy, so all the unrolled TMA loads
     // share the same barrier.
-    int64_t tma_inline_pos = rparams->compute_warp_groups == 1 ? 2 : 3;
+    int64_t tma_inline_pos = 2;//rparams->compute_warp_groups == 1 ? 2 : 3;
     for (auto tv : tma_load_tvs) {
       if (tv->nDims() >= tma_inline_pos + 1) {
         tv_inline_pos_map.emplace(tv, tma_inline_pos);
