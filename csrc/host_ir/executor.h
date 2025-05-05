@@ -83,7 +83,7 @@ class HostIrEvaluator final : public OptOutDispatch {
  public:
   HostIrEvaluator(
       std::unique_ptr<HostIrContainer> container,
-      Communicator* communicator = nullptr,
+      Communicator* communicator = &Communicator::getInstance(),
       HostIrEvaluatorParams = HostIrEvaluatorParams());
 
   KernelArgumentHolder runWithInput(
@@ -138,10 +138,11 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(MatmulOp* matmul) override;
   void handle(LinearOp* linear) override;
   void handle(kir::Allocate* allocate) override;
-  void handle(ShareMemHandles* share_mem_handles) override;
   void handle(LoadStoreOp* load_store_op) override;
   void handle(BinaryOp* binary_op) override;
   void handle(ReductionOp* reduction_op) override;
+  void handle(ShareMemHandles* share_mem_handles) override;
+  void handle(HirAliasSelect* hir_alias_select) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);
@@ -149,14 +150,14 @@ class HostIrEvaluator final : public OptOutDispatch {
   Val* getAlias(Val* val) const {
     const auto& aliases = container_->alias();
     auto it = aliases.find(val);
-    return it != aliases.end() ? it->second : val;
+    return it != aliases.end() ? getAlias(it->second) : val;
   }
 
   bool isKnown(Val* value) const {
     return expr_evaluator_.isKnown(getAlias(value));
   }
 
-  PolymorphicValue getKnownConcreteData(Val* val) const {
+  PolymorphicValue getKnownConcreteValue(Val* val) const {
     NVF_ERROR(
         isKnown(val),
         "value ",

@@ -31,11 +31,17 @@ const T& fromBytes(const std::vector<uint8_t>& bytes) {
 using IpcTest = MultiDeviceTest;
 
 TEST_F(IpcTest, IpcMemHandle) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
 #ifdef NVFUSER_DISTRIBUTED
   // Allocate and setup GPU buffers
   constexpr size_t kBufferSize = sizeof(int64_t);
   const int64_t num_devices = communicator_->size();
   const int64_t rank = communicator_->deviceId();
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
   void* d_ptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, kBufferSize));
   const int64_t value = rank;
@@ -75,6 +81,9 @@ TEST_F(IpcTest, IpcMemHandle) {
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
 #ifdef NVFUSER_DISTRIBUTED
   // TL;DR: We can do pointer arithmetic on the importer side. IOW, the pointer
   // can be used as a regular pointer on the importer side.
@@ -84,6 +93,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
   const int64_t num_devices = communicator_->size();
   const int64_t rank = communicator_->deviceId();
   const int64_t peer_rank = (rank + 1) % num_devices;
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
   void* d_ptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, kBufferSize));
 
@@ -125,6 +137,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtReceiver) {
 }
 
 TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
+  if (communicator_->size() == 1) {
+    GTEST_SKIP() << "Skipping test for single device";
+  }
 #ifdef NVFUSER_DISTRIBUTED
   // TL;DR: We CANNOT do pointer arithmetic on the exporter side! The IPC handle
   // points to the beginning of the allocated buffer.
@@ -134,6 +149,9 @@ TEST_F(IpcTest, IpcMemHandlePtrArithmeticAtSender) {
   const int64_t num_devices = communicator_->size();
   const int64_t rank = communicator_->deviceId();
   const int64_t peer_rank = (rank + 1) % num_devices;
+
+  NVFUSER_CUDA_RT_SAFE_CALL(cudaSetDevice(rank));
+
   int64_t* d_ptr;
   NVFUSER_CUDA_RT_SAFE_CALL(cudaMalloc(&d_ptr, kBufferSize));
 

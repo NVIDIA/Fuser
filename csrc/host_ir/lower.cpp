@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
@@ -20,7 +21,6 @@
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
 #include <preseg_passes/reorder_sharded_axis.h>
-#include <preseg_passes/stream_parallel_type.h>
 #include <runtime/fusion_kernel_runtime.h>
 #include <limits>
 
@@ -64,25 +64,42 @@ bool HostIrLower::canLower(Expr* expr, bool ignore_inner_resharding) {
   return false;
 }
 
-bool HostIrLower::isLoweredAsStandaloneHostOp(Expr* expr) {
-  return expr->isOneOf<
-      MatmulOp,
-      SliceOp,
-      SelectOp,
-      LinearOp,
-      LoadStoreOp,
-      BinaryOp,
-      ReductionOp,
-      Communication,
-      P2PCommunication>();
+bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
+  if (expr->isOneOf<
+          MatmulOp,
+          SliceOp,
+          SelectOp,
+          LinearOp,
+          BinaryOp,
+          ReductionOp,
+          Communication,
+          P2PCommunication>()) {
+    return true;
+  }
+
+  // Lower as standalone op "set" ops, i.e., LoadStoreOp of "Set" type with no
+  // permute
+  if (expr->isA<LoadStoreOp>()) {
+    auto* load_store = expr->as<LoadStoreOp>();
+    if (load_store->opType() == LoadStoreOpType::Set &&
+        load_store->out()->isA<TensorView>()) {
+      auto* tv = load_store->out()->as<TensorView>();
+      // If the output tensor has no root, it means it has no permute
+      if (!tv->hasRoot()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
-bool HostIrLower::ShouldMergeSegmentedGroups(
+bool HostIrLower::shouldMergeSegmentedGroups(
     SegmentedGroup* group1,
     SegmentedGroup* group2) {
   for (auto group : {group1, group2}) {
-    for (auto expr : group->exprs()) {
-      if (isLoweredAsStandaloneHostOp(expr)) {
+    for (Expr* expr : group->exprs()) {
+      if (isLowerableAsStandaloneHostOp(expr)) {
         return false;
       }
     }
@@ -113,7 +130,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       .run_combine_reductions = false,
       .run_herrmann_merge = true,
       .run_final_merge = true,
-      .custom_should_merge_groups = &ShouldMergeSegmentedGroups};
+      .custom_should_merge_groups = &shouldMergeSegmentedGroups};
   std::unique_ptr<SegmentedFusion> staged_fusion =
       SegmentCandidateFinder::segment(
           std::move(fusion), KernelArgumentHolder(), options, true);
@@ -148,7 +165,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     if (std::all_of(
             group->exprs().begin(),
             group->exprs().end(),
-            isLoweredAsStandaloneHostOp)) {
+            isLowerableAsStandaloneHostOp)) {
       NVF_ERROR(
           group->exprs().size() == 1,
           "Expr executed as a standalone op cannot be fused");
@@ -169,10 +186,13 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   }
 
   for (auto tv : hic->allTvs()) {
+    // set all host tensors to global memory type. This must be the case by
+    // definition of a host tensor, and setting the memory type to global is
+    // also required to avoid Allocate HIR nodes to throw
     tv->setMemoryType(MemoryType::Global);
   }
 
-  preseg_passes::OptimizationPass<preseg_passes::StreamParallelType>::runPass(
+  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(
       hic.get());
 
   preseg_passes::ConvertOpToCommunication::setParams(params_);

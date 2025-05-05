@@ -129,7 +129,7 @@ TEST_P(HostIrTest, SingleFusion) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -139,7 +139,7 @@ TEST_P(HostIrTest, SingleFusion) {
   auto outputs = hie.runWithInput({{post_on_stream->inputs().at(0), t0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -226,7 +226,7 @@ TEST_P(HostIrTest, TwoFusions) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, std::move(params));
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -236,7 +236,7 @@ TEST_P(HostIrTest, TwoFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
+  EXPECT_TRUE(torch::allclose(ref_output, outputs[0].as<at::Tensor>()));
 }
 
 /*
@@ -349,7 +349,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   // FusionExecutorCache
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, std::move(params));
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), std::move(params));
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -365,7 +365,7 @@ TEST_P(HostIrTest, ThreeFusions) {
   auto outputs = hie.runWithInput({{post_on_stream_0->inputs().at(0), t0_0}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(t2_2, outputs[0].as<at::Tensor>()));
+  EXPECT_TRUE(torch::allclose(t2_2, outputs[0].as<at::Tensor>()));
 }
 
 // This unit test the for-loop IR by implementing a program that could be
@@ -439,7 +439,7 @@ TEST_P(HostIrTest, ForLoops) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), /*communicator=*/nullptr, params);
+  HostIrEvaluator hie(std::move(hic), /*communicator=*/&Communicator::getInstance(), params);
 
   auto options = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   at::Tensor buffer_at = torch::tensor({kInitialValue}, options);
@@ -495,7 +495,7 @@ TEST_P(HostIrTest, PreAllocatedOutputs) {
   HostIrEvaluatorParams params;
   auto [use_fusion_executor_cache] = GetParam();
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -508,7 +508,7 @@ TEST_P(HostIrTest, PreAllocatedOutputs) {
        {post_on_stream->outputs().at(0), output}});
 
   // validate the obtained results
-  GTEST_EXPECT_TRUE(torch::allclose(ref_output, output))
+  EXPECT_TRUE(torch::allclose(ref_output, output))
       << "Output: " << output << " Expected: " << ref_output;
 }
 
@@ -708,7 +708,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
   // [Step 8)] Evaluate the Host program
   HostIrEvaluatorParams params;
   params.use_fusion_executor_cache = use_fusion_executor_cache;
-  HostIrEvaluator hie(std::move(hic), nullptr, params);
+  HostIrEvaluator hie(std::move(hic), &Communicator::getInstance(), params);
 
   // define concrete inputs and compute ref output for validation
   auto options = at::TensorOptions().device(at::kCUDA, 0);
@@ -724,7 +724,7 @@ TEST_P(StreamHostIrTest, SingleFusionMultipleStreams) {
 
   // validate the obtained results
   for (int i = 0; i < n_iterations; i++) {
-    GTEST_EXPECT_TRUE(torch::allclose(ref_output, outputs[i].as<at::Tensor>()));
+    EXPECT_TRUE(torch::allclose(ref_output, outputs[i].as<at::Tensor>()));
   }
   EXPECT_NE(
       c10::cuda::getDefaultCUDAStream(0), c10::cuda::getCurrentCUDAStream(0));
@@ -1262,6 +1262,37 @@ TEST_F(HirAlias, SetAndGet) {
       << "Expected output: " << expected_out;
 }
 
+TEST_F(HirAlias, SetAndGetReversedOrder) {
+  const std::vector<int64_t> sizes = {8, 64};
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* tv0 = makeConcreteTensor(sizes);
+  TensorView* tv1 = set(tv0);
+  TensorView* tv2 = makeConcreteTensor(sizes);
+  TensorView* tv3 = set(tv2);
+  TensorView* tv4 = makeConcreteTensor(sizes);
+  hic->markAlias(tv3, tv4);
+  hic->markAlias(tv1, tv2);
+  hic->addInput(tv0);
+  hic->addOutput(tv4);
+  hic->pushBackTopLevelExprs(tv1->definition());
+  hic->pushBackTopLevelExprs(tv3->definition());
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor tv0_aten = at::randn(sizes, options);
+
+  at::Tensor out_aten = hie.runWithInput({{tv0, tv0_aten}})[0].as<at::Tensor>();
+
+  at::Tensor expected_out = tv0_aten;
+  EXPECT_TRUE(out_aten.equal(expected_out))
+      << "Obtained output: " << out_aten << "\n"
+      << "Expected output: " << expected_out;
+}
+
 TEST_F(HirAlias, ThrowOnInputAlias) {
   const std::vector<int64_t> sizes = {8, 64};
 
@@ -1454,6 +1485,44 @@ TEST_F(HirReductionOpTest, NonPreAllocatedOutputs) {
   EXPECT_TRUE(expected_out.equal(out_aten))
       << "Obtained output: " << out_aten << "\n"
       << "Expected output: " << expected_out;
+}
+
+using HirAliasSelectHostIrTest = NVFuserTest;
+
+TEST_F(HirAliasSelectHostIrTest, SelectingTensor) {
+  constexpr int64_t ndims = 2;
+  constexpr int64_t dim = 1;
+  constexpr int64_t index = 3;
+  const std::vector<int64_t> input_sizes = {32, 32};
+
+  ASSERT_LT(dim, ndims);
+  ASSERT_EQ(input_sizes.size(), ndims);
+  ASSERT_LT(index, input_sizes.at(dim));
+
+  auto hic = std::make_unique<HostIrContainer>();
+  FusionGuard fg(hic.get());
+
+  TensorView* in = makeContigTensor(ndims);
+  TensorView* out = makeContigTensor(ndims - 1);
+  auto* index_val = IrBuilder::create<Val>(index, DataType::Index);
+  auto* select_op = IrBuilder::create<HirAliasSelect>(in, out, dim, index_val);
+
+  hic->addInput(in);
+  hic->addOutput(out);
+  hic->pushBackTopLevelExprs(select_op);
+
+  HostIrEvaluator hie(std::move(hic));
+
+  auto options = at::TensorOptions().device(at::kCUDA, 0).dtype(torch::kFloat);
+  auto in_aten = at::randn(input_sizes, options);
+  std::unordered_map<Val*, PolymorphicValue> concrete_input_buffers = {
+      {in, in_aten}};
+
+  auto out_aten = hie.runWithInput(concrete_input_buffers)[0].as<at::Tensor>();
+
+  // validate
+  auto ref_out = in_aten.select(dim, index);
+  EXPECT_TRUE(ref_out.equal(out_aten));
 }
 
 } // namespace hir

@@ -329,7 +329,7 @@ void HostIrEvaluator::handle(Synchronize* synchronize) {
 void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   KernelArgumentHolder args;
   for (auto& input : launch_kernel->inputs()) {
-    args.push(getKnownConcreteData(input));
+    args.push(getKnownConcreteValue(input));
   }
   args.setDeviceIndex();
 
@@ -343,7 +343,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
               launch_kernel->compile_params());
 
   // Store the outputs in the context
-  for (auto output_idx : c10::irange(outputs.size())) {
+  for (auto output_idx : arange(outputs.size())) {
     bind(launch_kernel->outputs().at(output_idx), outputs[output_idx]);
   }
 }
@@ -351,7 +351,7 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
   KernelArgumentHolder input_args;
   for (auto& input : post_ir->inputs()) {
-    input_args.push(getKnownConcreteData(input));
+    input_args.push(getKnownConcreteValue(input));
   }
   input_args.setDeviceIndex();
   // placeholder for storing the outputs
@@ -370,7 +370,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
       post_ir);
   if (use_preallocated_outputs) {
     for (auto output : post_ir->outputs()) {
-      outputs.push(getKnownConcreteData(output));
+      outputs.push(getKnownConcreteValue(output));
     }
   }
 
@@ -433,7 +433,7 @@ void HostIrEvaluator::handle(PostOnStream* post_ir) {
 
   if (!use_preallocated_outputs) {
     // Store the outputs in the context
-    for (auto output_idx : c10::irange(outputs.size())) {
+    for (auto output_idx : arange(outputs.size())) {
       bind(post_ir->outputs().at(output_idx), outputs[output_idx]);
     }
   }
@@ -601,9 +601,9 @@ void HostIrEvaluator::handle(MatmulOp* matmul) {
   TensorView* out = matmul->out();
 
   if (isKnown(out)) {
-    auto t_a = getKnownConcreteData(a).as<at::Tensor>();
-    auto t_b = getKnownConcreteData(b).as<at::Tensor>();
-    auto t_out = getKnownConcreteData(out).as<at::Tensor>();
+    auto t_a = getKnownConcreteValue(a).as<at::Tensor>();
+    auto t_b = getKnownConcreteValue(b).as<at::Tensor>();
+    auto t_out = getKnownConcreteValue(out).as<at::Tensor>();
     at::matmul_out(t_out, t_a, t_b);
   } else {
     unhandled(matmul);
@@ -621,12 +621,12 @@ void HostIrEvaluator::handle(LinearOp* linear) {
     return;
   }
 
-  auto in_at = getKnownConcreteData(in).as<at::Tensor>();
-  auto weight_at = getKnownConcreteData(weight).as<at::Tensor>();
-  auto out_at = getKnownConcreteData(out).as<at::Tensor>();
+  auto in_at = getKnownConcreteValue(in).as<at::Tensor>();
+  auto weight_at = getKnownConcreteValue(weight).as<at::Tensor>();
+  auto out_at = getKnownConcreteValue(out).as<at::Tensor>();
 
   if (linear->has_bias()) {
-    auto bias_at = getKnownConcreteData(bias).as<at::Tensor>();
+    auto bias_at = getKnownConcreteValue(bias).as<at::Tensor>();
     at::linear_out(out_at, in_at, weight_at.squeeze(), bias_at.squeeze());
   } else {
     at::linear_out(out_at, in_at, weight_at.squeeze());
@@ -635,25 +635,23 @@ void HostIrEvaluator::handle(LinearOp* linear) {
 
 void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   NVF_ERROR(
+      load_store_op->opType() == LoadStoreOpType::Set,
+      "LoadStoreOp must be a Set");
+  NVF_ERROR(
       load_store_op->out()->isA<TensorView>(), "out must be a TensorView");
   auto* out_tv = load_store_op->out()->as<TensorView>();
-  auto in_tensor = getKnownConcreteData(load_store_op->in()).as<at::Tensor>();
+  auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
 
-  // If output has root domain, compute and apply permutation
-  if (out_tv->hasRoot()) {
-    auto permutation = ir_utils::computePermutation(
-        out_tv->getRootDomain(), out_tv->getLogicalDomain());
-    NVF_ERROR(
-        permutation.has_value(),
-        "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
-        out_tv->toString());
-    in_tensor = in_tensor.permute(*permutation).contiguous();
-  }
+  // If output has root domain, it means that the set op is a permute, which we
+  // don't support currently
+  NVF_ERROR(
+      !out_tv->hasRoot(), "the set op", load_store_op, "must not be a permute");
+
   if (!isKnown(load_store_op->out())) {
     bind(load_store_op->out(), in_tensor);
   } else {
     auto out_tensor =
-        getKnownConcreteData(load_store_op->out()).as<at::Tensor>();
+        getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
     out_tensor.copy_(in_tensor);
   }
 }
@@ -686,10 +684,10 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
     return unhandled(binary_op);
   }
 
-  auto lhs = getKnownConcreteData(binary_op->inputs().at(0)).as<at::Tensor>();
-  auto rhs = getKnownConcreteData(binary_op->inputs().at(1)).as<at::Tensor>();
+  auto lhs = getKnownConcreteValue(binary_op->inputs().at(0)).as<at::Tensor>();
+  auto rhs = getKnownConcreteValue(binary_op->inputs().at(1)).as<at::Tensor>();
   auto output =
-      getKnownConcreteData(binary_op->outputs().at(0)).as<at::Tensor>();
+      getKnownConcreteValue(binary_op->outputs().at(0)).as<at::Tensor>();
 
   switch (binary_op->getBinaryOpType()) {
     case BinaryOpType::Add:
@@ -705,8 +703,7 @@ void HostIrEvaluator::handle(BinaryOp* binary_op) {
       at::div_out(output, lhs, rhs);
       break;
     default:
-      NVF_CHECK(
-          false,
+      NVF_THROW(
           "Unexpected operator type: ",
           binary_op->getBinaryOpType(),
           " in ",
@@ -724,8 +721,8 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   NVF_ERROR(
       !output_tv->hasRoot(),
       "Evaluation for rFactored reductions is not supported.");
-  auto input = getKnownConcreteData(input_tv).as<at::Tensor>();
-  auto output = getKnownConcreteData(output_tv).as<at::Tensor>();
+  auto input = getKnownConcreteValue(input_tv).as<at::Tensor>();
+  auto output = getKnownConcreteValue(output_tv).as<at::Tensor>();
 
   std::vector<int64_t> reduction_axes;
   for (const auto i :
@@ -746,13 +743,21 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
       at::amin_out(output, input, reduction_axes);
       return;
     default:
-      NVF_CHECK(
-          false,
+      NVF_THROW(
           "Unexpected operator type: ",
           reduction_op->getReductionOpType(),
           " in ",
           reduction_op);
   }
+}
+
+void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
+  auto index =
+      expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
+                   .as<at::Tensor>();
+  int64_t axis = hir_alias_select->axis();
+  bind(hir_alias_select->out(), input.select(axis, index));
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {
@@ -762,7 +767,7 @@ void HostIrEvaluator::unhandled(Statement* stmt) {
   for (auto input : expr->inputs()) {
     if (input->isA<TensorView>()) {
       // Tensor inputs must be already computed at this point
-      inputs.push_back(getKnownConcreteData(input));
+      inputs.push_back(getKnownConcreteValue(input));
     } else {
       inputs.push_back(expr_evaluator_.evaluate(input));
     }
