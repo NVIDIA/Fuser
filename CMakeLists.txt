@@ -632,7 +632,7 @@ list(APPEND JIT_TEST_SRCS
 )
 
 if(BUILD_TEST)
-  set(RNG_TEST_KERNELS "${NVFUSER_TESTS}_kernels")
+  set(RNG_TEST_KERNELS "rng_test_kernels")
   add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/rng_kernels.cu)
 
   # CUDA 11 does not support C++20, so hard code C++17 here
