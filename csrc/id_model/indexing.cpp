@@ -553,6 +553,10 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
           continue;
         }
 
+        if (dir == Direction::Backward) {
+          continue;
+        }
+
         auto extent = split->in()->extent();
         auto factor = split->factor();
         if (extent->isConstScalar() && factor->isConstScalar() &&
