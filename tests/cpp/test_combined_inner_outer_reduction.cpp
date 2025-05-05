@@ -970,8 +970,9 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
 
   SchedulerRuntimeInfo runtime_info(&fusion, {t0});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeSchedulerInstance(
       SchedulerType::InnerOuterPersistent);
   auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
@@ -1308,4 +1309,171 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_hidden_" << std::get<3>(info.param);
       return sanitizeTestName(ss.str());
     });
+
+TEST_F(CombinedSchedulerTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const int dim0 = 4 * 132 * 2 * 3;
+  const int dim1 = 128;
+  // auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, tv2);
+  fusion.addOutput(tv3);
+
+  Fusion fusion_copy = fusion;
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 4);
+    tv->split(0, 132);
+    tv->split(0, 2);
+    // [I, 2, 132, 4]
+    tv->axis(0)->parallelize(ParallelType::Serial);
+    tv->axis(1)->parallelize(ParallelType::TIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
+    tv->axis(3)->parallelize(ParallelType::Serial);
+    tv->axis(4)->parallelize(ParallelType::TIDx);
+    if (tv == tv1) {
+      tv->axis(1)->parallelize(ParallelType::Serial);
+      tv->axis(4)->parallelize(ParallelType::Bulk);
+    }
+  }
+  // [I, 2, 132, 4] --> [132, I, 2, 4]
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map[0] = 1;
+  reorder_map[1] = 2;
+  reorder_map[2] = 0;
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->reorder(reorder_map);
+  }
+  fusion.printMath();
+
+  // (1) If tv1 compute at 2:
+  // T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 2 )
+  // The same barrier is used for 2 x 4 TMA loads indicating 2 compute warp groups are synced.
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // After removeTensorProducerAliases:
+  // T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 2 )
+  //    = CpAsyncBulk( T0_g_float[iS0{3168}, iS1{128}] )
+  // T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 2 )
+  //    = Set( T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 2 ), cache_op=Streaming )
+  // T3_g_float[iblockIdx.y23{132}, iS24{3}, ithreadIdx.y25{2}, iS21{4}, ithreadIdx.x7{128}] produce_pos( 3 )
+  //    = T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 2 )
+  //    + T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 2 );
+  // After LoopNestGenerator:
+  // FOR blockIdx.y in iblockIdx.y23{132}:
+  //   FOR i128 in iS24{3}:
+  //     FOR i121 in iS13{2}:
+  //       FOR i120 in iS9{4}:
+  //         FOR i119 in iB3{128}:
+  //           T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 2 )
+  //              = CpAsyncBulk( T0_g_float[iS0{3168}, iS1{128}] )
+  //     FOR threadIdx.y in ithreadIdx.y25{2}:
+  //       FOR i122 in iS15{4}:
+  //         FOR threadIdx.x in ithreadIdx.x5{128}:
+  //           T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 2 )
+  //              = Set( T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 2 ), cache_op=Streaming )
+  //       FOR i123 in iS21{4}:
+  //         FOR threadIdx.x in ithreadIdx.x7{128}:
+  //           T3_g_float[iblockIdx.y23{132}, iS24{3}, ithreadIdx.y25{2}, iS21{4}, ithreadIdx.x7{128}] produce_pos( 3 )
+  //              = T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 2 )
+  //              + T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 2 );
+  //-cuda-code--cuda-code--cuda-code--cuda-code--cuda-code--cuda-code--cuda-code--cuda-code--cuda-code--cuda-code--cuda-code--cuda-code-
+  // if ((Hopper::electSync(4294967295U) && b5)) {
+  //   mbarrier::waitParity(toSmem((&T4[((i11 % 2) + 2LL)])), (uint32_t)(((i11 / 2) % 2)));
+  //   mbarrier::arriveExpectTX(toSmem((&T4[(i11 % 2)])), 4096U);
+  //   #pragma unroll
+  //   for(nvfuser_index_t i14 = 0; i14 < 2; ++i14) {
+  //     #pragma unroll
+  //     for(nvfuser_index_t i17 = 0; i17 < 4; ++i17) {
+  //       Hopper::cpAsyncBulkG2S((Hopper::CpAsyncBulkG2SIndex{ (ptr15 + (128 * i17)), 512U, toSmem((&T4[(i11 % 2)])) }), (i16 + (512 * i17)));
+  //     }
+  //   }
+  // }  
+  // (2) If tv1 compute at 3:
+  // validation error. why?
+  // T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 3 )
+  // In LoopNestGenerator, iS13{2} is mapped to loop domain ithreadIdx.y25{2}:
+  // //////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  // After removeTensorProducerAliases:
+  // T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 3 )
+  //    = CpAsyncBulk( T0_g_float[iS0{3168}, iS1{128}] )
+  // T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+  //    = Set( T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 3 ), cache_op=Streaming )
+  // T3_g_float[iblockIdx.y23{132}, iS24{3}, ithreadIdx.y25{2}, iS21{4}, ithreadIdx.x7{128}] produce_pos( 3 )
+  //    = T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+  //    + T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 );
+  // After LoopNestGenerator:
+  // FOR blockIdx.y in iblockIdx.y23{132}:
+  //   FOR i126 in iS24{3}:
+  //     FOR threadIdx.y in ithreadIdx.y25{2}:
+  //       FOR i119 in iS9{4}:
+  //         FOR i118 in iB3{128}:
+  //           T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 3 )
+  //              = CpAsyncBulk( T0_g_float[iS0{3168}, iS1{128}] )
+  //       FOR i120 in iS15{4}:
+  //         FOR threadIdx.x in ithreadIdx.x5{128}:
+  //           T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+  //              = Set( T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 3 ), cache_op=Streaming )
+  //       FOR i121 in iS21{4}:
+  //         FOR threadIdx.x in ithreadIdx.x7{128}:
+  //           T3_g_float[iblockIdx.y23{132}, iS24{3}, ithreadIdx.y25{2}, iS21{4}, ithreadIdx.x7{128}] produce_pos( 3 )
+  //              = T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+  //              + T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 );
+  inlineSelectedAt({tv1}, tv2, 3);
+  // T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+  inlineSelectedAt({tv2}, tv2, 3);
+
+  tv1->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser
+
+//   After removeTensorProducerAliases:
+// T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}] ca_pos( 3
+// )
+//    = CpAsyncBulk( T0_g_float[iS0{3168}, iS1{128}] )
+// T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4},
+// ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+//    = Set( T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}]
+//    ca_pos( 3 ), cache_op=Streaming )
+// T3_g_float[iblockIdx.y23{132}, iS24{3}, ithreadIdx.y25{2}, iS21{4},
+// ithreadIdx.x7{128}] produce_pos( 3 )
+//    = T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4},
+//    ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+//    + T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4},
+//    ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 );
+// After LoopNestGenerator:
+// FOR blockIdx.y in iblockIdx.y23{132}:
+//   FOR i126 in iS24{3}:
+//     FOR threadIdx.y in ithreadIdx.y25{2}:
+//       FOR i119 in iS9{4}:
+//         FOR i118 in iB3{128}:
+//           T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4}, iB3{128}]
+//           ca_pos( 3 )
+//              = CpAsyncBulk( T0_g_float[iS0{3168}, iS1{128}] )
+//       FOR i120 in iS15{4}:
+//         FOR threadIdx.x in ithreadIdx.x5{128}:
+//           T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2}, iS15{4},
+//           ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+//              = Set( T1_s_float[iblockIdx.y11{132}, iS12{3}, iS13{2}, iS9{4},
+//              iB3{128}] ca_pos( 3 ), cache_op=Streaming )
+//       FOR i121 in iS21{4}:
+//         FOR threadIdx.x in ithreadIdx.x7{128}:
+//           T3_g_float[iblockIdx.y23{132}, iS24{3}, ithreadIdx.y25{2}, iS21{4},
+//           ithreadIdx.x7{128}] produce_pos( 3 )
+//              = T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2},
+//              iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 )
+//              + T2_l_float[iblockIdx.y17{132}, iS18{3}, ithreadIdx.y19{2},
+//              iS15{4}, ithreadIdx.x5{128}] ca_pos( 3 ) produce_pos( 3 );

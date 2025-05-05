@@ -696,6 +696,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     std::unordered_set<TensorView*> exclude_tvs;
     for (auto [k, v] : tv_inline_pos_map) {
       exclude_tvs.insert(k);
+      // if (std::find(tma_load_tvs.begin(), tma_load_tvs.end(), k) !=
+      //     tma_load_tvs.end()) {
+      //   continue;
+      // }
       inlineSelectedAt({k}, k, v);
     }
     std::vector<TensorView*> inline_most_tvs =

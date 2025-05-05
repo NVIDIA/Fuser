@@ -108,7 +108,11 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
         break;
       }
       case CircularBufferLoopStage::AsyncWarp:
+        std::cout << "CircularBufferLoopStage::AsyncWarp" << std::endl;
+        break;
+        // std::cout << circular_buffer_loop_->toString() << std::endl;
       case CircularBufferLoopStage::ComputeWarp: {
+        std::cout << "CircularBufferLoopStage::ComputeWarp" << std::endl;
         break;
       }
       default: {
@@ -132,10 +136,32 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   }
 
   void handle(ForLoop* fl) override {
-    ForLoop* cloned_loop = fl == circular_buffer_loop_
-        ? cloned_top_level_loop_
-        : IrBuilder::create<ForLoop>(fl);
+    // ForLoop* cloned_loop = fl == circular_buffer_loop_
+    //     ? cloned_top_level_loop_
+    //     : IrBuilder::create<ForLoop>(fl);
 
+    ForLoop* cloned_loop = nullptr;
+    if (fl == circular_buffer_loop_) {
+      cloned_loop = cloned_top_level_loop_;
+    } else if (
+        cloned_top_level_loop_->circularBufferLoopStage() ==
+            CircularBufferLoopStage::AsyncWarp &&
+        fl->iterDomain()->getParallelType() == ParallelType::TIDy) {
+      std::cout << "====== Simple clone fl: " << fl->toString() << std::endl;
+      cloned_loop = IrBuilder::create<ForLoop>(
+          fl->iterDomain(),
+          fl->index(),
+          fl->start(),
+          fl->stop(),
+          fl->step(),
+          fl->vectorize(),
+          fl->vectorize_shift(),
+          fl->isUnrollRequired(),
+          fl->circularBufferLoopStage(),
+          fl->circularBufferLoopStageDepth());
+    } else {
+      cloned_loop = IrBuilder::create<ForLoop>(fl);
+    }
     // Add to stack
     for_loop_stack_.push_back(cloned_loop);
 
@@ -561,6 +587,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
         //   }
         // }
         NVF_ERROR(for_loop_stack_.front() == cloned_top_level_loop_);
+
         addTmaLoadBlock(cloned_loop);
       }
     }
@@ -939,7 +966,10 @@ class CloneTmaCircularBufferLoopAndInsertSync
     if (elect_sync_if_then_else_ == nullptr) {
       elect_sync_if_then_else_ = IrBuilder::create<kir::IfThenElse>(
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
-      for_loop_stack_.back()->body().push_back(elect_sync_if_then_else_);
+      auto most_recent_fl = for_loop_stack_.back();
+      most_recent_fl->body().push_back(elect_sync_if_then_else_);
+      std::cout << "most_recent_fl: " << most_recent_fl->toString()
+                << std::endl;
     }
     return elect_sync_if_then_else_;
   }
