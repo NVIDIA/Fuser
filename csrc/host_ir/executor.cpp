@@ -752,7 +752,8 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
 }
 
 void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
-  auto index =
+  auto indexed_id = hir_alias_select->in()->axis(hir_alias_select->axis());
+  auto index = indexed_id->isBroadcast() ? 0 :
       expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
   auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
                    .as<at::Tensor>();
