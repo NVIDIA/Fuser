@@ -31,13 +31,6 @@ std::vector<TensorView*> filterTvsWithMesh(const Range& tvs) {
   return tvs_with_mesh;
 }
 
-int64_t numDeviceDims(TensorView* tv) {
-  return std::count_if(
-      tv->getLoopDomain().begin(),
-      tv->getLoopDomain().end(),
-      std::mem_fn(&IterDomain::isDeviceDim));
-}
-
 // Sort the given tvs by the number of device dimensions in descending order.
 // Break ties by the total number of dimensions.
 // Only includes TensorViews that have a device mesh.
@@ -125,7 +118,7 @@ std::unordered_set<ParallelType> getParallelTypesToPropagate(
   std::unordered_set<ParallelType> existing_parallel_types;
   for (auto tv : tvs) {
     for (auto id : tv->getLoopDomain()) {
-      if (id->isDeviceDim()) {
+      if (!id->isReduction() && id->isDeviceDim()) {
         existing_parallel_types.insert(id->getParallelType());
       }
     }
@@ -271,7 +264,10 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       continue;
     }
 
-    int64_t did_pos = selectiveReorderDIDToFront(ref_output, {});
+    std::unordered_set<ParallelType> selected_parallel_types =
+        getParallelTypesToPropagate(sharding_candidates);
+    int64_t did_pos =
+        selectiveReorderDIDToFront(ref_output, selected_parallel_types);
     // Note: We do not have to manually shard for reshape here.
     // TransformPropagator can handle reshapes when going from consumer to
     // producer.
@@ -280,7 +276,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
         /*tvs=*/sharding_candidates,
         /*did_pos=*/did_pos,
         PropagationDirection::kBackward);
-    shardAllLike(ref_output, sharding_candidates);
+    shardAllLike(ref_output, sharding_candidates, selected_parallel_types);
   }
 }
 
