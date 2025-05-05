@@ -56,6 +56,9 @@ namespace scheduler_tools {
 // Some of the relevant iter domains of the output tensor of the
 // reshape that realizes a repetition.
 struct StaticRepeatInfo {
+  // Tensor after a repeat. In the above example, this corresponds
+  // to t3.
+  TensorView* reshape_output_tv = nullptr;
   // Root ID that is repeated. In the above example, this corresponds
   // to i1.
   IterDomain* input_id = nullptr;
@@ -75,4 +78,5 @@ std::optional<StaticRepeatInfo> getMaybeStaticRepeatInfo(
     TensorView* maybe_repeat_out_tv);
 
 } // namespace scheduler_tools
+
 } // namespace nvfuser
