@@ -724,7 +724,7 @@ std::set<DeviceIdxType> involvedDevices(Expr* expr) {
   return ret;
 }
 
-void reorderDIDToFront(TensorView* tv) {
+std::unordered_map<int64_t, int64_t> reorderDIDToFront(TensorView* tv) {
   // old position to new position
   std::unordered_map<int64_t, int64_t> order_map;
   int64_t current_pos = 0;
@@ -737,6 +737,7 @@ void reorderDIDToFront(TensorView* tv) {
   }
 
   tv->reorder(order_map);
+  return order_map;
 }
 
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(

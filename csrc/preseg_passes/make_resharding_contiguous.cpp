@@ -53,6 +53,10 @@ bool validateMeshes(Fusion* fusion) {
 // behavior will be modified in the future with allocation and loop domain being
 // propagated independently.
 void setLoopAndAllocationDomain(TensorView* tv) {
+  if (tv->getLoopDomain() == tv->getLogicalDomain()) {
+    // Do nothing if sharding is on logical domain.
+    return;
+  }
   auto alloc_dom = tv->getMaybeAllocationDomain();
   auto contiguity = tv->getContiguity();
 
@@ -109,8 +113,15 @@ void setLoopAndAllocationDomain(TensorView* tv) {
       " as ",
       alloc_dom);
   tv->reorder(permutation.value());
-  reorderDIDToFront(tv);
-  tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
+  auto old2new = reorderDIDToFront(tv);
+  auto new2old = ir_utils::normalizeOld2New(old2new, tv->nDims());
+  std::vector<std::optional<bool>> reordered_contiguity;
+  std::transform(
+      new2old.begin(),
+      new2old.end(),
+      std::back_inserter(reordered_contiguity),
+      [contiguity](int64_t i) -> std::optional<bool> { return contiguity[i]; });
+  tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
 }
 
 bool isTvContiguous(TensorView* tv) {
