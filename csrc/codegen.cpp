@@ -3005,7 +3005,6 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
 
     ArgumentBuilder template_args;
-    func_args.arg(genInline(NamedScalar::getParallelIndex(ParallelType::TIDx)));
     template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
     template_args.arg(isAligned());
     template_args.arg(num_grouped_iterations);
