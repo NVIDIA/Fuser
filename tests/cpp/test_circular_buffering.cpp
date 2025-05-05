@@ -2256,15 +2256,52 @@ INSTANTIATE_TEST_SUITE_P(
     tmaCircularBufferingParams(),
     tmaName);
 
-using RegisterSharingTestParams = std::tuple<dim3, ParallelType>;
-using TmaRegisterSharingTest =
-    NVFuserFixtureParamTest<RegisterSharingTestParams>;
-TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
+namespace {
+
+// warp specialization with register sharing requires
+// all threads in the same warp group execute the same
+// register adjustment instruction. So the number of padded
+// threads for TMA loading branch depends on CTA shape &
+// warp specialization dimension.
+// index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
+// total = bdimx * bdimy * bdimz
+// Pad on x: bdimx += 128
+// Pad on y: bdimy += 128/bdimx
+// Pad on z: bdimz += 128/(bdimx * bdimy)
+int64_t getTmaBranchThreads(ParallelType ws_pt, dim3 bdim) {
+  if (ws_pt == ParallelType::TIDx) {
+    return 128L * bdim.y * bdim.z;
+  } else if (ws_pt == ParallelType::TIDy) {
+    return scheduler_utils::safeDiv(128, bdim.x) * bdim.x * bdim.z;
+  } else if (ws_pt == ParallelType::TIDz) {
+    return scheduler_utils::safeDiv(128, bdim.x * bdim.y) * bdim.x * bdim.y;
+  } else {
+    NVF_THROW("TMA register sharing only supports TIDx, TIDy, and TIDz");
+  }
+}
+
+std::pair<int64_t, int64_t> getNumRegisters(
+    int64_t n_computation_threads,
+    int64_t n_tma_branch_threads,
+    int64_t n_total_threads) {
+  // adjust register usage, assuming computation threads increase register
+  // usage by 8, then each tma branch threads should reduce by:
+  // 8 * n_computation / n_tma_branch_threads
+  int64_t initial_reg_count = getRegPerThreadGivenThreadsPerSM(n_total_threads);
+  EXPECT_TRUE(initial_reg_count % 8 == 0 || initial_reg_count == 255);
+  int64_t compute_reg_count = initial_reg_count + 8;
+  int64_t tma_reg_count =
+      initial_reg_count - (n_computation_threads / n_tma_branch_threads) * 8;
+  return std::make_pair(tma_reg_count, compute_reg_count);
+}
+
+} // namespace
+
+TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   int64_t gdimx = 2;
-  auto [bdim, ws_pt] = GetParam();
-  int64_t bdimx = bdim.x, bdimy = bdim.y, bdimz = bdim.z;
-  int64_t n_computation_threads = bdimx * bdimy * bdimz;
+  dim3 bdim = dim3(32, 4, 2);
+  ParallelType ws_pt = ParallelType::TIDx;
   std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -2279,8 +2316,8 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
 
   // [I1, I2] -> [gdimx, I1/gdimx, I2/bdimx/bdimy, bdimy, bdimx]
   tv2->split(0, gdimx, false);
-  tv2->split(2, bdimx);
-  tv2->split(2, bdimy);
+  tv2->split(2, bdim.x);
+  tv2->split(2, bdim.y);
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv2->axis(-2)->parallelize(ParallelType::TIDy);
   tv2->axis(-3)->parallelize(ParallelType::TIDz);
@@ -2294,41 +2331,80 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
   // Set inlineAt before applying circular buffer
   inlineAllAt(tv1, /*pos=*/2);
 
-  // warp specialization with register sharing requires
-  // all threads in the same warp group execute the same
-  // register adjustment instruction. So the number of padded
-  // threads for TMA loading branch depends on CTA shape &
-  // warp specialization dimension.
-  // index = TIDx + TIDy * bdimx + TIDz * bdimx * bdimy
-  // total = bdimx * bdimy * bdimz
-  // Pad on x: bdimx += 128
-  // Pad on y: bdimy += 128/bdimx
-  // Pad on z: bdimz += 128/(bdimx * bdimy)
-  auto get_tma_branch_threads = [&](ParallelType ws_pt) {
-    if (ws_pt == ParallelType::TIDx) {
-      return (int64_t)128 * bdimy * bdimz;
-    } else if (ws_pt == ParallelType::TIDy) {
-      return scheduler_utils::safeDiv(128, bdimx) * bdimx * bdimz;
-    } else if (ws_pt == ParallelType::TIDz) {
-      return scheduler_utils::safeDiv(128, bdimx * bdimy) * bdimx * bdimy;
-    } else {
-      NVF_THROW("TMA register sharing only supports TIDx, TIDy, and TIDz");
-    }
-  };
-  // adjust register usage, assuming computation threads increase register
-  // usage by 8, then each tma branch threads should reduce by:
-  // 8 * n_computation / n_tma_branch_threads
-  int64_t n_tma_branch_threads = get_tma_branch_threads(ws_pt);
+  int64_t n_computation_threads = bdim.x * bdim.y * bdim.z;
+  int64_t n_tma_branch_threads = getTmaBranchThreads(ws_pt, bdim);
   int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
-  int64_t initial_reg_count = getRegPerThreadGivenThreadsPerSM(n_total_threads);
-  EXPECT_TRUE(initial_reg_count % 8 == 0 || initial_reg_count == 255);
-  int64_t compute_reg_count = initial_reg_count + 8;
-  int64_t tma_reg_count =
-      initial_reg_count - (n_computation_threads / n_tma_branch_threads) * 8;
-  CircularBufferType circular_buffer_type =
-      WarpSpecialized(ws_pt, std::make_pair(tma_reg_count, compute_reg_count));
+
+  CircularBufferType circular_buffer_type = WarpSpecialized(
+      ws_pt,
+      getNumRegisters(
+          n_computation_threads, n_tma_branch_threads, n_total_threads));
   int64_t n_stages = 2;
-  tv1->circularBuffer(n_stages, 1, circular_buffer_type);
+  tv1->circularBuffer(n_stages, /*prefetch_distance=*/1, circular_buffer_type);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
+  at::Tensor t1 = t0 * t0;
+  KernelExecutor ke;
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    const char* reference =
+        R"(Detected dynamic size for parallel type threadIdx.z in warp specialization kernel.)";
+    const char* str_match_pointer = strstr(e.what(), reference);
+    ASSERT_TRUE(str_match_pointer != nullptr);
+    return;
+  }
+  FAIL() << "Expected exception during compilation";
+}
+
+using RegisterSharingParams = std::tuple<dim3, ParallelType>;
+using TmaRegisterSharing = NVFuserFixtureParamTest<RegisterSharingParams>;
+TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
+  NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
+  int64_t gdimx = 2;
+  auto [bdim, ws_pt] = GetParam();
+  std::unique_ptr<Fusion> fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeContigTensor(2);
+  fusion->addInput(tv0);
+
+  auto tv1 = set(tv0);
+  tv1->setMemoryType(MemoryType::Shared);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  auto tv2 = mul(tv1, tv1);
+  fusion->addOutput(tv2);
+
+  // [I1, I2] -> [gdimx, I1/gdimx, I2/bdimx/bdimy, I2/bdimx/bdimy/bdimz, bdimz,
+  // bdimy, bdimx]
+  tv2->split(0, gdimx, false);
+  tv2->split(2, bdim.x);
+  tv2->split(2, bdim.y);
+  tv2->split(2, bdim.z);
+  tv2->axis(-1)->parallelize(ParallelType::TIDx);
+  tv2->axis(-2)->parallelize(ParallelType::TIDy);
+  tv2->axis(-3)->parallelize(ParallelType::TIDz);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
+
+  // [I1, I2] -> [gdimx, I1/gdimx, I2]
+  tv1->split(0, gdimx, false);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
+  tv1->axis(2)->parallelize(ParallelType::Bulk);
+
+  // Set inlineAt before applying circular buffer
+  inlineAllAt(tv1, /*pos=*/2);
+
+  int64_t n_computation_threads = bdim.x * bdim.y * bdim.z;
+  int64_t n_tma_branch_threads = getTmaBranchThreads(ws_pt, bdim);
+  int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
+
+  CircularBufferType circular_buffer_type = WarpSpecialized(
+      ws_pt,
+      getNumRegisters(
+          n_computation_threads, n_tma_branch_threads, n_total_threads));
+  int64_t n_stages = 2;
+  tv1->circularBuffer(n_stages, /*prefetch_distance=*/1, circular_buffer_type);
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
@@ -2338,7 +2414,7 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
     ke.compile(fusion.get(), {t0});
   } catch (const std::exception& e) {
     const char* reference = R"(Illegal register sharing on TIDx)";
-    if ((bdimx % 128 || 128 % bdimx) && ws_pt == ParallelType::TIDx) {
+    if ((bdim.x % 128 || 128 % bdim.x) && ws_pt == ParallelType::TIDx) {
       const char* str_match_pointer = strstr(e.what(), reference);
       ASSERT_TRUE(str_match_pointer != nullptr);
       return;
@@ -2351,14 +2427,14 @@ TEST_P(TmaRegisterSharingTest, RegisterSharingCtaShapes) {
 }
 INSTANTIATE_TEST_SUITE_P(
     Hopper,
-    TmaRegisterSharingTest,
+    TmaRegisterSharing,
     ::testing::Combine(
         ::testing::Values(dim3(32, 4, 2), dim3(128, 2, 1), dim3(256, 1, 1)),
         ::testing::Values(
             ParallelType::TIDx,
             ParallelType::TIDy,
             ParallelType::TIDz)),
-    [](const testing::TestParamInfo<RegisterSharingTestParams>& info) {
+    [](const testing::TestParamInfo<RegisterSharingParams>& info) {
       std::stringstream ss;
       ss << "cta_" << std::get<0>(info.param).x;
       ss << "_" << std::get<0>(info.param).y;
