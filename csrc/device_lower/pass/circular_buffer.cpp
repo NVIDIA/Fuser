@@ -148,17 +148,33 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
             CircularBufferLoopStage::AsyncWarp &&
         fl->iterDomain()->getParallelType() == ParallelType::TIDy) {
       std::cout << "====== Simple clone fl: " << fl->toString() << std::endl;
+      IterDomain* replaced_id = nullptr;
+      const ValGraph& graph = GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+      const ValGroup& group = graph.toGroup(fl->iterDomain());
+      std::cout<< group->toString() << std::endl;
+      for(auto val : *group) {
+        if(auto id = dynamic_cast<IterDomain*>(val)) {
+          if(id->getParallelType() == ParallelType::Serial) {
+            replaced_id = id;
+          }
+        }
+      }
+      NVF_ERROR(replaced_id != nullptr);
+      auto index = IrBuilder::create<Val>(DataType::Index);
+      std::cout << "====== index: " << index->toString() << std::endl;
       cloned_loop = IrBuilder::create<ForLoop>(
-          fl->iterDomain(),
-          fl->index(),
-          fl->start(),
-          fl->stop(),
-          fl->step(),
+          /*fl->iterDomain()*/ replaced_id,
+          /*fl->index()*/ index,
+          GpuLower::current()->kernel()->zeroVal(),
+          replaced_id->extent(),
+          GpuLower::current()->kernel()->oneVal(),
           fl->vectorize(),
           fl->vectorize_shift(),
           fl->isUnrollRequired(),
           fl->circularBufferLoopStage(),
           fl->circularBufferLoopStageDepth());
+      std::cout << "====== cloned_loop: " << cloned_loop->toString()
+                << std::endl;
     } else {
       cloned_loop = IrBuilder::create<ForLoop>(fl);
     }
@@ -968,8 +984,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
           IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
       auto most_recent_fl = for_loop_stack_.back();
       most_recent_fl->body().push_back(elect_sync_if_then_else_);
-      std::cout << "most_recent_fl: " << most_recent_fl->toString()
-                << std::endl;
     }
     return elect_sync_if_then_else_;
   }
