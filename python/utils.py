@@ -421,35 +421,36 @@ def cmake(config, relative_path):
         return "ON" if flag else "OFF"
 
     # generate cmake directory
+    #
+    # cmake options are sticky: when -DFOO=... isn't specified, cmake's option
+    # FOO prefers the cached value over the default value. This behavior
+    # confused me several times (e.g.
+    # https://github.com/NVIDIA/Fuser/pull/4319) when I ran `pip install -e`,
+    # so I chose to always pass these options even for default values. Doing so
+    # explicitly overrides cached values and ensures consistent behavior across
+    # clean and dirty builds.
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
-        "-DCMAKE_BUILD_TYPE=" + config.build_type,
+        f"-DCMAKE_BUILD_TYPE={config.build_type}",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
+        f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}",
+        f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
+        f"-DBUILD_TEST={on_or_off(not config.no_test)}",
+        f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
+        f"-DPython_EXECUTABLE={sys.executable}",
+        f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
+        f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
+        f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
         "-B",
         cmake_build_dir,
     ]
-    if config.build_with_ucc:
-        cmd_str.append("-DNVFUSER_STANDALONE_BUILD_WITH_UCC=ON")
-    if config.explicit_error_check:
-        cmd_str.append("-DNVFUSER_EXPLICIT_ERROR_CHECK=ON")
     if not config.no_ninja:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
-    if not config.no_test:
-        cmd_str.append("-DBUILD_TEST=ON")
-    if not config.no_python:
-        cmd_str.append("-DBUILD_PYTHON=ON")
-        cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
-    if not config.no_benchmark:
-        cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
-    if config.build_without_distributed:
-        cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
-    if config.build_with_system_nvtx:
-        cmd_str.append("-DUSE_SYSTEM_NVTX=ON")
     cmd_str.append(relative_path)
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")

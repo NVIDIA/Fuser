@@ -153,27 +153,27 @@ std::string LaunchKernel::toInlineString(int indent_size) const {
   NVF_CHECK(false, "Can not be printed inline");
 }
 
-Deallocate::Deallocate(IrBuilderPasskey passkey, kir::Allocate* allocate)
+Deallocate::Deallocate(IrBuilderPasskey passkey, TensorView* tv)
     : Expr(passkey) {
-  addAttribute(allocate);
+  addAttribute(tv);
 }
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(Deallocate)
 
-const kir::Allocate* Deallocate::allocation() const {
-  return attributes_.at(0)->as<kir::Allocate>();
+TensorView* Deallocate::buffer() const {
+  return attributes_.at(0)->as<TensorView>();
 }
 
 std::string Deallocate::toString(int indent_size) const {
   std::stringstream ss;
   indent(ss, indent_size) << "Deallocate {" << std::endl;
-  ss << allocation()->toString(indent_size + 1);
+  ss << buffer()->toString(indent_size + 1) << std::endl;
   indent(ss, indent_size) << "}" << std::endl;
   return ss.str();
 }
 
 std::string Deallocate::toInlineString(int indent_size) const {
-  return std::string("Deallocate ") + allocation()->buffer()->toInlineString();
+  return std::string("Deallocate ") + buffer()->toInlineString();
 }
 
 Stream::Stream(IrBuilderPasskey passkey, Val* index)
