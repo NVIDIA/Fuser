@@ -11,6 +11,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
+set(NVFUSER_PYTHON_BINDINGS "${NVFUSER_ROOT}/python/python_frontend")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
@@ -296,13 +297,13 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_PYTHON_DIR}/python_frontend/distributed_tensor.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_cache.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_definition.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_state.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/segmentation.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/translation.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/translation_utils.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/distributed_tensor.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/segmentation.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/translation.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
   )
 endif()
@@ -465,10 +466,10 @@ if(BUILD_PYTHON)
   # nvfuser python API sources
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_PYTHON_DIR}/python_frontend/multidevice_bindings.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings_extension.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/schedule_bindings.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/multidevice_bindings.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/python_bindings.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/python_bindings_extension.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/schedule_bindings.cpp
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
