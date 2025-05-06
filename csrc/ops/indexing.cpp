@@ -207,7 +207,7 @@ TensorView* scatterOp(
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, out_domain, out_domain, out_loop_domain, TensorDomain::getContiguityFilledWith(out_domain, true), {}, no_loop_ids),
+          out_domain, out_domain, out_domain, out_loop_domain, TensorDomain::getContiguityFilledWith(out_domain, true), std::vector<IterDomain*>(), no_loop_ids),
       self->getDataType().value());
 
   IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
