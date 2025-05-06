@@ -155,7 +155,13 @@ void MakeReshardingContiguousPass::runPass(Fusion* fusion) {
 
     bool is_resharding = isResharding(expr);
     for (auto tv : inputs) {
-      setLoopAndAllocationDomain(tv, is_resharding);
+      // Only set loop and allocation domain for fusion inputs.
+      // Other tvs would already have been processed as outputs of their
+      // definitions. This avoids processing the same tv multiple times.
+      if (tv->isFusionInput()) {
+        setLoopAndAllocationDomain(tv, is_resharding);
+        ;
+      }
     }
     for (auto tv : outputs) {
       setLoopAndAllocationDomain(tv, is_resharding);
