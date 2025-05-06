@@ -439,7 +439,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           group_to_run->outputs(), group_runtime_outputs, run_order_id);
     }
   } catch (const std::exception& e) {
-    // Before clearning up unique_ptr-backed resources such as
+    // Before cleaning up unique_ptr-backed resources such as
     // SegmentedGroup, make sure all threads are done as they may
     // be still using the resources.
     getThreadPool()->waitWorkComplete();
