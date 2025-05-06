@@ -956,22 +956,28 @@ at::Tensor reference_loop_split_mlp(
 
 at::Tensor reference_loop_split_mha(
     at::Tensor inp,
-    at::Tensor weight,
-    at::Tensor bias) {
-  at::Tensor linear0_out = at::linear(inp, weight, bias);
+    at::Tensor w0,
+    at::Tensor b0,
+    at::Tensor w1,
+    at::Tensor b1) {
+  at::Tensor linear0 = at::linear(inp, w0, b0);
   auto qkv =
-      linear0_out.view({B, S, H, 3 * E / H}).transpose(1, 2).split(E / H, -1);
+      linear0.view({B, S, H, 3 * E / H}).transpose(1, 2).split(E / H, -1);
   double scale = 1.0 / std::sqrt(E / H);
   auto sdpa_out = at::_scaled_dot_product_flash_attention(
       qkv[0],
       qkv[1],
       qkv[2],
-      /*dropout_p=*/kDropoutProb,
+      /*dropout_p=*/kSdpaProb,
       /*is_causal=*/true,
       /*return_debug_mask=*/false,
       scale);
   auto attn = std::get<0>(sdpa_out);
-  return attn.transpose(1, 2).reshape({B, S, E});
+  auto attn_reshape = attn.transpose(1, 2).reshape({B, S, E});
+  auto linear1 = at::linear(attn_reshape, w1, b1);
+  auto [dropout, mask] = at::native_dropout(linear1, kDropoutProb, true);
+  auto out = dropout + inp;
+  return out;
 }
 } // namespace
 
@@ -1050,7 +1056,14 @@ TEST_F(DistributedTransformerTest, LoopSplitMHAFwd) {
   TensorView* inp = makeContigConcreteTensor({B, S, E}, dtype);
   TensorView* mha_w0 = makeContigConcreteTensor({3 * E, E}, dtype);
   TensorView* mha_b0 = makeContigConcreteTensor({3 * E}, dtype);
+  TensorView* mha_w1 = makeContigConcreteTensor({E, E}, dtype);
+  TensorView* mha_b1 = makeContigConcreteTensor({E}, dtype);
 
+  fusion->addInput(inp);
+  fusion->addInput(mha_w0);
+  fusion->addInput(mha_b0);
+  fusion->addInput(mha_w1);
+  fusion->addInput(mha_b1);
   TensorView* linear0 = linear(inp, mha_w0, mha_b0);
 
   TensorView* qkv = reshape(linear0, {B, S, 3 * E}, {B, S, H, 3 * E / H});
@@ -1066,41 +1079,60 @@ TEST_F(DistributedTransformerTest, LoopSplitMHAFwd) {
       q_permuted,
       k_permuted,
       v_permuted,
-      /*dropout_p=*/IrBuilder::create<Val>(kDropoutProb),
+      /*dropout_p=*/IrBuilder::create<Val>(kSdpaProb),
       /*is_causal=*/IrBuilder::create<Val>(true),
       /*scale=*/nullptr);
 
   TensorView* attn = sdpa_out.output;
   TensorView* attn_permute = permute(attn, {0, 2, 1, 3});
   TensorView* attn_reshape = reshape(attn_permute, {B, S, H, E / H}, {B, S, E});
+  TensorView* mha_w1_transposed = permute(mha_w1, {1, 0});
+  TensorView* matmul_out = matmul(attn_reshape, mha_w1_transposed);
+  TensorView* bias_add = add(matmul_out, mha_b1);
+  Val* prob = IrBuilder::create<Val>(1.0 - kDropoutProb);
+  Val* scale = IrBuilder::create<Val>(1.0 / (1.0 - kDropoutProb));
+  TensorView* dropout_out = dropout(bias_add, prob, scale).output;
+  TensorView* residual = add(dropout_out, inp);
+  TensorView* out = maybeCastOp(dtype, residual);
+  fusion->addOutput(out);
 
-  fusion->addInput(inp);
-  fusion->addInput(mha_w0);
-  fusion->addInput(mha_b0);
-  fusion->addOutput(attn_reshape);
-
-  inp->setDeviceMesh(mesh);
-  for (auto tv : {mha_w0, mha_b0}) {
+  for (auto tv : {inp, mha_w0, mha_b0, mha_w1, mha_b1}) {
     tv->setDeviceMesh(mesh);
+  }
+  for (auto tv : {mha_w0, mha_b0}) {
     tv->outer_split(0, d);
     tv->axis(0)->parallelize(ParallelType::DIDx);
   }
+  mha_w1->outer_split(1, d);
+  mha_w1->axis(1)->parallelize(ParallelType::DIDx);
+
   FusionExecutorCache executor_cache(std::move(fusion));
   at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options.dtype(at_dtype));
   at::Tensor mha_w0_tensor =
-      at::randn({3 * E, E}, tensor_options.dtype(at_dtype));
+      at::randn({3 * E, E}, tensor_options.dtype(at_dtype)) * kParamScale;
   at::Tensor sharded_mha_w0 = shardTensor(mha_w0_tensor, 0, mesh);
-  at::Tensor mha_b0_tensor = at::randn({3 * E}, tensor_options.dtype(at_dtype));
+  at::Tensor mha_b0_tensor =
+      at::randn({3 * E}, tensor_options.dtype(at_dtype)) * kParamScale;
   at::Tensor sharded_mha_b0 = shardTensor(mha_b0_tensor, 0, mesh);
+  at::Tensor mha_w1_tensor =
+      at::randn({E, E}, tensor_options.dtype(at_dtype)) * kParamScale;
+  at::Tensor sharded_mha_w1 = shardTensor(mha_w1_tensor, 1, mesh);
+  at::Tensor mha_b1_tensor =
+      at::randn({E}, tensor_options.dtype(at_dtype)) * kParamScale;
 
-  KernelArgumentHolder args = {inp_tensor, sharded_mha_w0, sharded_mha_b0};
+  KernelArgumentHolder args = {
+      inp_tensor,
+      sharded_mha_w0,
+      sharded_mha_b0,
+      sharded_mha_w1,
+      mha_b1_tensor};
   auto outputs = executor_cache.runFusionWithInputs(args);
 
   at::Tensor nvf_out = outputs.back().as<at::Tensor>();
-  at::Tensor ref_out =
-      reference_loop_split_mha(inp_tensor, mha_w0_tensor, mha_b0_tensor);
-  at::Tensor ref_out_sharded = shardTensor(ref_out, 2, mesh);
-  validate({ref_out_sharded}, {nvf_out}, {0.02});
+  at::manual_seed(getATenRandomSeed());
+  at::Tensor ref_out = reference_loop_split_mha(
+      inp_tensor, mha_w0_tensor, mha_b0_tensor, mha_w1_tensor, mha_b1_tensor);
+  validate({ref_out}, {nvf_out}, {0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(
