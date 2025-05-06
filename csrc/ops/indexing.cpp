@@ -186,7 +186,7 @@ TensorView* scatterOp(
   std::vector<IterDomain*> out_domain;
   std::vector<IterDomain*> no_loop_ids;
   for (const auto i : arange((int64_t)self_dom.size())) {
-    out_domain.push_back(
+    auto id = 
         IterDomainBuilder(self_dom[i])
             .iter_type(
                 // I think this should be the right thing to do, but our indexing isn't really working yet.
@@ -195,14 +195,15 @@ TensorView* scatterOp(
                 self_dom[i]->getIterType() == IterType::Iteration
                     ? IterType::GatherScatter
                     : self_dom[i]->getIterType())
-            .build());
+            .build();
+    out_domain.push_back(id);
     if (i == dim) {
-      no_loop_ids.push_back(ids);
+      no_loop_ids.push_back(id);
     }
   }
 
   std::vector<IterDomain*> out_loop_domain = out_domain;
-  out_loop_domain[i](IterDomainBuilder(idx_dom[i]).build());
+  out_loop_domain[dim](IterDomainBuilder(idx_dom[dim]).build());
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
