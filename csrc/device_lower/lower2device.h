@@ -12,6 +12,7 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/fused_reduction.h>
+#include <device_lower/analysis/non_divisible_split.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/tensor_memory.h>
@@ -32,7 +33,6 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
-#include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
 #include <runtime/executor_params.h>

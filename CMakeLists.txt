@@ -102,6 +102,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
@@ -187,7 +188,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
-  ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
   ${NVFUSER_SRCS_DIR}/ops/arith.cpp
   ${NVFUSER_SRCS_DIR}/ops/composite.cpp
