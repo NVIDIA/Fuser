@@ -428,11 +428,23 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
 
   Val* index = GpuLower::current()->kernel()->zeroVal();
   Val* extent = GpuLower::current()->kernel()->oneVal();
+  bool tidy_for_warp_groups = false;
   for (int64_t i = end_loop_index; i >= start_loop_index; --i) {
-    if (loops[i]->iter_domain()->isParallelized() ||
-        loops[i]->iter_domain()->isBroadcast()) {
+    if(loops[i]->iter_domain()->isBroadcast()){
       continue;
     }
+
+    if(!tidy_for_warp_groups){
+      if (loops[i]->iter_domain()->isParallelized()) {
+        continue;
+      }
+    }else{
+      if (loops[i]->iter_domain()->isParallelized() && 
+          loops[i]->iter_domain()->getParallelType() != ParallelType::TIDy) {
+        continue;
+      }
+    }
+
     index = SimplifyingIrBuilder::addExpr(
         index,
         SimplifyingIrBuilder::mulExpr(
@@ -440,6 +452,7 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
     extent = SimplifyingIrBuilder::mulExpr(
         extent, loops[i]->iter_domain()->extent());
   }
+  std::cout << "index " << index->toInlineString() << std::endl;
   return index;
 }
 

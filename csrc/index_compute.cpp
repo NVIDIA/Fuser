@@ -2224,6 +2224,8 @@ kir::TensorIndex* Index::getProducerIndex(
   if (shouldUseTensorIndexer(producer, consumer, rotated_loops)) {
     index = GpuLower::current()->tensorIndexer().getLinearIndex(
         producer, consumer->definition(), loops, override_index);
+
+
     if (generate_pointer) {
       auto address_offset = index;
       if (producer->getMemoryType() == MemoryType::Shared) {

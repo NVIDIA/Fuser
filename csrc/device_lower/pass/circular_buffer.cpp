@@ -163,11 +163,11 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
       auto index = IrBuilder::create<Val>(DataType::Index);
       std::cout << "====== index: " << index->toString() << std::endl;
       cloned_loop = IrBuilder::create<ForLoop>(
-          /*fl->iterDomain()*/ replaced_id,
-          /*fl->index()*/ index,
-          GpuLower::current()->kernel()->zeroVal(),
-          replaced_id->extent(),
-          GpuLower::current()->kernel()->oneVal(),
+          replaced_id,
+          index,
+          /*start=*/GpuLower::current()->kernel()->zeroVal(),
+          /*stop=*/replaced_id->extent(),
+          /*step=*/GpuLower::current()->kernel()->oneVal(),
           fl->vectorize(),
           fl->vectorize_shift(),
           fl->isUnrollRequired(),
@@ -636,6 +636,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
     Val* result = SimplifyingIrBuilder::modExpr(
         currentComputeIndex(),
         IrBuilder::create<Val>(stage_depth, PrimDataType::Index));
+    std::cout << "currentComputeStage: " << result->toString() << std::endl;
     return GpuLower::current()->commonScalarMap().hoistScalar(
         result, for_loop_stack_);
   }
@@ -1113,11 +1114,13 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // circular buffer stage for waiting RAW.
   kir::MBarrierWaitParity* createMbarrierWaitForRaw(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
+    std::cout << "createMbarrierWaitForRaw for " << ldst->toString() << "\n";
 
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers, currentComputeStage());
+        std::cout << "createMbarrierWaitForRaw stage_mbarrier " << stage_mbarrier->toString() << "\n";
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(
@@ -1129,7 +1132,7 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // circular buffer stage for waiting WAR.
   kir::MBarrierWaitParity* createWarMbarrierWait(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
-
+    std::cout << "createWarMbarrierWait for " << ldst->toString() << "\n";
     auto stage_depth =
         GpuLower::current()
             ->circularBufferInfo()
@@ -1141,6 +1144,9 @@ class CloneTmaCircularBufferLoopAndInsertSync
     kir::TensorIndex* stage_mbarrier = IrBuilder::create<kir::TensorIndex>(
         all_mbarriers,
         SimplifyingIrBuilder::addExpr(currentLoadStage(), stage_depth));
+    std::cout << "createWarMbarrierWait stage_mbarrier " << stage_mbarrier->toString() << "\n";
+    std::cout << "createWarMbarrierWait currentLoadStage " << currentLoadStage()->toString() << "\n";
+    std::cout << "createWarMbarrierWait stage_depth " << stage_depth << "\n";
 
     kir::MBarrierWaitParity* mbarrier_wait =
         IrBuilder::create<kir::MBarrierWaitParity>(

@@ -346,6 +346,7 @@ IdModelOptions getIdModelOptions(Fusion* fusion) {
       if (ldst->opType() == LoadStoreOpType::CpAsyncBulkTensorTile ||
           ldst->opType() == LoadStoreOpType::CpAsyncBulk) {
         options.setBuildTensorIndexer(true);
+        options.setLoop(true);
         continue;
       }
     } else if (expr->isA<MmaOp>()) {
@@ -502,6 +503,7 @@ void GpuLower::analysis(Fusion* fusion) {
         /*build_graphs=*/true,
         /*allow_self_mapping=*/false,
         /*validate=*/false);
+    std::cout << id_model_->toString() << std::endl;
     // id_model_->validateAndPropagatePType();
   }
 
@@ -521,7 +523,7 @@ void GpuLower::analysis(Fusion* fusion) {
     debug() << compute_at_map_->toString() << std::endl;
   }
   // compute_at_map_->validateAndPropagatePType();
-  // dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
+  dumpExprsIfEnabled(fusion_->exprs(), "validateAndPropagatePType");
 
   // Uses compute_at_map, find all splits that are enforced to be divisible
   divisible_splits_ = getAllDivisibleSplits(fusion_, compute_at_map_.get());

@@ -102,6 +102,23 @@ Val* TensorIndexer::getLoopIndex(
           getLoopIndexOfCircularBufferLoop(loop_id, for_loops, id_model_)) {
     loop_index = circular_buffer_loop_index;
   }
+  std::cout << "loop_id " << loop_id->toString() << std::endl;
+  std::cout << "loop_index " << loop_index->toString() << std::endl;
+  if (auto ns = dynamic_cast<NamedScalar*>(loop_index)) {
+    if(ns->getParallelIndex().has_value() &&  ns->getParallelIndex().value() == ParallelType::TIDy) {
+      if (loop_id->getParallelType() != ParallelType::TIDy) {
+        auto iter = std::find_if(
+            for_loops.begin(),
+            for_loops.end(),
+            [&loop_id](ForLoop* fl) { return fl->iter_domain() == loop_id; });
+        if(iter != for_loops.end()){
+          loop_index = (*iter)->index();
+          std::cout << "loop_index revised: " << loop_index->toString() << std::endl;
+        }
+
+      }  
+    }
+  }
 
   return loop_index;
 }
@@ -314,7 +331,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
 
   for (const auto loop_id : loop_domains) {
     Val* cur_index = getLoopIndex(loop_id, for_loops);
-
     Val* replacement_index = nullptr;
     // Replace the index of a vectorized/bulk domain with zero. Note that
     // vectorized domains may need to use N-1, where N is the extent
@@ -332,6 +348,7 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
       // happens when loop_id is a reduction domain and this loop-nest
       // is for initializing the reduction buffer.
       if (for_loop != nullptr) {
+        std::cout << "For-loop: " << for_loop->toString() << std::endl;
         // Replace circular buffer index with zero value if for-loop is trivial
         if (for_loop->circularBufferLoopStage() !=
             CircularBufferLoopStage::NotApplicable) {
