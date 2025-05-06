@@ -6129,4 +6129,85 @@ TEST_F(ResizeTest, VectorizeOuterPad) {
   EXPECT_EQ((*vec_id_it)->extent()->evaluate(), 8);
 }
 
+// Repro of issue #4250
+TEST_F(ResizeTest, DISABLED_ReshapeAfterRef) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  std::vector<int64_t> shape({2, 16, 100});
+
+  EnableOptionsGuard enable_options_guard;
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+  auto tv1 = sin(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), tv1->getLogicalDomain().at(1)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(shape[2] / 2)}});
+  auto tv3 = sin(tv0);
+  auto tv4 = slice(
+      tv3,
+      {{fusion.zeroVal(), tv3->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), tv3->getLogicalDomain().at(1)->extent()},
+       {IrBuilder::create<Val>(shape[2] / 2),
+        IrBuilder::create<Val>(shape[2])}});
+  auto tv5 = cat({tv4, tv2}, 2);
+  auto tv6 = add(tv0, tv5);
+  fusion.addOutput(tv6);
+
+  auto tv7 = transpose(tv6, 0, 1);
+  auto tv8 = reshape(tv7, {IrBuilder::create<Val>(-1)});
+  fusion.addOutput(tv8);
+
+  // tv6 will be picked as the reference. The resize scheduler will
+  // try to update tv7 and t8 by propagating transformations from
+  // tv6. Before doing so, the loop domain of tv8 needs to be updated
+  // to match with tv6.
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+}
+
+// Repro of an issue fixed by PR #4356.
+// The resize scheduler picks tv3 as the reference. It tries to
+// reorder its loop domain as ordered like tv0, which should have no
+// effect as they are already ordered in the same way. However,
+// scheduler_tools::reorderDomainLike would just place the innermost
+// loop ID of the reference tensor at the outermost position if the
+// whole domain of the reference tensor were considered as
+// there's no path from the input tensor to the reference innermost
+// ID. If the innermost ID were reordered, it would have resulted in
+// an assertion failure.
+TEST_F(ResizeTest, ReorderLikeInputShouldNotMoveInnermostID) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr;
+
+  std::vector<int64_t> shape1{8, 128};
+
+  auto tv0 = makeContigConcreteTensor(shape1);
+  fusion.addInput(tv0);
+
+  auto tv1 = sin(tv0);
+  auto tv2 = slice(
+      tv1,
+      {{fusion.zeroVal(), tv1->getLogicalDomain().at(0)->extent()},
+       {fusion.zeroVal(), IrBuilder::create<Val>(64)}});
+  auto tv3 = repeat(tv2, {1, 2});
+  fusion.addOutput(tv3);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape1, options);
+
+  auto outputs = scheduleAndRun(&fusion, SchedulerType::Resize, {t0});
+  testValidate(&fusion, outputs.outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

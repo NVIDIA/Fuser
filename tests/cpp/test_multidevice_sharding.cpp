@@ -18,6 +18,7 @@
 
 namespace nvfuser {
 
+using testing::Contains;
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;
 
@@ -892,6 +893,54 @@ TEST_F(MultiDeviceTest, LoopShardedMergeReshapeIds) {
       {sharded_inp.view({b, s, h * e})},
       __LINE__,
       __FILE__);
+}
+
+TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  const int64_t h = 128, e = 768;
+
+  TensorView* tv0 = makeContigConcreteTensor({e});
+  TensorView* tv1 = makeContigConcreteTensor({3 * d * h * e, e});
+  TensorView* tv2 = linear(tv0, tv1);
+  TensorView* tv3 = reshape(tv2, {3 * d * h * e}, {d * h, 3 * e});
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv3);
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+  tv0->setDeviceMesh(mesh);
+  for (auto* tv : {tv1, tv2, tv3}) {
+    tv->setDeviceMesh(mesh);
+    tv->outer_split(0, d);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
+  }
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor t0 = at::randn({e}, tensor_options);
+  at::Tensor t1 = at::randn({3 * d * h * e, e}, tensor_options);
+  at::Tensor sharded_t1 = shardTensor(t1, 0, mesh);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({t0, sharded_t1})[0].as<at::Tensor>();
+
+  at::Tensor ref_out = at::linear(t0, t1).view({d * h, 3 * e});
+  at::Tensor sharded_ref_out = shardTensor(ref_out, 0, mesh);
+  testValidate(
+      executor_cache.fusion(),
+      {nvf_out},
+      {t0, sharded_t1},
+      {sharded_ref_out},
+      __LINE__,
+      __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Transpose)));
 }
 
 } // namespace nvfuser

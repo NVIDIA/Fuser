@@ -6,11 +6,16 @@
  */
 // clang-format on
 #pragma once
+
+#include <atomic>
+#include <functional>
+
+#include <c10/core/DeviceType.h>
+
 #include <device_lower/lower2device.h>
 #include <exceptions.h>
 #include <expr_evaluator.h>
 #include <fusion.h>
-#include <host_ir/container.h>
 #include <ir/all_nodes.h>
 #include <ir/cloner.h>
 #include <ir/graphviz.h>
@@ -21,11 +26,6 @@
 #include <runtime/executor_utils.h>
 #include <scheduler/scheduler_types.h>
 #include <utils.h>
-#include <atomic>
-
-#include <c10/core/DeviceType.h>
-
-#include <functional>
 
 namespace nvfuser {
 
@@ -92,7 +92,7 @@ class CompiledKernel : public NonCopyable {
   //! To compile a fusion with the 32-bit index type, CompileParams
   //! must be passed in. There used to be an index type associated
   //! with KernelArgumentHolder, but it is no longer the case.
-  NVF_API void compile(int64_t block_size);
+  NVF_API void compile(const LaunchParams& lparams);
 
   // Function to query whether a `CompiledKernel` has a compiled kernel to
   // execute
