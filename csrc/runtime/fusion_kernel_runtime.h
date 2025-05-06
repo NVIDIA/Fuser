@@ -174,6 +174,7 @@ class FusionKernelRuntime {
   NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
       const;
 
+  // Create KernelArgumentHolders for all of the segments
   std::vector<KernelArgumentHolder> prepareInputs(
       const KernelArgumentHolder& args) const;
 
