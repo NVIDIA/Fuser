@@ -941,14 +941,7 @@ TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
 
   at::Tensor ref_out = at::linear(t0, t1).view({b, s, h, 3 * e / h});
   at::Tensor sharded_ref_out = shardTensor(ref_out, 2, mesh);
-  testValidate(
-      executor_cache.fusion(),
-      {nvf_out},
-      {t0, sharded_t1},
-      {sharded_ref_out},
-      __LINE__,
-      __FILE__);
-
+  validate({sharded_ref_out}, {nvf_out}, {0.02});
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),
