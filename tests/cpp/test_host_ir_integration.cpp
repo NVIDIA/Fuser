@@ -5,6 +5,8 @@
 * SPDX-License-Identifier: BSD-3-Clause
 */
 // clang-format on
+#include <gmock/gmock-more-matchers.h>
+
 #include <fusion.h>
 #include <global_allocator.h>
 #include <host_ir/container.h>
@@ -18,6 +20,9 @@ namespace nvfuser {
 
 namespace hir {
 
+using testing::Contains;
+using testing::IsTrue;
+using testing::Property;
 using HostIrEvaluatorTest = NVFuserTest;
 
 // This test manually creates a HostIrContainer with LaunchKernels and runs it
@@ -48,6 +53,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
   hic->addInput(hic_in);
   hic->addOutput(hic_out);
 
+  auto allocate = IrBuilder::create<kir::Allocate>(hic_out, MemoryType::Global);
   auto launch_kernel = IrBuilder::create<LaunchKernel>(
       0,
       LaunchParams(),
@@ -55,6 +61,7 @@ TEST_F(HostIrEvaluatorTest, LaunchKernel) {
       std::vector<Val*>{hic_in},
       std::vector<Val*>{hic_out});
 
+  hic->pushBackTopLevelExprs(allocate);
   hic->pushBackTopLevelExprs(launch_kernel);
 
   HostIrEvaluator hie(std::move(hic));
@@ -164,7 +171,7 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
     TensorView* tv = makeConcreteTensor(sizes);
     tv->setMemoryType(MemoryType::Global);
     auto* allocate = IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-    auto* deallocate = IrBuilder::create<Deallocate>(allocate);
+    auto* deallocate = IrBuilder::create<Deallocate>(tv);
 
     hic->pushBackTopLevelExprs(allocate);
     hic->pushBackTopLevelExprs(deallocate);
@@ -175,6 +182,88 @@ TEST_F(HostIrIntegrationTest, Deallocate) {
   hie.runWithInput({});
 
   EXPECT_EQ(memoryAllocated(device_index), 0);
+}
+
+TEST_F(HostIrIntegrationTest, InsertDeallocations) {
+  c10::DeviceIndex device_index = 0;
+  at::cuda::clearCublasWorkspaces();
+  nvfuser::releaseZeroedMemory();
+  resetPeakMemoryStats(device_index);
+  ASSERT_EQ(memoryAllocated(device_index), 0)
+      << "Previous tests leaked memory.";
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  // Use 8x8 double tensors so each tensor is >=512 bytes, the minimum cache
+  // allocation size (avoid incorrect peak memory stat due to rounding)
+  std::vector<int64_t> input_shape{8, 8};
+  auto in = TensorViewBuilder()
+                .ndims(input_shape.size())
+                .dtype(DataType::Double)
+                .build();
+
+  fusion->addInput(in);
+  TensorView* t0 = add(in, in);
+  auto t1 = segment_set(t0);
+  TensorView* t2 = add(t1, t1);
+  auto t3 = segment_set(t2);
+  TensorView* t4 = sin(t3);
+  TensorView* out = add(t4, t4);
+  fusion->addOutput(out);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+
+  at::Tensor in_tensor = at::randn(
+      input_shape, at::dtype(at::kDouble).device(at::kCUDA, device_index));
+  auto out_tensors = executor_cache.runFusionWithInputs({in_tensor});
+
+  const int64_t max_memory_allocated = maxMemoryAllocated(device_index);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_EQ(runtime->getHostIrEvaluator().canRun(), "");
+  auto hicExprs =
+      runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
+
+  EXPECT_THAT(
+      hicExprs,
+      Contains(Property(&Expr::isA<Deallocate>, IsTrue()))
+          .Times(testing::Eq(3)))
+      << "host ir container should have 3 deallocate ops";
+
+  testValidate(
+      executor_cache.fusion(),
+      out_tensors,
+      {in_tensor},
+      __LINE__,
+      __FILE__,
+      "");
+
+  if (c10::utils::check_env("PYTORCH_NO_CUDA_MEMORY_CACHING")) {
+    GTEST_SKIP() << "Skipped because PYTORCH_NO_CUDA_MEMORY_CACHING is on. "
+                    "This usually happens when running with compute-sanitizer. "
+                    "maxMemoryAllocated can only collect peak memory "
+                    "from a caching allocator.";
+  }
+
+  // At any given time a max of three 8x8 tensors are allocated. Here is the
+  // flow in the container:
+  //  1) Input "in" -> 1 tensor allocated
+  //  2) Allocate t1 -> 2 tensors
+  //  3) LaunchKernel with input in and output t1 -> 2 tensors
+  //  4) Deallocate "in" (which gets invalidated in the HostIrEvaluator, but not
+  //  actually deallocated because of the test fixture's reference to it) -> 2
+  //  tensors
+  //  5) Allocate t3 -> 3 tensors
+  //  6) LaunchKernel with input t1 and output t3 -> 3 tensors
+  //  7) Deallocate t1 -> 2 tensors
+  //  8) Allocate "out" -> 3 tensors
+  //  9) LaunchKernel with inputs t3 and output "out" -> 3 tensors
+  // 10) Deallocate t3 -> 2 tensors allocated, "in" and "out"
+  constexpr int64_t kExpectedPeakMemory = sizeof(double) * (8 * 8) * 3;
+  EXPECT_EQ(max_memory_allocated, kExpectedPeakMemory)
+      << "Max memory allocated (" << max_memory_allocated
+      << ") was higher than expected << (" << kExpectedPeakMemory << ")";
 }
 
 } // namespace hir

@@ -294,7 +294,7 @@ int64_t numDeviceDims(const TensorView* tv) {
   return std::count_if(
       tv->getLoopDomain().begin(),
       tv->getLoopDomain().end(),
-      [](IterDomain* id) { return id->isDeviceDim(); });
+      [](IterDomain* id) { return id->isDeviceDim() && !id->isReduction(); });
 }
 
 namespace {
