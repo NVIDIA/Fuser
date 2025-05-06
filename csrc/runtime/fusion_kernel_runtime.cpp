@@ -330,6 +330,43 @@ KernelArgumentHolder FusionKernelRuntime::runWithInputs(
   return fusion_outputs;
 }
 
+std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
+    const KernelArgumentHolder& args) const {
+  std::vector<KernelArgumentHolder> all_runtime_inputs;
+  const int64_t num_groups = numGroups();
+  all_runtime_inputs.reserve(num_groups);
+
+  ArgumentManager args_manager(
+      args, runtime_workspace_, segmented_fusion_->inputs());
+
+  // group should share cache id.
+  const auto group_cache_id = args.getCacheId();
+
+  for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
+    auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
+    // TODO: index mode should be updated per segmented kernel
+    // Prepare input vector
+    all_runtime_inputs.push_back(
+        args_manager.translateValsToArgs(group_to_run->inputs()));
+    auto& group_runtime_inputs = all_runtime_inputs.back();
+
+    group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
+    if (group_cache_id.has_value()) {
+      group_runtime_inputs.setCacheId(group_cache_id.value());
+    }
+
+    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+    auto group_runtime_outputs =
+        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+
+    // map output args to tensor map
+    args_manager.updateWithSegmentOutputs(
+        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+  }
+
+  return all_runtime_inputs;
+}
+
 // passing args by value because we will be modify this
 void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
@@ -343,13 +380,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       " inputs but expecting ",
       segmented_fusion_->inputs().size());
 
-  ArgumentManager args_manager(
-      args, runtime_workspace_, segmented_fusion_->inputs());
-
-  // group should share cache id.
-  auto group_cache_id = args.getCacheId();
-
-  const int64_t num_groups = (int64_t)runtime_workspace_.group_run_order.size();
+  const int64_t num_groups = numGroups();
   if (isProfilerEnabled()) {
     FusionProfiler::startCompile();
   }
@@ -372,6 +403,9 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     }
   }
 
+  const std::vector<KernelArgumentHolder> all_runtime_inputs =
+      prepareInputs(args);
+
   std::atomic<bool> detect_exception_in_thread_pool{false};
   std::string thread_pool_error_message;
   std::mutex thread_pool_error_message_mutex;
@@ -384,36 +418,21 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   try {
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-
-      // TODO: index mode should be updated per segmented kernel
-      // Prepare input vector
-      auto group_runtime_inputs =
-          args_manager.translateValsToArgs(group_to_run->inputs());
-      group_runtime_inputs.setDeviceIndex(args.getDeviceIndex());
-      if (group_cache_id.has_value()) {
-        group_runtime_inputs.setCacheId(group_cache_id.value());
-      }
-
+      auto& group_runtime_inputs = all_runtime_inputs.back();
       if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
-        FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
-        c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-        c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
         compileKernel(group_runtime_inputs, group_to_run, hic.get());
       } else {
         hir::HostIrContainer* hic_ptr = hic.get();
         // launch compileKernel thread here
         getThreadPool()->run([this,
-                              args,
-                              group_runtime_inputs,
+                              &group_runtime_inputs,
                               group_to_run,
+                              hic_ptr,
                               &detect_exception_in_thread_pool,
                               &thread_pool_error_message,
-                              &thread_pool_error_message_mutex,
-                              hic_ptr]() {
+                              &thread_pool_error_message_mutex]() {
           FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
           try {
-            c10::cuda::CUDAGuard dg(args.getDeviceIndex());
-            c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
             compileKernel(group_runtime_inputs, group_to_run, hic_ptr);
           } catch (const std::exception& e) {
             // Set flag inside lambda so we can throw an exception after thread
@@ -429,14 +448,6 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           }
         });
       }
-
-      auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-      auto group_runtime_outputs =
-          inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
-
-      // map output args to tensor map
-      args_manager.updateWithSegmentOutputs(
-          group_to_run->outputs(), group_runtime_outputs, run_order_id);
     }
   } catch (const std::exception& e) {
     // Before cleaning up unique_ptr-backed resources such as
@@ -774,6 +785,9 @@ void FusionKernelRuntime::compileKernel(
     SegmentedGroup* sg,
     hir::HostIrContainer* hic) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::compileKernel");
+  c10::cuda::CUDAGuard dg(args.getDeviceIndex());
+  c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
+
   auto group_id = sg->groupId();
   auto heuristic_params = schedulers().at(group_id).get();
 

@@ -174,6 +174,13 @@ class FusionKernelRuntime {
   NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
       const;
 
+  std::vector<KernelArgumentHolder> prepareInputs(
+      const KernelArgumentHolder& args) const;
+
+  int64_t numGroups() const {
+    return (int64_t)runtime_workspace_.group_run_order.size();
+  }
+
  private:
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels
