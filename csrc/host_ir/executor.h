@@ -143,6 +143,7 @@ class HostIrEvaluator final : public OptOutDispatch {
   void handle(ReductionOp* reduction_op) override;
   void handle(ShareMemHandles* share_mem_handles) override;
   void handle(HirAliasSelect* hir_alias_select) override;
+  void handle(Deallocate* deallocate) override;
   void unhandled(Statement* stmt) override;
 
   c10::cuda::CUDAStream getCUDAStream(Stream* stream);

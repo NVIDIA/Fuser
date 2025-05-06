@@ -10,6 +10,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
+set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
@@ -207,6 +208,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/make_resharding_contiguous.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_pad.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_repeat_forward.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp
@@ -214,6 +216,8 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/remove_empty.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_deallocations.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
@@ -241,6 +245,9 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/scheduler/communication.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_utils.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_tma_ws.cpp
+  ${NVFUSER_SRCS_DIR}/scheduler/normalization_inner_outer_multi_wave.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_outer.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/normalization_utils.cpp
   ${NVFUSER_SRCS_DIR}/scheduler/pointwise.cpp
@@ -291,13 +298,13 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/distributed_tensor.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_cache.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_definition.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/fusion_state.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/segmentation.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/translation.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/translation_utils.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/distributed_tensor.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_cache.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_definition.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_state.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/segmentation.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/translation.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
   )
 endif()
@@ -333,6 +340,7 @@ if(NOT MSVC)
 endif()
 
 target_compile_definitions(codegen_internal PRIVATE "-DTORCH_CUDA_BUILD_MAIN_LIB")
+target_include_directories(codegen_internal PUBLIC ${NVFUSER_PYTHON_DIR})
 target_include_directories(codegen_internal SYSTEM PUBLIC
   ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   PRIVATE
@@ -459,31 +467,32 @@ if(BUILD_PYTHON)
   # nvfuser python API sources
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_SRCS_DIR}/python_frontend/multidevice_bindings.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/python_bindings_extension.cpp
-    ${NVFUSER_SRCS_DIR}/python_frontend/schedule_bindings.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/multidevice_bindings.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings_extension.cpp
+    ${NVFUSER_PYTHON_DIR}/python_frontend/schedule_bindings.cpp
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
+  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_DIR})
   target_include_directories(nvf_py_internal SYSTEM INTERFACE
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   )
 
   # setup python API version
   add_custom_command(
-    OUTPUT ${NVFUSER_ROOT}/nvfuser/version.py
+    OUTPUT ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
     COMMAND
-    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_ROOT}/tools/gen_nvfuser_version.py') .touch() \"
+    "${PYTHON_EXECUTABLE}" -c \"from pathlib import Path\; Path('${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py') .touch() \"
     COMMAND
-    "${PYTHON_EXECUTABLE}" ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_ROOT}/tools/gen_nvfuser_version.py
-    DEPENDS ${NVFUSER_ROOT}/version.txt
+    "${PYTHON_EXECUTABLE}" ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/tools/gen_nvfuser_version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/version.txt
     WORKING_DIRECTORY ${NVFUSER_ROOT}/tools/
   )
   add_custom_target(
     gen_nvfuser_version ALL
-    DEPENDS ${NVFUSER_ROOT}/nvfuser/version.py
+    DEPENDS ${NVFUSER_PYTHON_DIR}/nvfuser/version.py
   )
   add_dependencies(nvf_py_internal gen_nvfuser_version)
 
@@ -580,6 +589,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_indexing.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_indexing_advanced.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_index_select.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_index_put.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_inlining.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_interval_analysis.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_iter_visitor.cpp
@@ -590,6 +600,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_move_repeat_forward.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mutator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
@@ -623,12 +634,12 @@ list(APPEND JIT_TEST_SRCS
 )
 
 if(BUILD_TEST)
-  set(RNG_TEST_KERNELS "${NVFUSER_TESTS}_kernels")
+  set(RNG_TEST_KERNELS "rng_test_kernels")
   add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/rng_kernels.cu)
 
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
-  target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} codegen_internal)
+  target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
@@ -741,9 +752,9 @@ if(BUILD_TEST)
   if(BUILD_PYTHON)
     set(PY_FRONTEND_TEST_SRCS)
     list(APPEND PY_FRONTEND_TEST_SRCS
-      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_cache.cpp
-      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_definition.cpp
-      ${NVFUSER_ROOT}/tests/cpp/python_frontend/test_nvfuser_fusion_record.cpp
+      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_cache.cpp
+      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_definition.cpp
+      ${NVFUSER_PYTHON_DIR}/tests/python_frontend/test_nvfuser_fusion_record.cpp
     )
     add_test(test_python_frontend "${PY_FRONTEND_TEST_SRCS}" "")
     list(APPEND TEST_BINARIES test_python_frontend)

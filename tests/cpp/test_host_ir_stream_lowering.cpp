@@ -36,8 +36,8 @@ TEST_F(HirLowerStreamTest, InputsAreNotStreamParallelized) {
   hic->addInput(tv);
   tv->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
-                   StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(
+      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, Split) {
@@ -51,8 +51,8 @@ TEST_F(HirLowerStreamTest, Split) {
   tv1->split(0, 2);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
-                   StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(
+      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, Merge) {
@@ -66,8 +66,8 @@ TEST_F(HirLowerStreamTest, Merge) {
   tv1->merge(0, 1);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
-                   StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(
+      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, SingleSetOp) {
@@ -263,8 +263,8 @@ TEST_F(HirLowerStreamTest, ReductionUnsupported) {
   tv1->setMemoryType(MemoryType::Global);
   tv1->axis(0)->parallelize(ParallelType::Stream);
 
-  EXPECT_ANY_THROW(preseg_passes::OptimizationPass<
-                   StreamParallelType>::runPass(hic.get()));
+  EXPECT_ANY_THROW(
+      preseg_passes::OptimizationPass<StreamParallelType>::runPass(hic.get()));
 }
 
 TEST_F(HirLowerStreamTest, Reduction) {

@@ -155,6 +155,27 @@ class LaunchKernel : public Expr {
   }
 };
 
+class Deallocate : public Expr {
+ public:
+  using Expr::Expr;
+  Deallocate(IrBuilderPasskey passkey, TensorView* tv);
+
+  Deallocate(const Deallocate& other) = delete;
+  Deallocate& operator=(const Deallocate& other) = delete;
+  Deallocate(Deallocate&& other) = delete;
+  Deallocate& operator=(Deallocate&& other) = delete;
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  const char* getOpString() const override {
+    return "hir::Deallocate";
+  }
+
+  TensorView* buffer() const;
+};
+
 class Stream : public Val {
  public:
   // if index is provided, the IR represents the streams whose index is the

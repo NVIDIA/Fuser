@@ -18,6 +18,7 @@
 
 namespace nvfuser {
 
+using testing::Contains;
 using testing::ElementsAre;
 using testing::UnorderedElementsAre;
 
@@ -894,159 +895,52 @@ TEST_F(MultiDeviceTest, LoopShardedMergeReshapeIds) {
       __FILE__);
 }
 
-namespace {
-// This is a simplified version of what we will eventually do in the
-// pre-segmentation pass
-void propagateShardings(Fusion* fusion, int64_t num_devices) {
-  for (Expr* expr : fusion->exprs()) {
-    if (expr->isA<SliceOp>()) {
-      NVF_THROW("SliceOp is not currently supported");
-    }
-
-    if (expr->isA<ViewOp>()) {
-      // TransformPropagator cannot be directly used.
-      // It raises an error for conflicting transformations from root domain to
-      // logical domain. Instead, we manually find the reshaped iterdomain and
-      // outer split DID. This might have to be extended further in the
-      // presegmentation pass.
-      // Note: For simplicity, this assumes that the sharding is on reshaped
-      // IDs. It is possible that the non-reshaped IDs are sharded, in which
-      // case we can use the TransformPropagator.
-      TensorView* reshaped_tv = expr->as<ViewOp>()->out();
-      auto transform_exprs = StmtSort::getExprsBetween(
-          {reshaped_tv->getMaybeRootDomain().begin(),
-           reshaped_tv->getMaybeRootDomain().end()},
-          {reshaped_tv->getLogicalDomain().begin(),
-           reshaped_tv->getLogicalDomain().end()});
-      NVF_CHECK(transform_exprs.size() == 1);
-      auto transform = transform_exprs[0];
-      NVF_CHECK(transform->isA<Split>() || transform->isA<Merge>());
-
-      // Get the reshaped ID (outer ID for split reshape).
-      // This is the ID that will be parallelized.
-      IterDomain* reshaped_id = transform->isA<Split>()
-          ? transform->as<Split>()->outer()
-          : transform->as<Merge>()->out();
-
-      auto reshaped_it = std::find(
-          reshaped_tv->getLoopDomain().begin(),
-          reshaped_tv->getLoopDomain().end(),
-          reshaped_id);
-      int64_t reshaped_axis =
-          std::distance(reshaped_tv->getLoopDomain().begin(), reshaped_it);
-
-      // Apply sharding to the reshaped tensor
-      reshaped_tv->split(reshaped_axis, num_devices, false);
-      reshaped_tv->axis(reshaped_axis)->parallelize(ParallelType::DIDx);
-      reorderDIDToFront(reshaped_tv);
-      continue;
-    }
-
-    // For other ops, propagate sharding from input to outputs
-    auto input_tv = expr->input(0)->as<TensorView>();
-    std::vector<TensorView*> output_tvs;
-    for (auto output : expr->outputs()) {
-      output_tvs.push_back(output->as<TensorView>());
-    }
-
-    TransformPropagator propagator(input_tv);
-
-    // Note: We will finally propagate from each input iteratively.
-    SetSelector selector(
-        std::unordered_set<TensorView*>(output_tvs.begin(), output_tvs.end()));
-    MaxLogicalDomainInfoSpanningTree(input_tv, &selector).traverse(&propagator);
-    shardAllLike(input_tv, output_tvs);
-  }
-}
-
-} // namespace
-
-TEST_F(MultiDeviceTest, TransformerFwd) {
+TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
   const int d = communicator_->size();
-  const int64_t b = 2, s = 3, h = 8, e = 16;
+  const int64_t h = 128, e = 768;
+
+  TensorView* tv0 = makeContigConcreteTensor({e});
+  TensorView* tv1 = makeContigConcreteTensor({3 * d * h * e, e});
+  TensorView* tv2 = linear(tv0, tv1);
+  TensorView* tv3 = reshape(tv2, {3 * d * h * e}, {d * h, 3 * e});
+
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv3);
+
   auto mesh = DeviceMesh::createForNumDevices(d);
-
-  std::vector<int64_t> in_shape = {b, s, d * h * e};
-  std::vector<int64_t> out_shape = {b, s, d * h, e};
-
-  // The transformer block produces hq/hk/hv after slicing the MHA linear
-  // output.
-  TensorView* hq = makeConcreteTensor(in_shape, DataType::Half);
-  TensorView* hk = makeConcreteTensor(in_shape, DataType::Half);
-  TensorView* hv = makeConcreteTensor(in_shape, DataType::Half);
-
-  TensorView* q = reshape(hq, in_shape, out_shape);
-  TensorView* q_permuted = permute(q, {0, 2, 1, 3});
-  TensorView* k = reshape(hk, in_shape, out_shape);
-  TensorView* k_permuted = permute(k, {0, 2, 1, 3});
-  TensorView* v = reshape(hv, in_shape, out_shape);
-  TensorView* v_permuted = permute(v, {0, 2, 1, 3});
-
-  SdpfaFwdResult sdpa_out = sdpfa_fwd(
-      q_permuted,
-      k_permuted,
-      v_permuted,
-      /*dropout_p=*/IrBuilder::create<Val>(0.0),
-      /*is_causal=*/IrBuilder::create<Val>(false),
-      /*scale=*/nullptr);
-
-  TensorView* attn = sdpa_out.output;
-  TensorView* attn_permute = permute(attn, {0, 2, 1, 3});
-  TensorView* out = reshape(attn_permute, out_shape, in_shape);
-
-  fusion->addInput(hq);
-  fusion->addInput(hk);
-  fusion->addInput(hv);
-  fusion->addOutput(out);
-
-  // Shard input tensors
-  for (auto* tv : {hq, hk, hv}) {
+  tv0->setDeviceMesh(mesh);
+  for (auto* tv : {tv1, tv2, tv3}) {
     tv->setDeviceMesh(mesh);
-    tv->split(-1, d, /*inner_split=*/false);
-    tv->axis(-2)->parallelize(ParallelType::DIDx);
-    reorderDIDToFront(tv);
-  }
-  propagateShardings(fusion.get(), d);
-
-  for (auto tv : fusion->allTvs()) {
+    tv->outer_split(0, d);
+    tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor hq_tensor = at::randn({in_shape}, tensor_options.dtype(at::kHalf));
-  at::Tensor hk_tensor = at::randn({in_shape}, tensor_options.dtype(at::kHalf));
-  at::Tensor hv_tensor = at::randn({in_shape}, tensor_options.dtype(at::kHalf));
+  at::Tensor t0 = at::randn({e}, tensor_options);
+  at::Tensor t1 = at::randn({3 * d * h * e, e}, tensor_options);
+  at::Tensor sharded_t1 = shardTensor(t1, 0, mesh);
+  at::Tensor nvf_out =
+      executor_cache.runFusionWithInputs({t0, sharded_t1})[0].as<at::Tensor>();
 
-  at::Tensor sharded_hq = shardTensor(hq_tensor, -1, mesh);
-  at::Tensor sharded_hk = shardTensor(hk_tensor, -1, mesh);
-  at::Tensor sharded_hv = shardTensor(hv_tensor, -1, mesh);
-
-  auto nvf_out =
-      executor_cache
-          .runFusionWithInputs({sharded_hq, sharded_hk, sharded_hv})[0]
-          .as<at::Tensor>();
-
-  double scale = 1.0 / std::sqrt(e);
-  auto reference_out = at::_scaled_dot_product_flash_attention(
-      hq_tensor.view(out_shape).transpose(1, 2),
-      hk_tensor.view(out_shape).transpose(1, 2),
-      hv_tensor.view(out_shape).transpose(1, 2),
-      /*dropout_p=*/0.0,
-      /*is_causal=*/false,
-      /*return_debug_mask=*/false,
-      scale);
-  at::Tensor ref_attn = shardTensor(
-      std::get<0>(reference_out).transpose(1, 2).view(in_shape), -1, mesh);
-
+  at::Tensor ref_out = at::linear(t0, t1).view({d * h, 3 * e});
+  at::Tensor sharded_ref_out = shardTensor(ref_out, 0, mesh);
   testValidate(
       executor_cache.fusion(),
       {nvf_out},
-      {sharded_hq, sharded_hk, sharded_hv},
-      {ref_attn},
+      {t0, sharded_t1},
+      {sharded_ref_out},
       __LINE__,
       __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      Contains(HeuristicIs(SchedulerType::Transpose)));
 }
+
 } // namespace nvfuser

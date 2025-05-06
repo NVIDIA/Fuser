@@ -192,8 +192,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     tv->setMemoryType(MemoryType::Global);
   }
 
-  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(
-      hic.get());
+  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(hic.get());
 
   preseg_passes::ConvertOpToCommunication::setParams(params_);
   preseg_passes::OptimizationPass<

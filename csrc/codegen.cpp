@@ -159,9 +159,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   static std::string generateKernelDefinition(
       const kir::Kernel* kernel,
       const std::string& kernel_name,
-      std::optional<int64_t> num_threads_per_cta) {
+      const LaunchParams& lparams) {
     CudaKernelGenerator codegen(kernel);
-    codegen.genDeclaration(kernel_name, num_threads_per_cta);
+    codegen.lparams_ = lparams;
+    codegen.has_warp_specialized_ =
+        kernel->summary().circular_buffer_info.hasWarpSpecialized();
+    codegen.genDeclaration(kernel_name);
     codegen.startBlock();
     codegen.genPrologue();
     codegen.genBody();
@@ -286,18 +289,18 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   }
 
   // Generates the kernel function declaration
-  void genDeclaration(
-      const std::string& kernel_name,
-      std::optional<int64_t> num_threads_per_cta) {
+  void genDeclaration(const std::string& kernel_name) {
     code_ << "__global__ void ";
     if (kernel_->hasManaged("enable_register_sharing") &&
         kernel_->getManaged<bool>("enable_register_sharing")) {
+      int64_t num_threads_per_cta = lparams_.nThreads();
       NVF_ERROR(
-          num_threads_per_cta.has_value(),
-          "__launch_bounds__ must be set for register sharing warp specialization");
+          num_threads_per_cta % 128 == 0,
+          "The number of threads per CTA is not correctly set, check launch para",
+          lparams_.toString());
 
       int64_t initial_reg_count =
-          getRegPerThreadGivenThreadsPerSM(num_threads_per_cta.value());
+          getRegPerThreadGivenThreadsPerSM(num_threads_per_cta);
       auto [decreased_reg_count, increased_register_count] =
           kernel_->summary().dec_inc_register_usage;
       NVF_ERROR(
@@ -315,8 +318,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 
       // leave a space between launch bound and kernel name
       code_ << "__launch_bounds__(/*maxThreadsPerBlock=*/"
-            << num_threads_per_cta.value()
-            << ", /*minBlocksPerMultiprocessor=*/1) ";
+            << num_threads_per_cta << ", /*minBlocksPerMultiprocessor=*/1) ";
     }
     if (kernel_->hasManaged("cluster_dims")) {
       auto cluster_dims =
@@ -1276,14 +1278,14 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::string genLoadBlockDim() {
     std::stringstream ss;
     const auto& pdim_map = kernel_->summary().parallel_dimension_map;
-    Val* tidx = pdim_map.getRawLoad(ParallelType::TIDx);
-    Val* tidy = pdim_map.getRawLoad(ParallelType::TIDy);
-    Val* tidz = pdim_map.getRawLoad(ParallelType::TIDz);
+    Val* tidx = pdim_map.getRawAsync(ParallelType::TIDx);
+    Val* tidy = pdim_map.getRawAsync(ParallelType::TIDy);
+    Val* tidz = pdim_map.getRawAsync(ParallelType::TIDz);
     int64_t num_threads = tidx->value().as<int64_t>() +
         tidy->value().as<int64_t>() + tidz->value().as<int64_t>();
     NVF_ERROR(
         num_threads == 128,
-        "Expected 128 threads in LoadWarp, but found ",
+        "Expected 128 threads in AsyncWarp, but found ",
         num_threads);
     NVF_ERROR(pdim_map.hasWarpSpecialization());
     ss << "dim3(" << genInlineOrOne(tidx) << ", " << genInlineOrOne(tidy)
@@ -2989,7 +2991,30 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << genCall("blockIterGroupedYdimReduce", template_args, func_args)
              << ";\n";
   }
+  void genGroupedWarpReduction(
+      const int num_grouped_iterations,
+      kir::TensorIndex* output,
+      kir::TensorIndex* input,
+      const Val* init,
+      BinaryOpType reduction_op_type,
+      kir::Predicate* read_pred) {
+    ArgumentBuilder func_args;
+    func_args.arg(genVariableNameConvertAlignedArray(output));
+    func_args.arg(genVariableNameConvertAlignedArray(input));
+    func_args.arg(genReductionOp(reduction_op_type, output->dtype()));
+    func_args.arg(genStaticCast(genPtrType(output->dtype()), "shared_mem"));
 
+    ArgumentBuilder template_args;
+    template_args.arg(kernel_->getWarpPaddedParallelInfo().is_tidx_single_warp);
+    template_args.arg(isAligned());
+    template_args.arg(num_grouped_iterations);
+    template_args.arg(lparams_.bdimx());
+    indent() << genCall(
+                    "warp::iterGroupedStaticWarpAllReduce",
+                    template_args,
+                    func_args)
+             << ";\n";
+  }
   void handle(const GroupedReductionOp* grouped_rop) final {
     const auto num_grouped_iterations =
         getGroupedLoopIndexConcreteIntSets().size();
@@ -3010,14 +3035,37 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       NVF_ERROR(
           has_block_reduce,
           "To use IterGroupedBlockReduction, must have block reduce!");
-      return genIterGroupedBlockReduction(
-          (int)num_grouped_iterations,
-          output,
-          input,
-          grouped_rop->initVal(0),
-          op_type,
-          grouped_rop->predicate(),
-          grouped_rop->writePredicate());
+      if (auto reduction_ids =
+              ir_utils::getMaybeWarpReductionDim(output, input)) {
+        NVF_ERROR(
+            lparams_.bdimx() % 128 == 0,
+            "iterGroupedStaticWarpAllReduce() requires bdimx % 128 == 0.");
+        NVF_ERROR(
+            grouped_rop->isAllreduce(),
+            "iterGroupedStaticWarpAllReduce should be used for allreduce.");
+        NVF_ERROR(
+            reduction_ids.value().first &&
+                reduction_ids.value().first->getParallelType() ==
+                    ParallelType::TIDx &&
+                reduction_ids.value().second == nullptr,
+            "Grouped warp reduction is only supported for TIDx reduction with no second dimension.");
+        return genGroupedWarpReduction(
+            (int)num_grouped_iterations,
+            output,
+            input,
+            grouped_rop->initVal(0),
+            op_type,
+            grouped_rop->predicate());
+      } else {
+        return genIterGroupedBlockReduction(
+            (int)num_grouped_iterations,
+            output,
+            input,
+            grouped_rop->initVal(0),
+            op_type,
+            grouped_rop->predicate(),
+            grouped_rop->writePredicate());
+      }
     }
 
     for (const auto i : arange(num_grouped_exprs)) {
@@ -3557,7 +3605,7 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
       indent() << "block_sync::sync();\n";
     } else if (isAligned()) {
       indent() << "__syncthreads();\n";
-    } else if (sync->isLoadWarpSync()) {
+    } else if (sync->isAsyncWarpSync()) {
       ArgumentBuilder template_args;
       template_args.arg(isAligned());
       ArgumentBuilder func_args;
@@ -3583,8 +3631,12 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     bool bidz = sync->syncDims().get(ParallelType::BIDz);
 
     ArgumentBuilder sync_call_template_parms;
-    sync_call_template_parms.arg(bidx).arg(bidy).arg(bidz).arg(true).arg(
-        isAligned());
+    sync_call_template_parms.arg(bidx)
+        .arg(bidy)
+        .arg(bidz)
+        .arg(/*PERSISTENT=*/true)
+        .arg(/*Aligned=*/
+             has_warp_specialized_ ? false : isAligned());
 
     auto sync_idx = genCall(
         "index_utils::maskedOffset",
@@ -3749,6 +3801,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
     indent() << "NVFUSER_UPDATE_MAGIC_ZERO;\n";
   }
 
+  void handle(const kir::Continue* cont) final {
+    indent() << "continue;\n";
+  }
+
   void handle(const kir::Return* ret) final {
     indent() << "return;\n";
   }
@@ -3799,6 +3855,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
   std::unordered_set<const Val*> kernel_params_;
   //! Utility names already generated
   std::unordered_set<std::string> generated_utilities_;
+  //! iterGroupedStaticWarpAllReduce requires static threads per CTA
+  LaunchParams lparams_;
+  //! Whether the kernel has warp specialization
+  bool has_warp_specialized_ = false;
 };
 
 } // namespace
@@ -3806,10 +3866,10 @@ class CudaKernelGenerator : private kir::ConstIrVisitor {
 std::string generateCudaKernel(
     const kir::Kernel* kernel,
     const std::string& kernel_name,
-    std::optional<int64_t> num_threads_per_cta) {
+    const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("generateCudaKernel");
   return CudaKernelGenerator::generateKernelDefinition(
-      kernel, kernel_name, num_threads_per_cta);
+      kernel, kernel_name, lparams);
 }
 
 } // namespace codegen

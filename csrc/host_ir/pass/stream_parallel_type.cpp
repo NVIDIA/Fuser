@@ -345,7 +345,7 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     auto* get_current_stream = IrBuilder::create<hir::GetCurrentStream>();
     hir::Stream* original_stream = get_current_stream->stream();
     new_top_level_exprs.push_back(get_current_stream);
-  
+
     // Create a new for-loop for getting the current stream
     auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
         for_loop->iterDomain(),
@@ -377,7 +377,7 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
     std::vector<Expr*> new_loop_body;
     // When entering the loop, set the stream
     new_loop_body.push_back(set_stream);
-  
+
     // Add all the current for-loop body expressions to the new loop body
     for (auto* expr : for_loop->body().exprs()) {
       new_loop_body.push_back(expr);

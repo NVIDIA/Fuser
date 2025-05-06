@@ -74,32 +74,47 @@ PairwiseLogicalDomainMap::PairwiseLogicalDomainMap(
 
 namespace {
 
-// Returns a producer ID that is indirectly accessed. A bool is also
-// returned indicating there's a corresponding consumer ID. For
-// example, select doesn't have a consumer ID, whereas index_select
-// does.
-std::pair<IterDomain*, bool> getIndexedDomainInfo(
+// Returns producer IDs that don't map identically to consumer. A bool is
+// returned indicating whether corresponding consumer IDs exists. For example,
+// select doesn't have a consumer ID, whereas index_select does.
+std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
     const TensorView* consumer_tv) {
-  IterDomain* indexed_id = nullptr;
+  std::unordered_set<IterDomain*> non_mapping_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
-    indexed_id = sop->getIndexedID();
+    // indexed ID is indirectly accessed
+    non_mapping_ids.insert(sop->getIndexedID());
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == sop->lookupTv()) {
-      indexed_id = sop->getIndexedID();
+      non_mapping_ids.insert(sop->getIndexedID());
       has_consumer_id = true;
     }
   } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
+    // indexed ID is indirectly accessed
     if (producer_tv == gop->lookupTv()) {
-      indexed_id = gop->getIndexedID();
+      non_mapping_ids.insert(gop->getIndexedID());
+      has_consumer_id = true;
+    }
+  } else if (
+      auto iaop =
+          dynamic_cast<IndexPutAccumulateOp*>(consumer_tv->definition())) {
+    // see [ Note -- IndexPutAccumulateOp semantics ]
+    if (producer_tv == iaop->indexTv()) {
+      // Indexing ID of index tv do not map to output.
+      non_mapping_ids.insert(iaop->getIndexingID());
+      has_consumer_id = true;
+    } else if (producer_tv == iaop->valueTv()) {
+      // indexing ID of value tv do not map to output.
+      non_mapping_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
   }
 
-  return std::make_pair(indexed_id, has_consumer_id);
+  return std::make_pair(non_mapping_ids, has_consumer_id);
 }
 
 } // namespace
@@ -120,8 +135,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     squeeze_flags = sop->getSqueezeDimFlags();
   }
 
-  auto [indexed_producer_id, has_consumer_of_indexed_id] =
-      getIndexedDomainInfo(producer_tv_, consumer_tv_);
+  auto [non_mapping_producer_id, has_consumer_of_indexed_id] =
+      getNonMappingDomainInfo(producer_tv_, consumer_tv_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
   const auto producer_logical = map_reduction_domains_
@@ -341,13 +356,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     IterDomain* consumer_id = consumer_root.at(itc);
 
     // Conditions to check:
-    // 1. Indirectly accessed IDs (e.g., select)
+    // 1. Non mapping IDs (e.g., select)
     // 2. IDs that may have different extents (e.g., non indexed
     //  domains of torchGather)
     // 3. Squeeze and unsqueeze
 
-    // Condition 1: when the producer ID is the dim of a select-like op
-    if (producer_id == indexed_producer_id) {
+    // Condition 1: when the producer ID is the dim of a select-like op, or when
+    // it doesn't map to the output IDs, like indexing IDs of indexPutAccumulate
+    if (non_mapping_producer_id.count(producer_id) != 0) {
       // If there's no corresponding consumer, skip the indexed producer
       if (!has_consumer_of_indexed_id) {
         itp++;
@@ -364,7 +380,8 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     // Condition 2: Different extents
     if (auto gop = dynamic_cast<GatherOp*>(consumer_tv_->definition());
         gop != nullptr && !gop->exactSizes() &&
-        producer_tv_ == gop->lookupTv() && producer_id != indexed_producer_id &&
+        producer_tv_ == gop->lookupTv() &&
+        non_mapping_producer_id.count(producer_id) == 0 &&
         !map_different_extents_) {
       itp++;
       itc++;

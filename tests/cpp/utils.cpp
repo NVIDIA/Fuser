@@ -942,13 +942,15 @@ namespace {
 // Stats like allocated_bytes comes as a size-3 array (cf.
 // https://github.com/pytorch/pytorch/blob/feb503c1df78afd46962ed04e446d6e88ac0522d/c10/core/Allocator.h#L365-L370).
 // The 0-th element is an aggregation of both the small pool and the large.
-constexpr auto kAggregateStatsIndex = static_cast<uint64_t>(
-#if NVF_TORCH_VERSION_NO_LESS(2, 7, 0)
-    c10::CachingAllocator::StatType::AGGREGATE
-#else
-    c10::CachingDeviceAllocator::StatType::AGGREGATE
-#endif
-);
+//
+// To avoid hardcoded values, I initially wrote
+// c10::CachingAllocator::StatType::AGGREGATE here but ran into compilation
+// errors with slightly older PyTorch because that enum was introduced in a
+// recent commit:
+// https://github.com/pytorch/pytorch/commit/c65ee728f069ea9544bdcac815eb0825f45d1633.
+// NVF_TORCH_VERSION_* don't seem to be good enough to distinguish before and
+// after this commit.
+constexpr int64_t kAggregateStatsIndex = 0;
 } // namespace
 
 int64_t maxMemoryAllocated(const c10::DeviceIndex device) {

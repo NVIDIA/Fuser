@@ -22,7 +22,8 @@ namespace nvfuser::hir {
 // An illustration of the pass can be found in the tests
 // `test_host_ir_stream_lowering.cpp`
 // with the option `NVFUSER_DUMP=host_ir`.
-class StreamParallelType : public preseg_passes::OptimizationPass<StreamParallelType> {
+class StreamParallelType
+    : public preseg_passes::OptimizationPass<StreamParallelType> {
   friend class preseg_passes::OptimizationPass<StreamParallelType>;
 
  protected:

@@ -13,6 +13,7 @@
 #include <host_ir/executor.h>
 #include <host_ir/lower.h>
 #include <instrumentation.h>
+#include <ir/iostream.h>
 #include <ir/utils.h>
 #include <multidevice/communication.h>
 #include <multidevice/cuda_p2p.h>
@@ -331,21 +332,28 @@ void HostIrEvaluator::handle(LaunchKernel* launch_kernel) {
   for (auto& input : launch_kernel->inputs()) {
     args.push(getKnownConcreteValue(input));
   }
+
+  // All output buffers are known already, pass them to the executor
+  KernelArgumentHolder outputs;
+  for (Val* output : launch_kernel->outputs()) {
+    if (isKnown(output)) {
+      outputs.push(getKnownConcreteValue(output));
+    }
+  }
+
+  NVF_ERROR(
+      outputs.size() == launch_kernel->outputs().size(),
+      "Not all outputs to the kernel were preallocated");
+
   args.setDeviceIndex();
 
   // run the compiled kernel
-  KernelArgumentHolder outputs =
-      container_->getKernelExecutor(launch_kernel->getIndex())
-          ->run(
-              args,
-              {},
-              launch_kernel->launch_params(),
-              launch_kernel->compile_params());
-
-  // Store the outputs in the context
-  for (auto output_idx : arange(outputs.size())) {
-    bind(launch_kernel->outputs().at(output_idx), outputs[output_idx]);
-  }
+  container_->getKernelExecutor(launch_kernel->getIndex())
+      ->run(
+          args,
+          outputs,
+          launch_kernel->launch_params(),
+          launch_kernel->compile_params());
 }
 
 void HostIrEvaluator::handle(PostOnStream* post_ir) {
@@ -642,17 +650,44 @@ void HostIrEvaluator::handle(LoadStoreOp* load_store_op) {
   auto* out_tv = load_store_op->out()->as<TensorView>();
   auto in_tensor = getKnownConcreteValue(load_store_op->in()).as<at::Tensor>();
 
-  // If output has root domain, it means that the set op is a permute, which we
-  // don't support currently
-  NVF_ERROR(
-      !out_tv->hasRoot(), "the set op", load_store_op, "must not be a permute");
-
-  if (!isKnown(load_store_op->out())) {
-    bind(load_store_op->out(), in_tensor);
+  at::Tensor t;
+  if (out_tv->hasRoot()) {
+    std::optional<std::vector<int64_t>> permutation =
+        ir_utils::computePermutation(
+            out_tv->getRootDomain(), out_tv->getLogicalDomain());
+    NVF_ERROR(
+        permutation.has_value(),
+        "The logical domain of a Set.Permute is supposed to be a permutation"
+        " of the root domain: ",
+        out_tv);
+    t = in_tensor.permute(*permutation);
   } else {
+    t = in_tensor;
+  }
+
+  if (isKnown(out_tv)) {
     auto out_tensor =
         getKnownConcreteValue(load_store_op->out()).as<at::Tensor>();
-    out_tensor.copy_(in_tensor);
+    out_tensor.copy_(t);
+  } else {
+    // For completeness, we may check if out_tv's allocation matches `t` and
+    // copy data if yes. For example,
+    //
+    // clang-format off
+    // ```
+    // const auto& [sizes, strides] = inferShapeOfOutput(out_tv, expr_evaluator_);
+    // if (strides == t.strides()) {
+    //   bind(out_tv, t);
+    // } else {
+    //   auto out_tensor = at::empty_strided(sizes, strides, in_tensor.dtype());
+    //   out_tensor.copy_(t);
+    //   bind_(out_tv, out_tensor);
+    // }
+    // ```
+    // clang-format on
+    //
+    // For now, I choose to keep code simple for the limited use cases.
+    bind(out_tv, t);
   }
 }
 
@@ -662,7 +697,7 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       "Allocation must be on a TensorView but got ",
       allocate->buffer());
   TensorView* tv = allocate->buffer()->as<TensorView>();
-  if (expr_evaluator_.isKnown(tv)) {
+  if (isKnown(tv)) {
     return;
   }
   GlobalBufferInfo info =
@@ -677,6 +712,16 @@ void HostIrEvaluator::handle(kir::Allocate* allocate) {
       device,
       c10::nullopt);
   bind(tv, tensor);
+}
+
+void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
+  auto indexed_id = hir_alias_select->in()->axis(hir_alias_select->axis());
+  auto index = indexed_id->isBroadcast() ? 0 :
+      expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
+  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
+                   .as<at::Tensor>();
+  int64_t axis = hir_alias_select->axis();
+  bind(hir_alias_select->out(), input.select(axis, index));
 }
 
 void HostIrEvaluator::handle(BinaryOp* binary_op) {
@@ -751,14 +796,13 @@ void HostIrEvaluator::handle(ReductionOp* reduction_op) {
   }
 }
 
-void HostIrEvaluator::handle(HirAliasSelect* hir_alias_select) {
-  auto indexed_id = hir_alias_select->in()->axis(hir_alias_select->axis());
-  auto index = indexed_id->isBroadcast() ? 0 :
-      expr_evaluator_.evaluate(hir_alias_select->index()).as<int64_t>();
-  auto input = getKnownConcreteValue(hir_alias_select->in()->as<TensorView>())
-                   .as<at::Tensor>();
-  int64_t axis = hir_alias_select->axis();
-  bind(hir_alias_select->out(), input.select(axis, index));
+void HostIrEvaluator::handle(Deallocate* deallocate) {
+  auto* tv = deallocate->buffer();
+  NVF_ERROR(
+      isKnown(tv),
+      "Tried to free buffer associated with unknown TensorView",
+      tv);
+  invalidate(tv);
 }
 
 void HostIrEvaluator::unhandled(Statement* stmt) {

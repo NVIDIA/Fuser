@@ -89,7 +89,8 @@ Examples:
 ### gdb
 
 ```shell
-$ python setup.py develop --debug
+$ NVFUSER_BUILD_BUILD_TYPE=Debug pip install -v -e ./python --no-build-isolation
+# or if you are on the PJNL docker image, DEBUG_BUILD=1 _bn
 $ gdb --args bin/test_nvfuser --gtest_filter=<FILTER>
 (gdb) catch throw nvfuser::nvfError
 (gdb) r
@@ -98,8 +99,8 @@ $ gdb --args bin/test_nvfuser --gtest_filter=<FILTER>
 ## Debug memory corruption using `asan`
 
 ```shell
-$ python setup.py develop --build-with-asan
-# or if you are on the PJNL docker image, NVFUSER_BUILD_EXTRA_PYTHON_ARGS='--build-with-asan' _bn
+$ NVFUSER_BUILD_WITH_ASAN=1 pip install -v -e ./python --no-build-isolation
+# or if you are on the PJNL docker image, NVFUSER_BUILD_WITH_ASAN=1 _bn
 
 $ LD_PRELOAD=$(gcc -print-file-name=libasan.so) ASAN_OPTIONS=protect_shadow_gap=0 <CMD>
 # The ASAN_OPTIONS is needed to work around https://github.com/google/sanitizers/issues/629.

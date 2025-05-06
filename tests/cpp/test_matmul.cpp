@@ -3656,6 +3656,32 @@ class HopperMatmulTest : public HopperBase {
   }
 };
 
+// 2 math group, non-persistent, non-warp specialized, no CGA
+// TODO: This could be in HopperMatmulTest::SetUp() instead
+MatmulParams defaultHopperParams() {
+  MatMulTileOptions gemm_tile;
+  gemm_tile.cta_tile = GemmTile(128, 256, 64);
+  gemm_tile.warp_tile = GemmTile(64, 256, 64);
+  MatmulParams mparams;
+  mparams.supported_vec_size = {8, 8, 8};
+  mparams.mma_macro = MmaMacro::Hopper_64_256_16;
+  mparams.tile_sizes = gemm_tile;
+  mparams.circular_buffering_strategy =
+      MatmulParams::CircularBufferingStrategy::Pipelined;
+  mparams.tiling_strategy = MatmulParams::TilingStrategy::OneTilePerCTA;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
+  mparams.async_gmem_load_operands = true;
+  mparams.circular_buffer_options.circular_buffer_smem_write = true;
+  mparams.circular_buffer_options.circular_buffer_smem_read = false;
+  mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+  mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
+  mparams.splitk_factor = 1;
+  mparams.use_smem_epilogue = true;
+  mparams.cluster_dims = {1, 1, 1};
+  mparams.promote_prologue_smem_reuse = true;
+  return mparams;
+}
+
 TEST_F(HopperMatmulTest, HSH_NT_128BSwizzle) {
   Fusion fusion;
   FusionGuard fg(&fusion);
@@ -4098,8 +4124,8 @@ class MLPBenchmarkTest
       gemm_tile.warp_tile = GemmTile(64, 64, 32);
     } else {
       mparams.mma_macro = MmaMacro::Hopper_64_256_16;
-      gemm_tile.cta_tile = GemmTile(128, 256, 16);
-      gemm_tile.warp_tile = GemmTile(64, 256, 16);
+      gemm_tile.cta_tile = GemmTile(128, 256, 64);
+      gemm_tile.warp_tile = GemmTile(64, 256, 64);
     }
     mparams.tile_sizes = gemm_tile;
     mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
@@ -4112,9 +4138,10 @@ class MLPBenchmarkTest
         : MatmulParams::TilingStrategy::OneTilePerCTA;
     mparams.circular_buffer_options.circular_buffer_smem_write = true;
     mparams.circular_buffer_options.circular_buffer_smem_read = false;
-    mparams.circular_buffer_options.smem_circular_buffer_stage = 4;
+    mparams.circular_buffer_options.smem_circular_buffer_stage = 2;
     mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
     mparams.splitk_factor = 1;
+    mparams.grid_traversal_factor = {8, 1};
     mparams.use_smem_epilogue = true;
     mparams.cluster_dims = {2, 1, 1};
     mparams.promote_prologue_smem_reuse = true;
@@ -4147,8 +4174,17 @@ TEST_P(MLPBenchmarkTest, FwdGEMM) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4188,8 +4224,17 @@ TEST_P(MLPBenchmarkTest, FwdGEMM_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4230,8 +4275,17 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueBiasFusion) {
 
   KernelArgumentHolder inputs = {t0, t1, t2};
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4286,8 +4340,17 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueSiluFusion) {
 
   KernelArgumentHolder inputs = {t0, t1, t2};
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4346,8 +4409,17 @@ TEST_P(MLPBenchmarkTest, FwdEpilogueFusion_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4421,8 +4493,17 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, inputs);
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4503,8 +4584,17 @@ TEST_P(MLPBenchmarkTest, FwdHorizontalFusion_BroadcastInputs) {
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
       ->schedule(&fusion, &mparams);
 
+  CompileParams compile_opts;
+  compile_opts.enable_ptxas_verbose = true;
+  captureStdout();
+
   KernelExecutor ke;
-  ke.compile(&fusion, {t0, t1, t2});
+  ke.compile(&fusion, inputs, LaunchParams(), compile_opts);
+
+  std::string output = getCapturedStdout();
+  EXPECT_EQ(output.find("warpgroup"), std::string::npos)
+      << "Detected ptxas warpgroup warning";
+
   // TODO Fix std::get variant error in expression evaluator because of linear
   // index
   // EXPECT_TRUE(getBankConflictInfo(ke.compiledKernel()->kernel()).empty());
@@ -4711,7 +4801,7 @@ TEST_F(HopperMatmulTest, IndexTypeValidation) {
   mparams.supported_vec_size = {8, 8, 8};
   mparams.mma_macro = MmaMacro::Hopper_64_256_16;
   mparams.tile_sizes = gemm_tile;
-  mparams.cta_order = MatmulParams::TileRasterizationOrder::RowMajor;
+  mparams.cta_order = MatmulParams::TileRasterizationOrder::ColumnMajor;
   mparams.async_gmem_load_operands = true;
   mparams.circular_buffer_options.circular_buffer_smem_write = false;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
@@ -5037,13 +5127,16 @@ TEST_P(MLPGemmPersistentBroadcastInputs, NumWarpGroups) {
       MatmulParams::TilingStrategy::DistributeTilesAcrossSMs;
   mparams.circular_buffer_options.circular_buffer_smem_write = true;
   mparams.circular_buffer_options.circular_buffer_smem_read = false;
-  mparams.grid_traversal_factor = {8, 1};
+  mparams.grid_traversal_factor = {16, 8};
   // TODO reduced share memory aliasing because of persistent scheduling
   mparams.circular_buffer_options.smem_circular_buffer_stage = 3;
   mparams.circular_buffer_options.smem_circular_buffer_prefetch_gap = 1;
   mparams.splitk_factor = 1;
   mparams.use_smem_epilogue = true;
-  mparams.cluster_dims = {2, 1, 1};
+  // Legacy launch is faster than Cluster launch when using full 132 SM grid.
+  // Cluster launch is better when using 128 SM grid that matches 2d grid
+  // traveral.
+  mparams.cluster_dims = {1, 1, 1};
   mparams.promote_prologue_smem_reuse = true;
 
   SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
@@ -5354,6 +5447,62 @@ TEST_F(HopperMatmulTest, HSH_NT_SingleMathGroupSyncCheck) {
   EXPECT_EQ(ke.lastLaunchParams().bdimy(), 1)
       << " expected 1 warp groups (BIDy==1) but found BIDy=="
       << ke.lastLaunchParams().bdimy();
+
+  // Relax tolerance for larger sum due to large K
+  NVF_CHECK(at::allclose(
+      cg_outputs[0].as<at::Tensor>(), out_ref, 1e-6 * K, 1e-6 * K));
+}
+
+// See https://github.com/NVIDIA/Fuser/issues/4159
+TEST_F(HopperMatmulTest, HSS_NT_SplitKTMAStore) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  constexpr int64_t M = 2048, N = 2048, K = 8192;
+  const auto dtype = DataType::Half;
+
+  auto tv0 = makeContigConcreteTensor({-1, -1, 1}, dtype); // K, M
+  auto tv1 = makeContigConcreteTensor({-1, 1, -1}, dtype); // K, N
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 = fusedMultiplySum(tv0, tv1, {0});
+
+  // Reorder the accumulator as [M, N, K]
+  // [K, M, N] -> [M, N, K]
+  tv2->reorder({{-3, -1}});
+  tv2->commitLeafToLogical();
+
+  fusion.addOutput(tv2);
+
+  auto options = at::TensorOptions().dtype(at::kHalf).device(at::kCUDA);
+  auto t0 = at::randn({K, M, 1}, options);
+  auto t1 = at::randn({K, 1, N}, options);
+  auto out_ref =
+      at::matmul(t0.squeeze().t().to(at::kFloat), t1.squeeze().to(at::kFloat));
+
+  MatmulParams mparams = defaultHopperParams();
+  mparams.use_smem_epilogue = true;
+  mparams.splitk_factor = 2;
+
+  SchedulerEntry::makeSchedulerInstance(SchedulerType::Matmul)
+      ->schedule(&fusion, &mparams);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  // TODO: Either enable stmatrix for 32-bit outputs or fix current 2-way bank
+  // conflict by scheduling the vectorized store properly
+  auto bank_conflicts = getBankConflictInfo(ke.compiledKernel()->kernel());
+  EXPECT_EQ(bank_conflicts.size(), 1);
+  for (const auto& [expr, conflict_ways] : bank_conflicts) {
+    int64_t input_ways, output_ways;
+    std::tie(input_ways, output_ways) = conflict_ways;
+    EXPECT_EQ(input_ways, 0);
+    EXPECT_EQ(output_ways, 2);
+  }
+  auto cg_outputs = ke.run({t0, t1});
+  ASSERT_FALSE(PredicatedChecker::isCpAsyncMmaPredicatedByIfThenElse(
+      ke.compiledKernel()->kernel()));
 
   // Relax tolerance for larger sum due to large K
   NVF_CHECK(at::allclose(
