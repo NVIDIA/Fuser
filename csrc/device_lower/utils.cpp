@@ -233,6 +233,8 @@ inline CpAsyncBulkMode getCpAsyncBulkMode(const Expr* expr) {
 // nD TMA ops handles out of bound accesses automatically in hardware, no need
 // to predicate it.
 bool isCpAsyncBulkTensorTile(const Expr* expr) {
+   return isCpAyncBulkLoad(expr) && expr->as<LoadStoreOp>()->opType() == CpAsyncBulkTensorTile;
+   }
   auto ldst = dynamic_cast<const LoadStoreOp*>(expr);
   if (!ldst) {
     return false;
