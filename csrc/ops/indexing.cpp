@@ -184,11 +184,14 @@ TensorView* scatterOp(
 
   // The shape of output tensor is same as self tensor.
   std::vector<IterDomain*> out_domain;
-  for (const auto i : arange(self_dom.size())) {
+  for (const auto i : arange((int64_t)self_dom.size())) {
     out_domain.push_back(
         IterDomainBuilder(self_dom[i])
             .iter_type(
-                i == dim && self_dom[i]->getIterType() == IterType::Iteration
+                // I think this should be the right thing to do, but our indexing isn't really working yet.
+                // 
+                // (i == dim && self_dom[i]->getIterType() == IterType::Iteration)
+                self_dom[i]->getIterType() == IterType::Iteration
                     ? IterType::GatherScatter
                     : self_dom[i]->getIterType())
             .build());
