@@ -1204,7 +1204,7 @@ NVF_API CompiledKernel::CompiledKernel(
           {},
           {}) {}
 
-void CompiledKernel::compile(int64_t block_size) {
+void CompiledKernel::compile(const LaunchParams& lparams) {
   FUSER_PERF_SCOPE("CompiledKernel::compile");
 
   NVF_ERROR(
@@ -1263,7 +1263,7 @@ void CompiledKernel::compile(int64_t block_size) {
     }
   }
 
-  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), block_size);
+  kernel_code_ = codegen::generateCudaKernel(kernel, kernelName(), lparams);
 
   const kir::KernelSummary& kernel_summary = kernel->summary();
 
@@ -1302,7 +1302,7 @@ void CompiledKernel::compile(int64_t block_size) {
         "The static shared memory allocation is larger than available memory.");
   }
 
-  if (kernel_summary.has_dynamic_local_memory_allocations) {
+  if (!kernel_summary.dynamic_lmem_allocations.empty()) {
     std::stringstream ss;
     ss << "Allocations must be based on constant integers for local memory. However, found: ";
     for (auto alloc : kernel_summary.dynamic_lmem_allocations) {
@@ -1311,7 +1311,7 @@ void CompiledKernel::compile(int64_t block_size) {
     ss << " have dynamic allocations but are placed in local memory.";
     NVF_THROW(ss.str());
   }
-
+  int64_t block_size = lparams.nThreads();
   NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
 
   // Basically setting high water mark as 1 when we don't provide args for

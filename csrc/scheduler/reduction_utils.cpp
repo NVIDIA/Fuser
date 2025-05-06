@@ -118,8 +118,22 @@ TensorView* scheduleReductionTV(
     reduction_tv->split(axis, factor, false);
     reduction_tv->axis(axis)->parallelize(ParallelType::Unroll);
   };
+  if (rparams->tma_warp_specialized) {
+    // Reduction: [Persistent, TIDx, Vect]
+    vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
+    auto outer_i = inner_reduce_axis;
+    reduction_tv->split(
+        outer_i++, rparams->batches_per_block_inner_reduction, false);
+    reduction_tv->axis(outer_i)->parallelize(ParallelType::TIDx);
+    reduction_tv->axis(outer_i)->padToMultipleOfWarp();
 
-  if (is_outer_grid_persistence) {
+    // Iteration: [I/Unroll/BIDy, BIDy, Unroll]
+    if (rparams->unroll_factor_iter_dom > 1) {
+      inner_unroll(iter_axis, rparams->unroll_factor_iter_dom);
+    }
+    inner_parallel_static(
+        iter_axis, rparams->grid_dim_iter_dom, rparams->lparams.gdimy());
+  } else if (is_outer_grid_persistence) {
     const auto reduction_axis = inner_reduce_axis;
     NVF_ERROR(rparams->static_bdimy, "blockDim.y must be static");
     inner_parallel_static(
@@ -145,12 +159,12 @@ TensorView* scheduleReductionTV(
     }
   } else if (rparams->persistent_kernel) {
     // Persistent Format:
-    // [Grid Split, persistent buffer, unswitch, unroll, thread dim, vectorize]
+    // [Grid Split, persistent buffer, unswitch, unroll, thread dim,
+    // vectorize]
     if (rparams->vectorize_inner_reduction) {
       vectorize(inner_reduce_axis, rparams->unroll_factor_inner_reduction);
     }
     if (rparams->combined_inner_outer && !rparams->multiple_reds_per_blk) {
-      // inner_parallel(inner_reduce_axis, rparams->block_dim_inner_reduction);
       NVF_ERROR(
           rparams->static_bdimx,
           "blockDim.x must be static for combined_inner_outer");
@@ -223,9 +237,8 @@ TensorView* scheduleReductionTV(
       }
     }
   }
-
   // Outer reduction axis
-  if (rparams->schedule_3D) {
+  if (!rparams->tma_warp_specialized && rparams->schedule_3D) {
     if (rparams->persistent_kernel) {
       // Persistent Format:
       // [Grid Split, persistent buffer, unroll, thread dim]
@@ -261,7 +274,7 @@ TensorView* scheduleReductionTV(
   }
 
   // Iteration domain
-  if (has_iter_axis) {
+  if (!rparams->tma_warp_specialized && has_iter_axis) {
     // [Grid Split, unswitch, unroll, thread dim, vectorize]
 
     if (rparams->vectorize_iter_dom) {
@@ -476,6 +489,18 @@ void clearUnrollVectorizationAddGroupReduction(
     const std::unordered_set<TensorView*>& unroll_vectorizable_cached_tvs) {
   std::vector<TensorView*> rfactor_and_reduction_tvs = {
       reference_tv, reduction_tv};
+  bool is_inner_reduction =
+      scheduler_utils::isFastestDimReduction(reduction_tv);
+  auto convertParallelToGrouped = [&is_inner_reduction](IterDomain* id) {
+    auto pt = id->getParallelType();
+    // For inner reduction, convert outer dim unroll to group.
+    // For outer reduction, convert inner dim vectorization to group.
+    if (is_inner_reduction) {
+      return pt == ParallelType::Unroll && !id->isReduction();
+    } else {
+      return pt == ParallelType::Vectorize;
+    }
+  };
   for (auto tv : rfactor_and_reduction_tvs) {
     if (unroll_vectorizable_cached_tvs.count(tv) != 0) {
       continue;
@@ -485,7 +510,7 @@ void clearUnrollVectorizationAddGroupReduction(
       if (use_grouped_reduction &&
           std::find(reduction_tvs.begin(), reduction_tvs.end(), tv) !=
               reduction_tvs.end() &&
-          id->getParallelType() == ParallelType::Vectorize) {
+          convertParallelToGrouped(id)) {
         tv->axis(i)->parallelize(ParallelType::Group);
         for (auto sibling : ir_utils::siblingTvsOf(tv)) {
           sibling->axis(i)->parallelize(ParallelType::Group);

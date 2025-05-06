@@ -50,10 +50,10 @@ class ParallelDimensionMap {
   Val* getRawCompute(ParallelType pt) const;
 
   //! Get the "load" parallel dimension on the given ParallelType. In case
-  //! of no warp specialization, this is the same as getRaw(pt). If we are doing
-  //! warp specialization on pt, the result is 1, because the last of pt is used
-  //! for loading circular buffer tensors.
-  Val* getRawLoad(ParallelType pt) const;
+  //! of without warp specialization, this is the same as getRaw(pt). For warp
+  //! warp specialization on pt, the result is padded_value. The last part of
+  //! pt is used for AsyncWarp warp group.
+  Val* getRawAsync(ParallelType pt) const;
 
   //! The padded val ensures that CTA has 128 threads for the AsyncWarp. This
   //! function returns the padded val for the warp specialized ParallelType.
@@ -83,6 +83,10 @@ class ParallelDimensionMap {
   }
 
  private:
+  //! Get number of threads for ParallelType axis
+  //! Not used: 1, Const: n, Dynamic: -1
+  int64_t getThreadCountInDim(ParallelType pt);
+
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.
   void adjustMappingsForWarpPadding();

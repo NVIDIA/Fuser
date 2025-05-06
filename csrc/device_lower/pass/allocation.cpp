@@ -200,7 +200,8 @@ class AllocationDomainSetup : private kir::IrVisitor {
             std::is_permutation(
                 tv->getLoopDomain().begin(),
                 tv->getLoopDomain().end(),
-                tv->getAllocationDomain().begin())) {
+                tv->getAllocationDomain().begin(),
+                tv->getAllocationDomain().end())) {
           use_set_allocation_domain = true;
         }
 
