@@ -404,28 +404,6 @@ bool haveDifferentShardings(
         });
   }
 
-  // Special handling of Matmul for a quick fix
-  // TODO: work on a proper implementation
-  if (consumer->definition()->isA<MatmulOp>()) {
-    const std::unordered_map<IterDomain*, IterDomain*>& c2p =
-        PairwiseLogicalDomainMap(producer, consumer)
-            .mapBroadcast(true)
-            .mapConsumerToProducer();
-    for (auto* c_id : consumer->getLoopDomain()) {
-      if (c2p.count(c_id) == 0) {
-        continue;
-      }
-      auto p_id = c2p.at(c_id);
-      if (p_id->isDeviceDim() != c_id->isDeviceDim()) {
-        if (p_id->isBroadcast()) {
-          continue;
-        }
-        return true;
-      }
-    }
-    return false;
-  }
-
   // The rest of this function tries to do the following: for each pair of
   // logical-domain-mapped IterDomains (i.e. those mapped by
   // PairwiseLogicalDomainMap), check if they are sharded consistently. If not,

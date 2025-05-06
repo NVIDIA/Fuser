@@ -139,9 +139,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       getNonMappingDomainInfo(producer_tv_, consumer_tv_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
-  const auto producer_logical = map_reduction_domains_
-      ? producer->logical()
-      : TensorDomain::noReductions(producer->logical());
+  const auto producer_logical = TensorDomain::noReductions(producer->logical());
   const auto& consumer_root = consumer->maybeRoot();
 
   // Check following conditions and add key-value iterdomain pair to domain map:

@@ -19,14 +19,8 @@
 
 namespace nvfuser {
 
-TensorView* select(
-    TensorView* tv,
-    int64_t dim,
-    Val* index,
-    bool keep_reduction_axis) {
-  auto dom = keep_reduction_axis
-      ? tv->getLogicalDomain()
-      : TensorDomain::noReductions(tv->getLogicalDomain());
+TensorView* select(TensorView* tv, int64_t dim, Val* index) {
+  auto dom = TensorDomain::noReductions(tv->getLogicalDomain());
   NVF_CHECK(!dom.empty(), "select can not be applied to 0d tensor.");
 
   std::vector<IterDomain*> new_root;
@@ -42,9 +36,6 @@ TensorView* select(
   auto td = IrBuilder::create<TensorDomain>(
       new_root, TensorDomain::getContiguityFilledWith(new_root, true));
   auto out = IrBuilder::create<TensorView>(td, *tv->getDataType());
-  if (tv->hasDeviceMesh()) {
-    out->setDeviceMesh(tv->getDeviceMesh());
-  }
   IrBuilder::create<SelectOp>(out, tv, dim, index);
   return out;
 }
