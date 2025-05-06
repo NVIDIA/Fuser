@@ -355,6 +355,8 @@ std::vector<KernelArgumentHolder> FusionKernelRuntime::prepareInputs(
       group_runtime_inputs.setCacheId(group_cache_id.value());
     }
 
+    // A segment fusion is created again in compileKernel. Can be done
+    // just once?
     auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
     auto group_runtime_outputs =
         inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
@@ -418,7 +420,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
   try {
     for (int64_t run_order_id = 0; run_order_id < num_groups; ++run_order_id) {
       auto group_to_run = runtime_workspace_.group_run_order.at(run_order_id);
-      auto& group_runtime_inputs = all_runtime_inputs.back();
+      const auto& group_runtime_inputs = all_runtime_inputs.at(run_order_id);
       if (num_groups == 1 || isOptionDisabled(DisableOption::ParallelCompile)) {
         compileKernel(group_runtime_inputs, group_to_run, hic.get());
       } else {
