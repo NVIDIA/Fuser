@@ -1046,14 +1046,15 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
   testValidate(&fusion_copy, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
-// enable WarpSpecializedNormalization, dtype, dim0, dim1
-using TmaWarpSpecializedParams = std::tuple<bool, DataType, int64_t, int64_t>;
+// contig, enable WarpSpecializedNormalization, dtype, dim0, dim1
+using TmaWarpSpecializedParams =
+    std::tuple<bool, bool, DataType, int64_t, int64_t>;
 class TmaWarpSpecializedTest
     : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
  public:
   void SetUp() override {
     opt_guard_ = std::make_unique<EnableOptionsGuard>();
-    if (std::get<0>(GetParam())) {
+    if (std::get<1>(GetParam())) {
       EnableOptionsGuard::getCurOptions().set(
           EnableOption::WarpSpecializedNormalization);
     } else {
@@ -1070,8 +1071,10 @@ class TmaWarpSpecializedTest
 
 TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [_, dtype, dim0, dim1] = GetParam();
-
+  auto [contig, _, dtype, dim0, dim1] = GetParam();
+  if (!contig) {
+    GTEST_SKIP() << "TMA load requires contig inner domain.";
+  }
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(2, dtype);
@@ -1106,14 +1109,15 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
 
 TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [_, dtype, dim0, dim1] = GetParam();
+  auto [contig, _, dtype, dim0, dim1] = GetParam();
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto grad_out = makeContigTensor(2, dtype);
   auto input = makeContigTensor(2, dtype);
-  auto rstd = makeContigConcreteTensor({dim0, 1});
+  auto rstd = contig ? makeContigConcreteTensor({dim0, 1})
+                     : makeConcreteTensor({dim0, 1});
   auto weight = makeContigTensor(1, dtype);
   fusion->addInput(grad_out);
   fusion->addInput(input);
@@ -1161,14 +1165,15 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
 
 TEST_P(TmaWarpSpecializedTest, ThunderRMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [_, dtype, dim0, dim1] = GetParam();
+  auto [contig, _, dtype, dim0, dim1] = GetParam();
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto grad_out = makeContigTensor(2, dtype);
   auto input = makeContigTensor(2, dtype);
-  auto rms = makeContigConcreteTensor({dim0, 1});
+  auto rms = contig ? makeContigConcreteTensor({dim0, 1})
+                    : makeConcreteTensor({dim0, 1});
   auto weight = makeContigTensor(1, dtype);
   fusion->addInput(grad_out);
   fusion->addInput(input);
@@ -1217,18 +1222,17 @@ TEST_P(TmaWarpSpecializedTest, LayerNormBackward) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto [_, dtype, dim0, dim1] = GetParam();
+  auto [contig, _, dtype, dim0, dim1] = GetParam();
 
   std::vector<int64_t> norm_shape{dim1};
   std::vector<int64_t> input_shape{dim0, dim1};
   std::vector<int64_t> outer_shape{dim0, 1};
-  bool fp16_or_bf16 = dtype == DataType::Half || dtype == DataType::BFloat16;
   auto grad_out = makeContigTensor(input_shape.size(), dtype);
   auto input = makeContigTensor(input_shape.size(), dtype);
-  auto mean = makeContigConcreteTensor(
-      outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
-  auto rstd = makeContigConcreteTensor(
-      outer_shape, fp16_or_bf16 ? DataType::Float : dtype);
+  auto mean = contig ? makeContigConcreteTensor(outer_shape)
+                     : makeConcreteTensor(outer_shape);
+  auto rstd = contig ? makeContigConcreteTensor(outer_shape)
+                     : makeConcreteTensor(outer_shape);
   auto weight = makeContigTensor(norm_shape.size(), dtype);
   auto bias = makeContigTensor(norm_shape.size(), dtype);
   fusion->addInput(grad_out);
@@ -1289,7 +1293,14 @@ auto TmaWarpSpecializedTestParams() {
   for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
     for (auto dtype : {DataType::Float, DataType::BFloat16}) {
       for (bool warp_specialized : {true, false}) {
-        values.emplace_back(warp_specialized, dtype, dim0, dim1);
+        for (bool contig : {true, false}) {
+          if (!warp_specialized && !contig) {
+            // Don't need to test non-contiguous version when warp
+            // specialization is not used.
+            continue;
+          }
+          values.emplace_back(contig, warp_specialized, dtype, dim0, dim1);
+        }
       }
     }
   }
@@ -1302,10 +1313,11 @@ INSTANTIATE_TEST_SUITE_P(
     [](const testing::TestParamInfo<TmaWarpSpecializedParams>& info)
         -> std::string {
       std::stringstream ss;
-      ss << "ws_" << std::get<0>(info.param);
-      ss << "_dtype_" << std::get<1>(info.param);
-      ss << "_batch_" << std::get<2>(info.param);
-      ss << "_hidden_" << std::get<3>(info.param);
+      ss << "contig_" << std::get<0>(info.param);
+      ss << "_ws_" << std::get<1>(info.param);
+      ss << "_dtype_" << std::get<2>(info.param);
+      ss << "_batch_" << std::get<3>(info.param);
+      ss << "_hidden_" << std::get<4>(info.param);
       return sanitizeTestName(ss.str());
     });
 } // namespace nvfuser

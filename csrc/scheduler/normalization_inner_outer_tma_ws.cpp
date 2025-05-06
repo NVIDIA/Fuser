@@ -177,13 +177,19 @@ void getHeuristics(
   // Iteration unroll factor, limited by:
   // (1) heuristic selection
   // (2) max possible due to smem limitation
+  // (3) Predicate of 1D TMA load requires iteration dim divisible by unroll
+  //     factor.
+  // (4) Round down to power of 2, since we need vectorized access in
+  //     smem reduction and loading of inner broadcast tv.
   iter_remaining = scheduler_utils::safeDiv(iter_remaining, n_stages);
   int64_t heu_iter_unroll = std::min(2L, iter_remaining);
   int64_t max_iter_unroll = max_n_copies / n_stages;
-  rparams->unroll_factor_iter_dom = std::min(heu_iter_unroll, max_iter_unroll);
-  NVF_ERROR(
-      outer_dim_numel % rparams->unroll_factor_iter_dom == 0,
-      "Predicate for UBLK load assumes divisible split by unroll factor. ");
+  int64_t iter_unroll_factor = std::min(heu_iter_unroll, max_iter_unroll);
+  iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
+  while (outer_dim_numel % iter_unroll_factor) {
+    iter_unroll_factor /= 2;
+  }
+  rparams->unroll_factor_iter_dom = iter_unroll_factor;
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
   rparams->cparams.maxrregcount = iop.available_register_per_thread;
@@ -390,7 +396,11 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   const bool is_unroll_or_vectorization = rparams->isUnrolled();
   const bool is_vectorize =
       rparams->vectorize_inner_reduction || rparams->vectorize_iter_dom;
-  const bool use_grouped_reduction = rparams->unroll_factor_iter_dom > 1;
+  const bool group_inner_reduction = rparams->unroll_factor_iter_dom > 1;
+  // The first part of the outer reduction is grid-stride thread local
+  // reduction, can't be grouped. The second part of the outer reduction is
+  // thread local reduction, can't be grouped.
+  const bool group_outer_reduction = false;
 
   // Propagate transformations for inner reduction.
   // Two steps are used since tma tvs are scheduled differently.
@@ -474,7 +484,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       inner_reduction_tvs[0],
       inner_reference_tv,
       is_unroll_or_vectorization,
-      use_grouped_reduction,
+      group_inner_reduction,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
       {selected_tvs_inner.begin(), selected_tvs_inner.end()});
@@ -501,7 +511,7 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         outer_reduction_tvs[i],
         outer_reference_tvs[i],
         is_unroll_or_vectorization,
-        /*use_grouped_reduction=*/false,
+        group_outer_reduction,
         outer_reduction_tvs,
         unroll_vectorizable_cached_tvs,
         {selected_tvs_outer.begin(), selected_tvs_outer.end()});
@@ -593,12 +603,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       }
     }
 
-    // Cached input with inner bcast [I, B], is not marked as vectorizable in
+    // Cached input with inner bcast [Iter, 1], is not marked as vectorizable in
     // getCachedTvsToUnrollOrVectorize().
     // However, if iteration domain is unrolled, the tv is scheduled as:
     // [I/Unroll/BIDy, BIDy, Unroll, ...],
     // the unrolled domain, axis-2, can be vectorized.
-    if (use_grouped_reduction) {
+    if (group_inner_reduction) {
       auto is_redu_mapped_to_bcast = [](TensorView* redu_tv,
                                         TensorView* bcast_tv) {
         if (bcast_tv->nDims() != redu_tv->nDims()) {
@@ -613,21 +623,46 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         }
         return true;
       };
+
+      // Heuristic ensures the iteration dim is divisible by the unroll factor.
+      // Here, we only need to further confirm all the iteration domains are
+      // contiguous.
+      auto can_vectorize = [](TensorView* redu_tv, TensorView* bcast_tv) {
+        const auto& alloc_dom_1 = redu_tv->getMaybeAllocationDomain();
+        const auto& alloc_dom_2 = bcast_tv->getMaybeAllocationDomain();
+        if (alloc_dom_1.size() != alloc_dom_2.size()) {
+          return false;
+        }
+        const auto& contiguity = bcast_tv->domain()->contiguity();
+        for (int i = 0; i < (int)alloc_dom_1.size(); i++) {
+          if (alloc_dom_1[i]->isReduction()) {
+            break;
+          }
+          if (!contiguity[i].has_value() || !contiguity[i].value()) {
+            return false;
+          }
+        }
+        return true;
+      };
       for (auto cached_tv : cached_inputs) {
         if (cached_tv->hasBroadcast() &&
             is_redu_mapped_to_bcast(inner_reference_tv, cached_tv)) {
-          cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
-          // Unroll the consumers to prevent inlineMost from inlining them
-          // to the right of the vectorized axis, which can cause expression
-          // sort errors.
-          // TODO: Ideally, we only need to unroll the consumers that are
-          // used in the for-loop before and after the iteration grouped
-          // reduction, we will leave this for heuristic tuning since unroll all
-          // consumers may lead to better performance if register usage is not a
-          // concern.
-          for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
-            consumer->axis(2)->parallelize(ParallelType::Unroll);
+          if (can_vectorize(inner_reference_tv, cached_tv)) {
+            cached_tv->axis(2)->parallelize(ParallelType::Vectorize);
+          } else {
+            cached_tv->axis(2)->parallelize(ParallelType::Unroll);
           }
+        }
+        // Unroll the consumers to prevent inlineMost from inlining them
+        // to the right of the vectorized axis, which can cause expression
+        // sort errors.
+        // TODO: Ideally, we only need to unroll the consumers that are
+        // used in the for-loop before and after the iteration grouped
+        // reduction, we will leave this for heuristic tuning since unroll all
+        // consumers may lead to better performance if register usage is not a
+        // concern.
+        for (auto consumer : ir_utils::consumerTvsOf(cached_tv)) {
+          consumer->axis(2)->parallelize(ParallelType::Unroll);
         }
       }
     }

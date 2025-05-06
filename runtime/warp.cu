@@ -163,8 +163,7 @@ __device__ void warpReduceTIDXY(
 }
 
 // sizeof(T) * K = sizeof(uint64_t)
-// require alginment of sizeof(T) * K to safely cast between T and uint64_t
-// shfl uses uint64_t to reduce number of shuffles
+// Array structure ensures data is aligned for safe casting to uint64_t
 template <int K, typename T, typename Func>
 __device__ __forceinline__ void packedWarpReduce(
     Array<T, K, K>& val,
@@ -194,7 +193,6 @@ __device__ void iterGroupedStaticWarpAllReduce(
     const T inp_val[N],
     Func reduction_op,
     T* shared_mem,
-    uint32_t threadIdx_x,
     uint32_t barrier_id = 1) {
   // pack T into uint64_t to reduce number of shuffles
   // sizeof(T) * K = sizeof(uint64_t), e.g. T = float, K = 2.
@@ -224,8 +222,8 @@ __device__ void iterGroupedStaticWarpAllReduce(
   // cross warp reduction using shared memory
   constexpr int WARP_SIZE = 32;
   constexpr int num_of_warps = n_threads / WARP_SIZE;
-  unsigned int warp_idx = threadIdx_x / WARP_SIZE;
-  unsigned int lane_idx = threadIdx_x % WARP_SIZE;
+  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+  unsigned int lane_idx = threadIdx.x % WARP_SIZE;
   constexpr unsigned int align_size = sizeof(T) * N;
   static_assert(align_size <= 16, "max allowed vect r/w is 16 bytes");
   // [warp_idx, N]

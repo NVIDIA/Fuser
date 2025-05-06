@@ -206,6 +206,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/make_resharding_contiguous.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/mark_aliases_prepare.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_pad.cpp
+  ${NVFUSER_SRCS_DIR}/preseg_passes/move_repeat_forward.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/move_split_cat.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/pre_segmenter.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/propagate_shardings.cpp
@@ -214,6 +215,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/preseg_passes/reorder_sharded_axis.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/segment_inplace_update.cpp
   ${NVFUSER_SRCS_DIR}/host_ir/pass/stream_parallel_type.cpp
+  ${NVFUSER_SRCS_DIR}/host_ir/pass/insert_deallocations.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_no_reduction_matmul_to_mul_squeeze.cpp
   ${NVFUSER_SRCS_DIR}/preseg_passes/translate_repeat_to_expand.cpp
   ${NVFUSER_SRCS_DIR}/rng.cpp
@@ -596,6 +598,7 @@ list(APPEND JIT_TEST_SRCS
   ${NVFUSER_ROOT}/tests/cpp/test_memory.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_split_cat.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_move_pad.cpp
+  ${NVFUSER_ROOT}/tests/cpp/test_move_repeat_forward.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_mutator.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_no_op.cpp
   ${NVFUSER_ROOT}/tests/cpp/test_persistent_buffer.cpp
@@ -629,12 +632,12 @@ list(APPEND JIT_TEST_SRCS
 )
 
 if(BUILD_TEST)
-  set(RNG_TEST_KERNELS "${NVFUSER_TESTS}_kernels")
+  set(RNG_TEST_KERNELS "rng_test_kernels")
   add_library(${RNG_TEST_KERNELS} SHARED ${NVFUSER_ROOT}/tests/cpp/rng_kernels.cu)
 
   # CUDA 11 does not support C++20, so hard code C++17 here
   set_property(TARGET ${RNG_TEST_KERNELS} PROPERTY CXX_STANDARD 17)
-  target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES} codegen_internal)
+  target_link_libraries(${RNG_TEST_KERNELS} PRIVATE torch ${TORCH_LIBRARIES})
   target_include_directories(${RNG_TEST_KERNELS} PRIVATE "${NVFUSER_ROOT}")
 endif()
 
