@@ -203,7 +203,7 @@ TensorView* scatterOp(
   }
 
   std::vector<IterDomain*> out_loop_domain = out_domain;
-  out_loop_domain[dim](IterDomainBuilder(idx_dom[dim]).build());
+  out_loop_domain[dim] = IterDomainBuilder(idx_dom[dim]).build();
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
