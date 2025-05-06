@@ -2864,11 +2864,8 @@ std::vector<int64_t> reorderDomainLike(
   }
 
   NVF_ERROR(
-      std::ranges::all_of(
-          permutation,
-          [&](int64_t pos) {
-            return pos >= 0 && pos < (int64_t)permutation.size();
-          }),
+      std::ranges::is_permutation(
+          permutation, std::ranges::iota_view(0, (int64_t)permutation.size())),
       "Invalid permutation: ",
       toDelimitedString(permutation));
 
