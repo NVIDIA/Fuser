@@ -610,7 +610,7 @@ class FusionDefinition(_C._FusionDefinition):
                 ), "Mismatch in reference and fusion output values, datatype is not float/complex."
 
 
-from nvfuser_common.nvfuser_version import __version__
+from .nvfuser_version import __version__
 
 
 def version():
@@ -623,7 +623,7 @@ def version():
         nvfuser.version() == '0.0.1`          # True
         nvfuser.version() > '0.0.0`           # True
 
-        from nvfuser_common.nvfuser_version import Version
+        from nvfuser_version import Version
         nvfuser.version() < Version('1.0.0')  # True
     """
     return __version__
