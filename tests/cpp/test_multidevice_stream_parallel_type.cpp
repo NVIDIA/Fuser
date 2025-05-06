@@ -264,8 +264,10 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
   TensorView* tv1 = makeContigTensor(3); //[DIDx(D), K/D, N]
   TensorView* tv1b = broadcast(
       tv1, {true, false, true, false, false}); //[1, DIDx(D), 1, K/D, N]
-  TensorView* tv2_unreduced = matmul(tv0, tv1b); //[Stream(S), DIDx(D), D, M/S, N]
-  TensorView* tv2 = sum(tv2_unreduced, {1}); //[Stream(S), r(D), DIDx(D), M/S, N]
+  TensorView* tv2_unreduced =
+      matmul(tv0, tv1b); //[Stream(S), DIDx(D), D, M/S, N]
+  TensorView* tv2 =
+      sum(tv2_unreduced, {1}); //[Stream(S), r(D), DIDx(D), M/S, N]
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
@@ -288,7 +290,8 @@ TEST_F(MultiDeviceStreamParallelTypeTest, matmul_RS_through_bcast) {
 
   hir::HostIrContainer* container = executor.hostIrEvaluator()->container();
   EXPECT_EQ(container->topLevelExprs().size(), 6);
-  EXPECT_TRUE(container->topLevelExprs().at(0)->isA<hir::PostOnStream>()); // Broadcast
+  EXPECT_TRUE(
+      container->topLevelExprs().at(0)->isA<hir::PostOnStream>()); // Broadcast
   EXPECT_TRUE(container->topLevelExprs().at(1)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(2)->isA<kir::Allocate>());
   EXPECT_TRUE(container->topLevelExprs().at(3)->isA<hir::GetCurrentStream>());

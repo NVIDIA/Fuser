@@ -8,8 +8,8 @@
 
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
-#include <host_ir/lower.h>
 #include <host_ir/host_ir.h>
+#include <host_ir/lower.h>
 #include <instrumentation.h>
 #include <ir/container.h>
 #include <ir/internal_base_nodes.h>
@@ -394,7 +394,6 @@ bool haveDifferentShardings(
     const std::unordered_map<IterDomain*, IterDomain*>& c2p =
         PairwiseLogicalDomainMap(producer, consumer)
             .mapBroadcast(false)
-            .mapReductionDomains(true)
             .mapConsumerToProducer();
     return !std::all_of(
         consumer->getLoopDomain().begin(),
