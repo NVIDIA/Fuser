@@ -3121,7 +3121,8 @@ void validateContiguity(
 void validateLoopDomain(
     const std::vector<IterDomain*>& logical_domain,
     const std::vector<IterDomain*>& loop_domain,
-    const std::vector<IterDomain*>& additional_ids) {
+    const std::vector<IterDomain*>& additional_ids,
+    const std::vector<IterDomain*>& no_reference_ids) {
   // Skip if there's any symbolic ID
   if (std::any_of(
           logical_domain.begin(),
@@ -3146,8 +3147,16 @@ void validateLoopDomain(
   reference.insert(
       reference.end(), additional_ids.begin(), additional_ids.end());
 
+  std::vector<IterDomain*> covered_loop_domain;
+  covered_loop_domain.reserve(loop_domain.size() + no_reference_ids.size());
+  covered_loop_domain.insert(
+      covered_loop_domain.end(), loop_domain.begin(), loop_domain.end());
+  // no_reference_ids are also considered part of the loop domain
+  covered_loop_domain.insert(
+      covered_loop_domain.end(), no_reference_ids.begin(), no_reference_ids.end());
+
   auto [redundant_ids, _, unreachable_reference_ids] =
-      ir_utils::compareDomainWithReference(loop_domain, reference);
+      ir_utils::compareDomainWithReference(covered_loop_domain, reference);
 
   auto empty_or_broadcast = [](const auto& ids) {
     return std::all_of(ids.begin(), ids.end(), [](IterDomain* id) {
@@ -3164,6 +3173,8 @@ void validateLoopDomain(
       empty_or_broadcast(unreachable_reference_ids),
       "Not all logical IDs are covered by loop domain. Loop: ",
       toDelimitedString(loop_domain),
+      ". no loop logical IDs: ",
+      toDelimitedString(no_reference_ids),
       ". Unreachable logical IDs: ",
       toDelimitedString(unreachable_reference_ids));
 }
@@ -3279,7 +3290,8 @@ TensorDomain::TensorDomain(
     std::vector<IterDomain*> allocation_domain,
     std::vector<IterDomain*> loop_domain,
     std::vector<std::optional<bool>> contiguity,
-    std::vector<IterDomain*> additional_ids)
+    std::vector<IterDomain*> additional_ids,
+    std::vector<IterDomain*> no_loop_ids)
     : Val(passkey, ValType::TensorDomain, DataType::Null),
       root_domain_(std::move(root_domain)),
       logical_domain_(std::move(logical_domain)),
@@ -3287,6 +3299,7 @@ TensorDomain::TensorDomain(
       loop_domain_(std::move(loop_domain)),
       initial_loop_domain_(loop_domain_),
       additional_ids_(std::move(additional_ids)),
+      no_loop_ids_(std::move(no_loop_ids)),
       contiguity_(
           contiguity.empty() ? getContiguityFilledWith(maybeAllocation(), false)
                              : std::move(contiguity)) {

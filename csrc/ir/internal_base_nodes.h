@@ -442,7 +442,8 @@ class TensorDomain : public Val {
       std::vector<IterDomain*> allocation,
       std::vector<IterDomain*> loop_domain,
       std::vector<std::optional<bool>> contiguity = {},
-      std::vector<IterDomain*> additional_ids = {});
+      std::vector<IterDomain*> additional_ids = {},
+      std::vector<IterDomain*> no_loop_ids = {});
 
   TensorDomain(IrBuilderPasskey, const TensorDomain* src);
 
@@ -624,6 +625,13 @@ class TensorDomain : public Val {
     return additional_ids_;
   }
 
+  // Additional IDs that are not on the path from one of
+  // root/logical/allocation/loop domain to another. We need to keep track of
+  // these IDs to ensure that we can find all paths/IDs of interest.
+  const std::vector<IterDomain*>& noLoopIDs() const {
+    return no_loop_ids_;
+  }
+
   // Set the loop domain of this TensorDomain.
   void setLoopDomain(std::vector<IterDomain*> new_loop_domain);
 
@@ -738,6 +746,7 @@ class TensorDomain : public Val {
   // setLoopDomain
   std::vector<IterDomain*> initial_loop_domain_;
   std::vector<IterDomain*> additional_ids_;
+  std::vector<IterDomain*> no_loop_ids_;
 
   std::vector<IterDomain*> no_bcast_domain_;
   std::vector<IterDomain*> no_reduction_domain_;
