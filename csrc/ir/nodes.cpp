@@ -3249,7 +3249,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_, no_loop_ids_);
 
   // resetDomains initializes other member variables, required by clang-tidy
   resetDomains();
@@ -3273,7 +3273,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_, no_loop_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3308,7 +3308,7 @@ TensorDomain::TensorDomain(
   NVF_CHECK(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
-  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_);
+  validateLoopDomain(logical_domain_, loop_domain_, additional_ids_, no_loop_ids_);
   if (!root_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, root_domain_, additional_ids_);
@@ -3902,7 +3902,7 @@ std::pair<TensorDomain*, TensorDomain*> TensorDomain::rFactor(
 }
 
 void TensorDomain::setLoopDomain(std::vector<IterDomain*> new_loop_domain) {
-  validateLoopDomain(logical(), new_loop_domain, additionalIDs());
+  validateLoopDomain(logical(), new_loop_domain, additionalIDs(), noLoopIDs());
   loop_domain_ = std::move(new_loop_domain);
   initial_loop_domain_ = loop_domain_;
   resetDomains();
