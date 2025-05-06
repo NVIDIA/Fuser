@@ -197,9 +197,14 @@ TensorView* scatterOp(
             .build());
   }
 
+  std::vector<IterDomain*> out_loop_domain;
+  for (const auto i : arange((int64_t)idx_dom.size())) {
+    out_loop_domain.push_back(IterDomainBuilder(idx_dom[i]).build());
+  }
+
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
+          out_domain, out_loop_domain, TensorDomain::getContiguityFilledWith(out_domain, true)),
       self->getDataType().value());
 
   IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
