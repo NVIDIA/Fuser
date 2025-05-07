@@ -204,7 +204,7 @@ TensorView* scatterOp(
       // pushing loop domain at `dim() + 1`
       auto loop_id = IterDomainBuilder(idx_dom[dim]).build();
       root_domain.push_back(loop_id);
-      no_loop_ids.push_back(loop_id);
+      no_loop_ids.push_back(id);
       out_loop_domain.push_back(loop_id);
     } else {
       out_loop_domain.push_back(id);
