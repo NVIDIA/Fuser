@@ -700,6 +700,7 @@ if(BUILD_TEST)
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_matmul.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_pipeline.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_sharding.cpp
+    ${NVFUSER_ROOT}/tests/cpp/test_multidevice_stream_parallel_type.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_transformer.cpp
     ${NVFUSER_ROOT}/tests/cpp/test_multidevice_ipc.cpp
   )

@@ -40,6 +40,7 @@ std::unordered_set<ParallelType> getParallelTypesForResharding() {
   std::unordered_set<ParallelType> parallel_types{
       kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
   parallel_types.insert(ParallelType::Serial);
+  parallel_types.insert(ParallelType::Stream);
   return parallel_types;
 }
 
@@ -124,7 +125,10 @@ void insertReshardingSetsAfter(Fusion* fusion) {
       ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
-      shardAllLike(output, {new_output});
+      std::unordered_set<ParallelType> parallel_types{
+          kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
+      parallel_types.insert(ParallelType::Stream);
+      shardAllLike(output, {new_output}, parallel_types);
 
       shardAllLike(input, {output}, getParallelTypesForResharding());
     }

@@ -170,6 +170,7 @@ struct TensorSlicingCache {
     auto td = IrBuilder::create<TensorDomain>(
         new_root, TensorDomain::getContiguityFilledWith(new_root, true));
     auto out = IrBuilder::create<TensorView>(td, *tensor->getDataType());
+    out->setDeviceMesh(tensor->getDeviceMesh());
     auto result = IrBuilder::create<hir::HirAliasSelect>(
         tensor, out, stream_axis_index, index);
 
