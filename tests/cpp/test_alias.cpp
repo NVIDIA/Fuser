@@ -1588,4 +1588,31 @@ TEST_F(AliasTest, ReshapeInplaceUpdateNoSegmentation) {
       __FILE__);
 }
 
+TEST_F(AliasTest, FusionEmpty) {
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto tv0 = makeConcreteTensor({10, 10, 10});
+  auto tv1 = makeConcreteTensor({10, 10, 10});
+  fusion->addInput(tv0);
+  fusion->addInput(tv1);
+  fusion->addOutput(tv0);
+  fusion->addOutput(tv1);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({10, 10, 10}, options);
+  at::Tensor t1 = at::randn({10, 10, 10}, options);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  auto cg_outputs = executor_cache.runFusionWithInputs({t0, t1});
+
+  testValidate(
+      executor_cache.fusion(), cg_outputs, {t0, t1}, __LINE__, __FILE__);
+
+  FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
+  EXPECT_THAT(
+      runtime->fusionSegments()->groups(),
+      UnorderedElementsAre(HeuristicIs(SchedulerType::ExprEval)));
+}
+
 } // namespace nvfuser
