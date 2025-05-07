@@ -178,7 +178,7 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
 
 // A test to check that scheduling loop domains can handle the
 // case when there is a 0-d TV which is not an input to the fusion.
-// The rest of the fusion here is arbitrary. 
+// The rest of the fusion here is arbitrary.
 TEST_F(LoopDomainSchedulingTest, HandleTVsWithNoLogicalDomain) {
   Fusion fusion;
   FusionGuard fg(&fusion);
