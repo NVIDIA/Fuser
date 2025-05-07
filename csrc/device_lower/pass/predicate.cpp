@@ -47,14 +47,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       // Replace expr predicate with bool conditional
       auto conditional = generateConditional(expr->predicate());
 
-      // When current elect sync predicates a UBLK TMA load, it also need to
-      // predicate the corresponding MBarrierArriveExpectTx and
-      // MBarrierWaitParity. Manually hoist the inline predicate to merge with
-      // elect sync to avoid deadlock.
-      if (current_elect_sync_ && reviseUblkPredicate(expr, conditional)) {
-        conditional = GpuLower::current()->kernel()->trueVal();
-      }
-
       if (expr->predicate()->predicate_type() == PredicateType::Vectorize) {
         if (expr->isA<kir::IfThenElse>()) {
           // TODO: This logic doesn't seem to fit well here, for unswitch the
@@ -97,98 +89,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       expr->predicate()->setValue(conditional);
       NVF_ERROR(expr->predicate()->value() != nullptr);
       setWritePredicate(expr);
-    } else if (
-        expr && expr->isA<kir::MBarrierWaitParity>() && ublk_predicate_val_) {
-      auto fl = for_loops_.front();
-      std::unordered_map<Val*, Val*> replace_map;
-      replace_map[tma_branch_fl_index_] = fl->index();
-      auto local_predicate_val =
-          ir_utils::replaceValRecursively(ublk_predicate_val_, replace_map);
-      local_predicate_val = GpuLower::current()->commonScalarMap().hoistScalar(
-          local_predicate_val, {for_loops_.front()});
-      kir::Predicate* pred =
-          IrBuilder::create<kir::Predicate>(local_predicate_val);
-      kir::IfThenElse* inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
-      kir::ExprMutator::registerReplace(expr, inline_ite);
-      inline_ite->thenBody().push_back(expr);
     }
 
     kir::ExprMutator::dispatch(expr);
-  }
-
-  // Move Inline predicate for UBLK TMA load to ElectSync
-  // (1) UBLK TMA load can't handle out-of-bound access, it has Inline
-  //     predicates added in Unroll pass.
-  // (2) TMA loads are synced using MBarrierArriveExpectTx and
-  //     MBarrierWaitParity, they need the same predicate to avoid deadlock.
-  // Returns false if expr is not an IfThenElse with Inline predicate.
-  bool reviseUblkPredicate(Expr* expr, Val* conditional) {
-    // Looking for the following pattern:
-    // IF Inline
-    //   Ts = UBLK TMA load
-    auto ite = expr->as<kir::IfThenElse>();
-    if (ite == nullptr) {
-      return false;
-    }
-    if (ite->predicate()->predicate_type() != PredicateType::Inline) {
-      return false;
-    }
-    for (auto lexpr : ite->thenBody().exprs()) {
-      if (!ir_utils::isCpAsyncBulk1D(lexpr)) {
-        continue;
-      }
-      // Ublk predicate is only used for warp specialized normalization kernel,
-      // it assumes the outer dim is scheduled as [I/Unroll/BIDy, BIDy,
-      // Unroll,Bulk] with I % Unroll == 0 or [U/BIDy, BIDy, Bulk]. This
-      // assumption simplifies the logic of generating the correct expected
-      // bytes. Here, we replace the index corresponding the the Unroll for-loop
-      // to zero, then it can be merged with the ElectSync predicate.
-      // Only need to handle the case where there are 4 for-loops, corresponding
-      // to [I/Unroll/BIDy, BIDy, Unroll, Bulk]
-      NVF_ERROR(
-          for_loops_.size() <= 4,
-          "Expecting at most 4 for-loops to handle UBLK TMA load.");
-      if (for_loops_.size() == 4) {
-        // [I/Unroll/BIDy, BIDy, Unroll, Bulk]
-        NVF_ERROR(
-            for_loops_.at(1)->iter_domain()->isBlockDim(),
-            "Expecting the iter domain parallelized by block dim.");
-        NVF_ERROR(
-            for_loops_.at(2)->iter_domain()->extent()->isConst(),
-            "Expecting the extent to be const.");
-        NVF_ERROR(
-            for_loops_.at(3)->iter_domain()->isBulk(),
-            "Expecting the iter domain parallelized by Bulk.");
-        auto unroll_fl = for_loops_.at(2);
-        std::unordered_map<Val*, Val*> replace_map{std::make_pair(
-            unroll_fl->index(), GpuLower::current()->kernel()->zeroVal())};
-        ublk_predicate_val_ =
-            ir_utils::replaceValRecursively(conditional, replace_map);
-      } else if (for_loops_.size() == 3) {
-        // [I/BIDy, BIDy, Bulk]
-        NVF_ERROR(
-            for_loops_.at(1)->iter_domain()->isBlockDim(),
-            "Expecting the iter domain parallelized by block dim.");
-        NVF_ERROR(
-            for_loops_.at(2)->iter_domain()->isBulk(),
-            "Expecting the iter domain parallelized by Bulk.");
-        ublk_predicate_val_ = conditional;
-      } else {
-        // [I, Bulk], or [Bulk]
-        ublk_predicate_val_ = conditional;
-      }
-      // Combine the Inline predicate with the ElectSync predicate
-      auto combined_conditional = SimplifyingIrBuilder::logicalAndExpr(
-          current_elect_sync_->predicate()->value(), ublk_predicate_val_);
-      combined_conditional = GpuLower::current()->commonScalarMap().hoistScalar(
-          combined_conditional, {for_loops_.front()});
-      current_elect_sync_->predicate()->setValue(combined_conditional);
-      // Keep the index of the outermost for-loop, will be replaced in the
-      // predicate of MBarrierWaitParity.
-      tma_branch_fl_index_ = for_loops_.front()->index();
-      return true;
-    }
-    return false;
   }
 
   void setWritePredicate(Expr* expr) {
@@ -208,9 +111,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   void handle(kir::IfThenElse* ite) final {
     NVF_ERROR(ite->predicate() != nullptr);
-    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
-      current_elect_sync_ = ite;
-    }
+
     // Loop rotation transform loops like
     //  for i ...
     //    statement1(i)
@@ -245,10 +146,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       NVF_ERROR(ite->predicate()->value() != nullptr);
     }
     kir::ExprMutator::handle(ite);
-
-    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
-      current_elect_sync_ = nullptr;
-    }
 
     if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
       rotated_loop_.erase(for_loops_.back());
@@ -292,8 +189,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       case PredicateType::LoopRotation: {
         // Currently, all existing predicates should be able to cover the
         // condition of loop_index + step < end, so nothing to do here. In the
-        // future, if we decide that we need to predicate this then we can do
-        // it here.
+        // future, if we decide that we need to predicate this then we can do it
+        // here.
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
@@ -307,21 +204,6 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
   std::unordered_set<ForLoop*> rotated_loop_;
-
-  // Keep track of the ite whose predicate is ElectSync to identify the
-  // TMA load branch.
-  kir::IfThenElse* current_elect_sync_ = nullptr;
-
-  // Ublk predicate value is specialized to hoist to ElectSync to predicate
-  // both TMA load and MBarrierArriveExpectTx.
-  Val* ublk_predicate_val_ = nullptr;
-
-  // The Ublk predicate generated in the TMA load branch needs to be applied
-  // in the computation branch to predicate MBarrierWaitParity. Although both
-  // for-loops share the same iteration domain, their loop indices differ.
-  // Here, we record the index from the TMA load branch to later replace it
-  // with the corresponding index from the computation branch.
-  Val* tma_branch_fl_index_ = nullptr;
 };
 
 } // namespace
