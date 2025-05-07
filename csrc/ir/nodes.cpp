@@ -314,7 +314,7 @@ std::string ScatterOp::toInlineString(int indent_size) const {
 }
 
 IterDomain* ScatterOp::getIndexedID() const {
-  return TensorDomain::noReductions(selfTv()->getLogicalDomain()).at(dim());
+  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
 }
 
 IterDomain* ScatterOp::getConsumerLoopID() const {

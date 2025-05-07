@@ -59,7 +59,7 @@ bool canIgnoreIndexedInputDomainID(
         return false;
       }
     } else if (auto scatter = dynamic_cast<ScatterOp*>(use)) {
-      if (root_id != scatter->getIndexedID()) {
+      if (root_id != scatter->selfTv()->getLogicalDomain().at(scatter->dim())) {
         return false;
       }
     } else {
