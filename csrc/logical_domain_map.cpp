@@ -102,13 +102,13 @@ std::tuple<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>, boo
     }
   } else if (auto sop = dynamic_cast<ScatterOp*>(consumer_tv->definition())) {
     if (producer_tv == sop->selfTv()) {
-      non_mapping_consumer_ids(sop->getConsumerLoopID());
+      non_mapping_consumer_ids.insert(sop->getConsumerLoopID());
       has_consumer_id = false;
     } else if (producer_tv == sop->indexTv()) {
-      non_mapping_consumer_ids(sop->getConsumerLogicalID());
+      non_mapping_consumer_ids.insert(sop->getConsumerLogicalID());
       has_consumer_id = false;
     } else if (producer_tv == sop->srcTv()) {
-      non_mapping_consumer_ids(sop->getConsumerLogicalID());
+      non_mapping_consumer_ids.insert(sop->getConsumerLogicalID());
       has_consumer_id = false;
     }
   } else if (
@@ -126,7 +126,7 @@ std::tuple<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>, boo
     }
   }
 
-  return std::make_pair(non_mapping_producer_ids, has_consumer_id);
+  return {non_mapping_producer_ids, non_mapping_consumer_ids, has_consumer_id};
 }
 
 } // namespace
