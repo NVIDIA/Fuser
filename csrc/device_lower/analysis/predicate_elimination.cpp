@@ -45,8 +45,10 @@ void assertOnWarpOps(const Expr* expr) {
     NVF_ERROR(in_tv != nullptr);
 
     NVF_ERROR(in_tv->definition() != nullptr);
-    bool is_tma_load = ir_utils::isCpAsyncBulkLoad(in_tv->definition()) &&
-        !ir_utils::isCpAsyncBulk1D(in_tv->definition());
+
+    // nD TMA load doesn't require predicate
+    bool is_nd_tma_load = ir_utils::isCpAsyncBulkLoad(in_tv->definition()) &&
+        ir_utils::isCpAsyncBulkTensorTile(in_tv->definition());
 
     TensorView* out_tv = ir_utils::getTv(ldst->out());
     NVF_ERROR(out_tv != nullptr);
@@ -56,7 +58,7 @@ void assertOnWarpOps(const Expr* expr) {
         });
 
     NVF_ERROR(
-        !is_tma_load || !any_mma_uses,
+        !is_nd_tma_load || !any_mma_uses,
         "Predicate elimination: cannot eliminate pred for ldmatrix, use exact parallel dims. ",
         expr->toString());
   }
