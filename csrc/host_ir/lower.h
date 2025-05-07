@@ -43,7 +43,6 @@ class HostIrLower {
       SegmentedGroup* group2);
 
  private:
-  std::vector<Expr*> lowerToCollectiveBasedPipelinedGemmComm(Expr* expr);
   const HostIrLowerParams params_;
 };
 
