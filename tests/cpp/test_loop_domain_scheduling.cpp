@@ -176,6 +176,46 @@ TEST_F(LoopDomainSchedulingTest, Slice) {
   NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
 }
 
+// A test to check that scheduling loop domains can handle the
+// case when there is a 0-d TV which is not an input to the fusion.
+// The rest of the fusion here is arbitrary. 
+TEST_F(LoopDomainSchedulingTest, HandleTVsWithNoLogicalDomain) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  std::vector<int64_t> shape({100});
+
+  auto tv0 = makeConcreteTensor(shape);
+  auto tv1 = makeSymbolicTensor(0);
+  fusion.addInput(tv0);
+  fusion.addInput(tv1);
+
+  auto tv2 =
+      slice(tv0, {{IrBuilder::create<Val>(1L), IrBuilder::create<Val>(99)}});
+
+  auto tv3 = set(tv2);
+  auto tv4 = set(tv1);
+
+  fusion.addOutput(tv3);
+  fusion.addOutput(tv4);
+
+  std::vector<IterDomain*> ref_loop = tv2->getLogicalDomain();
+  ASSERT_NO_THROW(
+      scheduler_tools::scheduleLoopDomainsLike(fusion.allTvs(), ref_loop));
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto t0 = at::randn(shape, options);
+  auto t1 = at::tensor(1.00f, options).squeeze();
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0, t1});
+  auto cg_outputs = ke.run({t0, t1});
+
+  auto ref = t0.index({at::indexing::Slice(1, shape[0] - 1)});
+
+  NVF_CHECK(ref.equal(cg_outputs[0].as<at::Tensor>()));
+}
+
 // Iter domain cannot have multiple definitions, whereas ValGroup can.
 // This means that the traversal path in ValGraph may not be a valid
 // history to construct within a tensor domain. For example, a path
@@ -270,18 +310,14 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
 }
 
 // Using the same fusion as ReshapeTraversalDirection, try each one of
-// the tensors as a reference. We've added a tensor with no logical domain
-// to ensure we can skip scheduling it.
+// the tensors as a reference
 TEST_F(LoopDomainSchedulingTest, ManyReshape) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({12});
-  auto tv_scalar = makeSymbolicTensor(0);
   fusion.addInput(tv0);
-  fusion.addInput(tv_scalar);
   auto tv1 = set(tv0);
-  auto tv_scalar_set = set(tv_scalar);
 
   auto tv2 = reshape(tv1, {12}, {3, 4});
   auto tv3 = reshape(tv2, {3, 4}, {3, 2, 2});
@@ -294,7 +330,6 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
   auto tv9 = add(tv6, tv8);
   fusion.addOutput(tv9);
-  fusion.addOutput(tv_scalar_set);
 
   // Try each of the tensors as a reference
   for (const auto i : arange(fusion.allTvs().size())) {
@@ -302,9 +337,6 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     FusionGuard fg_copy(&fusion_copy);
 
     TensorView* ref_tv = fusion_copy.allTvs().at(i);
-    if (ref_tv->getLogicalDomain().empty()) {
-      continue;
-    }
     std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
     scheduler_tools::scheduleLoopDomainsLike(fusion_copy.allTvs(), ref_loop);
 
@@ -315,7 +347,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     // with the reference loop domain
     for (const auto tv : fusion_copy.allTvs()) {
       // scheduleLoopDomainsLike skips fusion inputs
-      if (tv->isFusionInput() || tv->getLogicalDomain().empty()) {
+      if (tv->isFusionInput()) {
         continue;
       }
       EXPECT_EQ(tv->getLoopDomain().size(), ref_loop.size())
@@ -333,7 +365,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     // All tensors, except for the inputs, should be fully inlined
     for (const auto tv : fusion_copy.allTvs()) {
-      if (tv->isFusionInput() || tv->getLogicalDomain().empty()) {
+      if (tv->isFusionInput()) {
         continue;
       }
       EXPECT_EQ(tv->getComputeAtPosition(), tv->getLoopDomain().size());
@@ -343,11 +375,10 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({12}, options);
-    auto t1 = at::tensor(1.00f, options).squeeze();
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0, t1});
-    auto cg_outputs = ke.run({t0, t1});
+    ke.compile(&fusion, {t0});
+    auto cg_outputs = ke.run({t0});
 
     auto ref = t0 * 2;
     EXPECT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
