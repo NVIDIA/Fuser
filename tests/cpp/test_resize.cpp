@@ -1484,7 +1484,6 @@ TEST_F(ResizeTest, SliceReduceScheduler2) {
 
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   auto cg_outputs = executor_cache.runFusionWithInputs(inputs);
-
   testValidate(executor_cache.fusion(), cg_outputs, inputs, __LINE__, __FILE__);
 }
 

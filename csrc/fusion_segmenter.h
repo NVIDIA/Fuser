@@ -319,9 +319,6 @@ class SegmentedFusion {
   //! API shortcut for adding a singleton group
   SegmentedGroup* newGroup(Expr* expr);
 
-  //! API shortcut for adding a new group for a fusion input
-  SegmentedGroup* newFusionInputGroup();
-
   //! API for adding edges
   SegmentedEdge* newEdge(SegmentedGroup* from, SegmentedGroup* to, Val* val);
 
@@ -331,6 +328,7 @@ class SegmentedFusion {
   void removeEdge(SegmentedEdge* edge);
 
   void connectGroups(SegmentedGroup* from, SegmentedGroup* to, Val* val);
+  void disconnectGroups(SegmentedGroup* from, SegmentedGroup* to);
 
   HeuristicDataCache* getCachedHeuristicDataFor(SegmentedGroup* group);
 
@@ -625,10 +623,6 @@ class SegmentCandidateFinder {
   //!   produces the consumer.
   void finalMerge();
 
-  //! Duplicate and add all exprs producing the used
-  //!  scalar values in group
-  void resolveScalarsInGroup(SegmentedGroup* group);
-
   //! Duplicate and add all exprs from fusion inputs to `forwarded_input` into
   //! the group, to complete inputs. These expressions are simply unary ops of
   //! inputs that we want to recompute for each segment, instead of computing
@@ -641,17 +635,13 @@ class SegmentCandidateFinder {
   //! If we segmented on tv1, we would be producing an output for tv1 for 2
   //! groups that have tv3 or tv4, instead we could easily recompute tv1 from
   //! tv0.
-  void resolveNonscalarForwardedInput(Val* forwarded_input);
+  void resolveForwardedInput(Val* forwarded_input);
 
   void resolveForwardedInputs();
 
   // Creates the input group that ends at `forwarded_input`, i.e., the region
   // between fusion inputs and `forwarded_input`.
   SegmentedGroup* createInputGroup(Val* forwarded_input);
-
-  //! Remove all scalar edges in group
-  //!  (TODO: need structure better so we don't have to do this)
-  void removeScalarEdges();
 
   //! Utility function to merge a vector of groups in one step,
   //!  need to check for DAG condition before using this method
@@ -716,6 +706,8 @@ class SegmentCandidateFinder {
 
   //! List of vals to treat as complete fusion inputs for segmentation
   std::vector<Val*> forwarded_fusion_inputs_;
+  std::unordered_map<Val*, Val*> input_to_forward_val_;
+  std::unordered_map<Val*, Val*> forward_val_to_input_;
 
   //! Keep track of complete fusion input use
   std::unordered_map<Val*, SegmentedGroup*> input2group_;

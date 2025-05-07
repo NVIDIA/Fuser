@@ -8,6 +8,7 @@
 #include <debug.h>
 
 #include <iostream>
+#include <thread>
 
 namespace nvfuser {
 
@@ -30,7 +31,11 @@ void DebugStreamGuard::setCurStream(std::ostream& stream) {
 }
 
 std::ostream& debug() {
-  return DebugStreamGuard::getCurStream();
+  std::ostream& os = DebugStreamGuard::getCurStream();
+  if (g_is_parallel_compile_thread) {
+    os << "[Thread:" << std::this_thread::get_id() << "] ";
+  }
+  return os;
 }
 
 } // namespace nvfuser

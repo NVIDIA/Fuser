@@ -16,6 +16,7 @@
 #include <runtime/executor_kernel_arg.h>
 #include <runtime/executor_utils.h>
 #include <tensor_metadata.h>
+#include <type.h> // Include type.h for DataType definition
 
 namespace nvfuser {
 
@@ -39,21 +40,38 @@ KernelArgumentHolder inferOutputSizes(
 
   auto arg_index_type = args.getSmallestIndexTypeOfArguments();
 
-  KernelArgumentHolder output_tensor_proxies;
-  output_tensor_proxies.setDeviceIndex(args.getDeviceIndex());
+  KernelArgumentHolder output_values;
+  output_values.setDeviceIndex(args.getDeviceIndex());
 
   for (Val* output : fusion->outputs()) {
-    NVF_ERROR(
-        output->isA<TensorView>(),
-        "Cannot allocate outputs that are not tensors.");
-    auto output_tv = output->as<TensorView>();
-    const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
-    const auto dtype = (output_tv->dtype() == DataType::Index)
-        ? data_type_to_aten(arg_index_type)
-        : data_type_to_aten(output_tv->dtype());
-    output_tensor_proxies.pushTensorProxy(sizes, strides, dtype);
+    if (output->isA<TensorView>()) {
+      auto output_tv = output->as<TensorView>();
+      const auto& [sizes, strides] = inferShapeOfOutput(output_tv, expr_eval);
+      const auto dtype = (output_tv->dtype() == DataType::Index)
+          ? data_type_to_aten(arg_index_type)
+          : data_type_to_aten(output_tv->dtype());
+      output_values.pushTensorProxy(sizes, strides, dtype);
+    } else if (output->isScalar()) {
+      // For scalar outputs, try to evaluate the value directly.
+      auto eval_result = expr_eval.evaluate(output);
+      if (eval_result.hasValue()) {
+        output_values.push(eval_result);
+      } else {
+        // If evaluation fails (e.g., symbolic inputs), throw an error.
+        NVF_ERROR(
+            false,
+            "Could not evaluate scalar output ",
+            output->toString(),
+            " during inferOutputSizes. This usually happens if the scalar output depends on a symbolic input.");
+      }
+    } else {
+      NVF_ERROR(
+          false,
+          "Cannot allocate outputs that are not Tensors or Scalars. Found: ",
+          output->toString());
+    }
   }
-  return output_tensor_proxies;
+  return output_values;
 }
 
 int64_t computeSharedMemory(

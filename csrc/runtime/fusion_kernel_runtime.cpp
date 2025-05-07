@@ -7,6 +7,8 @@
 // clang-format on
 #include <runtime/fusion_kernel_runtime.h>
 
+#include <thread>
+
 #include <fusion.h>
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
@@ -402,6 +404,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
                             &thread_pool_error_message_mutex,
                             hic_ptr]() {
         FUSER_PERF_SCOPE("FusionKernelRuntime::compileFusionParallel");
+        ParallelCompileContextGuard parallel_context_guard;
         try {
           c10::cuda::CUDAGuard dg(args.getDeviceIndex());
           c10::Device device(c10::DeviceType::CUDA, args.getDeviceIndex());
@@ -420,13 +423,18 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       });
     }
 
-    auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
-    auto group_runtime_outputs =
-        inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
+    try {
+      auto fusion_to_run = segmented_fusion_->makeFusion(group_to_run).second;
+      auto group_runtime_outputs =
+          inferOutputSizes(fusion_to_run.get(), group_runtime_inputs);
 
-    // map output args to tensor map
-    args_manager.updateWithSegmentOutputs(
-        group_to_run->outputs(), group_runtime_outputs, run_order_id);
+      // map output args to tensor map
+      args_manager.updateWithSegmentOutputs(
+          group_to_run->outputs(), group_runtime_outputs, run_order_id);
+    } catch (const std::exception& e) {
+      getThreadPool()->waitWorkComplete();
+      throw;
+    }
   }
 
   if (num_groups != 1 && !isOptionDisabled(DisableOption::ParallelCompile)) {

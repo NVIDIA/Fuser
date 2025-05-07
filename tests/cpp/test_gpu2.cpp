@@ -4369,7 +4369,7 @@ TEST_F(NVFuserTest, FusionDAGMerging_CUDA) {
   NVF_CHECK(fusion_segments->groups().size() <= 4);
 }
 
-TEST_F(NVFuserTest, FusionDAGScalarMerging_CUDA) {
+TEST_F(NVFuserTest, FusionScalarProcessing_CUDA) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -4379,14 +4379,16 @@ TEST_F(NVFuserTest, FusionDAGScalarMerging_CUDA) {
   fusion->addInput(tv0);
   fusion->addInput(i0);
 
+  // ExprEvalExecutor will take these scalar ops
   auto i1 = add(i0, IrBuilder::create<Val>(1.0));
   auto i2 = mul(i1, i1);
   auto i3 = add(i2, i1);
 
-  // Branch 0
+  // Kernel 0
   auto tv1 = sum(tv0, {0}); // 0
   auto tv2 = add(tv1, i2);
-  // Branch 1
+
+  // Kernel 1
   auto tv3 = sum(tv2, {0}); // 1
   auto tv4 = add(tv3, i3);
 
@@ -4409,7 +4411,7 @@ TEST_F(NVFuserTest, FusionDAGScalarMerging_CUDA) {
       executor_cache.getMostRecentKernelRuntime()
               ->fusionSegments()
               ->groups()
-              .size() == 2,
+              .size() == 3,
       "segmentation didn't happen as expected");
 
   testValidate(executor_cache.fusion(), outputs, {t0, s0}, __LINE__, __FILE__);
