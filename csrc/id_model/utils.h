@@ -18,9 +18,11 @@
 #include <iostream>
 #include <sstream>
 
+#define VERBOSE() idModelDebugVerbose(__LINE__)
+#define WARN() idModelDebugWarn(__LINE__)
+
 namespace nvfuser {
 
-// Options to enable the IdModel-based tensor indexer selectively
 enum class IdModelEnableOption {
   ConsumerIndex,
   ProducerIndex,
@@ -86,6 +88,40 @@ inline std::unordered_set<IdModelEnableOption> getIdModelEnabledOptions() {
 inline bool isIdModelOptionEnabled(IdModelEnableOption option) {
   const auto opts = getIdModelEnabledOptions();
   return opts.find(option) != opts.end();
+}
+
+// Temporary logging utility
+class DebugStream {
+ public:
+  DebugStream()
+      : enabled_(getNvFuserEnv("ID_MODEL_VERBOSE")), out_(std::cerr) {}
+
+  template <typename T>
+  DebugStream& operator<<(const T& v) {
+    if (enabled_) {
+      out_ << v;
+    }
+    return *this;
+  }
+
+  DebugStream& operator<<(std::ostream& (*endl)(std::ostream&)) {
+    if (enabled_) {
+      out_ << endl;
+    }
+    return *this;
+  }
+
+ private:
+  bool enabled_ = false;
+  std::ostream& out_;
+};
+
+inline DebugStream idModelDebugVerbose(int line) {
+  return DebugStream() << "[DEBUG@" << line << "] ";
+}
+
+inline DebugStream idModelDebugWarn(int line) {
+  return DebugStream() << "[WARN@" << line << "] ";
 }
 
 // Get the promotion domain of a given loop domain.
