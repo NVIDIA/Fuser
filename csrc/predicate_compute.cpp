@@ -512,7 +512,7 @@ Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
   }
 
   return SimplifyingIrBuilder::logicalAndExpr(
-      select_first_warp, createElectSyncExpr());
+      createElectSyncExpr(), select_first_warp);
 }
 
 // Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
