@@ -33,11 +33,9 @@ namespace {
 class AliasFinder : public OptOutConstDispatch {
  public:
   AliasFinder(
-      bool can_override_empty_allocation_domain,
+      EmptyAllocationAs empty_allocation_as,
       AliasAnalysisResult& analysis)
-      : can_override_empty_allocation_domain_(
-            can_override_empty_allocation_domain),
-        analysis_(analysis) {}
+      : empty_allocation_as_(empty_allocation_as), analysis_(analysis) {}
 
   void handle(const ViewOp*) override;
   void handle(const LoadStoreOp*) override;
@@ -62,7 +60,7 @@ class AliasFinder : public OptOutConstDispatch {
       TensorView* in,
       TensorView* out);
 
-  bool can_override_empty_allocation_domain_;
+  EmptyAllocationAs empty_allocation_as_;
   AliasAnalysisResult& analysis_;
 };
 
@@ -173,10 +171,11 @@ namespace {
 bool okToRelayout(
     const TensorView* tv,
     const Layout& new_layout,
-    const bool can_override_empty_allocation_domain) {
+    const EmptyAllocationAs empty_allocation_as) {
   const std::vector<IterDomain*> allocation =
-      (can_override_empty_allocation_domain ? tv->getAllocationDomain()
-                                            : tv->getMaybeAllocationDomain());
+      (empty_allocation_as == EmptyAllocationAs::kUndetermined
+           ? tv->getAllocationDomain()
+           : tv->getMaybeAllocationDomain());
   return new_layout.isCompliantWith({allocation, tv->getContiguity()});
 }
 } // namespace
@@ -254,8 +253,7 @@ void AliasFinder::handle(const ViewOp* view) {
     out_logical_layout.contiguity.push_back(contiguity);
   }
   // FIXME: make this a helper
-  if (okToRelayout(
-          out, out_logical_layout, can_override_empty_allocation_domain_)) {
+  if (okToRelayout(out, out_logical_layout, empty_allocation_as_)) {
     analysis_.add(out, in, std::move(out_logical_layout));
   }
 }
@@ -289,8 +287,7 @@ void AliasFinder::handle(const LoadStoreOp* set) {
   if (!out_root_layout.has_value()) {
     return;
   }
-  if (okToRelayout(
-          out, *out_root_layout, can_override_empty_allocation_domain_)) {
+  if (okToRelayout(out, *out_root_layout, empty_allocation_as_)) {
     analysis_.add(out, in, std::move(*out_root_layout));
   }
 }
@@ -355,7 +352,7 @@ void AliasFinder::handle(const SliceOp* slice) {
     }
   }
 
-  if (okToRelayout(out, *out_layout, can_override_empty_allocation_domain_)) {
+  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
     analysis_.add(out, in, std::move(*out_layout));
   }
 }
@@ -382,7 +379,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
     }
   }
 
-  if (okToRelayout(out, *out_layout, can_override_empty_allocation_domain_)) {
+  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
     analysis_.add(out, in, std::move(*out_layout));
   }
 }
@@ -401,7 +398,7 @@ void AliasFinder::handle(const SqueezeOp* squeeze) {
     return;
   }
 
-  if (okToRelayout(out, *out_layout, can_override_empty_allocation_domain_)) {
+  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
     analysis_.add(out, in, std::move(*out_layout));
   }
 }
@@ -420,7 +417,7 @@ void AliasFinder::handle(const ExpandOp* expand) {
     return;
   }
 
-  if (okToRelayout(out, *out_layout, can_override_empty_allocation_domain_)) {
+  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
     analysis_.add(out, in, std::move(*out_layout));
   }
 }
@@ -508,9 +505,9 @@ std::string AliasAnalysisResult::toString(const int indent_size) const {
 
 AliasAnalysisResult findAliases(
     Fusion* fusion,
-    const bool can_override_empty_allocation_domain) {
+    const EmptyAllocationAs empty_allocation_as) {
   AliasAnalysisResult analysis;
-  AliasFinder finder(can_override_empty_allocation_domain, analysis);
+  AliasFinder finder(empty_allocation_as, analysis);
   // Fusion::exprs() computes and returns topological order.
   for (Expr* expr : fusion->exprs()) {
     // A potential improvement suggested by @tfogal: Let AliasFinder

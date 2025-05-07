@@ -82,16 +82,14 @@ class AliasAnalysisResult {
   std::unordered_map<const TensorView*, TensorView*> alias_to_root_;
 };
 
-// Finds aliases of the fusion inputs. The analysis should be conservative --
-// when the analysis says B is an alias of input A and that B's preferred layout
-// is compliant with the required layout, `ExpressionEvaluator::evaluate(B)`
-// should produce an `at::Tensor` that's an alias of the `at::Tensor` bound to
-// A.
+// Before segmentation, we treat an empty allocation domain as undetermined and
+// can override it to any layout. After segmentation, we treat an empty
+// allocation domain as canonical, i.e., major-to-minor and contiguous. We have
+// to be conservative after segmentation, because a scheduler changing the
+// allocation domain of a segment boundary may invalidate heuristics of its
+// upstream/downstream segment.
 //
-// [Note on overriding empty allocation domains]
-//
-// We can override an empty allocation domain to any layout before segmentation
-// but not after. For example,
+// For example,
 // ```
 // auto in = makeContigConcreteTensor({2, 3});
 // auto slice_out = segment_set(slice(in, {0, 0}, {2, 2}));
@@ -105,10 +103,20 @@ class AliasAnalysisResult {
 //
 // Therefore, I chose to run alias analysis both before segmentation and in
 // schedulers. The former, used by MarkAliasesPreparePass, updates layouts to
-// enable aliases; the latter, used by NoOpScheduler, calls
+// enable aliases; the latter, used by ExprEvalScheduler, calls
 // Fusion::aliasOutputToInput to mark aliases.
+enum class EmptyAllocationAs {
+  kCanonical,
+  kUndetermined,
+};
+
+// Finds aliases of the fusion inputs. The analysis should be conservative --
+// when the analysis says B is an alias of input A and that B's preferred layout
+// is compliant with the required layout, `ExpressionEvaluator::evaluate(B)`
+// should produce an `at::Tensor` that's an alias of the `at::Tensor` bound to
+// A.
 AliasAnalysisResult findAliases(
     Fusion* fusion,
-    bool can_override_empty_allocation_domain = true);
+    EmptyAllocationAs empty_allocation_as = EmptyAllocationAs::kUndetermined);
 
 } // namespace nvfuser
