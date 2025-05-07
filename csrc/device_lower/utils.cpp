@@ -248,6 +248,14 @@ bool isCpAsyncBulkTensorTile(const Expr* expr) {
   return isCpAsyncBulk(expr) &&
       expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
 }
+bool isCpAsyncBulkTensorTileLoad(const Expr* expr) {
+  return isCpAsyncBulkLoad(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+bool isCpAsyncBulkTensorTileStore(const Expr* expr) {
+  return isCpAsyncBulkStore(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+}
 
 bool isCpAsyncBulk1D(const Expr* expr) {
   return isCpAsyncBulk(expr) &&
