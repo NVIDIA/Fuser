@@ -57,9 +57,7 @@ class AliasAnalysisResult {
   void add(const TensorView* alias, TensorView* source, Layout&& layout);
 
   // Computes transitive aliases and caches them in `alias_to_root_`.
-  // See `findAliases` for the meaning of
-  // `can_override_empty_allocation_domain`.
-  void finalize(bool can_override_empty_allocation_domain);
+  void finalize();
 
   // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
   // returns the `TensorView`'s initial layout.
