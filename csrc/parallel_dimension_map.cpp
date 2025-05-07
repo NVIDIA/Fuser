@@ -48,11 +48,9 @@ void ParallelDimensionMap::build(Fusion* fusion) {
       const auto& warp_specialized =
           std::get<WarpSpecialized>(tv->circularBufferOptions().type);
       warp_specialized_types_.insert(warp_specialized.on);
-      NVF_ERROR(
-          !ws_with_register_sharing_pt_.has_value() ||
-              ws_with_register_sharing_pt_.value() == warp_specialized.on,
-          "Multiple warp specialized axis detected.");
-      ws_with_register_sharing_pt_ = warp_specialized.on;
+      if (warp_specialized.num_registers.has_value()) {
+        ws_with_register_sharing_pt_ = warp_specialized.on;
+      }
     }
     for (auto id : tv->domain()->allIDs()) {
       auto ptype = id->getParallelType();
@@ -307,7 +305,8 @@ Val* ParallelDimensionMap::getLinearThreadIndexAsync() const {
       continue;
     }
     // short-circuit: extent_for_pdim is trivial.
-    if (extent_for_pdim->evaluate().as<int64_t>() == 1) {
+    if (extent_for_pdim->isConstScalar() &&
+        extent_for_pdim->evaluate().as<int64_t>() == 1) {
       continue;
     }
     Val* pt_index = NamedScalar::getParallelIndex(pt);
