@@ -582,6 +582,10 @@ static const char* binary_op_type2string(BinaryOpType t) {
       return "lessThan";
     case BinaryOpType::NE:
       return "notEqual";
+    case BinaryOpType::LHS:
+      return "lhs";
+    case BinaryOpType::RHS:
+      return "rhs";
     default:
       NVF_THROW("No string found for binary op type.");
   }
@@ -822,6 +826,8 @@ static const char* iter_type2string(IterType t) {
       return "n";
     case IterType::VectorComponent:
       return "v";
+    case IterType::Scan:
+      return "c";
     case IterType::Symbolic:
       return "?";
     default:

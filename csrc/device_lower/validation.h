@@ -71,4 +71,7 @@ void validateLookupTV(Fusion* fusion);
 //! Check that there are no reductions over unexpanded broadcasts
 void validateReductions(Fusion* fusion);
 
+//! Validate scheduling of ScanOp inputs and outputs
+void validateScans(Fusion* fusion);
+
 } // namespace nvfuser
