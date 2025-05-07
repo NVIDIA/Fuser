@@ -270,14 +270,18 @@ TEST_F(LoopDomainSchedulingTest, ReshapeTraversalDirection) {
 }
 
 // Using the same fusion as ReshapeTraversalDirection, try each one of
-// the tensors as a reference
+// the tensors as a reference. We've added a tensor with no logical domain
+// to ensure we can skip scheduling it.
 TEST_F(LoopDomainSchedulingTest, ManyReshape) {
   Fusion fusion;
   FusionGuard fg(&fusion);
 
   auto tv0 = makeConcreteTensor({12});
+  auto tv_scalar = makeSymbolicTensor(0);
   fusion.addInput(tv0);
+  fusion.addInput(tv_scalar);
   auto tv1 = set(tv0);
+  auto tv_scalar_set = set(tv_scalar);
 
   auto tv2 = reshape(tv1, {12}, {3, 4});
   auto tv3 = reshape(tv2, {3, 4}, {3, 2, 2});
@@ -290,6 +294,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
   auto tv9 = add(tv6, tv8);
   fusion.addOutput(tv9);
+  fusion.addOutput(tv_scalar_set);
 
   // Try each of the tensors as a reference
   for (const auto i : arange(fusion.allTvs().size())) {
@@ -297,6 +302,9 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     FusionGuard fg_copy(&fusion_copy);
 
     TensorView* ref_tv = fusion_copy.allTvs().at(i);
+    if (ref_tv->getLogicalDomain().empty()) {
+      continue;
+    }
     std::vector<IterDomain*> ref_loop = ref_tv->getLogicalDomain();
     scheduler_tools::scheduleLoopDomainsLike(fusion_copy.allTvs(), ref_loop);
 
@@ -307,7 +315,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
     // with the reference loop domain
     for (const auto tv : fusion_copy.allTvs()) {
       // scheduleLoopDomainsLike skips fusion inputs
-      if (tv->isFusionInput()) {
+      if (tv->isFusionInput() || tv->getLogicalDomain().empty()) {
         continue;
       }
       EXPECT_EQ(tv->getLoopDomain().size(), ref_loop.size())
@@ -325,7 +333,7 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     // All tensors, except for the inputs, should be fully inlined
     for (const auto tv : fusion_copy.allTvs()) {
-      if (tv->isFusionInput()) {
+      if (tv->isFusionInput() || tv->getLogicalDomain().empty()) {
         continue;
       }
       EXPECT_EQ(tv->getComputeAtPosition(), tv->getLoopDomain().size());
@@ -335,10 +343,11 @@ TEST_F(LoopDomainSchedulingTest, ManyReshape) {
 
     auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
     auto t0 = at::randn({12}, options);
+    auto t1 = at::tensor(1.00f, options).squeeze();
 
     KernelExecutor ke;
-    ke.compile(&fusion, {t0});
-    auto cg_outputs = ke.run({t0});
+    ke.compile(&fusion, {t0, t1});
+    auto cg_outputs = ke.run({t0, t1});
 
     auto ref = t0 * 2;
     EXPECT_TRUE(ref.equal(cg_outputs[0].as<at::Tensor>()));
