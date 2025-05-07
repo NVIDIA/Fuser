@@ -2,8 +2,13 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
-import os
 import sys
+
+assert (
+    "nvfuser" not in sys.modules
+), "Cannot import nvfuser_next if nvfuser module is already imported."
+
+import os
 import torch
 
 # This is needed when libnvfuser_next.so is patched and doesn't have the pytorch library location available.
