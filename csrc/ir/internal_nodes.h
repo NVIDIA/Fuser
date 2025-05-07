@@ -275,6 +275,10 @@ class ScatterOp : public Expr {
 
   IterDomain* getIndexedID() const;
 
+  IterDomain* getConsumerLoopID() const;
+
+  IterDomain* getConsumerLogicalID() const;
+
   ScatterOpType getScatterOpType() const {
     return attribute<ScatterOpType>(1);
   }

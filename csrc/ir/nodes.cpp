@@ -317,6 +317,14 @@ IterDomain* ScatterOp::getIndexedID() const {
   return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
 }
 
+IterDomain* ScatterOp::getConsumerLoopID() const {
+  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim() + 1);
+}
+
+IterDomain* ScatterOp::getConsumerLogicalID() const {
+  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
+}
+
 std::vector<PolymorphicValue> ScatterOp::evaluate(
     const ExpressionEvaluator& ee,
     const std::vector<PolymorphicValue>& inputs) const {

@@ -77,27 +77,39 @@ namespace {
 // Returns producer IDs that don't map identically to consumer. A bool is
 // returned indicating whether corresponding consumer IDs exists. For example,
 // select doesn't have a consumer ID, whereas index_select does.
-std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
+std::tuple<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     const TensorView* producer_tv,
     const TensorView* consumer_tv) {
-  std::unordered_set<IterDomain*> non_mapping_ids;
+  std::unordered_set<IterDomain*> non_mapping_producer_ids;
+  std::unordered_set<IterDomain*> non_mapping_consumer_ids;
   bool has_consumer_id = false;
   if (auto sop = dynamic_cast<SelectOp*>(consumer_tv->definition())) {
     // indexed ID is indirectly accessed
-    non_mapping_ids.insert(sop->getIndexedID());
+    non_mapping_producer_ids.insert(sop->getIndexedID());
     has_consumer_id = false;
   } else if (
       auto sop = dynamic_cast<IndexSelectOp*>(consumer_tv->definition())) {
     // indexed ID is indirectly accessed
     if (producer_tv == sop->lookupTv()) {
-      non_mapping_ids.insert(sop->getIndexedID());
+      non_mapping_producer_ids.insert(sop->getIndexedID());
       has_consumer_id = true;
     }
   } else if (auto gop = dynamic_cast<GatherOp*>(consumer_tv->definition())) {
     // indexed ID is indirectly accessed
     if (producer_tv == gop->lookupTv()) {
-      non_mapping_ids.insert(gop->getIndexedID());
+      non_mapping_producer_ids.insert(gop->getIndexedID());
       has_consumer_id = true;
+    }
+  } else if (auto sop = dynamic_cast<ScatterOp*>(consumer_tv->definition())) {
+    if (producer_tv == sop->selfTv()) {
+      non_mapping_consumer_ids(sop->getConsumerLoopID());
+      has_consumer_id = false;
+    } else if (producer_tv == sop->indexTv()) {
+      non_mapping_consumer_ids(sop->getConsumerLogicalID());
+      has_consumer_id = false;
+    } else if (producer_tv == sop->srcTv()) {
+      non_mapping_consumer_ids(sop->getConsumerLogicalID());
+      has_consumer_id = false;
     }
   } else if (
       auto iaop =
@@ -105,16 +117,16 @@ std::pair<std::unordered_set<IterDomain*>, bool> getNonMappingDomainInfo(
     // see [ Note -- IndexPutAccumulateOp semantics ]
     if (producer_tv == iaop->indexTv()) {
       // Indexing ID of index tv do not map to output.
-      non_mapping_ids.insert(iaop->getIndexingID());
+      non_mapping_producer_ids.insert(iaop->getIndexingID());
       has_consumer_id = true;
     } else if (producer_tv == iaop->valueTv()) {
       // indexing ID of value tv do not map to output.
-      non_mapping_ids.insert(iaop->getIndexingIDOfValue());
+      non_mapping_producer_ids.insert(iaop->getIndexingIDOfValue());
       has_consumer_id = true;
     }
   }
 
-  return std::make_pair(non_mapping_ids, has_consumer_id);
+  return std::make_pair(non_mapping_producer_ids, has_consumer_id);
 }
 
 } // namespace
@@ -135,7 +147,7 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
     squeeze_flags = sop->getSqueezeDimFlags();
   }
 
-  auto [non_mapping_producer_id, has_consumer_of_indexed_id] =
+  auto [non_mapping_producer_id, non_mapping_consumer_id, has_consumer_of_indexed_id] =
       getNonMappingDomainInfo(producer_tv_, consumer_tv_);
 
   std::unordered_map<IterDomain*, IterDomain*> dom_map;
@@ -370,6 +382,14 @@ std::unordered_map<IterDomain*, IterDomain*> PairwiseLogicalDomainMap::map(
       // Skip both producer and consumer if mapping not allowed
       if (!map_indexed_domains_) {
         itp++;
+        itc++;
+        continue;
+      }
+    }
+
+    // quick and dirty mapping
+    if (non_mapping_consumer_id.count(consumer_id) != 0) {
+      if (!has_consumer_of_indexed_id) {
         itc++;
         continue;
       }

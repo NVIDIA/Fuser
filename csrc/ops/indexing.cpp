@@ -183,6 +183,7 @@ TensorView* scatterOp(
   dim = wrapDim(dim, (int64_t)self_dom.size());
 
   // The shape of output tensor is same as self tensor.
+  std::vector<IterDomain*> root_domain;
   std::vector<IterDomain*> out_domain;
   std::vector<IterDomain*> no_loop_ids;
   for (const auto i : arange((int64_t)self_dom.size())) {
@@ -197,17 +198,20 @@ TensorView* scatterOp(
                     : self_dom[i]->getIterType())
             .build();
     out_domain.push_back(id);
+    root_domain.push_back(id);
     if (i == dim) {
+      // pushing loop domain at `dim() + 1`
+      root_domain.push_back(IterDomainBuilder(idx_dom[dim]).build());
       no_loop_ids.push_back(id);
     }
   }
 
   std::vector<IterDomain*> out_loop_domain = out_domain;
-  out_loop_domain[dim] = IterDomainBuilder(idx_dom[dim]).build();
+  out_loop_domain[dim] = root_domain.front();
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
-          out_domain, out_domain, out_domain, out_loop_domain, TensorDomain::getContiguityFilledWith(out_domain, true), std::vector<IterDomain*>(), no_loop_ids),
+          root_domain, out_domain, out_domain, out_loop_domain, TensorDomain::getContiguityFilledWith(out_domain, true), std::vector<IterDomain*>(), no_loop_ids),
       self->getDataType().value());
 
   IrBuilder::create<ScatterOp>(type, out_tensor, self, dim, index, src);
