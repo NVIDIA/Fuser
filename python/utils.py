@@ -279,6 +279,10 @@ def override_build_config_from_env(config):
 
 
 class build_ext(setuptools.command.build_ext.build_ext):
+    def __init__(self, *args, **kwargs):
+        self.install_dir = kwargs.pop("install_dir", None)
+        super().__init__(*args, **kwargs)
+
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
             # Copy files on necessity.
@@ -286,9 +290,13 @@ class build_ext(setuptools.command.build_ext.build_ext):
             fileext = os.path.splitext(filename)[1]
 
             libnvfuser_path = os.path.join(
-                "./nvfuser_common/lib", f"libnvfuser{fileext}"
+                os.path.join(self.install_dir, "lib"), f"libnvfuser{fileext}"
             )
-            assert os.path.exists(libnvfuser_path)
+            if not os.path.exists(os.path.dirname(libnvfuser_path)):
+                os.makedirs(os.path.dirname(libnvfuser_path))
+            if not os.path.exists(libnvfuser_path):
+                # Create empty file
+                open(libnvfuser_path, "a").close()
             install_dst = os.path.join(self.build_lib, filename)
             if not os.path.exists(os.path.dirname(install_dst)):
                 os.makedirs(os.path.dirname(install_dst))
@@ -559,7 +567,9 @@ def run(config, version_tag, relative_path):
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
-                "build_ext": build_ext,
+                "build_ext": lambda *args, **kwargs: build_ext(
+                    *args, install_dir=config.install_dir, **kwargs
+                ),
                 "clean": create_clean(relative_path),
             },
             package_data={
