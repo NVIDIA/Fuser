@@ -4973,8 +4973,8 @@ fd.execute(inputs)
 
     def test_import_conflict_nvfuser_then_next(self):
         try:
-            import nvfuser
-            import nvfuser_next
+            import nvfuser  # noqa: F401
+            import nvfuser_next  # noqa: F401
         except AssertionError as e:
             expected_msg = (
                 "Cannot import nvfuser_next if nvfuser module is already imported."
