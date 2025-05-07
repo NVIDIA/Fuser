@@ -40,7 +40,7 @@ class MultiDeviceTest : public NVFuserTest {
       const DeviceMesh& mesh);
 
   // Validate the outputs of a fusion against expected outputs.
-  void validate(
+  static void validate(
       const std::vector<at::Tensor>& expected_outputs,
       const KernelArgumentHolder& outputs,
       const std::vector<double>& atols);
