@@ -236,7 +236,7 @@ void ParallelDimensionMap::adjustMappingsForWarpSpecialization() {
   auto current_val = dim_it == dim_map_.end()
       ? IrBuilder::create<Val>(1, DataType::Index)
       : dim_it->second;
-  dim_map_.at(ws_pt) = IrBuilder::addExpr(current_val, offset);
+  dim_map_[ws_pt] = IrBuilder::addExpr(current_val, offset);
   exact_types_.erase(ws_pt);
 }
 
