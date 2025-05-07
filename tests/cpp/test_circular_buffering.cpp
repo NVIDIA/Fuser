@@ -2410,12 +2410,24 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
   constexpr int64_t n_tma_branch_threads = 128;
   int64_t n_total_threads = n_computation_threads + n_tma_branch_threads;
 
-  CircularBufferType circular_buffer_type = WarpSpecialized(
-      ws_pt,
-      getNumRegisters(
-          n_computation_threads, n_tma_branch_threads, n_total_threads));
-  int64_t n_stages = 2;
-  tv1->circularBuffer(n_stages, /*prefetch_distance=*/1, circular_buffer_type);
+  constexpr int64_t n_stages = 2;
+
+  // If ws_pt == ParallelType::TIDx and bdim.x == 32, CUDA kernel cannot use
+  // register sharing. ncu reports it uses 26 register per thread.
+  // getNumRegisters expects 168 registers by default, so the register settings
+  // causes nvrtc to hang during compilation.
+  if (ws_pt == ParallelType::TIDx && getTmaPadThreads(ws_pt, bdim) < 32) {
+    CircularBufferType circular_buffer_type = WarpSpecialized(ws_pt);
+    tv1->circularBuffer(
+        n_stages, /*prefetch_distance=*/1, circular_buffer_type);
+  } else {
+    CircularBufferType circular_buffer_type = WarpSpecialized(
+        ws_pt,
+        getNumRegisters(
+            n_computation_threads, n_tma_branch_threads, n_total_threads));
+    tv1->circularBuffer(
+        n_stages, /*prefetch_distance=*/1, circular_buffer_type);
+  }
 
   auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({n_stages * gdimx, n_computation_threads}, options);
@@ -2425,17 +2437,8 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
   try {
     ke.compile(fusion.get(), {t0});
   } catch (const std::exception& e) {
-    const char* bdimx_32_min =
-        R"(BlockDim.x must be at least 32 to use ElectSync)";
     const char* other_active_128_max =
         R"(The # active threads in other thread dimensions > 128 threads.)";
-
-    int64_t ws_thread_pad = getTmaPadThreads(ws_pt, bdim);
-    if (ws_pt == ParallelType::TIDx && ws_thread_pad < 32) {
-      const char* str_match_pointer = strstr(e.what(), bdimx_32_min);
-      ASSERT_TRUE(str_match_pointer != nullptr);
-      return;
-    }
     if (getOtherActiveThreads(ws_pt, bdim) > n_tma_branch_threads) {
       const char* str_match_pointer = strstr(e.what(), other_active_128_max);
       ASSERT_TRUE(str_match_pointer != nullptr);

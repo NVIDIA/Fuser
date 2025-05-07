@@ -339,18 +339,18 @@ int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
 
 bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
   if (!ws_with_register_sharing_pt_.has_value()) {
-    return false;
+    return true;
   }
 
   if (ws_with_register_sharing_pt_.value() != ParallelType::TIDx) {
-    return false;
+    return true;
   }
 
   if (ws_with_register_sharing_pad_val_.value() >= 32) {
-    return false;
+    return true;
   }
 
-  return true;
+  return false;
 }
 
 std::string ParallelDimensionMap::toString() const {
