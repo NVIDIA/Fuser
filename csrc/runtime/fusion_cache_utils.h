@@ -85,6 +85,7 @@ struct PairPointerEquals {
 // updateWithSegmentOutputs.
 class ArgumentManager {
  public:
+  ArgumentManager();
   ArgumentManager(
       const KernelArgumentHolder& args,
       const RuntimeWorkSpace& runtime_workspace,
@@ -97,6 +98,7 @@ class ArgumentManager {
   // Allow move operations
   ArgumentManager(ArgumentManager&&) = default;
   ArgumentManager& operator=(ArgumentManager&&) = default;
+  void update(const KernelArgumentHolder& args, const std::vector<Val*>& fusion_inputs);
 
   // This map is only taken on destruction. It might be good to steal the tensor
   // map instead of make a copy.

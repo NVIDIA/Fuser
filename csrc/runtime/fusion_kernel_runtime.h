@@ -62,7 +62,7 @@ class FusionKernelRuntime {
   void evictCache(size_t input_id);
 
   //! query if we have already attempted compilation
-  bool isCompiled() const;
+  bool isCompiled();
 
   //! Serialize Fusion Kernel Runtime using flatbuffers
   flatbuffers::Offset<serde::FusionKernelRuntime> serialize(
@@ -230,6 +230,13 @@ class FusionKernelRuntime {
 
   // Whether to auto schedule the Fusion. If set to false, scheduling is skipped
   const bool auto_schedule_;
+  
+  // Keep track of whether we have compiled all segments as queries for fusions
+  // with many segments can create a lot of host overhead
+  bool compiled_ = false;
+
+  // Hold onto argument construction as it is expensive when on the hot path of execution.
+  ArgumentManager args_manager_;
 };
 
 } // namespace nvfuser
