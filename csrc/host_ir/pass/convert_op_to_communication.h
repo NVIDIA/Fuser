@@ -9,32 +9,32 @@
 
 #include <fusion.h>
 #include <host_ir/lower.h>
-#include <preseg_passes/optimization_pass.h>
+#include <host_ir/pass/optimization_pass.h>
 
-namespace nvfuser::preseg_passes {
+namespace nvfuser::hir_pass {
 
 class ConvertOpToCommunication
     : public OptimizationPass<ConvertOpToCommunication> {
   friend class OptimizationPass<ConvertOpToCommunication>;
 
  public:
+  ConvertOpToCommunication(
+      const HostIrLowerParams& params = HostIrLowerParams())
+      : params_(params) {}
+
   static std::vector<Expr*> ConvertSingleOpToCommunication(
       Expr* c,
       DeviceIdxType my_device_idx,
       const HostIrLowerParams& params);
 
-  static void setParams(const HostIrLowerParams& params) {
-    params_ = params;
-  }
-
  protected:
-  static void runPass(Fusion* fusion);
+  void passImplementation(Fusion* fusion) override;
   static constexpr std::string_view name() {
     return "ConvertOpToCommunication";
   }
 
  private:
-  static HostIrLowerParams params_;
+  HostIrLowerParams params_;
 };
 
-} // namespace nvfuser::preseg_passes
+} // namespace nvfuser::hir_pass

@@ -7,6 +7,7 @@
 // clang-format on
 #include <device_lower/utils.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/stream_parallel_type.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -16,7 +17,6 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include <preseg_passes/convert_op_to_communication.h>
 #include <preseg_passes/insert_reshardings.h>
 #include <preseg_passes/make_resharding_contiguous.h>
 #include <preseg_passes/propagate_shardings.h>
@@ -192,11 +192,9 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     tv->setMemoryType(MemoryType::Global);
   }
 
-  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(hic.get());
+  hir_pass::StreamParallelType().runPass(hic.get());
 
-  preseg_passes::ConvertOpToCommunication::setParams(params_);
-  preseg_passes::OptimizationPass<
-      preseg_passes::ConvertOpToCommunication>::runPass(hic.get());
+  hir_pass::ConvertOpToCommunication(params_).runPass(hic.get());
 
   return hic;
 }

@@ -8,6 +8,7 @@
 
 #include <host_ir/container.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/convert_op_to_communication.h>
 #include <id_model/id_model.h>
 #include <ir/all_nodes.h>
 #include <ir/builder.h>
@@ -18,9 +19,8 @@
 #include <multidevice/utils.h>
 #include <ops/all_ops.h>
 #include <ops/utils.h>
-#include <preseg_passes/convert_op_to_communication.h>
 
-namespace nvfuser::preseg_passes {
+namespace nvfuser::hir_pass {
 
 namespace {
 
@@ -299,8 +299,6 @@ void lowerToReduceScatter(
 
 } // namespace
 
-HostIrLowerParams ConvertOpToCommunication::params_;
-
 /*
 TODO:
 *) Propose several lowering paths for each given communication
@@ -386,7 +384,7 @@ std::vector<Expr*> ConvertOpToCommunication::ConvertSingleOpToCommunication(
   return comms;
 }
 
-void ConvertOpToCommunication::runPass(Fusion* fusion) {
+void ConvertOpToCommunication::passImplementation(Fusion* fusion) {
   FusionGuard fg(fusion);
   hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
   NVF_CHECK(hic, "Expected HostIrContainer");
@@ -438,4 +436,4 @@ void ConvertOpToCommunication::runPass(Fusion* fusion) {
   hic->resetTopLevelExprs(new_top_level_exprs);
 }
 
-} // namespace nvfuser::preseg_passes
+} // namespace nvfuser::hir_pass

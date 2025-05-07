@@ -11,12 +11,12 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/convert_op_to_communication.h>
 #include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
 #include <multidevice/utils.h>
-#include <preseg_passes/convert_op_to_communication.h>
 #include <preseg_passes/pre_segmenter.h>
 #include <python_frontend/fusion_definition.h>
 #include <python_frontend/translation.h>
@@ -489,7 +489,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
           NVF_ERROR(
               group_to_run->exprs().size() == 1,
               "Communication segments must contain only one Expr");
-          for (auto* expr : preseg_passes::ConvertOpToCommunication::
+          for (auto* expr : hir_pass::ConvertOpToCommunication::
                    ConvertSingleOpToCommunication(
                        ir_cloner.clone(group_to_run->exprs().at(0)),
                        deviceid,
@@ -526,7 +526,7 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
       hic->addOutput(ir_cloner.clone(out));
     }
 
-    insertDeallocations(hic.get());
+    hir_pass::InsertDeallocations().runPass(hic.get());
 
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
