@@ -512,7 +512,7 @@ Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
   }
 
   return SimplifyingIrBuilder::logicalAndExpr(
-      createElectSyncExpr(), select_first_warp);
+      select_first_warp, createElectSyncExpr());
 }
 
 // Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
@@ -533,7 +533,7 @@ Val* createElectSyncPredicateAsync() {
   // Use elect-sync if available
   if (pdim_map.canUseElectSyncInAsyncWarp()) {
     return SimplifyingIrBuilder::logicalAndExpr(
-        createElectSyncExpr(), select_warp);
+        select_warp, createElectSyncExpr());
   }
 
   // Warp Specialized ParallelType is ThreadIdx.x and it contains less than 32
@@ -541,7 +541,7 @@ Val* createElectSyncPredicateAsync() {
   Val* thread_id =
       SimplifyingIrBuilder::modExpr(async_warp_thread_index, warp_size);
   Val* select_thread = SimplifyingIrBuilder::eqExpr(thread_id, zero);
-  return SimplifyingIrBuilder::logicalAndExpr(select_thread, select_warp);
+  return SimplifyingIrBuilder::logicalAndExpr(select_warp, select_thread);
 }
 
 Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
