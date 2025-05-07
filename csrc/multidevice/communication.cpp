@@ -456,7 +456,10 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
+  std::cerr << "input_tensor = " << input_tensor << std::endl;
+  std::cerr << "output_tensor = " << output_tensor << std::endl;
   const auto scattered_axis = communication->scatteredAxis();
+  std::cerr << "scattered_axis = " << scattered_axis << std::endl;
   NVF_ERROR(
       scattered_axis >= 0,
       "scattered_axis is expected to be non-negative: ",
@@ -547,6 +550,8 @@ c10::intrusive_ptr<c10d::Work> postSingleCommunication(
   }
   NVF_ERROR(backend != nullptr);
 
+  std::cerr << "postSingleCommunication: communication type = "
+            << communication->type() << std::endl;
   switch (communication->type()) {
     case CommunicationType::Gather:
       return postGather(
