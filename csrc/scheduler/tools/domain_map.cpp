@@ -58,6 +58,10 @@ bool canIgnoreIndexedInputDomainID(
                ->isBroadcast()) {
         return false;
       }
+    } else if (auto scatter = dynamic_cast<ScatterOp*>(use)) {
+      if (root_id != scatter->getIndexedID()) {
+        return false;
+      }
     } else {
       // If the input TV is used by any other ops
       return false;
@@ -129,10 +133,12 @@ bool DomainMap::areAllInputIdsMappedTo(TensorView* input_tv, TensorView* tv)
     }
   }
 
+  // TODO: shouldn't this use loop domain instead?!
   // Erase all input concrete IDs mapped to the output domain
   // Ignore unresolved broadcast dimensions
   eraseifInputMappedThroughRootDomainAndIndexing(
-      in_concrete_ids, tv->getLogicalDomain());
+      // in_concrete_ids, tv->getLogicalDomain());
+      in_concrete_ids, tv->getLoopDomain());
 
   return in_concrete_ids.empty();
 }

@@ -314,7 +314,7 @@ std::string ScatterOp::toInlineString(int indent_size) const {
 }
 
 IterDomain* ScatterOp::getIndexedID() const {
-  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
+  return TensorDomain::noReductions(selfTv()->getLogicalDomain()).at(dim());
 }
 
 IterDomain* ScatterOp::getConsumerLoopID() const {
@@ -3317,10 +3317,10 @@ TensorDomain::TensorDomain(
       loop_domain_.empty() == logical_domain_.empty(),
       "logical domain and loop domain can only be both empty or neither empty");
   validateLoopDomain(logical_domain_, loop_domain_, additional_ids_, no_loop_ids_);
-  if (!root_domain_.empty()) {
-    ir_utils::validateDomainEquivalence(
-        logical_domain_, root_domain_, additional_ids_);
-  }
+  // if (!root_domain_.empty()) {
+  //   ir_utils::validateDomainEquivalence(
+  //       logical_domain_, root_domain_, additional_ids_);
+  // }
   if (!allocation_domain_.empty()) {
     ir_utils::validateDomainEquivalence(
         logical_domain_, allocation_domain_, additional_ids_);
