@@ -488,6 +488,15 @@ std::size_t UnswitchPredicateKeyHash::operator()(
 
 namespace {
 
+// Create elect-sync to pick a thread
+Val* createElectSyncExpr() {
+  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
+  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
+  IrBuilder::create<UnaryOp>(
+      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
+  return elect_sync_val;
+}
+
 // Select first warp of threads along TIDx axis and use ptx::elect_sync if not
 // warp collective.
 // TODO If TIDx is known at compile-time, generate custom mask.
@@ -502,10 +511,8 @@ Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
     return select_first_warp;
   }
 
-  const ParallelDimensionMap& pdim_map =
-      GpuLower::current()->parallelDimensionMap();
   return SimplifyingIrBuilder::logicalAndExpr(
-      pdim_map.selectThread(), select_first_warp);
+      createElectSyncExpr(), select_first_warp);
 }
 
 // Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
@@ -523,8 +530,18 @@ Val* createElectSyncPredicateAsync() {
   // TODO Only select first warp now
   Val* select_warp = SimplifyingIrBuilder::eqExpr(warp_id, zero);
 
-  return SimplifyingIrBuilder::logicalAndExpr(
-      pdim_map.selectThread(), select_warp);
+  // Use elect-sync if available
+  if (pdim_map.canUseElectSyncInAsyncWarp()) {
+    return SimplifyingIrBuilder::logicalAndExpr(
+        createElectSyncExpr(), select_warp);
+  }
+
+  // Warp Specialized ParallelType is ThreadIdx.x and it contains less than 32
+  // threads, so manually select first thread in warp.
+  Val* thread_id =
+      SimplifyingIrBuilder::modExpr(async_warp_thread_index, warp_size);
+  Val* select_thread = SimplifyingIrBuilder::eqExpr(thread_id, zero);
+  return SimplifyingIrBuilder::logicalAndExpr(select_thread, select_warp);
 }
 
 Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {

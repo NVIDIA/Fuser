@@ -337,34 +337,20 @@ int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
   return ws_with_register_sharing_pad_val_.value();
 }
 
-namespace {
-
-Val* createElectSyncExpr() {
-  Val* full_mask_val = IrBuilder::create<Val>(0xFFFFFFFF, PrimDataType::UInt32);
-  Val* elect_sync_val = IrBuilder::create<Val>(PrimDataType::Bool);
-  IrBuilder::create<UnaryOp>(
-      UnaryOpType::ElectSync, elect_sync_val, full_mask_val);
-  return elect_sync_val;
-}
-
-} // namespace
-
-Val* ParallelDimensionMap::selectThread() const {
+bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
   if (!ws_with_register_sharing_pt_.has_value()) {
-    return createElectSyncExpr();
+    return false;
   }
 
   if (ws_with_register_sharing_pt_.value() != ParallelType::TIDx) {
-    return createElectSyncExpr();
+    return false;
   }
 
   if (ws_with_register_sharing_pad_val_.value() >= 32) {
-    return createElectSyncExpr();
+    return false;
   }
 
-  return SimplifyingIrBuilder::eqExpr(
-      NamedScalar::getParallelIndex(ParallelType::TIDx),
-      getRawCompute(ParallelType::TIDx));
+  return true;
 }
 
 std::string ParallelDimensionMap::toString() const {
