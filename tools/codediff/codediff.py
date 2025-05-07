@@ -100,8 +100,9 @@ class LaunchParams:
 @dataclass
 class CompiledKernel:
     filename: str
-    code: str | None = None
+    cuda: str | None = None
     ptx: str | None = None
+    sass: str | None = None
     ptxas_info: str | None = None
     launch_params_str: str | None = None
     launch_params: LaunchParams | None = None
@@ -588,7 +589,7 @@ class TestRun:
         kern = self.kernel_map[test_name].kernels[kernel_number]
         basename = kern.filename
         fullname = os.path.join(self.directory, "cuda", basename)
-        kern.code = ""
+        kern.cuda = ""
         with open(fullname, "r") as f:
             for i, line in enumerate(f.readlines()):
                 if kern.index_type is None:
@@ -598,16 +599,24 @@ class TestRun:
                 if not strip_preamble or i >= self.preamble_size_lines:
                     # replace kernel934 with kernel1 to facilitate diffing
                     # also match kernel_43 to handle new-style naming with static fusion count
-                    kern.code += re.sub(r"\bnvfuser_\d+\b", "nvfuser_N", line)
-        kern.code = kern.code.rstrip()
-        if strip_preamble and kern.code[-1] == "}":
+                    kern.cuda += re.sub(r"\bnvfuser_\d+\b", "nvfuser_N", line)
+        kern.cuda = kern.cuda.rstrip()
+        if strip_preamble and kern.cuda[-1] == "}":
             # trailing curly brace is close of namespace. This will clean it up so that we have just the kernel
-            kern.code = kern.code[:-1].rstrip()
+            kern.cuda = kern.cuda[:-1].rstrip()
         # find ptx file if it exists
         ptx_basename = os.path.splitext(basename)[0] + ".ptx"
         ptx_fullname = os.path.join(self.directory, "ptx", ptx_basename)
         try:
             kern.ptx = open(ptx_fullname, "r").read().rstrip()
+        except FileNotFoundError:
+            pass
+
+        # find sass file if it exists
+        sass_basename = os.path.splitext(basename)[0] + ".sass"
+        sass_fullname = os.path.join(self.directory, "sass", sass_basename)
+        try:
+            kern.sass = open(sass_fullname, "r").read().rstrip()
         except FileNotFoundError:
             pass
         return kern
@@ -672,14 +681,23 @@ class KernelDiff:
     kernel2: CompiledKernel
     diff_lines: InitVar[list[str]] = []
     ptx_diff_lines: InitVar[list[str] | None] = []
+    sass_diff_lines: InitVar[list[str] | None] = []
     diff: str = field(init=False)
     new_lines: int = 0
     removed_lines: int = 0
     ptx_diff: str | None = None
+    sass_diff: str | None = None
     new_ptx_lines: int = 0
     removed_ptx_lines: int = 0
+    new_sass_lines: int = 0
+    removed_sass_lines: int = 0
 
-    def __post_init__(self, diff_lines: list[str], ptx_diff_lines: list[str] | None):
+    def __post_init__(
+        self,
+        diff_lines: list[str],
+        ptx_diff_lines: list[str] | None,
+        sass_diff_lines: list[str] | None,
+    ):
         self.diff = "\n".join(diff_lines)
 
         for line in diff_lines:
@@ -696,6 +714,15 @@ class KernelDiff:
                     self.new_ptx_lines += 1
                 elif line[:2] == "- ":
                     self.removed_ptx_lines += 1
+
+        if sass_diff_lines is not None:
+            self.sass_diff = "\n".join(sass_diff_lines)
+
+            for line in sass_diff_lines:
+                if line[:2] == "+ ":
+                    self.new_sass_lines += 1
+                elif line[:2] == "- ":
+                    self.removed_sass_lines += 1
 
 
 @dataclass_json
@@ -740,6 +767,42 @@ def sanitize_ptx_lines(lines: list[str]) -> list[str]:
     return sanitary_lines
 
 
+def sanitize_sass_lines(lines: list[str]) -> list[str]:
+    """Remove comments and remove kernel id"""
+    sanitary_lines = []
+    for l in lines:
+        # Replace mangled kernel names like
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_pointwise_f0_c1_r0_g0_cu_8995cef2_3255329nvfuser_pointwise_f0_c1_r0_g0ENS_6TensorIfLi2ELi2EEES1_S1_
+        # or
+        #   _ZN76_GLOBAL__N__00000000_37___tmp_kernel_4_cu_8995cef2_3255329nvfuser_4ENS_6TensorIfLi2ELi2EEES1_S1_
+        # or
+        #   _ZN57_GLOBAL__N__00000000_18___tmp_nvfuser_5_cu_badbb5a6_975149nvfuser_5ENS_6TensorINS_6__halfELi3ELi3EEES2_NS_9TensorMapES3_NS0_IS1_Li2ELi2EEE,(.L_x_28 - _ZN11kernelscope6kernelENS_6TensorINS_6__halfELi3ELi3EEES2_NS_9TensorMapES3_NS0_IS1_Li2ELi2EEE)
+
+        # with
+        #   _ZN11kernelscope6kernelENS_6TensorIfLi2ELi2EEES1_S1_
+
+        # demangle first two parts after _ZN and replace with "kernelscope" and "kernel"
+        m = re.match(r"^(?P<prefix>^.*\b_Z?ZN)(?P<scopenamelen>\d+)_", l)
+        if m is not None:
+            d = m.groupdict()
+            scopenamelen = int(d["scopenamelen"])
+            # demangle second part in remainder after scope name
+            remainder = l[(len(d["prefix"]) + len(d["scopenamelen"]) + scopenamelen) :]
+            mrem = re.match(r"^(?P<varnamelen>\d+)", remainder)
+            if mrem is not None:
+                drem = mrem.groupdict()
+                varnamelen = int(drem["varnamelen"])
+                remainder = (
+                    "6kernel" + remainder[len(drem["varnamelen"]) + varnamelen :]
+                )
+            l = d["prefix"] + "11kernelscope" + remainder
+
+        # Remove comments that tell us the address such as /*08a0*/
+        l = re.sub(r"/\*[0-9a-f]{4}\*/", "/*addr*/", l)
+        sanitary_lines.append(l)
+    return sanitary_lines
+
+
 @dataclass_json
 @dataclass
 class TestDifferences:
@@ -751,7 +814,7 @@ class TestDifferences:
     removed_tests: list[CompiledTest] = field(default_factory=list)
     total_num_diffs: int = 0
     show_diffs: InitVar[bool] = False
-    inclusion_criterion: InitVar[str] = "mismatched_cuda_or_ptx"
+    inclusion_criterion: InitVar[str] = "mismatched_sass"
     preamble_diff: str = field(init=False)
     env_diff: str = field(init=False)
 
@@ -823,8 +886,8 @@ class TestDifferences:
             for kernel_num in range(minimum_kernel_count):
                 kern1 = self.run1.get_kernel(testname, kernel_num, strip_preamble=True)
                 kern2 = self.run2.get_kernel(testname, kernel_num, strip_preamble=True)
-                assert kern1.code is not None
-                assert kern2.code is not None
+                assert kern1.cuda is not None
+                assert kern2.cuda is not None
 
                 ptx_diff_lines = None
                 if kern1.ptx is not None and kern2.ptx is not None:
@@ -838,10 +901,22 @@ class TestDifferences:
                         )
                     )
 
+                sass_diff_lines = None
+                if kern1.sass is not None and kern2.sass is not None:
+                    sass_diff_lines = list(
+                        difflib.unified_diff(
+                            sanitize_sass_lines(kern1.sass.splitlines()),
+                            sanitize_sass_lines(kern2.sass.splitlines()),
+                            fromfile=self.run1.name,
+                            tofile=self.run2.name,
+                            n=5,
+                        )
+                    )
+
                 diff_lines = list(
                     difflib.unified_diff(
-                        kern1.code.splitlines(),
-                        kern2.code.splitlines(),
+                        kern1.cuda.splitlines(),
+                        kern2.cuda.splitlines(),
                         fromfile=self.run1.name,
                         tofile=self.run2.name,
                         n=5,
@@ -860,6 +935,16 @@ class TestDifferences:
                         and ptx_diff_lines is not None
                         and len(ptx_diff_lines) > 0
                     )
+                    or (
+                        kernel_inclusion_criterion
+                        in [
+                            "mismatched_cuda_or_ptx",
+                            "mismatched_ptx",
+                            "mismatched_sass",
+                        ]
+                        and sass_diff_lines is not None
+                        and len(sass_diff_lines) > 0
+                    )
                 ):
                     kd = KernelDiff(
                         testname,
@@ -868,6 +953,7 @@ class TestDifferences:
                         kern2,
                         diff_lines,
                         ptx_diff_lines=ptx_diff_lines,
+                        sass_diff_lines=sass_diff_lines,
                     )
                     if show_diffs:
                         print(testname, kernel_num, kd.diff)
@@ -994,8 +1080,8 @@ if __name__ == "__main__":
     diff_parser.add_argument(
         "--kernel-inclusion-criterion",
         "-i",
-        choices=("mismatched_cuda_or_ptx", "mismatched_ptx", "all"),
-        default="mismatched_cuda_or_ptx",
+        choices=("mismatched_cuda_or_ptx", "mismatched_ptx", "mismatched_sass", "all"),
+        default="mismatched_sass",
         help="Which kernels should we include?",
     )
     diff_parser.add_argument(
