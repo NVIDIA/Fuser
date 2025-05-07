@@ -456,8 +456,8 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
     c10d::Backend* backend,
     at::Tensor input_tensor,
     at::Tensor output_tensor) {
-  std::cerr << "input_tensor = " << input_tensor << std::endl;
-  std::cerr << "output_tensor = " << output_tensor << std::endl;
+  std::cerr << "input_tensor = " << input_tensor.sizes() << std::endl;
+  std::cerr << "output_tensor = " << output_tensor.sizes() << std::endl;
   const auto scattered_axis = communication->scatteredAxis();
   std::cerr << "scattered_axis = " << scattered_axis << std::endl;
   NVF_ERROR(
