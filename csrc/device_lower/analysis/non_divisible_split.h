@@ -8,10 +8,11 @@
 #pragma once
 
 #include <exceptions.h>
-#include <visibility.h>
-
 #include <ir/all_nodes.h>
 #include <iter_visitor.h>
+#include <val_graph.h>
+#include <val_graph_visitor.h>
+#include <visibility.h>
 
 namespace nvfuser {
 
@@ -82,5 +83,9 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   TensorView* current_tv_ = nullptr;
   std::unordered_set<IterDomain*> inner_domains_;
 };
+
+std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
+    const ValGraph& graph,
+    const ValGraphBFS::ExprPath& indexing_path);
 
 } // namespace nvfuser

@@ -182,6 +182,7 @@ void NonDivisibleSplitInfo::removeRedundancy() {
   }
 }
 
+// TODO: Is this necessary? Isn't vectorization validation doing this already?
 void NonDivisibleSplitInfo::addValidations() {
   const auto gpu_lower = GpuLower::current();
   for (auto split : splits_to_validate_) {
@@ -192,6 +193,90 @@ void NonDivisibleSplitInfo::addValidations() {
         extent->fusion()->zeroVal());
     gpu_lower->validate(is_divisible, "Non-divisible split detected: ", split);
   }
+}
+
+std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
+    const ValGraph& graph,
+    const ValGraphBFS::ExprPath& indexing_path) {
+  std::unordered_set<ValGroup> unsafe_groups;
+  std::vector<ValGroup> groups_to_predicate;
+
+  for (const auto& [expr_g, dir] : indexing_path) {
+    NVF_ERROR(dir == Direction::Forward || dir == Direction::Backward);
+
+    const auto inputs = getInputsOfExprGroup(graph, expr_g, dir);
+    const auto outputs = getOutputsOfExprGroup(graph, expr_g, dir);
+
+    Expr* expr = expr_g->front();
+
+    if (auto split = dynamic_cast<Split*>(expr)) {
+      if (dir == Direction::Forward) {
+        if (unsafe_groups.contains(inputs.at(0))) {
+          unsafe_groups.emplace(graph.toGroup(split->outer()));
+        }
+      } else {
+        auto inner_group = graph.toGroup(split->inner());
+        auto outer_group = graph.toGroup(split->outer());
+
+        // In the case of backward traversal, if the inner ID is
+        // unsafe, it is no longer kept unsafe but needs to be
+        // predicated.
+        if (unsafe_groups.contains(inner_group)) {
+          groups_to_predicate.emplace_back(inner_group);
+        }
+
+        auto gpu_lower = GpuLower::current();
+        NVF_ERROR(gpu_lower != nullptr);
+
+        // TODO: divisibleSplitSet doesn't seem to include statically
+        // divisible splits. Also probaly doesn't include splits that
+        // are not found by Valgraph traversal
+        bool is_divisible_split = gpu_lower->divisibleSplitSet().find(split) !=
+            gpu_lower->divisibleSplitSet().end();
+
+        if (!is_divisible_split) {
+          auto extent = split->in()->extent();
+          auto factor = split->factor();
+          if (extent->isConstScalar() && factor->isConstScalar() &&
+              (extent->evaluate().as<int64_t>() %
+                   factor->evaluate().as<int64_t>() ==
+               0)) {
+            is_divisible_split = true;
+          }
+        }
+
+        if (unsafe_groups.contains(outer_group) || !is_divisible_split) {
+          unsafe_groups.emplace(graph.toGroup(split->in()));
+        }
+      }
+    } else if (auto merge = dynamic_cast<Merge*>(expr)) {
+      auto inner_group = graph.toGroup(merge->inner());
+      auto outer_group = graph.toGroup(merge->outer());
+      if (dir == Direction::Forward) {
+        if (unsafe_groups.contains(inner_group)) {
+          groups_to_predicate.emplace_back(inner_group);
+        }
+
+        if (unsafe_groups.contains(outer_group)) {
+          unsafe_groups.emplace(graph.toGroup(merge->out()));
+        }
+      } else {
+        if (unsafe_groups.contains(inputs.at(0))) {
+          unsafe_groups.emplace(graph.toGroup(merge->outer()));
+        }
+      }
+    } else if (expr_g->front()->isA<Resize>()) {
+      NVF_ERROR_EQ(inputs.size(), 1);
+      NVF_ERROR_EQ(outputs.size(), 1);
+      if (unsafe_groups.contains(inputs.at(0))) {
+        unsafe_groups.emplace(outputs.at(0));
+      }
+    } else {
+      NVF_THROW("Unsupported yet: ", expr->toString());
+    }
+  }
+
+  return groups_to_predicate;
 }
 
 } // namespace nvfuser

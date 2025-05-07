@@ -6130,7 +6130,7 @@ TEST_F(ResizeTest, VectorizeOuterPad) {
 }
 
 // Repro of issue #4250
-TEST_F(ResizeTest, DISABLED_ReshapeAfterRef) {
+TEST_F(ResizeTest, ReshapeAfterRef) {
   auto fusion_ptr = std::make_unique<Fusion>();
   auto& fusion = *fusion_ptr;
   FusionGuard fg(fusion_ptr.get());
