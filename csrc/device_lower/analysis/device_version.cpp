@@ -14,7 +14,7 @@
 namespace nvfuser {
 
 void MinimumDeviceVersion::dispatch(Val* val) {
-  if (val->dtype() == DataType::BFloat16) {
+  if (val->dtypes() == DataType::BFloat16) {
     ensureVersion(
         {8, 0},
         "Fusion contains BFloat16 values which was introduced in Ampere (8.0)");
