@@ -44,9 +44,10 @@ void UnrollPass::dispatch(Expr* expr) {
   // short-circuit: skip adding predicate if tma load with circular buffering or
   // stand-alone arrive_expect_tx.
   bool is_arrive_expect_tx = expr->isA<kir::MBarrierArriveExpectTx>();
-  bool is_circular_buffer_nd_tma_load =
-      ir_utils::isCpAsyncBulkTensorTileLoad(expr) &&
+  bool is_circular_buffer =
       expr->output(0)->as<TensorView>()->isCircularBuffered();
+  bool is_circular_buffer_nd_tma_load =
+      is_circular_buffer && ir_utils::isCpAsyncBulkTensorTileLoad(expr);
   if (is_arrive_expect_tx || is_circular_buffer_nd_tma_load) {
     return;
   }
@@ -63,22 +64,24 @@ void UnrollPass::dispatch(Expr* expr) {
     return;
   }
 
-  // Needs predicate MBarrierWaitParity for 1D TMA
-  if (current_elect_sync_fl_idx_ >= 0) {
-    if (expr->isA<kir::MBarrierWaitParity>() &&
-        for_loops_.back()->circularBufferLoopStage() ==
-            CircularBufferLoopStage::ComputeWarp) {
-      auto fl = for_loops_.back();
-      std::unordered_map<Val*, Val*> replace_map;
-      replace_map[tma_circular_buffer_loop_index_] = fl->index();
-      auto pred_val =
-          ir_utils::replaceValRecursively(tma_inline_pred_val_, replace_map);
-      auto pred = IrBuilder::create<kir::Predicate>(pred_val);
-      auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
-      inline_ite->thenBody().push_back(expr);
-      kir::ExprMutator::registerReplace(expr, inline_ite);
-      return;
-    }
+  // Predicate MBarrierWaitParity is required for 1D TMA.
+  // Since MBarrierWaitParity has no output tensor, its predicate value
+  // cannot be computed directly. Instead, we reuse the predicate value
+  // from the TMA load, but replace the circular buffer load loop index
+  // with that of the circular buffer compute loop.
+  if (has_1d_tma_predicate_ && expr->isA<kir::MBarrierWaitParity>() &&
+      for_loops_.back()->circularBufferLoopStage() ==
+          CircularBufferLoopStage::ComputeWarp) {
+    auto fl = for_loops_.back();
+    std::unordered_map<Val*, Val*> replace_map;
+    replace_map[tma_circular_buffer_loop_index_] = fl->index();
+    auto pred_val =
+        ir_utils::replaceValRecursively(tma_inline_pred_val_, replace_map);
+    auto pred = IrBuilder::create<kir::Predicate>(pred_val);
+    auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
+    inline_ite->thenBody().push_back(expr);
+    kir::ExprMutator::registerReplace(expr, inline_ite);
+    return;
   }
 
   if (ir_utils::isTvOp(expr) && !expr->isA<kir::AllocTMem>()) {
@@ -198,10 +201,7 @@ void UnrollPass::dispatch(Expr* expr) {
       }
     }
 
-    if (ir_utils::isCpAsyncBulk1DLoad(expr) &&
-        current_elect_sync_fl_idx_ >= 0) {
-      std::cout << "isCpAsyncBulk1DLoad, pred:\n"
-                << pred->toString() << std::endl;
+    if (ir_utils::isCpAsyncBulk1DLoad(expr) && is_circular_buffer) {
       // Combine the Inline predicate with the ElectSync predicate
       auto inline_pred_val = PredicateCompute::getInlinePredicate(
           pred->expr(),
@@ -209,25 +209,14 @@ void UnrollPass::dispatch(Expr* expr) {
           /*rotated_loop_*/ std::unordered_set<ForLoop*>{},
           pred->thread_pred(),
           pred->predicate_type());
-
-      // Current for_loops_:
-      // FOR Circular buffer loop
-      // IF ElectSync:
-      //   MBarrierWaitParity()
-      //   MBarrierArriveExpectTx()
-      //   FOR Serial for loop:
-      //     FOR TMA trivial loop:
-      //       1D TMA load
       // We want to replace [ElectSync] with a manual predicate that combines
       // with the inline predicate for the 1D TMA load. However, the loop
       // indices nested in [ElectSync] are no longer accessible when predicates
-      // are combined. Therefore, we replace those indices with zero. This
-      // implies that the corresponding domains are not predicated. If these
-      // domains result from a split, the split must be divisible.
+      // are combined. Therefore, we Visit all the for-loops from the one
+      // contains elect sync and replace loop index with zero.
       std::unordered_map<Val*, Val*> replace_map;
-      for (auto idx = current_elect_sync_fl_idx_ + 1;
-           idx < (int64_t)for_loops_.size();
-           ++idx) {
+      int64_t n_loops = (int64_t)for_loops_.size();
+      for (auto idx = current_elect_sync_fl_idx_ + 1; idx < n_loops; ++idx) {
         auto fl = for_loops_.at(idx);
         if (fl->iter_domain()->getParallelType() != ParallelType::Serial) {
           continue;
@@ -239,10 +228,9 @@ void UnrollPass::dispatch(Expr* expr) {
       auto combined_conditional = SimplifyingIrBuilder::logicalAndExpr(
           current_elect_sync_pred_val_, tma_inline_pred_val_);
       auto new_pred = IrBuilder::create<kir::Predicate>(combined_conditional);
-      current_elect_sync_->setPredicate(new_pred);
+      current_elect_sync_ite_->setPredicate(new_pred);
 
-      std::cout << "combined_conditional:\n"
-                << combined_conditional->toInlineString() << std::endl;
+      has_1d_tma_predicate_ = true;
       return;
     }
 
@@ -270,19 +258,15 @@ void UnrollPass::dispatch(Expr* expr) {
   } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
     handle(for_loop);
   } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
-    std::cout << "UnrollPass::IfThenElse:\n" << expr->toString() << std::endl;
     if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
-      auto pred_val =
-          PredicateCompute::getElectSyncPredicate(ite->predicate(), for_loops_);
-      current_elect_sync_ = ite;
-      current_elect_sync_pred_val_ = pred_val;
+      // These info are used to generate predicate for 1D TMA load and
+      // MBarrierWaitParity
+      current_elect_sync_ite_ = ite;
       current_elect_sync_fl_idx_ = for_loops_.size() - 1;
       tma_circular_buffer_loop_index_ = for_loops_.back()->index();
-      std::cout << "ElectSync predicate:\n"
-                << pred_val->toString() << std::endl;
+      current_elect_sync_pred_val_ =
+          PredicateCompute::getElectSyncPredicate(ite->predicate(), for_loops_);
     }
-    std::cout << "-------------------------------------------------"
-              << std::endl;
     kir::ExprMutator::handle(ite);
   }
 }

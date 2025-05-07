@@ -2325,11 +2325,11 @@ TEST_F(NVFuserTest, TmaRegisterSharingDynamicShapesExpectFail) {
   tv2->axis(-1)->parallelize(ParallelType::TIDx);
   tv2->axis(-2)->parallelize(ParallelType::TIDy);
   tv2->axis(-3)->parallelize(ParallelType::TIDz);
-  tv2->axis(1)->parallelize(ParallelType::BIDx);
+  tv2->axis(0)->parallelize(ParallelType::BIDx);
 
-  // [I1, I2] -> [I1/gdimx, gdimx, I2]
-  tv1->split(0, gdimx);
-  tv1->axis(1)->parallelize(ParallelType::BIDx);
+  // [I1, I2] -> [gdimx, I1/gdimx, I2]
+  tv1->split(0, gdimx, false);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
   tv1->axis(2)->parallelize(ParallelType::Bulk);
 
   // Set inlineAt before applying circular buffer

@@ -95,15 +95,18 @@ class UnrollPass : kir::ExprMutator {
   bool non_trivial_pred_found_ = false;
 
   // Keep track of the ite whose predicate is ElectSync to identify the
-  // TMA load branch.
-  kir::IfThenElse* current_elect_sync_ = nullptr;
+  // TMA load branch and merge 1D TMA inline predicate with ElectSync.
+  kir::IfThenElse* current_elect_sync_ite_ = nullptr;
   Val* current_elect_sync_pred_val_ = nullptr;
   int64_t current_elect_sync_fl_idx_ = -1;
-  // The 1D TMA predicate generated in the TMA load branch needs to be applied
-  // in the computation branch to predicate MBarrierWaitParity. Although both
-  // for-loops share the same iteration domain, their loop indices differ.
-  // Here, we record the index from the TMA load branch to later replace it
-  // with the corresponding index from the computation branch.
+
+  // The 1D TMA predicate generated in the TMA load branch needs to be
+  // applied in the computation branch to predicate MBarrierWaitParity.
+  // Although both for-loops share the same iteration domain, their loop
+  // indices differ. Here, we record the index from the TMA load branch to
+  // later replace it with the corresponding index from the computation
+  // branch.
+  bool has_1d_tma_predicate_ = false;
   Val* tma_inline_pred_val_ = nullptr;
   Val* tma_circular_buffer_loop_index_ = nullptr;
 };

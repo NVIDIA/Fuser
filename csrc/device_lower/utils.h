@@ -139,7 +139,6 @@ bool isCpAsyncBulkTensorTileLoad(const Expr* expr);
 bool isCpAsyncBulkTensorTileStore(const Expr* expr);
 bool isCpAsyncBulkTensorTile(const Expr* expr);
 
-
 //! Returns true if the expression will be lowered to
 //!  a cp.async.bulk intrinsic.
 bool isCpAsyncBulk1DLoad(const Expr* expr);
