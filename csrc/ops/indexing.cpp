@@ -186,6 +186,7 @@ TensorView* scatterOp(
   std::vector<IterDomain*> root_domain;
   std::vector<IterDomain*> out_domain;
   std::vector<IterDomain*> no_loop_ids;
+  std::vector<IterDomain*> out_loop_domain;
   for (const auto i : arange((int64_t)self_dom.size())) {
     auto id = 
         IterDomainBuilder(self_dom[i])
@@ -204,11 +205,11 @@ TensorView* scatterOp(
       auto loop_id = IterDomainBuilder(idx_dom[dim]).build();
       root_domain.push_back(loop_id);
       no_loop_ids.push_back(loop_id);
+      out_loop_domain.push_back(loop_id);
+    } else {
+      out_loop_domain.push_back(id);
     }
   }
-
-  std::vector<IterDomain*> out_loop_domain = out_domain;
-  out_loop_domain[dim] = root_domain.front();
 
   TensorView* out_tensor = IrBuilder::create<TensorView>(
       IrBuilder::create<TensorDomain>(
