@@ -1114,6 +1114,17 @@ class TmaCircularBufferingTest
         ParallelType::TIDy;
   }
 
+  bool invalidCTAShapeException(const std::exception& e) {
+    const char* other_active_128_max =
+        R"(The # active threads in other thread dimensions > 128 threads.)";
+    if (std::get<WarpSpecialized>(circular_buffer_type).on ==
+        ParallelType::TIDy) {
+      const char* str_match_pointer = strstr(e.what(), other_active_128_max);
+      return str_match_pointer != nullptr;
+    }
+    return false;
+  }
+
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
   // the memory range [srcMem, srcMem + size - 1] must not overflow the source
   // memory space. Otherwise, the behavior is undefined.
@@ -1304,7 +1315,15 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
+
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   auto cg_outputs = ke.run({t0});
   compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
@@ -1361,7 +1380,14 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   bool is_warp_specialized =
       std::holds_alternative<WarpSpecialized>(circular_buffer_type);
@@ -1427,7 +1453,14 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   bool is_warp_specialized =
       std::holds_alternative<WarpSpecialized>(circular_buffer_type);
@@ -1504,7 +1537,14 @@ TEST_P(TmaCircularBufferingTest, MultiDim) {
   at::Tensor t1 = at::exp(t0);
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   auto cg_outputs = ke.run({t0});
   compare<float>(
@@ -1572,7 +1612,14 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
   at::Tensor t2 = t0 + t1;
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
+  try {
+    ke.compile(fusion.get(), {t0, t1});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   auto cg_outputs = ke.run({t0, t1});
   compare<float>(
@@ -1644,7 +1691,14 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
   at::Tensor t2 = t0 + t1;
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0, t1});
+  try {
+    ke.compile(fusion.get(), {t0, t1});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   auto cg_outputs = ke.run({t0, t1});
   compare<float>(
@@ -1710,7 +1764,14 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   at::Tensor t1 = sum(t0, {-1});
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   auto cg_outputs = ke.run({t0});
   compare<float>(tensor_outer_dim, cg_outputs[0].as<at::Tensor>(), t1);
@@ -1765,7 +1826,14 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   at::Tensor t1 = sum(t0, {0});
 
   KernelExecutor ke;
-  ke.compile(fusion.get(), {t0});
+  try {
+    ke.compile(fusion.get(), {t0});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
 
   auto cg_outputs = ke.run({t0});
   compare<float>(tensor_inner_dim, cg_outputs[0].as<at::Tensor>(), t1);
@@ -1905,7 +1973,14 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
 
   // Compile with KernelExecutor directly to avoid scheduling
   KernelExecutor ke;
-  ke.compile(fusion.get(), {at_tv0});
+  try {
+    ke.compile(fusion.get(), {at_tv0});
+  } catch (const std::exception& e) {
+    if (!invalidCTAShapeException(e)) {
+      throw;
+    }
+    return;
+  }
   auto cg_outputs = ke.run({at_tv0});
 
   std::tuple<at::Tensor, at::Tensor> at_var_mean =
@@ -2444,7 +2519,6 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
       ASSERT_TRUE(str_match_pointer != nullptr);
       return;
     }
-
     throw;
   }
 
