@@ -3189,8 +3189,6 @@ TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
   inlineSelectedAt({tv0a}, tv0a, 2);
   inlineMost(std::unordered_set<TensorView*>{tv1});
 
-  fusion->printMath();
-
   if (has_circular_buffer) {
     tv0a->circularBuffer(
         circular_stages, 1, WarpSpecialized(ParallelType::TIDy));

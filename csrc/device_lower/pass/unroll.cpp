@@ -44,10 +44,9 @@ void UnrollPass::dispatch(Expr* expr) {
   // short-circuit: skip adding predicate if tma load with circular buffering or
   // stand-alone arrive_expect_tx.
   bool is_arrive_expect_tx = expr->isA<kir::MBarrierArriveExpectTx>();
-  bool is_circular_buffer =
-      expr->output(0)->as<TensorView>()->isCircularBuffered();
   bool is_circular_buffer_nd_tma_load =
-      is_circular_buffer && ir_utils::isCpAsyncBulkTensorTileLoad(expr);
+      ir_utils::isCpAsyncBulkTensorTileLoad(expr) &&
+      expr->output(0)->as<TensorView>()->isCircularBuffered();
   if (is_arrive_expect_tx || is_circular_buffer_nd_tma_load) {
     return;
   }
@@ -201,8 +200,8 @@ void UnrollPass::dispatch(Expr* expr) {
       }
     }
 
-    if (ir_utils::isCpAsyncBulk1DLoad(expr) && is_circular_buffer) {
-      // Combine the Inline predicate with the ElectSync predicate
+    // Combine the Inline predicate for 1d tma load with the ElectSync predicate
+    if (ir_utils::isCpAsyncBulk1DLoad(expr) && current_elect_sync_ite_) {
       auto inline_pred_val = PredicateCompute::getInlinePredicate(
           pred->expr(),
           for_loops_,
