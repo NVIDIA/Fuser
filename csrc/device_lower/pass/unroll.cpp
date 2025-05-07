@@ -47,7 +47,7 @@ void UnrollPass::dispatch(Expr* expr) {
   bool is_circular_buffer_tma_load = ir_utils::isCpAsyncBulkLoad(expr) &&
       expr->output(0)->as<TensorView>()->isCircularBuffered();
   if (is_arrive_expect_tx ||
-      (is_circular_buffer_tma_load && !ir_utils::isCpAsyncUblk(expr))) {
+      (is_circular_buffer_tma_load && !ir_utils::isCpAsyncBulk1D(expr))) {
     return;
   }
 

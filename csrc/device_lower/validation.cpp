@@ -204,7 +204,7 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
 
     // For 1D TMA, ID parallelized by Bulk can't comes from non-divisible split
     // due to the lack of predicate.
-    if (ir_utils::isCpAsyncUblk(tv->definition())) {
+    if (ir_utils::isCpAsyncBulk1D(tv->definition())) {
       NVF_ERROR(
           tv->axis(-1)->getParallelType() == ParallelType::Bulk,
           "Expected expect TMA load of inner-most dimension, but got: ",

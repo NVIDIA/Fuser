@@ -825,7 +825,7 @@ Val* PredicateCompute::getInlinePredicate(
   // Don't need thread predicate for UBLK TMA load with circular buffer, it is
   // already predicated with ElectSync.
   if (thread_pred &&
-      !(ir_utils::isCpAsyncUblk(expr) &&
+      !(ir_utils::isCpAsyncBulk1D(expr) &&
         gpu_lower->circularBufferInfo().getCircularBufferAxis(out_tv))) {
     preds.push_back(thread_pred);
   }

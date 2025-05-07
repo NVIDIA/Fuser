@@ -229,49 +229,6 @@ inline CpAsyncBulkMode getCpAsyncBulkMode(const Expr* expr) {
 
 } // namespace
 
-// return true if expr is nD TMA load or store.
-// nD TMA ops handles out of bound accesses automatically in hardware, no need
-// to predicate it.
-bool isCpAsyncBulkTensorTile(const Expr* expr) {
-   return isCpAyncBulkLoad(expr) && expr->as<LoadStoreOp>()->opType() == CpAsyncBulkTensorTile;
-   }
-  auto ldst = dynamic_cast<const LoadStoreOp*>(expr);
-  if (!ldst) {
-    return false;
-  }
-  auto op_type = ldst->opType();
-  if (op_type != LoadStoreOpType::CpAsyncBulkTensorTile) {
-    return false;
-  }
-  auto in_mem = getTv(ldst->in())->getMemoryType();
-  auto out_mem = getTv(ldst->out())->getMemoryType();
-  if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
-      (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
-    return true;
-  } else {
-    NVF_THROW("Invalid memory types for CpAsyncBulkTensorTile");
-  }
-}
-
-bool isCpAsyncUblk(const Expr* expr) {
-  auto ldst = dynamic_cast<const LoadStoreOp*>(expr);
-  if (!ldst) {
-    return false;
-  }
-  auto op_type = ldst->opType();
-  if (op_type != LoadStoreOpType::CpAsyncBulk) {
-    return false;
-  }
-  auto in_mem = getTv(ldst->in())->getMemoryType();
-  auto out_mem = getTv(ldst->out())->getMemoryType();
-  if ((in_mem == MemoryType::Global && out_mem == MemoryType::Shared) ||
-      (in_mem == MemoryType::Shared && out_mem == MemoryType::Global)) {
-    return true;
-  } else {
-    NVF_THROW("Invalid memory types for CpAsyncBulk");
-  }
-}
-
 bool isCpAsyncBulk(const Expr* expr) {
   return getCpAsyncBulkMode(expr) != CpAsyncBulkMode::NotACpAsyncBulk;
 }
@@ -282,6 +239,19 @@ bool isCpAsyncBulkLoad(const Expr* expr) {
 
 bool isCpAsyncBulkStore(const Expr* expr) {
   return getCpAsyncBulkMode(expr) == CpAsyncBulkMode::S2G;
+}
+
+// return true if expr is nD TMA load or store.
+// nD TMA ops handles out of bound accesses automatically in hardware, no need
+// to predicate it.
+bool isCpAsyncBulkTensorTile(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulkTensorTile;
+}
+
+bool isCpAsyncBulk1D(const Expr* expr) {
+  return isCpAsyncBulk(expr) &&
+      expr->as<LoadStoreOp>()->opType() == LoadStoreOpType::CpAsyncBulk;
 }
 
 bool isLdStTMem(const Expr* expr) {

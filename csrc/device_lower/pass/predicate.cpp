@@ -134,7 +134,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
       return false;
     }
     for (auto lexpr : ite->thenBody().exprs()) {
-      if (!ir_utils::isCpAsyncUblk(lexpr)) {
+      if (!ir_utils::isCpAsyncBulk1D(lexpr)) {
         continue;
       }
       // Ublk predicate is only used for warp specialized normalization kernel,
