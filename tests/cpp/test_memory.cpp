@@ -3173,10 +3173,11 @@ TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
     tv1->split(0, outer_unroll);
   }
   tv1->split(0, sm_count);
+  tv1->reorder({{0, 1}});
   TransformPropagator propagator(tv1);
   MaxLogicalDomainInfoSpanningTree(tv1).traverse(&propagator);
 
-  tv1->axis(1)->parallelize(ParallelType::BIDx);
+  tv1->axis(0)->parallelize(ParallelType::BIDx);
   scheduler_utils::parallelizeAllLike(tv1);
 
   /// TIDx for computation, Bulk for load
