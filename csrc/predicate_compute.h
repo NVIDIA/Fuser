@@ -30,7 +30,8 @@ class PredicateCompute {
 
   static Val* getElectSyncPredicate(
       kir::Predicate* pred,
-      const std::vector<ForLoop*>& loops);
+      const std::vector<ForLoop*>& loops,
+      int64_t desired_warp_id);
 };
 
 //! Parallelized domains may need to be predicated with threading

@@ -518,8 +518,9 @@ Val* selectFirstWarpElectSyncPredicate(bool is_warp_collective) {
 // Get linear index for AsyncWarp Group. Then, select first warp. Finally, use
 // ptx::elect_sync if not warp collective.
 // TODO If TIDx is known at compile-time, generate custom mask.
-Val* createElectSyncPredicateAsync() {
-  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
+Val* createElectSyncPredicateAsync(int64_t desired_warp = 0) {
+  Val* desired_warp_val =
+      IrBuilder::create<Val>(desired_warp, PrimDataType::UInt64);
   Val* warp_size = IrBuilder::create<Val>(32L, PrimDataType::UInt64);
 
   const ParallelDimensionMap& pdim_map =
@@ -528,7 +529,7 @@ Val* createElectSyncPredicateAsync() {
   Val* warp_id =
       SimplifyingIrBuilder::divExpr(async_warp_thread_index, warp_size);
   // TODO Only select first warp now
-  Val* select_warp = SimplifyingIrBuilder::eqExpr(warp_id, zero);
+  Val* select_warp = SimplifyingIrBuilder::eqExpr(warp_id, desired_warp_val);
 
   // Use elect-sync if available
   if (pdim_map.canUseElectSyncInAsyncWarp()) {
@@ -540,11 +541,15 @@ Val* createElectSyncPredicateAsync() {
   // threads, so manually select first thread in warp.
   Val* thread_id =
       SimplifyingIrBuilder::modExpr(async_warp_thread_index, warp_size);
+  Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
   Val* select_thread = SimplifyingIrBuilder::eqExpr(thread_id, zero);
   return SimplifyingIrBuilder::logicalAndExpr(select_warp, select_thread);
 }
 
-Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
+Val* createElectSyncPredicate(
+    kir::Predicate* pred,
+    bool is_async_warp,
+    int64_t desired_warp_id) {
   NVF_ERROR(pred != nullptr);
   NVF_ERROR(pred->expr() != nullptr);
 
@@ -586,14 +591,15 @@ Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
 
   NVF_ERROR(!(is_tma_store && is_async_warp));
   if (is_async_warp) {
-    return createElectSyncPredicateAsync();
+    return createElectSyncPredicateAsync(desired_warp_id);
   }
   return selectFirstWarpElectSyncPredicate(is_tma_store);
 }
 
 Val* createSingleExpressionElectSync(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops,
+    int64_t desired_warp_id) {
   NVF_ERROR(pred->expr() != nullptr);
   NVF_ERROR(
       ir_utils::isCpAsyncBulk(pred->expr()) ||
@@ -641,7 +647,8 @@ Val* createSingleExpressionElectSync(
       if (pt == ParallelType::TIDx) {
         // Use createElectSyncPredicate for ParallelDim::TIDx.
         parallel_dom_pred = SimplifyingIrBuilder::logicalAndExpr(
-            parallel_dom_pred, createElectSyncPredicate(pred, is_async_warp));
+            parallel_dom_pred,
+            createElectSyncPredicate(pred, is_async_warp, desired_warp_id));
       } else {
         // Select first element of dimension for ParallelDim::TIDy and
         // ParallelDim::TIDz.
@@ -668,7 +675,8 @@ Val* createSingleExpressionElectSync(
 //  2. TMA expression does not use ParallelType::TIDy or ParallelType::TIDz.
 Val* createMultipleExpressionElectSync(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops,
+    int64_t desired_warp_id) {
   NVF_ERROR(pred->expr() == nullptr);
 
   Val* zero = IrBuilder::create<Val>(0L, PrimDataType::UInt64);
@@ -708,22 +716,23 @@ Val* createMultipleExpressionElectSync(
     return conditional;
   }
 
-  return createElectSyncPredicateAsync();
+  return createElectSyncPredicateAsync(desired_warp_id);
 }
 
 } // namespace
 
 Val* PredicateCompute::getElectSyncPredicate(
     kir::Predicate* pred,
-    const std::vector<ForLoop*>& loops) {
+    const std::vector<ForLoop*>& loops,
+    int64_t desired_warp_id) {
   FUSER_PERF_SCOPE("GpuLower::Lower::getElectSyncPredicate");
 
   // Short-Circuit: A single expression is associated with the predicate.
   if (pred->expr() != nullptr) {
-    return createSingleExpressionElectSync(pred, loops);
+    return createSingleExpressionElectSync(pred, loops, desired_warp_id);
   }
 
-  return createMultipleExpressionElectSync(pred, loops);
+  return createMultipleExpressionElectSync(pred, loops, desired_warp_id);
 }
 
 Val* PredicateCompute::getInlinePredicate(

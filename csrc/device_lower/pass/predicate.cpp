@@ -111,6 +111,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   void handle(kir::IfThenElse* ite) final {
     NVF_ERROR(ite->predicate() != nullptr);
+    int64_t prev_scope_ite = count_elect_sync_predicate_in_ite_scope_;
+    count_elect_sync_predicate_in_ite_scope_ = 0;
 
     // Loop rotation transform loops like
     //  for i ...
@@ -150,6 +152,7 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
     if (ite->predicate()->predicate_type() == PredicateType::LoopRotation) {
       rotated_loop_.erase(for_loops_.back());
     }
+    count_elect_sync_predicate_in_ite_scope_ = prev_scope_ite;
   }
 
   // Generate conditional according to PredicateType
@@ -194,7 +197,8 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
         return IrBuilder::create<Val>(true, DataType::Bool);
       }
       case PredicateType::ElectSync: {
-        return PredicateCompute::getElectSyncPredicate(pred, for_loops_);
+        return PredicateCompute::getElectSyncPredicate(
+            pred, for_loops_, count_elect_sync_predicate_in_ite_scope_++);
       }
       default:
         break;
@@ -204,6 +208,9 @@ class ConditionalFromPredicateModifier : public kir::ExprMutator {
 
   // Keep track of the loop in which the currently visiting expr is a rotated.
   std::unordered_set<ForLoop*> rotated_loop_;
+  // Track the number of elect sync predicates in the current IfThenElse
+  // predicate.
+  int64_t count_elect_sync_predicate_in_ite_scope_ = 0;
 };
 
 } // namespace
