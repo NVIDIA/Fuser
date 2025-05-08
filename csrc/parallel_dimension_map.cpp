@@ -349,15 +349,20 @@ int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
 }
 
 bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
-  if (!ws_with_register_sharing_pt_.has_value()) {
+  // short-circuit: skip if warp specialization is not enabled
+  if (warp_specialized_types_.empty()) {
+    return true;
+  }
+  // Currently only support one warp specialized axis
+  NVF_ERROR(warp_specialized_types_.size() == 1);
+  ParallelType ws_pt = *warp_specialized_types_.begin();
+
+  // Check that BlockDim.x >= 32 active threads in AsyncWarp
+  if (ws_pt != ParallelType::TIDx) {
     return true;
   }
 
-  if (ws_with_register_sharing_pt_.value() != ParallelType::TIDx) {
-    return true;
-  }
-
-  if (ws_with_register_sharing_pad_val_.value() >= 32) {
+  if (getWarpSpecializationPaddedVal(ws_pt) >= 32) {
     return true;
   }
 
