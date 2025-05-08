@@ -195,9 +195,36 @@ void NonDivisibleSplitInfo::addValidations() {
   }
 }
 
-std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
-    const ValGraph& graph,
-    const ValGraphBFS::ExprPath& indexing_path) {
+NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
+  auto gpu_lower = GpuLower::current();
+  NVF_ERROR(gpu_lower != nullptr, "GpuLower is requred");
+  NVF_ERROR(gpu_lower->isTensorIndexerEnabled(), "TensorIndexer is required");
+
+  const auto& tensor_indexer = gpu_lower->tensorIndexer();
+
+  for (auto tv : fusion->allTvs()) {
+    if (tv->isFusionInput()) {
+      continue;
+    }
+
+    auto def = tv->definition();
+    if (def == nullptr) {
+      continue;
+    }
+
+    const auto path = tensor_indexer.getPredicateIndexingPath(tv, def);
+
+    ids_to_predicate_.emplace(
+        tv,
+        getNonDivisibleSplitsToPredicate(
+            tensor_indexer.traversalGraph(), path));
+  }
+}
+
+std::vector<ValGroup> NonDivisiblePredicateInfo::
+    getNonDivisibleSplitsToPredicate(
+        const ValGraph& graph,
+        const ValGraphBFS::ExprPath& indexing_path) {
   std::unordered_set<ValGroup> unsafe_groups;
   std::vector<ValGroup> groups_to_predicate;
 
@@ -212,7 +239,12 @@ std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
     if (auto split = dynamic_cast<Split*>(expr)) {
       if (dir == Direction::Forward) {
         if (unsafe_groups.contains(inputs.at(0))) {
-          unsafe_groups.emplace(graph.toGroup(split->outer()));
+          if (graph.disjointValSets().strictAreMapped(
+                  split->in(), split->inner())) {
+            unsafe_groups.emplace(graph.toGroup(split->inner()));
+          } else {
+            unsafe_groups.emplace(graph.toGroup(split->outer()));
+          }
         }
       } else {
         auto inner_group = graph.toGroup(split->inner());
@@ -223,6 +255,9 @@ std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
         // predicated.
         if (unsafe_groups.contains(inner_group)) {
           groups_to_predicate.emplace_back(inner_group);
+          if (getenv("DEBUG")) {
+            std::cerr << "Group to pred: inner of " << split->toString();
+          }
         }
 
         auto gpu_lower = GpuLower::current();
@@ -254,6 +289,9 @@ std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
       auto outer_group = graph.toGroup(merge->outer());
       if (dir == Direction::Forward) {
         if (unsafe_groups.contains(inner_group)) {
+          if (getenv("DEBUG")) {
+            std::cerr << "Group to pred: inner of " << merge->toString();
+          }
           groups_to_predicate.emplace_back(inner_group);
         }
 
@@ -262,7 +300,12 @@ std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
         }
       } else {
         if (unsafe_groups.contains(inputs.at(0))) {
-          unsafe_groups.emplace(graph.toGroup(merge->outer()));
+          if (graph.disjointValSets().strictAreMapped(
+                  merge->out(), merge->inner())) {
+            unsafe_groups.emplace(graph.toGroup(merge->inner()));
+          } else {
+            unsafe_groups.emplace(graph.toGroup(merge->outer()));
+          }
         }
       }
     } else if (expr_g->front()->isA<Resize>()) {

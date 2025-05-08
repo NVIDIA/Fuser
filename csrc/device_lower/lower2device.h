@@ -183,6 +183,14 @@ class GpuLower : public NonCopyable {
     return non_divisible_split_info_;
   }
 
+  const NonDivisiblePredicateInfo& nonDivisiblePredicateInfo() const {
+    return *non_divisible_predicate_info_;
+  }
+
+  NonDivisiblePredicateInfo& nonDivisiblePredicateInfo() {
+    return *non_divisible_predicate_info_;
+  }
+
   const auto& divisibleSplitSet() const {
     return divisible_splits_;
   }
@@ -408,6 +416,7 @@ class GpuLower : public NonCopyable {
   WarpPaddedParallelInfo warp_pad_info_;
   ParallelDimensionMap parallel_dimension_map_;
   NonDivisibleSplitInfo non_divisible_split_info_;
+  std::unique_ptr<NonDivisiblePredicateInfo> non_divisible_predicate_info_;
   CircularBufferInfo circular_buffer_info_;
   TmaCircularBufferInfo tma_circular_buffer_info_;
   CommonScalarMap common_scalar_map_;

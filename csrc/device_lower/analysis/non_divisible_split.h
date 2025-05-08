@@ -76,7 +76,11 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
  private:
   //! Split expressions whose input domain must be predicated
   std::unordered_map<TensorView*, std::vector<Split*>> splits_to_predicate_;
-  //! Split expressions whose divisibility must be validated at run time
+  //! Split expressions whose divisibility must be validated at run
+  //! time. This is not a complete set of all splits that must be
+  //! divisible but just includes those discovered during the this
+  //! analysis. As it is not a complete set, it is unclear if keeping
+  //! track of these splits actually helps.
   std::unordered_set<Split*> splits_to_validate_;
 
   //! Temporarily used for analyzing each tensor
@@ -84,8 +88,21 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   std::unordered_set<IterDomain*> inner_domains_;
 };
 
-std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
-    const ValGraph& graph,
-    const ValGraphBFS::ExprPath& indexing_path);
+class NonDivisiblePredicateInfo {
+ public:
+  NonDivisiblePredicateInfo(Fusion* fusion);
+
+  const std::unordered_map<TensorView*, std::vector<ValGroup>>& idsToPredicate()
+      const {
+    return ids_to_predicate_;
+  }
+
+  static std::vector<ValGroup> getNonDivisibleSplitsToPredicate(
+      const ValGraph& graph,
+      const ValGraphBFS::ExprPath& indexing_path);
+
+ private:
+  std::unordered_map<TensorView*, std::vector<ValGroup>> ids_to_predicate_;
+};
 
 } // namespace nvfuser

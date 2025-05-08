@@ -527,44 +527,47 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
     if (!getenv("OLD")) {
-      const std::vector<ValGroup> ids_to_predicate =
-          getNonDivisibleSplitsToPredicate(
-              traversalGraph(), index_info.traversal_path);
-      for (const auto& vg : ids_to_predicate) {
-        IterDomain* id_to_predicate = vg->front()->as<IterDomain>();
-        PredicateInfo info;
-        info.loop_stage_ = loop_stage;
-        // The start predicate should always be true
-        info.start_offset_ = zero_val;
-        info.start_predicate_ = id_to_predicate->fusion()->trueVal();
+      const auto& non_div_info =
+          GpuLower::current()->nonDivisiblePredicateInfo();
+      if (auto it = non_div_info.idsToPredicate().find(tv);
+          it != non_div_info.idsToPredicate().end()) {
+        for (const ValGroup& vg : it->second) {
+          IterDomain* id_to_predicate = vg->front()->as<IterDomain>();
+          PredicateInfo info;
+          info.loop_stage_ = loop_stage;
+          // The start predicate should always be true
+          info.start_offset_ = zero_val;
+          info.start_predicate_ = id_to_predicate->fusion()->trueVal();
 
-        info.stop_offset_ = zero_val;
+          info.stop_offset_ = zero_val;
 
-        auto idx_it = index_map.find(vg);
-        NVF_ERROR(
-            idx_it != index_map.end(),
-            "Index not found for non-divisible ID group: ",
-            vg->front()->toString());
+          auto idx_it = index_map.find(vg);
+          NVF_ERROR(
+              idx_it != index_map.end(),
+              "Index not found for non-divisible ID group: ",
+              vg->front()->toString());
 
-        auto idx = ir_utils::replaceValRecursively(
-            idx_it->second, replacement_map_stop);
-        info.stop_predicate_ =
-            SimplifyingIrBuilder::ltExpr(idx, id_to_predicate->extent());
-        info.predicated_domains_ = {id_to_predicate};
+          auto idx = ir_utils::replaceValRecursively(
+              idx_it->second, replacement_map_stop);
+          info.stop_predicate_ =
+              SimplifyingIrBuilder::ltExpr(idx, id_to_predicate->extent());
+          info.predicated_domains_ = {id_to_predicate};
 
-        if (getenv("DEBUG")) {
-          std::cerr << "Non-div pred: "
-                    << info.stop_predicate_->toInlineString() << "\n";
+          if (getenv("DEBUG")) {
+            std::cerr << "Non-div pred: "
+                      << info.stop_predicate_->toInlineString() << "\n";
+          }
+
+          const ValGroups& loop_deps =
+              index_info.loop_group_dependencies.at(vg);
+          for (const auto& loop_dep : loop_deps) {
+            info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
+          }
+
+          protectPredicatesWithMagicZero(info);
+
+          info_vec.emplace_back(info);
         }
-
-        const ValGroups& loop_deps = index_info.loop_group_dependencies.at(vg);
-        for (const auto& loop_dep : loop_deps) {
-          info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
-        }
-
-        protectPredicatesWithMagicZero(info);
-
-        info_vec.emplace_back(info);
       }
     } else {
       for (const auto& [eg, direction] : index_info.traversal_path) {
@@ -637,6 +640,14 @@ ExprPath<ExprGroup> TensorIndexer::getIndexingPath(
       traversalGraph(),
       getLoopIds(expr, id_model_),
       non_broadcast_index_ids);
+}
+
+ExprPath<ExprGroup> TensorIndexer::getPredicateIndexingPath(
+    TensorView* tv,
+    const Expr* expr) const {
+  const std::vector<IterDomain*>& predicate_domains =
+      getPredicateDomains(tv, expr);
+  return getIndexingPath(expr, predicate_domains);
 }
 
 std::pair<std::vector<ValGroup>, std::vector<Val*>> TensorIndexer::
