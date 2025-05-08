@@ -76,39 +76,31 @@ auto prepareIndexTv(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   if (def->isA<SqueezeOp>()) {
     auto squeeze_dim_flags = def->as<SqueezeOp>()->getSqueezeDimFlags();
     auto dim = positionOfSqueezedDim(squeeze_dim_flags);
-    NVF_CHECK(dim >= 0, "Squeeze dim not found in squeeze op.");
     return unsqueeze(gather_op->indexTv(), dim);
   }
   return gather_op->indexTv();
 }
 
-auto addPostGatherSqueeze(
-    Fusion* fusion,
-    GatherOp* gather,
-    TensorView* new_gather_output,
-    Expr* def,
-    Expr* dest_expr) {
-  auto new_squeeze_output =
-      squeeze(new_gather_output, def->as<SqueezeOp>()->getSqueezeDimFlags());
-  dest_expr = new_gather_output->definition();
+auto addPostGatherSqueeze(Fusion* fusion, GatherOp* new_gather, Expr* def) {
+  auto new_squeeze_output = squeeze(
+      new_gather->output(0)->as<TensorView>(),
+      def->as<SqueezeOp>()->getSqueezeDimFlags());
   return new_squeeze_output;
 }
 
-auto addPostGatherOp(
-    Fusion* fusion,
-    GatherOp* gather,
-    TensorView* new_gather_output,
-    Expr* def,
-    Expr* dest_expr) {
+auto addPostGatherOp(Fusion* fusion, GatherOp* new_gather, Expr* def) {
   IrCloner ir_cloner(fusion);
+
   auto cloned_def = static_cast<Expr*>(def->clone(&ir_cloner));
 
+  // Replace the input with the output of the new gather.
   cloned_def = ir_utils::replaceValInExprInputs(
-      cloned_def, cloned_def->input(0), dest_expr->output(0));
+      cloned_def, cloned_def->input(0), new_gather->output(0));
 
+  // Since it's a unary pointwise op, the output should be like the input
+  // but type may vary as in the case of cast.
   auto cloned_output_tv = ops::newValLike(
       cloned_def->input(0)->as<TensorView>(), cloned_def->output(0)->dtype());
-
   cloned_def =
       ir_utils::transferDefinitionToNewOutputs(cloned_def, {cloned_output_tv});
 
@@ -117,48 +109,52 @@ auto addPostGatherOp(
 
 auto addOrCloneNewNodeAfterGather(
     Fusion* fusion,
-    GatherOp* gather,
-    TensorView* new_gather_output,
-    Expr* def,
-    Expr* dest_expr) {
+    GatherOp* old_gather,
+    GatherOp* new_gather,
+    Expr* def) {
+  // Create a new squeeze op or clone the unary pointwise op.
   auto output_of_post_gather_op = def->isA<SqueezeOp>()
-      ? addPostGatherSqueeze(fusion, gather, new_gather_output, def, dest_expr)
-      : addPostGatherOp(fusion, gather, new_gather_output, def, dest_expr);
+      ? addPostGatherSqueeze(fusion, new_gather, def)
+      : addPostGatherOp(fusion, new_gather, def);
 
-  for (auto expr : gather->output(0)->uses()) {
+  // Update the uses of the old gather.
+  for (auto expr : old_gather->output(0)->uses()) {
     ir_utils::replaceValInExprInputs(
-        expr, gather->output(0), output_of_post_gather_op);
+        expr, old_gather->output(0), output_of_post_gather_op);
   }
 }
 
 GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
-  IrCloner ir_cloner(fusion);
-
-  auto index_tv = prepareIndexTv(fusion, gather_op, def);
-
   if (def->isA<SqueezeOp>()) {
-    auto pos =
-        positionOfSqueezedDim(def->as<SqueezeOp>()->getSqueezeDimFlags());
-    NVF_ERROR(pos >= 0, "Squeeze dim not found in squeeze op.");
-
     // We don't handle the case where the squeezed dim was greater than the
     // take_along_axis dim
-    NVF_CHECK(
-        pos <= gather_op->dim(), "Squeeze dim is greater than gather dim.");
+    if (positionOfSqueezedDim(def->as<SqueezeOp>()->getSqueezeDimFlags()) >
+        gather_op->dim()) {
+      return gather_op;
+    }
   }
 
+  // If the def for gather's lookup tv is a squeeze op
+  // then as we move gather ahead of squeeze, we need to
+  // add a unsqueeze to the index tv.
+  auto index_tv = prepareIndexTv(fusion, gather_op, def);
+
+  // If we are moving ahead of a squeeze then we need to update
+  // the dim on which we are gathering. We restrict ourselves
+  // to one squeezed dim which is at a lower pos than the gather dim.
   auto dim_for_gather_op =
       def->isA<SqueezeOp>() ? gather_op->dim() + 1 : gather_op->dim();
 
+  // Create a new take_along_axis.
   auto new_gather_op_output = takeAlongAxis(
       static_cast<TensorView*>(def->input(0)), index_tv, dim_for_gather_op);
 
+  // Add the def to after take_along_axis.
   addOrCloneNewNodeAfterGather(
       fusion,
       gather_op,
-      new_gather_op_output,
-      def,
-      new_gather_op_output->definition());
+      new_gather_op_output->definition()->as<GatherOp>(),
+      def);
 
   fusion->removeExpr(gather_op);
 
