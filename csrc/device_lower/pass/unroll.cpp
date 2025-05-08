@@ -202,12 +202,14 @@ void UnrollPass::dispatch(Expr* expr) {
 
     // Combine the Inline predicate for 1d tma load with the ElectSync predicate
     if (ir_utils::isCpAsyncBulk1DLoad(expr) && current_elect_sync_ite_) {
-      auto inline_pred_val = PredicateCompute::getInlinePredicate(
-          pred->expr(),
-          for_loops_,
-          /*rotated_loop_*/ std::unordered_set<ForLoop*>{},
-          pred->thread_pred(),
-          pred->predicate_type());
+      auto inline_pred_val = unswitched_loop_
+          ? thread_pred
+          : PredicateCompute::getInlinePredicate(
+                pred->expr(),
+                for_loops_,
+                /*rotated_loop_*/ std::unordered_set<ForLoop*>{},
+                pred->thread_pred(),
+                pred->predicate_type());
       // We want to replace [ElectSync] with a manual predicate that combines
       // with the inline predicate for the 1D TMA load. However, the loop
       // indices nested in [ElectSync] are no longer accessible when predicates
@@ -217,6 +219,14 @@ void UnrollPass::dispatch(Expr* expr) {
       int64_t n_loops = (int64_t)for_loops_.size();
       for (auto idx = current_elect_sync_fl_idx_ + 1; idx < n_loops; ++idx) {
         auto fl = for_loops_.at(idx);
+        auto pt = fl->iter_domain()->getParallelType();
+        // Unroll is not allowed due to the limitation of current predicate
+        // it is also unnecessary since the split is divisible and no predicate
+        // is used.
+        NVF_ERROR(
+            pt != ParallelType::Unroll,
+            "ParallelType::Unroll is not supported for loop domains between circular buffer domain and 1D TMA domain: ",
+            expr->toString());
         if (fl->iter_domain()->getParallelType() != ParallelType::Serial) {
           continue;
         }
