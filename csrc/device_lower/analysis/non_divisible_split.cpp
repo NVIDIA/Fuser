@@ -194,6 +194,11 @@ void NonDivisibleSplitInfo::addValidations() {
   }
 }
 
+bool NonDivisibleSplitInfo::hasPredicate(TensorView* tv) const {
+  auto it = splitsToPredicate().find(tv);
+  return it != splitsToPredicate().end() && !(it->second.empty());
+}
+
 NonDivisiblePredicateInfo::NonDivisiblePredicateInfo(Fusion* fusion) {
   auto gpu_lower = GpuLower::current();
   NVF_ERROR(gpu_lower != nullptr, "GpuLower is requred");
@@ -406,6 +411,11 @@ std::vector<ValGroup> NonDivisiblePredicateInfo::
         const ValGraph& graph,
         const ValGraphBFS::ExprPath& indexing_path) {
   return IndexingPathAnalysis(graph, indexing_path).groupsToPredicate();
+}
+
+bool NonDivisiblePredicateInfo::hasPredicate(TensorView* tv) const {
+  auto it = idsToPredicate().find(tv);
+  return it != idsToPredicate().end() && !(it->second.empty());
 }
 
 } // namespace nvfuser

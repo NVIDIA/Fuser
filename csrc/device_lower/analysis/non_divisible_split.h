@@ -44,6 +44,9 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
     return splits_to_validate_;
   }
 
+  // Check if a given tensor has non-divisible predicates
+  bool hasPredicate(TensorView* tv) const;
+
  private:
   using IterVisitor::handle;
 
@@ -88,6 +91,8 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   std::unordered_set<IterDomain*> inner_domains_;
 };
 
+// This class is meant to replace NonDivisibleSplitInfo.
+//
 // Traverse the indexing path of all tensors and find all IDs that
 // need to be predicated due to non-divisible splits. The last IDs of
 // the traversal path are predicated, so not all non-divisible splits need to be
@@ -140,6 +145,9 @@ class NonDivisiblePredicateInfo {
       const {
     return ids_to_predicate_;
   }
+
+  // Check if a given tensor has non-divisible predicates
+  bool hasPredicate(TensorView* tv) const;
 
   // Get all IDs that need to be predicated due to non-divisible
   // splits in the given indexing path
