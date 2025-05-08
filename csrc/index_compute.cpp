@@ -1739,7 +1739,7 @@ std::vector<Val*> Index::getConsumerAllocationIndices(
     const TensorView* tv,
     const std::vector<ForLoop*>& loops,
     const IndexFromIdGraph& index_from_id_graph,
-    const std::unordered_map<int, Val*>& override_index = {}) {
+    const std::unordered_map<int, Val*>& override_index) {
   const auto& alloc_dom = tv->getMaybeAllocationDomain();
   auto indexing = index_from_id_graph.index;
 
