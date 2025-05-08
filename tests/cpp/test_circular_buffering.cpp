@@ -1121,7 +1121,7 @@ class TmaCircularBufferingTest
     if (tma_load_type == LoadStoreOpType::CpAsyncBulk &&
         tensor_inner_dim % bulk_inner_dim != 0) {
       return std::make_optional(
-          "1D TMA predicate implementation is not completed yet.");
+          "If split output domain is loaded with 1D TMA, the split must be divisible");
     } else {
       return std::nullopt;
     }

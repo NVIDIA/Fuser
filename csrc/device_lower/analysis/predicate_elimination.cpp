@@ -47,8 +47,8 @@ void assertOnWarpOps(const Expr* expr) {
     NVF_ERROR(in_tv->definition() != nullptr);
 
     // nD TMA load doesn't require predicate
-    bool is_nd_tma_load = ir_utils::isCpAsyncBulkLoad(in_tv->definition()) &&
-        ir_utils::isCpAsyncBulkTensorTile(in_tv->definition());
+    bool is_nd_tma_load =
+        ir_utils::isCpAsyncBulkTensorTileLoad(in_tv->definition());
 
     TensorView* out_tv = ir_utils::getTv(ldst->out());
     NVF_ERROR(out_tv != nullptr);
