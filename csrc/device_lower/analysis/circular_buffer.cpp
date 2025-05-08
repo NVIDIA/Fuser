@@ -430,6 +430,10 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
     const std::vector<ForLoop*>& loops,
     int64_t insertion_position,
     int64_t start_loop_index) const {
+  std::cout << "insertion_position " << insertion_position << std::endl;
+  for(auto fl : loops){
+    std::cout << "fl domain " << fl->iterDomain()->toString() << std::endl;
+  }
   NVF_ERROR(insertion_position > 0);
   NVF_ERROR(insertion_position <= (int64_t)loops.size());
   NVF_ERROR(start_loop_index >= 0);
@@ -446,8 +450,13 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
   Val* index = GpuLower::current()->kernel()->zeroVal();
   Val* extent = GpuLower::current()->kernel()->oneVal();
   for (int64_t i = end_loop_index; i >= start_loop_index; --i) {
-    if (loops[i]->iter_domain()->isParallelized() ||
-        loops[i]->iter_domain()->isBroadcast()) {
+    auto id = loops[i]->iter_domain();
+    std::cout << "id " << id->toString() << std::endl;
+    if(id->isBroadcast()){
+      continue;
+    }
+    // skip parallelized axes except for warp specialized dim 
+    if (id->isParallelized() && (id->getParallelType() != ParallelType::TIDy)) {
       continue;
     }
     index = SimplifyingIrBuilder::addExpr(
@@ -456,6 +465,7 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
             loops[i]->indexOrStartIfTrivial(), extent));
     extent = SimplifyingIrBuilder::mulExpr(
         extent, loops[i]->iter_domain()->extent());
+    std::cout << "index " << index->toInlineString() << std::endl;
   }
   return index;
 }
