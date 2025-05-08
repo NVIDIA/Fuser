@@ -1344,12 +1344,12 @@ TEST_F(PresegTest, MoveGatherOverCast) {
   EXPECT_EQ(new_cast_ops.size(), 1);
 }
 
-TEST_F(PresegTest, MoveGatherOverSqueeze) {
+TEST_F(PresegTest, MoveGatherOverSqueezeAndCast) {
   auto fusion_ptr = std::make_unique<Fusion>();
   Fusion& fusion = *fusion_ptr.get();
   FusionGuard fg(&fusion);
 
-  auto tv0 = makeSymbolicTensor(2, DataType::Float);
+  auto tv0 = makeSymbolicTensor(2, DataType::BFloat16);
   fusion.addInput(tv0);
   auto tv1 = makeSymbolicTensor(1, DataType::Int);
   fusion.addInput(tv1);
@@ -1357,7 +1357,8 @@ TEST_F(PresegTest, MoveGatherOverSqueeze) {
   tv0 = broadcast(tv0, {true, false, false});
   tv1 = broadcast(tv1, {true, false});
 
-  auto tv2 = squeeze(tv0, {0});
+  auto tv2_f = castOp(DataType::Float, tv0);
+  auto tv2 = squeeze(tv2_f, {0});
   auto tv3 = squeeze(tv1, {0});
   auto s3 = IrBuilder::create<Val>(-100.0, DataType::Int);
   auto s4 = IrBuilder::create<Val>(0, DataType::Int);
@@ -1366,15 +1367,14 @@ TEST_F(PresegTest, MoveGatherOverSqueeze) {
   auto tv5 = where(tv4, tv3, s4);
   auto tv6 = broadcast(tv5, {false, true});
   auto tv7 = takeAlongAxis(tv2, tv6, -1);
-  auto tv8 = castOp(DataType::Float, tv7);
-  auto tv9 = squeeze(tv8, {1});
+  auto tv9 = squeeze(tv7, {1});
 
-  auto tv10 = max(tv2, {-1});
+  auto tv10 = max(tv2_f, {-1});
   auto tv11 = sub(tv9, tv10);
 
   fusion.addOutput(tv11);
 
-  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  auto options = at::TensorOptions().dtype(at::kBFloat16).device(at::kCUDA, 0);
   auto options_2 = at::TensorOptions().dtype(at::kLong).device(at::kCUDA, 0);
   auto t0 = at::randn({8, 16}, options);
   auto t1 = at::randint(0, 5, {8}, options_2);
@@ -1403,19 +1403,26 @@ TEST_F(PresegTest, MoveGatherOverSqueeze) {
   EXPECT_EQ(gather_ops.size(), 1);
   auto gather_op = gather_ops.vector().at(0);
   auto lookupTv = gather_op->lookupTv();
-  EXPECT_TRUE(lookupTv->isFusionInput());
+
+  // The Def of lookUp should be the broadcast Op
+  EXPECT_TRUE(lookupTv->definition()->isA<BroadcastOp>());
 
   auto squeeze_ops = ir_utils::filterByType<SqueezeOp>(exprs).vector();
   std::vector<SqueezeOp*> new_squeeze_ops;
 
-  // The cast op after gather op should be a new cast op
-  // with a broadcast domain and dtype of float
+  // There should still be two squeeze ops
+  EXPECT_EQ(squeeze_ops.size(), 2);
+
+  // The new squeeze op after gather op should be a new cast op
+  // with a broadcast domain and dtype of float and after
+  // the cast op
   std::copy_if(
       squeeze_ops.begin(),
       squeeze_ops.end(),
       std::back_inserter(new_squeeze_ops),
       [gather_op](SqueezeOp* op) {
-        return op->input(0) == gather_op->output(0);
+        // take_along_axis->cast->squeeze
+        return op->input(0)->definition()->input(0) == gather_op->output(0);
       });
   EXPECT_EQ(new_squeeze_ops.size(), 1);
 }

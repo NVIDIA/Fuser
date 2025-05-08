@@ -119,6 +119,7 @@ GatherOp* moveGatherOp(
   auto new_gather_op_output = takeAlongAxis(
       static_cast<TensorView*>(def->input(0)), index_tv, dim_for_gather_op);
 
+  dest_expr = new_gather_op_output->definition();
   addOrCloneNewNodeAfterGather(
       fusion, gather_op, new_gather_op_output, def, dest_expr);
 
@@ -141,7 +142,6 @@ void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
       return;
     }
     gather_op = new_gather_op;
-    fusion->printMath();
   } while (true);
 }
 
