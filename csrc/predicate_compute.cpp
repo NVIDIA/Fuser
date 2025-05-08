@@ -584,7 +584,7 @@ Val* createElectSyncPredicate(kir::Predicate* pred, bool is_async_warp) {
     }
   }
 
-  NVF_ERROR((!is_tma_store && !is_async_warp) || is_tma_store ^ is_async_warp);
+  NVF_ERROR(!(is_tma_store && is_async_warp));
   if (is_async_warp) {
     return createElectSyncPredicateAsync();
   }
