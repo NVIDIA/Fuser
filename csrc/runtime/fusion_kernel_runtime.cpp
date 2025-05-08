@@ -11,6 +11,7 @@
 #include <fusion_profiler.h>
 #include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/insert_deallocations.h>
 #include <instrumentation.h>
 #include <ir/base_nodes.h>
 #include <multidevice/communication.h>
@@ -486,6 +487,24 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
             heuristic_params->cparams,
             std::vector<Val*>{in_clone},
             std::vector<Val*>{out_clone});
+        for (auto* val : out_clone) {
+          NVF_ERROR(
+              val->isA<TensorView>(),
+              "Output must be a TensorView but got ",
+              val);
+          const AliasInfo& alias_info =
+              segmented_fusion_->completeFusion()->getOutputAlias(val);
+          NVF_ERROR(
+              alias_info.type == AllocationType::New,
+              "Output ",
+              val->toString(),
+              " must not be an alias, got ",
+              alias_info.toString());
+          auto* tv = val->as<TensorView>();
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          hic->pushBackTopLevelExprs(allocate);
+        }
         hic->pushBackTopLevelExprs(launch_kernel);
       } else {
         NVF_CHECK(
@@ -534,6 +553,8 @@ void FusionKernelRuntime::compileFusionParallel(KernelArgumentHolder args) {
     for (const Val* out : segmented_fusion_->outputs()) {
       hic->addOutput(ir_cloner.clone(out));
     }
+
+    insertDeallocations(hic.get());
 
     hie_ = std::make_unique<hir::HostIrEvaluator>(
         std::move(hic), &Communicator::getInstance());
