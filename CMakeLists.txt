@@ -11,6 +11,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
+set(NVFUSER_PYTHON_BINDINGS "${NVFUSER_ROOT}/python/python_frontend")
+set(NVFUSER_PYTHON_NEXT_BINDINGS "${NVFUSER_ROOT}/python/python_next")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
 option(NVFUSER_STANDALONE_BUILD_WITH_UCC "" OFF)
@@ -101,6 +103,7 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/fused_reduction.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/index_compute.cpp
+  ${NVFUSER_SRCS_DIR}/device_lower/analysis/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/predicate_elimination.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/sync_information.cpp
   ${NVFUSER_SRCS_DIR}/device_lower/analysis/tensor_memory.cpp
@@ -186,7 +189,6 @@ list(APPEND NVFUSER_SRCS
   ${NVFUSER_SRCS_DIR}/multidevice/executor.cpp
   ${NVFUSER_SRCS_DIR}/multidevice/utils.cpp
   ${NVFUSER_SRCS_DIR}/mutator.cpp
-  ${NVFUSER_SRCS_DIR}/non_divisible_split.cpp
   ${NVFUSER_SRCS_DIR}/ops/alias.cpp
   ${NVFUSER_SRCS_DIR}/ops/arith.cpp
   ${NVFUSER_SRCS_DIR}/ops/composite.cpp
@@ -296,13 +298,13 @@ endif()
 
 if(BUILD_PYTHON)
   list(APPEND NVFUSER_SRCS
-    ${NVFUSER_PYTHON_DIR}/python_frontend/distributed_tensor.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_cache.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_definition.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/fusion_state.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/segmentation.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/translation.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/translation_utils.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/distributed_tensor.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/fusion_cache.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/fusion_definition.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/fusion_state.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/segmentation.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/translation.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/translation_utils.cpp
     ${NVFUSER_SRCS_DIR}/serde/fusion_record.cpp
   )
 endif()
@@ -458,17 +460,17 @@ install(DIRECTORY "${NVFUSER_THIRD_PARTY_DIR}/flatbuffers/include/flatbuffers/"
 install(DIRECTORY "${NVFUSER_ROOT}/lib/dynamic_type/src/dynamic_type"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/nvfuser")
 
-# -----------------------------
-# build nvfuser python library
-# -----------------------------
 if(BUILD_PYTHON)
+  # -----------------------------
+  # build nvfuser python library
+  # -----------------------------
   # nvfuser python API sources
   set(NVFUSER_PYTHON_SRCS)
   list(APPEND NVFUSER_PYTHON_SRCS
-    ${NVFUSER_PYTHON_DIR}/python_frontend/multidevice_bindings.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/python_bindings_extension.cpp
-    ${NVFUSER_PYTHON_DIR}/python_frontend/schedule_bindings.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/multidevice_bindings.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/python_bindings.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/python_bindings_extension.cpp
+    ${NVFUSER_PYTHON_BINDINGS}/schedule_bindings.cpp
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
@@ -551,6 +553,78 @@ if(BUILD_PYTHON)
     Python::Module
   )
   install(TARGETS nvfuser DESTINATION lib)
+
+  # ------------------------------------------------
+  # build nvfuser next python library
+  # ------------------------------------------------
+  # nvfuser next bindings API sources
+  set(NVFUSER_PYTHON_NEXT_SRCS)
+  list(APPEND NVFUSER_PYTHON_NEXT_SRCS
+    ${NVFUSER_PYTHON_NEXT_BINDINGS}/extension.cpp
+    ${NVFUSER_PYTHON_NEXT_BINDINGS}/bindings.cpp
+  )
+  add_library(nvf_py_next_internal OBJECT ${NVFUSER_PYTHON_NEXT_SRCS})
+
+  # NOTE: For any future extension, change PYTHON_NEXT_EXTENSION to another
+  # name other than EXTENSION_NAME.
+  target_compile_definitions(nvf_py_next_internal PRIVATE
+    "-DTORCH_CUDA_BUILD_MAIN_LIB"
+    "-DC10_BUILD_MAIN_LIB=1"
+    PYTHON_NEXT_EXTENSION=_C_NEXT
+  )
+
+  add_library(nvfuser_next MODULE $<TARGET_OBJECTS:nvf_py_next_internal>)
+  target_compile_definitions(nvfuser_next PRIVATE
+    "-DTORCH_CUDA_BUILD_MAIN_LIB"
+    "-DC10_BUILD_MAIN_LIB=1"
+    PYTHON_NEXT_EXTENSION=_C_NEXT
+  )
+
+  if(NOT MSVC)
+    target_compile_options(nvf_py_next_internal PRIVATE -Wall -Wno-unused-function)
+    target_compile_options(nvf_py_next_internal PRIVATE -Werror)
+    set(NVF_LIB_SUFFIX ".so")
+  else()
+    set(NVF_LIB_SUFFIX ".pyd")
+  endif()
+
+  set_target_properties(nvf_py_next_internal PROPERTIES
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
+  set_target_properties(nvfuser_next PROPERTIES
+    C_STANDARD ${NVFUSER_C_STANDARD}
+    CUDA_STANDARD ${NVFUSER_CUDA_STANDARD}
+    CXX_STANDARD ${NVFUSER_CPP_STANDARD}
+    CXX_STANDARD_REQUIRED ON
+    CXX_VISIBILITY_PRESET hidden
+    INSTALL_RPATH
+    "$ORIGIN/lib:$ORIGIN/../nvidia/cuda_runtime/lib:$ORIGIN/../nvidia/cuda_nvrtc/lib:$ORIGIN/../../nvidia/cuda_cupti/lib:$ORIGIN/../torch/lib"
+    POSITION_INDEPENDENT_CODE Yes
+    SUFFIX ${NVF_LIB_SUFFIX}
+    VISIBILITY_INLINES_HIDDEN Yes
+  )
+
+  target_include_directories(nvf_py_next_internal PUBLIC ${NVFUSER_PYTHON_NEXT_BINDINGS})
+  target_link_libraries(nvf_py_next_internal PRIVATE
+    codegen_internal
+    "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
+    pybind11::pybind11 pybind11::headers
+  )
+
+  target_link_libraries(nvfuser_next PRIVATE
+    nvf_py_next_internal
+    codegen_internal
+    Python::Module
+  )
+  install(TARGETS nvfuser_next DESTINATION lib)
 endif()
 
 set(JIT_TEST_SRCS)
