@@ -15,7 +15,6 @@
 #include <multidevice/multidevice.h>
 #include <scheduler/utils.h>
 #include <visibility.h>
-#include <val_graph.h>
 
 namespace nvfuser {
 
@@ -57,18 +56,17 @@ std::unordered_set<TensorView*> getTvsWithDifferentSharding(
 // Returns whether an Expr embeds multi-device resharding
 bool isResharding(const Expr* expr);
 
-std::vector<IterDomain*> getInputsInTargetDomain(
-    IterDomain* loop_id,
-    const std::vector<IterDomain*>& target_domain);
-
-// Returns the index of an IterDomain in a domain skipping trivial dimensions
-int64_t axisIndex(std::vector<IterDomain*> domain, IterDomain* find_id);
-
 // Returns whether two tensors have different shardings. Expect a
 // producer/consumer relationship between the arguments.
 bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer);
+
+// Returns the position where an axis is allocated in a tv, skipping trivial
+// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
+// tv's loop domain WAR: today we assume that the loop domain match with the
+// actual allocation, but this will have to change in the future.
+int64_t allocationIndex(TensorView* tv, IterDomain* id);
 
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
@@ -114,11 +112,13 @@ int64_t requestedNumberOfDevices(Fusion*);
 void unshard(Fusion*);
 void unshard(TensorView*);
 
-std::optional<std::pair<IterDomain*, IterDomain*>> getReshardingIdPair(
-  TensorView* producer, 
-  TensorView* consumer, 
-  ValGraph& graph
-);
+// Returns the index of the sharded logical axis that produces the 
+// IterDomain sharded on `parallel_type` present in `domain`.
+// If no sharded IterDomain is found, returns -1.
+int64_t getShardedLogicalAxisFromDomain(
+    const TensorView* tv,
+    const ParallelType parallel_type,
+    std::vector<IterDomain*> domain);
 
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
