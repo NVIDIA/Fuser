@@ -364,51 +364,6 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   return replacement_map;
 }
 
-namespace {
-
-class ValGraphBFSNoBroadcastDependency : public ValGraphBFS {
- public:
-  ValGraphBFSNoBroadcastDependency(
-      const ValGraph& graph,
-      std::vector<NodeType> from_groups,
-      std::vector<NodeType> to_groups,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined)
-      : ValGraphBFS(
-            graph,
-            std::move(from_groups),
-            std::move(to_groups),
-            require_all_to_visited,
-            allowed_direction) {}
-
-  bool isDependencySatisfied(const NodeType& dependency) const override {
-    if (const ValGroup* v = std::get_if<ValGroup>(&dependency)) {
-      auto id = (*v)->front()->as<IterDomain>();
-      if (id->extent()->isOneInt()) {
-        return true;
-      }
-    }
-
-    return ValGraphBFS::isDependencySatisfied(dependency);
-  }
-
-  static std::pair<ValGraphBFS::ExprPath, bool> getExprGroupsBetween(
-      const ValGraph& graph,
-      const ValGroups& from,
-      const ValGroups& to,
-      bool require_all_to_visited = true,
-      Direction allowed_direction = Direction::Undefined) {
-    return getExprsBetween<ValGraphBFSNoBroadcastDependency>(
-        from.vector(),
-        to.vector(),
-        require_all_to_visited,
-        allowed_direction,
-        graph);
-  }
-};
-
-} // namespace
-
 std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
     const IndexingInfo& index_info,
     const Expr* expr) const {
@@ -535,9 +490,6 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
     }
   }
 
-  // std::cerr << "Additional split pred: " << expr->toString();
-  // std::cerr << "Loop: " << toDelimitedString(index_info.loop_ids) << "\n";
-
   if (!exact_groups_to_predicate.empty()) {
     for (const auto& g : exact_groups_to_predicate) {
       const auto path = ValGraphPermissiveBFS::getExprGroupsBetween(
@@ -566,7 +518,6 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
           continue;
         }
 
-        // std::cerr << "Non-divisible split: " << split->toString();
         splits_to_predicate.push_back(split);
       }
     }
