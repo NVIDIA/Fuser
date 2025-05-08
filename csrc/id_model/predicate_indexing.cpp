@@ -54,6 +54,14 @@ std::vector<IterDomain*> getPredicateDomains(
   }
 
   // NOTE: we don't need to predicate on the ScatterGather ID. we should probably remove it.
+  if (auto sop = expr->isA<ScatterOp>()) {
+    predicate_domains.erase(
+        std::remove_if(
+            predicate_domains.begin(),
+            predicate_domains.end(),
+            [&](IterDomain* id) -> bool { return id == sop->getConsumerLogicalID(); }),
+        predicate_domains.end());
+  }
 
   return predicate_domains;
 }
