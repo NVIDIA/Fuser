@@ -1009,14 +1009,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
     // product of all coordinate TMA iterDomains to the right of the circular
     // buffer axis.
     const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
-    for (size_t idx = insertion_position_;
-         idx < loop_domain.size();
+    for (size_t idx = insertion_position_ + 1; idx < loop_domain.size();
          ++idx) {
       IterDomain* id = loop_domain.at(idx);
       if (!id->isBroadcast() && !isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
             SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
+        std::cout << "id->extent(): " << id->extent()->toString() << "\n";
       }
     }
     expected_bytes =
@@ -1453,11 +1453,12 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
   // loop
   bool multiple_compute_warp_groups = true;
   kir::IfThenElse* ite = nullptr;
-  if(multiple_compute_warp_groups){
-      Val* predicate_val = SimplifyingIrBuilder::eqExpr(
+  if (multiple_compute_warp_groups) {
+    Val* predicate_val = SimplifyingIrBuilder::eqExpr(
         NamedScalar::getParallelIndex(ParallelType::TIDy),
         GpuLower::current()->kernel()->zeroVal());
-    kir::Predicate* predicate = IrBuilder::create<kir::Predicate>(predicate_val);
+    kir::Predicate* predicate =
+        IrBuilder::create<kir::Predicate>(predicate_val);
     ite = IrBuilder::create<kir::IfThenElse>(predicate);
   }
 
@@ -1469,13 +1470,13 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
             prefetch_loop->indexOrStartIfTrivial(), opt.stage));
     auto prefetch = IrBuilder::create<kir::MBarrierArrive>(
         /*state=*/nullptr, mbarrier_to_arrive);
-    if(multiple_compute_warp_groups){
+    if (multiple_compute_warp_groups) {
       ite->thenBody().push_back(prefetch);
-    }else{
+    } else {
       prefetch_loop->body().push_back(prefetch);
     }
   }
-  if(multiple_compute_warp_groups){
+  if (multiple_compute_warp_groups) {
     prefetch_loop->body().push_back(ite);
   }
 

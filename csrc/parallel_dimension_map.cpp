@@ -293,7 +293,7 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
     // skip warp specialized parallel type
-    if(pt == ParallelType::TIDy) {
+    if(warp_specialized_types_.contains(pt)) {
       continue;
     }
     auto dim = getRawCompute(pt);
