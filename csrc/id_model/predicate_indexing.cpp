@@ -21,7 +21,9 @@ std::vector<IterDomain*> getPredicateDomains(
   // domains need to be predicated. Note that the non-divisible split
   // info does not seem to cover non-divisible reduction rfactor
   // splits.
-  std::vector<IterDomain*> predicate_domains = consumer_tv->hasReduction()
+
+  // NOTE: we should categories this as predicate on root, I think reduction is similar to how scatter is being represented
+  std::vector<IterDomain*> predicate_domains = (consumer_tv->hasReduction() || expr->isA<ScatterOp>())
       ? consumer_tv->getMaybeRootDomain()
       : consumer_tv->getLogicalDomain();
 
@@ -50,6 +52,8 @@ std::vector<IterDomain*> getPredicateDomains(
           predicate_domains.end());
     }
   }
+
+  // NOTE: we don't need to predicate on the ScatterGather ID. we should probably remove it.
 
   return predicate_domains;
 }
