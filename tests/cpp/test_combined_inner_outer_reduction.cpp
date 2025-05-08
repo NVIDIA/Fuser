@@ -1202,8 +1202,11 @@ INSTANTIATE_TEST_SUITE_P(
 TEST_F(CombinedSchedulerTest, TMP) {
   Fusion fusion;
   FusionGuard fg(&fusion);
-  const int dim0 = 4 * 132 * 2 * 3;
+  int rows_per_stage = 4, compute_warp_groups = 2, circular_loop = 12; 
+  int sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  const int dim0 = rows_per_stage * compute_warp_groups * sm_count * circular_loop;
   const int dim1 = 128;
+  int stages = 6;
   // auto tv0 = makeContigTensor(2, DataType::Float);
   auto tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
   fusion.addInput(tv0);
@@ -1219,9 +1222,9 @@ TEST_F(CombinedSchedulerTest, TMP) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
 
   for (auto tv : {tv1, tv2, tv3}) {
-    tv->split(0, 4);
-    tv->split(0, 132);
-    tv->split(0, 2);
+    tv->split(0, rows_per_stage);
+    tv->split(0, sm_count);
+    tv->split(0, compute_warp_groups);
     // [I, 2, 132, 4]
     tv->axis(0)->parallelize(ParallelType::Serial);
     tv->axis(1)->parallelize(ParallelType::TIDy);
@@ -1246,7 +1249,7 @@ TEST_F(CombinedSchedulerTest, TMP) {
   inlineSelectedAt({tv1}, tv2, 2);
   inlineSelectedAt({tv2}, tv2, 3);
 
-  tv1->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
+  tv1->circularBuffer(stages, stages-1, WarpSpecialized(ParallelType::TIDy));
 
   KernelExecutor ke;
   ke.compile(&fusion, {t0});
