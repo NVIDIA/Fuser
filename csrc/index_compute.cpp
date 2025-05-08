@@ -2322,7 +2322,7 @@ kir::TensorIndex* Index::getConsumerIndex(
     bool generate_pointer,
     DataType as_type) {
   Val* index = nullptr;
-  if (!ir_utils::hasRootToLoopLinearTransformations(consumer) ||
+  if (!ir_utils::hasRootToLoopLinearTransformations(consumer, override_index) ||
       ir_utils::isCpAsyncBulkLoad(consumer->definition()) ||
       GpuLower::current()->idModelOptions().consumerIndex() ||
       GpuLower::current()->tmemInfo().hasTMemTensor()) {

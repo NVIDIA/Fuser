@@ -749,7 +749,7 @@ inline bool isMemorySharedAcross(
 //! Check if the given tv has a root domain -> loop domain linear
 //! transformation. This is a temporary check used to incrementally enable
 //! IdModel. Eventually, this should be removed.
-bool hasRootToLoopLinearTransformations(const TensorView* tv);
+bool hasRootToLoopLinearTransformations(const TensorView* tv, const std::unordered_map<int, Val*>& override_index = {});
 
 //! In addition to the above hasRootToLoopLinearTransformations, it
 //! also checks the loop domain has any extra domain
