@@ -23,7 +23,6 @@ void NonDivisibleSplitInfo::build(Fusion* fusion) {
     if (tv->isFusionInput()) {
       continue;
     }
-    is_1d_tma_loaded_tv_ = ir_utils::isCpAsyncBulk1D(tv->definition());
     const std::vector<Val*> domain_vals(
         tv->getLoopDomain().begin(), tv->getLoopDomain().end());
     current_tv_ = tv;
@@ -43,17 +42,6 @@ void NonDivisibleSplitInfo::handle(Split* split) {
     return;
   }
 
-  // For 1D TMA, a domain parallelized by Bulk must not result from a
-  // non-divisible split. This behavior is similar to vectorization, where
-  // predicates non-divisible split leading the the missing of all the trailing
-  // elements. For example, splitting 523 elements by 2 will only load the first
-  // 512 elements, and the remaining 11 are skipped because there's no fallback
-  // to a else branch to serially load these 11 elements.
-  if (is_1d_tma_loaded_tv_ &&
-      (split->outer()->getParallelType() == ParallelType::Bulk ||
-       split->inner()->getParallelType() == ParallelType::Bulk)) {
-    splits_to_validate_.insert(split);
-  }
   // Indicates if this split is going to be either predicated or
   // validated at run time
   bool is_protected = false;

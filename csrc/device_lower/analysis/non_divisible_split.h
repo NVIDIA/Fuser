@@ -81,9 +81,6 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   //! Temporarily used for analyzing each tensor
   TensorView* current_tv_ = nullptr;
   std::unordered_set<IterDomain*> inner_domains_;
-
-  //! True if current tv is loaded with 1D TMA
-  bool is_1d_tma_loaded_tv_ = false;
 };
 
 } // namespace nvfuser
