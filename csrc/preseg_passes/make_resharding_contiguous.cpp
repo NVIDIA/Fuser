@@ -47,12 +47,14 @@ bool validateMeshes(Fusion* fusion) {
 // the split exprs.
 // 4. Sets the allocation domain to be the same as the loop domain with the
 // computed contiguity. This preserves both the sharding and any stride order.
+// 5. For non-resharding expressions, it moves the DIDx to the front of the
+// loop/allocation domain.
 // Note: Ideally, the loop domain can follow the logical domain and the
 // allocation domain can follow the stride order specified/inferred. However, we
 // currently require loop domain to be the same as allocation domain. This
 // behavior will be modified in the future with allocation and loop domain being
 // propagated independently.
-void setLoopAndAllocationDomain(TensorView* tv) {
+void setLoopAndAllocationDomain(TensorView* tv, bool is_resharding) {
   auto alloc_dom = tv->getMaybeAllocationDomain();
   auto contiguity = tv->getContiguity();
 
@@ -109,7 +111,27 @@ void setLoopAndAllocationDomain(TensorView* tv) {
       " as ",
       alloc_dom);
   tv->reorder(permutation.value());
-  tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
+
+  if (is_resharding) {
+    // Resharding expressions have specific requirements on position of
+    // gathered/scattered dimensions in the allocation domain that is ensured
+    // by ReorderShardedAxisPass. So we do not move the DIDx to the front in
+    // this case. For example, in reduce-scatter, the scattered axis is the
+    // outer-most dimension in communication input and output.
+    tv->setAllocationDomain(tv->getLoopDomain(), contiguity);
+    return;
+  }
+
+  // Most schedulers require DIDx to be at the front of the loop domain.
+  auto old2new = reorderDIDToFront(tv);
+  auto new2old = ir_utils::normalizeOld2New(old2new, tv->nDims());
+  std::vector<std::optional<bool>> reordered_contiguity;
+  std::transform(
+      new2old.begin(),
+      new2old.end(),
+      std::back_inserter(reordered_contiguity),
+      [contiguity](int64_t i) -> std::optional<bool> { return contiguity[i]; });
+  tv->setAllocationDomain(tv->getLoopDomain(), reordered_contiguity);
 }
 
 bool isTvContiguous(TensorView* tv) {
@@ -131,14 +153,21 @@ void MakeReshardingContiguousPass::runPass(Fusion* fusion) {
     auto inputs = ir_utils::filterByType<TensorView>(expr->inputs());
     auto outputs = ir_utils::filterByType<TensorView>(expr->outputs());
 
+    bool is_resharding = isResharding(expr);
     for (auto tv : inputs) {
-      setLoopAndAllocationDomain(tv);
+      // Only set loop and allocation domain for fusion inputs.
+      // Other tvs would already have been processed as outputs of their
+      // definitions. This avoids processing the same tv multiple times.
+      if (tv->isFusionInput()) {
+        setLoopAndAllocationDomain(tv, is_resharding);
+        ;
+      }
     }
     for (auto tv : outputs) {
-      setLoopAndAllocationDomain(tv);
+      setLoopAndAllocationDomain(tv, is_resharding);
     }
 
-    if (isResharding(expr)) {
+    if (is_resharding) {
       auto check_contiguity = [&](const auto& tvs) {
         return std::all_of(tvs.begin(), tvs.end(), isTvContiguous);
       };

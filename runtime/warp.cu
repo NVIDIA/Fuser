@@ -161,4 +161,91 @@ __device__ void warpReduceTIDXY(
     reduction_op(out, reduce_val);
   }
 }
+
+// sizeof(T) * K = sizeof(uint64_t)
+// Array structure ensures data is aligned for safe casting to uint64_t
+template <int K, typename T, typename Func>
+__device__ __forceinline__ void packedWarpReduce(
+    Array<T, K, K>& val,
+    Func reduction_op) {
+  constexpr uint32_t FINAL_MASK = 0xffffffff;
+#pragma unroll
+  for (int mask = 16; mask > 0; mask >>= 1) {
+    Array<T, K, K> remote;
+    *reinterpret_cast<uint64_t*>(remote.array) = __shfl_xor_sync(
+        FINAL_MASK, *reinterpret_cast<uint64_t*>(val.array), mask, 32);
+#pragma unroll
+    for (int i = 0; i < K; i++) {
+      reduction_op(val[i], remote[i]);
+    }
+  }
+}
+
+template <
+    bool SINGLE_WARP,
+    bool Aligned,
+    int N, // Number of elements per input array
+    int n_threads,
+    typename T,
+    typename Func>
+__device__ void iterGroupedStaticWarpAllReduce(
+    T out[N],
+    const T inp_val[N],
+    Func reduction_op,
+    T* shared_mem,
+    uint32_t barrier_id = 1) {
+  // pack T into uint64_t to reduce number of shuffles
+  // sizeof(T) * K = sizeof(uint64_t), e.g. T = float, K = 2.
+  constexpr int K = sizeof(uint64_t) / sizeof(T);
+  constexpr dim3 block_dim = dim3(n_threads, 1, 1);
+  Array<T, K, K> packed_reduce_val;
+  // original N reductions are reduced to N / K reductions
+  static_assert(N % K == 0, "N must be a multiple of K");
+#pragma unroll
+  for (int i = 0; i < N; i += K) {
+#pragma unroll
+    for (int j = 0; j < K; j++) {
+      packed_reduce_val[j] = inp_val[i + j];
+    }
+    packedWarpReduce(packed_reduce_val, reduction_op);
+#pragma unroll
+    for (int j = 0; j < K; j++) {
+      out[i + j] = packed_reduce_val[j];
+    }
+  }
+
+  // short circuit if we only have one warp
+  if constexpr (SINGLE_WARP) {
+    return;
+  }
+
+  // cross warp reduction using shared memory
+  constexpr int WARP_SIZE = 32;
+  constexpr int num_of_warps = n_threads / WARP_SIZE;
+  unsigned int warp_idx = threadIdx.x / WARP_SIZE;
+  unsigned int lane_idx = threadIdx.x % WARP_SIZE;
+  constexpr unsigned int align_size = sizeof(T) * N;
+  static_assert(align_size <= 16, "max allowed vect r/w is 16 bytes");
+  // [warp_idx, N]
+  // [w0r0, w0r1, w0r2, w0r3, w1r0, w1r1, w1r2, w1r3]
+  if (lane_idx == 0) {
+    loadGeneric<T, N>(shared_mem + N * warp_idx, out);
+  }
+  block_sync::sync<Aligned>(block_dim, barrier_id);
+
+  // All reduce
+  loadGeneric<T, N>(out, shared_mem);
+  __align__(align_size) T other[N];
+#pragma unroll
+  for (int i = 1; i < num_of_warps; i++) {
+    loadGeneric<T, N>(other, shared_mem + i * N);
+#pragma unroll
+    for (int j = 0; j < N; j++) {
+      out[j] += other[j];
+    }
+  }
+  // needs sync, otherwise other warps may access shared memory before this
+  // reduction is done.
+  block_sync::sync<Aligned>(block_dim, barrier_id);
+}
 } // namespace warp
