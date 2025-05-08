@@ -180,7 +180,9 @@ class FusionKernelRuntime {
       const KernelArgumentHolder& args) const;
 
   int64_t numGroups() const {
-    return (int64_t)runtime_workspace_.group_run_order.size();
+    int64_t n_groups = std::ssize(runtime_workspace_.group_run_order);
+    NVF_ERROR_EQ(n_groups, std::ssize(segmented_fusion_->groups()));
+    return n_groups;
   }
 
  private:
