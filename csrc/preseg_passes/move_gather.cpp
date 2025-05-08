@@ -164,7 +164,8 @@ GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
 void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
   do {
     auto producer = getAllowedLookupTvDef(gather_op);
-    if (!producer.has_value() || producer.value() == nullptr) {
+    if (!producer.has_value() ||
+        (producer.has_value() && producer.value() == nullptr)) {
       return;
     }
 
