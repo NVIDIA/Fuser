@@ -1352,12 +1352,12 @@ bool hasRootToLoopLinearTransformations(const TensorView* tv, const std::unorder
   auto logical = tv->getLogicalDomain();
 
   bool all_alloc_id_on_path = std::ranges::all_of(
-      std::ranges::enumerate_view(alloc), [&](const auto& enumerator) {
+      nvfuser::views::enumerate_view(alloc), [&](const auto& enumerator) {
         const auto& [index, v] = enumerator;
         return override_index.count(index) || all_ids_set.count(v);
       });
   bool all_logical_id_on_path = std::ranges::all_of(
-      std::ranges::enumerate_view(logical), [&](const auto& enumerator) {
+      nvfuser::views::enumerate_view(logical), [&](const auto& enumerator) {
         const auto& [index, v] = enumerator;
         return override_index.count(index) || all_ids_set.count(v);
       });
