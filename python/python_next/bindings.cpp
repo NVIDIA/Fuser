@@ -11,7 +11,8 @@
 namespace python {
 
 void initNvFuserPythonBindings(PyObject* module) {
-  auto python_bindings = py::handle(module).cast<py::module>();
+  auto nvfuser = py::handle(module).cast<py::module>();
+  bindFusionIr(nvfuser);
 }
 
 } // namespace python
