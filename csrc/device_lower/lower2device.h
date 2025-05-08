@@ -183,7 +183,8 @@ class GpuLower : public NonCopyable {
 
   const NonDivisiblePredicateInfo& nonDivisiblePredicateInfo() const {
     NVF_ERROR(
-        non_divisible_split_info_, "NonDivisiblePredicateInfo is not created");
+        non_divisible_predicate_info_,
+        "NonDivisiblePredicateInfo is not created");
     return *non_divisible_predicate_info_;
   }
 

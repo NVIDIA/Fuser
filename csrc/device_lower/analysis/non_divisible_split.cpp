@@ -66,7 +66,6 @@ void NonDivisibleSplitInfo::handle(Split* split) {
         if (gpu_lower->divisibleSplitSet().find(split) ==
             gpu_lower->divisibleSplitSet().end()) {
           splits_to_predicate_[current_tv_].push_back(split);
-          std::cerr << "Split to predicate: " << split->toString();
         }
       }
 
@@ -183,7 +182,6 @@ void NonDivisibleSplitInfo::removeRedundancy() {
   }
 }
 
-// TODO: Is this necessary? Isn't vectorization validation doing this already?
 void NonDivisibleSplitInfo::addValidations() {
   const auto gpu_lower = GpuLower::current();
   for (auto split : splits_to_validate_) {
