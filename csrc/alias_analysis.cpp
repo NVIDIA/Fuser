@@ -60,6 +60,13 @@ class AliasFinder : public OptOutConstDispatch {
       TensorView* in,
       TensorView* out);
 
+  // Marks `alias` and `source` alias if `layout` is compliant with `alias`'s
+  // existing allocation domain. Returns true if succeeded.
+  bool aliasIfCompliant(
+      const TensorView* alias,
+      TensorView* source,
+      Layout&& layout);
+
   EmptyAllocationAs empty_allocation_as_;
   AliasAnalysisResult& analysis_;
 };
@@ -180,6 +187,17 @@ bool okToRelayout(
 }
 } // namespace
 
+bool AliasFinder::aliasIfCompliant(
+    const TensorView* alias,
+    TensorView* source,
+    Layout&& layout) {
+  if (!okToRelayout(alias, layout, empty_allocation_as_)) {
+    return false;
+  }
+  analysis_.add(alias, source, std::move(layout));
+  return true;
+}
+
 void AliasFinder::handle(const ViewOp* view) {
   TensorView* in = view->in();
   TensorView* out = view->out();
@@ -252,10 +270,7 @@ void AliasFinder::handle(const ViewOp* view) {
     out_logical_layout.allocation_domain.push_back(allocation_id);
     out_logical_layout.contiguity.push_back(contiguity);
   }
-  // FIXME: make this a helper
-  if (okToRelayout(out, out_logical_layout, empty_allocation_as_)) {
-    analysis_.add(out, in, std::move(out_logical_layout));
-  }
+  aliasIfCompliant(out, in, std::move(out_logical_layout));
 }
 
 void AliasFinder::handle(const LoadStoreOp* set) {
@@ -287,9 +302,7 @@ void AliasFinder::handle(const LoadStoreOp* set) {
   if (!out_root_layout.has_value()) {
     return;
   }
-  if (okToRelayout(out, *out_root_layout, empty_allocation_as_)) {
-    analysis_.add(out, in, std::move(*out_root_layout));
-  }
+  aliasIfCompliant(out, in, std::move(*out_root_layout));
 }
 
 // For future improvement, a PadOp with negative padding amount can also be
@@ -352,9 +365,7 @@ void AliasFinder::handle(const SliceOp* slice) {
     }
   }
 
-  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
-    analysis_.add(out, in, std::move(*out_layout));
-  }
+  aliasIfCompliant(out, in, std::move(*out_layout));
 }
 
 void AliasFinder::handle(const BroadcastOp* bcast) {
@@ -379,9 +390,7 @@ void AliasFinder::handle(const BroadcastOp* bcast) {
     }
   }
 
-  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
-    analysis_.add(out, in, std::move(*out_layout));
-  }
+  aliasIfCompliant(out, in, std::move(*out_layout));
 }
 
 void AliasFinder::handle(const SqueezeOp* squeeze) {
@@ -398,9 +407,7 @@ void AliasFinder::handle(const SqueezeOp* squeeze) {
     return;
   }
 
-  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
-    analysis_.add(out, in, std::move(*out_layout));
-  }
+  aliasIfCompliant(out, in, std::move(*out_layout));
 }
 
 void AliasFinder::handle(const ExpandOp* expand) {
@@ -417,9 +424,7 @@ void AliasFinder::handle(const ExpandOp* expand) {
     return;
   }
 
-  if (okToRelayout(out, *out_layout, empty_allocation_as_)) {
-    analysis_.add(out, in, std::move(*out_layout));
-  }
+  aliasIfCompliant(out, in, std::move(*out_layout));
 }
 
 } // namespace
