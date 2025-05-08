@@ -66,6 +66,7 @@ void NonDivisibleSplitInfo::handle(Split* split) {
         if (gpu_lower->divisibleSplitSet().find(split) ==
             gpu_lower->divisibleSplitSet().end()) {
           splits_to_predicate_[current_tv_].push_back(split);
+          std::cerr << "Split to predicate: " << split->toString();
         }
       }
 
@@ -225,9 +226,14 @@ std::vector<ValGroup> NonDivisiblePredicateInfo::
     getNonDivisibleSplitsToPredicate(
         const ValGraph& graph,
         const ValGraphBFS::ExprPath& indexing_path) {
+  // IDs whose indices are not guaranteed to be within the valid range
   std::unordered_set<ValGroup> unsafe_groups;
+  // IDs that need to be predicated
   std::vector<ValGroup> groups_to_predicate;
 
+  // Keep track of unsafe IDs whose indices may not be in the valid
+  // range. When the extent of an unsafe ID is used in the index
+  // propagation, that ID needs to be predicated.
   for (const auto& [expr_g, dir] : indexing_path) {
     NVF_ERROR(dir == Direction::Forward || dir == Direction::Backward);
 
@@ -236,36 +242,40 @@ std::vector<ValGroup> NonDivisiblePredicateInfo::
 
     Expr* expr = expr_g->front();
 
+    // TODO: Consider create a dispatcher framework for ExprPath
     if (auto split = dynamic_cast<Split*>(expr)) {
+      const auto inner_group = graph.toGroup(split->inner());
+      const auto outer_group = graph.toGroup(split->outer());
+
       if (dir == Direction::Forward) {
+        // In the case of propagating through a forward split, if the
+        // input is unsafe. The output is going to be unsafe, unless
+        // the input and inner output are mapped. See
+        // IdGraphIndexCompute::handle(Split*).
         if (unsafe_groups.contains(inputs.at(0))) {
           if (graph.disjointValSets().strictAreMapped(
                   split->in(), split->inner())) {
-            unsafe_groups.emplace(graph.toGroup(split->inner()));
+            unsafe_groups.emplace(inner_group);
           } else {
-            unsafe_groups.emplace(graph.toGroup(split->outer()));
+            unsafe_groups.emplace(outer_group);
           }
         }
       } else {
-        auto inner_group = graph.toGroup(split->inner());
-        auto outer_group = graph.toGroup(split->outer());
-
         // In the case of backward traversal, if the inner ID is
-        // unsafe, it is no longer kept unsafe but needs to be
-        // predicated.
+        // unsafe, it can no longer be kept unsafe but needs to be
+        // predicated
         if (unsafe_groups.contains(inner_group)) {
           groups_to_predicate.emplace_back(inner_group);
-          if (getenv("DEBUG")) {
-            std::cerr << "Group to pred: inner of " << split->toString();
-          }
         }
+
+        // Check if split->in is unsafe. It's unsafe when this split
+        // is not divisible. It's also unsafe when the outer output is
+        // unsafe. The inner output does not matter as it is
+        // predicated if it's unsafe.
 
         auto gpu_lower = GpuLower::current();
         NVF_ERROR(gpu_lower != nullptr);
 
-        // TODO: divisibleSplitSet doesn't seem to include statically
-        // divisible splits. Also probaly doesn't include splits that
-        // are not found by Valgraph traversal
         bool is_divisible_split = gpu_lower->divisibleSplitSet().find(split) !=
             gpu_lower->divisibleSplitSet().end();
 
@@ -285,20 +295,23 @@ std::vector<ValGroup> NonDivisiblePredicateInfo::
         }
       }
     } else if (auto merge = dynamic_cast<Merge*>(expr)) {
-      auto inner_group = graph.toGroup(merge->inner());
-      auto outer_group = graph.toGroup(merge->outer());
+      const auto inner_group = graph.toGroup(merge->inner());
+      const auto outer_group = graph.toGroup(merge->outer());
       if (dir == Direction::Forward) {
+        // In the case of propagating through a forward merge, if the
+        // inner is unsafe, it needs to be predicated as the inner
+        // output of the backward split case. The output of the merge
+        // is unsafe if the outer input is unsafe.
         if (unsafe_groups.contains(inner_group)) {
-          if (getenv("DEBUG")) {
-            std::cerr << "Group to pred: inner of " << merge->toString();
-          }
           groups_to_predicate.emplace_back(inner_group);
         }
-
         if (unsafe_groups.contains(outer_group)) {
           unsafe_groups.emplace(graph.toGroup(merge->out()));
         }
       } else {
+        // In the case of propagating through a backward merge, if the
+        // merge output is unsafe, the outer input becomes unsafe,
+        // unless the inner input is mapped with the output.
         if (unsafe_groups.contains(inputs.at(0))) {
           if (graph.disjointValSets().strictAreMapped(
                   merge->out(), merge->inner())) {
@@ -309,6 +322,7 @@ std::vector<ValGroup> NonDivisiblePredicateInfo::
         }
       }
     } else if (expr_g->front()->isA<Resize>()) {
+      // Just forwards the unsafe property
       NVF_ERROR_EQ(inputs.size(), 1);
       NVF_ERROR_EQ(outputs.size(), 1);
       if (unsafe_groups.contains(inputs.at(0))) {

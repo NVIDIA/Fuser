@@ -607,6 +607,11 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
             SimplifyingIrBuilder::ltExpr(idx, non_divisible_domain->extent());
         info.predicated_domains_ = {non_divisible_domain};
 
+        if (getenv("DEBUG")) {
+          std::cerr << "Non-div pred: "
+                    << info.stop_predicate_->toInlineString() << "\n";
+        }
+
         const ValGroups& loop_deps =
             index_info.loop_group_dependencies.at(non_divisible_domain_group);
         for (const auto& loop_dep : loop_deps) {
