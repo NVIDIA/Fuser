@@ -970,8 +970,9 @@ TEST_F(CombinedSchedulerTest, SharedMemoryPersistentVectFactor) {
   at::Tensor t0 = at::randn({dim0, dim1}, options);
 
   SchedulerRuntimeInfo runtime_info(&fusion, {t0});
-  ASSERT_TRUE(Schedule::canSchedule(
-      SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
+  ASSERT_TRUE(
+      Schedule::canSchedule(
+          SchedulerType::InnerOuterPersistent, &fusion, runtime_info));
   auto scheduler = SchedulerEntry::makeSchedulerInstance(
       SchedulerType::InnerOuterPersistent);
   auto heuristic_params = scheduler->computeHeuristics(&fusion, runtime_info);
@@ -1198,4 +1199,59 @@ INSTANTIATE_TEST_SUITE_P(
       ss << "_hidden_" << std::get<4>(info.param);
       return sanitizeTestName(ss.str());
     });
+TEST_F(CombinedSchedulerTest, TMP) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+  const int dim0 = 4 * 132 * 2 * 3;
+  const int dim1 = 128;
+  // auto tv0 = makeContigTensor(2, DataType::Float);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
+  fusion.addInput(tv0);
+  auto tv1 = set(tv0);
+  tv1->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
+  tv1->setMemoryType(MemoryType::Shared);
+  auto tv2 = set(tv1);
+  auto tv3 = add(tv2, tv2);
+  fusion.addOutput(tv3);
+
+  Fusion fusion_copy = fusion;
+  auto options = at::TensorOptions().device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn({dim0, dim1}, options);
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(0, 4);
+    tv->split(0, 132);
+    tv->split(0, 2);
+    // [I, 2, 132, 4]
+    tv->axis(0)->parallelize(ParallelType::Serial);
+    tv->axis(1)->parallelize(ParallelType::TIDy);
+    tv->axis(2)->parallelize(ParallelType::BIDy);
+    tv->axis(3)->parallelize(ParallelType::Serial);
+    tv->axis(4)->parallelize(ParallelType::TIDx);
+    if (tv == tv1) {
+      tv->axis(1)->parallelize(ParallelType::Serial);
+      tv->axis(4)->parallelize(ParallelType::Bulk);
+    }
+  }
+  // [I, 2, 132, 4] --> [132, I, 2, 4]
+  std::unordered_map<int64_t, int64_t> reorder_map;
+  reorder_map[0] = 1;
+  reorder_map[1] = 2;
+  reorder_map[2] = 0;
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->reorder(reorder_map);
+  }
+  fusion.printMath();
+
+  inlineSelectedAt({tv1}, tv2, 2);
+  inlineSelectedAt({tv2}, tv2, 3);
+
+  tv1->circularBuffer(2, 1, WarpSpecialized(ParallelType::TIDy));
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto cg_outputs = ke.run({t0});
+  testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
+}
+
 } // namespace nvfuser

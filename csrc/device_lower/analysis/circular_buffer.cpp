@@ -351,6 +351,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
       getOuterMostCircularBufferPosition(circular_buffer_tv);
   int64_t inner_most_circular_buffer_position =
       getInnerMostCircularBufferPosition(circular_buffer_tv);
+
   NVF_ERROR(
       outer_most_circular_buffer_position <=
           inner_most_circular_buffer_position,
@@ -361,8 +362,24 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
       inner_most_circular_buffer_position);
   int64_t insertion_position = inner_most_circular_buffer_position -
       outer_most_circular_buffer_position + 1;
+
+  // If multiple computation warp groups are used, move insertion position
+  // to the next for-loop to sync the load for different warp groups separately.
+  auto consumer = ir_utils::consumerTvsOf(circular_buffer_tv).at(0);
+  if (consumer->axis(inner_most_circular_buffer_position + 1)
+          ->getParallelType() == ParallelType::TIDy) {
+    insertion_position += 1;
+  }
+
   circular_buffer_insertion_position_[circular_buffer_axis] =
       insertion_position;
+
+  std::cout << "circular_buffer_tv " << circular_buffer_tv->toString()
+            << " insertion_position " << insertion_position
+            << " outer_most_circular_buffer_position "
+            << outer_most_circular_buffer_position
+            << " inner_most_circular_buffer_position "
+            << inner_most_circular_buffer_position << std::endl;
 }
 
 namespace {
