@@ -593,7 +593,7 @@ void GpuLower::analysis(Fusion* fusion) {
   }
   dumpExprsIfEnabled(fusion_->exprs(), "SyncMap");
 
-  nonDivisibleSplitInfo().build(fusion_);
+  non_divisible_split_info_ = std::make_unique<NonDivisibleSplitInfo>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build nonDivisibleSplitInfo");
 
   circularBufferInfo().build(fusion_);

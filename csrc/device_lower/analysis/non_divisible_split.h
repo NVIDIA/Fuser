@@ -34,7 +34,7 @@ namespace nvfuser {
 //! done for those domains.
 class NVF_API NonDivisibleSplitInfo : public IterVisitor {
  public:
-  void build(Fusion* fusion);
+  NonDivisibleSplitInfo(Fusion* fusion);
 
   const auto& splitsToPredicate() const {
     return splits_to_predicate_;

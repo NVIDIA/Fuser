@@ -4337,8 +4337,8 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
 }
 
-// Predicating non-divisible splits that appear outside of
-// logical-loop transformations
+// Repro of #4376. Predicating non-divisible splits that appear outside of
+// logical-loop transformations.
 TEST_F(PredicateIndexingTest, NonDivisibleSplitWithNonLogicalToLoopDomains) {
   Fusion fusion;
   FusionGuard fg(&fusion);
