@@ -542,6 +542,9 @@ void GpuLower::analysis(Fusion* fusion) {
   }
   dumpExprsIfEnabled(fusion_->exprs(), "build parallelDimensionMap");
 
+  validate1dTmaLoad(fusion_);
+  dumpExprsIfEnabled(fusion_->exprs(), "validate1dTmaLoad");
+
   // Validate mma data format and compatibility if any on the fusion.
   validateMma(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "validateMma");

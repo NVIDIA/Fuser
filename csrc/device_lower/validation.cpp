@@ -1265,4 +1265,29 @@ void validateReductions(Fusion* fusion) {
   }
 }
 
+//! Validate f split output domain is loaded with 1D TMA, the split must be
+//! divisible
+void validate1dTmaLoad(Fusion* fusion) {
+  for (auto tv : fusion->allTvs()) {
+    if (!tv->definition() || !ir_utils::isCpAsyncBulk1D(tv->definition())) {
+      continue;
+    }
+    NVF_ERROR(
+        tv->axis(-1)->getParallelType() == ParallelType::Bulk,
+        "Expect TMA load of inner-most dimension, but got: ",
+        tv->toString());
+    const auto all_exprs = DependencyCheck::getAllExprsBetween(
+        {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
+        {tv->axis(-1)});
+    for (auto expr : all_exprs) {
+      if (auto split = dynamic_cast<Split*>(expr)) {
+        GpuLower::current()->validate(
+            split->isDivisible(),
+            "If split output domain is loaded with 1D TMA, the split must be divisible, got: ",
+            split->toString());
+      }
+    }
+  }
+}
+
 } // namespace nvfuser

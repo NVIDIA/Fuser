@@ -221,6 +221,19 @@ void UnrollPass::dispatch(Expr* expr) {
           continue;
         }
         replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
+        // Replace the loop index with zero removes the corresponding predicate
+        // to this loop-domain, we should ensure the split generating this
+        // domain is divisible.
+        auto id_def = fl->iter_domain()->definition();
+        if (!id_def) {
+          continue;
+        }
+        if (auto split = dynamic_cast<Split*>(id_def)) {
+          GpuLower::current()->validate(
+              split->isDivisible(),
+              "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
+              split->toString());
+        }
       }
       tma_inline_pred_val_ =
           ir_utils::replaceValRecursively(inline_pred_val, replace_map);
