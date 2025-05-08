@@ -116,6 +116,6 @@ class ParallelDimensionMap {
   //! warp specialization with register sharing, keep track of
   //! the parallel type and the threads padding
   std::optional<ParallelType> ws_with_register_sharing_pt_;
-  std::optional<int64_t> ws_with_register_sharing_pad_val_;
+  std::optional<Val*> ws_with_register_sharing_pad_val_;
 };
 } // namespace nvfuser
