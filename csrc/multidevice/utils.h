@@ -42,7 +42,7 @@ int64_t numDeviceDims(const TensorView*);
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
     const std::vector<IterDomain*>& target_domain);
-    
+
 // Returns the subset of tvs which elements have the different multi-device
 // sharding as ref
 std::unordered_set<TensorView*> getTvsWithDifferentSharding(
