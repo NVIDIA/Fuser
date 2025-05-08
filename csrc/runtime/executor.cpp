@@ -266,10 +266,11 @@ void KernelExecutor::compile(
     NVF_ERROR(block_size > 0, "launch param inferred block size < 0");
   }
 
-  // Now that we have launch parameters we can compile the kernel. It's a bit
-  // odd we need launch parameters for compilation, need to go back and check
-  // why this is the case.
-  compiled_kernel_->compile(launch_params.nThreads());
+  // Launch parameters are required to compile the kernel to:
+  // (1) validate register sharing
+  // (2) runtime function may use static CTA shape, e.g.
+  //     iterGroupedStaticWarpAllReduce
+  compiled_kernel_->compile(launch_params);
 
   // These should be nullopt at this point, but reset just in case
   resetCompiledKernelProperties();
