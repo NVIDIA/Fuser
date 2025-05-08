@@ -4970,3 +4970,15 @@ fd.execute(inputs)
         assert len(nvf_out) == 1
         self.assertEqual(nvf_out[0], inputs[0])
         self.assertEqual(nvf_out[0], ref_inp.relu())
+
+    def test_import_conflict_nvfuser_then_next(self):
+        try:
+            import nvfuser  # noqa: F401
+            import nvfuser_next  # noqa: F401
+        except AssertionError as e:
+            expected_msg = (
+                "Cannot import nvfuser_next if nvfuser module is already imported."
+            )
+            assert expected_msg in str(e)
+            return
+        raise AssertionError("Expected AssertionError from imports.")

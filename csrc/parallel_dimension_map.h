@@ -73,6 +73,9 @@ class ParallelDimensionMap {
   //! buffer tensors.
   Val* getNumComputeThreadsEachBlock() const;
 
+  //! Assign linear index to each thread of CTA. Assume (TDZ, TDY, TDX) order.
+  Val* getLinearThreadIndexAsync() const;
+
   //! Get if the kernel uses warp specialization
   bool hasWarpSpecialization() const {
     return !warp_specialized_types_.empty();
@@ -82,7 +85,15 @@ class ParallelDimensionMap {
     return dim_map_.count(pt) > 0;
   }
 
+  // If warp specialized on TIDx and padded value is less than 32 threads, then
+  // elect-sync cannot be used.
+  bool canUseElectSyncInAsyncWarp() const;
+
  private:
+  //! Get number of threads for ParallelType axis
+  //! Not used: 1, Const: n, Dynamic: -1
+  int64_t getThreadCountInDim(ParallelType pt);
+
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.
   void adjustMappingsForWarpPadding();

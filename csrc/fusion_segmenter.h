@@ -300,7 +300,8 @@ class SegmentedFusion {
 
   //! Get the fusion for the segmented group and return the IrCloner used to
   //! clone the complete fusion
-  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(SegmentedGroup* sg);
+  std::pair<IrCloner, std::unique_ptr<Fusion>> makeFusion(
+      SegmentedGroup* sg) const;
 
   //! Make a heuristics entry for a group and parameters
   std::unique_ptr<HeuristicParams> makeInitialHeuristicParams(

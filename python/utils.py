@@ -279,18 +279,25 @@ def override_build_config_from_env(config):
 
 
 class build_ext(setuptools.command.build_ext.build_ext):
+    def copy_library(self, ext, library_name):
+        # Copy files on necessity.
+        filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
+        fileext = os.path.splitext(filename)[1]
+
+        libnvfuser_path = os.path.join(
+            "./nvfuser_common/lib", f"{library_name}{fileext}"
+        )
+        assert os.path.exists(libnvfuser_path)
+        install_dst = os.path.join(self.build_lib, filename)
+        if not os.path.exists(os.path.dirname(install_dst)):
+            os.makedirs(os.path.dirname(install_dst))
+        self.copy_file(libnvfuser_path, install_dst)
+
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
-            # Copy files on necessity.
-            filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
-            fileext = os.path.splitext(filename)[1]
-
-            libnvfuser_path = os.path.join("./nvfuser/lib", f"libnvfuser{fileext}")
-            assert os.path.exists(libnvfuser_path)
-            install_dst = os.path.join(self.build_lib, filename)
-            if not os.path.exists(os.path.dirname(install_dst)):
-                os.makedirs(os.path.dirname(install_dst))
-            self.copy_file(libnvfuser_path, install_dst)
+            self.copy_library(ext, "libnvfuser")
+        elif ext.name == "nvfuser_next._C_NEXT":
+            self.copy_library(ext, "libnvfuser_next")
         else:
             super().build_extension(ext)
 
@@ -391,7 +398,9 @@ def cmake(config, relative_path):
         os.makedirs(cmake_build_dir)
 
     install_prefix = (
-        os.path.join(cwd, "nvfuser") if not config.install_dir else config.install_dir
+        os.path.join(cwd, "nvfuser_common")
+        if not config.install_dir
+        else config.install_dir
     )
 
     from tools.gen_nvfuser_version import (
@@ -417,35 +426,36 @@ def cmake(config, relative_path):
         return "ON" if flag else "OFF"
 
     # generate cmake directory
+    #
+    # cmake options are sticky: when -DFOO=... isn't specified, cmake's option
+    # FOO prefers the cached value over the default value. This behavior
+    # confused me several times (e.g.
+    # https://github.com/NVIDIA/Fuser/pull/4319) when I ran `pip install -e`,
+    # so I chose to always pass these options even for default values. Doing so
+    # explicitly overrides cached values and ensures consistent behavior across
+    # clean and dirty builds.
     cmd_str = [
         get_cmake_bin(),
         pytorch_cmake_config,
-        "-DCMAKE_BUILD_TYPE=" + config.build_type,
+        f"-DCMAKE_BUILD_TYPE={config.build_type}",
         f"-DCMAKE_INSTALL_PREFIX={install_prefix}",
         f"-DNVFUSER_CPP_STANDARD={config.cpp_standard}",
         f"-DUSE_DISTRIBUTED={pytorch_use_distributed}",
         f"-DNVFUSER_BUILD_WITH_ASAN={on_or_off(config.build_with_asan)}",
+        f"-DNVFUSER_STANDALONE_BUILD_WITH_UCC={on_or_off(config.build_with_ucc)}",
+        f"-DNVFUSER_EXPLICIT_ERROR_CHECK={on_or_off(config.explicit_error_check)}",
+        f"-DBUILD_TEST={on_or_off(not config.no_test)}",
+        f"-DBUILD_PYTHON={on_or_off(not config.no_python)}",
+        f"-DPython_EXECUTABLE={sys.executable}",
+        f"-DBUILD_NVFUSER_BENCHMARK={on_or_off(not config.no_benchmark)}",
+        f"-DNVFUSER_DISTRIBUTED={on_or_off(not config.build_without_distributed)}",
+        f"-DUSE_SYSTEM_NVTX={on_or_off(config.build_with_system_nvtx)}",
         "-B",
         cmake_build_dir,
     ]
-    if config.build_with_ucc:
-        cmd_str.append("-DNVFUSER_STANDALONE_BUILD_WITH_UCC=ON")
-    if config.explicit_error_check:
-        cmd_str.append("-DNVFUSER_EXPLICIT_ERROR_CHECK=ON")
     if not config.no_ninja:
         cmd_str.append("-G")
         cmd_str.append("Ninja")
-    if not config.no_test:
-        cmd_str.append("-DBUILD_TEST=ON")
-    if not config.no_python:
-        cmd_str.append("-DBUILD_PYTHON=ON")
-        cmd_str.append(f"-DPython_EXECUTABLE={sys.executable}")
-    if not config.no_benchmark:
-        cmd_str.append("-DBUILD_NVFUSER_BENCHMARK=ON")
-    if config.build_without_distributed:
-        cmd_str.append("-DNVFUSER_DISTRIBUTED=OFF")
-    if config.build_with_system_nvtx:
-        cmd_str.append("-DUSE_SYSTEM_NVTX=ON")
     cmd_str.append(relative_path)
 
     print(f"Configuring CMake with {' '.join(cmd_str)}")
@@ -517,7 +527,7 @@ def run(config, version_tag, relative_path):
         # NOTE: package include files for cmake
         # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
         # might can be treated by using `exclude_package_data`.
-        nvfuser_package_data = [
+        nvfuser_common_package_data = [
             "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
             "include/nvfuser/struct.inl",
@@ -550,7 +560,10 @@ def run(config, version_tag, relative_path):
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=find_packages(),
-            ext_modules=[Extension(name="nvfuser._C", sources=[])],
+            ext_modules=[
+                Extension(name="nvfuser._C", sources=[]),
+                Extension(name="nvfuser_next._C_NEXT", sources=[]),
+            ],
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
@@ -558,7 +571,7 @@ def run(config, version_tag, relative_path):
                 "clean": create_clean(relative_path),
             },
             package_data={
-                "nvfuser": nvfuser_package_data,
+                "nvfuser_common": nvfuser_common_package_data,
             },
             install_requires=config.install_requires,
             extras_require={
