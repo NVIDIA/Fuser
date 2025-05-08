@@ -201,27 +201,6 @@ void validateCpAsyncBulk(const std::vector<TensorView*>& tvs) {
           "Invalid iter type for cp.async.bulk: ",
           id->getIterType());
     }
-
-    // For 1D TMA, ID parallelized by Bulk can't comes from non-divisible split
-    // due to the lack of predicate.
-    if (ir_utils::isCpAsyncBulk1D(tv->definition())) {
-      NVF_ERROR(
-          tv->axis(-1)->getParallelType() == ParallelType::Bulk,
-          "Expected expect TMA load of inner-most dimension, but got: ",
-          tv->toString());
-      const auto all_exprs = DependencyCheck::getAllExprsBetween(
-          {tv->getMaybeRootDomain().begin(), tv->getMaybeRootDomain().end()},
-          {tv->axis(-1)});
-      for (auto expr : all_exprs) {
-        if (auto split = dynamic_cast<Split*>(expr)) {
-          NVF_ERROR(
-              simplifyExpr(split->isDivisible())->isTrue(),
-              "Can't validate the UBLK parallelized ID comes from divisible split, split:\n",
-              split->toString(),
-              "\n, Use CpAsyncBulkTensorTile instead of CpAsyncBulk.");
-        }
-      }
-    }
   }
 }
 

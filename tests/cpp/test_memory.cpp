@@ -3055,9 +3055,8 @@ TEST_F(TMATest, CpAsyncBulk1D) {
   constexpr int dim0 = 16384, dim1 = 16384;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  // Use concrete tensor so we can validate the split is divisible
-  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
-  auto tv1 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
+  auto tv1 = makeContigTensor(2, aten_to_data_type(dtype));
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   auto tv2 = add(tv0, tv1);
@@ -3112,8 +3111,7 @@ TEST_F(TMATest, CpAsyncBulk1DNonDivisible) {
   constexpr int dim0 = 2, dim1 = 1023;
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  // Use concrete tensor so we can validate the split is divisible
-  auto tv0 = makeContigConcreteTensor({dim0, dim1}, aten_to_data_type(dtype));
+  auto tv0 = makeContigTensor(2, aten_to_data_type(dtype));
   fusion->addInput(tv0);
   auto tv1 = add(tv0, tv0);
   fusion->addOutput(tv1);
@@ -3135,13 +3133,13 @@ TEST_F(TMATest, CpAsyncBulk1DNonDivisible) {
   at::Tensor at_tv0 = at::randn({dim0, dim1}, options);
 
   KernelExecutor ke;
+  ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
   try {
-    ke.compile(fusion.get(), {at_tv0}, {}, index32bit);
+    ke.run({at_tv0});
   } catch (const std::exception& e) {
-    const char* reference =
-        R"(Can't validate the UBLK parallelized ID comes from divisible split)";
+    const char* reference = R"(Non-divisible split detected)";
     const char* str_match_pointer = strstr(e.what(), reference);
-    ASSERT_TRUE(str_match_pointer != nullptr);
+    EXPECT_TRUE(str_match_pointer != nullptr);
   }
 }
 

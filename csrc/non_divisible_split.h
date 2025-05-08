@@ -72,6 +72,9 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   //! Add validations to GpuLower::current()->validations()
   void addValidations();
 
+  //! Validate split generating 1D TMA loaded domain
+  void validate1dTmaDomain(TensorView* tv);
+
  private:
   //! Split expressions whose input domain must be predicated
   std::unordered_map<TensorView*, std::vector<Split*>> splits_to_predicate_;
@@ -81,6 +84,9 @@ class NVF_API NonDivisibleSplitInfo : public IterVisitor {
   //! Temporarily used for analyzing each tensor
   TensorView* current_tv_ = nullptr;
   std::unordered_set<IterDomain*> inner_domains_;
+
+  //! True if current tv is loaded with 1D TMA
+  bool is_1d_tma_loaded_tv_ = false;
 };
 
 } // namespace nvfuser
