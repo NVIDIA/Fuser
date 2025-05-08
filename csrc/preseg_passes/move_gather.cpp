@@ -33,24 +33,51 @@ bool hasGatherOp(const Fusion* fusion) {
   return ir_utils::filterByType<GatherOp>(exprs).size() > 0;
 }
 
-std::optional<Expr*> getLookupTvDef(const GatherOp* gather_op) {
+// For now we allow unary pointwise ops like cast/neg or a squeeze.
+// We only consider squeeze which has a single dim squeezed.
+std::optional<Expr*> getAllowedLookupTvDef(const GatherOp* gather_op) {
   if (gather_op->lookupTv()->isFusionInput()) {
     return std::nullopt;
   }
 
-  auto producer = gather_op->lookupTv()->definition();
-  NVF_ERROR(producer != nullptr, "Def for Lookup tensor view is nullptr.");
+  auto producing_expr = gather_op->lookupTv()->definition();
+  NVF_ERROR(
+      producing_expr != nullptr, "Def for Lookup tensor view is nullptr.");
 
-  if (isUnaryPointwiseOp(producer) || producer->isA<SqueezeOp>()) {
-    return producer;
+  if (isUnaryPointwiseOp(producing_expr)) {
+    return producing_expr;
+  }
+
+  // We handle squeeze op where only one dim is squeezed.
+  if (producing_expr->isA<SqueezeOp>()) {
+    auto squeeze_op = producing_expr->as<SqueezeOp>();
+    if (std::count(
+            squeeze_op->getSqueezeDimFlags().begin(),
+            squeeze_op->getSqueezeDimFlags().end(),
+            true) == 1) {
+      return producing_expr;
+    }
   }
 
   return std::nullopt;
 }
 
+auto positionOfSqueezedDim(const std::vector<bool>& squeeze_dim_flags) {
+  auto it = std::find(squeeze_dim_flags.begin(), squeeze_dim_flags.end(), true);
+  return it != squeeze_dim_flags.end()
+      ? std::distance(squeeze_dim_flags.begin(), it)
+      : -1;
+}
+
+// If the def of lookUpTv is squeeze, and we're moving the squeeze to
+// after the gather/take_along_axis, then we need to add an unsqueeze
+// to the IndexTv
 auto prepareIndexTv(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   if (def->isA<SqueezeOp>()) {
-    return unsqueeze(gather_op->indexTv(), 0);
+    auto squeeze_dim_flags = def->as<SqueezeOp>()->getSqueezeDimFlags();
+    auto dim = positionOfSqueezedDim(squeeze_dim_flags);
+    NVF_CHECK(dim >= 0, "Squeeze dim not found in squeeze op.");
+    return unsqueeze(gather_op->indexTv(), dim);
   }
   return gather_op->indexTv();
 }
@@ -104,14 +131,21 @@ auto addOrCloneNewNodeAfterGather(
   }
 }
 
-GatherOp* moveGatherOp(
-    Fusion* fusion,
-    GatherOp* gather_op,
-    Expr* def,
-    Expr* dest_expr) {
+GatherOp* moveGatherOp(Fusion* fusion, GatherOp* gather_op, Expr* def) {
   IrCloner ir_cloner(fusion);
 
   auto index_tv = prepareIndexTv(fusion, gather_op, def);
+
+  if (def->isA<SqueezeOp>()) {
+    auto pos =
+        positionOfSqueezedDim(def->as<SqueezeOp>()->getSqueezeDimFlags());
+    NVF_ERROR(pos >= 0, "Squeeze dim not found in squeeze op.");
+
+    // We don't handle the case where the squeezed dim was greater than the
+    // take_along_axis dim
+    NVF_CHECK(
+        pos <= gather_op->dim(), "Squeeze dim is greater than gather dim.");
+  }
 
   auto dim_for_gather_op =
       def->isA<SqueezeOp>() ? gather_op->dim() + 1 : gather_op->dim();
@@ -119,9 +153,12 @@ GatherOp* moveGatherOp(
   auto new_gather_op_output = takeAlongAxis(
       static_cast<TensorView*>(def->input(0)), index_tv, dim_for_gather_op);
 
-  dest_expr = new_gather_op_output->definition();
   addOrCloneNewNodeAfterGather(
-      fusion, gather_op, new_gather_op_output, def, dest_expr);
+      fusion,
+      gather_op,
+      new_gather_op_output,
+      def,
+      new_gather_op_output->definition());
 
   fusion->removeExpr(gather_op);
 
@@ -129,15 +166,14 @@ GatherOp* moveGatherOp(
 }
 
 void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
-  Expr* dest_expr = gather_op;
   do {
-    auto producer = getLookupTvDef(gather_op);
+    auto producer = getAllowedLookupTvDef(gather_op);
     if (!producer.has_value() || producer.value() == nullptr) {
       return;
     }
 
     auto def = producer.value();
-    auto new_gather_op = moveGatherOp(fusion, gather_op, def, dest_expr);
+    auto new_gather_op = moveGatherOp(fusion, gather_op, def);
     if (new_gather_op == gather_op) {
       return;
     }
@@ -148,8 +184,6 @@ void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
 } // namespace
 
 void MoveGatherPass::runPass(Fusion* fusion) {
-  std::cout << "Running MoveGatherPass" << std::endl;
-  fusion->printMath();
   if (!hasGatherOp(fusion))
     return;
 
@@ -169,6 +203,5 @@ void MoveGatherPass::runPass(Fusion* fusion) {
   }
 
   moveGatherOp(fusion, gather_ops.vector()[0]);
-  fusion->printMath();
 }
 } // namespace nvfuser::preseg_passes
