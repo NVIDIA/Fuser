@@ -599,8 +599,11 @@ void GpuLower::analysis(Fusion* fusion) {
   circularBufferInfo().build(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build circularBufferInfo");
 
+  compute_at_map_->allocateIndexVariables();
+  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
+
   if (idModelOptions().loop()) {
-    // Depends on CircularBufferInfo
+    // Depends on CircularBufferInfo and compute_at_map_->allocateIndexVariables
     id_model_->allocateLoopIndexVariables();
   }
 
@@ -614,9 +617,6 @@ void GpuLower::analysis(Fusion* fusion) {
   // nonDivisibleSplitInfo.
   pred_elimination_ = std::make_unique<PredicateElimination>(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "build predicateElimination");
-
-  compute_at_map_->allocateIndexVariables();
-  dumpExprsIfEnabled(fusion_->exprs(), "allocateIndexVariables");
 
   consumerToTMAInfo() = getConsumerToTMAInfoMap(fusion_);
   dumpExprsIfEnabled(fusion_->exprs(), "getConsumerToTMAInfoMap");

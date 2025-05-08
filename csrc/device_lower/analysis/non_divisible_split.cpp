@@ -314,6 +314,14 @@ std::vector<ValGroup> NonDivisiblePredicateInfo::
       if (unsafe_groups.contains(inputs.at(0))) {
         unsafe_groups.emplace(outputs.at(0));
       }
+    } else if (
+        expr_g->front()->isA<Swizzle>() || expr_g->front()->isA<Swizzle2D>()) {
+      // Should be uncommon. Just predicate if unsafe
+      for (const auto& inp : inputs) {
+        if (unsafe_groups.contains(inp)) {
+          groups_to_predicate.emplace_back(inp);
+        }
+      }
     } else {
       NVF_THROW("Unsupported yet: ", expr->toString());
     }
