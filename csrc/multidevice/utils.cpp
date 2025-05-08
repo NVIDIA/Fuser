@@ -31,70 +31,18 @@ NVF_API bool distributedEnabled() {
 #endif
 }
 
-// Returns the position where an axis is allocated in a tensordomain, skipping trivial
-// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
-// tv's loop domain WAR: today we assume that the loop domain match with the
-// actual allocation, but this will have to change in the future.
-int64_t axisIndex(std::vector<IterDomain*> domain, IterDomain* find_id) {
+int64_t allocationIndex(TensorView* tv, IterDomain* id) {
   int64_t index = 0;
-  for (auto* id : domain) {
-    if (id == find_id) {
+  for (auto* alloc_id : tv->getMaybeAllocationDomain()) {
+    if (alloc_id == id) {
       return index;
     }
-    if (!id->isDeviceDim() && !id->isReduction() &&
-        !id->isBroadcast()) {
-      index++;
+    if (alloc_id->isDeviceDim() || alloc_id->isReduction() || alloc_id->isBroadcast()) {
+      continue;
     }
+    index++;
   }
   return -1;
-}
-
-std::optional<std::pair<IterDomain*, IterDomain*>> getReshardingIdPair(TensorView* producer, TensorView* consumer, ValGraph& graph) {
-  auto p_loop_domain = producer->getLoopDomain();
-  auto c_loop_domain = consumer->getLoopDomain();
-  auto p2c_map = graph.buildMapBetween(
-            p_loop_domain, c_loop_domain);
-
-  std::vector<std::pair<IterDomain*, IterDomain*>> resharding_id_pairs;
-
-  bool has_sharding_changes = false;
-
-  IterDomain* resharded_p_id = nullptr;
-  IterDomain* resharded_c_id = nullptr;
-
-  for (auto [p_val, c_vals] : p2c_map) {
-    auto p_id = p_val->as<IterDomain>();
-    auto c_id = c_vals.front()->as<IterDomain>();
-
-    if (!p_id->isDeviceDim() && !c_id->isDeviceDim()) {
-      continue;
-    }
-
-    // No reordering for reduction and broadcast axes.
-    if (p_id->isReduction() || p_id->isBroadcast()) {
-      continue;
-    }
-    if (c_id->isReduction() || c_id->isBroadcast()) {
-      continue;
-    }
-
-    if (p_id->isDeviceDim() && c_id->isDeviceDim()) {
-      if (p_id->getParallelType() != c_id->getParallelType()) {
-        NVF_THROW("Resharding from ", p_id->toString(), " to ", c_id->toString(), " is not supported.");
-      }
-    }
-
-    NVF_ERROR(!has_sharding_changes, "Resharding expr can only support one axis: ", consumer->definition()->toString());
-    has_sharding_changes = true;
-    resharded_p_id = p_id;
-    resharded_c_id = c_id;
-  }
-
-  if (!has_sharding_changes) {
-    return std::nullopt;
-  }
-  
-  return std::make_pair(resharded_p_id, resharded_c_id);
 }
 
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
@@ -210,11 +158,12 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 
 } // namespace
 
-int64_t getShardedLogicalAxis(
+int64_t getShardedLogicalAxisFromDomain(
     const TensorView* tv,
-    const ParallelType parallel_type) {
+    const ParallelType parallel_type,
+    std::vector<IterDomain*> domain) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
+      mapDeviceParallelTypeToId(domain);
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
   if (alloc_id == nullptr) {
     return -1;
@@ -284,6 +233,12 @@ int64_t getShardedLogicalAxis(
   }
 
   return logical_id_to_axis.at(id);
+}
+
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  return getShardedLogicalAxisFromDomain(tv, parallel_type, tv->getMaybeAllocationDomain());
 }
 
 int64_t getShardedLoopAxis(
@@ -396,8 +351,6 @@ std::pair<Val*, bool> computeLoopIndex(
   return id_to_index.at(id);
 }
 
-} // namespace
-
 std::vector<IterDomain*> getInputsInTargetDomain(
     IterDomain* loop_id,
     const std::vector<IterDomain*>& target_domain) {
@@ -413,6 +366,8 @@ std::vector<IterDomain*> getInputsInTargetDomain(
       [](Val* val) { return val->as<IterDomain>(); });
   return inputs_as_iter_domains;
 }
+
+} // namespace
 
 bool haveDifferentShardings(
     const TensorView* producer,
@@ -664,9 +619,9 @@ bool isInnerResharding(Expr* expr) {
           shard_additions.size() + shard_deletions.size() <= 1,
           "Resharding expr can only support one axis")
       if ((!shard_deletions.empty() &&
-           axisIndex(input->getLoopDomain(), shard_deletions.at(0)) > 0) ||
+           allocationIndex(input, shard_deletions.at(0)) > 0) ||
           (!shard_additions.empty() &&
-           axisIndex(output->getLoopDomain(), shard_additions.at(0)) > 0)) {
+           allocationIndex(output, shard_additions.at(0)) > 0)) {
         return true;
       }
     }
