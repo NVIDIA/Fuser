@@ -219,15 +219,8 @@ void UnrollPass::dispatch(Expr* expr) {
       int64_t n_loops = (int64_t)for_loops_.size();
       for (auto idx = current_elect_sync_fl_idx_ + 1; idx < n_loops; ++idx) {
         auto fl = for_loops_.at(idx);
-        auto pt = fl->iter_domain()->getParallelType();
-        // Unroll is not allowed due to the limitation of current predicate
-        // it is also unnecessary since the split is divisible and no predicate
-        // is used.
-        NVF_ERROR(
-            pt != ParallelType::Unroll,
-            "ParallelType::Unroll is not supported for loop domains between circular buffer domain and 1D TMA domain: ",
-            expr->toString());
-        if (fl->iter_domain()->getParallelType() != ParallelType::Serial) {
+        if (fl->iter_domain()->getParallelType() != ParallelType::Serial &&
+            fl->iter_domain()->getParallelType() != ParallelType::Unroll) {
           continue;
         }
         replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
@@ -302,8 +295,9 @@ void UnrollPass::handle(ForLoop* fl) {
       fl->iter_domain()->getParallelType() == ParallelType::Unswitch;
 
   // If we're not looking for an unroll loop, or didn't find one, process as
-  // normal.
-  if (!is_unroll || !look_for_unroll_) {
+  // normal. Don't need to unroll for 1D TMA load since split by unroll factor
+  // for 1D TMA tv is divisible.
+  if (!is_unroll || !look_for_unroll_ || current_elect_sync_ite_) {
     for_loops_.push_back(fl);
     scope_.push_back(&fl->body());
     scope_exprs_.push_back(fl);
