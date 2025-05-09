@@ -11,11 +11,13 @@
 #include <ir/builder.h>
 #include <ir/builder_passkey.h>
 #include <ir/cloner.h>
+#include <ir/iostream.h>
 #include <ir/printer.h>
 #include <ir/utils.h>
 #include <kernel_ir.h>
 #include <multidevice/communication.h>
 #include <ops/all_ops.h>
+#include <utils.h>
 
 namespace nvfuser {
 
@@ -136,16 +138,13 @@ NVFUSER_DEFINE_CLONE_AND_CREATE(LaunchKernel)
 
 std::string LaunchKernel::toString(int indent_size) const {
   std::stringstream ss;
-  indent(ss, indent_size) << "LaunchKernel("
-                          << "Inputs: {";
-  std::for_each(inputs().begin(), inputs().end(), [&ss](auto input) {
-    ss << input->toString(0) << ", ";
-  });
-  ss << "}, Outputs: {";
-  std::for_each(outputs().begin(), outputs().end(), [&ss](auto output) {
-    ss << output->toString(0) << ", ";
-  });
-  ss << "})" << std::endl;
+  indent(ss, indent_size) << "LaunchKernel(" << std::endl;
+  indent(ss, indent_size + 1) << "Index: " << getIndex() << "," << std::endl;
+  indent(ss, indent_size + 1)
+      << "Inputs: {" << toDelimitedString(inputs()) << "}," << std::endl;
+  indent(ss, indent_size + 1)
+      << "Outputs: {" << toDelimitedString(outputs()) << "}," << std::endl;
+  indent(ss, indent_size) << ")" << std::endl;
   return ss.str();
 }
 
