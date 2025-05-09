@@ -18,7 +18,7 @@
 #include <ops/all_ops.h>
 #include <ops/utils.h>
 
-namespace nvfuser::hir {
+namespace nvfuser::hir_pass {
 
 namespace {
 
@@ -170,6 +170,7 @@ struct TensorSlicingCache {
     auto td = IrBuilder::create<TensorDomain>(
         new_root, TensorDomain::getContiguityFilledWith(new_root, true));
     auto out = IrBuilder::create<TensorView>(td, *tensor->getDataType());
+    out->setDeviceMesh(tensor->getDeviceMesh());
     auto result = IrBuilder::create<hir::HirAliasSelect>(
         tensor, out, stream_axis_index, index);
 
@@ -421,7 +422,7 @@ std::vector<Expr*> addStreamManagement(std::vector<Expr*> top_level_exprs) {
 // linear structure of the HostIrContainer::topLevelExpr to greedily merge the
 // adjacent compatible stream for-loop bodies. Ideally we should look at the dag
 // and use the segmenter.
-void StreamParallelType::runPass(Fusion* fusion) {
+void StreamParallelType::passImplementation(Fusion* fusion) {
   // Verify that input tensors don't have stream axes
   NVF_CHECK(
       std::all_of(
@@ -459,4 +460,4 @@ void StreamParallelType::runPass(Fusion* fusion) {
   hic->resetTopLevelExprs(top_level_exprs);
 }
 
-} // namespace nvfuser::hir
+} // namespace nvfuser::hir_pass

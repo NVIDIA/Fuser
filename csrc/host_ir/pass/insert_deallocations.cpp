@@ -8,13 +8,17 @@
 
 #include <host_ir/pass/insert_deallocations.h>
 
-namespace nvfuser::hir {
+namespace nvfuser::hir_pass {
 
-void insertDeallocations(HostIrContainer* hic) {
+void InsertDeallocations::passImplementation(Fusion* fusion) {
+  FusionGuard fg(fusion);
+  hir::HostIrContainer* hic = dynamic_cast<hir::HostIrContainer*>(fusion);
+  NVF_CHECK(hic, "Expected HostIrContainer");
+
   const std::vector<Expr*>& top_level_exprs = hic->topLevelExprs();
   std::for_each(top_level_exprs.begin(), top_level_exprs.end(), [](Expr* expr) {
     NVF_ERROR(
-        !expr->isA<Deallocate>(),
+        !expr->isA<hir::Deallocate>(),
         "Expected hostir container to not have deallocate, but found one anyways");
   });
   std::unordered_map<TensorView*, int64_t> last_use;
@@ -35,9 +39,9 @@ void insertDeallocations(HostIrContainer* hic) {
   }
   std::sort(last_use_by_index.begin(), last_use_by_index.end());
   for (auto&& [i, tv] : last_use_by_index | std::views::reverse) {
-    auto* deallocate = IrBuilder::create<Deallocate>(tv);
+    auto* deallocate = IrBuilder::create<hir::Deallocate>(tv);
     hic->insertExprAfter(i, deallocate);
   }
 }
 
-} // namespace nvfuser::hir
+} // namespace nvfuser::hir_pass
