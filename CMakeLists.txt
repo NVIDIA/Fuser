@@ -12,6 +12,7 @@ set(NVFUSER_ROOT ${PROJECT_SOURCE_DIR})
 set(NVFUSER_SRCS_DIR "${NVFUSER_ROOT}/csrc")
 set(NVFUSER_PYTHON_DIR "${NVFUSER_ROOT}/python")
 set(NVFUSER_PYTHON_BINDINGS "${NVFUSER_ROOT}/python/python_frontend")
+set(NVFUSER_PYTHON_COMMON "${NVFUSER_ROOT}/python/python_common")
 set(NVFUSER_PYTHON_DIRECT_BINDINGS "${NVFUSER_ROOT}/python/python_direct")
 set(NVFUSER_THIRD_PARTY_DIR "${NVFUSER_ROOT}/third_party")
 
@@ -472,10 +473,12 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_BINDINGS}/python_bindings.cpp
     ${NVFUSER_PYTHON_BINDINGS}/python_bindings_extension.cpp
     ${NVFUSER_PYTHON_BINDINGS}/schedule_bindings.cpp
+    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
   )
 
   add_library(nvf_py_internal OBJECT ${NVFUSER_PYTHON_SRCS})
   target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_DIR})
+  target_include_directories(nvf_py_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
   target_include_directories(nvf_py_internal SYSTEM INTERFACE
     ${CMAKE_SOURCE_DIR}/third_party/flatbuffers/include
   )
@@ -563,7 +566,9 @@ if(BUILD_PYTHON)
   list(APPEND NVFUSER_PYTHON_DIRECT_SRCS
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/extension.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/bindings.cpp
+    ${NVFUSER_PYTHON_DIRECT_BINDINGS}/enum.cpp
     ${NVFUSER_PYTHON_DIRECT_BINDINGS}/ir.cpp
+    ${NVFUSER_PYTHON_COMMON}/python_utils.cpp
   )
   add_library(nvf_py_direct_internal OBJECT ${NVFUSER_PYTHON_DIRECT_SRCS})
 
@@ -615,6 +620,7 @@ if(BUILD_PYTHON)
   )
 
   target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_DIRECT_BINDINGS})
+  target_include_directories(nvf_py_direct_internal PUBLIC ${NVFUSER_PYTHON_COMMON})
   target_link_libraries(nvf_py_direct_internal PRIVATE
     codegen_internal
     "${TORCH_INSTALL_PREFIX}/lib/libtorch_python.so"
