@@ -775,6 +775,12 @@ bool isIndexSelectLookupTv(const TensorView* tv) {
         return true;
       }
     }
+    if (expr->isA<ScatterOp>()) {
+      auto idx_sel = expr->as<ScatterOp>();
+      if (idx_sel->selfTv() == tv) {
+        return true;
+      }
+    }
   }
   return false;
 }
