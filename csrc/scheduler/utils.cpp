@@ -1257,6 +1257,7 @@ std::vector<TensorView*> cacheInputs(Fusion* fusion, bool unroll) {
   for (auto tv : in_tvs) {
     if (tv->uses().empty() || ir_utils::isGatherLookupTv(tv) ||
         ir_utils::isIndexSelectLookupTv(tv) ||
+        ir_utils::isScatterSelfTv(tv) ||
         ir_utils::isTvUsedByOpsOfType<SelectOp>(tv)) {
       // Right now, tensors that are input to the select, gather and
       // index_select ops can't be cached as they must be in global memory.
@@ -1631,7 +1632,8 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->inputs())) {
     // for indexSelect(lookup_tv, dim, index_tv) op
     // ignore it's lookup_tv.
-    if (ir_utils::isGatherLookupTv(input_tv)) {
+    if (ir_utils::isGatherLookupTv(input_tv) ||
+        ir_utils::isScatterSelfTv(input_tv)) {
       continue;
     }
 
