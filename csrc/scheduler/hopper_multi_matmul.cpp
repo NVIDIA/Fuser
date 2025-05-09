@@ -433,6 +433,7 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     std::cout << "tv after cta tile split=" << tv->toString() << std::endl;
     print_roles();
 
+    // TODO: This merge is only used for non-persistent schedules
     // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
     // This is important since we need single dims to bind to.
     // For example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
@@ -465,8 +466,6 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
       merged_roles.erase(merged_roles.begin() + (size_t)i);
     }
 
-    merged_roles =
-        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
     std::cout << "tv after merging back in=" << tv->toString() << std::endl;
     print_roles();
 

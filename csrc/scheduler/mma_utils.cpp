@@ -379,17 +379,20 @@ void makeTile(
       abten.size() >= tile_sizes.size(),
       "Tensor dimension less than tile dimension!");
 
+  std::unordered_set<MatmulDimRole> roles_split;
   // Split the inner dimensions
   size_t num_split_axes = 0;
   for (int64_t i = (int64_t)abten.size() - 1; i >= 0; --i) {
-    if (num_split_axes > 2) {
-      break;
-    }
     const std::optional<MatmulDimRole> id_role_opt = abten.getTag(i);
     if (!id_role_opt.has_value()) {
       continue;
     }
     const MatmulDimRole id_role = id_role_opt.value();
+    if (roles_split.count(id_role)) {
+      // Prevent doing multiple splits in case the roles are like M N M N
+      break;
+    }
+    roles_split.insert(id_role);
     // Assumes tile_sizes are given in m,n,k order
     switch (id_role) {
       case MatmulDimRole::M:
@@ -489,7 +492,7 @@ std::vector<MatmulDimRole> makeTile(
   // inner-most
   std::unordered_set<MatmulDimRole> axis_set;
   int64_t first_inner_pos = 0;
-  for (int64_t i = (int64_t)axis_roles.size() - 1L; i >= 0; --i) {
+  for (int64_t i : std::views::reverse(arange((int64_t)axis_roles.size()))) {
     // First search for innermost M, N, K in case they are repeated.
     // For instance, if we have axis_roles = {M, N, K, M, N, K}, we will find
     // position 3 indicating the inner M, N, K dimensions should be used for
@@ -502,6 +505,7 @@ std::vector<MatmulDimRole> makeTile(
     }
     axis_set.insert(role);
   }
+  std::cout << "first_inner_pos=" << first_inner_pos << std::endl;
 
   std::vector<int64_t> tile_sizes;
   for (int64_t i : arange(first_inner_pos, (size_t)axis_roles.size())) {
@@ -521,6 +525,7 @@ std::vector<MatmulDimRole> makeTile(
         break;
     }
   }
+  std::cout << "tile_sizes=" << tile_sizes << std::endl;
 
   std::vector<std::unordered_set<MatmulDimRole>> axis_role_sets;
   for (const MatmulDimRole role : axis_roles) {
