@@ -363,4 +363,6 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
     const std::unordered_map<ValGroup, IterDomain*>& stale_map,
     ValGraph& new_graph);
 
+ValGraph mapAlmostExactSplits(const ValGraph& graph);
+
 } // namespace nvfuser
