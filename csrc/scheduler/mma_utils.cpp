@@ -505,7 +505,6 @@ std::vector<MatmulDimRole> makeTile(
     }
     axis_set.insert(role);
   }
-  std::cout << "first_inner_pos=" << first_inner_pos << std::endl;
 
   std::vector<int64_t> tile_sizes;
   for (int64_t i : arange(first_inner_pos, (size_t)axis_roles.size())) {
@@ -525,7 +524,6 @@ std::vector<MatmulDimRole> makeTile(
         break;
     }
   }
-  std::cout << "tile_sizes=" << tile_sizes << std::endl;
 
   std::vector<std::unordered_set<MatmulDimRole>> axis_role_sets;
   for (const MatmulDimRole role : axis_roles) {

@@ -395,43 +395,12 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
         params_->tile_sizes.cta_tile.n * cn,
         params_->tile_sizes.cta_tile.k};
 
-    std::cout << "cga_tile=" << toString(cga_tile) << std::endl;
-    std::cout << "tv before=" << tv->toString() << std::endl;
-    const auto print_roles = [&merged_roles]() {
-      std::cout << "roles=";
-      for (MatmulDimRole role : merged_roles) {
-        switch (role) {
-          case MatmulDimRole::M:
-            std::cout << " M";
-            break;
-          case MatmulDimRole::N:
-            std::cout << " N";
-            break;
-          case MatmulDimRole::K:
-            std::cout << " K";
-            break;
-          case MatmulDimRole::Batch:
-            std::cout << " Batch";
-            break;
-        }
-      }
-      std::cout << std::endl;
-    };
-    print_roles();
-
     merged_roles = mma_utils::makeTile(tv, cga_tile, merged_roles);
-    std::cout << "tv after cga split=" << tv->toString() << std::endl;
-    print_roles();
 
     reorderBlockTileTraversal(tv, merged_roles);
-    std::cout << "tv after reorder block tile traversal=" << tv->toString()
-              << std::endl;
-    print_roles();
 
     merged_roles =
         mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
-    std::cout << "tv after cta tile split=" << tv->toString() << std::endl;
-    print_roles();
 
     // TODO: This merge is only used for non-persistent schedules
     // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
@@ -455,19 +424,11 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     NVF_ERROR(
         almost_outer_mnk_pos < merged_roles.size(),
         "Because of tiling, we expect repeated roles");
-    std::cout << "outer_mnk_pos=" << outer_mnk_pos
-              << " almost_outer_mnk_pos=" << almost_outer_mnk_pos << std::endl;
     for (int64_t i :
          std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
-      std::cout << "  i=" << i << " ";
-      print_roles();
-      std::cout << "   tv=" << tv->toString() << std::endl;
       tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
       merged_roles.erase(merged_roles.begin() + (size_t)i);
     }
-
-    std::cout << "tv after merging back in=" << tv->toString() << std::endl;
-    print_roles();
 
     all_merged_roles.push_back(merged_roles);
 
