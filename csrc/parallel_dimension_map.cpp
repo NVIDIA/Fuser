@@ -308,6 +308,39 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   return num_threads;
 }
 
+// For warp-specialization, the CTA is padded so the AsyncWarp contains 128
+// threads. This function maps the AsyncWarp CTA to a linear index from
+// [0, 128). It is used to divide AsyncWarp into four independent warps.
+Val* ParallelDimensionMap::getLinearThreadIndexAsync() const {
+  Val* index = GpuLower::current()->kernel()->zeroVal();
+  Val* extent = GpuLower::current()->kernel()->oneVal();
+
+  for (auto pt : kParallelTypeTIDs) {
+    // For warp-specialization, an axis is padded so the AsyncWarp contains
+    // 128 threads.
+    Val* extent_for_pdim = getRawAsync(pt);
+    // short-circuit: extent_for_pdim is not used in kernel.
+    if (extent_for_pdim == nullptr) {
+      continue;
+    }
+    // short-circuit: extent_for_pdim is trivial.
+    if (extent_for_pdim->isConstScalar() &&
+        extent_for_pdim->evaluate().as<int64_t>() == 1) {
+      continue;
+    }
+    Val* pt_index = NamedScalar::getParallelIndex(pt);
+    // Map the padded parallel index to [0, padded_value] range, so the linear
+    // index will be in range of [0, 128).
+    if (warp_specialized_types_.count(pt)) {
+      pt_index = SimplifyingIrBuilder::subExpr(pt_index, getRawCompute(pt));
+    }
+    index = SimplifyingIrBuilder::addExpr(
+        index, SimplifyingIrBuilder::mulExpr(pt_index, extent));
+    extent = SimplifyingIrBuilder::mulExpr(extent, extent_for_pdim);
+  }
+  return index;
+}
+
 int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
     ParallelType pt) const {
   NVF_ERROR(
@@ -320,6 +353,27 @@ int64_t ParallelDimensionMap::getWarpSpecializationPaddedVal(
       "Can't find padded val for: ",
       pt);
   return ws_with_register_sharing_pad_val_.value();
+}
+
+bool ParallelDimensionMap::canUseElectSyncInAsyncWarp() const {
+  // short-circuit: skip if warp specialization is not enabled
+  if (warp_specialized_types_.empty()) {
+    return true;
+  }
+  // Currently only support one warp specialized axis
+  NVF_ERROR(warp_specialized_types_.size() == 1);
+  ParallelType ws_pt = *warp_specialized_types_.begin();
+
+  // Check that BlockDim.x >= 32 active threads in AsyncWarp
+  if (ws_pt != ParallelType::TIDx) {
+    return true;
+  }
+
+  if (getWarpSpecializationPaddedVal(ws_pt) >= 32) {
+    return true;
+  }
+
+  return false;
 }
 
 std::string ParallelDimensionMap::toString() const {
