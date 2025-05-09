@@ -107,6 +107,11 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
 
   auto rparams = std::make_unique<ReductionParams>(
       InnerOuterPersistentKernelScheduler::schedulerType());
+
+  // save persistent tvs should use shared memory, to avoid calling
+  // getPersistentBufferStorageParams again during the scheduling.
+  rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
+
   // Ultimately, we want the heuristic to decide between using the
   // warp-specialized version or the multi-wave version. The enable option is a
   // temporary configuration to facilitate testing during development without
@@ -140,10 +145,6 @@ std::unique_ptr<ReductionParams> getInnerOuterPersistentHeuristics(
         buffer_params.project_to_input,
         runtime_info.getIndexType());
   }
-
-  // save persistent tvs should use shared memory, to avoid calling
-  // getPersistentBufferStorageParams again during the scheduling.
-  rparams->smem_persistent_buffers = buffer_params.smem_persistent_buffers;
 
   return rparams;
 }
