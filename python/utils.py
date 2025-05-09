@@ -279,18 +279,25 @@ def override_build_config_from_env(config):
 
 
 class build_ext(setuptools.command.build_ext.build_ext):
+    def copy_library(self, ext, library_name):
+        # Copy files on necessity.
+        filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
+        fileext = os.path.splitext(filename)[1]
+
+        libnvfuser_path = os.path.join(
+            "./nvfuser_common/lib", f"{library_name}{fileext}"
+        )
+        assert os.path.exists(libnvfuser_path)
+        install_dst = os.path.join(self.build_lib, filename)
+        if not os.path.exists(os.path.dirname(install_dst)):
+            os.makedirs(os.path.dirname(install_dst))
+        self.copy_file(libnvfuser_path, install_dst)
+
     def build_extension(self, ext):
         if ext.name == "nvfuser._C":
-            # Copy files on necessity.
-            filename = self.get_ext_filename(self.get_ext_fullname(ext.name))
-            fileext = os.path.splitext(filename)[1]
-
-            libnvfuser_path = os.path.join("./nvfuser/lib", f"libnvfuser{fileext}")
-            assert os.path.exists(libnvfuser_path)
-            install_dst = os.path.join(self.build_lib, filename)
-            if not os.path.exists(os.path.dirname(install_dst)):
-                os.makedirs(os.path.dirname(install_dst))
-            self.copy_file(libnvfuser_path, install_dst)
+            self.copy_library(ext, "libnvfuser")
+        elif ext.name == "nvfuser_next._C_NEXT":
+            self.copy_library(ext, "libnvfuser_next")
         else:
             super().build_extension(ext)
 
@@ -391,7 +398,9 @@ def cmake(config, relative_path):
         os.makedirs(cmake_build_dir)
 
     install_prefix = (
-        os.path.join(cwd, "nvfuser") if not config.install_dir else config.install_dir
+        os.path.join(cwd, "nvfuser_common")
+        if not config.install_dir
+        else config.install_dir
     )
 
     from tools.gen_nvfuser_version import (
@@ -518,7 +527,7 @@ def run(config, version_tag, relative_path):
         # NOTE: package include files for cmake
         # TODO(crcrpar): Better avoid hardcoding `libnvfuser_codegen.so`
         # might can be treated by using `exclude_package_data`.
-        nvfuser_package_data = [
+        nvfuser_common_package_data = [
             "lib/libnvfuser_codegen.so",
             "include/nvfuser/*.h",
             "include/nvfuser/struct.inl",
@@ -551,7 +560,10 @@ def run(config, version_tag, relative_path):
             url="https://github.com/NVIDIA/Fuser",
             description="A Fusion Code Generator for NVIDIA GPUs (commonly known as 'nvFuser')",
             packages=find_packages(),
-            ext_modules=[Extension(name="nvfuser._C", sources=[])],
+            ext_modules=[
+                Extension(name="nvfuser._C", sources=[]),
+                Extension(name="nvfuser_next._C_NEXT", sources=[]),
+            ],
             license_files=("LICENSE",),
             cmdclass={
                 "bdist_wheel": build_whl,
@@ -559,7 +571,7 @@ def run(config, version_tag, relative_path):
                 "clean": create_clean(relative_path),
             },
             package_data={
-                "nvfuser": nvfuser_package_data,
+                "nvfuser_common": nvfuser_common_package_data,
             },
             install_requires=config.install_requires,
             extras_require={

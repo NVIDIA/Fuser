@@ -478,7 +478,7 @@ c10::intrusive_ptr<c10d::Work> postReduceScatter(
   // scattered_axis==1). Note however than only nccl supports
   // _reduce_scatter_base, not ucc.
 #if defined(NVFUSER_DISTRIBUTED) && defined(USE_C10D_NCCL)
-  if (scattered_axis == 1 &&
+  if (scattered_axis == 1 && communication->out()->axis(0)->isReduction() &&
       backend->getBackendName() == c10d::NCCL_BACKEND_NAME) {
     return backend->_reduce_scatter_base(
         output_tensor, input_tensor, {.reduceOp = communication->reduceOp()});

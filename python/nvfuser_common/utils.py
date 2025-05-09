@@ -11,7 +11,7 @@ __all__ = [
 
 cmake_prefix_path = os.path.join(
     os.path.dirname(os.path.dirname(__file__)),
-    "nvfuser",
+    "nvfuser_common",
     "share",
     "cmake",
     "nvfuser",

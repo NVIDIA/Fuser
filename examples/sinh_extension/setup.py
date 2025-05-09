@@ -28,7 +28,7 @@ flatbuffers_dir = os.path.join(
 
 # Ensure nvfuser is installed before trying to find its path
 try:
-    nvfuser_spec = importlib.util.find_spec("nvfuser")
+    nvfuser_spec = importlib.util.find_spec("nvfuser_common")
     if nvfuser_spec is None or nvfuser_spec.origin is None:
         raise ImportError("Could not find nvfuser. Is it installed?")
     nvfuser_lib_dir = str(pathlib.Path(nvfuser_spec.origin).parent / "lib")

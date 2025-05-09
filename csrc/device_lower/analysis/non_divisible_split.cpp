@@ -5,12 +5,12 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
+#include <device_lower/analysis/non_divisible_split.h>
 #include <device_lower/lower2device.h>
 #include <device_lower/utils.h>
 #include <expr_simplifier.h>
 #include <ir/iostream.h>
 #include <ir/utils.h>
-#include <non_divisible_split.h>
 
 namespace nvfuser {
 

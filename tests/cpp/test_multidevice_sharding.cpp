@@ -896,47 +896,52 @@ TEST_F(MultiDeviceTest, LoopShardedMergeReshapeIds) {
 }
 
 TEST_F(MultiDeviceTest, TransposeSchedulerWithView) {
+  const int d = communicator_->size();
+  const int64_t b = 2, e = 768, h = 16, s = 128;
+
+  if (h % d != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << d
+                 << " evenly divide h=" << h;
+  }
+
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
-  const int d = communicator_->size();
-  const int64_t h = 128, e = 768;
-
-  TensorView* tv0 = makeContigConcreteTensor({e});
-  TensorView* tv1 = makeContigConcreteTensor({3 * d * h * e, e});
+  TensorView* tv0 = makeContigConcreteTensor({b, s, e});
+  TensorView* tv1 = makeContigConcreteTensor({3 * e, e});
   TensorView* tv2 = linear(tv0, tv1);
-  TensorView* tv3 = reshape(tv2, {3 * d * h * e}, {d * h, 3 * e});
+  TensorView* tv3 = reshape(tv2, {b, s, 3 * e}, {b, s, h, 3 * e / h});
 
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   fusion->addOutput(tv3);
 
   auto mesh = DeviceMesh::createForNumDevices(d);
-  tv0->setDeviceMesh(mesh);
-  for (auto* tv : {tv1, tv2, tv3}) {
+
+  tv1->outer_split(0, d);
+  tv1->axis(0)->parallelize(ParallelType::DIDx);
+
+  tv2->outer_split(2, d);
+  tv2->axis(2)->parallelize(ParallelType::DIDx);
+
+  tv3->outer_split(2, d);
+  tv3->axis(2)->parallelize(ParallelType::DIDx);
+
+  for (auto* tv : {tv0, tv1, tv2, tv3}) {
     tv->setDeviceMesh(mesh);
-    tv->outer_split(0, d);
-    tv->axis(0)->parallelize(ParallelType::DIDx);
     tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   FusionExecutorCache executor_cache(std::move(fusion));
-  at::Tensor t0 = at::randn({e}, tensor_options);
-  at::Tensor t1 = at::randn({3 * d * h * e, e}, tensor_options);
+  at::Tensor t0 = at::randn({b, s, e}, tensor_options);
+  at::Tensor t1 = at::randn({3 * e, e}, tensor_options);
   at::Tensor sharded_t1 = shardTensor(t1, 0, mesh);
   at::Tensor nvf_out =
       executor_cache.runFusionWithInputs({t0, sharded_t1})[0].as<at::Tensor>();
 
-  at::Tensor ref_out = at::linear(t0, t1).view({d * h, 3 * e});
-  at::Tensor sharded_ref_out = shardTensor(ref_out, 0, mesh);
-  testValidate(
-      executor_cache.fusion(),
-      {nvf_out},
-      {t0, sharded_t1},
-      {sharded_ref_out},
-      __LINE__,
-      __FILE__);
-
+  at::Tensor ref_out = at::linear(t0, t1).view({b, s, h, 3 * e / h});
+  at::Tensor sharded_ref_out = shardTensor(ref_out, 2, mesh);
+  validate({sharded_ref_out}, {nvf_out}, {0.02});
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   EXPECT_THAT(
       runtime->fusionSegments()->groups(),

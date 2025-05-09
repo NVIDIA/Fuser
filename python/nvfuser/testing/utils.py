@@ -461,6 +461,8 @@ class NVFuserTest(TestCase):
         Setup is run once at the class level, before running any tests of the class.
         `atexit_serde_check` enables automatic serialization at the end of the test suite.
         """
+        os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
         atexit_serde_check()
 
     # Helper function to verify the nvfuser output and make sure the string
