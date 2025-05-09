@@ -256,6 +256,7 @@ void CircularBufferInfo::setCircularBufferTv(const TensorView* tv) {
   circular_buffer_tvs_[concrete_loop_id].insert(tv);
   // Set and validate the new stage depth.
   setCircularBufferOptions(cb_axis, tv->circularBufferOptions());
+  setComputationWarpGroups(tv);
   setCircularBufferInsertionPosition(tv, cb_axis);
 }
 
@@ -269,8 +270,8 @@ void CircularBufferInfo::setCircularBufferOptions(
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
-    has_warp_sepcialized_ =
-        (has_warp_sepcialized_ ||
+    has_warp_specialized_ =
+        (has_warp_specialized_ ||
          std::holds_alternative<WarpSpecialized>(opt.type));
   } else {
     NVF_ERROR(
@@ -284,6 +285,39 @@ void CircularBufferInfo::setCircularBufferOptions(
         " by ",
         concrete_loop_id->toString());
   }
+}
+
+// Derive number of computation warp groups from loop domain of its consumer
+// circular buffer: Ts[BIDy, Circular(S), compute groups(S),...], ca 2
+// its consumer is: Tl[BIDy, Circular(S), compute groups(TIDy),...], ca 3
+// Look for the corresponding loop domain in its consumer and make sure it
+// is parallelized same as warp specialized dim. Then, its content represents
+// number of computation warp groups.
+
+// TODO: Another approach is we can just save `computation_warp_groups_`
+// in  `circularBufferOptions` since it is a scheduler parameter.
+void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
+  auto option = tv->circularBufferOptions();
+  auto old_val = computation_warp_groups_;
+  if (std::holds_alternative<WarpSpecialized>(option.type)) {
+    auto ws_pt = std::get<WarpSpecialized>(option.type).on;
+    int64_t next_pos = getInnerMostCircularBufferPosition(tv) + 1;
+    auto consumer = ir_utils::consumerTvsOf(tv).at(0);
+    if (consumer->nDims() > next_pos &&
+        consumer->axis(next_pos)->getParallelType() == ws_pt &&
+        consumer->axis(next_pos)->extent()->isConst()) {
+      computation_warp_groups_ =
+          consumer->axis(next_pos)->extent()->value().as<int64_t>();
+    } else {
+      computation_warp_groups_ = 1;
+    }
+  } else {
+    computation_warp_groups_ = 1;
+  }
+  // -1 indicates not set yet, if set, should not change
+  NVF_ERROR(
+      old_val == -1 || old_val == computation_warp_groups_,
+      "All circular buffered tv should have the same number of computation warp groups!");
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(
@@ -365,9 +399,7 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
 
   // If multiple computation warp groups are used, move insertion position
   // to the next for-loop to sync the load for different warp groups separately.
-  auto consumer = ir_utils::consumerTvsOf(circular_buffer_tv).at(0);
-  if (consumer->axis(inner_most_circular_buffer_position + 1)
-          ->getParallelType() == ParallelType::TIDy) {
+  if (computation_warp_groups_ > 1) {
     insertion_position += 1;
   }
 
@@ -431,7 +463,7 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
     int64_t insertion_position,
     int64_t start_loop_index) const {
   std::cout << "insertion_position " << insertion_position << std::endl;
-  for(auto fl : loops){
+  for (auto fl : loops) {
     std::cout << "fl domain " << fl->iterDomain()->toString() << std::endl;
   }
   NVF_ERROR(insertion_position > 0);
@@ -452,10 +484,10 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
   for (int64_t i = end_loop_index; i >= start_loop_index; --i) {
     auto id = loops[i]->iter_domain();
     std::cout << "id " << id->toString() << std::endl;
-    if(id->isBroadcast()){
+    if (id->isBroadcast()) {
       continue;
     }
-    // skip parallelized axes except for warp specialized dim 
+    // skip parallelized axes except for warp specialized dim
     if (id->isParallelized() && (id->getParallelType() != ParallelType::TIDy)) {
       continue;
     }
