@@ -131,7 +131,6 @@ std::unordered_set<Split*> getAllDivisibleSplits(
             additional_expr->toString());
         if (!all_divisible_splits.contains(additional_split)) {
           additional_splits.insert(additional_split);
-          std::cerr << "Additional split: " << additional_split->toString();
         }
       }
     }
