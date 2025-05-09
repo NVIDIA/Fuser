@@ -84,10 +84,10 @@ class AliasAnalysisResult {
 
 // Before segmentation, we treat an empty allocation domain as undetermined and
 // can override it to any layout. After segmentation, we treat an empty
-// allocation domain as canonical, i.e., major-to-minor and contiguous. We have
-// to be conservative after segmentation, because a scheduler changing the
-// allocation domain of a segment boundary may invalidate heuristics of its
-// upstream/downstream segment.
+// allocation domain as the same as logical, i.e., major-to-minor and
+// contiguous. We have to be conservative after segmentation, because a
+// scheduler changing the allocation domain of a segment boundary may
+// invalidate heuristics of its upstream/downstream segment.
 //
 // For example,
 // ```
@@ -106,7 +106,7 @@ class AliasAnalysisResult {
 // enable aliases; the latter, used by ExprEvalScheduler, calls
 // Fusion::aliasOutputToInput to mark aliases.
 enum class EmptyAllocationAs {
-  kCanonical,
+  kLogical,
   kUndetermined,
 };
 
