@@ -157,6 +157,11 @@ void getHeuristics(
   // TODO: This is a heuristic, need to be tuned.
   // Represents computation_warp_groups
   iop.bdimy = (bdimx == 128) ? 2 : 1;
+
+  if(std::getenv("BDIMY") != nullptr) {
+    iop.bdimy = std::stoi(std::getenv("BDIMY"));
+  }
+
   // check all the parameters in InnerOuterParams are set.
   iop.verify();
 
