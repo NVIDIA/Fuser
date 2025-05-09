@@ -130,11 +130,11 @@ TEST_F(ScatterTest, Scatter1DIndexZerosSelfTvSameShape) {
 }
 
 TEST_F(ScatterTest, Scatter1DNoSelfInput) {
-  const std::vector<std::vector<int64_t>> input_dims = {{2, 2}};
+  const std::vector<std::vector<int64_t>> input_dims = {{8192, 128}};
 
-  const std::vector<std::vector<int64_t>> src_dims = {{2, 2}};
+  const std::vector<std::vector<int64_t>> src_dims = {{1024, 128}};
 
-  const std::vector<std::vector<int64_t>> idx_dims = {{2, 2}};
+  const std::vector<std::vector<int64_t>> idx_dims = {{4096, 128}};
 
   for (size_t test_id = 0; test_id < idx_dims.size(); ++test_id) {
     auto fusion_ptr = std::make_unique<Fusion>();
@@ -145,7 +145,7 @@ TEST_F(ScatterTest, Scatter1DNoSelfInput) {
     TensorView* tv_idx_2 = makeContigTensor(2, DataType::Int);
     TensorView* tv_src = makeContigTensor(2);
 
-    TensorView* tv_input = zeros({IrBuilder::create<Val>(2, DataType::Int), IrBuilder::create<Val>(2, DataType::Int)}, DataType::Float, false);
+    TensorView* tv_input = zeros({IrBuilder::create<Val>(input_dims[test_id][0], DataType::Int), IrBuilder::create<Val>(input_dims[test_id][1], DataType::Int)}, DataType::Float, false);
     fusion.addInput(tv_idx_1);
     fusion.addInput(tv_idx_2);
     fusion.addInput(tv_src);
@@ -158,8 +158,8 @@ TEST_F(ScatterTest, Scatter1DNoSelfInput) {
     auto options_i =
         torch::TensorOptions().dtype(torch::kLong).device(at::kCUDA, 0);
 
-    at::Tensor idx = generateScatter2DIndex(
-        0, idx_dims[test_id][1], idx_dims[test_id][0], 0);
+    at::Tensor vals = at::randn(input_dims[test_id], options);
+    auto [topk_val, idx] = at::topk(vals, /*k=*/idx_dims[test_id][0], /*dim=*/0);
 
     at::Tensor idx_1 = at::randint(0, 24, idx_dims[test_id], options_i);
     at::Tensor idx_2 = idx - idx_1;
