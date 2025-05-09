@@ -422,7 +422,7 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
       outer_roles.insert(role);
     }
     NVF_ERROR(
-        almost_outer_mnk_pos < merged_roles.size(),
+        almost_outer_mnk_pos < (int64_t)merged_roles.size(),
         "Because of tiling, we expect repeated roles");
     for (int64_t i :
          std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
