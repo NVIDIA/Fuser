@@ -3463,4 +3463,53 @@ TEST_F(IdModelTest, AlmostExactSplitGraph3) {
   fusion.print();
 }
 
+TEST_F(IdModelTest, AlmostExactSplitGraph4) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({6, 5});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {6, 5}, {30});
+  // Merge 6, 5 -> 30
+
+  auto tv3 = set(tv2);
+
+  fusion.addOutput(tv3);
+
+  tv0->outer_split(0, 2);
+  // [2, 3, 5]
+
+  tv2->outer_split(0, 2);
+  // [2, 15]
+  tv2->outer_split(1, 3);
+  // [2, 3, 5]
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+
+  std::cerr << id_model.maybeBuildGraph(IdMappingMode::EXACT).toString();
+
+  auto graph = id_model.maybeBuildGraph(IdMappingMode::EXACT);
+
+  for (const auto i: arange(tv0->nDims())) {
+    graph.mapVals(tv0->axis(i), tv2->axis(i));
+  }
+
+  std::cerr << graph.toString();
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      {tv1, tv2, tv3},
+      tv0->getLoopDomain(),
+      /*update_loop_domain_only=*/true,
+      &graph);
+
+  fusion.print();
+}
+
+
 } // namespace nvfuser
