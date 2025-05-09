@@ -221,9 +221,9 @@ class TensorIndexer {
 
   // Grab all non-divisible splits whose input IDs need to be
   // predicated.
-  std::vector<Split*> getNonDivisibleSplitsToPredicate(
-      const IndexingInfo& index_info,
-      const Expr* expr) const;
+  ValGroups getNonDivisibleIdsToPredicate(
+      TensorView* tv,
+      const IndexingInfo& index_info) const;
 
   // Augment IndexingInfo with index mappings for non-divisible split
   // predicates. Non-divisible splits on the normal indexing path
@@ -232,7 +232,7 @@ class TensorIndexer {
   void updateIndexInfoForNonDivisibleSplits(
       const Expr* expr,
       const std::vector<ForLoop*>& for_loops,
-      const std::vector<Split*>& non_divisible_splits,
+      const ValGroups& non_divisible_ids,
       IndexingInfo& index_info) const;
 
  private:

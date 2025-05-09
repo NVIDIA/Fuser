@@ -365,28 +365,24 @@ std::unordered_map<Val*, Val*> TensorIndexer::getIndexReplacementMap(
   return replacement_map;
 }
 
-std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
-    const IndexingInfo& index_info,
-    const Expr* expr) const {
-  std::vector<Split*> splits_to_predicate;
+ValGroups TensorIndexer::getNonDivisibleIdsToPredicate(
+    TensorView* tv,
+    const IndexingInfo& index_info) const {
+  const auto& non_div_info = GpuLower::current()->nonDivisiblePredicateInfo();
 
-  for (const auto& [eg, direction] : index_info.traversal_path) {
-    // NOTE: Fundamentally, the problem of non divisiblity should be
-    // checked while traversing the indexing path. Currently, it uses
-    // the information gathered in a tensor-by-tensor basis. This
-    // should be fine currently, but may not work if, e.g., the
-    // indexing path involved both backward and forward traversals.
-    if (isNonDivisibleSplit(eg)) {
-      NVF_ERROR(eg->front()->isA<Split>());
-      auto split_to_predicate = eg->front()->as<Split>();
-      splits_to_predicate.push_back(split_to_predicate);
+  ValGroups ids_to_predicate;
 
-      NVF_ERROR(
-          index_info.index_map.find(traversalGraph().toGroup(
-              split_to_predicate->in())) != index_info.index_map.end(),
-          "Index not found for non-divisible split: ",
-          split_to_predicate->toString());
-    }
+  if (auto it = non_div_info.idsToPredicate().find(tv);
+      it != non_div_info.idsToPredicate().end()) {
+    ids_to_predicate = it->second;
+  }
+
+  // Make sure all IDs have indices
+  for (const auto& id_group : ids_to_predicate) {
+    NVF_ERROR(
+        index_info.index_map.contains(id_group),
+        "Index not found for non-divisible predicate: ",
+        nvfuser::toString(id_group));
   }
 
   // In addition to splits in the indexing traversal path, there can
@@ -519,38 +515,41 @@ std::vector<Split*> TensorIndexer::getNonDivisibleSplitsToPredicate(
           continue;
         }
 
-        splits_to_predicate.push_back(split);
+        if (GpuLower::current()->divisibleSplitSet().contains(split)) {
+          continue;
+        }
+
+        ids_to_predicate.pushBack(traversalGraph().toGroup(split->in()));
       }
     }
   }
 
-  return splits_to_predicate;
+  return ids_to_predicate;
 }
 
 void TensorIndexer::updateIndexInfoForNonDivisibleSplits(
     const Expr* expr,
     const std::vector<ForLoop*>& for_loops,
-    const std::vector<Split*>& non_divisible_splits,
+    const ValGroups& non_divisible_ids,
     IndexingInfo& index_info) const {
   // Non-divisible split input IDs need to be predicated but may not
   // be included in the traversal path. Grab all IDs that are
   // currently missing indices and do another traversal
 
+  if (non_divisible_ids.empty()) {
+    return;
+  }
+
   auto& index_map = index_info.index_map;
 
   std::vector<IterDomain*> additional_ids_to_predicate;
-  for (const auto& split_to_predicate : non_divisible_splits) {
-    auto split_in_group = traversalGraph().toGroup(split_to_predicate->in());
-    auto idx_it = index_map.find(split_in_group);
+  for (const auto& id_group : non_divisible_ids) {
+    auto idx_it = index_map.find(id_group);
     if (idx_it != index_map.end()) {
       continue;
     }
 
-    additional_ids_to_predicate.push_back(split_to_predicate->in());
-  }
-
-  if (additional_ids_to_predicate.empty()) {
-    return;
+    additional_ids_to_predicate.push_back(id_group->front()->as<IterDomain>());
   }
 
   const auto additional_index_info =
@@ -726,44 +725,44 @@ std::vector<PredicateInfo> TensorIndexer::getPredicates(
   // If this is a reduction init expr, then no need to take care of
   // non divisible splits
   if (!lower_utils::isReductionInitExpr(expr)) {
-    const auto& non_div_info = GpuLower::current()->nonDivisiblePredicateInfo();
+    const auto non_divisible_ids =
+        getNonDivisibleIdsToPredicate(tv, index_info);
 
     updateIndexInfoForNonDivisibleSplits(
-        expr, for_loops, non_divisible_splits, index_info);
-    
-    if (auto it = non_div_info.idsToPredicate().find(tv);
-        it != non_div_info.idsToPredicate().end()) {
-      for (const ValGroup& vg : it->second) {
-        IterDomain* id_to_predicate = vg->front()->as<IterDomain>();
-        PredicateInfo info;
-        info.loop_stage_ = loop_stage;
-        // The start predicate should always be true
-        info.start_offset_ = zero_val;
-        info.start_predicate_ = id_to_predicate->fusion()->trueVal();
+        expr, for_loops, non_divisible_ids, index_info);
 
-        info.stop_offset_ = zero_val;
+    for (const ValGroup& id_group_to_predicate : non_divisible_ids) {
+      IterDomain* id_to_predicate =
+          id_group_to_predicate->front()->as<IterDomain>();
+      PredicateInfo info;
+      info.loop_stage_ = loop_stage;
+      // The start predicate should always be true
+      info.start_offset_ = zero_val;
+      info.start_predicate_ = id_to_predicate->fusion()->trueVal();
 
-        auto idx_it = index_map.find(vg);
-        NVF_ERROR(
-            idx_it != index_map.end(),
-            "Index not found for non-divisible ID group: ",
-            vg->front()->toString());
+      info.stop_offset_ = zero_val;
 
-        auto idx = ir_utils::replaceValRecursively(
-            idx_it->second, replacement_map_stop);
-        info.stop_predicate_ =
-            SimplifyingIrBuilder::ltExpr(idx, id_to_predicate->extent());
-        info.predicated_domains_ = {id_to_predicate};
+      auto idx_it = index_map.find(id_group_to_predicate);
+      NVF_ERROR(
+          idx_it != index_map.end(),
+          "Index not found for non-divisible ID group: ",
+          id_group_to_predicate->front()->toString());
 
-        const ValGroups& loop_deps = index_info.loop_group_dependencies.at(vg);
-        for (const auto& loop_dep : loop_deps) {
-          info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
-        }
+      auto idx =
+          ir_utils::replaceValRecursively(idx_it->second, replacement_map_stop);
+      info.stop_predicate_ =
+          SimplifyingIrBuilder::ltExpr(idx, id_to_predicate->extent());
+      info.predicated_domains_ = {id_to_predicate};
 
-        protectPredicatesWithMagicZero(info);
-
-        info_vec.emplace_back(info);
+      const ValGroups& loop_deps =
+          index_info.loop_group_dependencies.at(id_group_to_predicate);
+      for (const auto& loop_dep : loop_deps) {
+        info.loop_domains_.insert(loop_dep->front()->as<IterDomain>());
       }
+
+      protectPredicatesWithMagicZero(info);
+
+      info_vec.emplace_back(info);
     }
   }
 
