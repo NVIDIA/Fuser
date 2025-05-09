@@ -6,8 +6,6 @@
  */
 // clang-format on
 
-#include <fstream>
-
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -17,9 +15,9 @@
 #include "id_model/loop_promotion.h"
 #include "id_model/schedule.h"
 #include "id_model/to_string.h"
-#include "ir/graphviz.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
 #include "scheduler/tools/resize_utils.h"
 #include "tests/cpp/utils.h"
 #include "transform_iter.h"
@@ -235,8 +233,7 @@ void validateIELResolution(
     auto promotion_id = iel_promotion_map_it->second;
     ASSERT_TRUE(
         exact_graph.disjointValSets().strictAreMapped(promotion_id, ref_id))
-        << "Unexpected promotion. "
-        << "Expected: " << ref_id->toString()
+        << "Unexpected promotion. " << "Expected: " << ref_id->toString()
         << ". Actual: " << promotion_id->toString();
     ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(id, promotion_id))
         << "Promotion of " << id->toString()
@@ -376,9 +373,9 @@ void checkStep4Results(
   const auto& iel_promotion_map = tester.s4_iel_promotion_map;
 
   EXPECT_EQ(iel_promotion_map.size(), ref_promotion_map.size())
-      << "Mismatched Step-4 result map. "
-      << "Expected to have " << ref_promotion_map.size()
-      << " mappings but found " << iel_promotion_map.size();
+      << "Mismatched Step-4 result map. " << "Expected to have "
+      << ref_promotion_map.size() << " mappings but found "
+      << iel_promotion_map.size();
 
   for (const auto& ref_promotion_pair : ref_promotion_map) {
     const auto& ref_promotion_group = ref_promotion_pair.first;
@@ -3131,8 +3128,8 @@ TEST_F(IdModelTest, BroadcastOnlyNoLoopPromotion) {
 // Scatter output uses unique mapping schemes
 TEST_F(IdModelTest, ScatterLoopMapping) {
   auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
@@ -3335,6 +3332,135 @@ TEST_F(IdModelTest, ReproIssue5803Minimal) {
   inlineMost();
 
   IdModel id_model(&fusion, true);
+}
+
+TEST_F(IdModelTest, AlmostExactSplitGraph1) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({3 * 4 * 5});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {3 * 4 * 5}, {3, 4, 5});
+  // Outer split 3*4*5 by 3
+  // Outer split 4*5 by 4
+
+  fusion.addOutput(tv2);
+
+  tv0->split(0, 5);
+  // [3*4, 5]
+  tv0->split(0, 4);
+  // [3, 4, 5]
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+
+  std::cerr << id_model.maybeBuildGraph(IdMappingMode::EXACT).toString();
+
+  auto almost_exact_split_graph =
+      mapAlmostExactSplits(id_model.maybeBuildGraph(IdMappingMode::EXACT));
+
+  std::cerr << almost_exact_split_graph.toString();
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      {tv1, tv2},
+      tv0->getLoopDomain(),
+      /*update_loop_domain_only=*/true,
+      &almost_exact_split_graph);
+
+  fusion.print();
+}
+
+TEST_F(IdModelTest, AlmostExactSplitGraph2) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({3 * 4 * 5});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {3 * 4 * 5}, {3, 4, 5});
+  // Outer split 3*4*5 by 3
+  // Outer split 4*5 by 4
+
+  fusion.addOutput(tv2);
+
+  tv0->split(0, 5);
+  // [3*4, 5]
+  tv0->split(0, 4);
+  // [3, 4, 5]
+
+  tv0->merge(1, 2);
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+
+  std::cerr << id_model.maybeBuildGraph(IdMappingMode::EXACT).toString();
+
+  auto almost_exact_split_graph =
+      mapAlmostExactSplits(id_model.maybeBuildGraph(IdMappingMode::EXACT));
+
+  std::cerr << almost_exact_split_graph.toString();
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      {tv1, tv2},
+      tv0->getLoopDomain(),
+      /*update_loop_domain_only=*/true,
+      &almost_exact_split_graph);
+
+  fusion.print();
+}
+
+TEST_F(IdModelTest, AlmostExactSplitGraph3) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  auto tv0 = makeContigConcreteTensor({3 * 4 * 5});
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+
+  auto tv2 = reshape(tv1, {3 * 4 * 5}, {3, 4, 5});
+  // Outer split 3*4*5 by 3
+  // Outer split 4*5 by 4
+
+  fusion.addOutput(tv2);
+
+  tv0->split(0, 5);
+  // [3*4, 5]
+  tv0->split(0, 4);
+  // [3, 4, 5]
+
+  tv0->merge(1, 2);
+
+  tv1->split(0, 5);
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+
+  std::cerr << id_model.maybeBuildGraph(IdMappingMode::EXACT).toString();
+
+  auto almost_exact_split_graph =
+      mapAlmostExactSplits(id_model.maybeBuildGraph(IdMappingMode::EXACT));
+
+  std::cerr << almost_exact_split_graph.toString();
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      {tv1, tv2},
+      tv0->getLoopDomain(),
+      /*update_loop_domain_only=*/true,
+      &almost_exact_split_graph);
+
+  fusion.print();
 }
 
 } // namespace nvfuser
