@@ -829,7 +829,7 @@ Val* PredicateCompute::getInlinePredicate(
 
   preds.push_back(parallel_dom_pred);
 
-  // Don't need thread predicate for UBLK TMA load with circular buffer, it is
+  // Don't need thread predicate for 1D TMA load with circular buffer, it is
   // already predicated with ElectSync.
   if (thread_pred &&
       !(ir_utils::isCpAsyncBulk1D(expr) &&

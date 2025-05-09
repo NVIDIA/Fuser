@@ -91,10 +91,10 @@ __device__ inline bool electSync(const uint32_t& membermask) {
 // Tensor map:
 // https://docs.nvidia.com/cuda/cuda-driver-api/group__CUDA__TENSOR__MEMORY.html
 
-// UBLK:
+// 1D TMA load:
 // https://github.com/NVIDIA/cutlass/blob/main/include/cute/arch/copy_sm90_tma.hpp#L1400
 
-// UBLK Load:
+// 1D TMA Load:
 struct CpAsyncBulkG2SIndex {
   const void* raw_gmem_addr;
   uint32_t bytes;
@@ -113,7 +113,7 @@ __device__ inline void cpAsyncBulkG2S(
       : "memory");
 }
 
-// UBLK Store:
+// 1D TMA Store:
 struct CpAsyncBulkS2GIndex {
   const void* raw_gmem_addr;
   uint32_t bytes;

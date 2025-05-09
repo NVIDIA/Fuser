@@ -3198,9 +3198,9 @@ TEST_F(TMATest, CpAsyncBulk1DNonDivisibleUnroll) {
   }
 }
 
-using UblkPredicateTestParams = std::tuple<bool, bool>;
-using UblkPredicateTest = NVFuserFixtureParamTest<UblkPredicateTestParams>;
-TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
+using TMA1dPredicateTestParams = std::tuple<bool, bool>;
+using TMA1dPredicateTest = NVFuserFixtureParamTest<TMA1dPredicateTestParams>;
+TEST_P(TMA1dPredicateTest, testUnrollCircularBuffer) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr at::ScalarType dtype = at::ScalarType::Float;
   CompileParams index32bit{DataType::Int32, 255, false};
@@ -3258,11 +3258,11 @@ TEST_P(UblkPredicateTest, testUnrollCircularBuffer) {
 }
 INSTANTIATE_TEST_SUITE_P(
     TMATest,
-    UblkPredicateTest,
+    TMA1dPredicateTest,
     ::testing::Combine(
         testing::Values(true, false),
         testing::Values(true, false)),
-    [](const testing::TestParamInfo<UblkPredicateTestParams>& info)
+    [](const testing::TestParamInfo<TMA1dPredicateTestParams>& info)
         -> std::string {
       std::stringstream ss;
       ss << "has_unroll_" << std::get<0>(info.param);
