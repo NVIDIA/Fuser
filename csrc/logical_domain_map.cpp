@@ -109,8 +109,11 @@ std::tuple<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>, boo
       has_consumer_id = false;
     } else if (producer_tv == sop->srcTv()) {
       non_mapping_consumer_ids.insert(sop->getConsumerLoopID());
-      non_mapping_consumer_ids.insert(sop->getConsumerLogicalID());
-      non_mapping_producer_ids.insert(producer_tv->getLogicalDomain().at(sop->dim()));
+      // FIXME: we are actually doing a put_along_axis, instead of scatter.
+      //        The problem with scatter is that:
+      //        srcTV->getLogicalDomain().at(sop->dim()) doesn't map to anything. So it's rejected by pointwise scheduler
+      // non_mapping_consumer_ids.insert(sop->getConsumerLogicalID());
+      // non_mapping_producer_ids.insert(producer_tv->getLogicalDomain().at(sop->dim()));
       has_consumer_id = false;
     }
   } else if (

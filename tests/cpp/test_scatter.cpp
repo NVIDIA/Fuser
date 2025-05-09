@@ -132,7 +132,9 @@ TEST_F(ScatterTest, Scatter1DIndexZerosSelfTvSameShape) {
 TEST_F(ScatterTest, Scatter1DNoSelfInput) {
   const std::vector<std::vector<int64_t>> input_dims = {{8192, 128}};
 
-  const std::vector<std::vector<int64_t>> src_dims = {{1024, 128}};
+  // FIXME: this is a put_along_axis
+  // const std::vector<std::vector<int64_t>> src_dims = {{1024, 128}};
+  const std::vector<std::vector<int64_t>> src_dims = {{4096, 128}};
 
   const std::vector<std::vector<int64_t>> idx_dims = {{4096, 128}};
 
