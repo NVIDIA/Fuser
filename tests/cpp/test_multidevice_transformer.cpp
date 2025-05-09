@@ -53,79 +53,6 @@ class DistributedTransformerTest
 };
 
 namespace {
-// testValidate doesn't work out of the box due to #2906, so I had to manually
-// specify the absolute tolerances. The atols passed in are tuned for bfloat,
-// the least precise dtype. They can probably be made stricter for other
-// dtypes.
-void validate(
-    const std::vector<at::Tensor>& expected_outputs,
-    const KernelArgumentHolder& outputs,
-    const std::vector<double>& atols) {
-  using testing::SizeIs;
-  const auto num_outputs = outputs.size();
-  ASSERT_THAT(expected_outputs, SizeIs(num_outputs));
-  ASSERT_THAT(atols, SizeIs(num_outputs));
-
-  for (const auto i : arange(num_outputs)) {
-    // allclose can catch this as well. However, it would throw an exception,
-    // not showing which output was problematic.
-    NVF_ERROR(
-        outputs[i].is<at::Tensor>(), "Output is not a tensor at index ", i);
-    auto output_tensor = outputs[i].as<at::Tensor>();
-    NVF_ERROR(
-        output_tensor.dtype() == expected_outputs[i].dtype(),
-        "Output ",
-        i,
-        " has a mismatching data type.");
-
-    const double atol = atols[i];
-    // These default rtols are copied from
-    // https://github.com/pytorch/pytorch/blob/951c21d6790334d57862e94a3f582ac724147a53/torch/testing/_comparison.py#L65-L73.
-    double rtol;
-    switch (output_tensor.scalar_type()) {
-      case at::kBFloat16:
-        rtol = 1.6e-2;
-        break;
-      case at::kHalf:
-        rtol = 1e-3;
-        break;
-      case at::kFloat:
-        rtol = 1.3e-6;
-        break;
-      default:
-        rtol = 0.0;
-        break;
-    }
-
-    auto generate_comparison_details = [](at::Tensor expected_out,
-                                          at::Tensor out,
-                                          double atol,
-                                          double rtol) -> std::string {
-      std::ostringstream oss;
-      auto error = (out - expected_out).abs();
-      auto max_relative_error =
-          (error.max() / expected_out.abs().max()).item().to<double>();
-      auto error_count =
-          at::sum(error >= atol + expected_out.abs() * rtol).item();
-      indent(oss, 1)
-          << "max absolute error under rtol: "
-          << (error - expected_out.abs() * rtol).max().item().to<double>()
-          << std::endl;
-      indent(oss, 1) << "max relative error: " << max_relative_error
-                     << std::endl;
-      indent(oss, 1) << "failing elements: " << error_count << ", "
-                     << error_count.to<float>() / at::numel(out) * 100.0
-                     << "\% of tensor";
-      return oss.str();
-    };
-
-    EXPECT_TRUE(at::allclose(output_tensor, expected_outputs[i], rtol, atol))
-        << "Output " << i << " mismatches with atol " << atol << ":"
-        << std::endl
-        << generate_comparison_details(
-               expected_outputs[i], output_tensor, atol, rtol);
-  }
-}
 
 std::vector<at::Tensor> reference_mlp(
     at::Tensor x,
@@ -1014,6 +941,144 @@ TEST_P(DistributedTransformerTest, Backward) {
        0.02,
        0.02,
        0.02});
+}
+
+namespace {
+at::Tensor reference_loop_split_mlp(
+    at::Tensor inp,
+    at::Tensor w0,
+    at::Tensor w1) {
+  auto linear0 = at::linear(inp, w0);
+  auto gelu = at::gelu(linear0, "tanh");
+  auto linear1 = at::linear(gelu, w1);
+  return linear1;
+}
+
+at::Tensor reference_loop_split_mha(at::Tensor inp) {
+  auto qkv = inp.transpose(1, 2).split(E / H, -1);
+  double scale = 1.0 / std::sqrt(E / H);
+  auto sdpa_out = at::_scaled_dot_product_flash_attention(
+      qkv[0],
+      qkv[1],
+      qkv[2],
+      /*dropout_p=*/kDropoutProb,
+      /*is_causal=*/true,
+      /*return_debug_mask=*/false,
+      scale);
+  auto attn = std::get<0>(sdpa_out);
+  return attn.transpose(1, 2);
+}
+} // namespace
+
+// TODO: Allow testing for float16 and bfloat16 for loop split mlp and mha
+// This currently fails because privatizeUpcast clones cast operations,
+// which fails segmentation since the transforms are not replicated.
+TEST_F(DistributedTransformerTest, LoopSplitMLP) {
+  if ((4 * E) % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide 4*E=" << 4 * E;
+  }
+  auto dtype = DataType::Float;
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  const int d = communicator_->size();
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* inp = makeContigConcreteTensor({B, S, E}, dtype);
+  TensorView* w0 = makeContigConcreteTensor({4 * E, E}, dtype);
+  TensorView* w1 = makeContigConcreteTensor({E, 4 * E}, dtype);
+
+  TensorView* linear0 = linear(inp, w0);
+  TensorView* linear0_float = castOp(DataType::Float, linear0);
+  TensorView* gelu = tanh_gelu(linear0_float);
+  TensorView* gelu_dtype = castOp(dtype, gelu);
+  TensorView* linear1 = linear(gelu_dtype, w1);
+
+  std::vector<TensorView*> fusion_inputs{inp, w0, w1};
+  for (auto tv : fusion_inputs) {
+    fusion->addInput(tv);
+    tv->setDeviceMesh(mesh);
+  }
+  fusion->addOutput(linear1);
+
+  w0->outer_split(0, d);
+  w0->axis(0)->parallelize(ParallelType::DIDx);
+  w1->outer_split(1, d);
+  w1->axis(1)->parallelize(ParallelType::DIDx);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor inp_tensor = at::randn({B, S, E}, tensor_options.dtype(at_dtype));
+  at::Tensor w0_tensor = at::randn({4 * E, E}, tensor_options.dtype(at_dtype));
+  at::Tensor w1_tensor = at::randn({E, 4 * E}, tensor_options.dtype(at_dtype));
+
+  at::Tensor w0_sharded = shardTensor(w0_tensor, 0, mesh);
+  at::Tensor w1_sharded = shardTensor(w1_tensor, 1, mesh);
+
+  KernelArgumentHolder args = {inp_tensor, w0_sharded, w1_sharded};
+  auto outputs = executor_cache.runFusionWithInputs(args);
+  at::Tensor nvf_out = outputs[0].as<at::Tensor>();
+
+  at::Tensor ref_out =
+      reference_loop_split_mlp(inp_tensor, w0_tensor, w1_tensor);
+  validate({ref_out}, {nvf_out}, {0.02});
+}
+
+TEST_F(DistributedTransformerTest, LoopSplitMHAFwd) {
+  if (H % D != 0) {
+    GTEST_SKIP() << "Requires number of devices=" << D
+                 << " evenly divide H=" << H;
+  }
+
+  auto fusion = std::make_unique<Fusion>();
+  FusionGuard fg(fusion.get());
+
+  auto dtype = DataType::Half;
+  at::ScalarType at_dtype = data_type_to_aten(dtype);
+
+  const int d = communicator_->size();
+
+  auto mesh = DeviceMesh::createForNumDevices(d);
+
+  TensorView* qkv = makeContigConcreteTensor({B, S, H, 3 * E / H}, dtype);
+  TensorView* q = slice(qkv, {0, 0, 0, 0}, {B, S, H, E / H});
+  TensorView* k = slice(qkv, {0, 0, 0, E / H}, {B, S, H, 2 * E / H});
+  TensorView* v = slice(qkv, {0, 0, 0, 2 * E / H}, {B, S, H, 3 * E / H});
+
+  TensorView* q_permuted = permute(q, {0, 2, 1, 3});
+  TensorView* k_permuted = permute(k, {0, 2, 1, 3});
+  TensorView* v_permuted = permute(v, {0, 2, 1, 3});
+
+  SdpfaFwdResult sdpa_out = sdpfa_fwd(
+      q_permuted,
+      k_permuted,
+      v_permuted,
+      /*dropout_p=*/IrBuilder::create<Val>(kDropoutProb),
+      /*is_causal=*/IrBuilder::create<Val>(true),
+      /*scale=*/nullptr);
+
+  TensorView* attn = sdpa_out.output;
+  TensorView* attn_permute = permute(attn, {0, 2, 1, 3});
+
+  fusion->addInput(qkv);
+  fusion->addOutput(attn_permute);
+
+  qkv->setDeviceMesh(mesh);
+  qkv->outer_split(2, d);
+  qkv->axis(2)->parallelize(ParallelType::DIDx);
+
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor unsharded_inp_tensor =
+      at::randn({B, S, H, 3 * E / H}, tensor_options.dtype(at_dtype));
+  at::Tensor inp_tensor = shardTensor(unsharded_inp_tensor, 2, mesh);
+
+  KernelArgumentHolder args = {inp_tensor};
+  auto outputs = executor_cache.runFusionWithInputs(args);
+  at::Tensor nvf_out = outputs[0].as<at::Tensor>();
+  at::Tensor ref_out = reference_loop_split_mha(inp_tensor);
+  validate({ref_out}, {nvf_out}, {0.02});
 }
 
 INSTANTIATE_TEST_SUITE_P(

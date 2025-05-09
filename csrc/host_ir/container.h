@@ -9,22 +9,19 @@
 
 #include <fusion.h>
 #include <host_ir/host_ir.h>
+#include <runtime/executor.h>
 
 namespace nvfuser {
 
-class KernelExecutor;
-
 namespace hir {
 
-/*
-HostIrContainer is used to represent a host program.
-1) It inherits from Fusion, so that (Host) IRs can be resgistered to it.
-2) It holds a vector of Host Expressions `top_level_exprs_` that represent the
-host program. For now, this vector is manually managed. Moreover, because we use
-a vector as data structure, top_level_exprs_ can only represent linear Host
-programs. Later, we it should support non-linear program having a DAG structure.
-*/
-
+// HostIrContainer is used to represent a host program.
+// 1) It inherits from Fusion, so that (Host) IRs can be resgistered to it.
+// 2) It holds a vector of Host Expressions `top_level_exprs_` that represent
+// the host program. For now, this vector is manually managed. Moreover, because
+// we use a vector as data structure, top_level_exprs_ can only represent linear
+// Host programs. Later, we it should support non-linear program having a DAG
+// structure.
 class HostIrContainer final : public Fusion {
  public:
   // num_kernel_executors is only needed when the container has LaunchKernel
@@ -41,9 +38,15 @@ class HostIrContainer final : public Fusion {
   //! Print to an output stream
   std::ostream& print(std::ostream& os) const;
 
+  void resetTopLevelExprs(std::vector<Expr*> exprs) {
+    top_level_exprs_ = std::move(exprs);
+  }
+
   const std::vector<Expr*>& topLevelExprs() const;
 
   void pushBackTopLevelExprs(Expr* expr);
+
+  void insertExprAfter(int64_t index, Expr* expr);
 
   void setKernelExecutor(int64_t index, std::unique_ptr<KernelExecutor> ke);
 
@@ -55,10 +58,22 @@ class HostIrContainer final : public Fusion {
 
   Stream* getDefaultStream();
 
+  void markAlias(TensorView* original, const TensorView* new_alias) {
+    while (alias_.count(original)) {
+      original = alias_[original]->as<TensorView>();
+    }
+    alias_[new_alias] = original;
+  }
+
+  const auto& alias() const {
+    return alias_;
+  }
+
  private:
   std::vector<Expr*> top_level_exprs_;
   std::vector<std::unique_ptr<KernelExecutor>> kernel_executors_;
   Stream* default_stream_ = nullptr;
+  std::unordered_map<const Val*, Val*> alias_;
 };
 
 } // namespace hir

@@ -12,6 +12,7 @@
 #include <compute_at_map.h>
 #include <device_lower/analysis/circular_buffer.h>
 #include <device_lower/analysis/fused_reduction.h>
+#include <device_lower/analysis/non_divisible_split.h>
 #include <device_lower/analysis/predicate_elimination.h>
 #include <device_lower/analysis/sync_information.h>
 #include <device_lower/analysis/tensor_memory.h>
@@ -32,7 +33,6 @@
 #include <kernel.h>
 #include <kernel_ir.h>
 #include <logical_domain_map.h>
-#include <non_divisible_split.h>
 #include <options.h>
 #include <parallel_dimension_map.h>
 #include <runtime/executor_params.h>
@@ -227,12 +227,12 @@ class GpuLower : public NonCopyable {
     return profile_;
   }
 
-  std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() {
-    return ldst_mbarrier_map_;
+  std::unordered_map<const Expr*, TensorView*>& mbarrierMap() {
+    return mbarrier_map_;
   }
 
-  const std::unordered_map<const Expr*, TensorView*>& ldstMBarrierMap() const {
-    return ldst_mbarrier_map_;
+  const std::unordered_map<const Expr*, TensorView*>& mbarrierMap() const {
+    return mbarrier_map_;
   }
 
   bool isNvFuserZeroEnabled() {
@@ -432,8 +432,8 @@ class GpuLower : public NonCopyable {
   // precomputed values
   std::vector<Val*> all_known_vals_;
 
-  // Keep track of the mbarrier used for each load/store operation
-  std::unordered_map<const Expr*, TensorView*> ldst_mbarrier_map_;
+  // Keep track of the mbarrier used for each load/store and blackwell utcmma
+  std::unordered_map<const Expr*, TensorView*> mbarrier_map_;
 
   // Information about tensor memory usage
   TensorMemoryInfo tmem_info_;

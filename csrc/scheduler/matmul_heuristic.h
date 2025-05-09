@@ -296,12 +296,12 @@ class MatmulParams : public HeuristicParams {
   //!  will more likely be forming sub-tiles of the C matrix. This will increase
   //!  L2 hit rate/data reuse of A and B.
   //!
-  //! Eg for grid_swizzle_factor=2:
+  //! Eg for grid_traversal_factor = {2, 1}:
   //!    A1 A2 B1 B2 -->   A1 A2 A3 A4 B1 B2 B3 B4
   //!    A3 A4 B3 B4       C1 C2 C3 C4 D1 D2 D3 D4
   //!    C1 C2 D1 D2
   //!    C3 C4 D3 D4
-  int grid_swizzle_factor = 1;
+  std::pair<int, int> grid_traversal_factor = {1, 1};
 
   //! Unswizzle MMA results in shared memory to get
   //!  coalesced write to global memory
@@ -370,7 +370,7 @@ class MatmulParams : public HeuristicParams {
        << ((cta_order == TileRasterizationOrder::RowMajor) ? "row-major"
                                                            : "column-major")
        << "\n"
-       << "Grid swizzle factor: " << grid_swizzle_factor << "\n";
+       << "Grid swizzle factor: " << grid_traversal_factor << "\n";
     ss << "Tiling strategy: ";
     switch (tiling_strategy) {
       case TilingStrategy::OneTilePerCTA:
@@ -425,8 +425,9 @@ class MatmulParams : public HeuristicParams {
         (circular_buffer_options.hash() << 2) ^
         (nvfuser::hash(tile_sizes) << 3) ^
         (std::hash<size_t>{}(static_cast<size_t>(cta_order)) << 4) ^
-        (std::hash<size_t>{}(grid_swizzle_factor) << 5) ^
-        (std::hash<size_t>{}(splitk_factor) << 6);
+        (std::hash<size_t>{}(grid_traversal_factor.first) << 5) ^
+        (std::hash<size_t>{}(grid_traversal_factor.second) << 6) ^
+        (std::hash<size_t>{}(splitk_factor) << 7);
     return attr_hash;
   }
 
@@ -442,9 +443,14 @@ class MatmulParams : public HeuristicParams {
         other->circular_buffer_options == circular_buffer_options &&
         other->supported_vec_size == supported_vec_size &&
         other->cta_order == cta_order &&
-        other->grid_swizzle_factor == grid_swizzle_factor &&
+        other->tiling_strategy == tiling_strategy &&
+        other->buffering_loop_level == buffering_loop_level &&
+        other->circular_buffering_strategy == circular_buffering_strategy &&
+        other->use_ldst_matrix == use_ldst_matrix &&
+        other->grid_traversal_factor == grid_traversal_factor &&
         other->use_smem_epilogue == use_smem_epilogue &&
         other->promote_prologue_smem_reuse == promote_prologue_smem_reuse &&
+        other->cluster_dims == cluster_dims &&
         other->splitk_factor == splitk_factor;
   }
 

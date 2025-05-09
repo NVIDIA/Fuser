@@ -5,12 +5,8 @@
 import pytest
 import torch
 
-import fixtures
 import nvfuser
 from nvfuser import DataType, FusionDefinition
-
-
-multidevice_test = fixtures.multidevice_test
 
 
 @pytest.mark.mpi
@@ -59,20 +55,11 @@ def test_allreduce(multidevice_test):
             self.add_output(self.out)
 
         def multidevice_schedule(self):
-            self.sched.split(self.inp, 1, d, False)
-            self.sched.split(self.out, 1, d, False)
-            out_local = self.sched.rfactor(self.out, [2])
-
-            self.sched._set_device_mesh(self.inp, mesh)
-            self.sched._set_device_mesh(self.out, mesh)
-            self.sched._set_device_mesh(out_local, mesh)
-
-            self.sched.parallelize(self.inp, 1, nvfuser.ParallelType.mesh_x)
-            self.sched.parallelize(out_local, 1, nvfuser.ParallelType.mesh_x)
-
-            self.sched.set_allocation_as_loop(self.inp)
-            self.sched.set_allocation_as_loop(out_local)
-            self.sched.set_allocation_as_loop(self.out)
+            for tv in [self.inp, self.out]:
+                self.sched._set_device_mesh(tv, mesh)
+                self.sched.split(tv, 1, d, False)
+                self.sched.parallelize(tv, 1, nvfuser.ParallelType.mesh_x)
+                self.sched.set_allocation_as_loop(tv)
 
     m = 2
     k = d * 3

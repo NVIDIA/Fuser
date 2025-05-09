@@ -112,8 +112,7 @@ class KernelIrScanner : private IrVisitor {
         break;
       case MemoryType::Local:
         if (!allocate->size()->isConstInt()) {
-          summary_.has_dynamic_local_memory_allocations = true;
-          summary_.dynamic_lmem_allocations.emplace_back(allocate);
+          summary_.dynamic_lmem_allocations.push_back(allocate);
         }
         break;
       case MemoryType::Tensor:
@@ -515,7 +514,9 @@ std::string KernelPerformanceProfile::toString(const at::Tensor& buffer) const {
     return ss.str();
   }
 
-  double kilo_freq = at::cuda::getCurrentDeviceProperties()->clockRate;
+  const auto dev_idx = at::cuda::current_device();
+  int gpu_clock_khz;
+  cudaDeviceGetAttribute(&gpu_clock_khz, cudaDevAttrClockRate, dev_idx);
 
   ss << std::setprecision(3) << std::fixed;
 
@@ -526,7 +527,7 @@ std::string KernelPerformanceProfile::toString(const at::Tensor& buffer) const {
     double cycles = static_cast<double>(buffer[index][0].item<int64_t>());
     auto count = buffer[index][1].item<int64_t>();
     auto cycles_per_call = count == 0 ? 0.0 : cycles / (double)count;
-    auto us_per_call = cycles_per_call / kilo_freq * 1000.0;
+    auto us_per_call = cycles_per_call / (double)gpu_clock_khz * 1000.0;
     ss << expr->getOpString() << ", T" << out_tv->name() << ", " << us_per_call
        << " us, " << count << "\n";
   }

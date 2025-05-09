@@ -6,7 +6,7 @@
  */
 // clang-format on
 #pragma once
-
+#include <ir/interface_nodes.h>
 #include <scheduler/heuristic.h>
 
 #include <sstream>
@@ -136,6 +136,13 @@ class ReductionParams : public HeuristicParams {
   // in outer reduction part of inner-outer persistent scheduler, may further
   // split inner dim by grid
   bool combined_split_grid_inner_dim = false;
+
+  // TMA warp specialized, only used in inner-outer persistent scheduler
+  bool tma_warp_specialized = false;
+
+  // Circular buffer used in tma warp specialized normalization
+  CircularBufferOptions circular_buffer_options;
+
   // partial result of outer reduction is written to gmem then read back in a
   // different parallel pattern set the vectorization factor of its read and
   // write
@@ -223,7 +230,11 @@ class ReductionParams : public HeuristicParams {
     if (batches_per_block_inner_reduction > 1 || persistent_kernel) {
       ss << "Batches per block: " << batches_per_block_inner_reduction << "\n";
     }
-
+    if (circular_buffer_options.isEnable()) {
+      ss << circular_buffer_options;
+    } else {
+      ss << "Circular buffer: not used\n";
+    }
     if (schedule_3D) {
       ss << "3D Schedule\n"
          << "Outer Reduction: ";

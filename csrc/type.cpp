@@ -729,7 +729,7 @@ static const char* parallel_type2string(ParallelType t) {
     case ParallelType::TIDx:
       return "threadIdx.x";
     case ParallelType::Stream:
-      return "Stream";
+      return "StreamIdx";
     case ParallelType::Vectorize:
       return "V";
     case ParallelType::Unroll:
@@ -1629,8 +1629,8 @@ std::ostream& operator<<(
     case CircularBufferLoopStage::Epilog:
       os << "{CircularBufferEpilog}";
       break;
-    case CircularBufferLoopStage::LoadWarp:
-      os << "{LoadWarp}";
+    case CircularBufferLoopStage::AsyncWarp:
+      os << "{AsyncWarp}";
       break;
     case CircularBufferLoopStage::ComputeWarp:
       os << "{ComputeWarp}";

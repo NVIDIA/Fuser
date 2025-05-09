@@ -177,6 +177,53 @@ std::vector<PolymorphicValue> IndexSelectOp::evaluate(
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(IndexSelectOp)
 
+IndexPutAccumulateOp::IndexPutAccumulateOp(
+    IrBuilderPasskey passkey,
+    Val* out,
+    Val* acc,
+    Val* index,
+    Val* value)
+    : Expr(passkey) {
+  addInput(acc);
+  addInput(index);
+  addInput(value);
+  addOutput(out);
+}
+
+std::string IndexPutAccumulateOp::toString(int indent_size) const {
+  std::stringstream ss;
+  indent(ss, indent_size) << output(0)->toString() << "\n";
+  indent_size++;
+  indent(ss, indent_size) << " = indexPutAccumulate( ";
+  ss << input(0)->toString() << ", " << input(1)->toString() << ", "
+     << input(2)->toString() << " )\n";
+  return ss.str();
+}
+
+std::string IndexPutAccumulateOp::toInlineString(int indent_size) const {
+  NVF_CHECK(false, "Tensor op can not be printed inline");
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingIDOfValue() const {
+  return TensorDomain::noReductions(valueTv()->getLogicalDomain()).front();
+}
+
+IterDomain* IndexPutAccumulateOp::getIndexingID() const {
+  return TensorDomain::noReductions(indexTv()->getLogicalDomain()).front();
+}
+
+std::vector<PolymorphicValue> IndexPutAccumulateOp::evaluate(
+    const ExpressionEvaluator& ee,
+    const std::vector<PolymorphicValue>& inputs) const {
+  return {at::index_put(
+      /*self=*/inputs.at(0).as<at::Tensor>(),
+      /*indices=*/{inputs.at(1).as<at::Tensor>()},
+      /*values=*/inputs.at(2).as<at::Tensor>(),
+      /*accumulate=*/true)};
+}
+
+NVFUSER_DEFINE_CLONE_AND_CREATE(IndexPutAccumulateOp)
+
 GatherOp::GatherOp(
     IrBuilderPasskey passkey,
     Val* out,
@@ -2334,8 +2381,9 @@ std::vector<PolymorphicValue> LoadStoreOp::evaluate(
               out_tv->getRootDomain(), out_tv->getLogicalDomain());
       NVF_ERROR(
           permutation.has_value(),
-          "The logical domain of a Set.Permute is supposed to be a permutation of the root domain: ",
-          out_tv->toString());
+          "The logical domain of a Set.Permute is supposed to be a permutation"
+          " of the root domain: ",
+          out_tv);
       NVF_ERROR(inputs.size() == 1);
       at::Tensor in_tensor = inputs[0].as<at::Tensor>();
       at::Tensor out_tensor = in_tensor.permute(*permutation);
@@ -5316,7 +5364,9 @@ std::vector<PolymorphicValue> SdpaBwdOp::evaluate(
   // Backward tensor inputs: grad_input, query, key, value, output,
   // logsumexp, max_q/k Temporary handling of DID parallelization. See
   // https://github.com/NVIDIA/Fuser/issues/2563
-  bool first_dim_is_did = this->key()->as<TensorView>()->axis(0)->isDeviceDim();
+  auto query_domain =
+      TensorDomain::noReductions(this->query()->getLogicalDomain());
+  bool first_dim_is_did = query_domain.front()->isDeviceDim();
   auto out_grad = inputs[0].as<at::Tensor>();
   if (first_dim_is_did) {
     NVF_CHECK(out_grad.dim() == 5, "Expected 5D but found ", out_grad.sizes());

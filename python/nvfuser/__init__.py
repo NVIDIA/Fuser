@@ -2,10 +2,15 @@
 # All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import sys
+
+assert (
+    "nvfuser_next" not in sys.modules
+), "Cannot import nvfuser if nvfuser_next module is already imported."
+
 import logging
 import os
 import re
-import sys
 from typing import Callable
 import warnings
 
@@ -51,8 +56,16 @@ def disable_automatic_serialization():
 
 
 class FusionDefinition(_C._FusionDefinition):
-    def __init__(self, id=None, max_length=1024, use_multidevice_executor=False):
-        super(FusionDefinition, self).__init__(id, max_length, use_multidevice_executor)
+    def __init__(
+        self,
+        id=None,
+        max_length=1024,
+        use_multidevice_executor=False,
+        backend_type=CommunicatorBackend.nccl,
+    ):
+        super(FusionDefinition, self).__init__(
+            id, max_length, use_multidevice_executor, backend_type
+        )
         self.profiled = False
 
     def segment(self, inputs):

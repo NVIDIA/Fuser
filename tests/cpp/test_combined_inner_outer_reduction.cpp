@@ -37,7 +37,16 @@ using testing::UnorderedElementsAre;
 
 // tuple of data type, batch size (outer dim), hidden size (inner dim)
 using CombinedSchedulerParams = std::tuple<DataType, int64_t, int64_t>;
-using CombinedSchedulerTest = NVFuserFixtureParamTest<CombinedSchedulerParams>;
+
+class CombinedSchedulerTest
+    : public NVFuserFixtureParamTest<CombinedSchedulerParams> {
+ protected:
+  void SetUp() override {
+    NVFuserFixtureParamTest<CombinedSchedulerParams>::SetUp();
+    EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+  }
+};
+
 TEST_P(CombinedSchedulerTest, LayerNormBackward) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
@@ -1037,14 +1046,15 @@ TEST_P(InnerOuterReshapeTest, ReshapeOuterDimTrueOrFalse) {
   testValidate(&fusion_copy, cg_results.outputs, {t0}, __LINE__, __FILE__);
 }
 
-// enable WarpSpecializedNormalization, dtype, dim0, dim1
-using TmaWarpSpecializedParams = std::tuple<bool, DataType, int64_t, int64_t>;
+// contig, enable WarpSpecializedNormalization, dtype, dim0, dim1
+using TmaWarpSpecializedParams =
+    std::tuple<bool, bool, DataType, int64_t, int64_t>;
 class TmaWarpSpecializedTest
     : public NVFuserFixtureParamTest<TmaWarpSpecializedParams> {
  public:
   void SetUp() override {
     opt_guard_ = std::make_unique<EnableOptionsGuard>();
-    if (std::get<0>(GetParam())) {
+    if (std::get<1>(GetParam())) {
       EnableOptionsGuard::getCurOptions().set(
           EnableOption::WarpSpecializedNormalization);
     } else {
@@ -1061,8 +1071,10 @@ class TmaWarpSpecializedTest
 
 TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [_, dtype, dim0, dim1] = GetParam();
-
+  auto [contig, _, dtype, dim0, dim1] = GetParam();
+  if (!contig) {
+    GTEST_SKIP() << "TMA load requires contig inner domain.";
+  }
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto tv0 = makeContigTensor(2, dtype);
@@ -1097,14 +1109,15 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
 
 TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
-  auto [_, dtype, dim0, dim1] = GetParam();
+  auto [contig, _, dtype, dim0, dim1] = GetParam();
   std::vector<int64_t> norm_shape{dim1};
 
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
   auto grad_out = makeContigTensor(2, dtype);
   auto input = makeContigTensor(2, dtype);
-  auto rstd = makeContigConcreteTensor({dim0, 1});
+  auto rstd = contig ? makeContigConcreteTensor({dim0, 1})
+                     : makeConcreteTensor({dim0, 1});
   auto weight = makeContigTensor(1, dtype);
   fusion->addInput(grad_out);
   fusion->addInput(input);
@@ -1149,21 +1162,40 @@ TEST_P(TmaWarpSpecializedTest, RMSNormBwd) {
       __LINE__,
       __FILE__);
 }
+auto TmaWarpSpecializedTestParams() {
+  std::vector<TmaWarpSpecializedParams> values;
+  // Use 8 * SMs as the outer dimension to ensure divisible split by unroll
+  // factor (1 or 2) and SM count.
+  int64_t dim0 =
+      8 * at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+  for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
+    for (auto dtype : {DataType::Float, DataType::BFloat16}) {
+      for (bool warp_specialized : {true, false}) {
+        for (bool contig : {true, false}) {
+          if (!warp_specialized && !contig) {
+            // Don't need to test non-contiguous version when warp
+            // specialization is not used.
+            continue;
+          }
+          values.emplace_back(contig, warp_specialized, dtype, dim0, dim1);
+        }
+      }
+    }
+  }
+  return testing::ValuesIn(values);
+}
 INSTANTIATE_TEST_SUITE_P(
     ,
     TmaWarpSpecializedTest,
-    ::testing::Combine(
-        testing::Values(true, false),
-        testing::Values(DataType::Float, DataType::BFloat16),
-        testing::Values(32, 2048),
-        ::testing::Range((int64_t)1024, (int64_t)8193, (int64_t)1024)),
+    TmaWarpSpecializedTestParams(),
     [](const testing::TestParamInfo<TmaWarpSpecializedParams>& info)
         -> std::string {
       std::stringstream ss;
-      ss << "ws_" << std::get<0>(info.param);
-      ss << "_dtype_" << std::get<1>(info.param);
-      ss << "_batch_" << std::get<2>(info.param);
-      ss << "_hidden_" << std::get<3>(info.param);
+      ss << "contig_" << std::get<0>(info.param);
+      ss << "_ws_" << std::get<1>(info.param);
+      ss << "_dtype_" << std::get<2>(info.param);
+      ss << "_batch_" << std::get<3>(info.param);
+      ss << "_hidden_" << std::get<4>(info.param);
       return sanitizeTestName(ss.str());
     });
 } // namespace nvfuser

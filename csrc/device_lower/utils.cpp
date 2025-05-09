@@ -139,6 +139,7 @@ bool isTvOp(const Expr* expr) {
           TensorConstruct,
           SelectOp,
           IndexSelectOp,
+          IndexPutAccumulateOp,
           GatherOp,
           ScatterOp,
           RNGOp,
@@ -1077,13 +1078,14 @@ bool predicateAtEnd(ForLoop* loop) {
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
   const auto& other_id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(other_out_id);
+                                       ->idModel()
+                                       .idGraph(IdMappingMode::EXACT)
+                                       .toGroup(other_out_id);
 
   if (std::any_of(
-          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
-            return id->getParallelType() == ParallelType::Vectorize;
+          other_id_exact_set->begin(), other_id_exact_set->end(), [](Val* val) {
+            return val->as<IterDomain>()->getParallelType() ==
+                ParallelType::Vectorize;
           })) {
     return false;
   }
@@ -2097,21 +2099,6 @@ bool allMmaInputsGuardedByMBarrier(const MmaOp* mma) {
   return ir_utils::isCpAsyncBulkLoad(
              ir_utils::getTv(mma->inA())->definition()) &&
       ir_utils::isCpAsyncBulkLoad(ir_utils::getTv(mma->inB())->definition());
-}
-
-std::vector<Expr*> getSyncExprs(
-    AsyncOpType async_type,
-    int64_t keep_stages,
-    bool requires_commit) {
-  std::vector<Expr*> sync_exprs;
-  sync_exprs.reserve(2);
-  if (requires_commit) {
-    auto commit = IrBuilder::create<kir::AsyncCommit>(async_type);
-    sync_exprs.push_back(commit);
-  }
-  auto wait = IrBuilder::create<kir::AsyncWait>(async_type, keep_stages);
-  sync_exprs.push_back(wait);
-  return sync_exprs;
 }
 
 } // namespace lower_utils

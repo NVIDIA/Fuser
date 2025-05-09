@@ -50,12 +50,12 @@ class ParallelDimensionMap {
   Val* getRawCompute(ParallelType pt) const;
 
   //! Get the "load" parallel dimension on the given ParallelType. In case
-  //! of no warp specialization, this is the same as getRaw(pt). If we are doing
-  //! warp specialization on pt, the result is 1, because the last of pt is used
-  //! for loading circular buffer tensors.
-  Val* getRawLoad(ParallelType pt) const;
+  //! of without warp specialization, this is the same as getRaw(pt). For warp
+  //! warp specialization on pt, the result is padded_value. The last part of
+  //! pt is used for AsyncWarp warp group.
+  Val* getRawAsync(ParallelType pt) const;
 
-  //! The padded val ensures that CTA has 128 threads for the LoadWarp. This
+  //! The padded val ensures that CTA has 128 threads for the AsyncWarp. This
   //! function returns the padded val for the warp specialized ParallelType.
   int64_t getWarpSpecializationPaddedVal(ParallelType pt) const;
 
@@ -73,6 +73,9 @@ class ParallelDimensionMap {
   //! buffer tensors.
   Val* getNumComputeThreadsEachBlock() const;
 
+  //! Assign linear index to each thread of CTA. Assume (TDZ, TDY, TDX) order.
+  Val* getLinearThreadIndexAsync() const;
+
   //! Get if the kernel uses warp specialization
   bool hasWarpSpecialization() const {
     return !warp_specialized_types_.empty();
@@ -82,14 +85,22 @@ class ParallelDimensionMap {
     return dim_map_.count(pt) > 0;
   }
 
+  // If warp specialized on TIDx and padded value is less than 32 threads, then
+  // elect-sync cannot be used.
+  bool canUseElectSyncInAsyncWarp() const;
+
  private:
+  //! Get number of threads for ParallelType axis
+  //! Not used: 1, Const: n, Dynamic: -1
+  int64_t getThreadCountInDim(ParallelType pt);
+
   //! TIDx may need to be marked as non-exact as it may be padded to a
   //! multiple of the warp size.
   void adjustMappingsForWarpPadding();
 
   //! If we are doing warp specialization on pt, then we need to increase
   //! the parallel dimension size of pt by one, where the extra one is used
-  //! as the load warp. In this case, pt becomes non-exact.
+  //! as the async warp. In this case, pt becomes non-exact.
   void adjustMappingsForWarpSpecialization();
 
  private:

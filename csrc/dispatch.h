@@ -84,6 +84,7 @@ class Val;
   f(TensorConstruct);             \
   f(SelectOp);                    \
   f(IndexSelectOp);               \
+  f(IndexPutAccumulateOp);        \
   f(GatherOp);                    \
   f(ScatterOp);                   \
   f(RNGOp);                       \
@@ -124,6 +125,7 @@ class Val;
   f(FenceAsyncProxy);                 \
   f(WgMmaFence);                      \
   f(SetMaxNReg);                      \
+  f(Continue);                        \
   f(Return);                          \
   f(MBarrierInit);                    \
   f(MBarrierInvalidate);              \
@@ -157,7 +159,10 @@ class Val;
   f(Wait);                            \
   f(Synchronize);                     \
   f(StartCoalescing);                 \
-  f(EndCoalescing);
+  f(EndCoalescing);                   \
+  f(ShareMemHandles);                 \
+  f(HirAliasSelect);                  \
+  f(Deallocate);
 
 // Forward declarations for all Val and Expr types
 

@@ -129,6 +129,62 @@ class IndexSelectOp : public Expr {
   }
 };
 
+class IndexPutAccumulateOp : public Expr {
+ public:
+  using Expr::Expr;
+
+  // [ Note -- IndexPutAccumulateOp semantics ]
+  //
+  // logical ID groups of IndexPutAccumulateOp
+  // args:
+  //     acc   [ ID_indexed_g0, ID_g0 ]
+  //     index [ ID_indexing_g1, ID_broadcast ]
+  //     value [ ID_indexing_g1, ID_g0 ]
+  // output:
+  //     out   [ ID_indexed_g0, ID_g0 ]
+  //
+  // Note that:
+  //     1. indexed ID for `out` and `acc` share the same extent.
+  //     2. indexed ID for `index` and `value` share the same extent.
+  IndexPutAccumulateOp(
+      IrBuilderPasskey,
+      Val* out,
+      Val* acc,
+      Val* index,
+      Val* value);
+
+  NVFUSER_DECLARE_CLONE_AND_CREATE
+
+  const char* getOpString() const override {
+    return "IndexPutAccumulateOp";
+  }
+
+  std::string toString(int indent_size = 0) const override;
+  std::string toInlineString(int indent_size = 0) const override;
+  std::vector<PolymorphicValue> evaluate(
+      const ExpressionEvaluator& ee,
+      const std::vector<PolymorphicValue>& inputs) const override;
+
+  TensorView* accumulateTv() const {
+    return input(0)->as<TensorView>();
+  }
+
+  TensorView* indexTv() const {
+    return input(1)->as<TensorView>();
+  }
+
+  TensorView* valueTv() const {
+    return input(2)->as<TensorView>();
+  }
+
+  // return ID_indexing_g1 from value
+  IterDomain* getIndexingIDOfValue() const;
+
+  // return ID_indexing_g1 from index, for IndexPutAccumulate, there's only one
+  // indexing ID, while the remaining ID is broadcast
+  IterDomain* getIndexingID() const;
+};
+
 class NVF_API GatherOp : public Expr {
  public:
   using Expr::Expr;
@@ -2475,6 +2531,10 @@ class ForLoop final : public Expr {
 
   Val* index() const {
     return input(0);
+  }
+
+  IterDomain* iterDomain() const {
+    return input(1)->as<IterDomain>();
   }
 
   Val* indexOrStartIfTrivial() const {

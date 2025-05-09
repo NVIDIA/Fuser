@@ -29,7 +29,21 @@ bool shouldReshardAfter(Expr* expr) {
   return expr->inputs().size() == 1 && expr->outputs().size() == 1;
 }
 
-void insertReshardingsBefore(Fusion* fusion) {
+std::unordered_set<ParallelType> getParallelTypesForResharding() {
+  // Consider a reshard case:
+  // input [DIDx(i0), i1] -> op -> output [i0, DIDx(i1)]
+  // This is decomposed into:
+  // input [DIDx(i0), i1] -> op -> output [DIDx(i0), i1] -> set ->
+  // new_output [i0, DIDx(i1)] ParallelType::Serial is required here so the
+  // output is sharded as [DIDx(i0), i1] instead of [DIDx(i0), DIDx(i1)]
+  // when sharding using input as the reference.
+  std::unordered_set<ParallelType> parallel_types{
+      kParallelTypeDIDs.begin(), kParallelTypeDIDs.end()};
+  parallel_types.insert(ParallelType::Serial);
+  return parallel_types;
+}
+
+void insertReshardingSetsBefore(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   for (Expr* expr : fusion->exprs()) {
@@ -70,11 +84,12 @@ void insertReshardingsBefore(Fusion* fusion) {
       new_inputs.push_back(new_input);
       expr = ir_utils::replaceValInExprInputs(expr, input, new_input);
     }
-    shardAllLike(output, new_inputs);
+
+    shardAllLike(output, new_inputs, getParallelTypesForResharding());
   }
 }
 
-void insertReshardingsAfter(Fusion* fusion) {
+void insertReshardingSetsAfter(Fusion* fusion) {
   // Remove this after we refactor this as a pre-segmenter pass.
   FusionGuard fg(fusion);
   // Iterate backwards over fusion expressions. Reshard after will
@@ -110,17 +125,115 @@ void insertReshardingsAfter(Fusion* fusion) {
       // Update shardings new_output takes output's sharding,
       // output takes input's sharding
       shardAllLike(output, {new_output});
-      shardAllLike(input, {output});
+
+      shardAllLike(input, {output}, getParallelTypesForResharding());
     }
   }
 }
+
+// If a TensorView has a reduction dimension that's DID-split, we R-factor the
+// TensorView into a local reduction followed by an allreduce.
+//
+// For example,
+//
+//   [i{m} i{k}]               [i{n} i{k}]
+//         /   \                     /   \.
+//     iDID{d} i{k/d}           iDID{d}  i{k/d}
+//                    |
+//                    | linear
+//                    v
+//               [i{m} i{n} r{k}]
+//                         /   \.
+//                    rDID{d}  r{k/d}
+//
+// is decomposed into
+//
+//                    |
+//                    | linear (local)
+//                    v
+//                          r{k}
+//                         /   \.
+//          [i{m} i{n} iDID{d}  r{k/d}
+//                    |
+//                    | reduce (allreduce)
+//                    v
+//             [i{m} i{n} rDID{d}]
+//
+void rFactorLoopSplits(Fusion* fusion) {
+  for (TensorView* tv : fusion->allTvs()) {
+    std::vector<int64_t> rfactor_axes;
+    rfactor_axes.reserve(tv->nDims());
+
+    std::unordered_set<ParallelType> reduced_parallel_types;
+
+    for (auto&& [i, loop_id] : enumerate(tv->getLoopDomain())) {
+      if (!loop_id->isReduction()) {
+        // rFactor only applies to reduction dimensions.
+        continue;
+      }
+
+      if (std::count(
+              tv->getLogicalDomain().begin(),
+              tv->getLogicalDomain().end(),
+              loop_id) > 0) {
+        // No need to rFactor if loop_id is in the logical domain.
+        continue;
+      }
+
+      const ParallelType parallel_type = loop_id->getParallelType();
+      if (parallel_type == ParallelType::Serial) {
+        // rFactor non-parallelized IDs so they get reduced locally.
+        rfactor_axes.push_back(i);
+      } else {
+        reduced_parallel_types.insert(parallel_type);
+      }
+    }
+
+    if (!rfactor_axes.empty()) {
+      TensorView* local = tv->rFactor(rfactor_axes);
+      // Before rFactor:
+      //
+      // [i{m}         i{n}         r{k}]
+      //               /  \         /   \.
+      //         iDIDx{d} i{n/d} rDIDx{d}  r{k/d}
+      //
+      // After rFactor:
+      //
+      //                            r{k}
+      //                            /  \.
+      // [i{m}         i{n}    iDIDx{d}  r{k/d}]
+      //               /  \.
+      //         iDIDx{d} i{n/d}
+      //
+      //                 |
+      //                 | reduce
+      //                 v
+      //
+      // [i{m}         i{n}    rDIDx{d}]
+      //               /  \.
+      //         iDIDx{d} i{n/d}
+      //
+      // The TensorView returned by rFactor has two iDIDx, which is disallowed.
+      // The following code unparallelizes the first iDIDx{d}.
+      for (IterDomain* loop_id : local->getLoopDomain()) {
+        if (!loop_id->isRFactorProduct() &&
+            reduced_parallel_types.count(loop_id->getParallelType())) {
+          loop_id->parallelize(ParallelType::Serial);
+        }
+      }
+    }
+  }
+}
+
 } // namespace
 
 void InsertReshardingsPass::runPass(Fusion* fusion) {
-  // shouldReshardAfter selects whether insertReshardingsAfter or
-  // insertReshardingsBefore is used.
-  insertReshardingsAfter(fusion);
-  insertReshardingsBefore(fusion);
+  rFactorLoopSplits(fusion);
+
+  // shouldReshardAfter selects whether insertReshardingSetsAfter or
+  // insertReshardingSetsBefore is used.
+  insertReshardingSetsAfter(fusion);
+  insertReshardingSetsBefore(fusion);
 }
 
 } // namespace nvfuser::preseg_passes

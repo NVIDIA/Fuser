@@ -532,10 +532,13 @@ void AmpereMultipleMatmulScheduler::cacheOperandsToRegisters(
   }
 }
 
-void AmpereMultipleMatmulScheduler::swizzleBlockTiles(
+void AmpereMultipleMatmulScheduler::reorderBlockTileTraversal(
     TensorView* tv,
     std::vector<MatmulDimRole>& outer_dim_roles) {
-  if (params_->grid_swizzle_factor != 1) {
+  NVF_ERROR(
+      params_->grid_traversal_factor.second == 1,
+      "Ampere matmul scheduler does not support 2d grid traversal");
+  if (params_->grid_traversal_factor.first != 1) {
     // Find position of outer M and N dims in schedule_.tiled
     int64_t Mo_pos = -1, No_pos = -1;
     for (size_t i : arange(outer_dim_roles.size())) {
@@ -546,9 +549,10 @@ void AmpereMultipleMatmulScheduler::swizzleBlockTiles(
       }
     }
 
-    int factor = std::max(1, params_->grid_swizzle_factor); // must be >=1
+    int factor =
+        std::max(1, params_->grid_traversal_factor.first); // must be >=1
     switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
         // split   [I1, I2/factor, factor]
         // reorder [I1, factor, I2/factor]
         // merge   [I1*factor, I2/factor]
@@ -571,7 +575,7 @@ void AmpereMultipleMatmulScheduler::swizzleBlockTiles(
         }
         break;
 
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+      case MatmulParams::TileRasterizationOrder::RowMajor:
         // split   [I1/factor, factor, I2]
         // reorder [I1/factor, I2, factor]
         // merge   [I1/factor, I2*factor]
@@ -690,7 +694,7 @@ std::vector<std::vector<MatmulDimRole>> AmpereMultipleMatmulScheduler::
     // scheduling is the next step in this modernization.
     mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
 
-    swizzleBlockTiles(tv, merged_roles);
+    reorderBlockTileTraversal(tv, merged_roles);
 
     all_merged_roles.push_back(merged_roles);
 
@@ -905,13 +909,13 @@ void AmpereMultipleMatmulScheduler::scheduleMmaResults() {
       mma_result->axis(num_device_dims_)->parallelize(ParallelType::BIDz);
     }
     switch (params_->cta_order) {
-      case MatmulParams::TileRasterizationOrder::RowMajor:
+      case MatmulParams::TileRasterizationOrder::ColumnMajor:
         mma_result->axis(num_device_and_batch_dims_)
             ->parallelize(ParallelType::BIDx);
         mma_result->axis(num_device_and_batch_dims_ + 1)
             ->parallelize(ParallelType::BIDy);
         break;
-      case MatmulParams::TileRasterizationOrder::ColumnMajor:
+      case MatmulParams::TileRasterizationOrder::RowMajor:
         mma_result->axis(num_device_and_batch_dims_)
             ->parallelize(ParallelType::BIDy);
         mma_result->axis(num_device_and_batch_dims_ + 1)

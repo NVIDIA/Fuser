@@ -6,8 +6,9 @@
  */
 // clang-format on
 #include <device_lower/utils.h>
-#include <fusion_segmenter.h>
 #include <host_ir/lower.h>
+#include <host_ir/pass/stream_parallel_type.h>
+#include <ir/all_nodes.h>
 #include <ir/builder.h>
 #include <ir/interface_nodes.h>
 #include <ir/iostream.h>
@@ -517,7 +518,7 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* start = hic->zeroVal();
   auto* stop = stream_axis->extent();
   auto* step = hic->oneVal();
-  auto* for_loop = IrBuilder::create<ForLoop>(
+  auto* for_loop_initial_sync = IrBuilder::create<ForLoop>(
       stream_axis,
       /*index=*/j,
       start,
@@ -536,6 +537,25 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   auto* set_stream = IrBuilder::create<hir::SetCurrentStream>(stream);
   auto* initial_sync_stream =
       IrBuilder::create<hir::Synchronize>(original_stream);
+
+  // the initial sync of the streams with the user's stream is done in a
+  // separate for-loop for performance reasons with comms/compute overlap
+  std::vector<Expr*> loop_body_initial_sync = {set_stream, initial_sync_stream};
+  for (Expr* expr : loop_body_initial_sync) {
+    for_loop_initial_sync->body().push_back(expr);
+  }
+
+  auto* for_loop = IrBuilder::create<ForLoop>(
+      stream_axis,
+      /*index=*/j,
+      start,
+      stop,
+      step,
+      /*vectorize=*/false,
+      /*vectorize_shift=*/nullptr,
+      /*unroll_required=*/false,
+      CircularBufferLoopStage::NotApplicable,
+      /*circular_buffer_loop_stage_depth=*/0);
 
   TensorView* tva_j = select(tva, 0, j);
   TensorView* tva_allgathered_j = select(tva_allgathered, 0, j);
@@ -575,7 +595,6 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
 
   std::vector<Expr*> loop_body = {
       set_stream,
-      initial_sync_stream,
       tva_j->definition(),
       tva_allgathered_j->definition(),
       communication,
@@ -589,7 +608,54 @@ std::vector<Expr*> HostIrLower::lowerToCollectiveBasedPipelinedGemmComm(
   }
 
   return {
-      get_current_stream, allocate_tva_allgathered, allocate_tv_out, for_loop};
+      get_current_stream,
+      allocate_tva_allgathered,
+      allocate_tv_out,
+      for_loop_initial_sync,
+      for_loop};
+}
+
+bool HostIrLower::isLowerableAsStandaloneHostOp(Expr* expr) {
+  if (expr->isOneOf<
+          MatmulOp,
+          SliceOp,
+          SelectOp,
+          LinearOp,
+          BinaryOp,
+          ReductionOp,
+          Communication,
+          P2PCommunication>()) {
+    return true;
+  }
+
+  // Lower as standalone op "set" ops, i.e., LoadStoreOp of "Set" type with no
+  // permute
+  if (expr->isA<LoadStoreOp>()) {
+    auto* load_store = expr->as<LoadStoreOp>();
+    if (load_store->opType() == LoadStoreOpType::Set &&
+        load_store->out()->isA<TensorView>()) {
+      auto* tv = load_store->out()->as<TensorView>();
+      // If the output tensor has no root, it means it has no permute
+      if (!tv->hasRoot()) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+bool HostIrLower::shouldMergeSegmentedGroups(
+    SegmentedGroup* group1,
+    SegmentedGroup* group2) {
+  for (auto group : {group1, group2}) {
+    for (Expr* expr : group->exprs()) {
+      if (isLowerableAsStandaloneHostOp(expr)) {
+        return false;
+      }
+    }
+  }
+  return true;
 }
 
 std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
@@ -615,7 +681,7 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
       .run_combine_reductions = false,
       .run_herrmann_merge = true,
       .run_final_merge = true,
-      .only_segment_resharding_exprs = true};
+      .custom_should_merge_groups = &shouldMergeSegmentedGroups};
   std::unique_ptr<SegmentedFusion> staged_fusion =
       SegmentCandidateFinder::segment(
           std::move(fusion), KernelArgumentHolder(), options, true);
@@ -643,32 +709,18 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
     if (involvedDevices(group->exprs().at(0)).count(my_device_index) == 0) {
       continue;
     }
-    const bool is_resharding = std::any_of(
-        group->exprs().begin(), group->exprs().end(), [](auto expr) {
-          return isResharding(expr);
-        });
-    if (is_resharding) {
+    // we decide whether to insert the Expr as a standalone op in the
+    // HostIRContainer, which will result in using ATen Op to evaluate it --
+    // or, alternatively, to wrap them into a PostOnStream(HostUnit(.)) which
+    // will result in a kernel code generation.
+    if (std::all_of(
+            group->exprs().begin(),
+            group->exprs().end(),
+            isLowerableAsStandaloneHostOp)) {
       NVF_ERROR(
           group->exprs().size() == 1,
-          "Communication segments must contain only one Expr");
-      for (auto* expr : HostIrLower::lower(
-               ir_cloner.clone(group->exprs().at(0)), my_device_index)) {
-        // Allocate the recv buffers of communications
-        if (expr->isA<Communication>()) {
-          auto* communication = expr->as<Communication>();
-          TensorView* tv = communication->out();
-          if (tv->getDeviceMesh().has(my_device_index)) {
-            auto* allocate =
-                IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
-            hic->pushBackTopLevelExprs(allocate);
-          }
-        }
-        hic->pushBackTopLevelExprs(expr);
-        if (expr->isA<Communication>()) {
-          auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
-          hic->pushBackTopLevelExprs(wait);
-        }
-      }
+          "Expr executed as a standalone op cannot be fused");
+      hic->pushBackTopLevelExprs(ir_cloner.clone(group->exprs().at(0)));
     } else {
       auto host_unit = IrBuilder::create<hir::HostUnit>(
           staged_fusion->makeFusion(group).second);
@@ -683,6 +735,41 @@ std::unique_ptr<hir::HostIrContainer> HostIrLower::lower(
   for (auto output : staged_fusion->outputs()) {
     hic->addOutput(ir_cloner.clone(output));
   }
+
+  for (auto tv : hic->allTvs()) {
+    // set all host tensors to global memory type. This must be the case by
+    // definition of a host tensor, and setting the memory type to global is
+    // also required to avoid Allocate HIR nodes to throw
+    tv->setMemoryType(MemoryType::Global);
+  }
+
+  std::vector<Expr*> new_top_level_exprs;
+  for (auto top_level_expr : hic->topLevelExprs()) {
+    if (!isResharding(top_level_expr)) {
+      new_top_level_exprs.push_back(top_level_expr);
+      continue;
+    }
+    for (auto* expr : HostIrLower::lower(top_level_expr, my_device_index)) {
+      // Allocate the recv buffers of communications
+      if (expr->isA<Communication>()) {
+        auto* communication = expr->as<Communication>();
+        TensorView* tv = communication->out();
+        if (tv->getDeviceMesh().has(my_device_index)) {
+          auto* allocate =
+              IrBuilder::create<kir::Allocate>(tv, MemoryType::Global);
+          new_top_level_exprs.push_back(allocate);
+        }
+      }
+      new_top_level_exprs.push_back(expr);
+      if (expr->isA<Communication>()) {
+        auto wait = IrBuilder::create<hir::Wait>(expr->as<Communication>());
+        new_top_level_exprs.push_back(wait);
+      }
+    }
+  }
+  hic->resetTopLevelExprs(new_top_level_exprs);
+
+  preseg_passes::OptimizationPass<hir::StreamParallelType>::runPass(hic.get());
 
   return hic;
 }

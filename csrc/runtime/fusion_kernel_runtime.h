@@ -174,6 +174,17 @@ class FusionKernelRuntime {
   NVF_API const std::vector<std::unique_ptr<HeuristicParams>>& schedulers()
       const;
 
+  // Create KernelArgumentHolders for all of the segments. Sorted in
+  // the run order.
+  std::vector<KernelArgumentHolder> prepareInputs(
+      const KernelArgumentHolder& args) const;
+
+  int64_t numGroups() const {
+    int64_t n_groups = std::ssize(runtime_workspace_.group_run_order);
+    NVF_ERROR_EQ(n_groups, std::ssize(segmented_fusion_->groups()));
+    return n_groups;
+  }
+
  private:
   //! Entries indexed by groupID:
   //! Executors holding compiled kernels

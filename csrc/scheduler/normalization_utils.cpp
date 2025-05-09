@@ -16,6 +16,7 @@
 #include <scheduler/reduction_utils.h>
 #include <scheduler/registry_utils.h>
 #include <scheduler/runtime_info.h>
+#include <scheduler/tools/domain_map.h>
 #include <scheduler/tools/inlining.h>
 #include <scheduler/utils.h>
 #include <utils.h>
@@ -1163,6 +1164,19 @@ bool compileTimeCheck(Fusion* fusion, SchedulerType scheduler_type) {
         scheduler_type, "no reduction tv");
     return false;
   }
+
+  // Reject when output IDs are not covered by reference tv. Assuming reduction
+  // scheduler simply uses reduction_tvs[0] as the reference, if that changes,
+  // this needs to be changed. see issue
+  // https://github.com/NVIDIA/Fuser/issues/3811
+  scheduler_tools::DomainMap domain_map(fusion);
+  if (!domain_map.isValidReference(reduction_tvs[0], /*check_inputs=*/false)) {
+    scheduler_debug_utils::canScheduleRejectReason(
+        scheduler_type,
+        "Output contains ID that's not scheduled by reference tv.");
+    return false;
+  }
+
   auto reduction_type =
       reduction_scheduler_utils::getReductionType(reduction_tvs);
   const SchedulerType persistent_heuristic =
@@ -1319,11 +1333,15 @@ std::vector<TensorView*> movePersistentBufferToSmem(
     }
     if (use_smem) {
       tv->setMemoryType(MemoryType::Shared);
-      // When loading from global memory (gmem), use CpAsync with a short data
-      // path of gmem -> smem to reduce temporary register usage. Otherwise, the
-      // data path from gmem to shared memory (smem) follows this sequence: gmem
-      // -> L1 cache -> register -> smem.
-      if (supportCpAsync(tv) && is_cached_input) {
+      // Use 1D TMA, CpAsyncBulk
+      if (rparams->tma_warp_specialized && is_cached_input) {
+        tv->definition()->as<LoadStoreOp>()->setOpType(
+            LoadStoreOpType::CpAsyncBulk);
+      } else if (supportCpAsync(tv) && is_cached_input) {
+        // When loading from global memory (gmem), use CpAsync with a short data
+        // path of gmem -> smem to reduce temporary register usage. Otherwise,
+        // the data path from gmem to shared memory (smem) follows this
+        // sequence: gmem -> L1 cache -> register -> smem.
         tv->definition()->as<LoadStoreOp>()->setOpType(
             LoadStoreOpType::CpAsync);
         tv->definition()->as<LoadStoreOp>()->setCacheOp(CacheOp::Unspecified);
@@ -1336,21 +1354,28 @@ std::vector<TensorView*> movePersistentBufferToSmem(
       // transaction). In each transaction, different banks are visited, e.g.
       // transaction-1, threads 0-7 visit banks 0-31
       auto cached_tv = tv->cacheAfter();
-      // At this point, if cached_tv has multiple uses,  it becomes the
-      // persistent buffer instead of tv due to the way the persistent buffer
-      // selector works. To make tv remain as the persistent buffer, all of the
-      // uses must be privatized.
-      const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
       smem_consumers.push_back(cached_tv);
-      for (auto i = 1; i < (int)consumers.size(); i++) {
-        auto consumer = consumers.at(i);
-        // recompute cached_tv for each consumer, so it is no longer persistent
-        // similar to project to inputs, here we are projecting to the shared
-        // memory buffer.
-        auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
-        ir_utils::replaceValInExprInputs(
-            consumer->definition(), cached_tv, cached_tv_replicate);
-        smem_consumers.push_back(cached_tv_replicate);
+      // At this point, if cached_tv has multiple uses,  it becomes the
+      // persistent buffer instead of smem tv, due to the way the persistent
+      // buffer selector works. To make smem tv remain as the persistent buffer,
+      // all of the uses must be privatized. However, for tma warp specialized
+      // case, we don't need to privatize the cached_tv, so the smem tv is only
+      // consumed by its register cache. It can be used to issue the next TMA
+      // load right after the copy from shared memory to register cache.
+      // Otherwise, it needs to wait all the computations to finish before
+      // issuing the next TMA.
+      if (!rparams->tma_warp_specialized) {
+        const auto& consumers = ir_utils::consumerTvsOf(cached_tv);
+        for (auto i = 1; i < (int)consumers.size(); i++) {
+          auto consumer = consumers.at(i);
+          // recompute cached_tv for each consumer, so it is no longer
+          // persistent similar to project to inputs, here we are projecting to
+          // the shared memory buffer.
+          auto cached_tv_replicate = RecomputeTv::recompute(cached_tv, {tv});
+          ir_utils::replaceValInExprInputs(
+              consumer->definition(), cached_tv, cached_tv_replicate);
+          smem_consumers.push_back(cached_tv_replicate);
+        }
       }
     }
   }
