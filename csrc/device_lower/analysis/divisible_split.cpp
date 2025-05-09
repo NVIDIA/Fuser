@@ -5,9 +5,8 @@
  * SPDX-License-Identifier: BSD-3-Clause
  */
 // clang-format on
-
 #include <device_lower/analysis/divisible_split.h>
-
+#include <device_lower/lower2device.h>
 #include <disjoint_set.h>
 #include <ir/utils.h>
 
@@ -114,6 +113,29 @@ std::unordered_set<Split*> getAllDivisibleSplits(
         all_divisible_splits.emplace(other_id->definition()->as<Split>());
       }
     }
+  }
+
+  // Expand with ExactGraph if available
+  if (GpuLower::hasCurrent() && GpuLower::current()->hasIdModel()) {
+    const auto& exact_graph =
+        GpuLower::current()->idModel().idGraph(IdMappingMode::EXACT);
+    std::unordered_set<Split*> additional_splits;
+    for (const auto& split : all_divisible_splits) {
+      const auto& split_group = exact_graph.toGroup(split);
+      for (const auto& additional_expr : *split_group) {
+        auto additional_split = dynamic_cast<Split*>(additional_expr);
+        NVF_ERROR(
+            additional_split != nullptr,
+            "Unexpected to have a non-split expr: ",
+            additional_expr->toString());
+        if (!all_divisible_splits.contains(additional_split)) {
+          additional_splits.insert(additional_split);
+          std::cerr << "Additional split: " << additional_split->toString();
+        }
+      }
+    }
+    all_divisible_splits.insert(
+        additional_splits.begin(), additional_splits.end());
   }
 
   return all_divisible_splits;
