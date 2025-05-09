@@ -285,7 +285,8 @@ def get_default_install_prefix():
 
 class build_ext(setuptools.command.build_ext.build_ext):
     def __init__(self, *args, **kwargs):
-        self.install_dir = kwargs.pop("install_dir", get_default_install_prefix())
+        install_dir = kwargs.pop("install_dir", "")
+        self.install_dir = install_dir if install_dir else get_default_install_prefix()
         super().__init__(*args, **kwargs)
 
     def copy_library(self, ext, library_name):
