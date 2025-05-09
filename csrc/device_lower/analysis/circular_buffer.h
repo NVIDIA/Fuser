@@ -75,7 +75,7 @@ class CircularBufferInfo {
   bool isCircularBufferedIterDomain(IterDomain* id);
 
   //! Returns true if the fusion has warp specialized circular buffer
-  const bool& hasWarpSpecialized() const {
+  bool hasWarpSpecialized() const {
     return warp_specialized_on_ != ParallelType::Serial;
   };
   //! Get the circular buffer options for the given axis.
