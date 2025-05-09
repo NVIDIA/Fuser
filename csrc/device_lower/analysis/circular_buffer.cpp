@@ -270,9 +270,6 @@ void CircularBufferInfo::setCircularBufferOptions(
       circular_buffer_options_.find(concrete_loop_id);
   if (maybe_existing_depth_it == circular_buffer_options_.end()) {
     circular_buffer_options_[concrete_loop_id] = opt;
-    has_warp_specialized_ =
-        (has_warp_specialized_ ||
-         std::holds_alternative<WarpSpecialized>(opt.type));
     // Set the warp specialized dim and ensure there is only one
     auto old_pt = warp_specialized_on_;
     if (std::holds_alternative<WarpSpecialized>(opt.type)) {
@@ -311,6 +308,8 @@ void CircularBufferInfo::setCircularBufferOptions(
 void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
   auto option = tv->circularBufferOptions();
   auto old_val = computation_warp_groups_;
+  // -1 indicates not set yet, if set, should not change
+  int64_t new_val = (old_val == -1) ? 1 : old_val;
   if (std::holds_alternative<WarpSpecialized>(option.type)) {
     auto ws_pt = std::get<WarpSpecialized>(option.type).on;
     int64_t next_pos = getInnerMostCircularBufferPosition(tv) + 1;
@@ -318,18 +317,16 @@ void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
     if (consumer->nDims() > next_pos &&
         consumer->axis(next_pos)->getParallelType() == ws_pt &&
         consumer->axis(next_pos)->extent()->isConst()) {
-      computation_warp_groups_ =
-          consumer->axis(next_pos)->extent()->value().as<int64_t>();
-    } else {
-      computation_warp_groups_ = 1;
+      new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
     }
-  } else {
-    computation_warp_groups_ = 1;
   }
-  // -1 indicates not set yet, if set, should not change
   NVF_ERROR(
-      old_val == -1 || old_val == computation_warp_groups_,
-      "All circular buffered tv should have the same number of computation warp groups!");
+      old_val == -1 || old_val == new_val,
+      "Different number of computation warp group is not supported: ",
+      old_val,
+      " and ",
+      new_val);
+  computation_warp_groups_ = new_val;
 }
 
 IterDomain* CircularBufferInfo::getCircularBufferAxis(

@@ -62,8 +62,6 @@ class CircularBufferInfo {
 
   Val* getOriginalAllocSize(const TensorView* tv);
 
-  //! Get and Set computation_warp_groups_
-
   int64_t getComputationWarpGroups() const {
     return computation_warp_groups_;
   }
@@ -75,9 +73,10 @@ class CircularBufferInfo {
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
+
   //! Returns true if the fusion has warp specialized circular buffer
   const bool& hasWarpSpecialized() const {
-    return has_warp_specialized_;
+    return warp_specialized_on_ != ParallelType::Serial;
   };
   //! Get the circular buffer options for the given axis.
   const CircularBufferOptions& getCircularBufferOptionsFor(
@@ -149,8 +148,6 @@ class CircularBufferInfo {
   //! iterdomains.
   std::unordered_map<IterDomain*, std::unordered_set<const TensorView*>>
       circular_buffer_tvs_;
-  //! True if the fusion has warp specialized circular buffer
-  bool has_warp_specialized_ = false;
 
   //! Number of computation warp groups
   int64_t computation_warp_groups_ = -1;
