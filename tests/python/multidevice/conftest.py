@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 import nvfuser
+import os
 import pytest
 import torch
 import torch.distributed as dist
@@ -49,6 +50,8 @@ class MultideviceTest:
 
 @pytest.fixture
 def multidevice_test():
+    os.environ["NVIDIA_TF32_OVERRIDE"] = "0"
+
     # Reset the cache here to work around a bug in FusionDefintion.execute.
     # FusionDefinition._finalize_definition maps the same `definition` to the
     # same FusionSchedules and therefore the same FusionExecutorCache. This was

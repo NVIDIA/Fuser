@@ -39,6 +39,12 @@ class MultiDeviceTest : public NVFuserTest {
       int64_t axis,
       const DeviceMesh& mesh);
 
+  // Validate the outputs of a fusion against expected outputs.
+  static void validate(
+      const std::vector<at::Tensor>& expected_outputs,
+      const KernelArgumentHolder& outputs,
+      const std::vector<double>& atols);
+
   Communicator* communicator_;
   c10::TensorOptions tensor_options;
   bool debug_print;

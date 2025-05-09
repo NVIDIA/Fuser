@@ -72,6 +72,11 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       new_output->axis(sharding_axis)->parallelize(ParallelType::Serial);
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
+
+      // Set allocation domain for comm in/out
+      input_permute->setAllocationDomain(input_permute->getLoopDomain(), true);
+      output_permute->setAllocationDomain(
+          output_permute->getLoopDomain(), true);
     }
     // For scatter operations i.e. ID goes from unsharded to sharded
     // Update input to push the scattered axis to the front -> collective ->
@@ -132,6 +137,11 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       // between `input_permute` and `output_permute`.
       output_permute->setDeviceMesh(output->getDeviceMesh());
       new_output->setDeviceMesh(output->getDeviceMesh());
+
+      // Set allocation domain for comm in/out
+      input_permute->setAllocationDomain(input_permute->getLoopDomain(), true);
+      output_permute->setAllocationDomain(
+          output_permute->getLoopDomain(), true);
     }
   }
 }

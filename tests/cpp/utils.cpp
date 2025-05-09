@@ -40,6 +40,11 @@ NVFuserTest::NVFuserTest() {
   std::srand(getCRandomSeed());
 
   EnableOptionsGuard::getCurOptions().set(EnableOption::IdModelExtraValidation);
+
+  constexpr const char* kTf32Override = "NVIDIA_TF32_OVERRIDE";
+  if (setenv(kTf32Override, "0", /*overwrite=*/1) != 0) {
+    TORCH_WARN("Failed to set ", kTf32Override, " to 0");
+  }
 }
 
 void NVFuserTest::SetUp() {
