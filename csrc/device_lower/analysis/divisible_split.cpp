@@ -123,6 +123,7 @@ std::unordered_set<Split*> getAllDivisibleSplits(
     for (const auto& split : all_divisible_splits) {
       const auto& split_group = exact_graph.toGroup(split);
       for (const auto& additional_expr : *split_group) {
+        NVF_ERROR(additional_expr != nullptr);
         auto additional_split = dynamic_cast<Split*>(additional_expr);
         NVF_ERROR(
             additional_split != nullptr,
