@@ -6,8 +6,6 @@
  */
 // clang-format on
 
-#include <fstream>
-
 #include <gmock/gmock-matchers.h>
 #include <gtest/gtest.h>
 
@@ -17,9 +15,9 @@
 #include "id_model/loop_promotion.h"
 #include "id_model/schedule.h"
 #include "id_model/to_string.h"
-#include "ir/graphviz.h"
 #include "ops/all_ops.h"
 #include "scheduler/tools/inlining.h"
+#include "scheduler/tools/loop_domain_scheduler.h"
 #include "scheduler/tools/resize_utils.h"
 #include "tests/cpp/utils.h"
 #include "transform_iter.h"
@@ -235,8 +233,7 @@ void validateIELResolution(
     auto promotion_id = iel_promotion_map_it->second;
     ASSERT_TRUE(
         exact_graph.disjointValSets().strictAreMapped(promotion_id, ref_id))
-        << "Unexpected promotion. "
-        << "Expected: " << ref_id->toString()
+        << "Unexpected promotion. " << "Expected: " << ref_id->toString()
         << ". Actual: " << promotion_id->toString();
     ASSERT_TRUE(loop_graph.disjointValSets().strictAreMapped(id, promotion_id))
         << "Promotion of " << id->toString()
@@ -376,9 +373,9 @@ void checkStep4Results(
   const auto& iel_promotion_map = tester.s4_iel_promotion_map;
 
   EXPECT_EQ(iel_promotion_map.size(), ref_promotion_map.size())
-      << "Mismatched Step-4 result map. "
-      << "Expected to have " << ref_promotion_map.size()
-      << " mappings but found " << iel_promotion_map.size();
+      << "Mismatched Step-4 result map. " << "Expected to have "
+      << ref_promotion_map.size() << " mappings but found "
+      << iel_promotion_map.size();
 
   for (const auto& ref_promotion_pair : ref_promotion_map) {
     const auto& ref_promotion_group = ref_promotion_pair.first;
@@ -3131,8 +3128,8 @@ TEST_F(IdModelTest, BroadcastOnlyNoLoopPromotion) {
 // Scatter output uses unique mapping schemes
 TEST_F(IdModelTest, ScatterLoopMapping) {
   auto fusion_ptr = std::make_unique<Fusion>();
-  auto& fusion = *fusion_ptr;
-  FusionGuard fg(fusion_ptr.get());
+  Fusion& fusion = *fusion_ptr.get();
+  FusionGuard fg(&fusion);
 
   auto tv0 = makeContigTensor(1);
   fusion.addInput(tv0);
@@ -3335,6 +3332,46 @@ TEST_F(IdModelTest, ReproIssue5803Minimal) {
   inlineMost();
 
   IdModel id_model(&fusion, true);
+}
+
+TEST_F(IdModelTest, SplitingReshape) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({2 * 2 * 2});
+  fusion.addInput(in);
+  TensorView* out = reshape(in, {2 * 2 * 2}, {2 * 2, 2});
+  fusion.addOutput(out);
+
+  in->outer_split(0, 2);
+  out->outer_split(0, 2);
+
+  IdModel id_model(&fusion);
+  const ValGraph& almost_exact_graph = id_model.buildAlmostExactGraph();
+  EXPECT_TRUE(almost_exact_graph.disjointValSets().strictAreMapped(
+      in->axis(0), out->axis(0)));
+  EXPECT_FALSE(almost_exact_graph.disjointValSets().strictAreMapped(
+      in->axis(0), out->axis(1)));
+  EXPECT_FALSE(almost_exact_graph.disjointValSets().strictAreMapped(
+      in->axis(1), out->axis(2)));
+}
+
+TEST_F(IdModelTest, SplitingReshape_DifferentExtents) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  TensorView* in = makeContigConcreteTensor({12});
+  fusion.addInput(in);
+  TensorView* out = reshape(in, {12}, {6, 2});
+  fusion.addOutput(out);
+
+  in->outer_split(0, 2);
+  out->outer_split(0, 3);
+
+  IdModel id_model(&fusion);
+  const ValGraph& almost_exact_graph = id_model.buildAlmostExactGraph();
+  EXPECT_FALSE(almost_exact_graph.disjointValSets().strictAreMapped(
+      in->axis(0), out->axis(0)));
 }
 
 } // namespace nvfuser

@@ -178,14 +178,19 @@ class LoopDomainScheduler {
  public:
   LoopDomainScheduler(
       std::vector<IterDomain*> ref_loop_dom,
-      bool update_loop_domain_only = false)
+      bool update_loop_domain_only = false,
+      const ValGraph* scheduling_graph = nullptr)
       : ref_loop_dom_(std::move(ref_loop_dom)),
-        update_loop_domain_only_(update_loop_domain_only) {
+        update_loop_domain_only_(update_loop_domain_only),
+        graph_(scheduling_graph) {
     NVF_ERROR(!ref_loop_dom_.empty());
 
-    Fusion* fusion = ref_loop_dom_.front()->fusion();
-    id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
-    id_model_->buildExactGraph();
+    if (graph_ == nullptr) {
+      Fusion* fusion = ref_loop_dom_.front()->fusion();
+      id_model_ = std::make_unique<IdModel>(fusion, /*build_graphs=*/false);
+      id_model_->buildExactGraph();
+      graph_ = &(id_model_->idGraph(IdMappingMode::EXACT));
+    }
 
     ref_id_groups_ = graph().toGroups(ref_loop_dom_);
 
@@ -203,8 +208,9 @@ class LoopDomainScheduler {
   void schedule(TensorView* tv) const;
 
  private:
-  ValGraph& graph() const {
-    return id_model_->idGraph(IdMappingMode::EXACT);
+  const ValGraph& graph() const {
+    NVF_ERROR(graph_ != nullptr);
+    return *graph_;
   }
 
   ValGraphBFS::ExprPath getReplayPath(TensorView* tv) const;
@@ -248,6 +254,7 @@ class LoopDomainScheduler {
   // updates it to make it look like the given reference loop domain
   bool update_loop_domain_only_ = false;
   std::unique_ptr<IdModel> id_model_;
+  const ValGraph* graph_ = nullptr;
   ValGroups ref_id_groups_;
   ValGroups all_ancestors_of_ref_;
 };
@@ -477,12 +484,13 @@ ValGraphBFS::ExprPath LoopDomainScheduler::getReplayPath(TensorView* tv) const {
 void scheduleLoopDomainsLike(
     const std::vector<TensorView*>& tvs,
     const std::vector<IterDomain*>& ref_loop_dom,
-    bool update_loop_domain_only) {
+    bool update_loop_domain_only,
+    const ValGraph* graph) {
   if (tvs.empty()) {
     return;
   }
 
-  LoopDomainScheduler scheduler(ref_loop_dom, update_loop_domain_only);
+  LoopDomainScheduler scheduler(ref_loop_dom, update_loop_domain_only, graph);
 
   for (auto tv : tvs) {
     // Loop domain of fusion inputs should have no meaning,
