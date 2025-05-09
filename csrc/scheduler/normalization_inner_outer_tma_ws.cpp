@@ -46,6 +46,7 @@ void getHeuristics(
     int64_t tmp_gmem_write_vect = -1;
     int64_t vectorization_factor_outer = -1;
     int64_t bdimx = -1;
+    int64_t bdimy = -1;
     // derived metrics for sorting
     int64_t warps_per_sm = -1;
     int64_t required_register_per_thread = -1;
@@ -55,6 +56,7 @@ void getHeuristics(
       NVF_ERROR(inner_vect != -1, "inner_vect is not set.");
       NVF_ERROR(inner_batch != -1, "inner_batch is not set.");
       NVF_ERROR(bdimx != -1, "bdimx is not set.");
+      NVF_ERROR(bdimy != -1, "bdimy is not set.");
       NVF_ERROR(gdimy != -1, "gdimy is not set.");
       NVF_ERROR(tmp_gmem_write_vect != -1, "tmp_gmem_write_vect is not set.");
       NVF_ERROR(
@@ -67,7 +69,8 @@ void getHeuristics(
          << ", gdimy: " << gdimy
          << ", tmp_gmem_write_vect: " << tmp_gmem_write_vect
          << ", vectorization_factor_outer: " << vectorization_factor_outer
-         << ", bdimx: " << bdimx << ", warps_per_sm: " << warps_per_sm
+         << ", bdimx: " << bdimx << ", bdimy: " << bdimy
+         << ", warps_per_sm: " << warps_per_sm
          << ", required_register_per_thread: " << required_register_per_thread
          << ", available_register_per_thread: "
          << available_register_per_thread;
@@ -151,6 +154,9 @@ void getHeuristics(
   rparams->combined_split_grid_inner_dim =
       iop.vectorization_factor_outer * iop.bdimx * iop.gdimy < inner_dim_numel;
 
+  // TODO: This is a heuristic, need to be tuned.
+  // Represents computation_warp_groups
+  iop.bdimy = (bdimx == 128) ? 2 : 1;
   // check all the parameters in InnerOuterParams are set.
   iop.verify();
 
@@ -182,13 +188,15 @@ void getHeuristics(
   // (4) Round down to power of 2, since we need vectorized access in
   //     smem reduction and loading of inner broadcast tv.
   iter_remaining = scheduler_utils::safeDiv(iter_remaining, n_stages);
-  int64_t heu_iter_unroll = std::min(2L, iter_remaining);
+  int64_t heu_iter_unroll = std::min(4L, iter_remaining);
   int64_t max_iter_unroll = max_n_copies / n_stages;
   int64_t iter_unroll_factor = std::min(heu_iter_unroll, max_iter_unroll);
   iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
   while (outer_dim_numel % iter_unroll_factor) {
     iter_unroll_factor /= 2;
   }
+
+  rparams->computation_warp_groups = iop.bdimy;
   rparams->unroll_factor_iter_dom = iter_unroll_factor;
   rparams->vectorization_factor_outer = iop.vectorization_factor_outer;
   rparams->vectorization_factor_tmp_gmem_write = iop.tmp_gmem_write_vect;
@@ -206,7 +214,7 @@ void getHeuristics(
       iop.gdimy,
       LaunchParams::UNINITIALIZED_VAL,
       iop.bdimx,
-      LaunchParams::UNINITIALIZED_VAL,
+      iop.bdimy + 1,
       LaunchParams::UNINITIALIZED_VAL);
 
   rparams->tag = "TMA Warp Specialized Persistent Heuristic.\n";
@@ -403,6 +411,16 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
   // Step-1, propagate iteration domain in inner reduction.
   // Step-2, propagate reduction domain in inner reduction.
   if (rparams->tma_warp_specialized) {
+    std::cout << "inner_reference_tv " << inner_reference_tv->toString()
+              << std::endl;
+    if (rparams->computation_warp_groups > 1) {
+      // [BIDy, TIDy, Circular, Unroll, ...] --> [BIDy, Circular, TIDy, Unroll]
+      std::unordered_map<int64_t, int64_t> reorder_map{{1, 2}};
+      inner_reference_tv->reorder(reorder_map);
+    }
+    std::cout << "inner_reference_tv " << inner_reference_tv->toString()
+              << std::endl;
+
     // Find the axis that splits the reduction domain and iteration domain.
     int first_redu_axis = -1;
     int n_dims = (int)inner_reference_tv->nDims();
@@ -467,12 +485,18 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     reduction_scheduler_utils::propagateTransformation(
         inner_reference_tv, boundaryNodesSet);
   }
+
+  fusion->printMath();
+
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
 
   // parallelization propagation
-  const auto& selected_tvs_inner =
+  auto selected_tvs =
       scheduler_utils::getAllTvsFrom(inner_reduction_tvs, boundaryNodesSet);
+  // for(auto tv : tma_load_tvs){
+  //   selected_tvs.erase(tv);
+  // }
   const auto& unroll_vectorizable_cached_tvs =
       reduction_scheduler_utils::getCachedTvsToUnrollOrVectorize(
           inner_reference_tv, is_vectorize, cached_inputs, cached_outputs);
@@ -483,7 +507,12 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       group_inner_reduction,
       inner_reduction_tvs,
       unroll_vectorizable_cached_tvs,
-      {selected_tvs_inner.begin(), selected_tvs_inner.end()});
+      {selected_tvs.begin(), selected_tvs.end()});
+  if (rparams->computation_warp_groups > 1) {
+    for (auto tv : tma_load_tvs) {
+      tv->axis(2)->parallelize(ParallelType::Serial);
+    }
+  }
 
   // Propagate outer reduction. Each outer reduction is connected with its
   // cached_gmem and output, since we added all the cached_gmem to the
