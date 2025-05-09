@@ -375,4 +375,6 @@ std::unordered_map<ValGroup, IterDomain*> updateValGroupIdMap(
 // This adds additional mappings for resize operations.
 ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph);
 
+ValGraph mapAlmostExactSplits(const ValGraph& graph);
+
 } // namespace nvfuser

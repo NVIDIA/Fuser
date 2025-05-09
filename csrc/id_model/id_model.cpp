@@ -12,7 +12,6 @@
 #include <utility>
 
 #include "device_lower/analysis/circular_buffer.h"
-#include "device_lower/analysis/trivial_broadcast.h"
 #include "device_lower/lower2device.h"
 #include "device_lower/utils.h"
 #include "disjoint_set.h"
@@ -25,7 +24,6 @@
 #include "iter_visitor.h"
 #include "logical_domain_map.h"
 #include "transform_iter.h"
-#include "val_graph_visitor.h"
 
 namespace nvfuser {
 
@@ -1424,6 +1422,145 @@ ValGraph buildPermissiveResizeGraph(const ValGraph& permissive_graph) {
   }
   resize_graph.validateConsistency();
   return resize_graph;
+}
+
+// https://github.com/NVIDIA/Fuser/blob/main/doc/reading/iterdomain.md#2-properties-of-iterdomain-transformations
+ValGraph mapAlmostExactSplits(const ValGraph& graph) {
+  auto new_graph = graph;
+
+  // vg: I0
+  auto get_l1r2_splits =
+      [&new_graph](
+          const ValGroup& vg) -> std::vector<std::pair<ExprGroup, ExprGroup>> {
+    std::vector<std::pair<ExprGroup, ExprGroup>> l1_r2_splits;
+
+    if (!new_graph.hasUses(vg)) {
+      return {};
+    }
+
+    for (const ExprGroup& use_of_vg : new_graph.getUses(vg)) {
+      auto split_of_vg = dynamic_cast<Split*>(use_of_vg->front());
+      if (split_of_vg == nullptr) {
+        continue;
+      }
+
+      // mn
+      const ValGroup& inner_group = new_graph.toGroup(split_of_vg->inner());
+
+      if (!new_graph.hasUses(inner_group)) {
+        return {};
+      }
+
+      for (const ExprGroup& use_of_inner_group :
+           new_graph.getUses(inner_group)) {
+        auto split_of_inner_group =
+            dynamic_cast<Split*>(use_of_inner_group->front());
+        if (split_of_inner_group == nullptr) {
+          continue;
+        }
+
+        // This split needs to be divisible
+        auto extent = split_of_inner_group->in()->extent();
+        auto factor = split_of_inner_group->factor();
+        if (extent->isConstScalar() && factor->isConstScalar() &&
+            (extent->evaluate().as<int64_t>() %
+                 factor->evaluate().as<int64_t>() !=
+             0)) {
+          continue;
+        }
+
+        l1_r2_splits.emplace_back(use_of_vg, use_of_inner_group);
+
+        std::cerr << "L1R2 found: " << split_of_vg->toString()
+                  << split_of_inner_group->toString();
+      }
+    }
+
+    return l1_r2_splits;
+  };
+
+  auto get_matching_l2r1_splits =
+      [&new_graph](
+          const ValGroup& vg, const std::pair<ExprGroup, ExprGroup>& l1_r2)
+      -> std::optional<std::pair<ExprGroup, ExprGroup>> {
+    auto m = l1_r2.second->front()->as<Split>()->outer()->extent();
+    auto n = l1_r2.second->front()->as<Split>()->inner()->extent();
+
+    for (const ExprGroup& use_of_vg : new_graph.getUses(vg)) {
+      auto split_of_vg = dynamic_cast<Split*>(use_of_vg->front());
+      if (split_of_vg == nullptr) {
+        continue;
+      }
+
+      if (!split_of_vg->inner()->extent()->sameAs(n)) {
+        continue;
+      }
+
+      // I0/n
+      const ValGroup& outer_group = new_graph.toGroup(split_of_vg->outer());
+
+      if (!new_graph.hasUses(outer_group)) {
+        return {};
+      }
+
+      for (const ExprGroup& use_of_outer_group :
+           new_graph.getUses(outer_group)) {
+        auto split_of_outer_group =
+            dynamic_cast<Split*>(use_of_outer_group->front());
+        if (split_of_outer_group == nullptr) {
+          continue;
+        }
+
+        if (!split_of_outer_group->inner()->extent()->sameAs(m)) {
+          continue;
+        }
+
+        std::cerr << "Matching L2R1 found: " << split_of_vg->toString()
+                  << split_of_outer_group->toString();
+        return std::make_pair(use_of_vg, use_of_outer_group);
+      }
+    }
+
+    return std::nullopt;
+  };
+
+  std::vector<std::pair<ValGroup, ValGroup>> groups_to_map;
+
+  for (const ValGroup& vg : new_graph.disjointValSets().disjointSets()) {
+    const auto all_l1r2_splits = get_l1r2_splits(vg);
+    for (const auto& l1r2 : all_l1r2_splits) {
+      std::cerr << "L1R2: " << l1r2.first->front()->toString()
+                << l1r2.second->front()->toString();
+      auto l2r1 = get_matching_l2r1_splits(vg, l1r2);
+      if (!l2r1.has_value()) {
+        continue;
+      }
+
+      std::cerr << "Found\n";
+
+      auto l1r2_first_outputs = new_graph.outputGroups(l1r2.first);
+      auto l1r2_second_outputs = new_graph.outputGroups(l1r2.second);
+
+      auto l2r1_first_outputs = new_graph.outputGroups(l2r1->first);
+      auto l2r1_second_outputs = new_graph.outputGroups(l2r1->second);
+
+      groups_to_map.emplace_back(
+          l1r2_first_outputs.at(0), l2r1_second_outputs.at(0));
+      groups_to_map.emplace_back(
+          l1r2_second_outputs.at(0), l2r1_second_outputs.at(1));
+      groups_to_map.emplace_back(
+          l1r2_second_outputs.at(1), l2r1_first_outputs.at(1));
+    }
+  }
+
+  for (const auto& [vg1, vg2] : groups_to_map) {
+    std::cerr << "Mapping " << nvfuser::toString(vg1) << ", "
+              << vg1->front()->toString() << " and " << nvfuser::toString(vg2)
+              << ", " << vg2->front()->toString() << "\n";
+    new_graph.mapVals(vg1->front(), vg2->front());
+  }
+
+  return new_graph;
 }
 
 } // namespace nvfuser
