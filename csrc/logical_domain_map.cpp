@@ -108,7 +108,9 @@ std::tuple<std::unordered_set<IterDomain*>, std::unordered_set<IterDomain*>, boo
       non_mapping_consumer_ids.insert(sop->getConsumerLogicalID());
       has_consumer_id = false;
     } else if (producer_tv == sop->srcTv()) {
+      non_mapping_consumer_ids.insert(sop->getConsumerLoopID());
       non_mapping_consumer_ids.insert(sop->getConsumerLogicalID());
+      non_mapping_producer_ids.insert(producer_tv->getLogicalDomain()->at(sop->dim()));
       has_consumer_id = false;
     }
   } else if (
