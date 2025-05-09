@@ -57,6 +57,8 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
   auto kernel_runtime = getKernelRuntimeFor(args, forced_index_type);
 
   if (isProfilerEnabled()) {
+    std::cerr << "FusionProfiler::start with "
+              << kernel_runtime->executors().size() << " segments" << std::endl;
     FusionProfiler::start(!isProfilerEnabledWithCupti());
     FusionProfiler::createSegments(kernel_runtime->executors().size());
   }
@@ -97,6 +99,7 @@ KernelArgumentHolder FusionExecutorCache::runFusionWithInputs(
 
   // NOTE: This should be the last code in the method to capture all host time
   if (isProfilerEnabled()) {
+    std::cerr << "FusionProfiler::stop" << std::endl;
     FusionProfiler::stop();
   }
   if (isProfilerPrintingEnabled()) {

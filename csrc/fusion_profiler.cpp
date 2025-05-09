@@ -332,6 +332,8 @@ void SegmentProfiler::stopCompile() {
 }
 
 void SegmentProfiler::startKernel() {
+  std::cerr << "SegmentProfiler::startKernel with segment ID: " << segment_id_
+            << std::endl;
   NVF_CHECK_EQ(kernel_profile_state_, ProfilerState::Ready);
   if (!cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(
@@ -342,6 +344,8 @@ void SegmentProfiler::startKernel() {
 }
 
 void SegmentProfiler::stopKernel() {
+  std::cerr << "SegmentProfiler::stopKernel with segment ID: " << segment_id_
+            << std::endl;
   NVF_CHECK_EQ(kernel_profile_state_, ProfilerState::Running);
   uint64_t corr_id = 0;
   if (!cupti_disabled_) {
@@ -724,6 +728,11 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
       if (fp->corrid_2_segid_.count(corr_id) == 0) {
         continue;
       }
+
+      if (kprof.device == -1) {
+        continue;
+      }
+
       const DeviceDescriptor& device_desc = fp->deviceDescriptor(kprof.device);
       kprof.device_name = device_desc.name;
       kprof.peak_bandwidth_gbs = device_desc.peak_bandwidth_gbs;
@@ -763,11 +772,25 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
       fprof.kernel_profiles[kp_idx] = std::move(kprof);
     }
 
-    for (auto& seg : fp->segments_) {
-      NVF_CHECK(
-          seg.device() == segment(0).device(),
-          "All Segment profiles must be on the same device!");
+    int common_device = -1;
+    for (const SegmentProfiler& seg : fp->segments_) {
+      if (common_device == -1) {
+        common_device = seg.device();
+        continue;
+      }
+
+      if (seg.device() == -1) {
+        continue;
+      }
+
+      // When being lowered to host IR, non-kernel segments won't have a
+      // SegmentProfiler.
+      NVF_CHECK_EQ(
+          seg.device(),
+          common_device,
+          "All non-empty Segment profiles must be on the same device!");
     }
+
     fprof.kernel_time_ms = kernel_time_ms;
     if (!fp->kernel_profiles_.empty()) {
       fprof.effective_bandwidth_gbs =
@@ -776,7 +799,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
     }
     if (!fp->segments_.empty()) {
       fprof.percentage_peak_bandwidth = fprof.effective_bandwidth_gbs /
-          fp->deviceDescriptor(segment(0).device()).peak_bandwidth_gbs * 100.0;
+          fp->deviceDescriptor(common_device).peak_bandwidth_gbs * 100.0;
     }
   }
   fprof.compile_time_ms = fp->compile_timer_.time();
