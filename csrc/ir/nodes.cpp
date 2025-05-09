@@ -314,15 +314,15 @@ std::string ScatterOp::toInlineString(int indent_size) const {
 }
 
 IterDomain* ScatterOp::getIndexedID() const {
-  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 IterDomain* ScatterOp::getConsumerLoopID() const {
-  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim() + 1);
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim() + 1);
 }
 
 IterDomain* ScatterOp::getConsumerLogicalID() const {
-  return ir_utils::getTvOutput(this)->getLogicalDomain().at(dim());
+  return ir_utils::getTvOutput(this)->getRootDomain().at(dim());
 }
 
 std::vector<PolymorphicValue> ScatterOp::evaluate(
