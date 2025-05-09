@@ -184,9 +184,9 @@ void HopperMultipleMatmulScheduler::reorderBlockTileTraversal(
   // Find position of outer M and N dims in schedule_.tiled
   int64_t Mo_pos = -1, No_pos = -1;
   for (size_t i : arange(outer_dim_roles.size())) {
-    if (outer_dim_roles[i] == MatmulDimRole::M) {
+    if (Mo_pos == -1 && outer_dim_roles[i] == MatmulDimRole::M) {
       Mo_pos = (int64_t)i;
-    } else if (outer_dim_roles[i] == MatmulDimRole::N) {
+    } else if (No_pos == -1 && outer_dim_roles[i] == MatmulDimRole::N) {
       No_pos = (int64_t)i;
     }
   }
@@ -377,9 +377,98 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
     // then apply it (with "forwarding") to each TV instead. We already cache
     // a vector<ValGroup> as canonical_dim_ordering_ so AbstractTensor
     // scheduling is the next step in this modernization.
-    mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+
+    NVF_CHECK(
+        params_->cluster_dims.z == 1,
+        "Cluster dims must have 1 in Z dimension but found ",
+        params_->cluster_dims.z);
+
+    // TODO: It might be more natural to just have a "CGA tile" as part of
+    // params_->tile_sizes and infer cluster_dims from that
+    int64_t cm = params_->cluster_dims.x;
+    int64_t cn = params_->cluster_dims.y;
+    if (params_->cta_order == MatmulParams::TileRasterizationOrder::RowMajor) {
+      std::swap(cm, cn);
+    }
+    GemmTile cga_tile{
+        params_->tile_sizes.cta_tile.m * cm,
+        params_->tile_sizes.cta_tile.n * cn,
+        params_->tile_sizes.cta_tile.k};
+
+    std::cout << "cga_tile=" << toString(cga_tile) << std::endl;
+    std::cout << "tv before=" << tv->toString() << std::endl;
+    const auto print_roles = [&merged_roles]() {
+      std::cout << "roles=";
+      for (MatmulDimRole role : merged_roles) {
+        switch (role) {
+          case MatmulDimRole::M:
+            std::cout << " M";
+            break;
+          case MatmulDimRole::N:
+            std::cout << " N";
+            break;
+          case MatmulDimRole::K:
+            std::cout << " K";
+            break;
+          case MatmulDimRole::Batch:
+            std::cout << " Batch";
+            break;
+        }
+      }
+      std::cout << std::endl;
+    };
+    print_roles();
+
+    merged_roles = mma_utils::makeTile(tv, cga_tile, merged_roles);
+    std::cout << "tv after cga split=" << tv->toString() << std::endl;
+    print_roles();
 
     reorderBlockTileTraversal(tv, merged_roles);
+    std::cout << "tv after reorder block tile traversal=" << tv->toString()
+              << std::endl;
+    print_roles();
+
+    merged_roles =
+        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+    std::cout << "tv after cta tile split=" << tv->toString() << std::endl;
+    print_roles();
+
+    // Now merge the 3 CGA/CTA split outer dims back with the outermost dims.
+    // This is important since we need single dims to bind to.
+    // For example we might have Mo, No, Mcga, Ncga, Mcta, Ncta, and we need
+    // this to be Mo*Mcga, No*Ncga, Mcta, Ncta instead.
+    int64_t outer_mnk_pos = 0; // 0 in the example above
+    int64_t almost_outer_mnk_pos = 0; // 2 in the example above
+    while (merged_roles.at((size_t)outer_mnk_pos) == MatmulDimRole::Batch) {
+      outer_mnk_pos++;
+    }
+    std::unordered_set<MatmulDimRole> outer_roles;
+    while (almost_outer_mnk_pos < merged_roles.size()) {
+      MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
+      if (outer_roles.count(role)) {
+        break;
+      }
+      almost_outer_mnk_pos++;
+      outer_roles.insert(role);
+    }
+    NVF_ERROR(
+        almost_outer_mnk_pos < merged_roles.size(),
+        "Because of tiling, we expect repeated roles");
+    std::cout << "outer_mnk_pos=" << outer_mnk_pos
+              << " almost_outer_mnk_pos=" << almost_outer_mnk_pos << std::endl;
+    for (int64_t i :
+         std::views::reverse(arange(outer_mnk_pos, almost_outer_mnk_pos))) {
+      std::cout << "  i=" << i << " ";
+      print_roles();
+      std::cout << "   tv=" << tv->toString() << std::endl;
+      tv->merge(i, i + (almost_outer_mnk_pos - outer_mnk_pos));
+      merged_roles.erase(merged_roles.begin() + (size_t)i);
+    }
+
+    merged_roles =
+        mma_utils::makeTile(tv, params_->tile_sizes.cta_tile, merged_roles);
+    std::cout << "tv after merging back in=" << tv->toString() << std::endl;
+    print_roles();
 
     all_merged_roles.push_back(merged_roles);
 

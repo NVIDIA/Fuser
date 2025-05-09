@@ -67,7 +67,7 @@ void makeTile(TensorView* tv, const std::vector<int64_t>& tile_sizes);
 
 //! The above call assumes the axes are [(B), M, N, K]. In this version, we
 //! provide the dimension roles that are present for this tensor.
-void makeTile(
+std::vector<MatmulDimRole> makeTile(
     TensorView* tv,
     const GemmTile& tile_sizes,
     const std::vector<MatmulDimRole>& axis_roles);
