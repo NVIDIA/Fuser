@@ -54,7 +54,7 @@ std::vector<IterDomain*> getPredicateDomains(
   }
 
   // NOTE: we don't need to predicate on the ScatterGather ID. we should probably remove it.
-  if (if expr->isA<ScatterOp>()) {
+  if (expr->isA<ScatterOp>()) {
     predicate_domains.erase(
         std::remove_if(
             predicate_domains.begin(),
