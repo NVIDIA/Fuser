@@ -297,6 +297,7 @@ void CircularBufferInfo::setCircularBufferOptions(
 }
 
 // Derive number of computation warp groups from loop domain of its consumer
+// For example, in normalization kernel:
 // circular buffer: Ts[BIDy, Circular(S), compute groups(S),...], ca 2
 // its consumer is: Tl[BIDy, Circular(S), compute groups(TIDy),...], ca 3
 // Look for the corresponding loop domain in its consumer and make sure it
@@ -316,7 +317,8 @@ void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
     auto consumer = ir_utils::consumerTvsOf(tv).at(0);
     if (consumer->nDims() > next_pos &&
         consumer->axis(next_pos)->getParallelType() == ws_pt &&
-        consumer->axis(next_pos)->extent()->isConst()) {
+        consumer->axis(next_pos)->extent()->isConst() &&
+        tv->axis(next_pos)->getParallelType() == ParallelType::Serial) {
       new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
     }
   }
