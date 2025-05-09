@@ -992,31 +992,32 @@ class CloneTmaCircularBufferLoopAndInsertSync
   // kir::MBarrierArriveExpectTx.
   Val* getSizeOfTmaLoad(LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
+    auto gpu_lower = GpuLower::current();
 
     TensorView* consumer_tv = ldst->out()->as<TensorView>();
     NVF_ERROR(
-        GpuLower::current()->consumerToTMAInfo().count(consumer_tv),
+        gpu_lower->consumerToTMAInfo().count(consumer_tv),
         "Unable to find TMA info for consumer_tv: ",
         consumer_tv->toString());
-
     // Get expected bytes for given TMA load operation.
-    const TMAInfo& tma_info =
-        GpuLower::current()->consumerToTMAInfo().at(consumer_tv);
+    const TMAInfo& tma_info = gpu_lower->consumerToTMAInfo().at(consumer_tv);
     Val* expected_bytes = tma_info.tileSizeBytes();
 
     // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
     // load operations launched for each circular buffer stage. We take the
-    // product of all coordinate TMA iterDomains to the right of the circular
-    // buffer axis.
+    // product of all coordinate TMA iterDomains to the right of the insertion
+    // position. For multiple computation warp groups, the load for each group
+    // is synced separately, need to move the position to the next axis.
+    size_t idx0 = gpu_lower->circularBufferInfo().getComputationWarpGroups() > 1
+        ? insertion_position_ + 1
+        : insertion_position_;
     const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
-    for (size_t idx = insertion_position_ + 1; idx < loop_domain.size();
-         ++idx) {
+    for (size_t idx = idx0; idx < loop_domain.size(); ++idx) {
       IterDomain* id = loop_domain.at(idx);
       if (!id->isBroadcast() && !isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {
         expected_bytes =
             SimplifyingIrBuilder::mulExpr(expected_bytes, id->extent());
-        std::cout << "id->extent(): " << id->extent()->toString() << "\n";
       }
     }
     expected_bytes =
@@ -1451,7 +1452,8 @@ ForLoop* createArrivesForWar(ForLoop* circular_buffer_loop) {
 
   // only the first compute warp group needs to set the arrive of the prefetch
   // loop
-  bool multiple_compute_warp_groups = true;
+  bool multiple_compute_warp_groups =
+      GpuLower::current()->circularBufferInfo().getComputationWarpGroups() > 1;
   kir::IfThenElse* ite = nullptr;
   if (multiple_compute_warp_groups) {
     Val* predicate_val = SimplifyingIrBuilder::eqExpr(

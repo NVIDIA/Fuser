@@ -292,8 +292,11 @@ Val* ParallelDimensionMap::getRawAsync(ParallelType pt) const {
 Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
   Val* num_threads = FusionGuard::getCurFusion()->oneVal();
   for (auto pt : kParallelTypeTIDs) {
-    // skip warp specialized parallel type
-    if(warp_specialized_types_.contains(pt)) {
+    // skip warp specialized parallel type if there are multiple computation
+    // warp groups
+    if (warp_specialized_types_.contains(pt) &&
+        GpuLower::current()->circularBufferInfo().getComputationWarpGroups() >
+            1) {
       continue;
     }
     auto dim = getRawCompute(pt);

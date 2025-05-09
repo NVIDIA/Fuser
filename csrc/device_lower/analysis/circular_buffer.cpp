@@ -273,6 +273,18 @@ void CircularBufferInfo::setCircularBufferOptions(
     has_warp_specialized_ =
         (has_warp_specialized_ ||
          std::holds_alternative<WarpSpecialized>(opt.type));
+    // Set the warp specialized dim and ensure there is only one
+    auto old_pt = warp_specialized_on_;
+    if (std::holds_alternative<WarpSpecialized>(opt.type)) {
+      auto ws_pt = std::get<WarpSpecialized>(opt.type).on;
+      NVF_ERROR(
+          old_pt == ParallelType::Serial || old_pt == ws_pt,
+          "Multiple warp specialization is not supported: ",
+          old_pt,
+          " and ",
+          ws_pt);
+      warp_specialized_on_ = ws_pt;
+    }
   } else {
     NVF_ERROR(
         opt == maybe_existing_depth_it->second,
@@ -385,7 +397,6 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
       getOuterMostCircularBufferPosition(circular_buffer_tv);
   int64_t inner_most_circular_buffer_position =
       getInnerMostCircularBufferPosition(circular_buffer_tv);
-
   NVF_ERROR(
       outer_most_circular_buffer_position <=
           inner_most_circular_buffer_position,
@@ -405,13 +416,6 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
 
   circular_buffer_insertion_position_[circular_buffer_axis] =
       insertion_position;
-
-  std::cout << "circular_buffer_tv " << circular_buffer_tv->toString()
-            << " insertion_position " << insertion_position
-            << " outer_most_circular_buffer_position "
-            << outer_most_circular_buffer_position
-            << " inner_most_circular_buffer_position "
-            << inner_most_circular_buffer_position << std::endl;
 }
 
 namespace {
@@ -462,10 +466,6 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
     const std::vector<ForLoop*>& loops,
     int64_t insertion_position,
     int64_t start_loop_index) const {
-  std::cout << "insertion_position " << insertion_position << std::endl;
-  for (auto fl : loops) {
-    std::cout << "fl domain " << fl->iterDomain()->toString() << std::endl;
-  }
   NVF_ERROR(insertion_position > 0);
   NVF_ERROR(insertion_position <= (int64_t)loops.size());
   NVF_ERROR(start_loop_index >= 0);
@@ -483,12 +483,14 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
   Val* extent = GpuLower::current()->kernel()->oneVal();
   for (int64_t i = end_loop_index; i >= start_loop_index; --i) {
     auto id = loops[i]->iter_domain();
-    std::cout << "id " << id->toString() << std::endl;
     if (id->isBroadcast()) {
       continue;
     }
     // skip parallelized axes except for warp specialized dim
-    if (id->isParallelized() && (id->getParallelType() != ParallelType::TIDy)) {
+    // when warp specialized dim is used in computation branch,
+    // it represents index of computation warp groups.
+    if (id->isParallelized() &&
+        (id->getParallelType() != getWarpSpecializedOn())) {
       continue;
     }
     index = SimplifyingIrBuilder::addExpr(
@@ -497,7 +499,6 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
             loops[i]->indexOrStartIfTrivial(), extent));
     extent = SimplifyingIrBuilder::mulExpr(
         extent, loops[i]->iter_domain()->extent());
-    std::cout << "index " << index->toInlineString() << std::endl;
   }
   return index;
 }
