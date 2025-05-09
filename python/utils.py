@@ -297,11 +297,7 @@ class build_ext(setuptools.command.build_ext.build_ext):
             libnvfuser_path = os.path.join(
                 os.path.join(self.install_dir, "lib"), f"libnvfuser{fileext}"
             )
-            if not os.path.exists(os.path.dirname(libnvfuser_path)):
-                os.makedirs(os.path.dirname(libnvfuser_path))
-            if not os.path.exists(libnvfuser_path):
-                # Create empty file
-                open(libnvfuser_path, "a").close()
+            assert os.path.exists(libnvfuser_path)
             install_dst = os.path.join(self.build_lib, filename)
             if not os.path.exists(os.path.dirname(install_dst)):
                 os.makedirs(os.path.dirname(install_dst))
