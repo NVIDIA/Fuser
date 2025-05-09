@@ -977,7 +977,10 @@ class IfThenElse final : public Expr {
  public:
   using Expr::Expr;
 
-  explicit IfThenElse(IrBuilderPasskey passkey, Predicate* cond);
+  explicit IfThenElse(
+      IrBuilderPasskey passkey,
+      Predicate* cond,
+      bool is_warp_specialize = false);
 
   NVFUSER_DECLARE_CLONE_AND_CREATE
 
@@ -1009,6 +1012,10 @@ class IfThenElse final : public Expr {
 
   bool empty() const {
     return thenBody().empty() && elseBody().empty();
+  }
+
+  bool isWarpSpecializeIte() const {
+    return attribute<bool>(2);
   }
 };
 

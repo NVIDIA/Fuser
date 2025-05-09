@@ -1588,7 +1588,8 @@ class WarpSpecializedCircularBufferInserter : private kir::ExprMutator {
         CircularBufferLoopStage::AsyncWarp,
         insertion_position);
     kir::IfThenElse* elect_sync_ite = IrBuilder::create<kir::IfThenElse>(
-        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync));
+        IrBuilder::create<kir::Predicate>(PredicateType::ElectSync),
+        /*is_warp_specialize=*/true);
     elect_sync_ite->thenBody().push_back(load_loop);
     warp_dispatch_ite->thenBody().push_back(elect_sync_ite);
 

@@ -1037,7 +1037,10 @@ std::string UpdateMagicZero::toInlineString(int indent_size) const {
 
 NVFUSER_DEFINE_CLONE_AND_CREATE(UpdateMagicZero)
 
-IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
+IfThenElse::IfThenElse(
+    IrBuilderPasskey passkey,
+    Predicate* cond,
+    bool is_warp_specialize)
     : Expr(passkey) {
   setPredicate(cond);
   addInput(cond);
@@ -1045,6 +1048,7 @@ IfThenElse::IfThenElse(IrBuilderPasskey passkey, Predicate* cond)
   // kernel IR does not need this feature.
   addDataAttribute(Scope(this));
   addDataAttribute(Scope(this));
+  addDataAttribute(is_warp_specialize);
 }
 
 std::string IfThenElse::toString(int indent_size) const {
