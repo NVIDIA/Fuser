@@ -367,7 +367,8 @@ TEST_F(OverlapDistributedMatmulTest, AG_matmul) {
   // Disable StreamParallelType and ReorderShardedAxisPass pass temporarily as
   // proper stream lowering gets implemented
   hir_pass::OptimizationPassGuard<hir_pass::StreamParallelType> guard(false);
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> guard2(false);
+  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass>
+      guard2(false);
 
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
@@ -427,7 +428,8 @@ TEST_F(OverlapDistributedMatmulTest, AG_linear) {
   // Disable StreamParallelType and ReorderShardedAxisPass pass temporarily as
   // proper stream lowering gets implemented
   hir_pass::OptimizationPassGuard<hir_pass::StreamParallelType> guard(false);
-  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass> guard2(false);
+  preseg_passes::OptimizationPassGuard<preseg_passes::ReorderShardedAxisPass>
+      guard2(false);
 
   constexpr int64_t M = 32768;
   constexpr int64_t K = 32768;
