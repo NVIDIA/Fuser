@@ -563,7 +563,9 @@ if(BUILD_PYTHON)
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/extension.cpp
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/bindings.cpp
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/enum.cpp
+    ${NVFUSER_PYTHON_NEXT_BINDINGS}/fusion_definition.cpp
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/ir.cpp
+    ${NVFUSER_PYTHON_NEXT_BINDINGS}/ops.cpp
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/runtime.cpp
     ${NVFUSER_PYTHON_NEXT_BINDINGS}/python_utils.cpp
   )

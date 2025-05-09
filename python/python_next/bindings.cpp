@@ -15,6 +15,7 @@ void initNvFuserPythonBindings(PyObject* module) {
   bindEnums(nvfuser);
   bindFusionIr(nvfuser);
   bindRuntime(nvfuser);
+  bindFusionDefinition(nvfuser);
 }
 
 } // namespace nvfuser::python
