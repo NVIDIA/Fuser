@@ -278,9 +278,14 @@ def override_build_config_from_env(config):
         config.version_tag = os.getenv("NVFUSER_BUILD_VERSION_TAG")
 
 
+def get_default_install_prefix():
+    cwd = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(cwd, "nvfuser_common")
+
+
 class build_ext(setuptools.command.build_ext.build_ext):
     def __init__(self, *args, **kwargs):
-        self.install_dir = kwargs.pop("install_dir", None)
+        self.install_dir = kwargs.pop("install_dir", get_default_install_prefix())
         super().__init__(*args, **kwargs)
 
     def build_extension(self, ext):
@@ -401,9 +406,7 @@ def cmake(config, relative_path):
         os.makedirs(cmake_build_dir)
 
     install_prefix = (
-        os.path.join(cwd, "nvfuser_common")
-        if not config.install_dir
-        else config.install_dir
+        get_default_install_prefix() if not config.install_dir else config.install_dir
     )
 
     from tools.gen_nvfuser_version import (
