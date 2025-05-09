@@ -1078,13 +1078,14 @@ bool predicateAtEnd(ForLoop* loop) {
   // If the other output is mapped with a vectorized IterDomain,
   // this IterDomain needs to be predicated at each iteration point.
   const auto& other_id_exact_set = GpuLower::current()
-                                       ->caMap()
-                                       ->getIdSets(IdMappingMode::EXACT)
-                                       .getDisjointSetOf(other_out_id);
+                                       ->idModel()
+                                       .idGraph(IdMappingMode::EXACT)
+                                       .toGroup(other_out_id);
 
   if (std::any_of(
-          other_id_exact_set.begin(), other_id_exact_set.end(), [](auto id) {
-            return id->getParallelType() == ParallelType::Vectorize;
+          other_id_exact_set->begin(), other_id_exact_set->end(), [](Val* val) {
+            return val->as<IterDomain>()->getParallelType() ==
+                ParallelType::Vectorize;
           })) {
     return false;
   }
