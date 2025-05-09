@@ -413,7 +413,7 @@ std::vector<std::vector<MatmulDimRole>> HopperMultipleMatmulScheduler::
       outer_mnk_pos++;
     }
     std::unordered_set<MatmulDimRole> outer_roles;
-    while (almost_outer_mnk_pos < merged_roles.size()) {
+    while (almost_outer_mnk_pos < (int64_t)merged_roles.size()) {
       MatmulDimRole role = merged_roles.at((size_t)almost_outer_mnk_pos);
       if (outer_roles.count(role)) {
         break;
