@@ -14,4 +14,7 @@ namespace python {
 
 void initNvFuserPythonBindings(PyObject* module);
 
+// Add bindings for Fusion IR
+void bindFusionIr(py::module& nvfuser);
+
 } // namespace python
