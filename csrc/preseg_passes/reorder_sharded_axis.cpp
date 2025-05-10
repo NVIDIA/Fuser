@@ -26,53 +26,72 @@ namespace {
 struct CommunicationInfo {
   CommunicationType type;
   IterDomain* sharded_id;
+  ParallelType pt;
 };
 
-std::optional<CommunicationInfo> getGatherOrScatterLogicalAxis(Expr* expr) {
+std::vector<IterDomain*> getInputsInTargetDomain(
+    IterDomain* loop_id,
+    const std::vector<IterDomain*>& target_domain) {
+  const std::vector<Val*> inputs_as_vals = IterVisitor::getInputsTo(
+      {loop_id}, {target_domain.begin(), target_domain.end()});
+  std::vector<IterDomain*> inputs_as_iter_domains;
+  inputs_as_iter_domains.reserve(inputs_as_vals.size());
+  std::transform(
+      inputs_as_vals.begin(),
+      inputs_as_vals.end(),
+      std::back_inserter(inputs_as_iter_domains),
+      [](Val* val) { return val->as<IterDomain>(); });
+  return inputs_as_iter_domains;
+}
+
+IterDomain* getShardedLogicalId(TensorView* tv, ParallelType pt) {
+  int64_t loop_axis = getShardedLoopAxis(tv, pt);
+  if (loop_axis == -1) {
+    return nullptr;
+  }
+  std::vector<IterDomain*> logical_ids = getInputsInTargetDomain(tv->axis(loop_axis), tv->getLogicalDomain());
+  NVF_ERROR(logical_ids.size() == 1, "Expected exactly one logical ID");
+  return logical_ids.at(0);
+}
+
+std::optional<CommunicationInfo> getGatherOrScatterLogicalId(Expr* expr) {
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
   bool has_sharding_change = false;
   std::optional<CommunicationInfo> communication_info = std::nullopt;
+  
   for (ParallelType pt: kParallelTypeDIDs) {
-    int64_t in_sharded_axis = getShardedLogicalAxisFromDomain(input, pt, input->getLoopDomain());
-    int64_t out_sharded_axis = getShardedLogicalAxisFromDomain(output, pt, output->getLoopDomain());
-    if (in_sharded_axis == -1 && out_sharded_axis == -1) {
+    IterDomain* in_sharded_id = getShardedLogicalId(input, pt);
+    IterDomain* out_sharded_id = getShardedLogicalId(output, pt);
+    if (in_sharded_id == nullptr && out_sharded_id == nullptr) {
       // Not sharded on this parallel type
       continue;
     }
-    bool in_sharded = in_sharded_axis != -1;
-    bool out_sharded = out_sharded_axis != -1;
-    const auto pairwise_map = PairwiseLogicalDomainMap(input, output);
-    const auto p2c_map = pairwise_map.mapProducerToConsumer();
-    const auto c2p_map = pairwise_map.mapConsumerToProducer();
+    bool in_sharded = in_sharded_id != nullptr;
+    bool out_sharded = out_sharded_id != nullptr;
 
     if (expr->isA<LoadStoreOp>()) {
       if (in_sharded && !out_sharded) {
         // Gather / Allgather
         NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
         has_sharding_change = true;
-
-        IterDomain* input_sharded_id = input->getLogicalDomain().at(in_sharded_axis);
-        communication_info = CommunicationInfo{CommunicationType::Gather, input_sharded_id};
+        communication_info = CommunicationInfo{CommunicationType::Gather, in_sharded_id, pt};
       }
-
       if (!in_sharded && out_sharded) {
         // Scatter
         NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
         has_sharding_change = true;
-
-        IterDomain* output_sharded_id = output->getLogicalDomain().at(out_sharded_axis);
-        communication_info = CommunicationInfo{CommunicationType::Scatter, output_sharded_id};
+        communication_info = CommunicationInfo{CommunicationType::Scatter, out_sharded_id, pt};
       }
     }
-
     if (expr->isA<ReductionOp>()) {
       if (!in_sharded || !out_sharded) {
         // Cannot be a reduce scatter communication.
         continue;
       }
       // Check if the in_sharded_axis is reduced in the output.
-      auto out_it = p2c_map.find(input->getLogicalDomain().at(in_sharded_axis));
+      const auto p2c_map = PairwiseLogicalDomainMap(input, output).mapProducerToConsumer();
+      auto out_it = p2c_map.find(in_sharded_id);
       if (out_it == p2c_map.end()) {
         continue;
       }
@@ -81,12 +100,38 @@ std::optional<CommunicationInfo> getGatherOrScatterLogicalAxis(Expr* expr) {
       }
       NVF_ERROR(!has_sharding_change, "Expected at most one sharding change");
       has_sharding_change = true;
-
-      IterDomain* output_sharded_id = output->getLogicalDomain().at(out_sharded_axis);
-      communication_info = CommunicationInfo{CommunicationType::ReduceScatter, output_sharded_id};
+      communication_info = CommunicationInfo{CommunicationType::ReduceScatter, out_sharded_id, pt};
     }
   }
   return communication_info;
+}
+
+int64_t allocationIndex(const std::vector<IterDomain*>& allocation_domain, IterDomain* logical_id) {
+  // This sharded logical ID may not directly present in allocation domain.
+  // This indicates allocation domain has DID transformations.
+  // Find the derived loop IDs in the allocation domain and their index.
+  auto transforms = DependencyCheck::getAllExprsBetween(
+          {logical_id},
+          {allocation_domain.begin(), allocation_domain.end()});
+  std::unordered_set<IterDomain*> reachable_ids;
+  // Add the logical id for the case where it is directly in the domain.
+  reachable_ids.insert(logical_id);
+
+  for (auto expr : transforms) {
+    auto outputs = ir_utils::filterByType<IterDomain>(expr->outputs());
+      reachable_ids.insert(outputs.begin(), outputs.end());
+    }
+  }
+  for (IterDomain* alloc_id : reachable_ids) {
+    if (alloc_id == id) {
+      return index;
+    }
+    if (alloc_id->isDeviceDim() || alloc_id->isReduction() || alloc_id->isBroadcast()) {
+      continue;
+    }
+    index++;
+  }
+  return -1;
 }
 
 bool isProcessGroupCompliant(Expr* expr, CommunicationInfo communication_info) {
@@ -98,14 +143,17 @@ bool isProcessGroupCompliant(Expr* expr, CommunicationInfo communication_info) {
   } else {
     domain = output->getMaybeAllocationDomain();
   }
-  return allocationIndex(input, communication_info.sharded_id) == 0;
+  debug() << "Allocation index of " << communication_info.sharded_id->toString() << " in " << input->toString() << " is " << allocationIndex(domain, communication_info.sharded_id) << std::endl;
+  return allocationIndex(domain, communication_info.sharded_id) == 0;
 }
 }
 
 void reorderForLogicalSplit(Expr* expr, CommunicationInfo communication_info) {
   TensorView* input = expr->inputs().at(0)->as<TensorView>();
   TensorView* output = expr->outputs().at(0)->as<TensorView>();
+  
   IterDomain* sharded_id = communication_info.sharded_id;
+  
   // For gather operations i.e. ID goes from sharded to unsharded
   // this will rematerialize a sharded axis.
   // ProcessGroup expects contiguous tensors.
@@ -122,34 +170,31 @@ void reorderForLogicalSplit(Expr* expr, CommunicationInfo communication_info) {
     TensorView* new_output = permute(output_permute, {{0, sharding_axis}});
     ir_utils::replaceValInAllExprInputsAndFusionOutputs(output, new_output);
 
-      // Propagate shardings from input and manually apply sharding deletions.
-      shardAllLike(
-          input,
-          {input_permute, output_permute, new_output},
-          deviceAndStreamParallelTypes());
-      output_permute->axis(0)->parallelize(ParallelType::Serial);
-      new_output->axis(sharding_axis)->parallelize(ParallelType::Serial);
-      output_permute->setDeviceMesh(output->getDeviceMesh());
-      new_output->setDeviceMesh(output->getDeviceMesh());
+    // Propagate shardings from input and manually apply sharding deletions.
+    shardAllLike(input, {input_permute, output_permute, new_output});
+    output_permute->axis(0)->parallelize(ParallelType::Serial);
+    new_output->axis(sharding_axis)->parallelize(ParallelType::Serial);
+    output_permute->setDeviceMesh(output->getDeviceMesh());
+    new_output->setDeviceMesh(output->getDeviceMesh());
 
-      // Set allocation domain for comm in/out
-      input_permute->setAllocationDomain(input_permute->getLoopDomain(), true);
-      output_permute->setAllocationDomain(
-          output_permute->getLoopDomain(), true);
-    }
-    // For scatter operations i.e. ID goes from unsharded to sharded
-    // Update input to push the scattered axis to the front -> collective ->
-    // permute the sharded axis to the proper location.
-    // Scatter example: [i0 i1] -> [i0 DIDx(i1)]
-    // Rewritten to [i0 i1] -> [i1 i0] -> [DIDx(i1) i0] -> [i0 DIDx(i1)]
-    // Reduce Scatter example: [i0 DIDx(i1) i2] -> [i0 r1 DIDx(i2)]
-    // Rewritten to: [i0 DIDx(i1) i2] -> [i2 i0 DIDx(i1)] ->
-    //                    [DIDx(i2) i0 r1] -> [i0 DIDx(i2)]
-    // Note that reduction axis shifts from axis=1 to axis=2.
-    else if (!shard_additions.empty() && isInnerResharding(expr)) {
-      IterDomain* shard_added_id = shard_additions[0];
-      int sharding_axis =
-          static_cast<int>(output->domain()->rootPosOf(shard_added_id));
+    // Set allocation domain for comm in/out
+    input_permute->setAllocationDomain(input_permute->getLoopDomain(), true);
+    output_permute->setAllocationDomain(
+        output_permute->getLoopDomain(), true);
+    return;
+  }
+  // For scatter operations i.e. ID goes from unsharded to sharded
+  // Update input to push the scattered axis to the front -> collective ->
+  // permute the sharded axis to the proper location.
+  // Scatter example: [i0 i1] -> [i0 DIDx(i1)]
+  // Rewritten to [i0 i1] -> [i1 i0] -> [DIDx(i1) i0] -> [i0 DIDx(i1)]
+  // Reduce Scatter example: [i0 DIDx(i1) i2] -> [i0 r1 DIDx(i2)]
+  // Rewritten to: [i0 DIDx(i1) i2] -> [i2 i0 DIDx(i1)] ->
+  //                    [DIDx(i2) i0 r1] -> [i0 DIDx(i2)]
+  // Note that reduction axis shifts from axis=1 to axis=2.
+
+  int sharding_axis =
+      static_cast<int>(output->domain()->rootPosOf(sharded_id));
 
   TensorView* input_permute = permute(input, {{sharding_axis, 0}});
   TensorView* output_permute = nullptr;
@@ -162,7 +207,7 @@ void reorderForLogicalSplit(Expr* expr, CommunicationInfo communication_info) {
         sharding_axis > static_cast<int>(reduction_axis.value()))
       ? 1
       : 0;
-  if (communication_info.type == CommunicationType::ReduceScatter) {
+if (communication_info.type == CommunicationType::ReduceScatter) {
     auto num_reduction_dims =
         output->domain()->nDims() - output->domain()->noReductions().size();
     NVF_ERROR(
@@ -196,6 +241,7 @@ void reorderForLogicalSplit(Expr* expr, CommunicationInfo communication_info) {
   // between `input_permute` and `output_permute`.
   output_permute->setDeviceMesh(output->getDeviceMesh());
   new_output->setDeviceMesh(output->getDeviceMesh());
+
 } // namespace
 
 void ReorderShardedAxisPass::runPass(Fusion* fusion) {
@@ -211,14 +257,10 @@ void ReorderShardedAxisPass::runPass(Fusion* fusion) {
       continue;
     }
     if (!isResharding(expr)) {
-
-      // Set allocation domain for comm in/out
-      input_permute->setAllocationDomain(input_permute->getLoopDomain(), true);
-      output_permute->setAllocationDomain(
-          output_permute->getLoopDomain(), true);
+      continue;
     }
     
-    auto communication_info = getGatherOrScatterLogicalAxis(expr);
+    auto communication_info = getGatherOrScatterLogicalId(expr);
     if (!communication_info.has_value()) {
       continue;
     }
