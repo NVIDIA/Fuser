@@ -226,6 +226,11 @@ bool CircularBufferInfo::isCircularBufferedIterDomain(IterDomain* id) {
   return concrete_circular_buffered_loop_id_.count(concrete_loop_id);
 }
 
+bool CircularBufferInfo::isComputationWarpGroupIterDomain(IterDomain* id) {
+  auto concrete_loop_id = lower_utils::getConcreteLoopID(id);
+  return computation_warp_groups_loop_id_.count(concrete_loop_id);
+}
+
 CircularBufferInfo::TvInfo& CircularBufferInfo::getTvInfo(
     const TensorView* tv) {
   NVF_ERROR(
@@ -323,6 +328,7 @@ void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
         consumer->axis(next_pos)->extent()->value().as<int64_t>() ==
             tv->axis(next_pos)->extent()->value().as<int64_t>()) {
       new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
+      computation_warp_groups_loop_id_.insert(tv->axis(next_pos));
     }
   }
   NVF_ERROR(

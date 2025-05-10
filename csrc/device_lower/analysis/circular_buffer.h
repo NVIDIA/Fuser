@@ -73,7 +73,7 @@ class CircularBufferInfo {
   //! Returns true if the iterdomain will be realized
   //!  as a circular buffer loop.
   bool isCircularBufferedIterDomain(IterDomain* id);
-
+  bool isComputationWarpGroupIterDomain(IterDomain* id);
   //! Returns true if the fusion has warp specialized circular buffer
   bool hasWarpSpecialized() const {
     return warp_specialized_on_ != ParallelType::Serial;
@@ -154,6 +154,11 @@ class CircularBufferInfo {
 
   //! warp specialized on, one fusion allows only one warp specialized dim
   ParallelType warp_specialized_on_ = ParallelType::Serial;
+
+  //! Keeps track of which domain is parallelized by computation warp groups in
+  //! computation branch. In loading branch, these domains are merged into one
+  //! loop, so they should share the same index in allocateIndexVariables()
+  std::unordered_set<const IterDomain*> computation_warp_groups_loop_id_;
 };
 
 } // namespace nvfuser
