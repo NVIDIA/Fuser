@@ -318,7 +318,10 @@ void CircularBufferInfo::setComputationWarpGroups(const TensorView* tv) {
     if (consumer->nDims() > next_pos &&
         consumer->axis(next_pos)->getParallelType() == ws_pt &&
         consumer->axis(next_pos)->extent()->isConst() &&
-        tv->axis(next_pos)->getParallelType() == ParallelType::Serial) {
+        tv->axis(next_pos)->extent()->isConst() &&
+        tv->axis(next_pos)->getParallelType() == ParallelType::Serial &&
+        consumer->axis(next_pos)->extent()->value().as<int64_t>() ==
+            tv->axis(next_pos)->extent()->value().as<int64_t>()) {
       new_val = consumer->axis(next_pos)->extent()->value().as<int64_t>();
     }
   }
