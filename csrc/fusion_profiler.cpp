@@ -699,7 +699,7 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
   fp->host_timer_.stop();
   fp->fusion_timer_.stop();
   fp->state_ = ProfilerState::Finished;
-  auto& fprof = fp->profile_;
+  FusionProfile& fprof = fp->profile_;
   fprof.cuda_evt_time_ms = fp->fusion_timer_.time();
   fprof.host_time_ms = fp->host_timer_.time();
   fprof.fusion_id = fp->fusion_id_;
@@ -719,13 +719,9 @@ const DeviceDescriptor& FusionProfiler::deviceDescriptor(const int device_id) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityFlushAll(0));
 
     fprof.kernel_profiles.resize(fp->segments_.size());
-    for (auto& kprof : fp->kernel_profiles_) {
+    for (KernelProfile& kprof : fp->kernel_profiles_) {
       auto corr_id = kprof.correlation_id;
       if (fp->corrid_2_segid_.count(corr_id) == 0) {
-        continue;
-      }
-
-      if (kprof.device == -1) {
         continue;
       }
 
