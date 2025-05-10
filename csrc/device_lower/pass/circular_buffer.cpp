@@ -1005,11 +1005,15 @@ class CloneTmaCircularBufferLoopAndInsertSync
 
     // The expected_bytes for mbarrier::arriveExpectTX must account for all TMA
     // load operations launched for each circular buffer stage. We take the
-    // product of all coordinate TMA iterDomains to the right of the insertion
-    // position.
+    // product of all coordinate TMA iterDomains to the right of the circular
+    // buffer axis. When multiple computation warp groups are used, move one
+    // axis further to separate the load for different computation warp groups.
+    size_t idx0 = consumer_tv->getComputeAtPosition();
+    if (gpu_lower->circularBufferInfo().getComputationWarpGroups() > 1) {
+      idx0 += 1;
+    }
     const std::vector<IterDomain*>& loop_domain = consumer_tv->getLoopDomain();
-    for (size_t idx = insertion_position_ + 1; idx < loop_domain.size();
-         ++idx) {
+    for (size_t idx = idx0; idx < loop_domain.size(); ++idx) {
       IterDomain* id = loop_domain.at(idx);
       if (!id->isBroadcast() && !isParallelTypeThread(id->getParallelType()) &&
           id->getParallelType() != ParallelType::Bulk) {

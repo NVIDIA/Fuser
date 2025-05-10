@@ -297,15 +297,12 @@ Val* ParallelDimensionMap::getNumComputeThreadsEachBlock() const {
     if (warp_specialized_types_.contains(pt) &&
         GpuLower::current()->circularBufferInfo().getComputationWarpGroups() >
             1) {
-      std::cout << "Skipping warp specialized parallel type: " << pt
-                << std::endl;
       continue;
     }
     auto dim = getRawCompute(pt);
     if (dim == nullptr) {
       continue;
     }
-    std::cout << "dim: " << dim->toInlineString() << std::endl;
     num_threads = SimplifyingIrBuilder::mulExpr(num_threads, dim);
   }
   return num_threads;
