@@ -31,27 +31,19 @@ NVF_API bool distributedEnabled() {
 #endif
 }
 
-namespace {
-
-// Returns the position where an axis is allocated in a tv, skipping trivial
-// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
-// tv's loop domain WAR: today we assume that the loop domain match with the
-// actual allocation, but this will have to change in the future.
 int64_t allocationIndex(TensorView* tv, IterDomain* id) {
   int64_t index = 0;
-  for (auto* loop_id : tv->getLoopDomain()) {
-    if (loop_id == id) {
+  for (auto* alloc_id : tv->getMaybeAllocationDomain()) {
+    if (alloc_id == id) {
       return index;
     }
-    if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
-        !loop_id->isBroadcast()) {
-      index++;
+    if (alloc_id->isDeviceDim() || alloc_id->isReduction() || alloc_id->isBroadcast()) {
+      continue;
     }
+    index++;
   }
   return -1;
 }
-
-} // namespace
 
 std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>> getShardingChanges(
     TensorView* producer,
@@ -166,11 +158,12 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 
 } // namespace
 
-int64_t getShardedLogicalAxis(
+int64_t getShardedLogicalAxisFromDomain(
     const TensorView* tv,
-    const ParallelType parallel_type) {
+    const ParallelType parallel_type,
+    std::vector<IterDomain*> domain) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =
-      mapDeviceParallelTypeToId(tv->getMaybeAllocationDomain());
+      mapDeviceParallelTypeToId(domain);
   IterDomain* alloc_id = getOrDefault(parallel_type_to_id, parallel_type);
   if (alloc_id == nullptr) {
     return -1;
@@ -240,6 +233,12 @@ int64_t getShardedLogicalAxis(
   }
 
   return logical_id_to_axis.at(id);
+}
+
+int64_t getShardedLogicalAxis(
+    const TensorView* tv,
+    const ParallelType parallel_type) {
+  return getShardedLogicalAxisFromDomain(tv, parallel_type, tv->getMaybeAllocationDomain());
 }
 
 int64_t getShardedLoopAxis(

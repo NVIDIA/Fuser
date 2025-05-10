@@ -54,6 +54,12 @@ bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer);
 
+// Returns the position where an axis is allocated in a tv, skipping trivial
+// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
+// tv's loop domain WAR: today we assume that the loop domain match with the
+// actual allocation, but this will have to change in the future.
+int64_t allocationIndex(TensorView* tv, IterDomain* id);
+
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
 
@@ -96,6 +102,14 @@ int64_t requestedNumberOfDevices(Fusion*);
 // remove the multi-device scheduling annotations
 void unshard(Fusion*);
 void unshard(TensorView*);
+
+// Returns the index of the sharded logical axis that produces the 
+// IterDomain sharded on `parallel_type` present in `domain`.
+// If no sharded IterDomain is found, returns -1.
+int64_t getShardedLogicalAxisFromDomain(
+    const TensorView* tv,
+    const ParallelType parallel_type,
+    std::vector<IterDomain*> domain);
 
 // Returns the index of the sharded logical axis that produces the allocation
 // IterDomain sharded on `parallel_type`. If `tv` isn't sharded on the parallel
