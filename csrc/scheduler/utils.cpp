@@ -1623,6 +1623,9 @@ std::vector<TensorView*> getInputsOutputsWithInnerDim(
   // scheduler prefer to use output instead of input as reference tensor.
   for (auto output_tv :
        ir_utils::filterByType<TensorView>(reference_tv->fusion()->outputs())) {
+    if (output_tv->definition()->isA<ScatterOp>()) {
+      continue;
+    }
     if (hasInnerDim(output_tv, vectorizable_dims, vectorize_pass)) {
       vectorizable_tensors.push_back(output_tv);
     }
