@@ -144,6 +144,9 @@ class TensorIndexer {
       const Expr* expr,
       const std::vector<IterDomain*>& index_ids) const;
 
+  ExprPath<ExprGroup> getPredicateIndexingPath(TensorView* tv, const Expr* expr)
+      const;
+
   // Protect the index of the innermost loop with magic zero.
   //
   // NOTE: This just follows how the original indexer adds magic zero

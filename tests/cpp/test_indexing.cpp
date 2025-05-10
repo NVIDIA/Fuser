@@ -23,6 +23,7 @@
 #include <ops/all_ops.h>
 #include <scheduler/tools/abstract_tensor.h>
 #include <scheduler/tools/inlining.h>
+#include <scheduler/tools/loop_domain_scheduler.h>
 #include <scheduler/tools/resize_utils.h>
 #include <scheduler/utils.h>
 
@@ -4334,6 +4335,117 @@ TEST_F(PredicateIndexingTest, NonDivisibleSplitWithUnswitchAndBroadcast) {
   auto outputs = ke.run({t0, t1});
 
   testValidate(&fusion, outputs, {t0, t1}, __LINE__, __FILE__);
+}
+
+// Repro of #4376. Predicating non-divisible splits that appear outside of
+// logical-loop transformations.
+TEST_F(PredicateIndexingTest, NonDivisibleSplitWithNonLogicalToLoopDomains) {
+  Fusion fusion;
+  FusionGuard fg(&fusion);
+
+  EnableOptionsGuard::getCurOptions().set(EnableOption::IdModel, {"all"});
+
+  std::vector<int64_t> shape{5, 2};
+
+  auto tv0 = makeConcreteTensor(shape);
+  fusion.addInput(tv0);
+
+  auto tv1 = set(tv0);
+  auto tv2 = reshape(tv1, {IrBuilder::create<Val>(-1)});
+  auto tv3 = set(tv2);
+  fusion.addOutput(tv3);
+
+  // tv1 logical: [i0, i1]
+  // tv2 root: [i0, i1]
+  // tv2 logical: [i2(i0*i1)]
+  // tv3 logical: [i2(i0*i1)]
+
+  // Revert the reshape
+  tv2->setLoopDomain(tv2->getRootDomain());
+  scheduler_tools::scheduleLoopDomainsLike({tv3}, tv2->getRootDomain());
+  // [i0, i1]
+
+  for (auto tv : {tv1, tv2, tv3}) {
+    tv->split(-1, 8);
+    // [i0, i3(i1/8), i4(8)]
+  }
+
+  inlineMost();
+
+  tv3->axis(0)->parallelize(ParallelType::BIDx);
+  tv3->axis(1)->parallelize(ParallelType::TIDy);
+  tv3->axis(2)->parallelize(ParallelType::TIDx);
+
+  /*
+    %kernel {
+    T1_l_float[iS2{5}, iS12{1}, iS13{8}] ca_pos( 3 )
+     = Set( T0_g_float[iS0{5}, iS1{2}], cache_op=Streaming )
+    T2_l_float[iS6{5}rf, iS14{1}, iS15{8}] ca_pos( 3 ) produce_pos( 3 ) = view(
+    T1_l_float[iS2{5}, iS12{1}, iS13{8}] ca_pos( 3 ) )
+    T3_g_float[iblockIdx.x10{5}, ithreadIdx.y16{1}, ithreadIdx.x17{8}] ca_pos( 3
+    ) produce_pos( 3 ) = Set( T2_l_float[iS6{5}rf, iS14{1}, iS15{8}] ca_pos( 3 )
+    produce_pos( 3 ), cache_op=Streaming )
+  */
+
+  // For tv3, the split of i1 to i3 and i4 is not divisible. It needs
+  // to be predicated before the index is progated to i2 through the
+  // merge op.
+  //
+  // i0  i1     i1
+  // |   |    +-+-+
+  // +-+-+    |   |
+  //   |     i3  i4
+  //   i2
+
+  // Validate if tv3 has a non-divisible predicate for i1
+  struct GetReference : AbstractGetReference {
+    GetReference(const TensorIndexer& indexer, const IdModel& id_model)
+        : AbstractGetReference(indexer, id_model) {}
+
+    Val* getOuterPredicate(TensorView* tv) const override {
+      // Only interested in validating tv3
+      if (tv->name() != 3) {
+        return nullptr;
+      }
+
+      std::vector<Val*> loop_indices = getLoopIndices(tv, indexer_, for_loops_);
+      std::vector<IterDomain*> loop_domains = getLoopDomains(tv, id_model_);
+      auto zero = tv->fusion()->zeroVal();
+
+      // Predicates for the sole logical ID
+      auto i2_idx = addExpr(
+          mulExpr(loop_domains.at(0), createInt(2)), loop_domains.at(2));
+
+      // i2_idx >= 0
+      Val* pred = geExpr(i2_idx, zero);
+      // i2_idx < i2->extent
+      pred =
+          andExpr(pred, ltExpr(i2_idx, tv->getLogicalDomain().at(0)->extent()));
+
+      // Non-divisible predicate
+      auto non_divisible_id_to_predicate =
+          dynamic_cast<Split*>(loop_domains.at(1)->definition())->in();
+
+      // i1 index is just threadIdx.x since the extent of i3 is 1
+      auto non_divisible_pred =
+          ltExpr(loop_domains.at(2), non_divisible_id_to_predicate->extent());
+
+      pred = andExpr(pred, non_divisible_pred);
+
+      return pred;
+    }
+  };
+
+  PredicateIndexValidator<GetReference>::validate(&fusion, false);
+
+  auto options = at::TensorOptions().dtype(at::kFloat).device(at::kCUDA, 0);
+  at::Tensor t0 = at::randn(shape, options);
+
+  KernelExecutor ke;
+  ke.compile(&fusion, {t0});
+  auto outputs = ke.run({t0});
+
+  testValidate(&fusion, outputs, {t0}, __LINE__, __FILE__);
 }
 
 TEST_F(PredicateIndexingTest, UnswitchConsolidationDifferentThreading) {
