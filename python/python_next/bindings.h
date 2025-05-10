@@ -7,6 +7,7 @@
 // clang-format on
 #pragma once
 
+#include <fusion_definition.h>
 #include <torch/csrc/jit/python/pybind.h>
 #include <torch/csrc/utils/pybind.h>
 
@@ -22,5 +23,11 @@ void bindEnums(py::module& nvfuser);
 
 // Add bindings for Fusion and FusionExecutorCache
 void bindRuntime(py::module& nvfuser);
+
+// Add bindings for FusionDefinition
+void bindFusionDefinition(py::module& nvfuser);
+
+// Add bindings for CPP Fusion Operations
+void bindOperations(py::class_<FusionDefinition>& fusion_def);
 
 } // namespace nvfuser::python
