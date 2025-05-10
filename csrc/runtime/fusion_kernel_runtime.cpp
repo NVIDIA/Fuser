@@ -850,7 +850,7 @@ void FusionKernelRuntime::compileKernel(
         heuristic_params->lparams,
         heuristic_params->cparams,
         heuristic_params->scheduler_type);
-    hic->setKernelExecutor(group_id, std::move(ke));
+    hic->addKernelExecutor(std::move(ke));
   } else {
     // Initialize associated executors
     executors_[group_id] = ExecutorDispatch::makeExecutor(
