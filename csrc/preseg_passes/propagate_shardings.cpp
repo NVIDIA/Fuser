@@ -107,7 +107,7 @@ void shardViewOp(ViewOp* view_op, int64_t& did_pos) {
   auto p_loop_domain = producer->getLoopDomain();
 
   // Track number of DID axis on reshaped ids that were propagated to the
-  // consumer. These will not be included in TransformPropagator.
+  // consumer. These will not be included later in TransformReplay.
   int64_t num_reshape_shardings = 0;
 
   for (auto idx : c10::irange(did_pos)) {
@@ -330,9 +330,9 @@ void propagateDIDTransform(
 // This presegmentation pass propagates shardings from fusion inputs to
 // downstream tensorviews.
 // 1. Forward propagating DID loop splits and parallelization from inputs to
-// outputs that don't have a mesh using TransformPropagator
+// outputs that don't have a mesh using TransformReplay
 // 2. Reshape is handled manually since the DID loop split transforms conflict
-// with the reshape root-to-logical transforms if using TransformPropagator
+// with the reshape root-to-logical transforms if using TransformReplay
 // 3. Back-propagating device meshes to ensure all TensorViews have consistent
 // meshes. This also splits and parallelizes unsharded inputs based on outputs.
 // See `MultiDevicePresegPassesTest.ResidualAdd` for an example.
@@ -381,7 +381,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
       int64_t did_pos =
           selectiveReorderDIDToFront(ref_input, selected_parallel_types);
 
-      if (ViewOp* view_op = dynamic_cast<ViewOp*>(expr)) {
+      if (auto* view_op = dynamic_cast<ViewOp*>(expr)) {
         // Propagation of reshape will return how many DID axis were propagated.
         // They are reordered behind non-propagated DID axis
         shardViewOp(view_op, did_pos);
@@ -451,7 +451,7 @@ void PropagateShardingsPass::runPass(Fusion* fusion) {
     int64_t did_pos =
         selectiveReorderDIDToFront(ref_output, selected_parallel_types);
     // Note: We do not have to manually shard for reshape here.
-    // TransformPropagator can handle reshapes when going from consumer to
+    // TransformReplay can handle reshapes when going from consumer to
     // producer.
     propagateDIDTransform(
         /*ref=*/ref_output,
