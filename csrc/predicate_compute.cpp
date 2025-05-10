@@ -773,7 +773,7 @@ Val* PredicateCompute::getInlinePredicate(
   // TMem ld/st accesses TMem in a very specific pattern and can not be
   // predicated like accesses to general memory types, we do not have a good
   // way to predicate the accesses yet, so we just skip the predicate for now.
-  if (ir_utils::isCpAsyncBulk(expr) || ir_utils::isLdStTMem(expr)) {
+  if (ir_utils::isCpAsyncBulkTensorTile(expr) || ir_utils::isLdStTMem(expr)) {
     RECORD_AND_RETURN(parallel_dom_pred);
   }
 
@@ -829,7 +829,11 @@ Val* PredicateCompute::getInlinePredicate(
 
   preds.push_back(parallel_dom_pred);
 
-  if (thread_pred != nullptr) {
+  // Don't need thread predicate for 1D TMA load with circular buffer, it is
+  // already predicated with ElectSync.
+  if (thread_pred &&
+      !(ir_utils::isCpAsyncBulk1D(expr) &&
+        gpu_lower->circularBufferInfo().getCircularBufferAxis(out_tv))) {
     preds.push_back(thread_pred);
   }
 

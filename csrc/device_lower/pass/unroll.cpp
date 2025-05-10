@@ -44,9 +44,10 @@ void UnrollPass::dispatch(Expr* expr) {
   // short-circuit: skip adding predicate if tma load with circular buffering or
   // stand-alone arrive_expect_tx.
   bool is_arrive_expect_tx = expr->isA<kir::MBarrierArriveExpectTx>();
-  bool is_circular_buffer_tma_load = ir_utils::isCpAsyncBulkLoad(expr) &&
+  bool is_circular_buffer_nd_tma_load =
+      ir_utils::isCpAsyncBulkTensorTileLoad(expr) &&
       expr->output(0)->as<TensorView>()->isCircularBuffered();
-  if (is_arrive_expect_tx || is_circular_buffer_tma_load) {
+  if (is_arrive_expect_tx || is_circular_buffer_nd_tma_load) {
     return;
   }
 
@@ -59,6 +60,26 @@ void UnrollPass::dispatch(Expr* expr) {
         IrBuilder::create<kir::IfThenElse>(expr->predicate());
     kir::ExprMutator::registerReplace(expr, inline_ite);
     inline_ite->thenBody().push_back(expr);
+    return;
+  }
+
+  // Predicate MBarrierWaitParity is required for 1D TMA.
+  // Since MBarrierWaitParity has no output tensor, its predicate value
+  // cannot be computed directly. Instead, we reuse the predicate value
+  // from the TMA load, but replace the circular buffer load loop index
+  // with that of the circular buffer compute loop.
+  if (has_1d_tma_predicate_ && expr->isA<kir::MBarrierWaitParity>() &&
+      for_loops_.back()->circularBufferLoopStage() ==
+          CircularBufferLoopStage::ComputeWarp) {
+    auto fl = for_loops_.back();
+    std::unordered_map<Val*, Val*> replace_map;
+    replace_map[tma_circular_buffer_loop_index_] = fl->index();
+    auto pred_val =
+        ir_utils::replaceValRecursively(tma_inline_pred_val_, replace_map);
+    auto pred = IrBuilder::create<kir::Predicate>(pred_val);
+    auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
+    inline_ite->thenBody().push_back(expr);
+    kir::ExprMutator::registerReplace(expr, inline_ite);
     return;
   }
 
@@ -159,7 +180,7 @@ void UnrollPass::dispatch(Expr* expr) {
 
     // short-circuit: wrap tma and blackwell mma expressions with elect sync
     // predicate
-    if (ir_utils::isCpAsyncBulk(expr) ||
+    if (ir_utils::isCpAsyncBulkTensorTile(expr) ||
         (expr->isA<MmaOp>() && expr->as<MmaOp>()->isBlackwell())) {
       // If we need a predicate, put expr inside an if then else
       auto elect_sync_pred = IrBuilder::create<kir::Predicate>(
@@ -177,6 +198,55 @@ void UnrollPass::dispatch(Expr* expr) {
       if (!unswitched_loop_) {
         DEBUG_LOG("Inline predicate.");
       }
+    }
+
+    // Combine the Inline predicate for 1d tma load with the ElectSync predicate
+    if (ir_utils::isCpAsyncBulk1DLoad(expr) && current_elect_sync_ite_) {
+      auto inline_pred_val = unswitched_loop_
+          ? thread_pred
+          : PredicateCompute::getInlinePredicate(
+                pred->expr(),
+                for_loops_,
+                /*rotated_loop_*/ std::unordered_set<ForLoop*>{},
+                pred->thread_pred(),
+                pred->predicate_type());
+      // We want to replace [ElectSync] with a manual predicate that combines
+      // with the inline predicate for the 1D TMA load. However, the loop
+      // indices nested in [ElectSync] are no longer accessible when predicates
+      // are combined. Therefore, we Visit all the for-loops from the one
+      // contains elect sync and replace loop index with zero.
+      std::unordered_map<Val*, Val*> replace_map;
+      int64_t n_loops = (int64_t)for_loops_.size();
+      for (auto idx = current_elect_sync_fl_idx_ + 1; idx < n_loops; ++idx) {
+        auto fl = for_loops_.at(idx);
+        if (fl->iter_domain()->getParallelType() != ParallelType::Serial &&
+            fl->iter_domain()->getParallelType() != ParallelType::Unroll) {
+          continue;
+        }
+        replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
+        // Replace the loop index with zero removes the corresponding predicate
+        // to this loop-domain, we should ensure the split generating this
+        // domain is divisible.
+        auto id_def = fl->iter_domain()->definition();
+        if (!id_def) {
+          continue;
+        }
+        if (auto split = dynamic_cast<Split*>(id_def)) {
+          GpuLower::current()->validate(
+              split->isDivisible(),
+              "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
+              split->toString());
+        }
+      }
+      tma_inline_pred_val_ =
+          ir_utils::replaceValRecursively(inline_pred_val, replace_map);
+      auto combined_conditional = SimplifyingIrBuilder::logicalAndExpr(
+          current_elect_sync_pred_val_, tma_inline_pred_val_);
+      auto new_pred = IrBuilder::create<kir::Predicate>(combined_conditional);
+      current_elect_sync_ite_->setPredicate(new_pred);
+
+      has_1d_tma_predicate_ = true;
+      return;
     }
 
     // Try to use inline predicate if possible.
@@ -203,6 +273,15 @@ void UnrollPass::dispatch(Expr* expr) {
   } else if (auto for_loop = dynamic_cast<ForLoop*>(expr)) {
     handle(for_loop);
   } else if (auto ite = dynamic_cast<kir::IfThenElse*>(expr)) {
+    if (ite->predicate()->predicate_type() == PredicateType::ElectSync) {
+      // These info are used to generate predicate for 1D TMA load and
+      // MBarrierWaitParity
+      current_elect_sync_ite_ = ite;
+      current_elect_sync_fl_idx_ = for_loops_.size() - 1;
+      tma_circular_buffer_loop_index_ = for_loops_.back()->index();
+      current_elect_sync_pred_val_ =
+          PredicateCompute::getElectSyncPredicate(ite->predicate(), for_loops_);
+    }
     kir::ExprMutator::handle(ite);
   }
 }
@@ -216,8 +295,9 @@ void UnrollPass::handle(ForLoop* fl) {
       fl->iter_domain()->getParallelType() == ParallelType::Unswitch;
 
   // If we're not looking for an unroll loop, or didn't find one, process as
-  // normal.
-  if (!is_unroll || !look_for_unroll_) {
+  // normal. Don't need to unroll for 1D TMA load since split by unroll factor
+  // for 1D TMA tv is divisible.
+  if (!is_unroll || !look_for_unroll_ || current_elect_sync_ite_) {
     for_loops_.push_back(fl);
     scope_.push_back(&fl->body());
     scope_exprs_.push_back(fl);

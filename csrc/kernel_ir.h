@@ -97,9 +97,11 @@ class Predicate final : public Val {
   Val* thread_pred() const {
     NVF_ERROR(
         ptype_ == PredicateType::Inline ||
-        ptype_ == PredicateType::Misaligned ||
-        ptype_ == PredicateType::ReductionWrite ||
-        ptype_ == PredicateType::ElectSync);
+            ptype_ == PredicateType::Misaligned ||
+            ptype_ == PredicateType::ReductionWrite ||
+            ptype_ == PredicateType::ElectSync,
+        "Wrong predicate type. ",
+        toString());
     return thread_pred_;
   }
 

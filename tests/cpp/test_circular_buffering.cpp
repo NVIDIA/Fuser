@@ -1117,9 +1117,14 @@ class TmaCircularBufferingTest
   // https://docs.nvidia.com/cuda/parallel-thread-execution/#data-movement-and-conversion-instructions-cp-async-bulk
   // the memory range [srcMem, srcMem + size - 1] must not overflow the source
   // memory space. Otherwise, the behavior is undefined.
-  bool tma1dSrcAddressOverflow(int64_t bulk_inner_dim) {
-    return tensor_inner_dim % bulk_inner_dim != 0 &&
-        tma_load_type == LoadStoreOpType::CpAsyncBulk;
+  std::optional<std::string> tma1dPredicate(int64_t bulk_inner_dim) {
+    if (tma_load_type == LoadStoreOpType::CpAsyncBulk &&
+        tensor_inner_dim % bulk_inner_dim != 0) {
+      return std::make_optional(
+          "If split output domain is loaded with 1D TMA, the split must be divisible");
+    } else {
+      return std::nullopt;
+    }
   }
 
   template <typename data_type>
@@ -1276,8 +1281,8 @@ TEST_P(TmaCircularBufferingTest, SingleDim) {
 
   // Constants
   constexpr size_t bulk_inner_dim = 256;
-  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(bulk_inner_dim)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
 
@@ -1331,8 +1336,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnroll) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 256;
-  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(bulk_inner_dim)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
   // [M] -> [M/bid, bid]
@@ -1397,8 +1402,8 @@ TEST_P(TmaCircularBufferingTest, SingleDimUnswitch) {
   // Constants
   constexpr size_t unroll_dim = 4;
   constexpr size_t bulk_inner_dim = 256;
-  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(bulk_inner_dim)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
   // [M] -> [M/bid, bid]
@@ -1537,8 +1542,8 @@ TEST_P(TmaCircularBufferingTest, Pointwise) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 256;
-  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(bulk_inner_dim)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
   // [M, N] -> [M, N/bid, bid]
@@ -1608,8 +1613,8 @@ TEST_P(TmaCircularBufferingTest, PointwiseCpAsync) {
 
   // Constants
   constexpr int64_t bulk_inner_dim = 256;
-  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(bulk_inner_dim)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
   // [M, N] -> [M, N/bid, bid]
@@ -1671,8 +1676,8 @@ TEST_P(TmaCircularBufferingTest, InnerReduction) {
   constexpr int64_t examples_per_cta = 4;
   constexpr int64_t bulk_inner_dim = 256;
 
-  if (tma1dSrcAddressOverflow(bulk_inner_dim)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(bulk_inner_dim)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
 
@@ -1735,8 +1740,8 @@ TEST_P(TmaCircularBufferingTest, OuterReduction) {
   TensorView* reference = tv1;
 
   constexpr int64_t tile_size = 256;
-  if (tma1dSrcAddressOverflow(tile_size)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(tile_size)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
 
@@ -1831,8 +1836,8 @@ TEST_P(TmaCircularBufferingTest, Persistent) {
   int64_t elem_per_compute_thread = tensor_inner_dim / width / vectorize;
   constexpr int64_t examples_per_cta = 4;
   constexpr int64_t tile_size = 256;
-  if (tma1dSrcAddressOverflow(tile_size)) {
-    GTEST_SKIP() << "cp.async.bulk doesn't allow src address overflow!";
+  if (auto msg = tma1dPredicate(tile_size)) {
+    GTEST_SKIP() << msg.value();
     return;
   }
   // Since multi-dim CpAsyncBulk has a size limit of 256 per dimension,
@@ -2419,6 +2424,7 @@ TEST_P(TmaRegisterSharing, CtaShapeShmoo) {
       ASSERT_TRUE(str_match_pointer != nullptr);
       return;
     }
+    FAIL() << "Unexpected error: " << e.what();
   }
   auto cg_outputs = ke.run({t0});
   auto lparams = ke.lastLaunchParams();

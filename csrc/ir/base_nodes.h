@@ -585,6 +585,9 @@ class NVF_API Expr : public Statement {
   // TODO: Protect based on being in kernel container
   kir::Predicate* writePredicate() const;
 
+  // TODO: Protect based on being in kernel container
+  void setPredicate(kir::Predicate* predicate);
+
   // Creates a shallow copy the expression with the given write-predicate
   // attached.
   // TODO: Protect based on being in kernel container
@@ -602,9 +605,6 @@ class NVF_API Expr : public Statement {
   virtual void checkConcretization(Val* old_val, Val* new_val) const;
 
  protected:
-  // TODO: Protect based on being in kernel container
-  void setPredicate(kir::Predicate* predicate);
-
   // TODO: Protect based on being in kernel container
   void setWritePredicate(kir::Predicate* write_predicate);
 
