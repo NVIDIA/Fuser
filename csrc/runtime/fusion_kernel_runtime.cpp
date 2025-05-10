@@ -843,6 +843,7 @@ void FusionKernelRuntime::compileKernel(
 
   if (hic != nullptr) {
     auto ke = std::make_unique<KernelExecutor>();
+    ke->setGroupId(group_id);
     ke->compile(
         fusion_to_run.get(),
         args,
