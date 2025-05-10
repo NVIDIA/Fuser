@@ -3496,7 +3496,7 @@ TEST_F(IdModelTest, AlmostExactSplitGraph4) {
 
   auto graph = id_model.maybeBuildGraph(IdMappingMode::EXACT);
 
-  for (const auto i: arange(tv0->nDims())) {
+  for (const auto i : arange(tv0->nDims())) {
     graph.mapVals(tv0->axis(i), tv2->axis(i));
   }
 
@@ -3511,5 +3511,55 @@ TEST_F(IdModelTest, AlmostExactSplitGraph4) {
   fusion.print();
 }
 
+TEST_F(IdModelTest, AlmostExactSplitGraph5) {
+  auto fusion_ptr = std::make_unique<Fusion>();
+  auto& fusion = *fusion_ptr;
+  FusionGuard fg(fusion_ptr.get());
+
+  int64_t h = 60;
+  int64_t a = 6;
+  int64_t d = 2;
+
+  auto tv0 = makeContigConcreteTensor({h});
+  fusion.addInput(tv0);
+
+  auto tv1 = reshape(tv0, {h}, {a, h / a});
+  auto tv2 = set(tv1);
+  auto tv3 = reshape(tv2, {a, h / a}, {h});
+
+  fusion.addOutput(tv3);
+
+  tv0->outer_split(0, d);
+  // [d, h/d]
+  tv0->split(1, h / a);
+  // [d, a/d, h/a]
+
+  tv1->outer_split(0, d);
+  // [d, a/d, h/a]
+
+  fusion.print();
+
+  IdModel id_model(&fusion);
+
+  std::cerr << id_model.maybeBuildGraph(IdMappingMode::EXACT).toString();
+
+  auto graph = id_model.maybeBuildGraph(IdMappingMode::EXACT);
+
+  for (const auto i : arange(tv0->nDims())) {
+    graph.mapVals(tv0->axis(i), tv1->axis(i));
+  }
+
+  graph.mapVals(tv0->getLogicalDomain().at(0), tv3->getLogicalDomain().at(0));
+
+  std::cerr << graph.toString();
+
+  scheduler_tools::scheduleLoopDomainsLike(
+      {tv1, tv2, tv3},
+      tv0->getLoopDomain(),
+      /*update_loop_domain_only=*/true,
+      &graph);
+
+  fusion.print();
+}
 
 } // namespace nvfuser
