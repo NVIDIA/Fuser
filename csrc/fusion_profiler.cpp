@@ -332,8 +332,6 @@ void SegmentProfiler::stopCompile() {
 }
 
 void SegmentProfiler::startKernel() {
-  std::cerr << "SegmentProfiler::startKernel with segment ID: " << segment_id_
-            << std::endl;
   NVF_CHECK_EQ(kernel_profile_state_, ProfilerState::Ready);
   if (!cupti_disabled_) {
     NVFUSER_CUPTI_SAFE_CALL(cuptiActivityPushExternalCorrelationId(
@@ -344,8 +342,6 @@ void SegmentProfiler::startKernel() {
 }
 
 void SegmentProfiler::stopKernel() {
-  std::cerr << "SegmentProfiler::stopKernel with segment ID: " << segment_id_
-            << std::endl;
   NVF_CHECK_EQ(kernel_profile_state_, ProfilerState::Running);
   uint64_t corr_id = 0;
   if (!cupti_disabled_) {
