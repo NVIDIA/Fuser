@@ -43,8 +43,6 @@ class ExecutorDispatch {
       KernelArgumentHolder outputs = {},
       const LaunchParams& launch_constraints = LaunchParams(),
       const CompileParams& compile_params = CompileParams());
-
- private:
 };
 
 } // namespace nvfuser

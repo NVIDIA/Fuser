@@ -173,6 +173,10 @@ class KernelExecutor : public ExecutorAbstract {
     return CompiledKernel::getGlobalFusionCount();
   }
 
+  int64_t groupId() const {
+    return group_id_;
+  }
+
   void setGroupId(int64_t gid) {
     group_id_ = gid;
   }
