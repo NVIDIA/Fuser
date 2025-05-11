@@ -31,7 +31,7 @@ class PingPongTest : public NVFuserTest {
   }
 };
 
-TEST_F(PingPongTest, SimpleFusion) {
+TEST_F(PingPongTest, OneTmaLoad) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   int rows_per_stage = 4, compute_warp_groups = 2, circular_loop = 12;
@@ -40,7 +40,6 @@ TEST_F(PingPongTest, SimpleFusion) {
       rows_per_stage * compute_warp_groups * sm_count * circular_loop;
   const int dim1 = 128;
   int stages = 6;
-  // auto tv0 = makeContigTensor(2, DataType::Float);
   auto tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
   fusion.addInput(tv0);
   auto tv1 = set(tv0);
@@ -88,7 +87,7 @@ TEST_F(PingPongTest, SimpleFusion) {
   testValidate(&fusion_copy, cg_outputs, {t0}, __LINE__, __FILE__);
 }
 
-TEST_F(PingPongTest, SimpleFusionTwoTvs) {
+TEST_F(PingPongTest, TwoTmaLoads) {
   Fusion fusion;
   FusionGuard fg(&fusion);
   int rows_per_stage = 4, compute_warp_groups = 2, circular_loop = 12;
@@ -97,8 +96,8 @@ TEST_F(PingPongTest, SimpleFusionTwoTvs) {
       rows_per_stage * compute_warp_groups * sm_count * circular_loop;
   const int dim1 = 128;
   int stages = 6;
-  auto tv0 = makeContigTensor(2, DataType::Float);
-  auto tv1 = makeContigTensor(2, DataType::Float);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
   fusion.addInput(tv0);
   fusion.addInput(tv1);
   auto tv2 = set(tv0);
@@ -106,7 +105,7 @@ TEST_F(PingPongTest, SimpleFusionTwoTvs) {
   tv2->setMemoryType(MemoryType::Shared);
   auto tv3 = set(tv1);
   tv3->definition()->as<LoadStoreOp>()->setOpType(LoadStoreOpType::CpAsyncBulk);
-  tv3->setMemoryType(MemoryType::Shared);  
+  tv3->setMemoryType(MemoryType::Shared);
   auto tv4 = set(tv2);
   auto tv5 = set(tv3);
   auto tv6 = add(tv4, tv5);
@@ -116,7 +115,7 @@ TEST_F(PingPongTest, SimpleFusionTwoTvs) {
   Fusion fusion_copy = fusion;
   auto options = at::TensorOptions().device(at::kCUDA, 0);
   at::Tensor t0 = at::randn({dim0, dim1}, options);
-  at::Tensor t1= at::randn({dim0, dim1}, options);
+  at::Tensor t1 = at::randn({dim0, dim1}, options);
 
   for (auto tv : {tv2, tv3, tv4, tv5, tv6, tv7}) {
     tv->split(0, rows_per_stage);
