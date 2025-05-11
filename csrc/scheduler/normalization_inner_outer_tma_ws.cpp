@@ -280,18 +280,29 @@ void scheduleOuterReduction(
     // First-stage of outer reduction
     // [R, I]
     std::vector<int64_t> rfactor_axes{0};
+    int64_t extra_rfactor_axis = -1;
     if (rparams->unroll_factor_iter_dom > 1) {
       // [R/Unroll, Unroll]
       // Should mark as serial to avoid unrolling the outer reduction
       // which requires extra registers
       outer_reduction_tv->split(0, rparams->unroll_factor_iter_dom);
       outer_reduction_tv->axis(1)->parallelize(ParallelType::Serial);
-      rfactor_axes.push_back(2);
+      extra_rfactor_axis = 2;
     }
     // [R/Unroll/BIDy, BIDy, Unroll]
     outer_reduction_tv->split(0, rparams->lparams.gdimy());
 
+    // [R/Unroll/BIDy/TIDy, TIDy, BIDy, Unroll]
+    if(rparams->computation_warp_groups > 1) {
+      outer_reduction_tv->split(0, rparams->computation_warp_groups);
+      extra_rfactor_axis = 3;
+    }
+    if(rparams->unroll_factor_iter_dom > 1){
+      rfactor_axes.push_back(extra_rfactor_axis);
+    }
+
     TensorView* partialResult = outer_reduction_tv->rFactor(rfactor_axes);
+    std::cout << "partialResult: " << partialResult->toString() << std::endl;
     partialResult->cacheBefore();
     partialResult->setMemoryType(MemoryType::Global);
     TensorView* partialResultReload = partialResult->cacheAfter();
@@ -301,11 +312,16 @@ void scheduleOuterReduction(
     cached_gmem_reload.emplace_back(partialResultReload);
 
     // Second-stage of outer reduction
-    // Unroll 1 to WAR bug in validateAndPropagatePType which propagates BIDy
-    // to final outer reduction domain {132}
-    // reduction domain, [I1/Unroll, Unroll]
-    outer_reduction_tv->split(0, 1);
-    outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+    if(rparams->computation_warp_groups > 1) {
+       // reduction domain, [BDIMy, GDIMy, ...]
+       outer_reduction_tv->axis(0)->parallelize(ParallelType::TIDy);      
+    }else{
+      // Unroll 1 to WAR bug in validateAndPropagatePType which propagates BIDy
+      // to final outer reduction domain {132}
+      // reduction domain, [GDIMy, ...] --> [I1/Unroll, Unroll]
+      outer_reduction_tv->split(0, 1);
+      outer_reduction_tv->axis(1)->parallelize(ParallelType::Unroll);
+    }
     // iteration domain, [BIDy, TIDx, Vect]
     int axisID = -1;
     if (rparams->vectorization_factor_outer > 1) {
@@ -324,7 +340,11 @@ void scheduleOuterReduction(
     }
 
     outer_reduction_tv->axis(axisID--)->parallelize(ParallelType::BIDy);
-    outer_reference_tvs.emplace_back(outer_reduction_tv);
+    auto outer_reference_tv = outer_reduction_tv;
+    if(rparams->computation_warp_groups > 1) {
+      outer_reference_tv = outer_reduction_tv->rFactor({1});
+    }    
+    outer_reference_tvs.emplace_back(outer_reference_tv);
   }
 }
 

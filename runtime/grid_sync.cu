@@ -38,7 +38,8 @@ __device__ void sync(
     // block_dim is basically just blockDim (wrapped as DefaultBlockDim) if
     // there is no warp specialization in the kernel. If there is warp
     // specialization, block_dim is the the dimension of the compute warps.
-    BlockDimT block_dim) {
+    BlockDimT block_dim,
+    uint32_t barrier_id = 1) {
   // Finish all global memory transactions before synchronizing
   __threadfence();
 
@@ -83,7 +84,7 @@ __device__ void sync(
   }
 
   // Sync block to make sure all other threads are waiting on the sync
-  block_sync::sync<Aligned>(block_dim);
+  block_sync::sync<Aligned>(block_dim, barrier_id);
 }
 
 template <

@@ -1167,7 +1167,7 @@ auto TmaWarpSpecializedTestParams() {
   // Use 8 * SMs as the outer dimension to ensure divisible split by unroll
   // factor (1 or 2) and SM count.
   int64_t dim0 =
-      8 * at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
+      32 * at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   for (int64_t dim1 = 1024; dim1 <= 8192; dim1 += 1024) {
     for (auto dtype : {DataType::Float, DataType::BFloat16}) {
       for (bool warp_specialized : {true, false}) {

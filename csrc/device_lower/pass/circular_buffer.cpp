@@ -217,8 +217,6 @@ class CircularBufferLoopCloner : public kir::IrVisitor {
   std::unordered_set<TensorView*> circular_buffer_load_tvs_;
   ForLoop* cloned_top_level_loop_ = nullptr;
   std::vector<ForLoop*> for_loop_stack_;
-  // TMA load loop stack
-  std::vector<ForLoop*> tma_for_loop_stack_;
   const std::unordered_set<Expr*>& exclude_;
 };
 
@@ -630,7 +628,6 @@ class CloneTmaCircularBufferLoopAndInsertSync
             .getCircularBufferOptionsFor(circular_buffer_loop_->iter_domain())
             .prefetch;
     Val* linearized_index = linearIndex();
-    std::cout << "linearized_index: " << linearized_index->toInlineString() << "\n";
     if (loop_type_ == CircularBufferLoopStage::Main) {
       auto current_load_index =
           SimplifyingIrBuilder::addExpr(linearized_index, prefetch);
@@ -1038,21 +1035,14 @@ class CloneTmaCircularBufferLoopAndInsertSync
   kir::MBarrierArriveExpectTx* createRawMbarrierArriveExpectTx(
       LoadStoreOp* ldst) {
     NVF_ERROR(ldst != nullptr);
-    std::cout << "createRawMbarrierArriveExpectTx for ldst " << ldst->toString()
-              << std::endl;
+
     // Get mbarrier for this circular buffer stage.
     TensorView* all_mbarriers = GpuLower::current()->mbarrierMap().at(ldst);
     kir::TensorIndex* stage_mbarrier =
         IrBuilder::create<kir::TensorIndex>(all_mbarriers, currentLoadStage());
-    std::cout << "createRawMbarrierArriveExpectTx for stage_mbarrier "
-              << stage_mbarrier->toString() << std::endl;
-
-    if(tma_for_loop_stack_.empty()) {
-      tma_for_loop_stack_ = for_loop_stack_;
-    }
 
     Val* tx_count = GpuLower::current()->commonScalarMap().hoistScalar(
-        getSizeOfTmaLoad(ldst), tma_for_loop_stack_);
+        getSizeOfTmaLoad(ldst), for_loop_stack_);
     kir::MBarrierArriveExpectTx* mbarrier_arrive_tx =
         IrBuilder::create<kir::MBarrierArriveExpectTx>(
             /*state=*/nullptr, stage_mbarrier, tx_count);

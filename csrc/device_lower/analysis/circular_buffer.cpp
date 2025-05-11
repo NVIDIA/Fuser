@@ -507,8 +507,6 @@ Val* CircularBufferInfo::getLinearIndexRelativeForLoopStack(
             loops[i]->indexOrStartIfTrivial(), extent));
     extent = SimplifyingIrBuilder::mulExpr(
         extent, loops[i]->iter_domain()->extent());
-    std::cout << "loops: " << loops[i]->toString() << std::endl;
-    std::cout << "index: " << index->toInlineString() << std::endl;
   }
   return index;
 }
