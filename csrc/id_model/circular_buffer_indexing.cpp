@@ -145,7 +145,6 @@ Val* getOffsetForCircularBufferTensor(
 
   auto original_alloc_size =
       gpu_lower->circularBufferInfo().getOriginalAllocSize(circular_buffer_tv);
-
   return SimplifyingIrBuilder::mulExpr(offset, original_alloc_size);
 }
 

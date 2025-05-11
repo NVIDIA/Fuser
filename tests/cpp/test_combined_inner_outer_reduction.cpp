@@ -1077,8 +1077,8 @@ TEST_P(TmaWarpSpecializedTest, SimpleFusion) {
   }
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
-  auto tv0 = makeContigTensor(2, dtype);
-  auto tv1 = makeContigTensor(2, dtype);
+  auto tv0 = makeContigConcreteTensor({dim0, dim1}, dtype);
+  auto tv1 = makeContigConcreteTensor({dim0, dim1}, dtype);
   fusion->addInput(tv0);
   fusion->addInput(tv1);
   tv0 = maybeCastOp(DataType::Float, tv0);

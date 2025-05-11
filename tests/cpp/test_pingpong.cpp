@@ -38,7 +38,7 @@ TEST_F(PingPongTest, OneTmaLoad) {
   int sm_count = at::cuda::getCurrentDeviceProperties()->multiProcessorCount;
   const int dim0 =
       rows_per_stage * compute_warp_groups * sm_count * circular_loop;
-  const int dim1 = 128;
+  const int dim1 = 256;
   int stages = 6;
   auto tv0 = makeContigConcreteTensor({dim0, dim1}, DataType::Float);
   fusion.addInput(tv0);

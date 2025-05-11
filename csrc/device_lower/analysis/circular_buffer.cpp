@@ -98,6 +98,18 @@ int64_t getCircularBufferAxisPosition(const TensorView* tv) {
   // loop.
   return getInnerMostCircularBufferPosition(tv);
 }
+// If multiple computation warp groups are used, move insertion position
+// to the next for-loop to sync the load for different warp groups separately.
+int64_t getInsertPosition(
+    int64_t inner_pos,
+    int64_t outer_pos,
+    int64_t warp_groups) {
+  int64_t insertion_position = inner_pos - outer_pos + 1;
+  if (warp_groups > 1) {
+    insertion_position += 1;
+  }
+  return insertion_position;
+}
 
 // Initial inspection of a fusion to find and validate circular buffered tensors
 class CircularBufferFusionInspector : private IterVisitor {
@@ -413,17 +425,10 @@ void CircularBufferInfo::setCircularBufferInsertionPosition(
       outer_most_circular_buffer_position,
       " and ",
       inner_most_circular_buffer_position);
-  int64_t insertion_position = inner_most_circular_buffer_position -
-      outer_most_circular_buffer_position + 1;
-
-  // If multiple computation warp groups are used, move insertion position
-  // to the next for-loop to sync the load for different warp groups separately.
-  if (computation_warp_groups_ > 1) {
-    insertion_position += 1;
-  }
-
-  circular_buffer_insertion_position_[circular_buffer_axis] =
-      insertion_position;
+  circular_buffer_insertion_position_[circular_buffer_axis] = getInsertPosition(
+      inner_most_circular_buffer_position,
+      outer_most_circular_buffer_position,
+      computation_warp_groups_);
 }
 
 namespace {
@@ -465,7 +470,8 @@ Val* CircularBufferInfo::getLinearIndex(
       getForLoopIndex(circular_buffer_tv, loops, /*is_inner_most_axis=*/false);
 
   // Calculate insertion position.
-  int64_t insertion_position = inner_loop_index - outer_loop_index + 1;
+  int64_t insertion_position = getInsertPosition(
+      inner_loop_index, outer_loop_index, computation_warp_groups_);
   return getLinearIndexRelativeForLoopStack(
       loops, insertion_position, /*start=*/outer_loop_index);
 }

@@ -193,7 +193,7 @@ void getHeuristics(
   // (4) Round down to power of 2, since we need vectorized access in
   //     smem reduction and loading of inner broadcast tv.
   iter_remaining = scheduler_utils::safeDiv(iter_remaining, n_stages);
-  int64_t heu_iter_unroll = std::min(4L, iter_remaining);
+  int64_t heu_iter_unroll = std::min(2L, iter_remaining);
   int64_t max_iter_unroll = max_n_copies / n_stages;
   int64_t iter_unroll_factor = std::min(heu_iter_unroll, max_iter_unroll);
   iter_unroll_factor = scheduler_utils::lastPow2(iter_unroll_factor);
@@ -511,8 +511,6 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
         inner_reference_tv, boundaryNodesSet);
   }
 
-  fusion->printMath();
-
   reduction_scheduler_utils::propagateRFactor(
       inner_reference_tv, inner_reduction_tvs[0], inner_reduction_tvs);
 
@@ -535,7 +533,10 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
       {selected_tvs.begin(), selected_tvs.end()});
   if (rparams->computation_warp_groups > 1) {
     for (auto tv : tma_load_tvs) {
-      tv->axis(2)->parallelize(ParallelType::Serial);
+      //[BIDy, I/Unroll/BIDy/TIDy, TIDy, Unroll[optional] | Bulk]
+      if(tv->nDims() >= 4) {
+        tv->axis(2)->parallelize(ParallelType::Serial);
+      }
     }
   }
 
@@ -647,9 +648,13 @@ void scheduleFusion(Fusion* fusion, const ReductionParams* rparams) {
     // Unroll axis. Which requires the tma tensor alive until the end of the
     // computation and delays the next TMA load until the end of the
     // computation.
+    int64_t tma_consumer_inline_pos = tma_inline_pos;
+    if (rparams->computation_warp_groups > 1) {
+      tma_consumer_inline_pos += 1;
+    }
     for (auto tv : smem_consumers) {
-      if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_inline_pos + 1) {
-        tv_inline_pos_map.emplace(tv, tma_inline_pos);
+      if (ir_utils::getSoleProducerTv(tv)->nDims() >= tma_consumer_inline_pos + 1) {
+        tv_inline_pos_map.emplace(tv, tma_consumer_inline_pos);
       }
     }
 
