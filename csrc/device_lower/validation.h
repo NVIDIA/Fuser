@@ -71,7 +71,7 @@ void validateLookupTV(Fusion* fusion);
 //! Check that there are no reductions over unexpanded broadcasts
 void validateReductions(Fusion* fusion);
 
-//! Validate f split output domain is loaded with 1D TMA, the split must be
+//! Validate if split output domain is loaded with 1D TMA, the split must be
 //! divisible
 void validate1dTmaLoad(Fusion* fusion);
 } // namespace nvfuser
