@@ -62,7 +62,8 @@ class AliasAnalysisResult {
   // Returns the preferred layout. `alias` must be in `alias_to_source_`.
   Layout preferredLayout(const TensorView* alias) const;
 
-  Layout createOrGetPreferredLayout(const TensorView* alias);
+  // FIXME: return Layout* for less copy
+  std::optional<Layout> createOrGetPreferredLayout(const TensorView* alias);
 
   std::string toString(int indent_size = 0) const;
 

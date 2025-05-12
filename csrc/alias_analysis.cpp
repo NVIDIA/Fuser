@@ -139,11 +139,15 @@ std::pair<bool, std::optional<bool>> mergeContiguity(
 // Returns `nullopt` if computation fails, so the caller can handle things
 // conservatively.
 std::optional<Layout> mapInLayoutToOutRoot(
-    const Layout& preferred_in_layout,
+    const std::optional<Layout>& preferred_in_layout,
     TensorView* in,
     TensorView* out) {
+  if (!preferred_in_layout.has_value()) {
+    return std::nullopt;
+  }
+
   if (!ir_utils::computePermutation(
-           in->getLogicalDomain(), preferred_in_layout.allocation_domain)
+           in->getLogicalDomain(), preferred_in_layout->allocation_domain)
            .has_value()) {
     // Give up when `in`'s allocation domain is not an logical permutation. As
     // an extension, we could map in_alloc to in_logical and apply the inverse
@@ -156,8 +160,8 @@ std::optional<Layout> mapInLayoutToOutRoot(
 
   Layout preferred_out_layout;
   for (auto&& [in_alloc_id, contiguity] :
-       zip(preferred_in_layout.allocation_domain,
-           preferred_in_layout.contiguity)) {
+       zip(preferred_in_layout->allocation_domain,
+           preferred_in_layout->contiguity)) {
     IterDomain* out_root_id = getOrDefault(in_logical_to_out_root, in_alloc_id);
     if (out_root_id == nullptr) {
       // This can happen when in_alloc_id is of type reduction or squeezed out.
@@ -486,12 +490,79 @@ Layout AliasAnalysisResult::preferredLayout(const TensorView* tv) const {
   return i->second.second;
 }
 
-Layout AliasAnalysisResult::createOrGetPreferredLayout(const TensorView* tv) {
-  auto&& [source, layout] = alias_to_source_[tv];
-  if (source == nullptr) {
-    source = const_cast<TensorView*>(tv);
-    layout = {tv->getMaybeAllocationDomain(), tv->getContiguity()};
+namespace {
+std::optional<Layout> computeLayout(const TensorView* tv) {
+  const std::vector<IterDomain*>& logical = tv->getLogicalDomain();
+  const std::vector<IterDomain*>& allocation = tv->getMaybeAllocationDomain();
+
+  LinkedHashMap<IterDomain*, std::optional<bool>> allocation_to_contiguity;
+  for (auto&& [alloc_id, contiguity] : zip(allocation, tv->getContiguity())) {
+    allocation_to_contiguity.pushBack(alloc_id, contiguity);
   }
+
+  for (Expr* transform : DependencyCheck::getAllExprsBetween(
+                             {logical.begin(), logical.end()},
+                             {allocation.begin(), allocation.end()}) |
+           std::views::reverse) {
+    if (auto* split = dynamic_cast<Split*>(transform)) {
+      const auto [outer_contiguity, next_i] =
+          allocation_to_contiguity.erase(split->outer());
+      const bool adjacent =
+          (next_i != allocation_to_contiguity.end() &&
+           next_i->first == split->inner());
+      const auto [inner_contiguity, merge_i] =
+          allocation_to_contiguity.erase(split->inner());
+      NVF_ERROR(!split->inner()->isParallelized());
+      if (split->outer()->isParallelized()) {
+        // Ignore adjacent
+        allocation_to_contiguity.insert(merge_i, split->in(), inner_contiguity);
+      } else {
+        if (!adjacent) {
+          return std::nullopt;
+        }
+        const auto [mergeable, contiguity] = mergeContiguity(
+            split->outer()->hasExpandedExtent(),
+            outer_contiguity,
+            split->inner()->hasExpandedExtent(),
+            inner_contiguity);
+        if (!mergeable) {
+          return std::nullopt;
+        }
+        allocation_to_contiguity.insert(merge_i, split->in(), contiguity);
+      }
+    } else {
+      return std::nullopt;
+    }
+  }
+
+  Layout layout;
+  for (auto&& [alloc_id, contiguity] : allocation_to_contiguity) {
+    layout.allocation_domain.push_back(alloc_id);
+    layout.contiguity.push_back(contiguity);
+  }
+  NVF_ERROR(std::is_permutation(
+      logical.begin(),
+      logical.end(),
+      layout.allocation_domain.begin(),
+      layout.allocation_domain.end()));
+  return layout;
+}
+} // namespace
+
+std::optional<Layout> AliasAnalysisResult::createOrGetPreferredLayout(
+    const TensorView* tv) {
+  auto i = alias_to_source_.find(tv);
+  if (i != alias_to_source_.end()) {
+    return i->second.second;
+  }
+
+  std::optional<Layout> layout = computeLayout(tv);
+  if (!layout.has_value()) {
+    return std::nullopt;
+  }
+
+  alias_to_source_.emplace(
+      tv, std::make_pair(const_cast<TensorView*>(tv), *layout));
   return layout;
 }
 
