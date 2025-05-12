@@ -473,10 +473,7 @@ void AliasAnalysisResult::finalize() {
   }
 }
 
-Layout AliasAnalysisResult::preferredLayout(const Val* v) const {
-  const auto* tv = dynamic_cast<const TensorView*>(v);
-  NVF_ERROR(tv != nullptr, "`v` is expected to be a TensorView. Found: ", v);
-
+Layout AliasAnalysisResult::preferredLayout(const TensorView* tv) const {
   if (auto i = alias_to_source_.find(tv); i != alias_to_source_.end()) {
     return i->second.second;
   }
