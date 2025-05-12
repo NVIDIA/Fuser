@@ -1118,13 +1118,18 @@ class TmaCircularBufferingTest
   // the memory range [srcMem, srcMem + size - 1] must not overflow the source
   // memory space. Otherwise, the behavior is undefined.
   std::optional<std::string> tma1dPredicate(int64_t bulk_inner_dim) {
-    if (tma_load_type == LoadStoreOpType::CpAsyncBulk &&
-        tensor_inner_dim % bulk_inner_dim != 0) {
-      return std::make_optional(
-          "If split output domain is loaded with 1D TMA, the split must be divisible");
-    } else {
+    if (tma_load_type != LoadStoreOpType::CpAsyncBulk) {
       return std::nullopt;
     }
+    if (tensor_inner_dim % bulk_inner_dim != 0) {
+      return std::make_optional(
+          "If split output domain is loaded with 1D TMA, the split must be divisible.");
+    }
+    if (!std::holds_alternative<WarpSpecialized>(circular_buffer_type)) {
+      return std::make_optional(
+          "1D TMA load can only be used with WarpSpecialized circular buffer.");
+    }
+    return std::nullopt;
   }
 
   template <typename data_type>

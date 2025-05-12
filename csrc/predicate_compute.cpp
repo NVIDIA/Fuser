@@ -741,7 +741,7 @@ Val* PredicateCompute::getOneDimTmaPredicate(
   } else {
     NVF_ERROR(circular_loop_index == nullptr);
     NVF_ERROR(inline_pred_1d_tma == nullptr);
-    auto pval_elect_sync = selectFirstWarpElectSyncPredicate(false);
+    auto pval_elect_sync = createElectSyncPredicate(pred, true);
     auto pval_inline = getInlinePredicate(
         expr,
         current_loops,
