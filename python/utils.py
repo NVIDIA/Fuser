@@ -295,7 +295,7 @@ class build_ext(setuptools.command.build_ext.build_ext):
         fileext = os.path.splitext(filename)[1]
 
         libnvfuser_path = os.path.join(
-            os.path.join(self.install_dir, "lib"), f"libnvfuser{fileext}"
+            os.path.join(self.install_dir, "lib"), f"{library_name}{fileext}"
         )
         assert os.path.exists(libnvfuser_path)
         install_dst = os.path.join(self.build_lib, filename)
@@ -408,7 +408,7 @@ def cmake(config, relative_path):
         os.makedirs(cmake_build_dir)
 
     install_prefix = (
-        get_default_install_prefix() if not config.install_dir else config.install_dir
+        config.install_dir if config.install_dir else get_default_install_prefix()
     )
 
     from tools.gen_nvfuser_version import (
