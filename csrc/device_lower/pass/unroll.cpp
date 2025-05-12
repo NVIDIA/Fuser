@@ -71,12 +71,13 @@ void UnrollPass::dispatch(Expr* expr) {
   if (has_1d_tma_predicate_ && expr->isA<kir::MBarrierWaitParity>() &&
       for_loops_.back()->circularBufferLoopStage() ==
           CircularBufferLoopStage::ComputeWarp) {
-    auto fl = for_loops_.back();
-    std::unordered_map<Val*, Val*> replace_map;
-    replace_map[tma_circular_buffer_loop_index_] = fl->index();
-    auto pred_val =
-        ir_utils::replaceValRecursively(tma_inline_pred_val_, replace_map);
-    auto pred = IrBuilder::create<kir::Predicate>(pred_val);
+    // auto fl = for_loops_.back();
+    // std::unordered_map<Val*, Val*> replace_map;
+    // replace_map[tma_circular_buffer_loop_index_] = fl->index();
+    // auto pred_val =
+    //     ir_utils::replaceValRecursively(tma_inline_pred_val_, replace_map);
+    // auto pred = IrBuilder::create<kir::Predicate>(pred_val);
+    auto pred = IrBuilder::create<kir::Predicate>(PredicateType::OneDimTma, expr);    
     auto inline_ite = IrBuilder::create<kir::IfThenElse>(pred);
     inline_ite->thenBody().push_back(expr);
     kir::ExprMutator::registerReplace(expr, inline_ite);
@@ -202,47 +203,47 @@ void UnrollPass::dispatch(Expr* expr) {
 
     // Combine the Inline predicate for 1d tma load with the ElectSync predicate
     if (ir_utils::isCpAsyncBulk1DLoad(expr) && current_elect_sync_ite_) {
-      auto inline_pred_val = unswitched_loop_
-          ? thread_pred
-          : PredicateCompute::getInlinePredicate(
-                pred->expr(),
-                for_loops_,
-                /*rotated_loop_*/ std::unordered_set<ForLoop*>{},
-                pred->thread_pred(),
-                pred->predicate_type());
-      // We want to replace [ElectSync] with a manual predicate that combines
-      // with the inline predicate for the 1D TMA load. However, the loop
-      // indices nested in [ElectSync] are no longer accessible when predicates
-      // are combined. Therefore, we Visit all the for-loops from the one
-      // contains elect sync and replace loop index with zero.
-      std::unordered_map<Val*, Val*> replace_map;
-      int64_t n_loops = (int64_t)for_loops_.size();
-      for (auto idx = current_elect_sync_fl_idx_ + 1; idx < n_loops; ++idx) {
-        auto fl = for_loops_.at(idx);
-        if (fl->iter_domain()->getParallelType() != ParallelType::Serial &&
-            fl->iter_domain()->getParallelType() != ParallelType::Unroll) {
-          continue;
-        }
-        replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
-        // Replace the loop index with zero removes the corresponding predicate
-        // to this loop-domain, we should ensure the split generating this
-        // domain is divisible.
-        auto id_def = fl->iter_domain()->definition();
-        if (!id_def) {
-          continue;
-        }
-        if (auto split = dynamic_cast<Split*>(id_def)) {
-          GpuLower::current()->validate(
-              split->isDivisible(),
-              "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
-              split->toString());
-        }
-      }
-      tma_inline_pred_val_ =
-          ir_utils::replaceValRecursively(inline_pred_val, replace_map);
-      auto combined_conditional = SimplifyingIrBuilder::logicalAndExpr(
-          current_elect_sync_pred_val_, tma_inline_pred_val_);
-      auto new_pred = IrBuilder::create<kir::Predicate>(combined_conditional);
+      // auto inline_pred_val = unswitched_loop_
+      //     ? thread_pred
+      //     : PredicateCompute::getInlinePredicate(
+      //           pred->expr(),
+      //           for_loops_,
+      //           /*rotated_loop_*/ std::unordered_set<ForLoop*>{},
+      //           pred->thread_pred(),
+      //           pred->predicate_type());
+      // // We want to replace [ElectSync] with a manual predicate that combines
+      // // with the inline predicate for the 1D TMA load. However, the loop
+      // // indices nested in [ElectSync] are no longer accessible when predicates
+      // // are combined. Therefore, we Visit all the for-loops from the one
+      // // contains elect sync and replace loop index with zero.
+      // std::unordered_map<Val*, Val*> replace_map;
+      // int64_t n_loops = (int64_t)for_loops_.size();
+      // for (auto idx = current_elect_sync_fl_idx_ + 1; idx < n_loops; ++idx) {
+      //   auto fl = for_loops_.at(idx);
+      //   if (fl->iter_domain()->getParallelType() != ParallelType::Serial &&
+      //       fl->iter_domain()->getParallelType() != ParallelType::Unroll) {
+      //     continue;
+      //   }
+      //   replace_map[fl->index()] = GpuLower::current()->kernel()->zeroVal();
+      //   // Replace the loop index with zero removes the corresponding predicate
+      //   // to this loop-domain, we should ensure the split generating this
+      //   // domain is divisible.
+      //   auto id_def = fl->iter_domain()->definition();
+      //   if (!id_def) {
+      //     continue;
+      //   }
+      //   if (auto split = dynamic_cast<Split*>(id_def)) {
+      //     GpuLower::current()->validate(
+      //         split->isDivisible(),
+      //         "Loop domains between circular buffer and 1D TMA load requires divisible split, got: ",
+      //         split->toString());
+      //   }
+      // }
+      // tma_inline_pred_val_ =
+      //     ir_utils::replaceValRecursively(inline_pred_val, replace_map);
+      // auto combined_conditional = SimplifyingIrBuilder::logicalAndExpr(
+      //     current_elect_sync_pred_val_, tma_inline_pred_val_);
+      auto new_pred = IrBuilder::create<kir::Predicate>(PredicateType::OneDimTma, expr, for_loops_);
       current_elect_sync_ite_->setPredicate(new_pred);
 
       has_1d_tma_predicate_ = true;

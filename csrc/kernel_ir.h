@@ -74,6 +74,12 @@ class Predicate final : public Val {
       PredicateType ptype,
       const Expr* expr = nullptr,
       Val* thread_pred = nullptr);
+  
+  explicit Predicate(
+    IrBuilderPasskey passkey,
+    PredicateType ptype,
+    const Expr* tma_1d_load_expr,
+    std::vector<ForLoop*> tma_1d_load_loops_);
 
   explicit Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop);
 
@@ -108,6 +114,11 @@ class Predicate final : public Val {
   ForLoop* unrolled_loop() const {
     NVF_ERROR(ptype_ == PredicateType::Unswitch);
     return unrolled_loop_;
+  }
+
+  const std::vector<ForLoop*>& tma1dLoadLoops() const {
+    NVF_ERROR(ptype_ == PredicateType::OneDimTma);
+    return tma_1d_load_loops_;
   }
 
   bool hasValue() const {
@@ -147,6 +158,9 @@ class Predicate final : public Val {
 
   // For ParallelType::Unswitch - UnswitchPredicate::get
   ForLoop* unrolled_loop_ = nullptr;
+
+  // For ParallelType::OneDimTma
+  std::vector<ForLoop*> tma_1d_load_loops_ ;
 
   // The Bool conditional value
   // The value is nullptr until lower_predicate pass

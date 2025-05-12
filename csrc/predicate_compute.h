@@ -31,6 +31,19 @@ class PredicateCompute {
   static Val* getElectSyncPredicate(
       kir::Predicate* pred,
       const std::vector<ForLoop*>& loops);
+
+  //! Used in two cases:
+  //! (1) Get predicate for expect arrive bytes and tma load.
+  //!     The predicate combines ElectSync and Inline predicate for TMA load.
+  //!     Inline predicate for TMA load is saved in inline_pred_1d_tma.
+  //! (2) Get predicate for wait parity. Reuse [inline_pred_1d_tma] since
+  //!     wait parity doesn't have any output tensor which is required generate
+  //!     an inline predicate.
+  static Val* getOneDimTmaPredicate(
+      kir::Predicate* pred,
+      const std::vector<ForLoop*>& loops,
+      Val*& inline_pred_1d_tma,
+      Val*& circular_loop_index);
 };
 
 //! Parallelized domains may need to be predicated with threading
