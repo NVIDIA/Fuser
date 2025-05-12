@@ -72,7 +72,7 @@ class IsAMatcher {
  public:
   using is_gtest_matcher = void;
 
-  bool MatchAndExplain(PolymorphicBase* pb, std::ostream*) const {
+  bool MatchAndExplain(const PolymorphicBase* pb, std::ostream*) const {
     return pb->isA<T>();
   }
 
@@ -86,7 +86,7 @@ class IsAMatcher {
 };
 
 template <typename T>
-inline testing::Matcher<PolymorphicBase*> IsA() {
+inline testing::Matcher<const PolymorphicBase*> IsA() {
   return IsAMatcher<T>();
 }
 

@@ -21,8 +21,6 @@ namespace nvfuser {
 namespace hir {
 
 using testing::Contains;
-using testing::IsTrue;
-using testing::Property;
 using HostIrEvaluatorTest = NVFuserTest;
 
 // This test manually creates a HostIrContainer with LaunchKernels and runs it
