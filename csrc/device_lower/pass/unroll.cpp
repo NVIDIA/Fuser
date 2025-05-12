@@ -197,7 +197,9 @@ void UnrollPass::dispatch(Expr* expr) {
     if (ir_utils::isCpAsyncBulk1DLoad(expr) && current_elect_sync_ite_) {
       auto new_pred = IrBuilder::create<kir::Predicate>(
           PredicateType::OneDimTma, expr, for_loops_);
-      current_elect_sync_ite_->setPredicate(new_pred);
+      auto new_ite = current_elect_sync_ite_->withPredicate(new_pred);
+      kir::ExprMutator::registerReplace(
+          current_elect_sync_ite_, new_ite, elect_sync_scope_);
       has_1d_tma_predicate_ = true;
       return;
     }
@@ -231,6 +233,7 @@ void UnrollPass::dispatch(Expr* expr) {
       // TMA loads within the ite scope, we need to replace it with
       // PredicateType::OneDimTma
       current_elect_sync_ite_ = ite;
+      elect_sync_scope_ = scope_.back();
     }
     kir::ExprMutator::handle(ite);
   }

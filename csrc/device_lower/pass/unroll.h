@@ -99,6 +99,9 @@ class UnrollPass : kir::ExprMutator {
 
   // Indicates the existence of 1D TMA load
   bool has_1d_tma_predicate_ = false;
+
+  // Need scope to replace ElectSync predicate with PredicateType::OneDimTma
+  Scope* elect_sync_scope_;
 };
 
 } // namespace nvfuser
