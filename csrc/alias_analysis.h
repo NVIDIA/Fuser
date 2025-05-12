@@ -61,7 +61,7 @@ class AliasAnalysisResult {
 
   // Returns the preferred layout. If `alias` is not in `alias_to_source_`,
   // returns the `TensorView`'s initial layout.
-  Layout preferredLayout(const Val* alias) const;
+  Layout preferredLayout(const TensorView* alias) const;
 
   std::string toString(int indent_size = 0) const;
 
