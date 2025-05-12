@@ -28,11 +28,6 @@ bool isUnaryPointwiseOp(const Expr* expr) {
   return expr->isA<UnaryOp>() && ir_utils::isPointwiseTvOp(expr);
 }
 
-bool hasGatherOp(const Fusion* fusion) {
-  auto exprs = fusion->exprs();
-  return ir_utils::filterByType<GatherOp>(exprs).size() > 0;
-}
-
 // For now we allow unary pointwise ops like cast/neg or a squeeze.
 // We only consider squeeze which has a single dim squeezed.
 std::optional<Expr*> getAllowedLookupTvDef(const GatherOp* gather_op) {
@@ -181,24 +176,25 @@ void moveGatherOp(Fusion* fusion, GatherOp* gather_op) {
 } // namespace
 
 void MoveGatherPass::runPass(Fusion* fusion) {
-  if (!hasGatherOp(fusion))
+  auto gather_ops = ir_utils::getOpsOfType<GatherOp>(fusion);
+
+  // no gather op found
+  if (gather_ops.empty())
     return;
 
-  auto exprs = fusion->exprs();
-  auto gather_ops = ir_utils::filterByType<GatherOp>(exprs);
-
   // We support this optimization on fusions
-  // with a single gather op
+  // with a single gather op for now.
+  // TODO: support multiple take_along_axis ops.
   if (gather_ops.size() > 1) {
     return;
   }
 
   // For now we'll only support take_along_axis
   // not the general gather.
-  if (!gather_ops.vector().at(0)->exactSizes()) {
+  if (!gather_ops[0]->exactSizes()) {
     return;
   }
 
-  moveGatherOp(fusion, gather_ops.vector()[0]);
+  moveGatherOp(fusion, gather_ops[0]);
 }
 } // namespace nvfuser::preseg_passes

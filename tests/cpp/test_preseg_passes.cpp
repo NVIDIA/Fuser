@@ -1309,8 +1309,14 @@ TEST_F(PresegTest, MoveGatherOverCast) {
   // Now run with the pass and check outputs match.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   outputs_with_pass = executor_cache.runFusionWithInputs({t0, t1});
-  EXPECT_TRUE(outputs_with_pass[0].as<at::Tensor>().equal(
-      outputs_no_pass[0].as<at::Tensor>()));
+
+  testValidate(
+      executor_cache.fusion(),
+      outputs_with_pass,
+      {t0, t1},
+      {outputs_no_pass[0].as<at::Tensor>()},
+      __LINE__,
+      __FILE__);
 
   auto exprs = executor_cache.getMostRecentKernelRuntime()
                    ->fusionSegments()
@@ -1401,8 +1407,14 @@ TEST_F(PresegTest, MoveGatherOverSqueezeAndCast) {
   // Now run with the pass and check outputs match.
   FusionExecutorCache executor_cache(std::move(fusion_ptr));
   outputs_with_pass = executor_cache.runFusionWithInputs({t0, t1});
-  EXPECT_TRUE(outputs_with_pass[0].as<at::Tensor>().equal(
-      outputs_no_pass[0].as<at::Tensor>()));
+
+  testValidate(
+      executor_cache.fusion(),
+      outputs_with_pass,
+      {t0, t1},
+      {outputs_no_pass[0].as<at::Tensor>()},
+      __LINE__,
+      __FILE__);
 
   auto exprs = executor_cache.getMostRecentKernelRuntime()
                    ->fusionSegments()
