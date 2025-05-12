@@ -327,7 +327,7 @@ const char* predicate_type2string(PredicateType t) {
     case PredicateType::ElectSync:
       return "ElectSync";
     case PredicateType::OneDimTma:
-      return "OneDimTma";      
+      return "OneDimTma";
     default:
       NVF_THROW("No string found for predicate type.");
   }

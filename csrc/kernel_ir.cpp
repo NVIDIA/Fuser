@@ -73,7 +73,6 @@ Predicate::Predicate(
   NVF_ERROR(!tma_1d_load_loops_.empty());
 }
 
-
 Predicate::Predicate(IrBuilderPasskey passkey, ForLoop* unrolled_loop)
     : Val(passkey, ValType::Predicate, DataType::Bool),
       ptype_(PredicateType::Unswitch),
