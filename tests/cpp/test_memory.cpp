@@ -3198,7 +3198,6 @@ TEST_F(TMATest, CpAsyncBulk1dNonDivisibleUnroll) {
   }
 }
 
-
 TEST_F(TMATest, CpAsyncBulk1dPipplined) {
   NVFUSER_TEST_CUDA_ARCH_GUARD(9, 0);
   constexpr at::ScalarType dtype = at::ScalarType::Float;
