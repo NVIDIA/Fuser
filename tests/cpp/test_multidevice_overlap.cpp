@@ -1189,6 +1189,7 @@ TEST_F(
   auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
   auto* if_not_first_ring_step_wait =
       IrBuilder::create<kir::IfThenElse>(wait_predicate);
+  if_not_first_ring_step_wait->thenBody().push_back(share_mem_handles);
   if_not_first_ring_step_wait->thenBody().push_back(wait_send);
   if_not_first_ring_step_wait->thenBody().push_back(wait_recv);
 
@@ -1199,8 +1200,6 @@ TEST_F(
   if_not_last_ring_step_post_comms->thenBody().push_back(share_mem_handles);
   if_not_last_ring_step_post_comms->thenBody().push_back(send);
   if_not_last_ring_step_post_comms->thenBody().push_back(recv);
-  if_not_last_ring_step_post_comms->thenBody().push_back(wait_send);
-  if_not_last_ring_step_post_comms->thenBody().push_back(wait_recv);
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
