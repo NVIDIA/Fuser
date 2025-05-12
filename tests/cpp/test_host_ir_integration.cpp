@@ -225,11 +225,7 @@ TEST_F(HostIrIntegrationTest, InsertDeallocations) {
   auto hicExprs =
       runtime->getHostIrEvaluator().getHostIrContainer().topLevelExprs();
 
-  EXPECT_THAT(
-      hicExprs,
-      Contains(Property(&Expr::isA<Deallocate>, IsTrue()))
-          .Times(testing::Eq(3)))
-      << "host ir container should have 3 deallocate ops";
+  EXPECT_THAT(hicExprs, Contains(IsA<Deallocate>()).Times(3));
 
   testValidate(
       executor_cache.fusion(),
