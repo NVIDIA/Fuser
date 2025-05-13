@@ -80,7 +80,7 @@ bool ExprEvalExecutor::isCompiled() const {
 }
 
 KernelArgumentHolder ExprEvalExecutor::run(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     KernelArgumentHolder outputs) {
   FUSER_PERF_SCOPE("ExprEvalExecutor::run");
 
