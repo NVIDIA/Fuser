@@ -1167,12 +1167,6 @@ NVF_API CompiledKernel::CompiledKernel(
       device_(device) {
   FUSER_PERF_SCOPE("CompiledKernel::CompiledKernel");
 
-  if (isDebugDumpEnabled(DebugDumpOption::FusionIr)) {
-    fusion->print();
-  } else if (isDebugDumpEnabled(DebugDumpOption::FusionIrMath)) {
-    fusion->printMath();
-  }
-
   // TODO: No hooks can be sent because this is in the constructor
   for (const auto& hook : pre_lowering_hooks) {
     hook(lowered_.get());
