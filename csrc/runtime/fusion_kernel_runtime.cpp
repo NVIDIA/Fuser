@@ -284,7 +284,7 @@ PrimDataType FusionKernelRuntime::getIndexType() const {
 }
 
 KernelArgumentHolder FusionKernelRuntime::runWithInputs(
-    KernelArgumentHolder& args) {
+    const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runWithInputs");
 
   if (isOptionEnabled(EnableOption::HostIrLowering)) {
@@ -707,7 +707,7 @@ const std::vector<std::unique_ptr<ExecutorAbstract>>& FusionKernelRuntime::
 }
 
 std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
-    runSegmentsWithInputs(KernelArgumentHolder& args) {
+    runSegmentsWithInputs(const KernelArgumentHolder& args) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runSegmentsWithInputs");
   NVF_ERROR(
       args.size() == segmented_fusion_->inputs().size(),
@@ -769,7 +769,7 @@ std::unordered_map<Val*, PolymorphicValue> FusionKernelRuntime::
 }
 
 KernelArgumentHolder FusionKernelRuntime::runKernelWithInput(
-    KernelArgumentHolder& args,
+    const KernelArgumentHolder& args,
     SegmentedGroup* sg) {
   FUSER_PERF_SCOPE("FusionKernelRuntime::runKernelWithInput");
   std::lock_guard<std::mutex> guard(mutex_);
