@@ -249,9 +249,9 @@ int64_t getShardedLoopAxis(
       isParallelTypeDeviceDim(parallel_type),
       "Expect a DID but found: ",
       parallel_type);
-  for (int64_t i : arange(tv->nDims())) {
-    if (tv->getLoopDomain()[i]->isDeviceDim()) {
-      return i;
+  for (auto&& [index, loop_id] : enumerate(tv->getLoopDomain())) {
+    if (loop_id->getParallelType() == parallel_type) {
+      return index;
     }
   }
   return -1;
