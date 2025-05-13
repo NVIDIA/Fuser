@@ -1176,21 +1176,20 @@ TEST_F(
   tva_j_next_slice->setDeviceMesh(full_mesh);
 
   auto* send = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::SEND, tva_j_curr_slice, send_rank, CommunicatorBackend::kCuda);
+      P2PCommunicationType::SEND,
+      tva_j_curr_slice,
+      send_rank,
+      CommunicatorBackend::kCuda);
   auto* recv = IrBuilder::create<P2PCommunication>(
-      P2PCommunicationType::RECV, tva_j_next_slice, recv_rank, CommunicatorBackend::kCuda);
+      P2PCommunicationType::RECV,
+      tva_j_next_slice,
+      recv_rank,
+      CommunicatorBackend::kCuda);
   std::vector<P2PCommunication*> grouped_communications = {send, recv};
   auto share_mem_handles = IrBuilder::create<hir::ShareMemHandles>(
       std::move(grouped_communications));
   auto* wait_send = IrBuilder::create<hir::Wait>(send);
   auto* wait_recv = IrBuilder::create<hir::Wait>(recv);
-
-  auto* cond = ne(j, hic->zeroVal());
-  auto* wait_predicate = IrBuilder::create<kir::Predicate>(cond);
-  auto* if_not_first_ring_step_wait =
-      IrBuilder::create<kir::IfThenElse>(wait_predicate);
-  if_not_first_ring_step_wait->thenBody().push_back(wait_send);
-  if_not_first_ring_step_wait->thenBody().push_back(wait_recv);
 
   auto* comm_cond = ne(j, sub(stop_j, hic->oneVal()));
   auto* comm_predicate = IrBuilder::create<kir::Predicate>(comm_cond);
@@ -1198,6 +1197,8 @@ TEST_F(
       IrBuilder::create<kir::IfThenElse>(comm_predicate);
   if_not_last_ring_step_post_comms->thenBody().push_back(send);
   if_not_last_ring_step_post_comms->thenBody().push_back(recv);
+  if_not_last_ring_step_post_comms->thenBody().push_back(wait_send);
+  if_not_last_ring_step_post_comms->thenBody().push_back(wait_recv);
 
   std::vector<Expr*> loop_j_body = {
       set_stream,
@@ -1208,7 +1209,6 @@ TEST_F(
       tva_j_next_slice->definition(),
       tvc_j->definition(),
       share_mem_handles,
-      if_not_first_ring_step_wait,
       if_not_last_ring_step_post_comms,
       mm};
   for (Expr* expr : loop_j_body) {
