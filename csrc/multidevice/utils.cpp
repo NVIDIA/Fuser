@@ -31,16 +31,22 @@ NVF_API bool distributedEnabled() {
 #endif
 }
 
+namespace {
+
+// Returns the position where an axis is allocated in a tv, skipping trivial
+// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
+// tv's loop domain WAR: today we assume that the loop domain match with the
+// actual allocation, but this will have to change in the future.
 int64_t allocationIndex(TensorView* tv, IterDomain* id) {
   int64_t index = 0;
-  for (auto* alloc_id : tv->getMaybeAllocationDomain()) {
-    if (alloc_id == id) {
+  for (auto* loop_id : tv->getLoopDomain()) {
+    if (loop_id == id) {
       return index;
     }
-    if (alloc_id->isDeviceDim() || alloc_id->isReduction() || alloc_id->isBroadcast()) {
-      continue;
+    if (!loop_id->isDeviceDim() && !loop_id->isReduction() &&
+        !loop_id->isBroadcast()) {
+      index++;
     }
-    index++;
   }
   return -1;
 }
@@ -222,7 +228,7 @@ std::unordered_map<IterDomain*, int64_t> mapIterDomainToTensorAxis(
 
 } // namespace
 
- int64_t getShardedLogicalAxis(
+int64_t getShardedLogicalAxis(
     const TensorView* tv,
     const ParallelType parallel_type) {
   std::unordered_map<ParallelType, IterDomain*> parallel_type_to_id =

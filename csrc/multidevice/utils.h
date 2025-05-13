@@ -62,12 +62,6 @@ bool haveDifferentShardings(
     const TensorView* producer,
     const TensorView* consumer);
 
-// Returns the position where an axis is allocated in a tv, skipping trivial
-// dimensions (i.e. DID, reduction and broadcast). Returns -1 if id is not in
-// tv's loop domain WAR: today we assume that the loop domain match with the
-// actual allocation, but this will have to change in the future.
-int64_t allocationIndex(TensorView* tv, IterDomain* id);
-
 // Returns whether a resharding expr reshards an inner axis
 bool isInnerResharding(Expr* expr);
 
