@@ -13,8 +13,6 @@
 #include <runtime/fusion_executor_cache.h>
 #include <tests/cpp/multidevice.h>
 #include <tests/cpp/validator.h>
-#include <preseg_passes/reorder_sharded_axis.h>
-#include <preseg_passes/pre_segmenter.h>
 
 namespace nvfuser {
 
@@ -538,7 +536,7 @@ TEST_P(LowerCollectiveTest, ReduceScatter_Allgather) {
   EXPECT_TRUE(at::allclose(out_tensor, unsharded_in_tensor.sum(0)));
 }
 
-TEST_P(LowerCollectiveTest, DISABLED_AllgatherLoopSplit_Noncontig) {
+TEST_P(LowerCollectiveTest, AllgatherLoopSplit_Noncontig) {
   auto fusion = std::make_unique<Fusion>();
   FusionGuard fg(fusion.get());
 
@@ -553,43 +551,38 @@ TEST_P(LowerCollectiveTest, DISABLED_AllgatherLoopSplit_Noncontig) {
   TensorView* tv0 = makeConcreteTensor({5, d * 3});
   tv0->outer_split(1, d);
   tv0->axis(1)->parallelize(ParallelType::DIDx);
-  // tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
+  tv0->reorder({{1, 0}, {2, 1}, {0, 2}});
   // tv0: Logical = [5, d*3], Loop/Allocation = [DIDx(d), 3, 5]
 
   TensorView* tv1 = set(tv0);
   tv1->outer_split(1, d);
   tv1->axis(1)->parallelize(ParallelType::Serial);
-  // tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
+  tv1->reorder({{1, 0}, {2, 1}, {0, 2}});
   // tv1: Logical = [5, d*3], Loop/Allocation = [Serial(d), 3, 5]
 
   for (auto tv : {tv0, tv1}) {
     tv->setDeviceMesh(mesh);
-    // tv->setAllocationDomain(tv->getLoopDomain(), true);
+    tv->setAllocationDomain(tv->getLoopDomain(), true);
   }
 
   fusion->addInput(tv0);
   fusion->addOutput(tv1);
 
-  preseg_passes::OptimizationPass<preseg_passes::ReorderShardedAxisPass>::runPass(fusion.get());
-  for (auto tv : fusion->allTvs()) {
-    debug() << tv->toString() << std::endl;
-    debug() << tv->getMaybeAllocationDomain() << std::endl;
-  }
+  at::Tensor unsharded_in_tensor = at::randn({d * 3, 5}, tensor_options);
+  at::Tensor in_tensor =
+      shardTensor(unsharded_in_tensor, 0, mesh).transpose(0, 1);
 
-  // at::Tensor unsharded_in_tensor = at::randn({5, d * 3}, tensor_options);
-  // at::Tensor in_tensor = shardTensor(unsharded_in_tensor, 1, mesh);
+  FusionExecutorCache executor_cache(std::move(fusion));
+  at::Tensor out_tensor =
+      executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
 
-  // FusionExecutorCache executor_cache(std::move(fusion));
-  // at::Tensor out_tensor =
-  //     executor_cache.runFusionWithInputs({in_tensor})[0].as<at::Tensor>();
-
-  // testValidate(
-  //     executor_cache.fusion(),
-  //     {out_tensor},
-  //     {in_tensor},
-  //     {unsharded_in_tensor.transpose(0, 1)},
-  //     __LINE__,
-  //     __FILE__);
+  testValidate(
+      executor_cache.fusion(),
+      {out_tensor},
+      {in_tensor},
+      {unsharded_in_tensor.transpose(0, 1)},
+      __LINE__,
+      __FILE__);
 }
 
 TEST_P(LowerCollectiveTest, ScatterLoopSplit) {
