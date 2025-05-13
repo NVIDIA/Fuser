@@ -1027,6 +1027,81 @@ bool SchedulerTopologyChecker::hasResizeAndIndexOps(Fusion* fusion) {
   return false;
 }
 
+bool SchedulerTopologyChecker::hasCyclicReshape(Fusion* fusion) {
+  // Do some quick filtering before creating an Exact graph
+  auto reshape_ops = ir_utils::getOpsOfType<ViewOp>(fusion);
+
+  // At least there must be multiple reshape ops
+  if (reshape_ops.size() < 2) {
+    return false;
+  }
+
+  // There must be a depedent reshape pair
+  bool dependent_reshape_pair_found = false;
+  for (const auto i : arange(std::ssize(reshape_ops) - 1)) {
+    auto reshape_i = reshape_ops.at(i);
+    auto all_dep_exprs = DependencyCheck::getAllExprsBetween(
+        {reshape_i->out()}, fusion->outputs());
+    if (std::any_of(
+            reshape_ops.begin() + i + 1,
+            reshape_ops.end(),
+            [&all_dep_exprs](ViewOp* reshape_j) {
+              return std::ranges::find(all_dep_exprs, reshape_j) !=
+                  all_dep_exprs.end();
+            })) {
+      dependent_reshape_pair_found = true;
+      break;
+    }
+  }
+
+  if (!dependent_reshape_pair_found) {
+    return false;
+  }
+
+  // TODO: Reuse IdModel when possible
+  IdModel id_model(fusion);
+  const auto& exact_graph = id_model.buildExactGraph();
+
+  std::unordered_map<
+      TensorView*,
+      std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>>
+      reshape_ids;
+
+  auto getReshapeIds =
+      [&reshape_ids](ViewOp* reshape) {
+        auto reshape_out_tv = reshape->out();
+        auto it = reshape_ids.find(reshape_out_tv);
+        if (it == reshape_ids.end()) {
+          it = reshape_ids
+                   .emplace(
+                       reshape->out(),
+                       ir_utils::getReshapeInputAndOutputIds(reshape_out_tv))
+                   .first;
+        }
+        return it->second;
+      }
+
+  for (const auto i : arange(std::ssize(reshape_ops) - 1)) {
+    auto reshape_i = reshape_ops.at(i);
+    const ValGroups inp_groups_i =
+        exact_graph.toGroups(getReshapeIds(reshape_i).first);
+
+    for (const auto j : arange(i + 1, std::ssize(reshape_ops))) {
+      auto reshape_j = reshape_ops.at(j);
+      const ValGroups out_groups_j =
+          exact_graph.toGroups(getReshapeIds(reshape_j).second);
+
+      if (!inp_groups_i.computeIntersect(out_groups_j).empty()) {
+        NVF_THROW(
+            "Cycle detected:\n", reshape_i->toString(), reshape_j->toString());
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 } // namespace registry_utils
 
 } // namespace nvfuser

@@ -807,4 +807,11 @@ std::optional<std::pair<int64_t, int64_t>> getPrecisionOfProducerConsumerTensors
 // double, 2 doubles, 4 floats, 8 halfs, or 16 bytes.
 int64_t getTMemLdStVectorizeSize(TensorView* consumer_tv);
 
+// Given a reshape output TV, return two subsets of the root and
+// logical IDs, respectively. The root ID subset only includes that
+// are used as inputs to the reshape IDs ops, whereas the logical ID
+// subset includes those that are produced by the reshape ID ops.
+std::pair<std::vector<IterDomain*>, std::vector<IterDomain*>>
+getReshapeInputAndOutputIds(TensorView* reshape_out_tv);
+
 } // namespace nvfuser::ir_utils
