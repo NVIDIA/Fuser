@@ -6,7 +6,6 @@
  */
 // clang-format on
 #include <gmock/gmock-matchers.h>
-#include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
 #include <fusion.h>
@@ -17,8 +16,6 @@
 namespace nvfuser {
 
 using testing::Contains;
-using testing::IsTrue;
-using testing::Property;
 using testing::UnorderedElementsAre;
 
 class MovePadTest : public NVFuserTest {
@@ -274,7 +271,7 @@ TEST_F(MovePadTest, CascadePadCase0) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
   std::vector<Expr*> exprs = complete_fusion->exprs();
-  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(1));
+  EXPECT_THAT(exprs, Contains(IsA<PadOp>()).Times(1));
 
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
@@ -311,7 +308,7 @@ TEST_F(MovePadTest, CascadePadCase1) {
   FusionKernelRuntime* runtime = executor_cache.getMostRecentKernelRuntime();
   Fusion* complete_fusion = runtime->fusionSegments()->completeFusion();
   std::vector<Expr*> exprs = complete_fusion->exprs();
-  EXPECT_THAT(exprs, Contains(Property(&Expr::isA<PadOp>, IsTrue())).Times(2));
+  EXPECT_THAT(exprs, Contains(IsA<PadOp>()).Times(2));
 
   testValidate(executor_cache.fusion(), out_tensors, {t0}, __LINE__, __FILE__);
 }
